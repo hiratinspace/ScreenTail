@@ -1,0 +1,9 @@
+# The backend image builds from the repo root (it needs the root Directory.Build.props and global.json).
+# Allow-list only what it needs.
+*
+!Directory.Build.props
+!global.json
+!backend/
+backend/**/bin/
+backend/**/obj/
+backend/tests/

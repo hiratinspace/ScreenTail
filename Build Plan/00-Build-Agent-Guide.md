@@ -18,11 +18,13 @@ ScreenTail is a Windows desktop app for MSP technicians. A background **capture 
 ## 2. Repository layout
 
 ```
-/client            .NET 8 solution
-  /ScreenTail.Service      capture service (hooks, detection, screenshots, STT, OCR, redaction, store, outbox)
+/client            .NET 10 solution
+  /ScreenTail.Core         platform-neutral capture logic: state machine, store rules, patterns, aligner, bundle (ADR-0002)
+  /ScreenTail.Service      Windows host + adapters (hooks, detection, screenshots, STT, OCR, DPAPI, pipes) over Core
   /ScreenTail.UI           WPF app (shell, tray, HUD, Review, Settings, Onboarding)
   /ScreenTail.Shared       generated types, IPC contracts, tokens
-  /ScreenTail.Tests        unit + integration tests
+  /ScreenTail.Tests        unit + integration tests for Core/Shared (net10.0, runs on any OS)
+  /ScreenTail.Tests.Windows  Windows-bound tests (added when the first one is needed)
 /backend           ASP.NET Core API (auth, tenants, policy, summarization broker, providers, metrics)
 /web               React + TypeScript (tenant onboarding, admin dashboard)
 /shared
@@ -81,10 +83,10 @@ An agent that finds a ticket seemingly requiring one of these to be broken must 
 
 ## 5. Coding conventions (summary)
 
-- **Client:** .NET 8, C# 12, nullable enabled, `TreatWarningsAsErrors`. WPF with MVVM (CommunityToolkit.Mvvm). No business logic in views. Async all the way; capture threads never await UI.
+- **Client:** .NET 10 (LTS), C# 14, nullable enabled, `TreatWarningsAsErrors`, `AnalysisLevel=latest-recommended`. WPF with MVVM (CommunityToolkit.Mvvm). No business logic in views. Platform-neutral logic lives in `ScreenTail.Core` (ADR-0002). Async all the way; capture threads never await UI. *(Amended 2026-09-11: .NET 8 support ends November 2026; see ADR-0001 finding 1.)*
 - **IPC:** named pipe, length-prefixed JSON messages, versioned `IpcContractVersion`. Commands from UI → service; events from service → UI. Every command is authenticated with the session token.
 - **Store:** SQLite + SQLCipher via a repository interface; migrations are numbered SQL files; no ad-hoc SQL in view models.
-- **Backend:** ASP.NET Core minimal APIs, EF Core, Postgres. Providers behind `IPsaProvider` / `IDocProvider`. All external calls have timeouts and typed errors.
+- **Backend:** ASP.NET Core minimal APIs on .NET 10, EF Core, Postgres. Providers behind `IPsaProvider` / `IDocProvider`. All external calls have timeouts and typed errors.
 - **Web:** React 18 + TypeScript, Vite, CSS variables from `/shared/design/tokens.json`. No component library that fights the tokens.
 - **Research:** Python 3.11, prompts as versioned `.md` files, eval harness runs in CI on prompt changes.
 - **Tests:** xUnit (client/backend), Vitest (web), pytest (research). Golden sessions live in `/research/fixtures`.

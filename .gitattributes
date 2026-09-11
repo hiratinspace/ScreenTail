@@ -1,0 +1,9 @@
+# LF everywhere, including Windows checkouts, so `dotnet format --verify-no-changes` and linters
+# see the same bytes on every OS.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary
