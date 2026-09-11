@@ -40,7 +40,7 @@ Filled in from the Windows runs. Raw reports go in `docs/adr/evidence/0001/`.
 |---|---|---|---|
 | 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **PENDING** | `run` report: baseline vs full load |
 | 2 | RDP window focused → FlaUI reports an opaque subtree | **PENDING** | `run` report: focus-transition table |
-| 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PENDING** | `overlay-check-excluded.png` + control `overlay-check-visible.png` |
+| 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** (hosted runner). Laptop run pending. | [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png): 0.00% marker pixels; [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png): 86.31% |
 | 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner, synthetic). Laptop run pending. | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
 | 5 | This ADR records the decision and a Python fallback assessment | Drafted | this file |
 
@@ -48,7 +48,9 @@ Test machine: _to be filled in_ (CPU and cores, RAM, display and scaling, Window
 
 ### Hosted-runner results (2026-09-11)
 
-Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; run [34630922433](https://github.com/hiratinspace/ScreenTail/actions/runs/34630922433). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
+Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; runs [34630922433](https://github.com/hiratinspace/ScreenTail/actions/runs/34630922433) and [34631759322](https://github.com/hiratinspace/ScreenTail/actions/runs/34631759322) (after the BitBlt fix). Files are in [`evidence/0001/hosted-runner/`](evidence/0001/hosted-runner/). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
+
+**AC3 overlay exclusion:** with `WDA_EXCLUDEFROMCAPTURE` set, 0.00% of the overlay rectangle matched the marker colour. In the control run (the same overlay started with `--visible`), 86.31% matched; the rest is the transparent rounded corners and the text. The check can see the overlay when it's there, and it isn't there when excluded.
 
 **AC4 legibility** (synthetic 3840×2160 frame full of 9-pt UI text, downscaled to 1600×900):
 
