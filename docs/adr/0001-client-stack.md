@@ -41,10 +41,33 @@ Filled in from the Windows runs. Raw reports go in `docs/adr/evidence/0001/`.
 | 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **PENDING** | `run` report: baseline vs full load |
 | 2 | RDP window focused → FlaUI reports an opaque subtree | **PENDING** | `run` report: focus-transition table |
 | 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PENDING** | `overlay-check-excluded.png` + control `overlay-check-visible.png` |
-| 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **PENDING** | `legibility.md` + saved JPEGs |
+| 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner, synthetic). Laptop run pending. | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
 | 5 | This ADR records the decision and a Python fallback assessment | Drafted | this file |
 
 Test machine: _to be filled in_ (CPU and cores, RAM, display and scaling, Windows build, physical or VM).
+
+### Hosted-runner results (2026-09-11)
+
+Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; run [34630922433](https://github.com/hiratinspace/ScreenTail/actions/runs/34630922433). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
+
+**AC4 legibility** (synthetic 3840×2160 frame full of 9-pt UI text, downscaled to 1600×900):
+
+| Display scale | 9-pt text height, native → out (px) | JPEG q70 / q80 / q90 (KB) | OCR recall, native | OCR recall, downscaled q80 |
+|---|---|---|---|---|
+| 100% | 12 → 5 | 200 / 246 / 329 | 89% | **0%** |
+| 125% | 15 → 6.3 | 225 / 272 / 360 | 97% | **0%** |
+| 150% | 18 → 7.5 | 213 / 257 / 341 | 99% | **6%** |
+| 200% | 24 → 10 | 175 / 208 / 273 | 99% | 80% |
+
+- The size limit is comfortably met: every quality level stays under 400 KB.
+- The legibility clause fails at every common scaling except 200%. This confirms finding 2, which is now a measurement, not a prediction. OCR has to run on the native frame.
+
+**Smoke run** (1 minute, no input; Whisper on synthetic audio, plus UIA and OCR):
+
+- Whisper `base` on 5 s chunks took 3.9 s median and 5.2 s max per chunk, i.e. roughly real time. Process CPU was **83% median and 97% max across both cores**. That is far over the ST-031 recording budget (< 15% on a 4-core machine). Continuous transcription can't fit the budget; see finding 8.
+- UIA polling: 229 polls, p95 5.8 ms, max 106 ms, no errors.
+- Working set peaked at 416 MB. GC: one collection per generation, 0.6 ms total pause.
+- The hooks installed without error but saw no input: nobody was typing, and hosted runners may have no interactive input desktop. AC1 needs the laptop.
 
 ## Findings before the Windows run
 
@@ -56,11 +79,12 @@ These came up while building the spike and hold regardless of how the Windows ru
    - (b) crop around the active window or the click before downscaling;
    - (c) let the long edge scale with DPI, for example 2400 px for 4K at 100%, and re-budget size.
    Option (a) fits INV-1 and INV-7 best and costs nothing extra over the wire.
-3. **Layered windows can mislead the capture test.** A screen BitBlt without `CAPTUREBLT` can leave out layered windows, so an exclusion test could pass for the wrong reason. The spike uses `CAPTUREBLT` and adds a control run with exclusion switched off, which must detect the overlay.
+3. **Layered windows can mislead the capture test.** A screen BitBlt without `CAPTUREBLT` can leave out layered windows, so an exclusion test could pass for the wrong reason. The spike uses `CAPTUREBLT` and adds a control run with exclusion switched off, which must detect the overlay. `Graphics.CopyFromScreen` rejects `SourceCopy | CaptureBlt` with an `InvalidEnumArgumentException`; the first hosted run caught this. The spike now calls GDI `BitBlt` directly, and ST-025 must do the same or use Windows.Graphics.Capture.
 4. **How latency is measured.** The time spent inside the hook callback, measured with the high-resolution performance counter, is the latency our hook adds while its thread is responsive. The delay between the event and the callback is only accurate to the ~15.6 ms system tick, so it serves as a starvation indicator. The unhook watchdog covers the case where the hook stops responding altogether.
 5. **Managed code in hook callbacks.** The main risk is a garbage-collection pause landing inside a callback. Mitigations in place: callbacks that don't allocate, a dedicated thread, and `GCLatencyMode.SustainedLowLatency`. The AC1 verdict uses the *maximum*, not p99, so any such pause shows up. If AC1 fails because of GC pauses, the fallback is a small native hook DLL writing to a shared-memory ring, with everything else staying in .NET. That's a contained change, not a reason to switch languages.
 6. **Elevated windows.** Low-level hooks installed by a medium-integrity process don't receive input sent to elevated windows or to the secure desktop. That affects the unhook watchdog (false positives) and is the mechanism behind the "Elevated window, screen not captured" state in ST-021.
 7. **Windows on ARM.** Whisper.net has arm64 native binaries; Tesseract doesn't, so the capture process runs as x64 under emulation. If technicians on ARM laptops matter, Windows.Media.Ocr removes this constraint.
+8. **Whisper must be gated by voice activity detection, not run continuously.** On the hosted runner, feeding Whisper `base` every 5 s of audio used most of the CPU (see the hosted-runner results). ST-027 should run VAD first (Whisper.net ships a Silero VAD model) and transcribe only speech segments, with CPU rate-limited so capture and hooks always win (ST-031). Technicians talk for a fraction of a session, so this is the difference between being always busy and mostly idle. The laptop run gives the real per-core cost.
 
 ## Python fallback assessment
 
