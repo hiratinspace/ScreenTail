@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- WinForms only for NotifyIcon in the spike; ST-071 picks the real tray library. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF and WinForms implicit usings collide (Application, MessageBox, ...). -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>ScreenTail.Spike.Overlay</RootNamespace>
+    <AssemblyName>Spike.Overlay</AssemblyName>
+  </PropertyGroup>
+</Project>
