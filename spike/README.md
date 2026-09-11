@@ -30,7 +30,12 @@ dotnet build -c Release
 
 ## Automated checks (GitHub Actions)
 
-On every pull request that touches `spike/`, `.github/workflows/spike-windows.yml` builds on a hosted Windows runner and runs the unit tests. It also runs the checks that need no person: the overlay check with its control case (AC3), synthetic legibility (AC4), and a 1-minute smoke run that makes sure the hooks, UIA, Whisper and OCR all start. Results show in the run's summary page and in the `st-001-evidence-windows-runner` artifact. The runner is a VM, so its numbers don't count toward the ACs; the check is there to catch crashes before you spend time at the keyboard.
+On every pull request that touches `spike/`, `.github/workflows/spike-windows.yml` runs `ci-checks.ps1` in two jobs. See [`docs/dev/windows-test-loop.md`](../docs/dev/windows-test-loop.md) for how they fit together.
+
+- **Hosted Windows runner:** build, unit tests, the overlay check with its control case (AC3), synthetic legibility (AC4), and a 1-minute smoke run that makes sure the hooks, UIA, Whisper and OCR all start. It's a VM, so its numbers don't count; it catches crashes before anyone spends time at the keyboard.
+- **Spare laptop (self-hosted, once enabled):** the same checks on real hardware, plus a 5-minute full-load run where `--drive-input` types and clicks into the overlay's `--typing-target` window. That gives AC1 numbers for that laptop with nobody present.
+
+Results appear on each run's summary page and in the `st-001-evidence-*` artifacts.
 
 ## Easiest path: the guided script (about 25 minutes)
 

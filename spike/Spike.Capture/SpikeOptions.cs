@@ -10,7 +10,8 @@ internal sealed record SpikeOptions(
     bool Uia,
     bool Ocr,
     bool FromScreen,
-    string Label)
+    string Label,
+    bool DriveInput)
 {
     public const string Usage = """
         Usage: Spike.Capture <command> [options]
@@ -26,6 +27,8 @@ internal sealed record SpikeOptions(
           --no-whisper    Skip speech-to-text load
           --no-uia        Skip UI Automation polling
           --no-ocr        Skip OCR
+          --drive-input   'run' types and clicks by itself into Spike.Overlay's typing target
+                          (start the overlay with --typing-target); for unattended runs
           --from-screen   'legibility' also measures a capture of the primary monitor
           --label <name>  Suffix for 'overlay-check' output files (default: excluded)
         """;
@@ -41,7 +44,7 @@ internal sealed record SpikeOptions(
 
         var minutes = 5.0;
         string? outDir = null;
-        bool whisper = true, uia = true, ocr = true, fromScreen = false;
+        bool whisper = true, uia = true, ocr = true, fromScreen = false, driveInput = false;
         var label = "excluded";
 
         for (var i = 1; i < args.Length; i++)
@@ -72,11 +75,14 @@ internal sealed record SpikeOptions(
                 case "--from-screen":
                     fromScreen = true;
                     break;
+                case "--drive-input":
+                    driveInput = true;
+                    break;
                 default:
                     return null;
             }
         }
 
-        return new SpikeOptions(args[0], minutes, outDir, whisper, uia, ocr, fromScreen, label);
+        return new SpikeOptions(args[0], minutes, outDir, whisper, uia, ocr, fromScreen, label, driveInput);
     }
 }

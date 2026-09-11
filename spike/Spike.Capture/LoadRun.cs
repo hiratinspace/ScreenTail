@@ -56,7 +56,15 @@ internal static class LoadRun
             tasks.Add(whisper.RunAsync(cts.Token));
         }
 
-        Console.WriteLine($"Recording for {options.Minutes} min. Type and click normally; Ctrl+C ends early.");
+        if (options.DriveInput)
+        {
+            report.InputMode = "synthetic (SendInput into the typing target)";
+            tasks.Add(InputDriver.RunAsync(report, cts.Token));
+        }
+
+        Console.WriteLine(options.DriveInput
+            ? $"Recording for {options.Minutes} min with synthetic typing. Don't use the machine meanwhile."
+            : $"Recording for {options.Minutes} min. Type and click normally; Ctrl+C ends early.");
         await Task.WhenAll(tasks);
 
         hooks.Stop();

@@ -83,6 +83,18 @@ internal sealed class RunReport(SpikeOptions options)
 
     public int WhisperChunksDropped { get; set; }
 
+    public string InputMode { get; set; } = "human";
+
+    public int SyntheticKeys { get; set; }
+
+    public int SyntheticClicks { get; set; }
+
+    public int InputDriverSkips { get; set; }
+
+    public string? InputDriverNote { get; set; }
+
+    private bool SyntheticInput => InputMode.StartsWith("synthetic", StringComparison.Ordinal);
+
     public void MarkStarted() => _startedAt = DateTime.Now;
 
     public void CountKeyboard(KeyboardEvent keyboardEvent)
@@ -169,6 +181,17 @@ internal sealed class RunReport(SpikeOptions options)
         md.AppendLine(Inv($"- Load: whisper {On(options.Whisper && WhisperUnavailable is null)}, UIA {On(options.Uia)}, OCR {On(options.Ocr && OcrUnavailable is null)}; ran {minutes:0.0} min"));
         md.AppendLine(Inv($"- Machine: {Environment.ProcessorCount} logical cores, {RuntimeInformation.OSDescription}, OS arch {RuntimeInformation.OSArchitecture}, process arch {RuntimeInformation.ProcessArchitecture}"));
         md.AppendLine(Inv($"- Audio: {AudioSource}"));
+        md.AppendLine(Inv($"- Input: {InputMode}"));
+        if (SyntheticInput)
+        {
+            md.AppendLine(Inv($"- Synthetic keys / clicks / skipped (target not foreground): {SyntheticKeys} / {SyntheticClicks} / {InputDriverSkips}"));
+        }
+
+        if (InputDriverNote is not null)
+        {
+            md.AppendLine(Inv($"- Input driver: {InputDriverNote}"));
+        }
+
         if (WhisperUnavailable is not null)
         {
             md.AppendLine(Inv($"- Whisper unavailable: {WhisperUnavailable}"));
@@ -206,6 +229,11 @@ internal sealed class RunReport(SpikeOptions options)
         else
         {
             verdict = "PASS";
+        }
+
+        if (SyntheticInput)
+        {
+            verdict += " (synthetic input)";
         }
 
         md.AppendLine();

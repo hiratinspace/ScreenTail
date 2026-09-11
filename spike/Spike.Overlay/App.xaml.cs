@@ -18,6 +18,11 @@ public partial class App : Application
         var overlay = new OverlayWindow(excludeAtStart);
         overlay.Show();
 
+        if (e.Args.Contains("--typing-target"))
+        {
+            new TypingTargetWindow().Show();
+        }
+
         // Unchecking produces the control case: the capture check must then report CAPTURED.
         var exclude = new ToolStripMenuItem("Exclude overlay from capture") { Checked = excludeAtStart, CheckOnClick = true };
         exclude.CheckedChanged += (_, _) => overlay.SetExcludedFromCapture(exclude.Checked);

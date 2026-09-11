@@ -132,4 +132,60 @@ internal static class Native
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+    // SendInput, used only by the --drive-input stand-in technician.
+    public const uint InputMouse = 0;
+    public const uint InputKeyboard = 1;
+    public const uint KeyeventfKeyUp = 0x0002;
+    public const uint MouseeventfLeftDown = 0x0002;
+    public const uint MouseeventfLeftUp = 0x0004;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Input
+    {
+        public uint Type;
+        public InputUnion U;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Mi;
+
+        [FieldOffset(0)]
+        public KeybdInput Ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MouseInput
+    {
+        public int Dx;
+        public int Dy;
+        public uint MouseData;
+        public uint DwFlags;
+        public uint Time;
+        public IntPtr DwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KeybdInput
+    {
+        public ushort WVk;
+        public ushort WScan;
+        public uint DwFlags;
+        public uint Time;
+        public IntPtr DwExtraInfo;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
 }
