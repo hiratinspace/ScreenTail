@@ -37,9 +37,9 @@ Save the filled sheet as `docs/ux/wireframes/review-sessions.md` and link it fro
 
 ## Open questions for the spec
 
-The ticket requires Q1 and Q2 to be answered and written into the spec. Q3–Q6 came up while wireframing. I haven't edited the spec: each item has a recommendation and waits for your decision.
+The ticket requires Q1 and Q2 to be answered and written into the spec. Q3–Q6 came up while wireframing. **Decided 2026-09-11:** the owner accepted all six recommendations, and they're now in the spec as v0.4.1 (§9 Amendments). Q1 and Q2 will still be checked with the two technicians in the debrief.
 
-| # | Question | Where | Recommendation |
+| # | Question | Where | Decision |
 |---|---|---|---|
 | Q1 | Should the HUD be visible while the technician shares their screen with a customer? | S2 | **Always visible.** `WDA_EXCLUDEFROMCAPTURE`, verified in ST-001 AC3, also hides the HUD from Teams and Zoom screen shares, so the person watching never sees it and the technician always does. Hiding it would add a silent-capture path (INV-4). Confirm with the two technicians. |
 | Q2 | Default ConnectWise note type: Internal or Discussion? | S3, S7 | **Internal.** Discussion notes are customer-visible in ConnectWise, and a first draft shouldn't default to customer-facing. Configurable per tenant in S7. |

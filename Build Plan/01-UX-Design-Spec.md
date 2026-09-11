@@ -123,6 +123,8 @@ Focus ring: 2 px `accent.primary` outside the control; visible for keyboard focu
 ```
 When idle, the first block becomes `Start capture   Ctrl+Alt+R`.
 
+**Discard session… while recording:** choosing it stops capture first (the session moves to `finalizing`), then shows the typed-confirmation dialog ("DISCARD"). No modal ever appears while a session is recording. *(v0.4.1, Q3)*
+
 **"What's being captured right now?" panel** (small window, 360×420): active window name and scope status; mic device + live level; suppression state; redaction backlog count; Local-only badge; policy version; CPU/RAM; a "Copy diagnostics" button (no content, only states).
 
 ### S2 — Recording HUD
@@ -138,12 +140,14 @@ Draggable pill, `999` radius, 44 px tall, docked by default to the top-right edg
 **State variants (left segment):**
 - Recording: red dot + timer.
 - Paused: amber `‖ Paused — press Ctrl+Alt+P to resume`.
-- Suppressed: amber `⏸ Paused: sensitive field` / `Paused: excluded app` / `Paused: elevated window` — auto-resumes.
+- Suppressed: amber `⏸ Paused: sensitive field` / `Paused: excluded app` / `Paused: elevated window` — auto-resumes. The elevated-window tooltip reads "Elevated window — screen not captured." *(v0.4.1, Q5)*
 - Out of scope: violet `Not capturing — Outlook` (clicks logged, no frames).
 - Mic missing: grey mic glyph with tooltip "No microphone. Capture continues without voice."
 - Offline: grey cloud glyph; tooltip "Offline — draft will be created when connected."
 
 **Interactions:** click pill → expand to show last 3 timeline events and "Mark moment" (Ctrl+Alt+M). Double-click → open Review of current session (read-only until stopped). Right-click → hide HUD for this session (tray remains). Position persists.
+
+**Screen sharing:** the HUD stays visible to the technician at all times, including while they share their screen with a customer. `WDA_EXCLUDEFROMCAPTURE` keeps it out of screen-share and recording apps, so viewers never see it (verified in ST-001 AC3). There is no auto-hide, because that would create a silent-capture path (INV-4). *(v0.4.1, Q1)*
 
 ### S3 — Review & Publish (the product)
 
@@ -191,7 +195,7 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 
 **Right pane — Publish**
 - Ticket picker: searchable combo, shows `#id · summary · company`; "Suggested" badge when inferred; recent tickets listed on focus.
-- Note type radio; Time entry field with rounding note; editable.
+- Note type radio, default **Internal**: Discussion notes are customer-visible in ConnectWise, and a first draft shouldn't default to customer-facing. Tenants can change the default in Settings → Integrations. *(v0.4.1, Q2)* Time entry field with rounding note; editable.
 - Destinations: checkboxes; KB toggle default follows `kb_candidate` with reason text.
 - Primary **Publish** button; disabled state tooltip explains why ("Choose a ticket first").
 - After publish: pane switches to a result list with green checks, links, and "Retry" on any failed destination; the title bar gains a `Published` badge.
@@ -203,11 +207,11 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 
 **Shortcuts:** `Ctrl+Enter` Publish · `Ctrl+S` save now · `Alt+1/2/3` focus pane · `Alt+T` timeline · `Alt+C` confirm step · `Alt+↑/↓` reorder · `Space` include/exclude · `B` blur · `Del` delete frame · `?` shortcut sheet · `Esc` close enlarged frame.
 
-**Empty/edge states:** draft failed → note pane shows "We couldn't draft this session" with Retry and the timeline/transcript still available; offline → "Draft pending — offline" banner and disabled Publish with reason; no integrations → Publish replaced by "Connect a PSA to publish" linking to Settings.
+**Empty/edge states:** draft failed → note pane shows "We couldn't draft this session" with Retry and the timeline/transcript still available, and Publish stays disabled with the reason "There is no note to publish yet. Retry the draft first." (writing a note by hand after a failed draft is v1.1) *(v0.4.1, Q4)*; offline → "Draft pending — offline" banner and disabled Publish with reason; no integrations → Publish replaced by "Connect a PSA to publish" linking to Settings.
 
 ### S4 — Session history
 
-Table: Status (badge) · Started · Duration · Tool · Client/ticket (if published) · Frames · Actions. Filters: date range, status (Draft, Published, Discarded, Partial, Pending), tool. Coverage banner: "Captured 46 of 52 remote sessions this week (88%)". Row click opens Review. Multi-select → Bulk discard (typed confirmation with count). "Export audit log" button (JSON/CSV; no content). Empty state: "No sessions yet. Start a remote session and ScreenTail will capture it." with a Start capture button.
+Table: Status (badge) · Started · Duration · Tool · Client/ticket (if published) · Frames · Actions. Filters: date range, status (Draft, Published, Discarded, Partial, Pending), tool. Coverage banner: "Captured 46 of 52 remote sessions this week (88%)". Row click opens Review. Multi-select → Bulk discard (typed confirmation: type the number of selected sessions, e.g. `3`) *(v0.4.1, Q6)*. "Export audit log" button (JSON/CSV; no content). Empty state: "No sessions yet. Start a remote session and ScreenTail will capture it." with a Start capture button.
 
 ### S5 — Settings → Capture
 
@@ -278,3 +282,11 @@ Copy rules: sentence case; no exclamation marks; name the object (ticket, note, 
 - Zero occurrences of "I didn't know it was recording" in pilot interviews.
 - Onboarding completion ≤ 5 minutes for 3/3 test users.
 - Task success without help: pick ticket, exclude a frame, blur a region, change time entry, publish — ≥ 90% across 5 techs.
+
+---
+
+## 9. Amendments
+
+| Version | Date | Source | Change |
+|---|---|---|---|
+| v0.4.1 | 2026-09-11 | ST-014 wireframes, owner decision | Q1 HUD always visible while screen-sharing (S2). Q2 default note type Internal (S3). Q3 tray discard while recording stops capture before confirming (S1). Q4 Publish disabled after a failed draft (S3). Q5 elevated-window HUD wording and tooltip (S2). Q6 bulk-discard confirmation is the session count (S4). Background: `docs/ux/wireframes/README.md`. Q1 and Q2 are still to be checked in the ST-014 technician sessions. |
