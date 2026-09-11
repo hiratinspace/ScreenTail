@@ -103,6 +103,8 @@ else {
         Add-Summary (Get-Content $report)
         $verdict = Get-Verdict $report 'AC1'
         if ($verdict -like '*FAIL*') { throw "AC1 $verdict" }
+        $screenshotErrors = Select-String -Path $report -Pattern '^- Screenshot errors' | Select-Object -First 1
+        if ($screenshotErrors) { throw "screenshots failed during the run: $($screenshotErrors.Line)" }
     }
 }
 

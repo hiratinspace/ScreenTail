@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -37,17 +38,52 @@ internal static class ScreenGrab
     /// <summary>
     /// BitBlt from the screen DC with CAPTUREBLT. Without CAPTUREBLT, layered windows (like the WPF overlay)
     /// can be missing for reasons unrelated to display affinity, and the exclusion check would pass falsely.
+    /// Graphics.CopyFromScreen throws InvalidEnumArgumentException for SourceCopy | CaptureBlt, hence P/Invoke.
     /// </summary>
     public static Bitmap Capture(Rectangle bounds)
     {
-        var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.CopyFromScreen(
-            bounds.Location,
-            Point.Empty,
-            bounds.Size,
-            CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
-        return bitmap;
+        // 32bppRgb, not Argb: GDI leaves the alpha byte at 0, which Argb would treat as fully transparent.
+        var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
+        try
+        {
+            using var graphics = Graphics.FromImage(bitmap);
+            var screenDc = Native.GetDC(IntPtr.Zero);
+            if (screenDc == IntPtr.Zero)
+            {
+                throw new Win32Exception("GetDC for the screen failed.");
+            }
+
+            var targetDc = graphics.GetHdc();
+            try
+            {
+                var copied = Native.BitBlt(
+                    targetDc,
+                    0,
+                    0,
+                    bounds.Width,
+                    bounds.Height,
+                    screenDc,
+                    bounds.X,
+                    bounds.Y,
+                    Native.SrcCopy | Native.CaptureBlt);
+                if (!copied)
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+            }
+            finally
+            {
+                graphics.ReleaseHdc(targetDc);
+                Native.ReleaseDC(IntPtr.Zero, screenDc);
+            }
+
+            return bitmap;
+        }
+        catch
+        {
+            bitmap.Dispose();
+            throw;
+        }
     }
 
     public static Bitmap Downscale(Bitmap source, int maxLongEdge = DownscalePlan.DefaultMaxLongEdge)

@@ -77,7 +77,9 @@ internal sealed class RunReport(SpikeOptions options)
 
     public int ScreenshotsDroppedBusy { get; set; }
 
-    public int ScreenshotErrors { get; set; }
+    public int ScreenshotErrors { get; private set; }
+
+    public string? FirstScreenshotError { get; private set; }
 
     public int OcrSkippedBusy { get; set; }
 
@@ -96,6 +98,12 @@ internal sealed class RunReport(SpikeOptions options)
     private bool SyntheticInput => InputMode.StartsWith("synthetic", StringComparison.Ordinal);
 
     public void MarkStarted() => _startedAt = DateTime.Now;
+
+    public void RecordScreenshotError(Exception ex)
+    {
+        ScreenshotErrors++;
+        FirstScreenshotError ??= $"{ex.GetType().Name}: {ex.Message}";
+    }
 
     public void CountKeyboard(KeyboardEvent keyboardEvent)
     {
@@ -190,6 +198,11 @@ internal sealed class RunReport(SpikeOptions options)
         if (InputDriverNote is not null)
         {
             md.AppendLine(Inv($"- Input driver: {InputDriverNote}"));
+        }
+
+        if (FirstScreenshotError is not null)
+        {
+            md.AppendLine(Inv($"- Screenshot errors: {ScreenshotErrors} (first: {FirstScreenshotError})"));
         }
 
         if (WhisperUnavailable is not null)

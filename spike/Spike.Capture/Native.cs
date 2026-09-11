@@ -133,6 +133,29 @@ internal static class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
+    // GDI screen capture. Graphics.CopyFromScreen rejects SRCCOPY | CAPTUREBLT, so BitBlt is called directly.
+    public const uint SrcCopy = 0x00CC0020;
+    public const uint CaptureBlt = 0x40000000;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool BitBlt(
+        IntPtr hdcDest,
+        int xDest,
+        int yDest,
+        int width,
+        int height,
+        IntPtr hdcSrc,
+        int xSrc,
+        int ySrc,
+        uint rop);
+
     // SendInput, used only by the --drive-input stand-in technician.
     public const uint InputMouse = 0;
     public const uint InputKeyboard = 1;

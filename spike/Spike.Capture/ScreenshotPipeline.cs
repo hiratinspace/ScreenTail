@@ -91,10 +91,11 @@ internal sealed class ScreenshotPipeline
 
             _ocr?.TrySubmit(jpeg);
         }
-        catch (Exception ex) when (ex is Win32Exception or ExternalException or ArgumentException)
+        catch (Exception ex) when (ex is Win32Exception or ExternalException)
         {
-            // Secure desktop (UAC, lock screen) or a window that vanished mid-capture.
-            _report.ScreenshotErrors++;
+            // Secure desktop (UAC, lock screen) or a window that vanished mid-capture. Programming errors
+            // (ArgumentException and friends) are deliberately not caught: they must crash the run.
+            _report.RecordScreenshotError(ex);
         }
     }
 
