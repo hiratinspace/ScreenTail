@@ -41,7 +41,7 @@ Filled in from the Windows runs. Raw reports go in `docs/adr/evidence/0001/`.
 | 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **PENDING** | `run` report: baseline vs full load |
 | 2 | RDP window focused → FlaUI reports an opaque subtree | **PENDING** | `run` report: focus-transition table |
 | 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** (hosted runner). Laptop run pending. | [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png): 0.00% marker pixels; [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png): 86.31% |
-| 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner, synthetic). Laptop run pending. | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
+| 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner, synthetic), resolved by decision: OCR runs on the native frame (finding 2a). Laptop run pending. | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
 | 5 | This ADR records the decision and a Python fallback assessment | Drafted | this file |
 
 Test machine: _to be filled in_ (CPU and cores, RAM, display and scaling, Windows build, physical or VM).
@@ -75,12 +75,12 @@ Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 
 
 These came up while building the spike and hold regardless of how the Windows run turns out.
 
-1. **.NET 8 support ends on 10 November 2026, two months from now.** The ecosystem is already moving: NAudio 3.x targets net9.0 only, and Whisper.net ships net10.0 builds. The spike stays on .NET 8 because Guide §5 names it, and retargeting is a one-line change. **Decision needed from the owner:** amend Guide §5 to target **.NET 10 (LTS, supported to November 2028)** before ST-002 creates `/client`. Recommended.
+1. **.NET 8 support ends on 10 November 2026, two months from now.** The ecosystem is already moving: NAudio 3.x targets net9.0 only, and Whisper.net ships net10.0 builds. The spike stays on .NET 8 because Guide §5 names it, and retargeting is a one-line change. **Decided 2026-09-11:** the owner chose **.NET 10 (LTS, supported to November 2028)**. Guide §5 is amended in ST-002, which creates `/client` on .NET 10.
 2. **AC4's legibility clause probably fails at common 4K settings.** 9-pt text is 12 px tall at 100% scaling. Downscaling 3840 → 1600 (×0.417) leaves about 5 px, below what either OCR or a person reads reliably. It's about 7.5 px at 150% scaling and 10 px at 200%. The `legibility` command measures this directly. If it fails, the options for ST-025 are:
    - (a) run OCR on the native-resolution frame on the device, and downscale only the copy that is sent or shown;
    - (b) crop around the active window or the click before downscaling;
    - (c) let the long edge scale with DPI, for example 2400 px for 4K at 100%, and re-budget size.
-   Option (a) fits INV-1 and INV-7 best and costs nothing extra over the wire.
+   **Decided 2026-09-11: option (a).** It fits INV-1 and INV-7 best and costs nothing extra over the wire. See Consequences for what it changes in ST-025 and ST-041.
 3. **Layered windows can mislead the capture test.** A screen BitBlt without `CAPTUREBLT` can leave out layered windows, so an exclusion test could pass for the wrong reason. The spike uses `CAPTUREBLT` and adds a control run with exclusion switched off, which must detect the overlay. `Graphics.CopyFromScreen` rejects `SourceCopy | CaptureBlt` with an `InvalidEnumArgumentException`; the first hosted run caught this. The spike now calls GDI `BitBlt` directly, and ST-025 must do the same or use Windows.Graphics.Capture.
 4. **How latency is measured.** The time spent inside the hook callback, measured with the high-resolution performance counter, is the latency our hook adds while its thread is responsive. The delay between the event and the callback is only accurate to the ~15.6 ms system tick, so it serves as a starvation indicator. The unhook watchdog covers the case where the hook stops responding altogether.
 5. **Managed code in hook callbacks.** The main risk is a garbage-collection pause landing inside a callback. Mitigations in place: callbacks that don't allocate, a dedicated thread, and `GCLatencyMode.SustainedLowLatency`. The AC1 verdict uses the *maximum*, not p99, so any such pause shows up. If AC1 fails because of GC pauses, the fallback is a small native hook DLL writing to a shared-memory ring, with everything else staying in .NET. That's a contained change, not a reason to switch languages.
@@ -105,7 +105,9 @@ These came up while building the spike and hold regardless of how the Windows ru
 
 ## Consequences
 
-- ST-002 scaffolds `/client` as a .NET solution: a capture service, a WPF UI, a shared contracts project and tests. The target framework follows finding 1.
+- ST-002 scaffolds `/client` as a .NET 10 solution: a capture service, a WPF UI, a shared contracts project and tests.
+- **ST-025 / ST-041 (finding 2a):** each click frame is kept at native resolution, encrypted and marked `redaction_pending`, until the redaction worker has run OCR and masking on it. Only then is the downscaled copy (≤ 1600 px) written for Review and the bundle builder, and the native frame deleted. INV-1 is unchanged: nothing is readable before redaction. ST-005's disk budget (< 40 MB per 20-minute session) applies to what remains after redaction; the native frames are transient.
+- **ST-027 (finding 8):** transcription is gated by voice activity detection.
 - Platform-neutral logic lives in projects that target plain `netX.0` so it can be unit-tested on any OS. Windows-only code sits behind thin adapters.
 - `/spike` is deleted once this ADR is accepted.
 
