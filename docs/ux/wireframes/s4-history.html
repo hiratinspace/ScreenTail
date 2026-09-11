@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S4 Session history · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<script src="wf.js" defer></script>
+<style>
+  .hist { width: 1180px; height: 700px; display: flex; flex-direction: column; }
+  .hist .hd { display: flex; align-items: center; gap: 10px; padding: 14px 16px 8px; }
+  .hist h1 { font-size: 20px; margin: 0; flex: 1; }
+  .filters { display: flex; gap: 8px; align-items: center; padding: 0 16px 10px; flex-wrap: wrap; }
+  .chipset { display: flex; gap: 4px; }
+  .chipset button { border: 1px solid var(--line-2); background: var(--paper); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+  .chipset button[aria-pressed="true"] { background: var(--fill); color: #fff; border-color: var(--fill); }
+  .bulk { display: flex; gap: 10px; align-items: center; padding: 6px 16px; background: var(--wash); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .tablewrap { flex: 1; overflow: auto; margin: 0 16px 16px; border: 1px solid var(--line); }
+  tbody tr { cursor: pointer; } tbody tr:hover td { background: var(--wash); }
+  .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">S4 Session history</span><span class="spec">Spec §5 S4, §3 Table</span>
+  <nav class="states" aria-label="Wireframe states">
+    <button data-state-set="default">Sessions</button>
+    <button data-state-set="empty">Empty</button>
+  </nav>
+  <span class="grow"></span><a href="s3-review.html">← S3</a><a href="s5-s7-settings.html">S5 →</a>
+</header>
+
+<main class="wf-main">
+  <div class="frame hist" id="frame">
+    <div class="hd"><h1>Session history</h1>
+      <button class="btn" data-unless="empty">Export audit log ▾</button> <span class="n" data-unless="empty">4</span></div>
+
+    <div data-unless="empty" style="display:contents">
+      <div class="filters">
+        <select class="input" style="width:140px" aria-label="Date range"><option>This week</option><option>Last 7 days</option><option>This month</option><option>Custom…</option></select>
+        <div class="chipset" role="group" aria-label="Status">
+          <button aria-pressed="true">All</button><button>Draft</button><button>Published</button><button>Discarded</button><button>Partial</button><button>Pending</button>
+        </div>
+        <select class="input" style="width:160px" id="tool" aria-label="Tool"><option value="all">All tools</option><option value="sc">ScreenConnect</option><option value="rdp">Remote Desktop</option></select>
+        <span class="n">1</span>
+      </div>
+      <div class="banner" style="margin:0 16px 10px"><span class="grow" id="coverage">Captured 46 of 52 remote sessions this week (88%)</span><span class="n">2</span></div>
+      <div class="bulk" id="bulk" hidden><b id="sel-count">0 selected</b><button class="btn sm" id="bulk-discard">Discard selected…</button><button class="btn sm ghost" id="bulk-clear">Clear selection</button><span class="n">3</span></div>
+      <div class="tablewrap">
+        <table class="t" aria-label="Sessions, 9 rows">
+          <thead><tr><th style="width:32px"><input type="checkbox" aria-label="Select all" id="all"></th><th>Status</th><th>Started</th><th>Duration</th><th>Tool</th><th>Client / ticket</th><th>Frames</th><th>Actions</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="empty" data-when="empty">
+      <div class="ph" style="width:120px;height:80px"></div>
+      <b>No sessions yet.</b>
+      <span class="meta">Start a remote session and ScreenTail will capture it.</span>
+      <button class="btn primary">Start capture <span class="kbd">Ctrl+Alt+R</span></button>
+    </div>
+
+    <div class="scrim" id="bulk-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bm-h">
+        <h3 id="bm-h">Discard <span class="bm-n">3</span> sessions?</h3>
+        <p class="meta">This deletes their drafts, screenshots and transcripts from this device now. It can't be undone. Published notes in ConnectWise are not affected.</p>
+        <div class="field"><label for="bm-input">Type <b class="bm-n">3</b> to confirm</label><input class="input" id="bm-input" autocomplete="off"></div>
+        <div class="actions"><button class="btn" id="bm-cancel">Cancel</button><button class="btn primary" id="bm-ok" disabled>Discard sessions</button></div>
+      </div>
+    </div>
+    <div class="toast-host"></div>
+  </div>
+
+  <aside class="notes">
+    <h2>Notes</h2>
+    <ol>
+      <li><b>Filters:</b> date range, status, tool. Changing the tool updates the coverage banner (try it).</li>
+      <li><b>Coverage banner:</b> sessions captured out of remote sessions detected. This is the ≥ 80% pilot metric, shown to the technician so any gaps are visible to them.</li>
+      <li><b>Bulk discard:</b> select rows, then confirm by typing the count. Open question Q6 is which confirmation to type.</li>
+      <li><b>Export audit log:</b> JSON or CSV. It contains no content: counts, times, destinations and hashes only (ST-045).</li>
+    </ol>
+    <h3>Table</h3>
+    <ul>
+      <li>32 px rows, sticky header, virtualized (target: 200 rows in &lt; 500 ms). Clicking a row opens Review.</li>
+      <li>Times are relative ("14 min ago"); hover shows the absolute time (Spec §4).</li>
+      <li>"Client / ticket" stays empty until the session is published.</li>
+    </ul>
+  </aside>
+</main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const rows = [
+    ['Draft', '14 min ago', 'Sep 10, 14:02', '12 min', 'ScreenConnect', '—', '7 / 14'],
+    ['Draft', '1 h ago', 'Sep 10, 13:10', '34 min', 'Remote Desktop', '—', '12 / 31'],
+    ['Pending', '2 h ago', 'Sep 10, 12:05', '8 min', 'Splashtop', '— (offline)', '5 / 9'],
+    ['Published', '3 h ago', 'Sep 10, 11:02', '21 min', 'ScreenConnect', 'Acme Dental · #48190', '4 / 18'],
+    ['Partial', 'Yesterday', 'Sep 9, 16:40', '6 min', 'Remote Desktop', '—', '2 / 4'],
+    ['Published', 'Yesterday', 'Sep 9, 11:05', '45 min', 'TeamViewer', 'Birch Legal · #48177', '9 / 40'],
+    ['Discarded', 'Yesterday', 'Sep 9, 09:30', '3 min', 'AnyDesk', '—', '—'],
+    ['Published', 'Mon', 'Sep 8, 15:12', '18 min', 'Browser · AVD', 'Pine Vet · #48122', '6 / 15'],
+    ['Published', 'Mon', 'Sep 8, 10:40', '27 min', 'ScreenConnect', 'Acme Dental · #48101', '8 / 22'],
+  ];
+  const tbody = document.getElementById('rows');
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="checkbox" aria-label="Select session"></td><td><span class="${r[0] === 'Published' ? 'badge solid' : r[0] === 'Pending' ? 'badge hatch' : 'badge'}">${r[0]}</span></td>
+      <td title="${r[2]}">${r[1]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td><td>${r[6]}</td><td><a href="s3-review.html">Open</a> · ⋯</td>`;
+    tr.addEventListener('click', (e) => { if (!e.target.closest('input, a')) location.href = 's3-review.html'; });
+    tbody.appendChild(tr);
+  });
+  const boxes = () => [...tbody.querySelectorAll('input')];
+  const bulk = document.getElementById('bulk');
+  const refresh = () => {
+    const n = boxes().filter((b) => b.checked).length;
+    boxes().forEach((b) => b.closest('tr').classList.toggle('sel', b.checked));
+    bulk.hidden = n === 0;
+    document.getElementById('sel-count').textContent = `${n} selected`;
+    document.querySelectorAll('.bm-n').forEach((x) => (x.textContent = n));
+  };
+  tbody.addEventListener('change', refresh);
+  document.getElementById('all').addEventListener('change', (e) => { boxes().forEach((b) => (b.checked = e.target.checked)); refresh(); });
+  document.getElementById('bulk-clear').onclick = () => { boxes().forEach((b) => (b.checked = false)); document.getElementById('all').checked = false; refresh(); };
+  const modal = document.getElementById('bulk-modal'), input = document.getElementById('bm-input'), ok = document.getElementById('bm-ok');
+  document.getElementById('bulk-discard').onclick = () => { modal.hidden = false; input.value = ''; ok.disabled = true; input.focus(); };
+  document.getElementById('bm-cancel').onclick = () => (modal.hidden = true);
+  input.addEventListener('input', () => (ok.disabled = input.value.trim() !== String(boxes().filter((b) => b.checked).length)));
+  ok.onclick = () => {
+    const picked = boxes().filter((b) => b.checked);
+    picked.forEach((b) => { const tr = b.closest('tr'); tr.children[1].innerHTML = '<span class="badge">Discarded</span>'; b.checked = false; });
+    modal.hidden = true; refresh();
+    wf.toast(`${picked.length} sessions discarded. Raw data deleted; the audit log records it.`);
+  };
+  document.getElementById('tool').addEventListener('change', (e) => {
+    document.getElementById('coverage').textContent = {
+      all: 'Captured 46 of 52 remote sessions this week (88%)',
+      sc: 'Captured 30 of 32 ScreenConnect sessions this week (94%)',
+      rdp: 'Captured 11 of 15 Remote Desktop sessions this week (73%)',
+    }[e.target.value];
+  });
+  document.querySelectorAll('.chipset button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.chipset button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+});
+</script>
+</body>
+</html>

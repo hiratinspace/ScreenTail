@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S8 Onboarding · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<script src="wf.js" defer></script>
+<style>
+  .wiz { width: 640px; height: 560px; display: flex; flex-direction: column; }
+  .wiz .top { padding: 16px 20px 0; }
+  .wiz .body { flex: 1; padding: 16px 28px; overflow: auto; }
+  .wiz .body h2 { font-size: 20px; margin: 4px 0 8px; }
+  .wiz .foot { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+  .wiz .foot .grow { flex: 1; }
+  .check { display: grid; grid-template-columns: 22px 1fr auto; gap: 4px 10px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .check .ok { font-weight: 700; }
+  .mini { border: 1px solid var(--line-2); border-radius: 6px; padding: 10px 12px; font-size: 12px; margin-top: 10px; }
+  .code { font: 600 22px var(--mono); letter-spacing: .1em; width: 220px; text-align: center; }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">S8 Onboarding wizard</span><span class="spec">Spec §5 S8</span>
+  <nav class="states" aria-label="Wireframe states">
+    <button data-state-set="s1">1 Welcome</button><button data-state-set="s2">2 Activate</button><button data-state-set="s3">3 Permissions</button>
+    <button data-state-set="s4">4 Remote tools</button><button data-state-set="s5">5 Connect</button><button data-state-set="s6">6 Try it</button><button data-state-set="s7">7 Done</button>
+  </nav>
+  <span class="grow"></span><a href="s5-s7-settings.html">← S5–S7</a><a href="flows.html">Flows →</a>
+</header>
+
+<main class="wf-main">
+  <div class="frame wiz">
+    <div class="top"><div class="dots" id="dots" aria-label="Step 1 of 7"></div></div>
+
+    <div class="body" data-when="s1">
+      <div class="ph" style="width:96px;height:64px;margin:24px 0 12px"></div>
+      <h2>ScreenTail writes your ticket notes</h2>
+      <p>It watches your remote sessions, then drafts the note for you: problem, steps, result and follow-ups.</p>
+      <p><b>Nothing is published without your review.</b></p>
+      <p class="help">Setup takes about 5 minutes.</p>
+    </div>
+
+    <div class="body" data-when="s2">
+      <h2>Activate this computer</h2>
+      <p>Enter the code from your invite email.</p>
+      <input class="input code" value="K7QD-M2XP" aria-label="Device code">
+      <div class="result mini" style="margin-top:12px">✓ Activated for <b>Contoso MSP</b></div>
+      <p class="help">Wrong or expired code: "That code has expired. Ask your admin for a new invite."</p>
+    </div>
+
+    <div class="body" data-when="s3">
+      <h2>Check permissions</h2>
+      <div class="check"><span>✕</span><span><b>Microphone</b><br><span class="meta">Microphone is blocked by Windows privacy settings.</span></span><span class="row"><button class="btn sm">Open Windows settings</button><button class="btn sm">Check again</button></span></div>
+      <div class="check"><span class="ok">✓</span><span><b>Screen capture</b><br><span class="meta">ScreenTail can take screenshots of remote sessions.</span></span><span></span></div>
+      <div class="check"><span class="ok">✓</span><span><b>Clicks and keys</b><br><span class="meta">ScreenTail sees clicks and counts keystrokes. It never records what you type.</span></span><span></span></div>
+      <p class="help">You can continue without a microphone; drafts will rely on screenshots and clicks.</p>
+    </div>
+
+    <div class="body" data-when="s4">
+      <h2>Your remote tools</h2>
+      <p class="meta">We found these on this computer. Capture starts when one of them has focus.</p>
+      <div class="col" style="gap:4px">
+        <label><input type="checkbox" checked> ScreenConnect <span class="badge">Found</span></label>
+        <label><input type="checkbox" checked> Remote Desktop <span class="badge">Found</span></label>
+        <label><input type="checkbox"> TeamViewer <span class="help">not installed</span></label>
+        <label><input type="checkbox" checked> Azure Virtual Desktop in the browser</label>
+      </div>
+      <div class="mini"><b>What gets captured:</b> only remote-session windows and admin tools such as PowerShell and Event Viewer. Your email, chat and other apps are never captured. You can change this later in Settings → Capture.</div>
+    </div>
+
+    <div class="body" data-when="s5">
+      <h2>Connect where notes go</h2>
+      <div class="check"><span></span><span><b>ConnectWise Manage</b><br><span class="meta">Ticket notes and time entries</span></span><button class="btn sm primary">Connect</button></div>
+      <div class="check"><span></span><span><b>Hudu</b><br><span class="meta">Knowledge-base articles (optional)</span></span><button class="btn sm">Connect</button></div>
+      <p class="help">You can publish later. Drafts are still created without a connection.</p>
+    </div>
+
+    <div class="body" data-when="s6">
+      <h2>Try it (60 seconds)</h2>
+      <ol>
+        <li>Open any window and click around.</li>
+        <li>Say one sentence, like "restarting the print spooler".</li>
+        <li>Watch the pill in the top-right corner.</li>
+      </ol>
+      <div class="row"><span class="mono" style="font-size:20px">0:42</span><div style="flex:1;height:6px;border:1px solid var(--line-2)"><div style="width:30%;height:100%;background:var(--fill)"></div></div></div>
+      <div class="mini"><b>Sample draft</b> (mini Review)<br>Problem: Test session.<br>Steps: 1. Opened Notepad. 2. ⚠ Clicked File menu (inferred from screen)<br>Transcript: "restarting the print spooler"</div>
+    </div>
+
+    <div class="body" data-when="s7">
+      <div class="ph" style="width:96px;height:64px;margin:24px 0 12px"></div>
+      <h2>You're set</h2>
+      <p>ScreenTail starts when you open a remote session. Look for the pill.</p>
+      <p class="help">Run this again any time from Settings → Help.</p>
+    </div>
+
+    <div class="foot">
+      <button class="btn ghost" id="back">Back</button>
+      <span class="grow"></span>
+      <button class="btn" id="skip" data-when="s5">Skip — publish later</button>
+      <button class="btn primary" id="next">Next</button>
+    </div>
+  </div>
+
+  <aside class="notes">
+    <h2>Notes</h2>
+    <ul>
+      <li>Seven steps, 5 minutes at most; progress dots at the top. Back works everywhere except step 1.</li>
+      <li><b>Step 3:</b> every check shows ✓ or a fix. A blocked microphone deep-links to Windows settings and offers "Check again" (ST-083).</li>
+      <li><b>Step 4:</b> detected tools are pre-checked, and the scope explanation states the recommended default in plain words (INV-5).</li>
+      <li><b>Step 5 is skippable:</b> drafts are still created, and Review shows "Connect a PSA to publish" (S3 state).</li>
+      <li><b>Step 6</b> builds trust: the technician sees the pill, then a real draft from their own 60 seconds.</li>
+    </ul>
+  </aside>
+</main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const steps = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+  const dots = document.getElementById('dots');
+  steps.forEach(() => dots.appendChild(document.createElement('i')));
+  wf.onState((s) => {
+    const i = steps.indexOf(s);
+    [...dots.children].forEach((d, k) => d.classList.toggle('on', k <= i));
+    dots.setAttribute('aria-label', `Step ${i + 1} of 7`);
+    document.getElementById('back').disabled = i === 0;
+    document.getElementById('next').textContent = i === 0 ? 'Get started' : i === 6 ? 'Finish' : 'Next';
+  });
+  const go = (d) => { const i = steps.indexOf(wf.state) + d; if (i >= 0 && i < steps.length) wf.setState(steps[i]); };
+  document.getElementById('next').onclick = () => go(1);
+  document.getElementById('skip').onclick = () => go(1);
+  document.getElementById('back').onclick = () => go(-1);
+});
+</script>
+</body>
+</html>

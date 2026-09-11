@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flows · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<style>
+  .flowlist { list-style: none; padding: 0; margin: 0; counter-reset: f; }
+  .flowlist > li { counter-increment: f; display: grid; grid-template-columns: 28px 1fr 220px; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .flowlist > li::before { content: counter(f); font-weight: 700; color: var(--ink-2); }
+  .flowlist .where { font-size: 12px; }
+  .inv { font-size: 11.5px; color: var(--ink-2); }
+  section { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 4px 18px 12px; margin-bottom: 18px; }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">Annotated flows</span><span class="spec">ST-014 · Scope §6.4</span>
+  <span class="grow"></span><a href="s8-onboarding.html">← S8</a><a href="index.html">Index</a>
+</header>
+
+<div class="doc">
+  <h1>Annotated flows</h1>
+  <p class="meta">Each step links to the screen and state that shows it. The right-hand column names the invariant or spec rule that step exists for.</p>
+
+  <section id="happy">
+    <h2>1 · Happy path</h2>
+    <ol class="flowlist">
+      <li><span>A ScreenConnect window gets focus. Capture starts within a second: the tray icon turns to recording, and the HUD appears top-right without taking focus.</span><span class="where"><a href="s1-tray.html#state=recording">S1 recording</a> · <a href="s2-hud.html#state=docked">S2 HUD</a></span><span class="inv">INV-4 visible capture · ST-023 auto-start</span></li>
+      <li><span>The technician works and talks. Clicks trigger screenshots; speech is transcribed on the device; the HUD counts redactions.</span><span class="where"><a href="s2-hud.html#state=expanded">S2 expanded</a></span><span class="inv">INV-2 no keystrokes · INV-9 tech mic only</span></li>
+      <li><span>The remote window closes. After the 90 s grace period the session finalizes; pending redactions get up to 20 s.</span><span class="where"><a href="s5-s7-settings.html#state=capture">S5 grace period</a></span><span class="inv">INV-1 no unredacted frame leaves</span></li>
+      <li><span>Toast: "Draft ready — Printer offline · Acme Dental" with Review.</span><span class="where">Spec §6</span><span class="inv">No focus steal</span></li>
+      <li><span>Review: scan the note, confirm the ⚠ step (<span class="kbd">Alt+C</span>), keep the suggested ticket, check 0:30.</span><span class="where"><a href="s3-review.html#state=default">S3 default</a></span><span class="inv">30-second review</span></li>
+      <li><span><span class="kbd">Ctrl+Enter</span> publishes the note, the time entry and 7 screenshots. Toast: "Published to ticket #48213 · 0:30 logged".</span><span class="where"><a href="s3-review.html#state=published">S3 published</a></span><span class="inv">INV-3 human click</span></li>
+    </ol>
+  </section>
+
+  <section id="sensitive">
+    <h2>2 · Sensitive moment</h2>
+    <ol class="flowlist">
+      <li><span>Mid-session, the technician opens 1Password, or focuses a password field in a local app.</span><span class="where"><a href="s5-s7-settings.html#state=privacy">S6 exclusions</a></span><span class="inv">ST-040, ST-043</span></li>
+      <li><span>The HUD switches to "Paused: excluded app" or "Paused: sensitive field". No screenshots or typing events are kept; data is dropped, not hidden.</span><span class="where"><a href="s2-hud.html#state=docked">S2 variants</a></span><span class="inv">INV-6</span></li>
+      <li><span>Focus returns to the remote window and capture resumes on the next click, with nothing to click.</span><span class="where">S2 recording</span><span class="inv">Auto-resume</span></li>
+      <li><span>A login prompt inside the remote canvas is caught by OCR: masked, and screenshots are suppressed for 10 s.</span><span class="where">—</span><span class="inv">ST-041 sensitive_context</span></li>
+      <li><span>In Review, the gap shows as a striped row in Screenshots and a hatched band on the timeline. Spoken secrets show as [REDACTED].</span><span class="where"><a href="s3-review.html#state=default">S3 gap + timeline</a></span><span class="inv">Trust through transparency</span></li>
+    </ol>
+  </section>
+
+  <section id="bad-draft">
+    <h2>3 · Bad draft</h2>
+    <ol class="flowlist">
+      <li><span>The draft has a wrong step. The technician edits its text inline, which also clears its ⚠.</span><span class="where"><a href="s3-review.html#state=default">S3 note</a></span><span class="inv">Low-confidence marker</span></li>
+      <li><span>Steps are out of order: <span class="kbd">Alt+↑</span> moves one. Autosave shows "Saving… / Saved".</span><span class="where">S3 steps</span><span class="inv">Undo over confirm</span></li>
+      <li><span>A screenshot shows the user's inbox: <span class="kbd">Space</span> excludes it. Another is a duplicate: <span class="kbd">Del</span> deletes it, with a 5 s Undo toast.</span><span class="where">S3 screenshots</span><span class="inv">ST-075</span></li>
+      <li><span>Part of a frame shows a license key the pattern engine missed: <span class="kbd">B</span>, draw a region, Apply. Undo is available until the pane loses focus; after that it's permanent.</span><span class="where">S3 enlarge</span><span class="inv">INV-1 human backstop</span></li>
+      <li><span>The technician rewrites Result and publishes. Their edits are kept as style signals, with no content stored (v1.1).</span><span class="where"><a href="s3-review.html#state=published">S3 published</a></span><span class="inv">ST-067, INV-10</span></li>
+    </ol>
+  </section>
+
+  <section id="missed-start">
+    <h2>4 · Missed start</h2>
+    <ol class="flowlist">
+      <li><span>A session is in a tool that isn't in the registry, or auto-start is off. The tray shows idle.</span><span class="where"><a href="s1-tray.html#state=idle">S1 idle</a></span><span class="inv">State never ambiguous</span></li>
+      <li><span>Five minutes in, the technician notices and presses <span class="kbd">Ctrl+Alt+R</span> (or Start capture in the tray). The HUD appears.</span><span class="where"><a href="s2-hud.html#state=docked">S2</a></span><span class="inv">ST-029</span></li>
+      <li><span>Review opens with the "Partial capture" banner: "Capture started late or was interrupted. Some steps may be missing."</span><span class="where"><a href="s3-review.html#state=partial-capture">S3 partial</a></span><span class="inv">Honest about gaps</span></li>
+      <li><span>A crash mid-session ends up in the same place: the session is recovered as partial.</span><span class="where">S3 partial</span><span class="inv">ST-020 recovery</span></li>
+    </ol>
+  </section>
+
+  <section id="discard">
+    <h2>5 · Discard</h2>
+    <ol class="flowlist">
+      <li><span>From Review: Discard, type DISCARD, and raw data is deleted immediately; the audit row is written.</span><span class="where"><a href="s3-review.html#state=default">S3 → Discard</a></span><span class="inv">Typed confirmation for irreversible loss</span></li>
+      <li><span>From the tray while recording: "Discard session…". <b>Open question Q3:</b> a typed-confirmation dialog would break "no modal during recording". Proposal: selecting it stops capture first (the session leaves <i>recording</i>), then shows the dialog.</span><span class="where"><a href="s1-tray.html#state=recording">S1 menu</a></span><span class="inv">§4 never interrupt recording</span></li>
+      <li><span>In bulk from history: select rows, type the count, and the rows become Discarded. Published notes in ConnectWise are untouched.</span><span class="where"><a href="s4-history.html#state=default">S4 bulk</a></span><span class="inv">ST-079</span></li>
+    </ol>
+  </section>
+</div>
+</body>
+</html>

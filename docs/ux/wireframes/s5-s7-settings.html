@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S5–S7 Settings · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<script src="wf.js" defer></script>
+<style>
+  .settings { width: 1100px; height: 780px; display: grid; grid-template-columns: 200px 1fr; }
+  .snav { border-right: 1px solid var(--line); padding: 14px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .snav h1 { font-size: 20px; margin: 0 8px 12px; }
+  .snav a { padding: 6px 10px; border-radius: 4px; text-decoration: none; font-size: 13px; }
+  .snav a[aria-current="page"] { background: var(--wash-2); font-weight: 600; }
+  .sbody { overflow: auto; padding: 16px 24px 32px; }
+  .sbody h2 { font-size: 15px; margin: 22px 0 8px; color: var(--ink-2); }
+  .sbody h2:first-child { margin-top: 0; }
+  .list { border: 1px solid var(--line); border-radius: 6px; }
+  .list .li { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .list .li:last-child { border-bottom: 0; }
+  .list .li .grow { flex: 1; }
+  .opt-card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; margin-bottom: 6px; }
+  .warnbox { border: 1.5px solid var(--ink); border-radius: 6px; padding: 10px 12px; font-size: 12.5px; margin: 6px 0 0 24px; }
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 4px; overflow: hidden; }
+  .seg button { border: 0; border-right: 1px solid var(--line-2); background: var(--paper); padding: 4px 12px; font-size: 12px; cursor: pointer; }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--fill); color: #fff; }
+  .slider { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+  .slider input { width: 240px; }
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; align-items: stretch; margin-top: 4px; }
+  .flow div { border: 1px solid var(--line-2); padding: 8px 10px; font-size: 12px; position: relative; background: var(--paper); }
+  .flow div + div { border-left: 0; }
+  .flow div b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+  .lock { font-size: 11px; color: var(--ink-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 0 6px; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; }
+  .card h3 { margin: 0 0 10px; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .masked { display: flex; gap: 8px; align-items: center; }
+  .result { font-size: 12.5px; border: 1px dashed var(--line-2); padding: 6px 10px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">S5–S7 Settings</span><span class="spec">Spec §5 S5, S6, S7 · §3 Toggle (locked)</span>
+  <nav class="states" aria-label="Wireframe states">
+    <button data-state-set="capture">S5 Capture</button>
+    <button data-state-set="privacy">S6 Privacy &amp; Redaction</button>
+    <button data-state-set="privacy-locked">S6 with admin policy</button>
+    <button data-state-set="integrations">S7 Integrations</button>
+  </nav>
+  <span class="grow"></span><a href="s4-history.html">← S4</a><a href="s8-onboarding.html">S8 →</a>
+</header>
+
+<main class="wf-main">
+  <div class="frame settings">
+    <nav class="snav" aria-label="Settings sections">
+      <h1>Settings</h1>
+      <a href="#state=capture" data-state-set="capture" id="nav-capture">Capture</a>
+      <a href="#state=privacy" data-state-set="privacy" id="nav-privacy">Privacy &amp; Redaction</a>
+      <a href="#state=integrations" data-state-set="integrations" id="nav-integrations">Integrations</a>
+      <a href="s8-onboarding.html">Help · Run setup again</a>
+    </nav>
+
+    <!-- S5 CAPTURE -->
+    <div class="sbody" data-when="capture">
+      <h2>Remote tools</h2>
+      <div class="list">
+        <div class="li"><span class="grow">ScreenConnect <span class="help">client 24.1 detected</span></span><button class="toggle" role="switch" aria-checked="true" aria-label="ScreenConnect"></button></div>
+        <div class="li"><span class="grow">Remote Desktop (mstsc)</span><button class="toggle" role="switch" aria-checked="true" aria-label="Remote Desktop"></button></div>
+        <div class="li"><span class="grow">Splashtop</span><button class="toggle" role="switch" aria-checked="true" aria-label="Splashtop"></button></div>
+        <div class="li"><span class="grow">TeamViewer <span class="help">not installed</span></span><button class="toggle" role="switch" aria-checked="true" aria-label="TeamViewer"></button></div>
+        <div class="li"><span class="grow">AnyDesk <span class="help">not installed</span></span><button class="toggle" role="switch" aria-checked="false" aria-label="AnyDesk"></button></div>
+        <div class="li"><span class="grow">Browser: Azure Virtual Desktop <span class="help">tab title or URL pattern</span></span><button class="toggle" role="switch" aria-checked="true" aria-label="Azure Virtual Desktop in browser"></button></div>
+        <div class="li"><span class="grow">Browser: ScreenConnect web client</span><button class="toggle" role="switch" aria-checked="true" aria-label="ScreenConnect web client"></button></div>
+        <div class="li"><button class="btn sm">Add custom…</button><span class="help">process name, window title or browser URL</span></div>
+      </div>
+
+      <h2>Capture scope <span class="n">1</span></h2>
+      <label class="opt-card"><input type="radio" name="scope" checked id="scope-rec"> <span><b>Remote-tool windows + admin tools (recommended)</b><br><span class="help">Remote sessions, plus PowerShell, MMC consoles, Event Viewer and other admin tools. Anything else (email, chat, other customers' tickets) is never captured.</span></span></label>
+      <label class="opt-card"><input type="radio" name="scope" id="scope-all"> <span><b>All windows during a session</b><br><span class="help">Every window you use while a session is recording.</span></span></label>
+      <div class="warnbox" id="scope-warn" hidden>
+        <b>This captures other customers' data too.</b> Email, chat and other tickets you open during a session will be screenshotted (then redacted). Only choose this if you work on one customer at a time.
+        <div class="row" style="margin-top:8px"><button class="btn sm primary" id="scope-confirm">Use all windows</button><button class="btn sm" id="scope-cancel">Keep recommended</button></div>
+      </div>
+
+      <h2>Auto-start</h2>
+      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Start capture automatically"></button><span>Start capture when a remote session gets focus</span></div>
+      <div class="slider" style="margin-top:8px"><span>Stop after the session loses focus for</span><input type="range" min="30" max="300" value="90" aria-label="Grace period in seconds" id="grace"><b id="grace-v">90 s</b></div>
+
+      <h2>Hotkeys <span class="n">2</span></h2>
+      <div class="list">
+        <div class="li"><span class="grow">Start capture</span><span class="kbd">Ctrl+Alt+R</span><button class="btn sm ghost">Change</button></div>
+        <div class="li"><span class="grow">Pause / resume</span><span class="kbd">Ctrl+Alt+P</span><button class="btn sm ghost">Change</button></div>
+        <div class="li"><span class="grow">Stop and draft</span><span class="kbd">Ctrl+Alt+S</span><button class="btn sm ghost">Change</button></div>
+        <div class="li" style="flex-wrap:wrap"><span class="grow">Mark moment</span><span class="kbd">Ctrl+Alt+M</span><button class="btn sm ghost">Change</button>
+          <span class="error-text" style="flex-basis:100%">Ctrl+Alt+M is already used by Microsoft Teams (mute). Try Ctrl+Alt+K. <button class="btn sm">Use Ctrl+Alt+K</button></span></div>
+      </div>
+
+      <h2>Screenshots</h2>
+      <div class="row"><span>Scene-change sensitivity</span><div class="seg" role="group" aria-label="Scene-change sensitivity"><button>Low</button><button aria-pressed="true">Medium</button><button>High</button></div><span class="help">Higher catches more screen changes and keeps more screenshots.</span></div>
+
+      <h2>Microphone</h2>
+      <div class="grid2" style="max-width:640px">
+        <div class="field"><label for="mic">Device</label><select class="input" id="mic"><option>Headset (Jabra Evolve2 65)</option><option>Laptop microphone array</option></select>
+          <span class="meta">Level <span style="display:inline-block;width:120px;height:8px;border:1px solid var(--line-2);vertical-align:middle"><span style="display:block;width:45%;height:100%;background:var(--fill)"></span></span></span></div>
+        <div class="field"><span class="label">Speech model</span>
+          <label class="opt-card" style="margin:0"><input type="radio" name="model" checked> <span><b>Small</b> · 150 MB<br><span class="help">Fast; good for clear speech</span></span></label>
+          <label class="opt-card" style="margin:0"><input type="radio" name="model"> <span><b>Medium</b> · 500 MB<br><span class="help">Slower; better with accents and background noise</span></span></label></div>
+      </div>
+
+      <h2>Startup</h2>
+      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Start ScreenTail at sign-in"></button><span>Open the ScreenTail window at sign-in <span class="help">(capture runs either way)</span></span></div>
+    </div>
+
+    <!-- S6 PRIVACY -->
+    <div class="sbody" data-when="privacy privacy-locked">
+      <div class="banner" data-when="privacy-locked" style="margin-bottom:12px"><span class="grow"><b>Some settings are set by your admin</b> (policy v14). They're shown with 🔒 and can't be changed here.</span></div>
+
+      <h2>What leaves this device <span class="n">3</span></h2>
+      <div class="flow">
+        <div><b>1 · Captured on this device</b>Screenshots, clicks and your voice, only while a session records.</div>
+        <div><b>2 · Redacted on this device</b>Passwords, card numbers and keys are masked before anything else sees them.</div>
+        <div><b>3 · Summary request</b>A few redacted screenshots and text go to ScreenTail to write the draft; nothing is stored there. <i>In Local-only mode this step happens on this device.</i></div>
+        <div><b>4 · You publish</b>Only when you click Publish, to ConnectWise and Hudu.</div>
+      </div>
+
+      <h2>Local-only mode</h2>
+      <div class="row"><span data-when="privacy"><button class="toggle" role="switch" aria-checked="false" aria-label="Local-only mode"></button></span>
+        <span data-when="privacy-locked"><button class="toggle locked" role="switch" aria-checked="true" aria-disabled="true" aria-label="Local-only mode, set by your admin" title="Set by your admin"></button></span>
+        <span>Never send anything off this device except what you publish</span><span class="lock" data-when="privacy-locked">🔒 Set by your admin</span></div>
+      <p class="help">Drafts are written on this device. Expect slower drafts and lower quality.</p>
+
+      <h2>Excluded apps and windows</h2>
+      <div class="list">
+        <div class="li"><span class="grow">1Password.exe</span><span class="badge">Recommended</span><button class="btn sm ghost">Remove</button></div>
+        <div class="li"><span class="grow">Bitwarden.exe</span><span class="badge">Recommended</span><button class="btn sm ghost">Remove</button></div>
+        <div class="li"><span class="grow">KeePass.exe</span><span class="badge">Recommended</span><button class="btn sm ghost">Remove</button></div>
+        <div class="li"><span class="grow">Window title contains "bank"</span><span class="badge">Recommended</span><button class="btn sm ghost">Remove</button></div>
+        <div class="li"><span class="grow help">+ 9 more recommended password managers and banking sites</span></div>
+        <div class="li"><button class="btn sm">Add process, title or URL…</button></div>
+      </div>
+
+      <h2>Redaction patterns</h2>
+      <div class="list" style="max-width:640px">
+        <div class="li"><span class="grow">Social Security numbers</span><button class="toggle" role="switch" aria-checked="true" aria-label="SSN"></button></div>
+        <div class="li"><span class="grow">Card numbers</span><button class="toggle" role="switch" aria-checked="true" aria-label="Card numbers"></button></div>
+        <div class="li"><span class="grow">API keys and tokens</span><button class="toggle" role="switch" aria-checked="true" aria-label="API keys"></button></div>
+        <div class="li"><span class="grow">Passwords (label + value pairs)</span><button class="toggle" role="switch" aria-checked="true" aria-label="Passwords"></button></div>
+        <div class="li"><span class="grow">Email addresses</span><button class="toggle" role="switch" aria-checked="false" aria-label="Email addresses"></button></div>
+      </div>
+      <div class="grid2" style="max-width:640px;margin-top:10px">
+        <div class="field"><label for="rx">Custom pattern (regex) <span class="n">4</span></label><input class="input mono" id="rx" value="ACME-\d{6}"><span id="rx-state" class="help">Valid pattern</span></div>
+        <div class="field"><label for="rx-test">Test it</label><input class="input" id="rx-test" value="Asset tag ACME-123456 on the front desk PC"><span id="rx-out" class="help mono"></span></div>
+      </div>
+
+      <h2>Retention</h2>
+      <div class="slider"><input type="range" min="1" max="30" value="7" id="ret" aria-label="Retention in days"><b id="ret-v">7 days</b><span class="lock" data-when="privacy-locked">🔒 Set by your admin (3 days)</span></div>
+      <p class="help">Deleted after this: screenshots, OCR text, transcripts, pending uploads. Kept: your published notes and the audit log.</p>
+
+      <h2>Usage telemetry</h2>
+      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Usage telemetry"></button><span>Send usage numbers to improve ScreenTail</span></div>
+      <p class="help">Exactly these fields: session length, time to publish, share of draft edited, screenshot and redaction counts, app and Windows version. Never note text, window titles, company or ticket names, or transcripts.</p>
+
+      <h2>Your data</h2>
+      <div class="row"><button class="btn">Export audit log</button><button class="btn" id="delete-all">Delete everything…</button></div>
+    </div>
+
+    <!-- S7 INTEGRATIONS -->
+    <div class="sbody" data-when="integrations">
+      <div class="card">
+        <h3>ConnectWise Manage <span class="badge solid">Connected</span></h3>
+        <div class="grid2">
+          <div class="field"><label>Site / region</label><select class="input"><option>North America (na.myconnectwise.net)</option><option>Europe</option><option>Australia</option></select></div>
+          <div class="field"><label>Company ID</label><input class="input" value="contosomsp"></div>
+          <div class="field"><label>Public key</label><div class="masked"><input class="input" value="••••••••••••7Qa2" disabled><button class="btn sm">Change</button></div></div>
+          <div class="field"><label>Private key</label><div class="masked"><input class="input" value="••••••••••••1f3a" disabled><button class="btn sm">Change</button></div></div>
+          <div class="field"><label>Client ID</label><div class="masked"><input class="input" value="••••••••-••••-9c41" disabled><button class="btn sm">Change</button></div></div>
+          <div class="field"><label>Your API member (optional)</label><input class="input" placeholder="Leave empty to use the shared API member"><span class="help">Time entries are attributed to this member.</span></div>
+        </div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="cw-test">Test connection</button>
+          <span class="result" id="cw-ok">Connected as <b>api-screentail</b> · company <b>Contoso MSP</b></span>
+          <span class="error-text" id="cw-err" hidden>ConnectWise rejected the request: clientId header missing. Add your client ID above.</span> <span class="n">5</span></div>
+        <div class="rule"></div>
+        <div class="row"><span class="label">Default note type</span><label><input type="radio" name="dnt" checked> Internal</label><label><input type="radio" name="dnt"> Discussion</label>
+          <span class="grow"></span><span class="label">Time rounding</span><div class="seg" role="group" aria-label="Time rounding"><button>6 min</button><button aria-pressed="true">15 min</button></div></div>
+      </div>
+
+      <div class="card">
+        <h3>Hudu <span class="badge solid">Connected</span></h3>
+        <div class="grid2">
+          <div class="field"><label>Base URL</label><input class="input" value="https://docs.contosomsp.com"></div>
+          <div class="field"><label>API key</label><div class="masked"><input class="input" value="••••••••••••c09d" disabled><button class="btn sm">Change</button></div></div>
+        </div>
+        <div class="row" style="margin-top:10px"><button class="btn">Test connection</button><span class="result">Connected · 38 companies</span><span class="grow"></span>
+          <span class="label">Articles go to</span><label><input type="radio" name="kb" checked> The customer's company KB</label><label><input type="radio" name="kb"> Central KB</label></div>
+      </div>
+
+      <div class="card">
+        <h3>Company mapping <span class="n">6</span></h3>
+        <table class="t">
+          <thead><tr><th>ConnectWise company</th><th>Hudu company</th><th>Match</th></tr></thead>
+          <tbody>
+            <tr><td>Acme Dental</td><td><select class="input" style="height:26px"><option>Acme Dental</option></select></td><td><span class="badge solid">Exact</span></td></tr>
+            <tr><td>Birch Legal LLP</td><td><select class="input" style="height:26px"><option>Birch Legal</option></select></td><td><span class="badge">Likely</span></td></tr>
+            <tr><td>Pine Veterinary Clinic</td><td><select class="input" style="height:26px"><option>Choose…</option><option>Pine Vet</option></select></td><td><span class="badge hatch">No match</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="scrim" id="del-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="del-h">
+        <h3 id="del-h">Delete everything on this device?</h3>
+        <p class="meta">Deletes every session, draft, screenshot and transcript, your settings, and the sign-in tokens for ConnectWise and Hudu. You'll need to set ScreenTail up again. It can't be undone.</p>
+        <div class="field"><label for="del-input">Type DELETE to confirm</label><input class="input" id="del-input" autocomplete="off"></div>
+        <div class="actions"><button class="btn" id="del-cancel">Cancel</button><button class="btn primary" id="del-ok" disabled>Delete everything</button></div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="notes">
+    <h2>Notes</h2>
+    <ol>
+      <li><b>Scope:</b> "All windows" shows an inline warning and needs a confirming click before it saves (INV-5). Try selecting it.</li>
+      <li><b>Hotkeys:</b> conflicts show inline with a suggested alternative (ST-029). No dialogs.</li>
+      <li><b>Data flow:</b> the plain-language diagram must match the security data-flow doc (ST-114).</li>
+      <li><b>Custom regex:</b> validated as you type, with a test box. An invalid pattern blocks saving and says why (ST-081). Try typing <code>(</code>.</li>
+      <li><b>Test connection:</b> errors follow the Spec §4 pattern: what happened, then what to do. Secrets are masked after saving, and "Change" reveals the field. Click Test to see the error case.</li>
+      <li><b>Company mapping:</b> auto-matched with a confidence badge, and editable.</li>
+    </ol>
+    <h3>Admin-locked (INV-11)</h3>
+    <p class="meta">Switch to "S6 with admin policy". Locked fields keep their value, show a lock with "Set by your admin", and can't be changed. The client enforces them, not just displays them.</p>
+    <h3>Delete everything</h3>
+    <p class="meta">Needs "DELETE" typed, and also removes tokens (INV-12).</p>
+  </aside>
+</main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const $ = (s) => document.querySelector(s);
+  wf.onState((s) => {
+    const section = s.startsWith('privacy') ? 'privacy' : s;
+    ['capture', 'privacy', 'integrations'].forEach((n) => $('#nav-' + n).toggleAttribute('aria-current', n === section) || $('#nav-' + n).setAttribute('aria-current', n === section ? 'page' : 'false'));
+  });
+  document.querySelectorAll('.toggle:not(.locked)').forEach((t) => t.addEventListener('click', () => t.setAttribute('aria-checked', String(t.getAttribute('aria-checked') !== 'true'))));
+  document.querySelectorAll('.seg').forEach((g) => g.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) g.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }));
+  $('#scope-all').addEventListener('change', () => ($('#scope-warn').hidden = false));
+  $('#scope-rec').addEventListener('change', () => ($('#scope-warn').hidden = true));
+  $('#scope-cancel').onclick = () => { $('#scope-rec').checked = true; $('#scope-warn').hidden = true; };
+  $('#scope-confirm').onclick = () => { $('#scope-warn').hidden = true; wf.toast('Capture scope: all windows during a session.'); };
+  $('#grace').addEventListener('input', (e) => ($('#grace-v').textContent = e.target.value + ' s'));
+  $('#ret').addEventListener('input', (e) => ($('#ret-v').textContent = e.target.value + (e.target.value === '1' ? ' day' : ' days')));
+  const rx = $('#rx'), test = $('#rx-test');
+  const runRx = () => {
+    let re;
+    try { re = new RegExp(rx.value, 'g'); $('#rx-state').className = 'help'; $('#rx-state').textContent = 'Valid pattern'; }
+    catch (err) { $('#rx-state').className = 'error-text'; $('#rx-state').textContent = "This pattern isn't valid: " + err.message.replace(/^.*: /, '') + '. Fix it to save.'; $('#rx-out').textContent = ''; return; }
+    const matches = test.value.match(re) || [];
+    $('#rx-out').textContent = `${matches.length} match${matches.length === 1 ? '' : 'es'} → ` + test.value.replace(re, '[REDACTED]');
+  };
+  rx.addEventListener('input', runRx); test.addEventListener('input', runRx); runRx();
+  let showErr = false;
+  $('#cw-test').onclick = () => { showErr = !showErr; $('#cw-err').hidden = !showErr; $('#cw-ok').hidden = showErr; };
+  const dm = $('#del-modal'), di = $('#del-input');
+  $('#delete-all').onclick = () => { dm.hidden = false; di.value = ''; $('#del-ok').disabled = true; di.focus(); };
+  $('#del-cancel').onclick = () => (dm.hidden = true);
+  di.addEventListener('input', () => ($('#del-ok').disabled = di.value.trim() !== 'DELETE'));
+  $('#del-ok').onclick = () => { dm.hidden = true; wf.toast('Everything on this device was deleted, including sign-in tokens.'); };
+});
+</script>
+</body>
+</html>
