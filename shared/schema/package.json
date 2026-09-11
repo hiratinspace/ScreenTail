@@ -1,0 +1,19 @@
+{
+  "name": "screentail-schema",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "codegen": "node codegen/generate.mjs",
+    "test": "node test/validate-examples.mjs",
+    "check": "npm run codegen && git diff --exit-code -- ../../client/ScreenTail.Shared/Generated ../../web/src/generated"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "json-schema-to-typescript": "16.0.0"
+  }
+}
