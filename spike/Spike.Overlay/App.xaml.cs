@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Linq;
 using System.Windows;
 using System.Windows.Forms;
 using Application = System.Windows.Application;
@@ -12,11 +13,13 @@ public partial class App : Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
-        var overlay = new OverlayWindow();
+        // --visible starts in the control case (no exclusion) so CI can produce it without the tray menu.
+        var excludeAtStart = !e.Args.Contains("--visible");
+        var overlay = new OverlayWindow(excludeAtStart);
         overlay.Show();
 
         // Unchecking produces the control case: the capture check must then report CAPTURED.
-        var exclude = new ToolStripMenuItem("Exclude overlay from capture") { Checked = true, CheckOnClick = true };
+        var exclude = new ToolStripMenuItem("Exclude overlay from capture") { Checked = excludeAtStart, CheckOnClick = true };
         exclude.CheckedChanged += (_, _) => overlay.SetExcludedFromCapture(exclude.Checked);
 
         var menu = new ContextMenuStrip();

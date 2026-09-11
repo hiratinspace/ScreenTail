@@ -28,14 +28,28 @@ cd spike
 dotnet build -c Release
 ```
 
-## Runs (about 25 minutes in total)
+## Automated checks (GitHub Actions)
 
-Each run prints its output folder (`%LOCALAPPDATA%\ScreenTail.Spike\runs\<timestamp>-<command>`). `Ctrl+C` ends a run early and still writes the report. In the commands below, `cap` stands for `dotnet run -c Release --project Spike.Capture --`.
+On every pull request that touches `spike/`, `.github/workflows/spike-windows.yml` builds on a hosted Windows runner and runs the unit tests. It also runs the checks that need no person: the overlay check with its control case (AC3), synthetic legibility (AC4), and a 1-minute smoke run that makes sure the hooks, UIA, Whisper and OCR all start. Results show in the run's summary page and in the `st-001-evidence-windows-runner` artifact. The runner is a VM, so its numbers don't count toward the ACs; the check is there to catch crashes before you spend time at the keyboard.
+
+## Easiest path: the guided script (about 25 minutes)
+
+From `spike\` on the Windows machine, with the `st-001-client-stack-spike` branch checked out:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-spike.ps1 -Push
+```
+
+The script pulls and builds, records machine info, runs the overlay check by itself, prompts you through the two 5-minute runs, runs legibility, then deletes the saved frames and prints the verdicts. With `-Push` it asks you to confirm and then commits `docs\adr\evidence\0001` to the branch and pushes it. Options: `-IncludeFrames` keeps the screenshots; `-SkipBaseline` skips the hooks-only run.
+
+## Manual runs
+
+The same steps by hand. Each run prints its output folder (`%LOCALAPPDATA%\ScreenTail.Spike\runs\<timestamp>-<command>`). `Ctrl+C` ends a run early and still writes the report. In the commands below, `cap` stands for `dotnet run -c Release --project Spike.Capture --`.
 
 1. **Start the overlay.** In a separate terminal, run `dotnet run -c Release --project Spike.Overlay`. A magenta pill appears top-right and an info icon appears in the tray.
 2. **Overlay exclusion (AC3) with a control case:**
    - `cap overlay-check --label excluded` should print `EXCLUDED`.
-   - Right-click the tray icon and **uncheck** "Exclude overlay from capture". Then run `cap overlay-check --label visible`, which should print `CAPTURED`. This proves the check can actually see the overlay. Re-check the menu item afterwards.
+   - Right-click the tray icon and **uncheck** "Exclude overlay from capture" (or start the overlay with `--visible`). Then run `cap overlay-check --label visible`, which should print `CAPTURED`. This proves the check can actually see the overlay. Re-check the menu item afterwards.
 3. **Baseline latency, hooks only:** `cap run --minutes 5 --no-whisper --no-uia --no-ocr`. Type continuously in Notepad for the full 5 minutes and click now and then.
 4. **Full load (AC1, AC2 and AC3 in one run):** `cap run --minutes 5`. Leave the overlay running.
    - For the first ~3 minutes, maximize Notepad and type and click continuously. Talk while you work so the mic has speech.
@@ -44,7 +58,7 @@ Each run prints its output folder (`%LOCALAPPDATA%\ScreenTail.Spike\runs\<timest
 
 ## What to send back
 
-Copy the run folders into `docs/adr/evidence/0001/` in the repo (leave out `frames/` unless you're comfortable sharing it), or paste each `report.md`, `overlay-check-*.txt` and `legibility.md`. Also note:
+`run-spike.ps1 -Push` handles this. If you ran the steps by hand, copy the run folders into `docs/adr/evidence/0001/` on the branch and push (leave out `frames/` unless you're comfortable sharing it), or paste each `report.md`, `overlay-check-*.txt` and `legibility.md`. Also note:
 
 - CPU model and core count, and RAM
 - Display resolution and scaling

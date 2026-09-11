@@ -1,0 +1,104 @@
+name: spike-windows
+
+# ST-001: build the spike on real Windows and produce the evidence that needs no human.
+# Typing latency (AC1) and RDP (AC2) still need a person: see spike/run-spike.ps1.
+# Evidence steps are continue-on-error because hosted runners are VMs whose desktop may
+# differ from a technician laptop; their output is uploaded either way.
+
+on:
+  pull_request:
+    paths:
+      - 'spike/**'
+      - '.github/workflows/spike-windows.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: spike-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Build, test, automated checks
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: spike
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Evidence folder
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'st-001-evidence'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          "EVIDENCE=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $overlay = Join-Path $PWD 'Spike.Overlay\bin\Release\net8.0-windows\Spike.Overlay.exe'
+          "OVERLAY_EXE=$overlay" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build
+        run: dotnet build ScreenTail.Spike.sln -c Release
+
+      - name: Unit tests
+        run: dotnet test Spike.Core.Tests -c Release --no-build
+
+      - name: Parse-check run-spike.ps1 (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'run-spike.ps1').Path, [ref]$null, [ref]$errors)
+          if ($errors) { $errors | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
+
+      - name: AC3 overlay exclusion (excluded + control)
+        continue-on-error: true
+        run: |
+          $out = Join-Path $env:EVIDENCE 'overlay'
+          foreach ($label in 'excluded', 'visible') {
+            if ($label -eq 'visible') {
+              $overlay = Start-Process -FilePath $env:OVERLAY_EXE -ArgumentList '--visible' -PassThru
+            } else {
+              $overlay = Start-Process -FilePath $env:OVERLAY_EXE -PassThru
+            }
+            Start-Sleep -Seconds 5
+            try { dotnet run -c Release --no-build --project Spike.Capture -- overlay-check --label $label --out $out }
+            finally { Stop-Process -Id $overlay.Id -Force -ErrorAction SilentlyContinue }
+          }
+          $excluded = Get-Content (Join-Path $out 'overlay-check-excluded.txt') -Raw
+          $visible = Get-Content (Join-Path $out 'overlay-check-visible.txt') -Raw
+          "### AC3 overlay exclusion`n`n- excluded run: $excluded`n- control run: $visible" | Add-Content $env:GITHUB_STEP_SUMMARY
+          if ($excluded -notmatch 'EXCLUDED' -or $visible -notmatch 'CAPTURED') {
+            Write-Host '::error::Expected EXCLUDED for the excluded run and CAPTURED for the control run.'
+            exit 1
+          }
+
+      - name: AC4 legibility (synthetic 4K)
+        continue-on-error: true
+        run: |
+          $out = Join-Path $env:EVIDENCE 'legibility'
+          dotnet run -c Release --no-build --project Spike.Capture -- legibility --out $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Content (Join-Path $out 'legibility.md') | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Smoke run (1 min, no human input)
+        continue-on-error: true
+        run: |
+          $out = Join-Path $env:EVIDENCE 'smoke-run'
+          dotnet run -c Release --no-build --project Spike.Capture -- run --minutes 1 --out $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Content (Join-Path $out 'report.md') | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: st-001-evidence-windows-runner
+          path: ${{ runner.temp }}/st-001-evidence
+          if-no-files-found: warn

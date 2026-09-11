@@ -17,12 +17,14 @@ public partial class OverlayWindow : Window
 
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DateTime _startedAt = DateTime.Now;
+    private readonly bool _excludeAtStart;
     private IntPtr _hwnd;
     private bool _excluded;
     private string _affinityNote = string.Empty;
 
-    public OverlayWindow()
+    public OverlayWindow(bool excludeAtStart)
     {
+        _excludeAtStart = excludeAtStart;
         InitializeComponent();
         _clock.Tick += (_, _) => Render();
     }
@@ -52,7 +54,7 @@ public partial class OverlayWindow : Window
         Left = area.Right - Width - 16;
         Top = area.Top + 16;
 
-        SetExcludedFromCapture(true);
+        SetExcludedFromCapture(_excludeAtStart);
         _clock.Start();
     }
 
