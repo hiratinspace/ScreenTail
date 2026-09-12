@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTail.UI", "ScreenTail
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTail.Tests", "ScreenTail.Tests\ScreenTail.Tests.csproj", "{4387DE90-DCFE-4807-AF9B-FDA0077C89E7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTail.Tests.Windows", "ScreenTail.Tests.Windows\ScreenTail.Tests.Windows.csproj", "{73661002-F3B8-4662-9196-859A652E1890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{4387DE90-DCFE-4807-AF9B-FDA0077C89E7}.Release|x64.Build.0 = Release|Any CPU
 		{4387DE90-DCFE-4807-AF9B-FDA0077C89E7}.Release|x86.ActiveCfg = Release|Any CPU
 		{4387DE90-DCFE-4807-AF9B-FDA0077C89E7}.Release|x86.Build.0 = Release|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Debug|x64.Build.0 = Debug|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Debug|x86.Build.0 = Debug|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Release|x64.ActiveCfg = Release|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Release|x64.Build.0 = Release|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Release|x86.ActiveCfg = Release|Any CPU
+		{73661002-F3B8-4662-9196-859A652E1890}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

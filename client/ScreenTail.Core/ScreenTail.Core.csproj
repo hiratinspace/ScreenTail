@@ -6,6 +6,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- SQLite + SQLCipher; the bundle carries native libraries for Windows, macOS and Linux. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Numbered migrations (Guide §5), applied in order by SqliteSessionStore. -->
+    <EmbeddedResource Include="Store\Migrations\*.sql" LogicalName="ScreenTail.Core.Store.Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>
 </Project>
