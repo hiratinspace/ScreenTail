@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScreenTail wireframes (ST-014)</title>
+<link rel="stylesheet" href="wf.css">
+</head>
+<body>
+<header class="wf-top">
+  <span class="id">ScreenTail wireframes</span>
+  <span class="spec">ST-014 · low fidelity · Spec v0.4 §5</span>
+</header>
+
+<div class="doc">
+  <h1>ScreenTail v1 wireframes</h1>
+  <p class="meta">Greyscale on purpose: these settle layout, content, states and flow. Colour, type and tokens come in ST-015 and ST-016. Every screen follows <code>Build Plan/01-UX-Design-Spec.md</code> §5; each note links back to the spec section it implements.</p>
+  <p class="meta">How to use them: the state buttons in the dark bar switch each screen between its states. Blue numbers are callouts that match the notes; press <span class="kbd">C</span> to hide them. S3 Review works with the keyboard.</p>
+
+  <h2>Screens</h2>
+  <div class="cards">
+    <a class="card" href="s1-tray.html"><b>S1 · Tray icon, quick menu, "What's being captured"</b><span>5 icon states · idle vs recording menu · diagnostics panel</span></a>
+    <a class="card" href="s2-hud.html"><b>S2 · Recording HUD</b><span>All 8 pill variants · expanded view · interactions</span></a>
+    <a class="card" href="s3-review.html"><b>S3 · Review &amp; Publish</b><span>The product. 10 states, clickable, keyboard shortcuts, task timer for technician sessions</span></a>
+    <a class="card" href="s4-history.html"><b>S4 · Session history</b><span>Table, filters, coverage banner, bulk discard, export, empty state</span></a>
+    <a class="card" href="s5-s7-settings.html"><b>S5–S7 · Settings</b><span>Capture · Privacy &amp; Redaction (incl. admin-locked) · Integrations</span></a>
+    <a class="card" href="s8-onboarding.html"><b>S8 · Onboarding wizard</b><span>7 steps with progress dots</span></a>
+  </div>
+
+  <h2>Flows</h2>
+  <div class="cards">
+    <a class="card" href="flows.html#happy"><b>Happy path</b><span>Remote session → HUD → draft ready → review → publish</span></a>
+    <a class="card" href="flows.html#sensitive"><b>Sensitive moment</b><span>Password field or excluded app → capture pauses and drops data</span></a>
+    <a class="card" href="flows.html#bad-draft"><b>Bad draft</b><span>Fix steps, remove frames, rewrite result, publish</span></a>
+    <a class="card" href="flows.html#missed-start"><b>Missed start</b><span>Manual start mid-session → partial-capture draft</span></a>
+    <a class="card" href="flows.html#discard"><b>Discard</b><span>From Review, from the tray while recording, and in bulk</span></a>
+  </div>
+
+  <h2>Reviewing these</h2>
+  <p class="meta"><code>README.md</code> in this folder has the technician session script (the "accept this note" task), the observation sheet, and the open questions the spec needs answered before hi-fi work starts.</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S1 Tray and quick menu · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<script src="wf.js" defer></script>
+<style>
+  .taskbar { width: 460px; height: 64px; background: var(--wash-2); display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 14px; }
+  .tray-ico { width: 32px; height: 32px; border: 1.5px solid var(--ink); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; position: relative; background: var(--paper); }
+  .tray-ico .dot { position: absolute; right: -4px; bottom: -4px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); border: 2px solid var(--paper); }
+  .tray-ico .count { position: absolute; right: -7px; top: -7px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+  .tray-ico.grey { border-style: dashed; color: var(--ink-3); border-color: var(--ink-3); }
+  .other-ico { width: 18px; height: 18px; border: 1px solid var(--line-2); border-radius: 3px; }
+  .tip { position: absolute; bottom: 70px; right: 10px; background: var(--paper); border: 1px solid var(--line-2); padding: 4px 8px; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.12); white-space: nowrap; }
+  .menu { width: 320px; padding: 6px 0; font-size: 13px; }
+  .menu .item { display: flex; justify-content: space-between; padding: 6px 14px; }
+  .menu .item:hover { background: var(--wash-2); }
+  .menu .state-line { font-weight: 600; color: var(--ink-2); cursor: default; }
+  .menu .state-line:hover { background: none; }
+  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+  .panel { width: 360px; height: 420px; display: flex; flex-direction: column; }
+  .panel .hd { padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  .panel dl { margin: 0; padding: 10px 14px; display: grid; grid-template-columns: 128px 1fr; gap: 8px 10px; font-size: 12.5px; flex: 1; }
+  .panel dt { color: var(--ink-2); }
+  .meter { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; vertical-align: -1px; }
+  .meter i { width: 4px; background: var(--ink); } .meter i.off { background: var(--line); }
+  .panel .ft { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">S1 Tray icon and quick menu</span><span class="spec">Spec §5 S1, §2.4</span>
+  <nav class="states" aria-label="Wireframe states">
+    <button data-state-set="recording">Recording</button>
+    <button data-state-set="idle">Idle</button>
+    <button data-state-set="draft-ready">Draft ready</button>
+    <button data-state-set="offline">Offline</button>
+    <button data-state-set="stopped">Service stopped</button>
+  </nav>
+  <span class="grow"></span><a href="index.html">← Index</a><a href="s2-hud.html">S2 →</a>
+</header>
+
+<main class="wf-main">
+  <div class="stack">
+    <div>
+      <p class="frame-label">Tray (bottom-right of the taskbar), with tooltip</p>
+      <div class="frame" style="width:460px;height:120px">
+        <div style="position:absolute;inset:0 0 auto 0;height:56px"></div>
+        <div class="tip">
+          <span data-when="recording">Recording — ScreenConnect · 12:41</span>
+          <span data-when="idle">ScreenTail — idle. Capture starts when you open a remote session.</span>
+          <span data-when="draft-ready">ScreenTail — 2 drafts ready</span>
+          <span data-when="offline">ScreenTail — offline. Drafts will be created when you're back online.</span>
+          <span data-when="stopped">ScreenTail — capture service isn't running. Click to start it.</span>
+        </div>
+        <div class="taskbar" style="position:absolute;bottom:0;right:0">
+          <span class="other-ico"></span><span class="other-ico"></span>
+          <span class="tray-ico" data-when="recording" aria-label="ScreenTail recording">t<span class="dot"></span></span>
+          <span class="tray-ico" data-when="idle" aria-label="ScreenTail idle">t</span>
+          <span class="tray-ico" data-when="draft-ready" aria-label="ScreenTail, 2 drafts ready">t<span class="count">2</span></span>
+          <span class="tray-ico grey" data-when="offline" aria-label="ScreenTail offline">t</span>
+          <span class="tray-ico" data-when="stopped" aria-label="ScreenTail capture service stopped">!</span>
+          <span class="n">1</span>
+          <span class="meta mono">14:14</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="frame-label">Quick menu (click the tray icon)</p>
+      <div class="frame menu" role="menu">
+        <div data-when="recording">
+          <div class="item state-line">● Recording — ScreenConnect (12:41) <span class="n">2</span></div>
+          <div class="item">Pause <span class="kbd">Ctrl+Alt+P</span></div>
+          <div class="item">Stop and draft <span class="kbd">Ctrl+Alt+S</span></div>
+          <div class="item">Discard session… <span class="n">3</span></div>
+        </div>
+        <div data-when="idle draft-ready offline">
+          <div class="item state-line" data-when="offline">Offline — drafts wait until you're connected</div>
+          <div class="item">Start capture <span class="kbd">Ctrl+Alt+R</span></div>
+        </div>
+        <div data-when="stopped">
+          <div class="item state-line">Capture service isn't running</div>
+          <div class="item">Start capture service</div>
+        </div>
+        <hr>
+        <div class="item"><span>Open last draft <span data-when="draft-ready">(2 ready)</span></span></div>
+        <div class="item">Session history</div>
+        <div class="item">What's being captured right now? <span class="n">4</span></div>
+        <hr>
+        <div class="item">Settings</div>
+        <div class="item">Quit ScreenTail</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="frame-label">"What's being captured right now?" · 360 × 420</p>
+    <div class="frame panel">
+      <div class="hd">What's being captured right now</div>
+      <dl>
+        <dt>Active window</dt><dd><span data-unless="idle stopped">ScreenConnect — remote session<br><span class="badge">In scope · remote tool</span></span><span data-when="idle stopped" class="muted">Not capturing</span></dd>
+        <dt>Microphone</dt><dd>Headset (Jabra Evolve2 65)<br><span class="meter" aria-label="Mic level"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i class="off" style="height:12px"></i><i class="off" style="height:12px"></i></span> <span class="meta">live level</span></dd>
+        <dt>Suppression</dt><dd>None right now</dd>
+        <dt>Redaction backlog</dt><dd>2 screenshots waiting</dd>
+        <dt>Local-only</dt><dd><span class="badge">Off</span></dd>
+        <dt>Policy</dt><dd>v14 · synced 09:12</dd>
+        <dt>CPU / RAM</dt><dd>3.1% · 412 MB</dd>
+      </dl>
+      <div class="ft"><button class="btn sm">Copy diagnostics</button><span class="help">States only: no window names, text or transcript. <span class="n">5</span></span></div>
+    </div>
+  </div>
+
+  <aside class="notes">
+    <h2>Notes</h2>
+    <ol>
+      <li><b>Five icon states:</b> idle, recording (dot), draft ready (count badge), offline (grey, dashed here), service stopped (warning glyph). The tooltip names the tool and elapsed time while recording. Hi-fi uses the Spec §2.4 colours; here the shape carries the difference, so it holds up without colour too.</li>
+      <li><b>State line:</b> first row and not clickable. It uses the same words as the HUD, so the two never disagree (INV-4).</li>
+      <li><b>Discard session…:</b> during a recording this would break "no modal while recording". See open question Q3 in README.md.</li>
+      <li><b>Diagnostics panel:</b> for "is it recording me right now?" and for support calls. Everything is local; nothing here is sent anywhere.</li>
+      <li><b>Copy diagnostics:</b> copies state values only. The active window name shows on screen but is left out of the copy (INV-10).</li>
+    </ol>
+    <h3>Menu rules</h3>
+    <ul>
+      <li>Idle, draft ready and offline show <i>Start capture</i> at the top instead of the recording block.</li>
+      <li>Shortcut hints are right-aligned, and every item is reachable with the arrow keys.</li>
+    </ul>
+  </aside>
+</main>
+</body>
+</html>

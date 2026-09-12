@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S2 Recording HUD · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<script src="wf.js" defer></script>
+<style>
+  .desk { width: 900px; height: 640px; background: var(--hatch); }
+  .remote { position: absolute; left: 40px; top: 70px; right: 40px; bottom: 40px; border: 1px solid var(--line-2); background: var(--paper); }
+  .remote .bar { height: 28px; border-bottom: 1px solid var(--line); font-size: 12px; display: flex; align-items: center; padding: 0 10px; color: var(--ink-2); }
+  .gallery { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+  .gallery .lbl { font-size: 11px; color: var(--ink-2); margin-bottom: 4px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 12px; height: 44px; padding: 0 6px 0 16px;
+    border: 1.5px solid var(--ink-2); border-radius: 999px; background: var(--paper);
+    box-shadow: 0 4px 16px rgba(0,0,0,.18); font-size: 13px; white-space: nowrap; user-select: none;
+  }
+  .pill .lead { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  .pill .rec { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+  .pill .seg { color: var(--ink-2); display: inline-flex; gap: 4px; align-items: center; }
+  .pill .ctl { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--paper); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  .pill .ctl.txt { width: auto; border-radius: 16px; padding: 0 10px; font-size: 12px; gap: 4px; }
+  .pill.amber { border-style: dashed; }
+  .pill.violet { background: var(--hatch-dense); }
+  .pill.grey { color: var(--ink-3); border-color: var(--ink-3); }
+  .docked { position: absolute; right: 16px; top: 14px; }
+  .expanded { position: absolute; right: 16px; top: 64px; width: 360px; border: 1.5px solid var(--ink-2); border-radius: 14px; background: var(--paper); box-shadow: 0 4px 16px rgba(0,0,0,.18); padding: 10px 12px; font-size: 12.5px; }
+  .expanded ol { margin: 4px 0 10px; padding-left: 0; list-style: none; }
+  .expanded li { display: grid; grid-template-columns: 64px 1fr; gap: 6px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  .ctx { position: absolute; right: 120px; top: 60px; width: 250px; border: 1px solid var(--line-2); background: var(--paper); box-shadow: 0 4px 12px rgba(0,0,0,.15); font-size: 12.5px; padding: 4px 0; }
+  .ctx div { padding: 6px 12px; } .ctx div:hover { background: var(--wash-2); }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">S2 Recording HUD</span><span class="spec">Spec §5 S2, §7</span>
+  <nav class="states" aria-label="Wireframe states">
+    <button data-state-set="docked">Docked</button>
+    <button data-state-set="expanded">Expanded (click)</button>
+    <button data-state-set="context">Right-click</button>
+  </nav>
+  <span class="grow"></span><a href="s1-tray.html">← S1</a><a href="s3-review.html">S3 →</a>
+</header>
+
+<main class="wf-main">
+  <div>
+    <p class="frame-label">On the desktop: docked top-right over a remote session</p>
+    <div class="frame desk">
+      <div class="remote"><div class="bar">ScreenConnect — remote session (the HUD never takes focus from this window)</div><div class="ph" style="position:absolute;inset:28px 0 0 0"></div></div>
+      <div class="docked"><span class="pill" role="status" aria-label="Recording, 12 minutes 41 seconds, 3 items redacted" id="live">
+        <span class="lead"><span class="rec"></span>12:41</span>
+        <span class="seg">▂▄▆ mic</span>
+        <span class="seg">⛨ 3 redacted</span>
+        <button class="ctl txt" aria-label="Pause">‖ Pause</button>
+        <button class="ctl txt" aria-label="Stop and draft">■ Stop</button>
+      </span> <span class="n">1</span></div>
+      <div class="expanded" data-when="expanded">
+        <b>Last events</b> <span class="n">2</span>
+        <ol>
+          <li><span class="mono meta">14:04:40</span><span>Screenshot 5 · Print queue</span></li>
+          <li><span class="mono meta">14:04:40</span><span>Said: "clearing the queue now"</span></li>
+          <li><span class="mono meta">14:04:38</span><span>Click · remote session</span></li>
+        </ol>
+        <div class="row"><button class="btn sm">⚑ Mark moment <span class="kbd">Ctrl+Alt+M</span></button><span class="grow"></span><span class="help">Double-click the pill to open Review (read-only)</span></div>
+      </div>
+      <div class="ctx" data-when="context" role="menu">
+        <div>Hide HUD for this session</div>
+        <div class="help" style="padding-top:0">The tray icon keeps showing recording. <span class="n">3</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="frame-label">Every variant (left segment changes; controls stay put)</p>
+    <div class="frame gallery" style="width:640px">
+      <div><div class="lbl">Recording</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg">▂▄▆ mic</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Paused by you</div><span class="pill amber"><span class="lead">‖ Paused — press Ctrl+Alt+P to resume</span><span class="ctl txt">▶ Resume</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Suppressed · auto-resumes (INV-6: nothing is kept while this shows)</div>
+        <span class="pill amber"><span class="lead">⏸ Paused: sensitive field</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><span class="pill amber"><span class="lead">⏸ Paused: excluded app</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><span class="pill amber"><span class="lead">⏸ Paused: elevated window</span><span class="ctl txt">■ Stop</span></span> <span class="n">4</span></div>
+      <div><div class="lbl">Out of scope (clicks logged, no screenshots)</div><span class="pill violet"><span class="lead">Not capturing — Outlook</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Mic missing (tooltip: "No microphone. Capture continues without voice.")</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg" style="color:var(--ink-3)">✕ no mic</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Offline (tooltip: "Offline — draft will be created when connected.")</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg" style="color:var(--ink-3)">✕ offline</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
+    </div>
+  </div>
+
+  <aside class="notes">
+    <h2>Notes</h2>
+    <ol>
+      <li><b>Pill:</b> 44 px tall, fully rounded, draggable; its position is remembered. Always on top, never takes focus, and hidden from ScreenTail's own screenshots. That hiding already passes on Windows in ST-001 (AC3). Controls are 32 × 32 (Spec §7). Screen-reader text: "Recording, 12 minutes 41 seconds, 3 items redacted".</li>
+      <li><b>Click to expand:</b> shows the last 3 timeline events and Mark moment (<span class="kbd">Ctrl+Alt+M</span>). Double-click opens Review for the current session, read-only until you stop.</li>
+      <li><b>Right-click:</b> hides the HUD for this session only. The tray still shows recording, so capture is never silent (INV-4).</li>
+      <li><b>Wording:</b> Spec S2 says "Paused: elevated window", but ST-021 says "Elevated window — screen not captured". Open question Q5.</li>
+    </ol>
+    <h3>State cues in low-fi</h3>
+    <ul>
+      <li>Solid border = recording. Dashed = paused or suppressed (amber in hi-fi). Hatched fill = out of scope (violet). Grey text = degraded (mic missing, offline).</li>
+      <li>Every state is spelled out in words, so none of them depends on colour.</li>
+    </ul>
+    <h3>Screen sharing</h3>
+    <p class="meta">Open question Q1. The same capture exclusion that keeps the HUD out of ScreenTail's screenshots also keeps it out of Teams and Zoom screen shares, so the person watching never sees it and the technician always does. Recommendation: always visible.</p>
+  </aside>
+</main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const live = document.getElementById('live');
+  live.addEventListener('click', (e) => { if (!e.target.closest('.ctl')) wf.setState(wf.state === 'expanded' ? 'docked' : 'expanded'); });
+  live.addEventListener('contextmenu', (e) => { e.preventDefault(); wf.setState('context'); });
+});
+</script>
+</body>
+</html>

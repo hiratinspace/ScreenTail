@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 Review &amp; Publish · ScreenTail wireframes</title>
+<link rel="stylesheet" href="wf.css">
+<script src="wf.js" defer></script>
+<style>
+  .review { width: 1280px; height: 800px; display: flex; flex-direction: column; }
+  .titlebar { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+  .titlebar .title { flex: 1; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 380 + 558 + 340 = 1278: the centre fits three 160 px thumbnails plus gaps and padding. */
+  .panes { flex: 1; display: grid; grid-template-columns: 380px minmax(0, 1fr) 340px; min-height: 0; }
+  .pane { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+  .pane:last-child { border-right: 0; }
+  .pane:focus-within { box-shadow: inset 0 0 0 1px var(--line-2); }
+  .pane-h { display: flex; align-items: center; gap: 8px; padding: 10px 16px 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); flex: none; }
+  .pane-h .grow { flex: 1; }
+  .pane-body { flex: 1; overflow: auto; padding: 4px 16px 16px; }
+  .pane-f { flex: none; padding: 6px 16px; border-top: 1px solid var(--line); }
+
+  .banners { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .sec-h { font-size: 15px; font-weight: 600; color: var(--ink-2); margin: 14px 0 6px; display: flex; gap: 8px; align-items: baseline; }
+  .sec-h:first-of-type { margin-top: 4px; }
+  .edit { padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; }
+  .edit:hover { border-color: var(--line); }
+  .edit:focus { border-color: var(--line-2); outline: none; background: var(--wash); }
+  ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+  ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 14px 18px 1fr; gap: 2px 4px; padding: 4px 2px; border-radius: 4px; }
+  ol.steps > li:focus-within, ol.steps > li:focus { background: var(--wash); outline: none; }
+  ol.steps > li::before { content: counter(step) "."; grid-column: 2; grid-row: 1; padding-top: 4px; font-weight: 600; }
+  .grip { grid-column: 1; grid-row: 1; padding-top: 4px; color: var(--ink-3); cursor: grab; opacity: 0; font-size: 11px; }
+  ol.steps > li:hover .grip, ol.steps > li:focus-within .grip { opacity: 1; }
+  .st { grid-column: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  .st .edit { flex: 1 1 100%; }
+  .warn { display: none; font-weight: 700; cursor: help; }
+  li.low .warn { display: inline-flex; }
+  li.low .st .edit { flex-basis: calc(100% - 28px); }
+  li.low { box-shadow: inset 3px 0 0 var(--ink); }
+  li:not(.low) .confirm, li:not(.low) .inferred { display: none; }
+  .chip { font-size: 11.5px; border: 1px solid var(--line-2); border-radius: 999px; padding: 0 8px; background: var(--paper); cursor: pointer; }
+  .chip:hover { background: var(--wash-2); }
+  .quote { font: 12px var(--mono); color: var(--ink-3); }
+
+  .failed { border: 1px dashed var(--line-2); border-radius: 6px; padding: 24px; text-align: center; margin-top: 24px; }
+  .failed b { display: block; font-size: 15px; margin-bottom: 6px; }
+
+  .toolbar { display: flex; gap: 6px; padding: 0 16px 8px; flex: none; }
+  .grid { display: grid; grid-template-columns: repeat(3, 160px); gap: 14px 12px; align-content: start; }
+  .thumb { width: 160px; border: 0; padding: 0; background: none; text-align: left; cursor: pointer; }
+  .thumb .img { width: 160px; height: 90px; display: block; }
+  .thumb .cap { display: flex; gap: 6px; align-items: center; font-size: 11.5px; margin-top: 3px; color: var(--ink-2); }
+  .thumb .chk { width: 14px; height: 14px; border: 1px solid var(--ink-2); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; flex: none; }
+  .thumb.in .chk::after { content: "✓"; }
+  .thumb:not(.in) .img { opacity: .35; }
+  .thumb:not(.in) .cap { color: var(--ink-3); }
+  .thumb.sel .img { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .thumb.hl .img { outline: 2px dashed var(--note); outline-offset: 2px; }
+  .thumb .blurred { display: none; }
+  .thumb.is-blurred .blurred { display: inline; }
+  .gap { grid-column: 1 / -1; height: 22px; border-radius: 3px; font-size: 11px; display: flex; align-items: center; padding: 0 8px; color: var(--ink-2); }
+
+  .picker { position: relative; }
+  .picker .list { position: absolute; left: 0; right: 0; top: 34px; z-index: 30; background: var(--paper); border: 1px solid var(--line-2); border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.12); padding: 4px 0; }
+  .picker .opt { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+  .picker .opt:hover, .picker .opt:focus { background: var(--wash-2); outline: none; }
+  .picker .list .h { font-size: 11px; color: var(--ink-3); padding: 4px 10px; }
+  .radio-row { display: flex; gap: 14px; font-size: 12.5px; }
+  .dest { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
+  .reason { font-size: 12px; color: var(--ink-2); margin-top: 6px; text-align: center; }
+  .results { display: flex; flex-direction: column; gap: 10px; }
+  .res { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; font-size: 12.5px; }
+  .res .ico { font-weight: 700; }
+  .res .sub { grid-column: 2; font-size: 12px; color: var(--ink-2); }
+
+  .timeline { flex: none; border-top: 1px solid var(--line); height: 40px; display: flex; flex-direction: column; transition: height 180ms ease-out; }
+  .timeline.open { height: 220px; }
+  @media (prefers-reduced-motion: reduce) { .timeline { transition: none; } }
+  .tl-bar { height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; }
+  .tl-track { position: relative; flex: 1; height: 22px; border-bottom: 1px solid var(--line-2); }
+  .tl-track i { position: absolute; bottom: 3px; transform: translateX(-50%); }
+  .m-click { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
+  .m-frame { width: 7px; height: 7px; border: 1px solid var(--ink); background: var(--paper); bottom: 12px !important; }
+  .m-flag { font-style: normal; font-size: 11px; bottom: 6px !important; }
+  .m-band { position: absolute; top: 0; bottom: 0; }
+  .tl-now { font: 11px var(--mono); color: var(--ink-2); white-space: nowrap; }
+  .transcript { flex: 1; overflow: auto; padding: 6px 12px 10px 36px; font: 12px/1.7 var(--mono); }
+  .transcript button { display: block; border: 0; background: none; padding: 0 4px; font: inherit; text-align: left; cursor: pointer; border-radius: 3px; width: 100%; }
+  .transcript button:hover, .transcript button:focus { background: var(--wash-2); outline: none; }
+  .transcript .t { color: var(--ink-3); margin-right: 8px; }
+
+  .enlarge { position: absolute; inset: 48px 0 40px 0; z-index: 50; background: var(--paper); display: flex; flex-direction: column; padding: 12px 16px; gap: 8px; }
+  .enlarge .big { flex: 1; position: relative; }
+  .enlarge .cursor { position: absolute; left: 46%; top: 38%; font-size: 20px; font-weight: 700; }
+  .enlarge .region { position: absolute; left: 30%; top: 55%; width: 26%; height: 12%; border: 2px dashed var(--ink); background: rgba(255,255,255,.6); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .ocr { position: absolute; right: 12px; top: 12px; width: 300px; max-height: 70%; overflow: auto; background: var(--paper); border: 1px solid var(--line-2); padding: 8px 10px; font: 11.5px/1.5 var(--mono); white-space: pre-wrap; }
+
+  .sheet dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+  .sheet dt { text-align: right; }
+  .timer { font: 600 20px var(--mono); }
+</style>
+</head>
+<body>
+<header class="wf-top">
+  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <span class="id">S3 Review &amp; Publish</span>
+  <span class="spec">Spec §5 S3</span>
+  <nav class="states" aria-label="Wireframe states">
+    <button data-state-set="default">Default</button>
+    <button data-state-set="no-ticket">No ticket suggested</button>
+    <button data-state-set="partial-capture">Partial capture</button>
+    <button data-state-set="frames-purged">Frames purged</button>
+    <button data-state-set="local-draft">Local draft</button>
+    <button data-state-set="offline">Offline</button>
+    <button data-state-set="draft-failed">Draft failed</button>
+    <button data-state-set="no-integrations">No PSA connected</button>
+    <button data-state-set="published">Published</button>
+    <button data-state-set="partial-fail">Partial publish failure</button>
+  </nav>
+  <span class="grow"></span>
+  <a href="s2-hud.html">← S2</a><a href="s4-history.html">S4 →</a>
+</header>
+
+<main class="wf-main">
+  <div>
+    <p class="frame-label">Review window · 1280 × 800 default (min 1024 × 680)</p>
+    <div class="frame review" id="review">
+
+      <div class="titlebar">
+        <div class="title">Review — Printer offline · Acme Dental · 12 min · Sep 10, 14:02 <span class="n">1</span>
+          <span class="badge solid" data-when="published partial-fail">Published</span></div>
+        <button class="btn ghost" id="discard-open">Discard</button>
+        <button class="btn primary js-publish" data-unless="no-integrations">Publish ▸</button>
+      </div>
+
+      <div class="panes">
+        <!-- LEFT: note editor -->
+        <section class="pane" id="pane-note" aria-label="Note">
+          <div class="pane-h">NOTE <span class="kbd">Alt+1</span> <span class="n">2</span></div>
+          <div class="pane-body">
+            <div class="banners">
+              <div class="banner" data-when="partial-capture"><span class="tag">Partial</span><span class="grow">Capture started late or was interrupted. Some steps may be missing.</span></div>
+              <div class="banner" data-when="frames-purged"><span class="tag">Purged</span><span class="grow">3 screenshots were removed because they could not be redacted in time.</span></div>
+              <div class="banner" data-when="local-draft"><span class="tag">Local</span><span class="grow">Drafted on this device only — quality may be lower.</span></div>
+              <div class="banner" data-when="offline"><span class="tag">Offline</span><span class="grow"><b>Draft pending — offline.</b> Your draft will be created when you're back online. Screenshots and transcript are available now.</span></div>
+            </div>
+
+            <div class="failed" data-when="draft-failed">
+              <b>We couldn't draft this session</b>
+              <p class="meta">Your screenshots and transcript are saved. Try again, or check them below.</p>
+              <button class="btn primary">Retry draft</button>
+            </div>
+
+            <div data-unless="draft-failed offline" id="note-body">
+              <div class="sec-h">Problem</div>
+              <div class="edit" contenteditable="true">Front-desk printer at Acme Dental showed "Offline" and print jobs were stuck in the queue.</div>
+
+              <div class="sec-h">Steps <span class="meta">drag, or <span class="kbd">Alt+↑/↓</span> to reorder</span> <span class="n">3</span></div>
+              <ol class="steps" id="steps">
+                <li tabindex="0"><span class="grip" aria-hidden="true">⋮⋮</span>
+                  <div class="st"><div class="edit" contenteditable="true">Checked the Print Spooler service — it was stopped.</div>
+                    <button class="chip" data-frame="2">frame 2</button></div></li>
+                <li tabindex="0" class="low" id="step-low"><span class="grip" aria-hidden="true">⋮⋮</span>
+                  <div class="st"><span class="warn" title="Inferred from screen only — please verify" aria-label="Low confidence: inferred from screen only — please verify">⚠</span>
+                    <div class="edit" contenteditable="true">Restarted the Print Spooler service.</div>
+                    <span class="meta inferred">(inferred from screen)</span>
+                    <button class="chip" data-frame="3">frame 3</button>
+                    <button class="btn sm confirm">Confirm <span class="kbd">Alt+C</span></button> <span class="n">4</span></div></li>
+                <li tabindex="0"><span class="grip" aria-hidden="true">⋮⋮</span>
+                  <div class="st"><div class="edit" contenteditable="true">Cleared the print queue (4 stuck jobs).</div>
+                    <button class="chip" data-frame="5">frame 5</button><button class="chip" data-frame="7">frame 7</button>
+                    <span class="quote">"clearing the queue now"</span></div></li>
+                <li tabindex="0"><span class="grip" aria-hidden="true">⋮⋮</span>
+                  <div class="st"><div class="edit" contenteditable="true">Printed a test page; the user confirmed it came out.</div>
+                    <button class="chip" data-frame="11">frame 11</button>
+                    <span class="quote">"test page came out, she says it's fine"</span></div></li>
+              </ol>
+
+              <div class="sec-h">Result</div>
+              <div class="edit" contenteditable="true">Printer back online and printing. User confirmed.</div>
+
+              <div class="sec-h">Follow-ups</div>
+              <div class="edit" contenteditable="true">Spooler stopped with Event ID 7031 (frame 12). If it recurs this week, update the HP Universal driver.</div>
+            </div>
+          </div>
+          <div class="pane-f meta" id="saved" aria-live="polite">Saved</div>
+        </section>
+
+        <!-- CENTER: screenshots -->
+        <section class="pane" id="pane-shots" aria-label="Screenshots">
+          <div class="pane-h">SCREENSHOTS (<span id="inc-count">7</span> of <span id="total-count">14</span> included) <span class="kbd">Alt+2</span> <span class="n">5</span></div>
+          <div class="toolbar">
+            <button class="btn sm" id="t-include">Include / Exclude <span class="kbd">Space</span></button>
+            <button class="btn sm" id="t-blur">Blur… <span class="kbd">B</span></button>
+            <button class="btn sm" id="t-delete">Delete <span class="kbd">Del</span></button>
+            <button class="btn sm" id="t-enlarge">Enlarge <span class="kbd">Enter</span></button>
+          </div>
+          <div class="pane-body">
+            <div class="grid" id="grid" role="listbox" aria-label="Screenshots, 14 items"></div>
+          </div>
+        </section>
+
+        <!-- RIGHT: publish -->
+        <section class="pane" id="pane-publish" aria-label="Publish">
+          <div class="pane-h">PUBLISH <span class="kbd">Alt+3</span> <span class="n">6</span></div>
+          <div class="pane-body col" style="gap:14px">
+
+            <div class="col" data-unless="published partial-fail no-integrations">
+              <div class="field picker">
+                <label for="ticket">Ticket</label>
+                <input class="input" id="ticket" autocomplete="off" placeholder="Search tickets by #, summary or company" aria-describedby="ticket-help">
+                <div class="list" id="ticket-list" hidden>
+                  <div class="h">Recent tickets</div>
+                  <button class="opt" data-ticket="#48213 · Printer offline — front desk · Acme Dental">#48213 · Printer offline — front desk · Acme Dental</button>
+                  <button class="opt" data-ticket="#48190 · Scanner not saving to share · Acme Dental">#48190 · Scanner not saving to share · Acme Dental</button>
+                  <button class="opt" data-ticket="#48177 · New user setup — J. Ortiz · Birch Legal">#48177 · New user setup — J. Ortiz · Birch Legal</button>
+                  <button class="opt" data-ticket="#48122 · Outlook keeps asking for password · Pine Vet">#48122 · Outlook keeps asking for password · Pine Vet</button>
+                </div>
+                <div class="row" id="ticket-help"><span class="badge" id="suggested-badge">Suggested</span><span class="help" id="suggested-why">Suggested from window title ✓</span></div>
+              </div>
+
+              <div class="field">
+                <span class="label">Note type <span class="n">7</span></span>
+                <div class="radio-row" role="radiogroup" aria-label="Note type">
+                  <label><input type="radio" name="nt" checked> Internal</label>
+                  <label><input type="radio" name="nt"> Discussion</label>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="time">Time entry</label>
+                <div class="row"><select class="input" id="time" style="width:110px"><option>0:15</option><option selected>0:30</option><option>0:45</option><option>1:00</option></select>
+                  <span class="help">23 min active, rounded to 15</span></div>
+              </div>
+
+              <div class="field">
+                <span class="label">Destinations</span>
+                <label class="dest"><input type="checkbox" checked> Ticket note</label>
+                <label class="dest"><input type="checkbox"> <span>KB article<br><span class="help">Not a KB candidate: one-off fix on one printer</span></span></label>
+              </div>
+
+              <div class="rule"></div>
+              <div>
+                <button class="btn primary block js-publish" id="publish">Publish <span class="kbd">Ctrl+Enter</span></button>
+                <div class="reason" id="publish-reason" hidden></div>
+              </div>
+              <p class="help">After publish: links to the note, the time entry and the article, plus "Open in ConnectWise".</p>
+            </div>
+
+            <div class="col" data-when="no-integrations">
+              <div class="banner"><span class="grow"><b>Connect a PSA to publish.</b> Your note is saved on this device. Add ConnectWise in Settings → Integrations.</span></div>
+              <a class="btn primary block" href="s5-s7-settings.html#state=integrations">Connect a PSA to publish</a>
+            </div>
+
+            <div class="results" data-when="published partial-fail">
+              <div class="res"><span class="ico">✓</span><span>Note added to <a href="#">#48213</a> (Internal)</span><span class="sub">3 screenshots attached</span></div>
+              <div class="res" data-when="published"><span class="ico">✓</span><span>Time entry <a href="#">0:30</a> logged</span></div>
+              <div class="res" data-when="partial-fail"><span class="ico">✕</span><span>Time entry failed</span>
+                <span class="sub">ConnectWise rejected the time entry: no work type set. Choose a default work type in Settings → Integrations.</span>
+                <span class="sub"><button class="btn sm" id="retry-time">Retry</button></span></div>
+              <div class="rule"></div>
+              <button class="btn">Open in ConnectWise</button>
+              <div class="banner" id="timer-box" hidden><span class="grow">Task time: <b class="timer" id="task-time">–</b></span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- BOTTOM: timeline and transcript -->
+      <div class="timeline" id="timeline">
+        <div class="tl-bar">
+          <button class="btn sm ghost" id="tl-toggle" aria-expanded="false">▸ Timeline &amp; transcript <span class="kbd">Alt+T</span></button>
+          <div class="tl-track" aria-label="Timeline: clicks, frames, narration, suppression and scope">
+            <span class="m-band hatch" style="left:38%;width:5%" title="Paused: sensitive field · 14:06:12–14:06:40"></span>
+            <span class="m-band" style="left:74%;width:6%;background:var(--hatch-dense)" title="Not capturing — Outlook · 14:10:20–14:11:05"></span>
+            <i class="m-click" style="left:4%"></i><i class="m-click" style="left:11%"></i><i class="m-click" style="left:19%"></i><i class="m-click" style="left:27%"></i>
+            <i class="m-click" style="left:34%"></i><i class="m-click" style="left:50%"></i><i class="m-click" style="left:58%"></i><i class="m-click" style="left:69%"></i><i class="m-click" style="left:88%"></i>
+            <i class="m-frame" style="left:9%"></i><i class="m-frame" style="left:17%"></i><i class="m-frame" style="left:26%"></i><i class="m-frame" style="left:32%"></i>
+            <i class="m-frame" style="left:46%"></i><i class="m-frame" style="left:56%"></i><i class="m-frame" style="left:67%"></i><i class="m-frame" style="left:84%"></i><i class="m-frame" style="left:93%"></i>
+            <i class="m-flag" style="left:62%" title="Marked moment">⚑</i>
+          </div>
+          <span class="tl-now">14:04:40 "clearing the queue now"</span> <span class="n">8</span>
+        </div>
+        <div class="transcript" id="transcript" aria-label="Transcript">
+          <button data-frame="1"><span class="t">[14:02:10]</span>ok the printer's showing offline, let me check the spooler</button>
+          <button data-frame="2"><span class="t">[14:03:02]</span>spooler's stopped, restarting it</button>
+          <button data-frame="5"><span class="t">[14:04:40]</span>clearing the queue now</button>
+          <button data-frame="5"><span class="t">[14:05:15]</span>there were four stuck jobs</button>
+          <button data-frame="8"><span class="t">[14:07:02]</span>the admin password is [REDACTED]</button>
+          <button data-frame="10"><span class="t">[14:09:30]</span>sending a test page</button>
+          <button data-frame="11"><span class="t">[14:10:05]</span>test page came out, she says it's fine</button>
+        </div>
+      </div>
+
+      <!-- Overlays -->
+      <div class="enlarge" id="enlarge" hidden>
+        <div class="row"><b id="enlarge-title">Frame</b><span class="grow"></span>
+          <button class="btn sm" id="ocr-toggle" aria-pressed="false">OCR text <span class="kbd">T</span></button>
+          <button class="btn sm" id="blur-start">Blur region… <span class="kbd">B</span></button>
+          <button class="btn sm" id="enlarge-close">Close <span class="kbd">Esc</span></button></div>
+        <div class="big ph">
+          <span class="cursor" title="Cursor at click">⊕</span>
+          <div class="region" id="blur-region" hidden>drag to draw a region</div>
+          <div class="ocr" id="ocr" hidden>Print Spooler Properties (Local Computer)
+Service name: Spooler
+Startup type: Automatic
+Service status: Stopped
+[Start] [Stop] [Pause] [Resume]</div>
+        </div>
+        <div class="row" id="blur-actions" hidden><span class="meta">Blur is permanent after you leave this pane. Until then: Undo.</span><span class="grow"></span>
+          <button class="btn sm" id="blur-cancel">Cancel</button><button class="btn sm primary" id="blur-apply">Apply blur</button></div>
+      </div>
+
+      <div class="scrim" id="discard-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="discard-h">
+          <h3 id="discard-h">Discard this session?</h3>
+          <p class="meta">This deletes the draft, screenshots and transcript from this device now. It can't be undone. The audit log keeps a record that the session was discarded.</p>
+          <div class="field"><label for="discard-input">Type DISCARD to confirm</label><input class="input" id="discard-input" autocomplete="off"></div>
+          <div class="actions"><button class="btn" id="discard-cancel">Cancel</button><button class="btn primary" id="discard-confirm" disabled>Discard session</button></div>
+        </div>
+      </div>
+
+      <div class="scrim" id="discarded" hidden>
+        <div class="modal"><h3>Session discarded</h3><p class="meta">Raw data deleted from this device. The window closes.</p>
+          <div class="actions"><button class="btn" onclick="location.reload()">Reset wireframe</button></div></div>
+      </div>
+
+      <div class="scrim" id="sheet" hidden>
+        <div class="modal sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h">
+          <h3 id="sheet-h">Keyboard shortcuts</h3>
+          <dl>
+            <dt><span class="kbd">Ctrl+Enter</span></dt><dd>Publish</dd>
+            <dt><span class="kbd">Ctrl+S</span></dt><dd>Save now</dd>
+            <dt><span class="kbd">Alt+1/2/3</span></dt><dd>Focus note / screenshots / publish</dd>
+            <dt><span class="kbd">Alt+T</span></dt><dd>Timeline &amp; transcript</dd>
+            <dt><span class="kbd">Alt+C</span></dt><dd>Confirm step</dd>
+            <dt><span class="kbd">Alt+↑/↓</span></dt><dd>Move step</dd>
+            <dt><span class="kbd">Space</span></dt><dd>Include / exclude screenshot</dd>
+            <dt><span class="kbd">B</span></dt><dd>Blur region</dd>
+            <dt><span class="kbd">Del</span></dt><dd>Delete screenshot</dd>
+            <dt><span class="kbd">Enter</span></dt><dd>Enlarge screenshot</dd>
+            <dt><span class="kbd">Esc</span></dt><dd>Close enlarged screenshot</dd>
+            <dt><span class="kbd">?</span></dt><dd>This sheet</dd>
+          </dl>
+          <div class="actions"><button class="btn" id="sheet-close">Close</button></div>
+        </div>
+      </div>
+
+      <div class="toast-host"></div>
+    </div>
+  </div>
+
+  <aside class="notes">
+    <div class="task">
+      <b>Technician task</b> (README.md has the full script)<br>
+      "Check this note, fix anything that's wrong, and publish it to the ticket. Frame 6 shows the user's inbox; it shouldn't go on the ticket."
+      <div class="meta" style="margin-top:6px">The timer starts when the page loads and stops on Publish. <button class="btn sm" onclick="location.reload()">Restart</button></div>
+    </div>
+
+    <h3>Callouts</h3>
+    <ol>
+      <li><b>Title bar:</b> the ticket summary, client, duration and start time come from the draft. The <span class="badge solid">Published</span> badge appears after publish. Discard is ghost-styled and asks for a typed confirmation. Publish ▸ mirrors the right pane.</li>
+      <li><b>Note:</b> fixed sections Problem → Steps → Result → Follow-ups. Everything is inline-editable, and "Saved / Saving…" shows bottom-left. Banners stack at the top: partial capture, frames purged, local draft, offline.</li>
+      <li><b>Steps:</b> the drag handle appears on hover. <span class="kbd">Alt+↑/↓</span> reorders; <span class="kbd">Enter</span> at the end adds a step; <span class="kbd">Backspace</span> on an empty step deletes it. Frame chips highlight their screenshot on hover and open it on click. Transcript snippets are in monospace.</li>
+      <li><b>Low confidence:</b> ⚠ with the tooltip "Inferred from screen only — please verify". Editing the step or pressing <span class="kbd">Alt+C</span> clears it. In the wireframe a black left bar stands in for the <code>confidence.low</code> colour.</li>
+      <li><b>Screenshots:</b> 160 × 90 thumbnails in time order. Excluded ones are dimmed. Striped rows are the suppressed and out-of-scope gaps. Blur is destructive, with one-step undo until the pane loses focus. Delete gives a 5 s undo toast, then it's permanent.</li>
+      <li><b>Publish:</b> the searchable ticket picker (<code>#id · summary · company</code>) shows recent tickets on focus and the Suggested badge when the ticket was inferred. When Publish is disabled, the reason appears underneath as well as in the tooltip.</li>
+      <li><b>Note type default:</b> Internal is selected here; that's open question Q2 in README.md.</li>
+      <li><b>Timeline:</b> collapsed to a 40 px scrubber, 220 px when open. Dots are clicks, squares are frames, ⚑ is a marked moment, and hatched bands are suppression and scope. Clicking a transcript line highlights its frame. Redacted speech shows <code>[REDACTED]</code>.</li>
+    </ol>
+
+    <h3>Keyboard</h3>
+    <p class="meta">Every shortcut in Spec §5 S3 works here. Press <span class="kbd">?</span> for the sheet. Click a screenshot, then use <span class="kbd">Space</span> <span class="kbd">B</span> <span class="kbd">Del</span> <span class="kbd">Enter</span>.</p>
+
+    <h3>Edge states (state bar above)</h3>
+    <ul>
+      <li><b>Draft failed:</b> the note pane shows Retry; screenshots and the timeline stay usable. Publish is disabled (see open question Q4).</li>
+      <li><b>Offline:</b> the "Draft pending — offline" banner, and Publish disabled with a reason.</li>
+      <li><b>No PSA connected:</b> Publish is replaced by "Connect a PSA to publish".</li>
+      <li><b>Partial publish failure:</b> the note that went through stays; the failed time entry gets Retry; the toast follows Spec §6 wording.</li>
+    </ul>
+  </aside>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const started = performance.now();
+
+  // ---- Screenshots ---------------------------------------------------------------------------
+  const frames = [
+    [1, 'Services list', false], [2, 'Spooler: Stopped', true], [3, 'Spooler: Running', true],
+    [4, 'Duplicate of 3', false], [5, 'Print queue (4 jobs)', true], [6, "User's inbox", true],
+    [7, 'Queue empty', true], [8, 'Printer properties', false],
+    ['gap', 'Paused: sensitive field · 14:06:12–14:06:40 · no screenshots or typing kept'],
+    [9, 'Devices and Printers', false], [10, 'Print test page dialog', false], [11, 'Test page sent', true],
+    ['scope', 'Not capturing — Outlook · 14:10:20–14:11:05 · clicks logged, no screenshots'],
+    [12, 'Event Viewer: 7031', true], [13, 'Desktop', false], [14, 'Closing session', false],
+  ];
+  const grid = $('#grid');
+  frames.forEach(([id, cap, inc]) => {
+    if (id === 'gap' || id === 'scope') {
+      const g = document.createElement('div');
+      g.className = 'gap';
+      g.style.background = id === 'gap' ? 'var(--hatch)' : 'var(--hatch-dense)';
+      g.textContent = cap;
+      grid.appendChild(g);
+      return;
+    }
+    const b = document.createElement('button');
+    b.className = 'thumb' + (inc ? ' in' : '');
+    b.dataset.frame = id;
+    b.setAttribute('role', 'option');
+    b.innerHTML = `<span class="img ph"></span><span class="cap"><span class="chk"></span>${id} · ${cap} <span class="tag blurred">blurred</span></span>`;
+    grid.appendChild(b);
+  });
+  let selected = null;
+  const thumbs = () => $$('.thumb', grid);
+  const countIncluded = () => {
+    $('#inc-count').textContent = thumbs().filter((t) => t.classList.contains('in')).length;
+    $('#total-count').textContent = thumbs().length;
+  };
+  const select = (t) => {
+    thumbs().forEach((x) => x.classList.toggle('sel', x === t));
+    selected = t;
+    if (t) t.focus();
+  };
+  grid.addEventListener('click', (e) => { const t = e.target.closest('.thumb'); if (t) select(t); });
+  grid.addEventListener('dblclick', (e) => { const t = e.target.closest('.thumb'); if (t) openEnlarge(t); });
+  const toggleInclude = () => { if (!selected) return; selected.classList.toggle('in'); countIncluded(); };
+  const deleteFrame = () => {
+    if (!selected) return;
+    const t = selected, next = t.nextElementSibling;
+    t.hidden = true; t.classList.remove('sel'); selected = null; countIncluded();
+    const all = thumbs().filter((x) => !x.hidden);
+    $('#total-count').textContent = all.length;
+    $('#inc-count').textContent = all.filter((x) => x.classList.contains('in')).length;
+    wf.toast(`Screenshot ${t.dataset.frame} deleted.`, 'Undo', () => { t.hidden = false; countVisible(); }, 5000);
+    setTimeout(() => { if (t.hidden) t.remove(); }, 5000);
+    if (next && next.classList.contains('thumb')) select(next);
+  };
+  const countVisible = () => {
+    const all = thumbs().filter((x) => !x.hidden);
+    $('#total-count').textContent = all.length;
+    $('#inc-count').textContent = all.filter((x) => x.classList.contains('in')).length;
+  };
+  $('#t-include').onclick = toggleInclude;
+  $('#t-delete').onclick = deleteFrame;
+  $('#t-enlarge').onclick = () => selected && openEnlarge(selected);
+  $('#t-blur').onclick = () => selected && (openEnlarge(selected), startBlur());
+
+  // Chips and transcript lines point at frames
+  const highlight = (id, on) => thumbs().forEach((t) => t.classList.toggle('hl', on && t.dataset.frame === String(id)));
+  $$('.chip').forEach((c) => {
+    c.addEventListener('mouseenter', () => highlight(c.dataset.frame, true));
+    c.addEventListener('mouseleave', () => highlight(c.dataset.frame, false));
+    c.addEventListener('click', () => { const t = thumbs().find((x) => x.dataset.frame === c.dataset.frame); if (t) { select(t); openEnlarge(t); } });
+  });
+  $$('#transcript button').forEach((line) => line.addEventListener('click', () => {
+    const t = thumbs().find((x) => x.dataset.frame === line.dataset.frame);
+    if (t) { select(t); highlight(line.dataset.frame, true); setTimeout(() => highlight(line.dataset.frame, false), 1500); }
+  }));
+
+  // ---- Enlarge, OCR, blur ----------------------------------------------------------------------
+  let blurTarget = null;
+  function openEnlarge(t) {
+    $('#enlarge-title').textContent = `Frame ${t.dataset.frame}: ${t.querySelector('.cap').textContent.replace('blurred', '').trim()}`;
+    $('#enlarge').hidden = false; blurTarget = t;
+  }
+  function closeEnlarge() { $('#enlarge').hidden = true; cancelBlur(); if (blurTarget) blurTarget.focus(); }
+  function startBlur() { $('#blur-region').hidden = false; $('#blur-actions').hidden = false; }
+  function cancelBlur() { $('#blur-region').hidden = true; $('#blur-actions').hidden = true; }
+  $('#enlarge-close').onclick = closeEnlarge;
+  $('#ocr-toggle').onclick = () => { const o = $('#ocr'); o.hidden = !o.hidden; $('#ocr-toggle').setAttribute('aria-pressed', String(!o.hidden)); };
+  $('#blur-start').onclick = startBlur;
+  $('#blur-cancel').onclick = cancelBlur;
+  $('#blur-apply').onclick = () => {
+    const t = blurTarget; t.classList.add('is-blurred'); cancelBlur();
+    wf.toast(`Region blurred on frame ${t.dataset.frame}.`, 'Undo', () => t.classList.remove('is-blurred'));
+  };
+
+  // ---- Steps: confirm, reorder, autosave --------------------------------------------------------
+  const saved = $('#saved');
+  let saveTimer;
+  const touch = () => { saved.textContent = 'Saving…'; clearTimeout(saveTimer); saveTimer = setTimeout(() => (saved.textContent = 'Saved'), 600); };
+  $('#note-body').addEventListener('input', (e) => { const li = e.target.closest('li.low'); if (li) li.classList.remove('low'); touch(); });
+  const confirmStep = (li) => { if (li && li.classList.contains('low')) { li.classList.remove('low'); touch(); } };
+  $$('.confirm').forEach((b) => (b.onclick = () => confirmStep(b.closest('li'))));
+  const moveStep = (li, dir) => {
+    const sib = dir < 0 ? li.previousElementSibling : li.nextElementSibling;
+    if (!sib) return;
+    dir < 0 ? sib.before(li) : sib.after(li);
+    li.focus(); touch();
+  };
+
+  // ---- Ticket picker ------------------------------------------------------------------------------
+  const ticket = $('#ticket'), list = $('#ticket-list');
+  const setTicket = (value, suggested) => {
+    ticket.value = value;
+    $('#suggested-badge').hidden = !suggested;
+    $('#suggested-why').hidden = !suggested;
+    list.hidden = true;
+    updatePublish();
+  };
+  ticket.addEventListener('focus', () => (list.hidden = false));
+  ticket.addEventListener('input', () => {
+    list.hidden = false;
+    const q = ticket.value.toLowerCase();
+    $$('.opt', list).forEach((o) => (o.hidden = q.length >= 1 && !o.dataset.ticket.toLowerCase().includes(q)));
+    $('#suggested-badge').hidden = true; $('#suggested-why').hidden = true;
+    updatePublish();
+  });
+  $$('.opt', list).forEach((o) => o.addEventListener('click', () => setTicket(o.dataset.ticket, false)));
+  document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) list.hidden = true; });
+
+  // ---- Publish ------------------------------------------------------------------------------------
+  const reason = $('#publish-reason');
+  function blockedReason() {
+    const s = wf.state;
+    if (s === 'offline') return "You're offline. Publish when you're back online.";
+    if (s === 'draft-failed') return 'There is no note to publish yet. Retry the draft first.';
+    if (!/^#\d+/.test(ticket.value.trim())) return 'Choose a ticket first';
+    return '';
+  }
+  function updatePublish() {
+    const r = blockedReason();
+    $$('.js-publish').forEach((b) => { b.disabled = !!r; b.title = r; });
+    reason.hidden = !r; reason.textContent = r;
+  }
+  function publish() {
+    if (blockedReason() || !['default', 'no-ticket', 'partial-capture', 'frames-purged', 'local-draft'].includes(wf.state)) return;
+    const secs = Math.round((performance.now() - started) / 1000);
+    wf.setState('published');
+    $('#task-time').textContent = secs + ' s';
+    $('#timer-box').hidden = false;
+    const inc = thumbs().filter((t) => t.classList.contains('in') && !t.hidden).length;
+    $('.res .sub').textContent = `${inc} screenshots attached`;
+    wf.toast(`Published to ticket ${ticket.value.split(' ')[0]} · ${$('#time').value} logged`, 'Open in ConnectWise');
+  }
+  $$('.js-publish').forEach((b) => (b.onclick = publish));
+  $('#retry-time').onclick = () => { wf.setState('published'); wf.toast('Time entry 0:30 logged on #48213.'); };
+
+  wf.onState((s) => {
+    if (s === 'no-ticket') setTicket('', false);
+    else if (!['published', 'partial-fail'].includes(s) && !ticket.value) setTicket('#48213 · Printer offline — front desk · Acme Dental', true);
+    if (s === 'partial-fail') wf.toast('Note published. Time entry failed: no work type set.', 'Retry', () => $('#retry-time').click());
+    updatePublish();
+  });
+  if (!ticket.value && wf.state !== 'no-ticket') setTicket('#48213 · Printer offline — front desk · Acme Dental', true);
+  updatePublish();
+
+  // ---- Discard ------------------------------------------------------------------------------------
+  const dm = $('#discard-modal'), di = $('#discard-input');
+  $('#discard-open').onclick = () => { dm.hidden = false; di.value = ''; $('#discard-confirm').disabled = true; di.focus(); };
+  $('#discard-cancel').onclick = () => (dm.hidden = true);
+  di.addEventListener('input', () => ($('#discard-confirm').disabled = di.value.trim() !== 'DISCARD'));
+  $('#discard-confirm').onclick = () => { dm.hidden = true; $('#discarded').hidden = false; };
+
+  // ---- Timeline -----------------------------------------------------------------------------------
+  const tl = $('#timeline'), tlb = $('#tl-toggle');
+  const toggleTimeline = () => {
+    const open = tl.classList.toggle('open');
+    tlb.setAttribute('aria-expanded', String(open));
+    tlb.firstChild.textContent = (open ? '▾' : '▸') + ' Timeline & transcript ';
+  };
+  tlb.onclick = toggleTimeline;
+
+  // ---- Shortcut sheet -----------------------------------------------------------------------------
+  const sheet = $('#sheet');
+  $('#sheet-close').onclick = () => (sheet.hidden = true);
+
+  // ---- Keyboard map (Spec §5 S3) -------------------------------------------------------------------
+  document.addEventListener('keydown', (e) => {
+    const editing = e.target.closest('input, textarea, select, [contenteditable="true"]');
+    const key = e.key;
+    if (e.ctrlKey && key === 'Enter') { e.preventDefault(); publish(); return; }
+    if (e.ctrlKey && (key === 's' || key === 'S')) { e.preventDefault(); touch(); return; }
+    if (e.altKey && ['1', '2', '3'].includes(key)) {
+      e.preventDefault();
+      const pane = { 1: '#steps li', 2: '.thumb', 3: '#ticket' }[key];
+      const el = $(pane); if (el) (key === '2' ? select(el) : el.focus()); return;
+    }
+    if (e.altKey && (key === 't' || key === 'T')) { e.preventDefault(); toggleTimeline(); return; }
+    const li = e.target.closest && e.target.closest('#steps > li');
+    if (e.altKey && (key === 'c' || key === 'C')) { e.preventDefault(); confirmStep(li || $('#step-low')); return; }
+    if (e.altKey && li && (key === 'ArrowUp' || key === 'ArrowDown')) { e.preventDefault(); moveStep(li, key === 'ArrowUp' ? -1 : 1); return; }
+    if (key === 'Escape') { if (!$('#enlarge').hidden) closeEnlarge(); sheet.hidden = true; dm.hidden = true; list.hidden = true; return; }
+    if (editing) return;
+    if (key === '?') { sheet.hidden = false; return; }
+    const onThumb = e.target.closest && e.target.closest('.thumb');
+    if (onThumb) select(onThumb);
+    if (!selected) return;
+    if (key === ' ') { e.preventDefault(); toggleInclude(); }
+    else if (key === 'Delete' || key === 'Backspace') { e.preventDefault(); deleteFrame(); }
+    else if (key === 'Enter') { e.preventDefault(); openEnlarge(selected); }
+    else if (key === 'b' || key === 'B') { openEnlarge(selected); startBlur(); }
+    else if ((key === 't' || key === 'T') && !$('#enlarge').hidden) $('#ocr-toggle').click();
+    else if (key === 'ArrowRight' || key === 'ArrowLeft') {
+      const vis = thumbs().filter((x) => !x.hidden), i = vis.indexOf(selected);
+      const n = vis[i + (key === 'ArrowRight' ? 1 : -1)]; if (n) { e.preventDefault(); select(n); }
+    }
+  });
+});
+</script>
+</body>
+</html>
