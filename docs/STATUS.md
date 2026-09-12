@@ -60,8 +60,10 @@ block of work, and all of it needs Windows.
   **"Proposed"** in their front matter — flip them to Accepted when you've read them.
 
 ## 5. Open items for the owner
-- [ ] **Turn on the `main` ruleset.** It exists and is disabled. Recommended: require a PR, require
-      `ci-ok`, no force-push, no deletion.
+- [x] ~~Turn on the `main` ruleset.~~ **Done 2026-09-12.** `main` now requires a pull request and a
+      green `ci-ok`, and refuses force-pushes and deletion. Nobody is on the bypass list, so this
+      applies to you too: work on a branch, open a PR, let CI finish. Squash merging is still
+      permitted by the ruleset — avoid it, since it discards the per-commit `Refs: ST-###` footers.
 - [ ] **`HW_RUNNER` is still `true` while the laptop is off.** Any PR touching `spike/` queues a job that
       can never start — it happened on ST-001 and I cancelled the run. Set it to `false` until the
       laptop is back, or just remember why a check hangs.
