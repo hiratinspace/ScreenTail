@@ -176,7 +176,7 @@
       "Ask the user to change the mailbox password at next sign-in."
     ],
     "suggested_title": "Outlook repeatedly prompting for password after migration",
-    "suggested_time_minutes": 30,
+    "suggested_time_minutes": 7,
     "kb_candidate": false,
     "kb_reason": "Specific to this migration; the generic profile rebuild is already documented.",
     "source": "cloud",

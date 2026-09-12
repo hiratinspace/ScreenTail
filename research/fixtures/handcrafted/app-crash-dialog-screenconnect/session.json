@@ -174,7 +174,7 @@
       "Check whether a GPO is stripping the right; it may return after the next policy refresh."
     ],
     "suggested_title": "DentalSuite crash 0x80070005 \u2014 service account lost logon right",
-    "suggested_time_minutes": 45,
+    "suggested_time_minutes": 12,
     "kb_candidate": true,
     "kb_reason": "Non-obvious diagnosis with a clean fix; likely to recur wherever that GPO applies.",
     "source": "cloud",
