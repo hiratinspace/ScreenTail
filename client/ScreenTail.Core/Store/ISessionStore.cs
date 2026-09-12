@@ -50,6 +50,22 @@ public interface ISessionStore : IAsyncDisposable
     Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>
+    /// Sessions whose raw data is still present and whose last activity — <c>ended_at</c>, or the creation
+    /// time when a session never finished — is older than <paramref name="cutoff"/> (ST-044). A session that
+    /// never reaches finalize ages out like any other; only <paramref name="activeSessionId"/> is exempt.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, string? activeSessionId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the session's frames (images and OCR text), transcript and events; keeps the session row, its
+    /// draft note and the audit log (INV-12). Returns the number of frames removed.
+    /// </summary>
+    Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>Rebuilds the database file so purged space is actually released.</summary>
+    Task VacuumAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// The session as a schema document containing redacted frames only. References to frames that are
     /// pending or purged are dropped, so the result always passes <see cref="SessionValidator"/>.
     /// </summary>
@@ -101,6 +117,7 @@ public static class AuditTypes
 {
     public const string FramesPurgedUnredacted = "frames_purged_unredacted";
     public const string SessionDiscarded = "session_discarded";
+    public const string RetentionPurged = "retention_purged";
 }
 
 /// <summary>The database could not be opened with the supplied key.</summary>

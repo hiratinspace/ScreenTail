@@ -29,7 +29,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         await using var store = await SqliteSessionStore.OpenAsync(
             Path.Combine(DataDirectory, "store.db"),
             new DpapiKeyProvider(DpapiKeyProvider.DefaultKeyFilePath),
-            stoppingToken).ConfigureAwait(false);
+            ct: stoppingToken).ConfigureAwait(false);
 
         // Recover before serving, so the first UI to connect sees the outcome, not the orphan.
         await using var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
@@ -59,9 +59,21 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         var mode = verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory";
         var state = machine.State.ToWire();
         LogStarted(logger, IpcContract.Version, mode, state);
+
+        // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
+        var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
+        using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {
-            await Task.Delay(Timeout.Infinite, stoppingToken).ConfigureAwait(false);
+            do
+            {
+                var purged = await retention.RunAsync(stoppingToken).ConfigureAwait(false);
+                if (purged > 0)
+                {
+                    LogRetention(logger, purged);
+                }
+            }
+            while (await hourly.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false));
         }
         catch (OperationCanceledException)
         {
@@ -69,6 +81,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
         LogStopping(logger);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Retention removed raw data from {Count} session(s)")]
+    private static partial void LogRetention(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
     private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);
