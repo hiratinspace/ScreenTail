@@ -85,6 +85,17 @@ function Get-ArchitectureName([int]$Code) {
     }
 }
 
+if ($Push) {
+    $identity = @((& git config user.email), (& git config user.name)) | Where-Object { $_ }
+    if ($identity.Count -lt 2) {
+        throw @'
+git has no identity on this machine, so -Push would fail after the run. Set it first:
+  git config --global user.name "Your Name"
+  git config --global user.email "you@example.com"
+'@
+    }
+}
+
 # --- Pull and build -------------------------------------------------------------------------
 
 Write-Step 'Pull and build'
@@ -167,7 +178,9 @@ if (-not $IncludeFrames) {
 }
 
 Write-Step 'Verdicts'
-Get-ChildItem -Path $evidence -Recurse -Include 'report.md', 'overlay-check-*.txt' | ForEach-Object {
+$thisRun = 'overlay', 'baseline', 'full-load', 'legibility'
+Get-ChildItem -Path $evidence -Recurse -Include 'report.md', 'overlay-check-*.txt' |
+    Where-Object { $thisRun -contains $_.Directory.Name } | ForEach-Object {
     Write-Host "-- $($_.Directory.Name)\$($_.Name)"
     Select-String -Path $_.FullName -Pattern 'Verdict|EXCLUDED|CAPTURED' | ForEach-Object { Write-Host "   $($_.Line)" }
 }

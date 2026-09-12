@@ -21,11 +21,15 @@ internal static class OverlayCheck
 
     public static int Execute(string outDir, string label)
     {
-        if (FindOverlayBounds() is not { } overlay)
+        var hwnd = Native.FindWindow(null, OverlayTitle);
+        if (hwnd == IntPtr.Zero)
         {
             Console.Error.WriteLine("Overlay window not found. Start Spike.Overlay first.");
             return 2;
         }
+
+        var overlay = ScreenGrab.WindowBounds(hwnd);
+        Native.GetWindowThreadProcessId(hwnd, out var pid);
 
         var screen = ScreenGrab.VirtualScreen();
         using var capture = ScreenGrab.Capture(screen);
@@ -39,9 +43,17 @@ internal static class OverlayCheck
             ? "EXCLUDED - overlay absent from capture"
             : "CAPTURED - overlay visible in capture";
 
+        // The pill is 360x44 logical, so at most about 720x88 at 200% scaling. Anything much larger means
+        // this measured the wrong rectangle, and the verdict says nothing about the overlay.
+        var plausible = overlay.Width is > 0 and <= 800 && overlay.Height is > 0 and <= 140;
         var summary = string.Create(
             CultureInfo.InvariantCulture,
-            $"Overlay bounds {overlay}; marker pixels in that region {fraction:P2}; {verdict}");
+            $"Overlay window 0x{hwnd.ToInt64():X} (pid {pid}) bounds {overlay}; marker pixels in that region {fraction:P2}; {verdict}");
+        if (!plausible)
+        {
+            summary += Environment.NewLine
+                + "WARNING: that rectangle is not the size of the HUD pill (about 360x44 logical), so this run measured the wrong area.";
+        }
         File.WriteAllText(Path.Combine(outDir, $"overlay-check-{label}.txt"), summary + Environment.NewLine);
 
         Console.WriteLine(summary);
