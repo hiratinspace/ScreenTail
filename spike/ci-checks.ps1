@@ -43,7 +43,10 @@ function Stop-Overlay($Process) {
 }
 
 function Add-Summary([string[]]$Lines) {
-    if ($env:GITHUB_STEP_SUMMARY) { $Lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 }
+    # AppendAllText writes UTF-8 without a BOM in both Windows PowerShell 5.1 and PowerShell 7.
+    if ($env:GITHUB_STEP_SUMMARY) {
+        [System.IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, (($Lines -join [Environment]::NewLine) + [Environment]::NewLine))
+    }
 }
 
 function Get-Verdict([string]$ReportPath, [string]$Section) {

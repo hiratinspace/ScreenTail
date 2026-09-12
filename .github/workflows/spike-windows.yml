@@ -76,7 +76,8 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        shell: pwsh
+        # Windows PowerShell 5.1: the laptop has no pwsh, and the scripts target 5.1 anyway.
+        shell: powershell
         working-directory: spike
     steps:
       - uses: actions/checkout@v7
@@ -90,7 +91,7 @@ jobs:
             if (-not (Test-Path (Join-Path $installed 'dotnet.exe'))) {
               throw 'No .NET SDK on this runner. Re-run scripts/windows/setup-test-laptop.ps1.'
             }
-            $installed | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$installed`r`n")
             $env:Path = "$installed;$env:Path"
           }
           dotnet --list-sdks
