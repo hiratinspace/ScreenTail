@@ -240,6 +240,57 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             ("@id", sessionId));
     }
 
+    public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(state);
+        var now = Iso(DateTimeOffset.UtcNow);
+        return RunAsync(
+            "UPDATE sessions SET state = @state, state_reason = @reason, state_changed_at = @now, updated_at = @now WHERE id = @id",
+            ct,
+            ("@state", state),
+            ("@reason", reason),
+            ("@now", now),
+            ("@id", sessionId));
+    }
+
+    public Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+        if (states.Count == 0)
+        {
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
+
+        // One parameter per state; the list is small and comes from code, never from input.
+        var parameters = states.Select((state, i) => ($"@s{i}", (object?)state)).ToArray();
+        var sql = $"SELECT id FROM sessions WHERE state IN ({string.Join(", ", parameters.Select(p => p.Item1))}) ORDER BY started_at, id";
+        return QueryAsync<IReadOnlyList<string>>(
+            sql,
+            async reader =>
+            {
+                var ids = new List<string>();
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    ids.Add(reader.GetString(0));
+                }
+
+                return ids;
+            },
+            ct,
+            parameters);
+    }
+
+    public Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default) =>
+        ScalarAsync<long>(
+            """
+            SELECT MAX(ts) FROM (
+                SELECT COALESCE(MAX(ts_ms), 0) AS ts FROM events WHERE session_id = @id
+                UNION ALL SELECT COALESCE(MAX(ts_ms), 0) FROM frames WHERE session_id = @id
+                UNION ALL SELECT COALESCE(MAX(end_ms), 0) FROM transcript WHERE session_id = @id)
+            """,
+            ct,
+            ("@id", sessionId));
+
     public async Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);

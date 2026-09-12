@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Ipc;
 using ScreenTail.Service.Store;
@@ -9,8 +10,9 @@ using ScreenTail.Shared.Ipc;
 namespace ScreenTail.Service.Host;
 
 /// <summary>
-/// The per-user capture service (ADR-0003): opens the encrypted store, publishes this run's IPC token,
-/// and serves the pipe. Capture itself arrives with ST-020 onward; until then the controller is a placeholder.
+/// The per-user capture service (ADR-0003): opens the encrypted store, recovers any session a crash left
+/// behind (ST-020), publishes this run's IPC token, and serves the pipe with the state machine behind it.
+/// Capture sources (hooks, screenshots, speech) and drafting arrive with their tickets.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : BackgroundService
@@ -29,6 +31,14 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             new DpapiKeyProvider(DpapiKeyProvider.DefaultKeyFilePath),
             stoppingToken).ConfigureAwait(false);
 
+        // Recover before serving, so the first UI to connect sees the outcome, not the orphan.
+        await using var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
+        if (recovered > 0)
+        {
+            LogRecovered(logger, recovered);
+        }
+
         var token = IpcToken.Generate();
         IpcTokenFile.Write(IpcTokenFile.DefaultPath, token);
 
@@ -38,13 +48,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
             verifier,
-            new PlaceholderCaptureController(),
+            new CaptureController(machine),
             store,
             version);
         Array.Clear(token);
+
+        machine.StateChanged += snapshot => _ = server.BroadcastAsync(new StateChanged { State = snapshot }, stoppingToken);
         server.Start();
 
-        LogStarted(logger, IpcContract.Version, verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory");
+        var mode = verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory";
+        var state = machine.State.ToWire();
+        LogStarted(logger, IpcContract.Version, mode, state);
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken).ConfigureAwait(false);
@@ -56,8 +70,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         LogStopping(logger);
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}")]
-    private static partial void LogStarted(ILogger logger, int ipcVersion, string mode);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
+    private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Recovered {Count} session(s) left behind by a previous run; marked partial and finalized")]
+    private static partial void LogRecovered(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service stopping")]
     private static partial void LogStopping(ILogger logger);

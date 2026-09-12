@@ -191,12 +191,14 @@ public sealed class SessionStoreTests : IAsyncDisposable
     [Fact]
     public async Task MigrationsApplyOnce()
     {
+        // Bump when a migration is added: 0001 initial, 0002 session state (ST-020).
+        const int latest = 2;
         var first = await OpenAsync();
-        Assert.Equal(1, await first.GetSchemaVersionAsync());
+        Assert.Equal(latest, await first.GetSchemaVersionAsync());
         await first.DisposeAsync();
 
         var second = await OpenAsync();
-        Assert.Equal(1, await second.GetSchemaVersionAsync());
+        Assert.Equal(latest, await second.GetSchemaVersionAsync());
     }
 
     [Fact]

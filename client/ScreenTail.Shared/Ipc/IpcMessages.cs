@@ -130,6 +130,11 @@ public sealed record CaptureStateSnapshot
     [JsonPropertyName("drafts_ready")]
     public int DraftsReady { get; init; }
 
+    /// <summary>Why the last draft failed; present only in <c>draft_failed</c>. Plain language, no content.</summary>
+    [JsonPropertyName("draft_failure_reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DraftFailureReason { get; init; }
+
     public static CaptureStateSnapshot Idle { get; } = new() { State = CaptureStates.Idle };
 }
 

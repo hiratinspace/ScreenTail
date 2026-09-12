@@ -38,7 +38,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `result` | `request_id`, `ok`, `error?` | Reply to a command |
 | `state_changed` | `state` | Capture state changed; sent to every connected client |
 
-`state` is a `CaptureStateSnapshot`: `state` (`idle`, `recording`, `paused`, `suppressed`, `finalizing`, `draft_ready`, `draft_failed`), `session_id?`, `elapsed_ms?`, `remote_tool?`, `pending_redactions`, `drafts_ready`. ST-020 owns the transitions and extends the snapshot.
+`state` is a `CaptureStateSnapshot`: `state` (`idle`, `recording`, `paused`, `suppressed`, `finalizing`, `draft_ready`, `draft_failed`), `session_id?`, `elapsed_ms?` (active time, excluding pauses), `remote_tool?`, `pending_redactions`, `drafts_ready`, `draft_failure_reason?` (only in `draft_failed`). ST-020's `SessionMachine` owns the transitions.
 
 ## Authentication
 
