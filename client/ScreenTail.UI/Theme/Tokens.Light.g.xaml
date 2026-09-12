@@ -1,0 +1,61 @@
+<!-- Generated from shared/design/tokens.json by shared/design/codegen/generate.mjs. Do not edit by hand. Theme: light. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <!-- window background -->
+    <Color x:Key="Token.bg.base">#F6F8FA</Color>
+    <SolidColorBrush x:Key="Brush.bg.base" Color="#F6F8FA" />
+    <!-- panes, cards -->
+    <Color x:Key="Token.bg.surface">#FFFFFF</Color>
+    <SolidColorBrush x:Key="Brush.bg.surface" Color="#FFFFFF" />
+    <!-- inputs, hovered rows -->
+    <Color x:Key="Token.bg.raised">#F0F3F6</Color>
+    <SolidColorBrush x:Key="Brush.bg.raised" Color="#F0F3F6" />
+    <!-- dividers -->
+    <Color x:Key="Token.border.subtle">#D9E0E7</Color>
+    <SolidColorBrush x:Key="Brush.border.subtle" Color="#D9E0E7" />
+    <!-- focused containers -->
+    <Color x:Key="Token.border.strong">#B9C3CE</Color>
+    <SolidColorBrush x:Key="Brush.border.strong" Color="#B9C3CE" />
+    <!-- body -->
+    <Color x:Key="Token.text.primary">#0F1720</Color>
+    <SolidColorBrush x:Key="Brush.text.primary" Color="#0F1720" />
+    <!-- labels, meta -->
+    <Color x:Key="Token.text.secondary">#4B5865</Color>
+    <SolidColorBrush x:Key="Brush.text.secondary" Color="#4B5865" />
+    <!-- placeholders, timestamps -->
+    <Color x:Key="Token.text.muted">#626D79</Color>
+    <SolidColorBrush x:Key="Brush.text.muted" Color="#626D79" />
+    <!-- primary buttons, links, focus ring -->
+    <Color x:Key="Token.accent.primary">#2A64CC</Color>
+    <SolidColorBrush x:Key="Brush.accent.primary" Color="#2A64CC" />
+    <!-- hovered primary -->
+    <Color x:Key="Token.accent.primary.hover">#265DBF</Color>
+    <SolidColorBrush x:Key="Brush.accent.primary.hover" Color="#265DBF" />
+    <!-- recording indicator, stop -->
+    <Color x:Key="Token.state.recording">#DC2626</Color>
+    <SolidColorBrush x:Key="Brush.state.recording" Color="#DC2626" />
+    <!-- paused / suppressed -->
+    <Color x:Key="Token.state.paused">#D97706</Color>
+    <SolidColorBrush x:Key="Brush.state.paused" Color="#D97706" />
+    <!-- out-of-scope, excluded -->
+    <Color x:Key="Token.state.scope">#7C3AED</Color>
+    <SolidColorBrush x:Key="Brush.state.scope" Color="#7C3AED" />
+    <!-- success, published -->
+    <Color x:Key="Token.state.published">#16A34A</Color>
+    <SolidColorBrush x:Key="Brush.state.published" Color="#16A34A" />
+    <!-- offline / pending -->
+    <Color x:Key="Token.state.offline">#64748B</Color>
+    <SolidColorBrush x:Key="Brush.state.offline" Color="#64748B" />
+    <!-- destructive actions -->
+    <Color x:Key="Token.state.danger">#DC2626</Color>
+    <SolidColorBrush x:Key="Brush.state.danger" Color="#DC2626" />
+    <!-- low-confidence step marker -->
+    <Color x:Key="Token.confidence.low">#D97706</Color>
+    <SolidColorBrush x:Key="Brush.confidence.low" Color="#D97706" />
+    <!-- text on accent.primary (primary buttons); dark theme uses dark text on the bright accent -->
+    <Color x:Key="Token.text.on-accent">#FFFFFF</Color>
+    <SolidColorBrush x:Key="Brush.text.on-accent" Color="#FFFFFF" />
+    <sys:String x:Key="Token.theme">light</sys:String>
+    <sys:Boolean x:Key="Token.elevation.enabled">True</sys:Boolean>
+</ResourceDictionary>

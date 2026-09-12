@@ -7,7 +7,7 @@
 
 ## 1. The one thing that needs you
 
-**Eleven pull requests are waiting, ten of them in a single stack.** Nothing has merged to `main` yet, so
+**Thirteen pull requests are waiting, twelve of them in one chain.** Nothing has merged to `main` yet, so
 every ticket since ST-002 is sitting on a branch built on the branch before it. That works, and CI is
 green on all of it, but the stack only gets harder to review the longer it waits, and a change you want
 in ST-002 now has nine descendants to rebase.
@@ -22,7 +22,7 @@ rest rebases onto `main` from there. Then work down §2 at whatever pace suits y
 | GitHub repo (private) | https://github.com/hiratinspace/ScreenTail | `main` holds only the plan docs; **11 open PRs** |
 | Build plan | `Build Plan/` | Spec at v0.4.2 (ST-014 decisions + the contrast fixes); guide amended for .NET 10 and ADR-0002. All amendments live on branches |
 | Windows test loop | GitHub-hosted Windows VM + spare laptop (runner `SCREENTRAIL`) | Working. Laptop **off**; every PR still runs on the hosted VM, which also runs the DPAPI tests and renders the UI gallery |
-| Client test suite | `client/` | **143 tests**, green on macOS and on Windows CI |
+| Client test suite | `client/` | **178 tests**, green on macOS and on Windows CI |
 | Research suite | `research/` | **62 tests** (fixtures + prompt contract), green |
 | Branch protection for `main` | GitHub ruleset "main" | Created, **switched off** until #3 merges |
 
@@ -39,16 +39,22 @@ conventional-commit check depends on.
 | 3 | [#5](https://github.com/hiratinspace/ScreenTail/pull/5) | ST-005 encrypted store | SQLCipher, two-stage frame lifecycle, INV-1 enforced in three places |
 | 4 | [#6](https://github.com/hiratinspace/ScreenTail/pull/6) | ST-004 service + UI over an authenticated pipe | **Needs your yes on ADR-0003** (per-user process, not a Windows Service) |
 | 5 | [#8](https://github.com/hiratinspace/ScreenTail/pull/8) | ST-020 session state machine | Redaction grace, INV-6 gating, crash recovery |
-| 6 | [#9](https://github.com/hiratinspace/ScreenTail/pull/9) | ST-044 retention purge + delete-everything | Includes a retention-bypass fix (see §5) |
+| 6 | [#9](https://github.com/hiratinspace/ScreenTail/pull/9) | ST-044 retention purge + delete-everything | Includes a retention-bypass fix (§5) |
 | 7 | [#10](https://github.com/hiratinspace/ScreenTail/pull/10) | ST-066 suggested time entry | Small; pure arithmetic over the machine's active time |
 | 8 | [#11](https://github.com/hiratinspace/ScreenTail/pull/11) | ST-042 redaction engine | **Partial by design** — the corpus recall gate needs ST-030 |
 | 9 | [#12](https://github.com/hiratinspace/ScreenTail/pull/12) | ST-006 fixture bundles + redaction seed | Frames are **drawn, not staged** — read the deviation note in the PR |
 | 10 | [#13](https://github.com/hiratinspace/ScreenTail/pull/13) | ST-061 note prompt + output contract | The prompt's rules as enforced post-conditions |
-| — | [#7](https://github.com/hiratinspace/ScreenTail/pull/7) | ST-016 tokens, components, gallery | Branches off #3 only. **Needs your veto or nod on the v0.4.2 colours.** Merge any time after #3 |
-| — | [#2](https://github.com/hiratinspace/ScreenTail/pull/2) | ST-014 wireframes | Independent. Still needs the two technician sessions |
-| — | [#1](https://github.com/hiratinspace/ScreenTail/pull/1) | ST-001 spike + ADR-0001 | Independent. AC2 (RDP opacity) needs a second machine |
+| 11 | [#2](https://github.com/hiratinspace/ScreenTail/pull/2) | ST-014 wireframes | Still needs the two technician sessions, but the spec decisions are in it |
+| 12 | [#7](https://github.com/hiratinspace/ScreenTail/pull/7) | ST-016 tokens, components, gallery | **Needs your veto or nod on the v0.4.2 colours** |
+| 13 | [#1](https://github.com/hiratinspace/ScreenTail/pull/1) | ST-001 spike + ADR-0001 | Independent of everything. AC2 (RDP opacity) needs a second machine |
 
-Stack: #3 ← #4 ← #5 ← #6 ← #8 ← #9 ← #10 ← #11 ← #12 ← #13, and #3 ← #7.
+**They merge in this order with no conflicts** — I dry-ran the whole sequence into a scratch copy of
+`main` after each rebase, which is how I found and removed the two that were there (a CI workflow clash
+between the schema and design jobs, and both branches appending to the spec's amendments table).
+#2 and #7 used to branch off `main` and `#3`; I rebased them onto the tip so the chain is linear.
+If you merge out of order, expect those two conflicts back.
+
+Chain: #3 ← #4 ← #5 ← #6 ← #8 ← #9 ← #10 ← #11 ← #12 ← #13 ← #2 ← #7. #1 stands alone.
 
 ## 4. Decisions already made
 - **.NET 10 LTS** (support for 8 ends November 2026).
@@ -68,6 +74,9 @@ Things that were wrong and are now fixed, each with a test that would catch it a
 - **My ST-006 fixtures billed twice** — 15/30/45-minute drafts on 6–12 minute sessions — caught by ST-061's own checks.
 - **A flaky test of my own making**: fixed `ts_ms` values racing the machine's real clock. It only showed once the suite got slow enough.
 - **The generated C# accepted sessions the JSON Schema rejects** (earlier in the week) → `SessionValidator`.
+- **A redaction detector that ran out of time threw instead of reporting** — a busy CI agent tripped the
+  100 ms pattern budget mid-run. Worse than the crash: a scan that doesn't finish isn't a clean scan, so
+  the engine now says so and the caller purges the frame rather than storing one nobody checked.
 
 ## 6. Decisions the owner needs to make
 - [ ] Accept ADR-0001 (stack), ADR-0002 (Core project), ADR-0003 (hosting + pipe). Recommendation: yes to all three.

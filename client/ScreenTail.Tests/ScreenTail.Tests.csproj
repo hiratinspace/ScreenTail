@@ -24,6 +24,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The design tokens are the single source; the contrast test reads them from the output folder. -->
+    <None Include="..\..\shared\design\tokens.json" Link="Design\tokens.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>

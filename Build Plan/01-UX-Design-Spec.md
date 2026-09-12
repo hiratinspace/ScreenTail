@@ -28,8 +28,9 @@ Authoritative for everything a user sees. Build agents implement exactly this; d
 | `border.strong` | `#33404F` | `#B9C3CE` | focused containers |
 | `text.primary` | `#E6EDF3` | `#0F1720` | body |
 | `text.secondary` | `#9AA7B5` | `#4B5865` | labels, meta |
-| `text.muted` | `#66748A` | `#7B8794` | placeholders, timestamps |
-| `accent.primary` | `#4F8CFF` | `#2F6FE0` | primary buttons, links, focus ring |
+| `text.muted` | `#7D8B9F` | `#626D79` | placeholders, timestamps *(v0.4.2)* |
+| `accent.primary` | `#4F8CFF` | `#2A64CC` | primary buttons, links, focus ring *(v0.4.2)* |
+| `text.on-accent` | `#0B0F14` | `#FFFFFF` | text on `accent.primary` (primary buttons) *(v0.4.2)* |
 | `accent.primary.hover` | `#6BA1FF` | `#265DBF` | |
 | `state.recording` | `#EF4444` | `#DC2626` | recording indicator, stop |
 | `state.paused` | `#F59E0B` | `#D97706` | paused / suppressed |
@@ -39,7 +40,7 @@ Authoritative for everything a user sees. Build agents implement exactly this; d
 | `state.danger` | `#F87171` | `#DC2626` | destructive actions |
 | `confidence.low` | `#FBBF24` | `#D97706` | low-confidence step marker |
 
-Rules: one accent only. State colors never appear as decoration. Contrast for all text pairs ≥ 4.5:1 (verified in CI by a token test).
+Rules: one accent only. State colors never appear as decoration. Contrast for all text pairs ≥ 4.5:1 (verified in CI by a token test: `ScreenTail.Tests/Theme/ContrastTests`, which reads `tokens.json` directly). State colors are indicators (dots, glyphs, borders), not body-size text: on light backgrounds they sit around 3:1, so a state is always spelled out in `text.primary` next to its colored glyph. *(v0.4.2)*
 
 ### 2.2 Typography
 
@@ -290,3 +291,4 @@ Copy rules: sentence case; no exclamation marks; name the object (ticket, note, 
 | Version | Date | Source | Change |
 |---|---|---|---|
 | v0.4.1 | 2026-09-11 | ST-014 wireframes, owner decision | Q1 HUD always visible while screen-sharing (S2). Q2 default note type Internal (S3). Q3 tray discard while recording stops capture before confirming (S1). Q4 Publish disabled after a failed draft (S3). Q5 elevated-window HUD wording and tooltip (S2). Q6 bulk-discard confirmation is the session count (S4). Background: `docs/ux/wireframes/README.md`. Q1 and Q2 are still to be checked in the ST-014 technician sessions. |
+| v0.4.2 | 2026-09-12 | ST-016 contrast test | The CI token test found 10 text/background pairs under 4.5:1 in the v0.4 palette. Minimal changes: `text.muted` dark `#66748A`→`#7D8B9F`, light `#7B8794`→`#626D79`; `accent.primary` light `#2F6FE0`→`#2A64CC`; new `text.on-accent` (dark theme uses dark text on the bright accent, `#0B0F14`; light stays white). Every pair now ≥ 4.7:1. Rule added: state colors are indicators, never body-size text. Pending owner veto. |

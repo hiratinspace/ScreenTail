@@ -5,9 +5,11 @@
         Width="1280"
         Height="800"
         MinWidth="1024"
-        MinHeight="680">
+        MinHeight="680"
+        Style="{StaticResource Window.Base}">
     <!-- Shell placeholder. ST-070 builds navigation, theming and the service-connection banner. -->
     <TextBlock Margin="16"
+               Style="{StaticResource Text.Body}"
                Text="{Binding Status}"
                AutomationProperties.Name="Service connection status" />
 </Window>

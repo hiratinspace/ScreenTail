@@ -1,0 +1,174 @@
+<Window x:Class="ScreenTail.UI.Gallery.GalleryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
+        Title="ScreenTail component gallery"
+        Width="1100"
+        Height="900"
+        Style="{StaticResource Window.Base}">
+    <!-- ST-016: every Spec §3 component in one place. Tab through it to see focus rings. -->
+    <DockPanel>
+        <Border DockPanel.Dock="Top"
+                Padding="16,10"
+                Background="{DynamicResource Brush.bg.surface}"
+                BorderBrush="{DynamicResource Brush.border.subtle}"
+                BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Text.ScreenTitle}" Text="Component gallery" VerticalAlignment="Center" />
+                <TextBlock Margin="16,0,8,0" Style="{StaticResource Text.Secondary}" Text="Theme" VerticalAlignment="Center" />
+                <Button x:Name="DarkButton" Click="OnTheme" Content="Dark" Style="{StaticResource Button.Secondary}" Tag="Dark" />
+                <Button x:Name="LightButton" Margin="6,0,0,0" Click="OnTheme" Content="Light" Style="{StaticResource Button.Secondary}" Tag="Light" />
+                <Button x:Name="HighContrastButton" Margin="6,0,0,0" Click="OnTheme" Content="High contrast" Style="{StaticResource Button.Secondary}" Tag="HighContrast" />
+                <TextBlock Margin="24,0,0,0" Style="{StaticResource Text.Muted}" Text="Press Tab to move focus; the ring is 2 px accent outside the control." VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="Sections" Margin="16">
+                <StackPanel.Resources>
+                    <Style TargetType="StackPanel" x:Key="Row">
+                        <Setter Property="Orientation" Value="Horizontal" />
+                        <Setter Property="Margin" Value="0,6,0,14" />
+                    </Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource Text.SectionHeading}" />
+                </StackPanel.Resources>
+
+                <TextBlock Text="Buttons" />
+                <StackPanel Style="{StaticResource Row}">
+                    <Button Content="Publish" Style="{StaticResource Button.Primary}" />
+                    <Button Margin="8,0,0,0" Content="Retry" Style="{StaticResource Button.Secondary}" />
+                    <Button Margin="8,0,0,0" Content="Discard" Style="{StaticResource Button.Ghost}" />
+                    <Button Margin="8,0,0,0" Content="Delete everything" Style="{StaticResource Button.Danger}" />
+                    <Button Margin="8,0,0,0" Content="Publish" IsEnabled="False" Style="{StaticResource Button.Primary}" ToolTip="Choose a ticket first" />
+                </StackPanel>
+
+                <TextBlock Text="Input and search" />
+                <StackPanel Style="{StaticResource Row}">
+                    <TextBox Width="280" Style="{StaticResource Input.Default}" Text="#48213 · Printer offline — Acme Dental" />
+                    <StackPanel Margin="12,0,0,0">
+                        <TextBox Width="280" Style="{StaticResource Input.Error}" Text="Ctrl+Alt+M" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" Text="Ctrl+Alt+M is already used by Microsoft Teams. Try Ctrl+Alt+K." />
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Text="Toggle" />
+                <StackPanel Style="{StaticResource Row}">
+                    <controls:ToggleSwitch IsChecked="True" />
+                    <TextBlock Margin="8,0,24,0" Style="{StaticResource Text.Body}" Text="Auto-start on remote session" VerticalAlignment="Center" />
+                    <controls:ToggleSwitch IsChecked="False" />
+                    <TextBlock Margin="8,0,24,0" Style="{StaticResource Text.Body}" Text="Email addresses" VerticalAlignment="Center" />
+                    <controls:ToggleSwitch IsChecked="True" IsLocked="True" />
+                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Body}" Text="Local-only mode" VerticalAlignment="Center" />
+                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Muted}" Text="Set by your admin" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <TextBlock Text="Badges and state indicators" />
+                <StackPanel Style="{StaticResource Row}">
+                    <ContentControl Content="Draft" Style="{StaticResource Badge}" />
+                    <ContentControl Margin="6,0,0,0" Content="Suggested" Style="{StaticResource Badge.Suggested}" />
+                    <ContentControl Margin="6,0,0,0" Content="Low confidence" Style="{StaticResource Badge.Confidence}" />
+                    <ContentControl Margin="6,0,0,0" Content="Published" Style="{StaticResource Badge.Published}" />
+                    <Ellipse Margin="24,0,6,0" Style="{StaticResource StateDot}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Recording" VerticalAlignment="Center" />
+                    <Ellipse Margin="16,0,6,0" Fill="{DynamicResource Brush.state.paused}" Style="{StaticResource StateDot}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Paused: sensitive field" VerticalAlignment="Center" />
+                    <Ellipse Margin="16,0,6,0" Fill="{DynamicResource Brush.state.scope}" Style="{StaticResource StateDot}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Not capturing — Outlook" VerticalAlignment="Center" />
+                    <Ellipse Margin="16,0,6,0" Fill="{DynamicResource Brush.state.offline}" Style="{StaticResource StateDot}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Offline" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <TextBlock Text="Banners" />
+                <StackPanel Margin="0,6,0,14">
+                    <Border Style="{StaticResource Banner.Info}">
+                        <TextBlock Style="{StaticResource Text.Body}" Text="Drafted on this device only — quality may be lower." />
+                    </Border>
+                    <Border Margin="0,8,0,0" Style="{StaticResource Banner.Warning}">
+                        <TextBlock Style="{StaticResource Text.Body}" Text="Capture started late or was interrupted. Some steps may be missing." />
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Text="Toast" />
+                <StackPanel Style="{StaticResource Row}">
+                    <Border Style="{StaticResource Toast}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Text.Body}" Text="Draft ready — Printer offline · Acme Dental" VerticalAlignment="Center" />
+                            <Button Margin="12,0,0,0" Content="Review" Style="{StaticResource Button.Secondary}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Text="Status pill (HUD)" />
+                <StackPanel Style="{StaticResource Row}">
+                    <Border Style="{StaticResource StatusPill}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Style="{StaticResource StateDot}" />
+                            <TextBlock Margin="8,0,12,0" FontWeight="{DynamicResource Weight.semibold}" Style="{StaticResource Text.Body}" Text="12:41" VerticalAlignment="Center" />
+                            <TextBlock Margin="0,0,12,0" Style="{StaticResource Text.Secondary}" Text="▂▄▆ mic" VerticalAlignment="Center" />
+                            <TextBlock Margin="0,0,12,0" Style="{StaticResource Text.Secondary}" Text="⛨ 3 redacted" VerticalAlignment="Center" />
+                            <Button Content="‖ Pause" Style="{StaticResource Pill.Control}" />
+                            <Button Margin="6,0,0,0" Content="■ Stop" Style="{StaticResource Pill.Control}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Text="Table" />
+                <DataGrid x:Name="SampleTable"
+                          Height="140"
+                          Margin="0,6,0,14"
+                          IsReadOnly="True"
+                          Style="{StaticResource Table}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding Status}" Header="Status" Width="100" />
+                        <DataGridTextColumn Binding="{Binding Started}" Header="Started" Width="120" />
+                        <DataGridTextColumn Binding="{Binding Duration}" Header="Duration" Width="90" />
+                        <DataGridTextColumn Binding="{Binding Tool}" Header="Tool" Width="140" />
+                        <DataGridTextColumn Binding="{Binding Client}" Header="Client / ticket" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Text="Split pane and filmstrip" />
+                <Grid Height="160" Margin="0,6,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}">
+                        <TextBlock Style="{StaticResource Text.Secondary}" Text="Note pane" />
+                    </Border>
+                    <GridSplitter Grid.Column="1" Style="{StaticResource SplitPane.Splitter}" />
+                    <ListBox x:Name="Strip" Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource Filmstrip}">
+                        <ListBoxItem>
+                            <TextBlock Margin="6" Style="{StaticResource Text.Muted}" Text="1 · Services list" />
+                        </ListBoxItem>
+                        <ListBoxItem IsSelected="True">
+                            <TextBlock Margin="6" Style="{StaticResource Text.Muted}" Text="2 · Spooler: Stopped" />
+                        </ListBoxItem>
+                        <ListBoxItem Opacity="0.45">
+                            <TextBlock Margin="6" Style="{StaticResource Text.Muted}" Text="3 · Excluded" />
+                        </ListBoxItem>
+                    </ListBox>
+                </Grid>
+
+                <TextBlock Text="Timeline (collapsed)" />
+                <Border Margin="0,6,0,14" Style="{StaticResource Timeline}">
+                    <TextBlock Style="{StaticResource Text.Mono}" Text="14:04:40  &quot;clearing the queue now&quot;" VerticalAlignment="Center" />
+                </Border>
+
+                <TextBlock Text="Card / modal panel" />
+                <Border Margin="0,6,0,14" Style="{StaticResource Card}" Width="420" HorizontalAlignment="Left">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Discard this session?" />
+                        <TextBlock Margin="0,6,0,10" Style="{StaticResource Text.Secondary}" Text="This deletes the draft, screenshots and transcript from this device now. It can't be undone." />
+                        <TextBox Style="{StaticResource Input.Default}" Text="" />
+                        <StackPanel Margin="0,12,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
+                            <Button Content="Cancel" Style="{StaticResource Button.Secondary}" />
+                            <Button Margin="8,0,0,0" Content="Discard session" IsEnabled="False" Style="{StaticResource Button.Primary}" ToolTip="Type DISCARD to confirm" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
