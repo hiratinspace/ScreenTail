@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Pipes;
 using ScreenTail.Core.Audit;
+using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Shared.Ipc;
 
@@ -206,6 +207,8 @@ public sealed class IpcServerTests : IAsyncDisposable
 
     private sealed class FakeController : IIpcCommandHandler
     {
+        public CapabilitiesReported CurrentCapabilities => new AlwaysCapableProbe().Probe().ToWire();
+
         public CaptureStateSnapshot State { get; set; } = CaptureStateSnapshot.Idle;
 
         public List<IpcCommand> Received { get; } = [];

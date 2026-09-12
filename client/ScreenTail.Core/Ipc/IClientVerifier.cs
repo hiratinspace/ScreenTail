@@ -19,5 +19,8 @@ public interface IIpcCommandHandler
 {
     CaptureStateSnapshot CurrentState { get; }
 
+    /// <summary>What Windows allows right now (ST-021). Re-checked on request: permissions change mid-day.</summary>
+    CapabilitiesReported CurrentCapabilities { get; }
+
     Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default);
 }

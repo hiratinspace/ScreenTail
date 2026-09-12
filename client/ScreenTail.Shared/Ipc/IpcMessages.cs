@@ -15,6 +15,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(DiscardCommand), "discard")]
 [JsonDerivedType(typeof(MarkMomentCommand), "mark_moment")]
 [JsonDerivedType(typeof(GetStateCommand), "get_state")]
+[JsonDerivedType(typeof(GetCapabilitiesCommand), "get_capabilities")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -51,12 +52,16 @@ public sealed record MarkMomentCommand : IpcCommand;
 
 public sealed record GetStateCommand : IpcCommand;
 
+/// <summary>Asks the service to re-check what Windows allows (ST-021). Answered by a <see cref="CapabilitiesReported"/>.</summary>
+public sealed record GetCapabilitiesCommand : IpcCommand;
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
 [JsonDerivedType(typeof(Rejected), "rejected")]
 [JsonDerivedType(typeof(CommandResult), "result")]
 [JsonDerivedType(typeof(StateChanged), "state_changed")]
+[JsonDerivedType(typeof(CapabilitiesReported), "capabilities")]
 public abstract record IpcEvent;
 
 public sealed record HelloAck : IpcEvent
@@ -139,6 +144,47 @@ public sealed record CaptureStateSnapshot
 }
 
 /// <summary>State names on the wire (Spec §5 S1/S2; ST-020 owns the machine).</summary>
+/// <summary>What Windows is allowing right now (ST-021). Sent on request and whenever a check changes.</summary>
+public sealed record CapabilitiesReported : IpcEvent
+{
+    [JsonPropertyName("request_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RequestId { get; init; }
+
+    [JsonPropertyName("checked_at")]
+    public required DateTimeOffset CheckedAt { get; init; }
+
+    [JsonPropertyName("can_capture")]
+    public required bool CanCapture { get; init; }
+
+    [JsonPropertyName("checks")]
+    public required IReadOnlyList<CapabilityStatus> Checks { get; init; }
+}
+
+/// <param name="Capability">One of <c>desktop_session</c>, <c>microphone</c>, <c>screen_capture</c>, <c>input_hooks</c>, <c>elevated_windows</c>.</param>
+/// <param name="State">One of <c>ok</c>, <c>degraded</c>, <c>blocked</c>, <c>unknown</c>.</param>
+public sealed record CapabilityStatus
+{
+    [JsonPropertyName("capability")]
+    public required string Capability { get; init; }
+
+    [JsonPropertyName("state")]
+    public required string State { get; init; }
+
+    /// <summary>Shown as-is in the HUD and diagnostics. Never contains anything captured (INV-10).</summary>
+    [JsonPropertyName("message")]
+    public required string Message { get; init; }
+
+    [JsonPropertyName("fix_hint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FixHint { get; init; }
+
+    /// <summary>A Windows Settings deep link for the HUD's "Fix" button, e.g. <c>ms-settings:privacy-microphone</c>.</summary>
+    [JsonPropertyName("fix_link")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FixLink { get; init; }
+}
+
 public static class CaptureStates
 {
     public const string Idle = "idle";
