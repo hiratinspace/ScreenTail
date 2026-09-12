@@ -1,0 +1,1 @@
+Overlay window 0x2A0574 (pid 15644) bounds {X=1450,Y=20,Width=450,Height=55}; marker pixels in that region 0.00 %; EXCLUDED - overlay absent from capture

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform-neutral logic so it can be unit-tested off Windows. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>ScreenTail.Spike.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,1 @@
+Overlay bounds {X=192,Y=192,Width=1440,Height=781}; marker pixels in that region 0.00 %; EXCLUDED - overlay absent from capture

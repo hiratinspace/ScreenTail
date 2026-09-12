@@ -1,0 +1,111 @@
+name: spike-windows
+
+# ST-001: build the spike on Windows and produce the evidence that needs no human.
+#  - hosted: GitHub's Windows VM. Catches build breaks and start-up crashes; its numbers don't count.
+#  - laptop: the spare laptop as a self-hosted runner (scripts/windows/setup-test-laptop.ps1).
+#            Real hardware, including a 5-minute synthetic-typing AC1 run. Enabled by the repo
+#            variable HW_RUNNER=true once the runner is online.
+# RDP (AC2) and a confirming human typing run still need a person: spike/run-spike.ps1.
+
+on:
+  pull_request:
+    paths:
+      - 'spike/**'
+      - 'scripts/windows/**'
+      - '.github/workflows/spike-windows.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: spike-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  hosted:
+    name: Hosted runner - build, test, automated checks
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: spike
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        run: dotnet build ScreenTail.Spike.sln -c Release
+
+      - name: Unit tests
+        run: dotnet test Spike.Core.Tests -c Release --no-build
+
+      - name: Parse-check scripts (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($file in 'run-spike.ps1', 'ci-checks.ps1', '..\scripts\windows\setup-test-laptop.ps1') {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$null, [ref]$errors)
+            foreach ($e in $errors) { Write-Host "::error file=$file::$e"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+
+      # The hosted VM's desktop may not behave like a laptop's; record, don't gate.
+      - name: Automated checks (AC3, AC4, smoke run)
+        continue-on-error: true
+        run: ./ci-checks.ps1 -Evidence (Join-Path $env:RUNNER_TEMP 'st-001-evidence') -RunMode smoke
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: st-001-evidence-hosted
+          path: ${{ runner.temp }}/st-001-evidence
+          if-no-files-found: warn
+
+  laptop:
+    name: Spare laptop - real hardware, synthetic 5-min load
+    if: vars.HW_RUNNER == 'true'
+    runs-on: [self-hosted, Windows, screentail-win]
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Windows PowerShell 5.1: the laptop has no pwsh, and the scripts target 5.1 anyway.
+        shell: powershell
+        working-directory: spike
+    steps:
+      - uses: actions/checkout@v7
+
+      # The laptop already has the SDKs (scripts/windows/setup-test-laptop.ps1). setup-dotnet would try to
+      # install into C:\Program Files\dotnet, which the non-admin runner account cannot write to.
+      - name: Use the preinstalled .NET SDK
+        run: |
+          if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+            $installed = Join-Path $env:ProgramFiles 'dotnet'
+            if (-not (Test-Path (Join-Path $installed 'dotnet.exe'))) {
+              throw 'No .NET SDK on this runner. Re-run scripts/windows/setup-test-laptop.ps1.'
+            }
+            [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$installed`r`n")
+            $env:Path = "$installed;$env:Path"
+          }
+          dotnet --list-sdks
+
+      - name: Build
+        run: dotnet build ScreenTail.Spike.sln -c Release
+
+      - name: Automated checks (AC1 synthetic, AC3, AC4)
+        run: ./ci-checks.ps1 -Evidence (Join-Path $env:RUNNER_TEMP 'st-001-evidence') -RunMode synthetic-load
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: st-001-evidence-laptop
+          path: ${{ runner.temp }}/st-001-evidence
+          if-no-files-found: warn

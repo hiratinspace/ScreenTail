@@ -1,0 +1,1 @@
+Overlay bounds {X=1450,Y=20,Width=450,Height=55}; marker pixels in that region 84.97 %; CAPTURED - overlay visible in capture

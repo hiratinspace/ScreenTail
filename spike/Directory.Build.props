@@ -1,0 +1,11 @@
+<Project>
+  <!-- ST-001 spike: disposable. Mirrors Guide §5 client conventions so findings transfer. -->
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Lets Windows-only projects compile on the macOS dev box; they still only run on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>

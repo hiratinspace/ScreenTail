@@ -1,0 +1,5 @@
+﻿CPU: Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz, 4 cores / 8 threads, x64
+RAM: 16 GB
+Machine: physical (best guess)
+OS: Microsoft Windows 11 Pro 10.0.26200 (build 26200)
+Primary display: 1920x1080, scaling 150%
