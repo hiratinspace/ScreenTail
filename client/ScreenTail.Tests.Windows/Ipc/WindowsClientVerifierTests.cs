@@ -15,11 +15,16 @@ public sealed class WindowsClientVerifierTests : IDisposable
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
     public void SignedServiceAcceptsSamePublisherAndRejectsUnsigned()
     {
-        // dotnet.exe (the test host) is signed by Microsoft; the test assembly is not signed at all.
-        var verifier = new WindowsClientVerifier(Environment.ProcessPath!);
+        // The SDK's dotnet.exe is Microsoft-signed; the test assembly is not signed at all. (The test
+        // process itself is the unsigned test executable under Microsoft.Testing.Platform.)
+        var dotnet = Path.Combine(
+            Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
+            "dotnet.exe");
+        Assert.SkipUnless(File.Exists(dotnet), "dotnet.exe not found");
+        var verifier = new WindowsClientVerifier(dotnet);
         Assert.True(verifier.ServiceIsSigned);
 
-        Assert.Null(verifier.Verify(Environment.ProcessPath!));
+        Assert.Null(verifier.Verify(dotnet));
         Assert.Equal("unsigned_or_other_publisher", verifier.Verify(typeof(WindowsClientVerifierTests).Assembly.Location));
     }
 
