@@ -38,13 +38,35 @@ Filled in from the Windows runs. Raw reports go in `docs/adr/evidence/0001/`.
 
 | AC | Criterion | Result | Evidence |
 |---|---|---|---|
-| 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **PENDING** | `run` report: baseline vs full load |
-| 2 | RDP window focused → FlaUI reports an opaque subtree | **PENDING** | `run` report: focus-transition table |
-| 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** (hosted runner). Laptop run pending. | [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png): 0.00% marker pixels; [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png): 86.31% |
-| 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner, synthetic), resolved by decision: OCR runs on the native frame (finding 2a). Laptop run pending. | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
+| 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **Latency PASS on real hardware** (worst callback 0.88 ms idle, 0.55 ms under full load; nothing ≥ 5 ms; no hook removed). Typing volume short of the criterion, so the unattended synthetic run completes it. | [Laptop results](#laptop-results-2026-09-11) |
+| 2 | RDP window focused → FlaUI reports an opaque subtree | **NOT EXERCISED** — no RDP target available yet | — |
+| 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** on the hosted runner and on the laptop | Hosted: [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png) 0.00% marker pixels, [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png) 86.31%. Laptop: [excluded](evidence/0001/overlay/overlay-check-excluded.png) has no pill anywhere on screen, [control](evidence/0001/overlay/overlay-check-visible.png) shows it at 84.97% |
+| 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner and laptop agree, synthetic), resolved by decision: OCR runs on the native frame (finding 2a). | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
 | 5 | This ADR records the decision and a Python fallback assessment | Drafted | this file |
 
-Test machine: _to be filled in_ (CPU and cores, RAM, display and scaling, Windows build, physical or VM).
+Test machine: HP laptop (ITS-SPARES09), Intel Core i7-10510U, 4 cores / 8 threads, 16 GB RAM, Windows 11 Pro build 26200, single 1920×1080 display at 150% scaling, physical hardware. A 2019-era mid-range business laptop, which is roughly what a technician runs.
+
+### Laptop results (2026-09-11)
+
+Two 5-minute runs with a person typing: one with hooks only, one with everything on. Files in [`evidence/0001/`](evidence/0001/).
+
+| Metric | Hooks only | Everything on | Budget |
+|---|---|---|---|
+| Hook callbacks timed | 612 | 417 | — |
+| Callback time p50 / p99 / **max** (ms) | 0.001 / 0.018 / **0.88** | 0.001 / 0.009 / **0.55** | < 5 ms |
+| Callbacks ≥ 5 ms | 0 | 0 | 0 |
+| Hook silently removed | no | no | no |
+| Process CPU p50 / max (% of all cores) | 0.2 / 4.1 | 49 / 62 | < 15% recording (ST-031) |
+| Working set max | 44 MB | 505 MB | < 600 MB (ST-031) |
+| GC pause, total | 0.6 ms | 6.6 ms | — |
+
+- **The hooks are not the problem.** Managed hook callbacks cost about a microsecond, and the worst single callback across both runs was 0.88 ms, with GC pauses of a few milliseconds spread over five minutes. The fallback plan (a native hook shim) isn't needed.
+- **Typing volume was short:** 49 and 39 characters, against the 300 the report asks for before it calls AC1 met. The unattended synthetic-typing run on this same laptop supplies a full five minutes of input.
+- **Whisper `base`, transcribing continuously:** 59 chunks of 5 s audio, median 2.6 s and worst 10.8 s per chunk, 607 words. Median real-time factor about 0.5, but the worst chunk ran 2× real time, and the process sat at 49–62% CPU with 505 MB resident. Confirms finding 8 on real hardware, and shows ST-031's RAM budget is nearly spent by speech alone.
+- **OCR (Tesseract) took 2.46 s per 1600×900 frame**, mean confidence 0.88. See finding 9.
+- **Screenshot capture + downscale + encode: 228 ms and 346 ms** for a 1920×1080 window. See finding 10.
+- **UI Automation polling is cheap:** 1141 polls, p95 9.5 ms, worst 64 ms, no errors.
+- **AC3 passed, with a measurement caveat.** The excluded capture contains no pill anywhere on screen, which is the real proof, and the control capture shows it at 84.97%. But that run recorded the overlay rectangle as 1440×781 instead of the pill's 450×55 (360×44 at 150% scaling), so the percentage sampled the wrong area. Cause unknown; `overlay-check` now records the window handle and pid and warns when the rectangle isn't pill-sized, so the next run says so out loud.
 
 ### Hosted-runner results (2026-09-11)
 
@@ -86,7 +108,9 @@ These came up while building the spike and hold regardless of how the Windows ru
 5. **Managed code in hook callbacks.** The main risk is a garbage-collection pause landing inside a callback. Mitigations in place: callbacks that don't allocate, a dedicated thread, and `GCLatencyMode.SustainedLowLatency`. The AC1 verdict uses the *maximum*, not p99, so any such pause shows up. If AC1 fails because of GC pauses, the fallback is a small native hook DLL writing to a shared-memory ring, with everything else staying in .NET. That's a contained change, not a reason to switch languages.
 6. **Elevated windows.** Low-level hooks installed by a medium-integrity process don't receive input sent to elevated windows or to the secure desktop. That affects the unhook watchdog (false positives) and is the mechanism behind the "Elevated window, screen not captured" state in ST-021.
 7. **Windows on ARM.** Whisper.net has arm64 native binaries; Tesseract doesn't, so the capture process runs as x64 under emulation. If technicians on ARM laptops matter, Windows.Media.Ocr removes this constraint.
-8. **Whisper must be gated by voice activity detection, not run continuously.** On the hosted runner, feeding Whisper `base` every 5 s of audio used most of the CPU (see the hosted-runner results). ST-027 should run VAD first (Whisper.net ships a Silero VAD model) and transcribe only speech segments, with CPU rate-limited so capture and hooks always win (ST-031). Technicians talk for a fraction of a session, so this is the difference between being always busy and mostly idle. The laptop run gives the real per-core cost.
+8. **Whisper must be gated by voice activity detection, not run continuously.** On the hosted runner, feeding Whisper `base` every 5 s of audio used most of the CPU (see the hosted-runner results). ST-027 should run VAD first (Whisper.net ships a Silero VAD model) and transcribe only speech segments, with CPU rate-limited so capture and hooks always win (ST-031). Technicians talk for a fraction of a session, so this is the difference between being always busy and mostly idle. The laptop run gives the real per-core cost: 49–62% of an 8-thread laptop CPU, and 505 MB resident.
+9. **OCR is far slower than ST-041 budgets for.** On the laptop, Tesseract took **2.46 s per 1600×900 frame**, against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
+10. **Screen capture and encoding cost more than ST-025 budgets for.** Capturing, downscaling and JPEG-encoding one 1920×1080 window took **228 ms and 346 ms** on the laptop, against ST-025's budget of 120 ms for a 4K frame. The path measured here is GDI BitBlt plus GDI+ bicubic downscale and encode, all on the CPU. ST-025 should compare Windows.Graphics.Capture (which keeps the frame on the GPU and honours display affinity) and a WIC encoder before accepting the budget.
 
 ## Python fallback assessment
 
