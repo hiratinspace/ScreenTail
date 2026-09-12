@@ -201,6 +201,31 @@ public sealed class PatternEngineTests
         Assert.DoesNotContain("sarah", redaction.Text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AScanThatCouldNotFinishIsReportedAsIncomplete()
+    {
+        // A detector that runs out of its match budget leaves text it never searched. Reporting "clean"
+        // there would store a frame nobody checked, so the result says so and ST-041 purges the frame.
+        var engine = new RedactionEngine(RedactionPolicy.Default, (_, _, onIncomplete) =>
+        {
+            onIncomplete();
+            return [];
+        });
+
+        var result = engine.ScrubText("card 4111111111111111");
+
+        Assert.False(result.Complete);
+        Assert.False(result.Changed);
+        Assert.False(engine.RedactFrame([new OcrWord("4111111111111111", 0, 0, 10, 10)]).Complete);
+    }
+
+    [Fact]
+    public void ANormalScanIsComplete()
+    {
+        Assert.True(Engine.ScrubText("card 4111111111111111").Complete);
+        Assert.True(Engine.RedactFrame([new OcrWord("hello", 0, 0, 10, 10)]).Complete);
+    }
+
     [Theory]
     [InlineData("4111111111111111", true)] // 16 digits, Luhn-valid
     [InlineData("378282246310005", true)] // 15 digits (Amex)

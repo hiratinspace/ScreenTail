@@ -8,7 +8,11 @@ public sealed record OcrWord(string Text, int X, int Y, int Width, int Height);
 
 /// <param name="Text">The text with every match replaced by its label.</param>
 /// <param name="Counts">How many of each kind were found — the only thing that may be logged (INV-10).</param>
-public sealed record ScrubResult(string Text, IReadOnlyDictionary<MaskKind, int> Counts)
+/// <param name="Complete">
+/// False when a detector ran out of its match budget, which means this text was never fully searched.
+/// A false here is not "nothing found": the caller must discard the frame or segment rather than store it.
+/// </param>
+public sealed record ScrubResult(string Text, IReadOnlyDictionary<MaskKind, int> Counts, bool Complete = true)
 {
     public bool Changed => Counts.Count > 0;
 
@@ -16,24 +20,42 @@ public sealed record ScrubResult(string Text, IReadOnlyDictionary<MaskKind, int>
 }
 
 /// <param name="Regions">Boxes to paint over in the stored frame, before it is readable by anything else (INV-1).</param>
-public sealed record FrameRedaction(string Text, IReadOnlyList<MaskedRegion> Regions, IReadOnlyDictionary<MaskKind, int> Counts);
+/// <param name="Complete">False when the scan did not finish; the frame must be purged, not stored.</param>
+public sealed record FrameRedaction(
+    string Text,
+    IReadOnlyList<MaskedRegion> Regions,
+    IReadOnlyDictionary<MaskKind, int> Counts,
+    bool Complete = true);
 
 /// <summary>
 /// Pattern-based redaction (ST-042). Two entry points: <see cref="ScrubText"/> for transcript segments and any
 /// text on its way to a draft, and <see cref="RedactFrame"/> for an OCR result, which additionally reports the
 /// boxes to mask in the image. The engine is pure: the caller writes the masked image and the scrubbed text.
 /// </summary>
-public sealed class RedactionEngine(RedactionPolicy? policy = null)
+public sealed class RedactionEngine
 {
-    private readonly RedactionPolicy _policy = policy ?? RedactionPolicy.Default;
+    private readonly RedactionPolicy _policy;
+    private readonly Func<string, RedactionPolicy, Action, IEnumerable<PatternMatch>> _find;
+
+    public RedactionEngine(RedactionPolicy? policy = null)
+        : this(policy, PatternLibrary.Find)
+    {
+    }
+
+    /// <summary>Test seam: lets a test stand in for the pattern library, e.g. to simulate a detector timing out.</summary>
+    internal RedactionEngine(RedactionPolicy? policy, Func<string, RedactionPolicy, Action, IEnumerable<PatternMatch>> find)
+    {
+        _policy = policy ?? RedactionPolicy.Default;
+        _find = find;
+    }
 
     public ScrubResult ScrubText(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        var matches = Resolve(text);
+        var (matches, complete) = Resolve(text);
         if (matches.Count == 0)
         {
-            return new ScrubResult(text, new Dictionary<MaskKind, int>());
+            return new ScrubResult(text, new Dictionary<MaskKind, int>(), complete);
         }
 
         var builder = new StringBuilder(text.Length);
@@ -45,7 +67,7 @@ public sealed class RedactionEngine(RedactionPolicy? policy = null)
         }
 
         builder.Append(text, cursor, text.Length - cursor);
-        return new ScrubResult(builder.ToString(), Count(matches));
+        return new ScrubResult(builder.ToString(), Count(matches), complete);
     }
 
     /// <summary>
@@ -72,7 +94,7 @@ public sealed class RedactionEngine(RedactionPolicy? policy = null)
         }
 
         var text = builder.ToString();
-        var matches = Resolve(text);
+        var (matches, complete) = Resolve(text);
         var regions = new List<MaskedRegion>();
         foreach (var match in matches)
         {
@@ -84,13 +106,15 @@ public sealed class RedactionEngine(RedactionPolicy? policy = null)
             }
         }
 
-        return new FrameRedaction(ScrubText(text).Text, regions, Count(matches));
+        var scrubbed = ScrubText(text);
+        return new FrameRedaction(scrubbed.Text, regions, Count(matches), complete && scrubbed.Complete);
     }
 
     /// <summary>Sorted, non-overlapping matches: earliest first, and the longest wins a tie.</summary>
-    private List<PatternMatch> Resolve(string text)
+    private (List<PatternMatch> Matches, bool Complete) Resolve(string text)
     {
-        var found = PatternLibrary.Find(text, _policy)
+        var complete = true;
+        var found = _find(text, _policy, () => complete = false)
             .OrderBy(m => m.Start)
             .ThenByDescending(m => m.Length)
             .ToList();
@@ -106,7 +130,7 @@ public sealed class RedactionEngine(RedactionPolicy? policy = null)
             }
         }
 
-        return resolved;
+        return (resolved, complete);
     }
 
     private static MaskedRegion Cover(IReadOnlyList<OcrWord> words, MaskKind kind)

@@ -17,6 +17,13 @@ public sealed record PatternMatch(MaskKind Kind, int Start, int Length, string R
 /// </summary>
 internal static partial class PatternLibrary
 {
+    /// <summary>
+    /// Match budget for the built-in patterns, in milliseconds. They are linear, so this never fires on
+    /// input — only on a machine so loaded that matching stalls. It was 100 ms, which a busy CI agent
+    /// tripped; at one second a timeout means something is genuinely wrong.
+    /// </summary>
+    private const int BuiltInTimeoutMs = 1_000;
+
     /// <summary>Words that follow a password cue in ordinary speech, so "password is incorrect" isn't a secret.</summary>
     private static readonly HashSet<string> NotSecrets = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -26,11 +33,15 @@ internal static partial class PatternLibrary
         "and", "or", "but", "so", "then", "when", "which", "what", "who", "why", "how", "if", "for", "to",
     };
 
-    public static IEnumerable<PatternMatch> Find(string text, RedactionPolicy policy)
+    /// <param name="complete">
+    /// Set to false when a detector could not finish. The caller must treat the text as unscanned rather
+    /// than clean: a frame we failed to search is not a frame we may store (INV-1).
+    /// </param>
+    public static IEnumerable<PatternMatch> Find(string text, RedactionPolicy policy, Action onIncomplete)
     {
         if (policy.Ssn)
         {
-            foreach (Match m in Ssn().Matches(text))
+            foreach (Match m in Safely(Ssn().Matches(text), onIncomplete))
             {
                 yield return new PatternMatch(MaskKind.Ssn, m.Index, m.Length, "[SSN]");
             }
@@ -38,7 +49,7 @@ internal static partial class PatternLibrary
 
         if (policy.Cards)
         {
-            foreach (Match m in CardCandidate().Matches(text))
+            foreach (Match m in Safely(CardCandidate().Matches(text), onIncomplete))
             {
                 // Only a Luhn-valid number is a card. Without this, order numbers and asset tags get masked.
                 if (PassesLuhn(m.Value))
@@ -50,7 +61,7 @@ internal static partial class PatternLibrary
 
         if (policy.ApiKeys)
         {
-            foreach (Match m in ApiKey().Matches(text))
+            foreach (Match m in Safely(ApiKey().Matches(text), onIncomplete))
             {
                 yield return new PatternMatch(MaskKind.ApiKey, m.Index, m.Length, "[SECRET]");
             }
@@ -58,7 +69,7 @@ internal static partial class PatternLibrary
 
         if (policy.Passwords)
         {
-            foreach (Match m in PasswordPair().Matches(text))
+            foreach (Match m in Safely(PasswordPair().Matches(text), onIncomplete))
             {
                 // Keep the cue ("the password is") and mask only the value, so Review still reads sensibly.
                 var value = m.Groups["value"];
@@ -71,7 +82,7 @@ internal static partial class PatternLibrary
 
         if (policy.Emails)
         {
-            foreach (Match m in Email().Matches(text))
+            foreach (Match m in Safely(Email().Matches(text), onIncomplete))
             {
                 yield return new PatternMatch(MaskKind.Email, m.Index, m.Length, "[EMAIL]");
             }
@@ -103,6 +114,36 @@ internal static partial class PatternLibrary
                     break;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Enumerates matches, stopping quietly if the regex engine runs out of its budget. The caller is told
+    /// through <paramref name="onIncomplete"/> so it can fail closed; swallowing it would mean reporting a
+    /// frame as clean that was never fully searched.
+    /// </summary>
+    private static IEnumerable<Match> Safely(MatchCollection matches, Action onIncomplete)
+    {
+        var enumerator = matches.GetEnumerator();
+        while (true)
+        {
+            Match current;
+            try
+            {
+                if (!enumerator.MoveNext())
+                {
+                    yield break;
+                }
+
+                current = (Match)enumerator.Current!;
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                onIncomplete();
+                yield break;
+            }
+
+            yield return current;
         }
     }
 
@@ -139,12 +180,12 @@ internal static partial class PatternLibrary
     }
 
     // 123-45-6789 and 123 45 6789; the exclusions are the ranges the SSA never issues.
-    [GeneratedRegex(@"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b", RegexOptions.CultureInvariant, 100)]
+    [GeneratedRegex(@"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
     private static partial Regex Ssn();
 
     // Either a contiguous 13–19 digit number or the usual 4-4-4-4 / 4-6-5 groupings — not an unbroken run of
     // digits across a space, which would let a card swallow whatever number follows it. Luhn decides the rest.
-    [GeneratedRegex(@"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b", RegexOptions.CultureInvariant, 100)]
+    [GeneratedRegex(@"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
     private static partial Regex CardCandidate();
 
     // Recognisable credential shapes plus any long random-looking string introduced as a key or token.
@@ -171,6 +212,6 @@ internal static partial class PatternLibrary
         100)]
     private static partial Regex PasswordPair();
 
-    [GeneratedRegex(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", RegexOptions.CultureInvariant, 100)]
+    [GeneratedRegex(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
     private static partial Regex Email();
 }
