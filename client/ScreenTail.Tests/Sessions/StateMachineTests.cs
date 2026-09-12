@@ -48,22 +48,22 @@ public sealed class StateMachineTests : IAsyncDisposable
     {
         var machine = await MachineAsync();
         await machine.StartAsync(ScreenConnect);
-        Assert.True(await machine.TryRecordEventAsync(new ClickEvent { TsMs = 1, X = 1, Y = 1, Button = MouseButton.Left }));
+        Assert.True(await machine.TryRecordEventAsync(new ClickEvent { TsMs = machine.NowMs, X = 1, Y = 1, Button = MouseButton.Left }));
 
         Assert.True(await machine.PauseAsync());
-        Assert.False(await machine.TryRecordEventAsync(new ClickEvent { TsMs = 2, X = 1, Y = 1, Button = MouseButton.Left }));
-        Assert.False(await machine.TryStageFrameAsync(Frame("f-paused", 3)));
-        Assert.False(await machine.TryAppendTranscriptAsync(Segment("t-paused", 4)));
+        Assert.False(await machine.TryRecordEventAsync(new ClickEvent { TsMs = machine.NowMs, X = 1, Y = 1, Button = MouseButton.Left }));
+        Assert.False(await machine.TryStageFrameAsync(Frame("f-paused", machine.NowMs)));
+        Assert.False(await machine.TryAppendTranscriptAsync(Segment("t-paused", machine.NowMs)));
 
         Assert.True(await machine.ResumeAsync());
         Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField));
         Assert.Equal(SessionState.Suppressed, machine.State);
-        Assert.False(await machine.TryRecordEventAsync(new EnterEvent { TsMs = 5 }));
-        Assert.False(await machine.TryStageFrameAsync(Frame("f-suppressed", 6)));
-        Assert.False(await machine.TryAppendTranscriptAsync(Segment("t-suppressed", 7)));
+        Assert.False(await machine.TryRecordEventAsync(new EnterEvent { TsMs = machine.NowMs }));
+        Assert.False(await machine.TryStageFrameAsync(Frame("f-suppressed", machine.NowMs)));
+        Assert.False(await machine.TryAppendTranscriptAsync(Segment("t-suppressed", machine.NowMs)));
 
         Assert.True(await machine.UnsuppressAsync());
-        Assert.True(await machine.TryStageFrameAsync(Frame("f-ok", 8)));
+        Assert.True(await machine.TryStageFrameAsync(Frame("f-ok", machine.NowMs)));
 
         // INV-6: nothing from the paused or suppressed intervals reached the store, but the intervals themselves are on the timeline.
         var stored = (await _store!.LoadSessionAsync(machine.SessionId!))!;
@@ -81,7 +81,7 @@ public sealed class StateMachineTests : IAsyncDisposable
     {
         var machine = await MachineAsync(grace: TimeSpan.FromSeconds(2));
         await machine.StartAsync(ScreenConnect);
-        await machine.TryStageFrameAsync(Frame("f1", 10));
+        await machine.TryStageFrameAsync(Frame("f1", machine.NowMs));
         var redactor = Task.Run(async () =>
         {
             await Task.Delay(150);
@@ -110,7 +110,7 @@ public sealed class StateMachineTests : IAsyncDisposable
         await machine.StartAsync(ScreenConnect);
         foreach (var id in new[] { "p1", "p2", "p3" })
         {
-            await machine.TryStageFrameAsync(Frame(id, 1));
+            await machine.TryStageFrameAsync(Frame(id, machine.NowMs));
         }
 
         var clock = Stopwatch.StartNew();
@@ -190,7 +190,7 @@ public sealed class StateMachineTests : IAsyncDisposable
         var machine = await MachineAsync();
         await machine.StartAsync(ScreenConnect);
         var id = machine.SessionId!;
-        await machine.TryStageFrameAsync(Frame("f1", 1));
+        await machine.TryStageFrameAsync(Frame("f1", machine.NowMs));
 
         Assert.True(await machine.DiscardAsync());
 
