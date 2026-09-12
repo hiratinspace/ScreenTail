@@ -49,8 +49,12 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>The latest timestamp any event, frame or transcript segment carries, or 0 for an empty session.</summary>
     Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default);
 
-    /// <summary>Finished sessions whose raw data is still present and that ended before <paramref name="cutoff"/> (ST-044).</summary>
-    Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, CancellationToken ct = default);
+    /// <summary>
+    /// Sessions whose raw data is still present and whose last activity — <c>ended_at</c>, or the creation
+    /// time when a session never finished — is older than <paramref name="cutoff"/> (ST-044). A session that
+    /// never reaches finalize ages out like any other; only <paramref name="activeSessionId"/> is exempt.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, string? activeSessionId = null, CancellationToken ct = default);
 
     /// <summary>
     /// Deletes the session's frames (images and OCR text), transcript and events; keeps the session row, its

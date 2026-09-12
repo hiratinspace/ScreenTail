@@ -61,7 +61,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         LogStarted(logger, IpcContract.Version, mode, state);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
-        var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions());
+        var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {

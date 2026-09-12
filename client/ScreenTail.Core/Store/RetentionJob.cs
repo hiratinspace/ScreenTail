@@ -7,18 +7,22 @@ public sealed class RetentionOptions
 }
 
 /// <summary>
-/// INV-12: raw data has a retention limit. Runs at service start and hourly. Finished sessions older than the
-/// retention lose their frames, OCR text, transcript and events; the note text, the session row and the audit
-/// log stay, so Session history and published notes are unaffected. The file is vacuumed afterwards so the
-/// space is actually returned.
+/// INV-12: raw data has a retention limit. Runs at service start and hourly. Sessions whose last activity is
+/// older than the retention lose their frames, OCR text, transcript and events; the note text, the session row
+/// and the audit log stay, so Session history and published notes are unaffected. The file is vacuumed
+/// afterwards so the space is actually returned.
 /// </summary>
-public sealed class RetentionJob(ISessionStore store, TimeProvider time, RetentionOptions options)
+/// <param name="activeSessionId">
+/// The session being recorded right now, exempt while it runs. Everything else ages out, including a session
+/// that never reached finalize — otherwise a crash whose recovery never ran would keep raw frames for good.
+/// </param>
+public sealed class RetentionJob(ISessionStore store, TimeProvider time, RetentionOptions options, Func<string?>? activeSessionId = null)
 {
     /// <returns>How many sessions were purged in this run.</returns>
     public async Task<int> RunAsync(CancellationToken ct = default)
     {
         var cutoff = time.GetUtcNow() - options.Retention;
-        var expired = await store.ListSessionsWithRawDataOlderThanAsync(cutoff, ct).ConfigureAwait(false);
+        var expired = await store.ListSessionsWithRawDataOlderThanAsync(cutoff, activeSessionId?.Invoke(), ct).ConfigureAwait(false);
         foreach (var sessionId in expired)
         {
             await store.PurgeRawDataAsync(sessionId, ct).ConfigureAwait(false);

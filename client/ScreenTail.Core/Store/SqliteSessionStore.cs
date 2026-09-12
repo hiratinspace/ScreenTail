@@ -299,9 +299,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             ct,
             ("@id", sessionId));
 
-    public Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, CancellationToken ct = default) =>
+    public Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, string? activeSessionId = null, CancellationToken ct = default) =>
         QueryAsync<IReadOnlyList<string>>(
-            "SELECT id FROM sessions WHERE ended_at IS NOT NULL AND ended_at < @cutoff AND raw_purged_at IS NULL ORDER BY ended_at, id",
+            // COALESCE, not "ended_at IS NOT NULL": a session that never reached finalize (a crash whose
+            // recovery never ran) must still age out, or its raw frames would outlive retention (INV-12).
+            // The one exemption is the session being recorded right now; "IS NOT" keeps it NULL-safe.
+            """
+            SELECT id FROM sessions
+            WHERE raw_purged_at IS NULL
+              AND COALESCE(ended_at, created_at) < @cutoff
+              AND id IS NOT @active
+            ORDER BY COALESCE(ended_at, created_at), id
+            """,
             async reader =>
             {
                 var ids = new List<string>();
@@ -313,7 +322,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
                 return ids;
             },
             ct,
-            ("@cutoff", Iso(cutoff.ToUniversalTime())));
+            ("@cutoff", Iso(cutoff.ToUniversalTime())),
+            ("@active", activeSessionId));
 
     public async Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default)
     {

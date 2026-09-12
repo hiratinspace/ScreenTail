@@ -59,21 +59,42 @@ public sealed class RetentionTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task RecentAndActiveSessionsAreUntouched()
+    public async Task RecentSessionsAndTheOneBeingRecordedAreUntouched()
     {
         var store = await OpenAsync();
         await FinishedSessionAsync(store, "recent", frames: 1);
-        await store.CreateSessionAsync(new NewSession("active", T0 - TimeSpan.FromDays(30), Tool(), false, null));
-        await store.StageFrameAsync("active", Frame("active-f", 1));
-        var job = new RetentionJob(store, _time, new RetentionOptions());
+        await store.CreateSessionAsync(new NewSession("live", T0, Tool(), false, null));
+        await store.StageFrameAsync("live", Frame("live-f", 1));
+        var job = new RetentionJob(store, _time, new RetentionOptions(), () => "live");
 
         _time.Now = T0 + TimeSpan.FromDays(6);
         Assert.Equal(0, await job.RunAsync());
 
-        // An old but never-finished session has no ended_at and is the state machine's business, not retention's.
+        // Even long past the cutoff, the session being recorded right now keeps its data.
         _time.Now = T0 + TimeSpan.FromDays(60);
         Assert.Equal(1, await job.RunAsync());
-        Assert.Equal(1, await store.CountPendingFramesAsync("active"));
+        Assert.Equal(1, await store.CountPendingFramesAsync("live"));
+        Assert.Empty((await store.LoadSessionAsync("recent"))!.Frames);
+    }
+
+    [Fact]
+    public async Task UnfinishedSessionStillAgesOut()
+    {
+        // A crash left this one recording and its recovery never ran. Without the COALESCE fallback its
+        // raw frames would sit on disk for ever, which is exactly what INV-12 forbids.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(new NewSession("orphan", T0, Tool(), false, null));
+        await store.StageFrameAsync("orphan", Frame("orphan-f", 1));
+        await store.AppendTranscriptAsync("orphan", new TranscriptSegment { Id = "orphan-t", TsMs = 2, EndMs = 3, Speaker = Speaker.Tech, Text = "the password is hunter2" });
+        var job = new RetentionJob(store, _time, new RetentionOptions(), () => null);
+
+        _time.Now = T0 + TimeSpan.FromDays(8);
+        Assert.Equal(1, await job.RunAsync());
+
+        Assert.Equal(0, await store.CountPendingFramesAsync("orphan"));
+        var loaded = (await store.LoadSessionAsync("orphan"))!;
+        Assert.Empty(loaded.Frames);
+        Assert.Empty(loaded.Transcript);
     }
 
     [Fact]
