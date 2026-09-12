@@ -1,0 +1,180 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "fx-spooler-0001",
+  "started_at": "2026-09-08T14:02:11-05:00",
+  "duration_ms": 613000,
+  "remote_tool": {
+    "kind": "screenconnect",
+    "client_version": "24.1.7"
+  },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "policy_version": "policy-v14",
+  "events": [
+    {
+      "type": "capture_state",
+      "ts_ms": 0,
+      "state": "recording"
+    },
+    {
+      "type": "focus",
+      "ts_ms": 1100,
+      "process": "ScreenConnect.WindowsClient.exe",
+      "scope": "remote_tool"
+    },
+    {
+      "type": "click",
+      "ts_ms": 4200,
+      "x": 214,
+      "y": 176,
+      "button": "right",
+      "frame_id": "f-0001"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 9500,
+      "segment_id": "t-0001"
+    },
+    {
+      "type": "typing_burst",
+      "ts_ms": 41000,
+      "char_count": 12
+    },
+    {
+      "type": "click",
+      "ts_ms": 61800,
+      "x": 268,
+      "y": 176,
+      "button": "left",
+      "frame_id": "f-0002"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 66300,
+      "segment_id": "t-0002"
+    },
+    {
+      "type": "marker",
+      "ts_ms": 128400,
+      "frame_id": "f-0003"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 131000,
+      "segment_id": "t-0003"
+    }
+  ],
+  "frames": [
+    {
+      "id": "f-0001",
+      "ts_ms": 4200,
+      "trigger": "click",
+      "image": "frames/f-0001.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Name Status Startup Type Print Spooler Stopped Automatic",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0002",
+      "ts_ms": 61800,
+      "trigger": "click",
+      "image": "frames/f-0002.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Name Status Startup Type Print Spooler Running Automatic",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0003",
+      "ts_ms": 128400,
+      "trigger": "scene_change",
+      "image": "frames/f-0003.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "HP LaserJet M428 Ready Default",
+      "excluded_by_user": false
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0001",
+      "ts_ms": 9500,
+      "end_ms": 13900,
+      "speaker": "tech",
+      "text": "Spooler service is stopped, that's why nothing is printing."
+    },
+    {
+      "id": "t-0002",
+      "ts_ms": 66300,
+      "end_ms": 71200,
+      "speaker": "tech",
+      "text": "Started it again and set it to restart on failure."
+    },
+    {
+      "id": "t-0003",
+      "ts_ms": 131000,
+      "end_ms": 136400,
+      "speaker": "tech",
+      "text": "Test page came out fine, so the queue is clear now."
+    }
+  ],
+  "draft": {
+    "problem": "Nothing would print from the reception workstation; jobs sat in the queue.",
+    "steps": [
+      {
+        "text": "Found the Print Spooler service stopped.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0001"
+        ],
+        "transcript_refs": [
+          "t-0001"
+        ]
+      },
+      {
+        "text": "Started the service and set it to restart automatically on failure.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0002"
+        ],
+        "transcript_refs": [
+          "t-0002"
+        ]
+      },
+      {
+        "text": "Cleared the stuck queue and printed a test page to confirm.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0003"
+        ],
+        "transcript_refs": [
+          "t-0003"
+        ]
+      }
+    ],
+    "result": "Printing works again from the reception workstation.",
+    "follow_ups": [
+      "If the spooler stops again, check the HP driver version on this machine."
+    ],
+    "suggested_title": "Printer offline \u2014 print spooler stopped",
+    "suggested_time_minutes": 10,
+    "kb_candidate": true,
+    "kb_reason": "Common fix, clean steps, likely to recur across this client's front-desk machines.",
+    "source": "cloud",
+    "prompt_version": "note_v1"
+  }
+}

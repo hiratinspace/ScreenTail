@@ -1,0 +1,425 @@
+{
+  "about": "Ground truth for the ST-042 redaction evaluation. Every value here is synthetic.",
+  "frames": [
+    {
+      "frame": "frames/seed-01.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "card",
+          "text": "4111 1111 1111 1111",
+          "note": "Visa test number in a billing grid",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 145,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Asset 4111111111111112"
+      ]
+    },
+    {
+      "frame": "frames/seed-02.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "card",
+          "text": "5500005555555559",
+          "note": "Mastercard test number, no separators",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 134,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ticket 48213"
+      ]
+    },
+    {
+      "frame": "frames/seed-03.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "card",
+          "text": "378282246310005",
+          "note": "Amex test number, 15 digits",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 126,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ext. 4821"
+      ]
+    },
+    {
+      "frame": "frames/seed-04.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "card",
+          "text": "4111-1111-1111-1111",
+          "note": "hyphen separated",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 148,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Invoice 2026-09-0042"
+      ]
+    },
+    {
+      "frame": "frames/seed-05.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "ssn",
+          "text": "123-45-6789",
+          "note": "SSN on a patient intake form",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 88,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Order 20260912001234"
+      ]
+    },
+    {
+      "frame": "frames/seed-06.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "ssn",
+          "text": "078 05 1120",
+          "note": "SSN written with spaces",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 85,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Asset 4111111111111112"
+      ]
+    },
+    {
+      "frame": "frames/seed-07.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "password",
+          "text": "Autumn2026!",
+          "note": "password typed in a sign-in field",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 93,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ticket 48213"
+      ]
+    },
+    {
+      "frame": "frames/seed-08.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "password",
+          "text": "hunter2",
+          "note": "password pasted into a chat window",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 55,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ext. 4821"
+      ]
+    },
+    {
+      "frame": "frames/seed-09.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "password",
+          "text": "Sp00lerFix",
+          "note": "password read aloud and typed into a prompt",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 76,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Invoice 2026-09-0042"
+      ]
+    },
+    {
+      "frame": "frames/seed-10.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "api_key",
+          "text": "AKIAIOSFODNN7EXAMPLE",
+          "note": "AWS access key id from the AWS docs example",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 199,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Order 20260912001234"
+      ]
+    },
+    {
+      "frame": "frames/seed-11.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "api_key",
+          "text": "ghp_ExampleExampleExampleExampleExam01",
+          "note": "GitHub-shaped token, not a real one",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 325,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Asset 4111111111111112"
+      ]
+    },
+    {
+      "frame": "frames/seed-12.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "api_key",
+          "text": "xoxb-0000000000-ExampleExampleEx",
+          "note": "Slack-shaped bot token",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 262,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ticket 48213"
+      ]
+    },
+    {
+      "frame": "frames/seed-13.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "api_key",
+          "text": "sk-ExampleExampleExampleExample0001",
+          "note": "OpenAI-shaped key",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 291,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ext. 4821"
+      ]
+    },
+    {
+      "frame": "frames/seed-14.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "email",
+          "text": "sarah.jones@acmedental.example",
+          "note": "end-user email in a mailbox list",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 233,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Invoice 2026-09-0042"
+      ]
+    },
+    {
+      "frame": "frames/seed-15.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "email",
+          "text": "billing@acmedental.example",
+          "note": "shared mailbox address",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 193,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Order 20260912001234"
+      ]
+    },
+    {
+      "frame": "frames/seed-16.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "custom_pattern",
+          "text": "ACME-481203",
+          "note": "tenant asset tag, matched by a custom pattern",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 103,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Asset 4111111111111112"
+      ]
+    },
+    {
+      "frame": "frames/seed-17.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "custom_pattern",
+          "text": "ACME-990117",
+          "note": "second asset tag on the same screen",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 102,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ticket 48213"
+      ]
+    },
+    {
+      "frame": "frames/seed-18.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "card",
+          "text": "4111111111111111",
+          "note": "card with no separators at all",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 133,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Ext. 4821"
+      ]
+    },
+    {
+      "frame": "frames/seed-19.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "ssn",
+          "text": "123-45-6789",
+          "note": "SSN inside a dialog rather than a grid",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 88,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Invoice 2026-09-0042"
+      ]
+    },
+    {
+      "frame": "frames/seed-20.png",
+      "width": 1600,
+      "height": 900,
+      "secrets": [
+        {
+          "kind": "password",
+          "text": "Winter2026",
+          "note": "the transcript's example, shown on screen too",
+          "box": {
+            "x": 520,
+            "y": 200,
+            "width": 80,
+            "height": 22
+          }
+        }
+      ],
+      "decoys": [
+        "Order 20260912001234"
+      ]
+    }
+  ]
+}
