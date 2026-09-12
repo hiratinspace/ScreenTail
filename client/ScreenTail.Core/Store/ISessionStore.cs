@@ -40,6 +40,15 @@ public interface ISessionStore : IAsyncDisposable
 
     Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default);
 
+    /// <summary>Persists a state-machine transition (ST-020). <paramref name="state"/> is a wire name from <c>CaptureStates</c>.</summary>
+    Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>Sessions currently in any of the given states, oldest first. Used for orphan recovery and draft counts.</summary>
+    Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default);
+
+    /// <summary>The latest timestamp any event, frame or transcript segment carries, or 0 for an empty session.</summary>
+    Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default);
+
     /// <summary>
     /// The session as a schema document containing redacted frames only. References to frames that are
     /// pending or purged are dropped, so the result always passes <see cref="SessionValidator"/>.

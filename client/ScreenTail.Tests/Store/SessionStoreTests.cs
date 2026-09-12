@@ -191,12 +191,14 @@ public sealed class SessionStoreTests : IAsyncDisposable
     [Fact]
     public async Task MigrationsApplyOnce()
     {
+        var latest = SqliteSessionStore.LatestSchemaVersion;
+        Assert.True(latest >= 2, "expected at least the initial and session-state migrations");
         var first = await OpenAsync();
-        Assert.Equal(1, await first.GetSchemaVersionAsync());
+        Assert.Equal(latest, await first.GetSchemaVersionAsync());
         await first.DisposeAsync();
 
         var second = await OpenAsync();
-        Assert.Equal(1, await second.GetSchemaVersionAsync());
+        Assert.Equal(latest, await second.GetSchemaVersionAsync());
     }
 
     [Fact]
