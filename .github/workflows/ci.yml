@@ -235,7 +235,7 @@ jobs:
     name: ci-ok
     if: always()
     needs: [changes, client, backend, web, research, schema, commits]
-    needs: [changes, client, backend, web, research, design, commits]
+    needs: [changes, client, backend, web, research, schema, design, commits]
     runs-on: ubuntu-latest
     steps:
       - env:
