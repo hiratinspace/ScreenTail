@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using ScreenTail.Core.Audit;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Core.Store;
@@ -11,7 +12,7 @@ namespace ScreenTail.Core.Store;
 /// <see cref="ISessionStore"/> on SQLite + SQLCipher. One connection, commands serialized, WAL journal.
 /// Open with <see cref="OpenAsync"/>; it keys the connection and applies pending migrations.
 /// </summary>
-public sealed class SqliteSessionStore : ISessionStore
+public sealed class SqliteSessionStore : ISessionStore, IAuditLog
 {
     private static readonly Lock BatteriesLock = new();
     private static bool _batteriesReady;
@@ -323,6 +324,20 @@ public sealed class SqliteSessionStore : ISessionStore
             },
             ct,
             ("@session", sessionId));
+
+    public async Task RecordAsync(string type, string? sessionId = null, long? count = null, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await AuditAsync(sessionId, type, count, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) =>
         ScalarAsync<int>("SELECT COALESCE(MAX(version), 0) FROM schema_migrations", ct);
