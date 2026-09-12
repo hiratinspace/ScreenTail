@@ -32,7 +32,7 @@
     <Thickness x:Key="Padding.control">12,8</Thickness>
     <CornerRadius x:Key="Radius.control">4</CornerRadius>
     <CornerRadius x:Key="Radius.card">6</CornerRadius>
-    <CornerRadius x:Key="Radius.pill">999</CornerRadius>
+    <CornerRadius x:Key="Radius.pill">22</CornerRadius>
     <Duration x:Key="Motion.state">0:0:0.120</Duration>
     <Duration x:Key="Motion.pane">0:0:0.180</Duration>
     <sys:Double x:Key="Icon.control">16</sys:Double>

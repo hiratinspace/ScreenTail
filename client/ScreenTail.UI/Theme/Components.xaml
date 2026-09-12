@@ -174,7 +174,7 @@
                                 Width="36"
                                 Height="20"
                                 Background="{DynamicResource Brush.border.strong}"
-                                CornerRadius="{DynamicResource Radius.pill}" />
+                                CornerRadius="10" />
                         <Ellipse x:Name="Thumb"
                                  Width="14"
                                  Height="14"
@@ -225,7 +225,7 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="{DynamicResource Radius.pill}"
+                            CornerRadius="9"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter VerticalAlignment="Center" />
                     </Border>

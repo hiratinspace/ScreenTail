@@ -66,7 +66,12 @@ function wpfCommon(t) {
     `    <Thickness x:Key="Padding.pane">${t.layout['pane-padding']}</Thickness>`,
     `    <Thickness x:Key="Padding.control">${t.layout['control-padding-x']},${t.layout['control-padding-y']}</Thickness>`,
   );
-  for (const [k, v] of Object.entries(t.radius)) lines.push(`    <CornerRadius x:Key="Radius.${k}">${v}</CornerRadius>`);
+  for (const [k, v] of Object.entries(t.radius)) {
+    // WPF draws a corner radius larger than half the height as distorted arcs, so "pill" (999 in CSS terms)
+    // becomes half the HUD height here; smaller pills (badge, toggle) set their own radius in Components.xaml.
+    const wpf = k === 'pill' ? Math.floor(t.layout['hud-height'] / 2) : v;
+    lines.push(`    <CornerRadius x:Key="Radius.${k}">${wpf}</CornerRadius>`);
+  }
   for (const [k, v] of Object.entries(t.motion)) {
     if (k.endsWith('-ms')) lines.push(`    <Duration x:Key="Motion.${k.replace('-ms', '')}">0:0:0.${String(v).padStart(3, '0')}</Duration>`);
   }
