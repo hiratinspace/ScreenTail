@@ -19,4 +19,9 @@
   <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The redaction tests stand in for the pattern library to simulate a detector running out of budget. -->
+    <InternalsVisibleTo Include="ScreenTail.Tests" />
+  </ItemGroup>
 </Project>
