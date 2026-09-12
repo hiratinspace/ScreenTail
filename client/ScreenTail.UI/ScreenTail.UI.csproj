@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- WPF UI process: shell, tray, HUD, Review, Settings, Onboarding (MVVM, CommunityToolkit.Mvvm). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>ScreenTail.UI</RootNamespace>
+    <AssemblyName>ScreenTail.UI</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
+  </ItemGroup>
+</Project>

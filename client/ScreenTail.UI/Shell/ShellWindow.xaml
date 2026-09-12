@@ -1,0 +1,13 @@
+<Window x:Class="ScreenTail.UI.Shell.ShellWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ScreenTail"
+        Width="1280"
+        Height="800"
+        MinWidth="1024"
+        MinHeight="680">
+    <!-- Shell placeholder. ST-070 builds navigation, theming and the service-connection banner. -->
+    <TextBlock Margin="16"
+               Text="{Binding Status}"
+               AutomationProperties.Name="Service connection status" />
+</Window>

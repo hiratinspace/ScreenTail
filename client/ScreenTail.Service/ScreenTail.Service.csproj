@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <!-- Per-user capture service host: Windows adapters (hooks, UIA, capture, DPAPI, pipes) over ScreenTail.Core. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Exe for now so `dotnet run` shows logs; ST-004 decides how the per-user service is hosted. -->
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ScreenTail.Service</RootNamespace>
+    <AssemblyName>ScreenTail.Service</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
+  </ItemGroup>
+</Project>

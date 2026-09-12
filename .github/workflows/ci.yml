@@ -1,0 +1,196 @@
+name: ci
+
+# Quality gates for every pull request (ST-002): formatting, analyzers (warnings are errors), unit tests,
+# Windows client build, backend container build, web lint/typecheck/test/build, research lint/test, and
+# conventional commits. "ci-ok" is the single required check on main; areas a PR doesn't touch are skipped.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      client: ${{ steps.areas.outputs.client }}
+      backend: ${{ steps.areas.outputs.backend }}
+      web: ${{ steps.areas.outputs.web }}
+      research: ${{ steps.areas.outputs.research }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: areas
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base=""
+          if [ "$EVENT" = "pull_request" ]; then base="$PR_BASE"; elif [ "$EVENT" = "push" ]; then base="$PUSH_BEFORE"; fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            files="__all__"
+          else
+            files=$(git diff --name-only "$base" HEAD)
+          fi
+          printf 'Changed files:\n%s\n' "$files"
+          common='^(Directory\.Build\.props|global\.json|\.editorconfig|\.gitattributes|\.github/workflows/ci\.yml|shared/)'
+          flag() {
+            if [ "$files" = "__all__" ] || printf '%s\n' "$files" | grep -Eq "$1|$common"; then echo "$2=true"; else echo "$2=false"; fi
+          }
+          {
+            flag '^client/' client
+            flag '^(backend/|\.dockerignore)' backend
+            flag '^(web/|\.nvmrc)' web
+            flag '^research/' research
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  client:
+    name: Client (Windows)
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore ScreenTail.sln
+      - name: Format and analyzers
+        run: dotnet format ScreenTail.sln --verify-no-changes --no-restore
+      - name: Build (warnings are errors)
+        run: dotnet build ScreenTail.sln -c Release --no-restore
+      - name: Test
+        run: dotnet test ScreenTail.sln -c Release --no-build
+
+  backend:
+    name: Backend (build, test, container)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore ScreenTail.Backend.sln
+      - name: Format and analyzers
+        run: dotnet format ScreenTail.Backend.sln --verify-no-changes --no-restore
+      - name: Build (warnings are errors)
+        run: dotnet build ScreenTail.Backend.sln -c Release --no-restore
+      - name: Test
+        run: dotnet test ScreenTail.Backend.sln -c Release --no-build
+      - name: Container build
+        working-directory: .
+        run: docker build -f backend/Dockerfile -t screentail-api:ci .
+
+  web:
+    name: Web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  research:
+    name: Research
+    needs: changes
+    if: needs.changes.outputs.research == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: research
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: research/requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest
+
+  commits:
+    name: Conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pattern='^(feat|fix|docs|test|ci|chore|refactor|perf|build|style|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          bad=0
+          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            subject=$(git log -1 --format=%s "$sha")
+            if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::Commit $sha is not a conventional commit (Guide §5)."
+              printf '  subject: %s\n' "$subject"
+              bad=1
+            fi
+            if ! git log -1 --format=%B "$sha" | grep -Eq '^Refs: ST-[0-9]{3}'; then
+              echo "::error::Commit $sha has no 'Refs: ST-###' footer (Guide §5)."
+              bad=1
+            fi
+          done
+          exit $bad
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [changes, client, backend, web, research, commits]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if printf '%s\n' "$RESULTS" | jq -e 'to_entries | any(.value.result != "success" and .value.result != "skipped")' >/dev/null; then
+            echo "::error::A required job failed or was cancelled."
+            exit 1
+          fi

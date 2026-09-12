@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contracts shared by service and UI: IPC messages (ST-004), generated session types (ST-003). Platform-neutral. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ScreenTail.Shared</RootNamespace>
+  </PropertyGroup>
+</Project>
