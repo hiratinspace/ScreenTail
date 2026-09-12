@@ -1,0 +1,11 @@
+{
+  "session_id": "missing-schema-version",
+  "started_at": "2026-09-10T14:02:00-05:00",
+  "remote_tool": { "kind": "rdp" },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "events": [],
+  "frames": [],
+  "transcript": []
+}

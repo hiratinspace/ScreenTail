@@ -157,7 +157,9 @@ function property(w, json, ps, isRequired, where) {
   w(`    [JsonPropertyName("${json}")]`);
   if ('const' in ps) {
     if (typeof ps.const !== 'string') throw new Error(`${where}: only string consts are supported`);
-    w(`    public string ${pascal(json)} { get; init; } = "${ps.const}";`);
+    // `required` makes System.Text.Json reject a document that omits the property; the initializer
+    // gives code the right value. Validation of the value itself is SessionValidator's job.
+    w(`    public ${isRequired ? 'required ' : ''}string ${pascal(json)} { get; init; } = "${ps.const}";`);
     return;
   }
   const { type, nullable } = csType(ps, where);

@@ -49,8 +49,11 @@ public class SessionSchemaTests
     [Theory]
     [InlineData("inv2-typing-burst-with-key.json")] // INV-2: no field can hold a key
     [InlineData("inv1-frame-missing-redaction-pending.json")] // INV-1: redaction_pending is required
+    [InlineData("inv1-pending-frame-with-ocr-text.json")] // INV-1: SessionValidator
+    [InlineData("inv1-redacted-frame-without-redacted-at.json")] // INV-1: SessionValidator
     [InlineData("inv9-unknown-speaker.json")] // INV-9: tech (or reserved end_user) only
     [InlineData("unknown-event-type.json")]
+    [InlineData("missing-schema-version.json")] // required member
     public void GeneratedTypesRejectWhatTheSchemaRejects(string example)
     {
         var json = Read(Path.Combine("invalid", example));

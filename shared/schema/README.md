@@ -18,6 +18,7 @@
 `npm run codegen` writes:
 
 - `client/ScreenTail.Shared/Generated/SessionV1.g.cs`: immutable C# records with `required` members. `SessionEvent` is a `System.Text.Json` polymorphic base, and `ScreenTail.Shared.Schema.SessionJson` holds the matching serializer settings.
+- `SessionValidator` (hand-written, next to `SessionJson`) checks what the types can't: the frame rule above, `schema_version`, `ts_ms` ordering, and that every `frame_id`, `segment_id`, `frame_refs` and `transcript_refs` points at something that exists. `SessionJson` runs it on both read and write, so an invalid session is neither read in nor written out.
 - `web/src/generated/session.v1.ts`: TypeScript types (json-schema-to-typescript).
 
 Generated files are committed. CI regenerates them and fails if they differ (`npm run check`), so the schema and the code can't drift. The C# generator (`codegen/generate.mjs`) supports only what the schema uses today and throws on anything else. Extend it in the same PR as a schema change that needs it.

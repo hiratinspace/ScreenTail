@@ -16,7 +16,7 @@ namespace ScreenTail.Shared.Schema;
 public sealed record Session
 {
     [JsonPropertyName("schema_version")]
-    public string SchemaVersion { get; init; } = "session.v1";
+    public required string SchemaVersion { get; init; } = "session.v1";
 
     [JsonPropertyName("session_id")]
     public required string SessionId { get; init; }
