@@ -62,6 +62,19 @@ function Stop-Overlay($Process) {
     if ($Process) { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue }
 }
 
+function Initialize-Dotnet {
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) { return }
+    # A shell opened before the SDK was installed still has the old PATH.
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) { return }
+    $installed = Join-Path $env:ProgramFiles 'dotnet'
+    if (Test-Path (Join-Path $installed 'dotnet.exe')) {
+        $env:Path = "$installed;$env:Path"
+        return
+    }
+    throw 'dotnet was not found. Install the .NET 8 SDK (winget install Microsoft.DotNet.SDK.8 --source winget), then open a new PowerShell window and re-run this script.'
+}
+
 function Get-ArchitectureName([int]$Code) {
     switch ($Code) {
         0 { 'x86' }
@@ -75,6 +88,7 @@ function Get-ArchitectureName([int]$Code) {
 # --- Pull and build -------------------------------------------------------------------------
 
 Write-Step 'Pull and build'
+Initialize-Dotnet
 $branch = (& git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -ne 'st-001-client-stack-spike') {
     Write-Warning "You are on '$branch'. The spike lives on 'st-001-client-stack-spike'."
