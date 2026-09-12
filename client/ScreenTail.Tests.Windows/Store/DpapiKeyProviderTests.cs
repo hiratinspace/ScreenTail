@@ -56,11 +56,11 @@ public sealed class DpapiKeyProviderTests : IDisposable
 
         await using (var store = await SqliteSessionStore.OpenAsync(dbPath, provider, TestContext.Current.CancellationToken))
         {
-            Assert.Equal(1, await store.GetSchemaVersionAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await store.GetSchemaVersionAsync(TestContext.Current.CancellationToken));
         }
 
         await using var reopened = await SqliteSessionStore.OpenAsync(dbPath, provider, TestContext.Current.CancellationToken);
-        Assert.Equal(1, await reopened.GetSchemaVersionAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await reopened.GetSchemaVersionAsync(TestContext.Current.CancellationToken));
     }
 
     public void Dispose()

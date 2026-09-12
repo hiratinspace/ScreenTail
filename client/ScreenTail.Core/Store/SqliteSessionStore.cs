@@ -15,6 +15,7 @@ namespace ScreenTail.Core.Store;
 public sealed class SqliteSessionStore : ISessionStore, IAuditLog
 {
     private static readonly Lock BatteriesLock = new();
+    private static readonly Lazy<int> LatestVersion = new(() => LoadMigrations().Max(m => m.Version));
     private static bool _batteriesReady;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -25,6 +26,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
     {
         _connection = connection;
     }
+
+    /// <summary>Highest embedded migration number; what a freshly opened store reports from <see cref="GetSchemaVersionAsync"/>.</summary>
+    public static int LatestSchemaVersion => LatestVersion.Value;
 
     public static async Task<SqliteSessionStore> OpenAsync(string path, IStoreKeyProvider keys, CancellationToken ct = default)
     {
