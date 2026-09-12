@@ -39,13 +39,17 @@ function Write-Step([string]$Title) {
 }
 
 function Install-WingetPackage([string]$Id) {
-    & winget list --id $Id --exact --accept-source-agreements | Out-Null
+    # --source winget: some machines have a broken msstore source, and without it winget refuses
+    # to choose between sources and fails.
+    & winget list --id $Id --exact --source winget --accept-source-agreements | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "$Id is already installed."
         return
     }
-    & winget install --id $Id --exact --silent --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0) { throw "winget install $Id failed (exit code $LASTEXITCODE)." }
+    & winget install --id $Id --exact --silent --source winget --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget install $Id failed (exit code $LASTEXITCODE). Install it by hand, then re-run this script."
+    }
 }
 
 # --- 1. Prerequisites --------------------------------------------------------------------------
@@ -126,7 +130,7 @@ foreach ($setting in 'standby-timeout-ac', 'monitor-timeout-ac', 'hibernate-time
 Write-Step 'Done. Manual steps left'
 @"
  1. Automatic sign-in, so the runner comes back after reboots and Windows updates:
-      winget install Microsoft.Sysinternals.Autologon
+      winget install Microsoft.Sysinternals.Autologon --source winget
     then run Autologon and enter this account's password. It stores the password encrypted as an
     LSA secret. Only do this on a machine used just for testing.
  2. Settings > Accounts > Sign-in options: "If you've been away, when should Windows require you to
