@@ -61,11 +61,16 @@ jobs:
           $file = Join-Path $out 'capability-report.json'
 
           # Exit code 1 means "cannot capture", which is a finding to publish, not a reason to stop.
-          dotnet run --project ScreenTail.Service -c Release --no-build -- --capabilities |
-            Tee-Object -FilePath $file
+          $json = (dotnet run --project ScreenTail.Service -c Release --no-build -- --capabilities) -join "`r`n"
           $code = $LASTEXITCODE
+          Write-Host $json
 
-          $report = Get-Content $file -Raw | ConvertFrom-Json
+          # Tee-Object and Set-Content write UTF-16 on PowerShell 5.1, which makes the artifact unreadable
+          # as JSON by anything else. Same family of bug as the GITHUB_PATH BOM in docs/dev/windows-test-loop.md.
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($file, $json, $utf8)
+
+          $report = $json | ConvertFrom-Json
           $rows = foreach ($c in $report.checks) {
             $icon = switch ($c.state) { 'ok' { 'OK' } 'degraded' { 'DEGRADED' } default { 'BLOCKED' } }
             "| ``$($c.capability)`` | $icon | $($c.message) | $($c.fix_hint) |"
@@ -91,8 +96,9 @@ jobs:
             audio_inputs  = @(Get-CimInstance Win32_SoundDevice | Select-Object -ExpandProperty Name)
             checked_at    = $report.checked_at
           }
-          $facts | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $out 'machine.json')
-          Get-Content (Join-Path $out 'machine.json')
+          $machineJson = $facts | ConvertTo-Json -Depth 4
+          [System.IO.File]::WriteAllText((Join-Path $out 'machine.json'), $machineJson, $utf8)
+          Write-Host $machineJson
 
       - name: Windows tests on real hardware
         run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
