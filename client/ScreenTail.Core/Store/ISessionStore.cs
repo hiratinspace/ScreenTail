@@ -49,6 +49,18 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>The latest timestamp any event, frame or transcript segment carries, or 0 for an empty session.</summary>
     Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>Finished sessions whose raw data is still present and that ended before <paramref name="cutoff"/> (ST-044).</summary>
+    Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the session's frames (images and OCR text), transcript and events; keeps the session row, its
+    /// draft note and the audit log (INV-12). Returns the number of frames removed.
+    /// </summary>
+    Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>Rebuilds the database file so purged space is actually released.</summary>
+    Task VacuumAsync(CancellationToken ct = default);
+
     /// <summary>
     /// The session as a schema document containing redacted frames only. References to frames that are
     /// pending or purged are dropped, so the result always passes <see cref="SessionValidator"/>.
@@ -101,6 +113,7 @@ public static class AuditTypes
 {
     public const string FramesPurgedUnredacted = "frames_purged_unredacted";
     public const string SessionDiscarded = "session_discarded";
+    public const string RetentionPurged = "retention_purged";
 }
 
 /// <summary>The database could not be opened with the supplied key.</summary>

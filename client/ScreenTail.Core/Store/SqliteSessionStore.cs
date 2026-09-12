@@ -20,20 +20,24 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SqliteConnection _connection;
+    private readonly TimeProvider _time;
     private bool _disposed;
 
-    private SqliteSessionStore(SqliteConnection connection)
+    private SqliteSessionStore(SqliteConnection connection, TimeProvider time)
     {
         _connection = connection;
+        _time = time;
     }
 
     /// <summary>Highest embedded migration number; what a freshly opened store reports from <see cref="GetSchemaVersionAsync"/>.</summary>
     public static int LatestSchemaVersion => LatestVersion.Value;
 
-    public static async Task<SqliteSessionStore> OpenAsync(string path, IStoreKeyProvider keys, CancellationToken ct = default)
+    /// <param name="time">Clock for created/updated/ended timestamps; tests inject one to age sessions (ST-044).</param>
+    public static async Task<SqliteSessionStore> OpenAsync(string path, IStoreKeyProvider keys, TimeProvider? time = null, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(keys);
+        time ??= TimeProvider.System;
         EnsureBatteries();
 
         var key = keys.GetKey();
@@ -61,7 +65,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             await connection.OpenAsync(ct).ConfigureAwait(false);
             await KeyAsync(connection, key, ct).ConfigureAwait(false);
             await ExecuteAsync(connection, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;", ct).ConfigureAwait(false);
-            await MigrateAsync(connection, ct).ConfigureAwait(false);
+            await MigrateAsync(connection, time, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -73,13 +77,13 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             Array.Clear(key);
         }
 
-        return new SqliteSessionStore(connection);
+        return new SqliteSessionStore(connection, time);
     }
 
     public Task CreateSessionAsync(NewSession session, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(session);
-        var now = Iso(DateTimeOffset.UtcNow);
+        var now = Iso(_time.GetUtcNow());
         return RunAsync(
             """
             INSERT INTO sessions (id, started_at, remote_tool_kind, remote_tool_version, local_only, policy_version, created_at, updated_at)
@@ -204,7 +208,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
                     "UPDATE sessions SET frames_purged_unredacted = frames_purged_unredacted + @n, updated_at = @now WHERE id = @session",
                     ct,
                     ("@n", purged),
-                    ("@now", Iso(DateTimeOffset.UtcNow)),
+                    ("@now", Iso(_time.GetUtcNow())),
                     ("@session", sessionId)).ConfigureAwait(false);
                 await AuditAsync(sessionId, AuditTypes.FramesPurgedUnredacted, purged, ct).ConfigureAwait(false);
             }
@@ -228,7 +232,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             "UPDATE sessions SET draft_json = @draft, updated_at = @now WHERE id = @id",
             ct,
             ("@draft", JsonSerializer.Serialize(draft, SessionJson.Options)),
-            ("@now", Iso(DateTimeOffset.UtcNow)),
+            ("@now", Iso(_time.GetUtcNow())),
             ("@id", sessionId));
     }
 
@@ -236,18 +240,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
     {
         ArgumentNullException.ThrowIfNull(info);
         return RunAsync(
-            "UPDATE sessions SET duration_ms = @duration, partial_capture = @partial, updated_at = @now WHERE id = @id",
+            "UPDATE sessions SET duration_ms = @duration, partial_capture = @partial, ended_at = @now, updated_at = @now WHERE id = @id",
             ct,
             ("@duration", info.DurationMs),
             ("@partial", info.PartialCapture ? 1 : 0),
-            ("@now", Iso(DateTimeOffset.UtcNow)),
+            ("@now", Iso(_time.GetUtcNow())),
             ("@id", sessionId));
     }
 
     public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(state);
-        var now = Iso(DateTimeOffset.UtcNow);
+        var now = Iso(_time.GetUtcNow());
         return RunAsync(
             "UPDATE sessions SET state = @state, state_reason = @reason, state_changed_at = @now, updated_at = @now WHERE id = @id",
             ct,
@@ -294,6 +298,55 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             """,
             ct,
             ("@id", sessionId));
+
+    public Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, CancellationToken ct = default) =>
+        QueryAsync<IReadOnlyList<string>>(
+            "SELECT id FROM sessions WHERE ended_at IS NOT NULL AND ended_at < @cutoff AND raw_purged_at IS NULL ORDER BY ended_at, id",
+            async reader =>
+            {
+                var ids = new List<string>();
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    ids.Add(reader.GetString(0));
+                }
+
+                return ids;
+            },
+            ct,
+            ("@cutoff", Iso(cutoff.ToUniversalTime())));
+
+    public async Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var frames = await ExecuteAsync(_connection, "DELETE FROM frames WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            await ExecuteAsync(_connection, "DELETE FROM transcript WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            await ExecuteAsync(_connection, "DELETE FROM events WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            var now = Iso(_time.GetUtcNow());
+            await ExecuteAsync(
+                _connection,
+                "UPDATE sessions SET raw_purged_at = @now, updated_at = @now WHERE id = @id",
+                ct,
+                ("@now", now),
+                ("@id", sessionId)).ConfigureAwait(false);
+            await AuditAsync(sessionId, AuditTypes.RetentionPurged, frames, ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return frames;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task VacuumAsync(CancellationToken ct = default)
+    {
+        // In WAL mode VACUUM writes the rebuilt file into the log; only a truncating checkpoint returns the space.
+        await RunAsync("VACUUM", ct).ConfigureAwait(false);
+        await RunAsync("PRAGMA wal_checkpoint(TRUNCATE)", ct).ConfigureAwait(false);
+    }
 
     public async Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default)
     {
@@ -573,7 +626,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
         }
     }
 
-    private static async Task MigrateAsync(SqliteConnection connection, CancellationToken ct)
+    private static async Task MigrateAsync(SqliteConnection connection, TimeProvider time, CancellationToken ct)
     {
         await ExecuteAsync(connection, "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);", ct).ConfigureAwait(false);
         await using var current = Command(connection, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations");
@@ -588,7 +641,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (@v, @at)",
                 ct,
                 ("@v", version),
-                ("@at", Iso(DateTimeOffset.UtcNow))).ConfigureAwait(false);
+                ("@at", Iso(time.GetUtcNow()))).ConfigureAwait(false);
             await transaction.CommitAsync(ct).ConfigureAwait(false);
         }
     }
@@ -659,7 +712,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             _connection,
             "INSERT INTO audit_log (at, session_id, type, count) VALUES (@at, @session, @type, @count)",
             ct,
-            ("@at", Iso(DateTimeOffset.UtcNow)),
+            ("@at", Iso(_time.GetUtcNow())),
             ("@session", sessionId),
             ("@type", type),
             ("@count", count));
