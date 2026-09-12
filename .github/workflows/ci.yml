@@ -30,6 +30,7 @@ jobs:
       backend: ${{ steps.areas.outputs.backend }}
       web: ${{ steps.areas.outputs.web }}
       research: ${{ steps.areas.outputs.research }}
+      schema: ${{ steps.areas.outputs.schema }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,6 +58,7 @@ jobs:
             flag '^(backend/|\.dockerignore)' backend
             flag '^(web/|\.nvmrc)' web
             flag '^research/' research
+            flag '^(shared/schema/|client/ScreenTail\.Shared/Generated/|web/src/generated/)' schema
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -152,6 +154,28 @@ jobs:
       - run: ruff format --check .
       - run: pytest
 
+  schema:
+    name: Schema (examples, generated code up to date)
+    needs: changes
+    if: needs.changes.outputs.schema == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: shared/schema
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: shared/schema/package-lock.json
+      - run: npm ci
+      - name: Examples validate
+        run: npm test
+      - name: Generated C# and TypeScript match the schema
+        run: npm run check
+
   commits:
     name: Conventional commits
     if: github.event_name == 'pull_request'
@@ -183,7 +207,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, backend, web, research, commits]
+    needs: [changes, client, backend, web, research, schema, commits]
     runs-on: ubuntu-latest
     steps:
       - env:

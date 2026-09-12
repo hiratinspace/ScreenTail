@@ -1,0 +1,26 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "inv1-pending-frame-with-ocr-text",
+  "started_at": "2026-09-10T14:02:00-05:00",
+  "remote_tool": { "kind": "rdp" },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "events": [],
+  "frames": [
+    {
+      "id": "f-0001",
+      "ts_ms": 1210,
+      "trigger": "click",
+      "image": "frames/f-0001.jpg",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": true,
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Card: 4111 1111 1111 1111",
+      "excluded_by_user": false
+    }
+  ],
+  "transcript": []
+}

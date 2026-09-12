@@ -9,7 +9,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" />
     <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The schema and its examples are the single source; the tests read them from the output folder. -->
+    <None Include="..\..\shared\schema\session.v1.json" Link="Schema\session.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\shared\schema\examples\**\*.json" LinkBase="Schema\examples" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,12 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "inv9-unknown-speaker",
+  "started_at": "2026-09-10T14:02:00-05:00",
+  "remote_tool": { "kind": "rdp" },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "events": [],
+  "frames": [],
+  "transcript": [{ "id": "s-0001", "ts_ms": 100, "end_ms": 900, "speaker": "customer", "text": "hello" }]
+}
