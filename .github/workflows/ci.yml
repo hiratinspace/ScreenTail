@@ -179,16 +179,11 @@ jobs:
     name: Schema (examples, generated code up to date)
     needs: changes
     if: needs.changes.outputs.schema == 'true'
-  design:
-    name: Design tokens (generated code up to date)
-    needs: changes
-    if: needs.changes.outputs.design == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: shared/schema
-        working-directory: shared/design
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -200,8 +195,64 @@ jobs:
       - name: Examples validate
         run: npm test
       - name: Generated C# and TypeScript match the schema
+        run: npm run check
+
+  design:
+    name: Design tokens (generated code up to date)
+    needs: changes
+    if: needs.changes.outputs.design == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: shared/design
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
       - name: Generated WPF dictionaries and CSS match tokens.json
         run: npm run check
+
+  workflows:
+    name: Workflows are well-formed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # A duplicate key is valid YAML — the last one silently wins — but GitHub rejects the file, and a
+      # bad merge resolution produces exactly that. This says which key and which line, before the push.
+      - name: No duplicate keys, every job has steps
+        run: |
+          python3 - <<'EOF'
+          import pathlib, sys, yaml
+
+          bad = []
+
+          class Loader(yaml.SafeLoader):
+              pass
+
+          def mapping(loader, node, deep=False):
+              seen, out = set(), {}
+              for key_node, value_node in node.value:
+                  key = loader.construct_object(key_node, deep=deep)
+                  if key in seen:
+                      bad.append(f"{path}: duplicate key {key!r} on line {key_node.start_mark.line + 1}")
+                  seen.add(key)
+                  out[key] = loader.construct_object(value_node, deep=deep)
+              return out
+
+          Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+
+          for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+              document = yaml.load(path.read_text(), Loader)
+              for name, job in document.get("jobs", {}).items():
+                  if not job.get("steps"):
+                      bad.append(f"{path}: job {name!r} has no steps")
+
+          print("\n".join(bad) if bad else "workflows look fine")
+          sys.exit(1 if bad else 0)
+          EOF
 
   commits:
     name: Conventional commits
@@ -234,8 +285,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, backend, web, research, schema, commits]
-    needs: [changes, client, backend, web, research, schema, design, commits]
+    needs: [changes, client, backend, web, research, schema, design, commits, workflows]
     runs-on: ubuntu-latest
     steps:
       - env:
