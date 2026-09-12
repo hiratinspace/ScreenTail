@@ -1,0 +1,183 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "fx-crash-0003",
+  "started_at": "2026-09-09T15:20:44-05:00",
+  "duration_ms": 704000,
+  "remote_tool": {
+    "kind": "screenconnect",
+    "client_version": "24.1.7"
+  },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "policy_version": "policy-v14",
+  "events": [
+    {
+      "type": "capture_state",
+      "ts_ms": 0,
+      "state": "recording"
+    },
+    {
+      "type": "focus",
+      "ts_ms": 1400,
+      "process": "ScreenConnect.WindowsClient.exe",
+      "scope": "remote_tool"
+    },
+    {
+      "type": "click",
+      "ts_ms": 5600,
+      "x": 410,
+      "y": 300,
+      "button": "left",
+      "frame_id": "f-0021"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 8100,
+      "segment_id": "t-0021"
+    },
+    {
+      "type": "marker",
+      "ts_ms": 38900,
+      "frame_id": "f-0022"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 42700,
+      "segment_id": "t-0022"
+    },
+    {
+      "type": "focus",
+      "ts_ms": 180000,
+      "process": "mmc.exe",
+      "scope": "admin_tool"
+    },
+    {
+      "type": "click",
+      "ts_ms": 214500,
+      "x": 522,
+      "y": 388,
+      "button": "left",
+      "frame_id": "f-0023"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 218000,
+      "segment_id": "t-0023"
+    }
+  ],
+  "frames": [
+    {
+      "id": "f-0021",
+      "ts_ms": 5600,
+      "trigger": "click",
+      "image": "frames/f-0021.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Patient records Loading Scheduler Ready",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0022",
+      "ts_ms": 38900,
+      "trigger": "scene_change",
+      "image": "frames/f-0022.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Application Error DentalSuite has stopped working Error 0x80070005: access is denied.",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0023",
+      "ts_ms": 214500,
+      "trigger": "click",
+      "image": "frames/f-0023.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "DentalSuite service account Log on as a service Granted",
+      "excluded_by_user": false
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0021",
+      "ts_ms": 8100,
+      "end_ms": 12600,
+      "speaker": "tech",
+      "text": "She says it crashes every time she opens patient records."
+    },
+    {
+      "id": "t-0022",
+      "ts_ms": 42700,
+      "end_ms": 48900,
+      "speaker": "tech",
+      "text": "There it is, access denied, eighty oh seven double oh five."
+    },
+    {
+      "id": "t-0023",
+      "ts_ms": 218000,
+      "end_ms": 225400,
+      "speaker": "tech",
+      "text": "The service account had lost its log on as a service right, so I granted it back."
+    }
+  ],
+  "draft": {
+    "problem": "DentalSuite crashed with error 0x80070005 whenever patient records were opened.",
+    "steps": [
+      {
+        "text": "Reproduced the crash by opening patient records.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0021",
+          "f-0022"
+        ],
+        "transcript_refs": [
+          "t-0021",
+          "t-0022"
+        ]
+      },
+      {
+        "text": "Read the error as access denied (0x80070005) rather than a data fault.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0022"
+        ],
+        "transcript_refs": [
+          "t-0022"
+        ]
+      },
+      {
+        "text": "Restored the 'Log on as a service' right for the DentalSuite service account in Local Security Policy.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0023"
+        ],
+        "transcript_refs": [
+          "t-0023"
+        ]
+      }
+    ],
+    "result": "Patient records open without crashing; the service starts under its own account again.",
+    "follow_ups": [
+      "Check whether a GPO is stripping the right; it may return after the next policy refresh."
+    ],
+    "suggested_title": "DentalSuite crash 0x80070005 \u2014 service account lost logon right",
+    "suggested_time_minutes": 45,
+    "kb_candidate": true,
+    "kb_reason": "Non-obvious diagnosis with a clean fix; likely to recur wherever that GPO applies.",
+    "source": "cloud",
+    "prompt_version": "note_v1"
+  }
+}

@@ -1,0 +1,185 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "fx-outlook-0002",
+  "started_at": "2026-09-09T09:41:03-05:00",
+  "duration_ms": 402000,
+  "remote_tool": {
+    "kind": "rdp",
+    "client_version": "10.0.22621"
+  },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "policy_version": "policy-v14",
+  "events": [
+    {
+      "type": "capture_state",
+      "ts_ms": 0,
+      "state": "recording"
+    },
+    {
+      "type": "focus",
+      "ts_ms": 900,
+      "process": "mstsc.exe",
+      "scope": "remote_tool"
+    },
+    {
+      "type": "click",
+      "ts_ms": 7400,
+      "x": 640,
+      "y": 232,
+      "button": "left",
+      "frame_id": "f-0011"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 11200,
+      "segment_id": "t-0011"
+    },
+    {
+      "type": "capture_state",
+      "ts_ms": 44000,
+      "state": "suppressed",
+      "reason": "password_field"
+    },
+    {
+      "type": "capture_state",
+      "ts_ms": 51500,
+      "state": "recording"
+    },
+    {
+      "type": "click",
+      "ts_ms": 52100,
+      "x": 300,
+      "y": 560,
+      "button": "left",
+      "frame_id": "f-0012"
+    },
+    {
+      "type": "typing_burst",
+      "ts_ms": 58000,
+      "char_count": 11
+    },
+    {
+      "type": "marker",
+      "ts_ms": 121900,
+      "frame_id": "f-0013"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 124500,
+      "segment_id": "t-0012"
+    }
+  ],
+  "frames": [
+    {
+      "id": "f-0011",
+      "ts_ms": 7400,
+      "trigger": "click",
+      "image": "frames/f-0011.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Profile: Outlook Needs password Account: sarah.j Disconnected",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0012",
+      "ts_ms": 52100,
+      "trigger": "scene_change",
+      "image": "frames/f-0012.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [
+        {
+          "x": 90,
+          "y": 227,
+          "width": 105,
+          "height": 22,
+          "kind": "password"
+        }
+      ],
+      "sensitive_context": true,
+      "ocr_text": "Microsoft Exchange Password [REDACTED] Sign in",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0013",
+      "ts_ms": 121900,
+      "trigger": "click",
+      "image": "frames/f-0013.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Profile: Outlook Connected Inbox 4 new",
+      "excluded_by_user": false
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0011",
+      "ts_ms": 11200,
+      "end_ms": 16800,
+      "speaker": "tech",
+      "text": "Outlook keeps asking for the password after the migration."
+    },
+    {
+      "id": "t-0012",
+      "ts_ms": 124500,
+      "end_ms": 131000,
+      "speaker": "tech",
+      "text": "Rebuilt the profile and it connected, the password is [REDACTED] but she'll change it."
+    }
+  ],
+  "draft": {
+    "problem": "Outlook prompted for a password repeatedly after the mailbox migration.",
+    "steps": [
+      {
+        "text": "Confirmed the profile was stuck disconnected and prompting.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0011"
+        ],
+        "transcript_refs": [
+          "t-0011"
+        ]
+      },
+      {
+        "text": "Signed in again at the Windows Security prompt.",
+        "confidence": "low",
+        "frame_refs": [
+          "f-0012"
+        ],
+        "transcript_refs": []
+      },
+      {
+        "text": "Rebuilt the Outlook profile and confirmed mail flowed.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0013"
+        ],
+        "transcript_refs": [
+          "t-0012"
+        ]
+      }
+    ],
+    "result": "Outlook connects without prompting and new mail arrives.",
+    "follow_ups": [
+      "Ask the user to change the mailbox password at next sign-in."
+    ],
+    "suggested_title": "Outlook repeatedly prompting for password after migration",
+    "suggested_time_minutes": 30,
+    "kb_candidate": false,
+    "kb_reason": "Specific to this migration; the generic profile rebuild is already documented.",
+    "source": "cloud",
+    "prompt_version": "note_v1"
+  }
+}

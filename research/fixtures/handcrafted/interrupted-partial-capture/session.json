@@ -1,0 +1,70 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "fx-interrupted-0005",
+  "started_at": "2026-09-10T16:48:02-05:00",
+  "duration_ms": 74000,
+  "remote_tool": {
+    "kind": "screenconnect",
+    "client_version": "24.1.7"
+  },
+  "partial_capture": true,
+  "frames_purged_unredacted": 3,
+  "local_only": false,
+  "policy_version": "policy-v14",
+  "events": [
+    {
+      "type": "capture_state",
+      "ts_ms": 0,
+      "state": "recording"
+    },
+    {
+      "type": "focus",
+      "ts_ms": 1000,
+      "process": "ScreenConnect.WindowsClient.exe",
+      "scope": "remote_tool"
+    },
+    {
+      "type": "click",
+      "ts_ms": 3100,
+      "x": 340,
+      "y": 190,
+      "button": "left",
+      "frame_id": "f-0041"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 6400,
+      "segment_id": "t-0041"
+    },
+    {
+      "type": "capture_state",
+      "ts_ms": 74000,
+      "state": "finalizing"
+    }
+  ],
+  "frames": [
+    {
+      "id": "f-0041",
+      "ts_ms": 3100,
+      "trigger": "click",
+      "image": "frames/f-0041.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Backup Agent Not responding 41% Antivirus Running 12%",
+      "excluded_by_user": false
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0041",
+      "ts_ms": 6400,
+      "end_ms": 11100,
+      "speaker": "tech",
+      "text": "Backup agent is pinned again, I'll kill it and see if it restarts clean."
+    }
+  ]
+}

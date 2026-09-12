@@ -1,0 +1,184 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "fx-billing-0004",
+  "started_at": "2026-09-10T11:05:39-05:00",
+  "duration_ms": 366000,
+  "remote_tool": {
+    "kind": "rdp",
+    "client_version": "10.0.22621"
+  },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": true,
+  "policy_version": "policy-v14",
+  "events": [
+    {
+      "type": "capture_state",
+      "ts_ms": 0,
+      "state": "recording"
+    },
+    {
+      "type": "focus",
+      "ts_ms": 800,
+      "process": "mstsc.exe",
+      "scope": "remote_tool"
+    },
+    {
+      "type": "click",
+      "ts_ms": 9900,
+      "x": 700,
+      "y": 206,
+      "button": "left",
+      "frame_id": "f-0031"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 14100,
+      "segment_id": "t-0031"
+    },
+    {
+      "type": "capture_state",
+      "ts_ms": 20000,
+      "state": "suppressed",
+      "reason": "sensitive_context"
+    },
+    {
+      "type": "capture_state",
+      "ts_ms": 74000,
+      "state": "recording"
+    },
+    {
+      "type": "click",
+      "ts_ms": 96400,
+      "x": 388,
+      "y": 250,
+      "button": "left",
+      "frame_id": "f-0032"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 101500,
+      "segment_id": "t-0032"
+    },
+    {
+      "type": "marker",
+      "ts_ms": 188200,
+      "frame_id": "f-0033"
+    },
+    {
+      "type": "narration",
+      "ts_ms": 191000,
+      "segment_id": "t-0033"
+    }
+  ],
+  "frames": [
+    {
+      "id": "f-0031",
+      "ts_ms": 9900,
+      "trigger": "click",
+      "image": "frames/f-0031.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [
+        {
+          "x": 520,
+          "y": 200,
+          "width": 145,
+          "height": 22,
+          "kind": "card"
+        }
+      ],
+      "sensitive_context": true,
+      "ocr_text": "Invoice 48213 Overdue Card on file [CARD] expires 04/29",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0032",
+      "ts_ms": 96400,
+      "trigger": "scene_change",
+      "image": "frames/f-0032.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Ethernet Network cable unplugged VPN Acme Disconnected",
+      "excluded_by_user": false
+    },
+    {
+      "id": "f-0033",
+      "ts_ms": 188200,
+      "trigger": "click",
+      "image": "frames/f-0033.png",
+      "width": 1600,
+      "height": 900,
+      "redaction_pending": false,
+      "redacted_at": "2026-09-11T00:00:00Z",
+      "masked_regions": [],
+      "sensitive_context": false,
+      "ocr_text": "Ethernet Connected VPN Acme Connected",
+      "excluded_by_user": false
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0031",
+      "ts_ms": 14100,
+      "end_ms": 19800,
+      "speaker": "tech",
+      "text": "Their billing page was open, I moved off it before doing anything."
+    },
+    {
+      "id": "t-0032",
+      "ts_ms": 101500,
+      "end_ms": 107200,
+      "speaker": "tech",
+      "text": "The VPN adapter was down because the cable was unplugged at the wall."
+    },
+    {
+      "id": "t-0033",
+      "ts_ms": 191000,
+      "end_ms": 196600,
+      "speaker": "tech",
+      "text": "Reconnected and the tunnel came straight back up."
+    }
+  ],
+  "draft": {
+    "problem": "The practice could not reach the server over VPN from the back-office PC.",
+    "steps": [
+      {
+        "text": "Found the Ethernet adapter reporting a cable unplugged and the VPN disconnected.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0032"
+        ],
+        "transcript_refs": [
+          "t-0032"
+        ]
+      },
+      {
+        "text": "Reseated the wall cable and reconnected the VPN.",
+        "confidence": "high",
+        "frame_refs": [
+          "f-0033"
+        ],
+        "transcript_refs": [
+          "t-0033"
+        ]
+      }
+    ],
+    "result": "VPN reconnects and the server shares are reachable again.",
+    "follow_ups": [
+      "The wall port is loose; suggest a cable tidy on the next site visit."
+    ],
+    "suggested_title": "VPN down \u2014 Ethernet cable unplugged at the wall",
+    "suggested_time_minutes": 15,
+    "kb_candidate": false,
+    "kb_reason": "Physical, site-specific cause; nothing generalisable to document.",
+    "source": "local",
+    "prompt_version": "note_v1"
+  }
+}
