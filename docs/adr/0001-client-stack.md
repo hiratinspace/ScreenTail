@@ -38,9 +38,9 @@ Filled in from the Windows runs. Raw reports go in `docs/adr/evidence/0001/`.
 
 | AC | Criterion | Result | Evidence |
 |---|---|---|---|
-| 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **Latency PASS on real hardware** (worst callback 0.88 ms idle, 0.55 ms under full load; nothing ≥ 5 ms; no hook removed). Typing volume short of the criterion, so the unattended synthetic run completes it. | [Laptop results](#laptop-results-2026-09-11) |
+| 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **PASS on real hardware.** Unattended 5-minute run under full load: 4,986 callbacks, worst **0.445 ms**, nothing ≥ 5 ms, no hook removed, 2,337 characters typed and 51 clicks. The two human runs agree at lower volume (worst 0.88 ms and 0.55 ms). | [Laptop results](#laptop-results-2026-09-11) |
 | 2 | RDP window focused → FlaUI reports an opaque subtree | **NOT EXERCISED** — no RDP target available yet | — |
-| 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** on the hosted runner and on the laptop | Hosted: [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png) 0.00% marker pixels, [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png) 86.31%. Laptop: [excluded](evidence/0001/overlay/overlay-check-excluded.png) has no pill anywhere on screen, [control](evidence/0001/overlay/overlay-check-visible.png) shows it at 84.97% |
+| 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** on the hosted runner and on the laptop | Hosted: [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png) 0.00% marker pixels, [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png) 86.31%. Laptop: [excluded](evidence/0001/overlay/overlay-check-excluded.png) has no pill anywhere on screen, [control](evidence/0001/overlay/overlay-check-visible.png) shows it at 84.97%. The unattended re-run measured the right rectangle (450×55): 0.00% excluded, 84.98% control, plus 51 captured frames overlapping the pill at 0.00% |
 | 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner and laptop agree, synthetic), resolved by decision: OCR runs on the native frame (finding 2a). | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
 | 5 | This ADR records the decision and a Python fallback assessment | Drafted | this file |
 
@@ -66,7 +66,33 @@ Two 5-minute runs with a person typing: one with hooks only, one with everything
 - **OCR (Tesseract) took 2.46 s per 1600×900 frame**, mean confidence 0.88. See finding 9.
 - **Screenshot capture + downscale + encode: 228 ms and 346 ms** for a 1920×1080 window. See finding 10.
 - **UI Automation polling is cheap:** 1141 polls, p95 9.5 ms, worst 64 ms, no errors.
-- **AC3 passed, with a measurement caveat.** The excluded capture contains no pill anywhere on screen, which is the real proof, and the control capture shows it at 84.97%. But that run recorded the overlay rectangle as 1440×781 instead of the pill's 450×55 (360×44 at 150% scaling), so the percentage sampled the wrong area. Cause unknown; `overlay-check` now records the window handle and pid and warns when the rectangle isn't pill-sized, so the next run says so out loud.
+- **AC3 passed, with a measurement caveat.** The excluded capture contains no pill anywhere on screen, which is the real proof, and the control capture shows it at 84.97%. But that run recorded the overlay rectangle as 1440×781 instead of the pill's 450×55 (360×44 at 150% scaling), so the percentage sampled the wrong area. Cause unknown; `overlay-check` now records the window handle and pid and warns when the rectangle isn't pill-sized. It didn't recur in the unattended run below.
+
+### Laptop, unattended synthetic run (2026-09-12)
+
+Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTail/actions/runs/34674868909), nobody present. The spike drove its own input (`--drive-input`) into its typing-target window: 2,368 keystrokes and 51 clicks over 5 minutes, with speech-to-text, UI Automation, screenshots and OCR all running. Injected input goes through the same low-level hooks as a person's, so the callback cost is measured identically.
+
+| Metric | Value | Budget |
+|---|---|---|
+| Hook callbacks timed | 4,986 | — |
+| Callback time p50 / p95 / p99 / **max** (ms) | 0.001 / 0.002 / 0.008 / **0.445** | < 5 ms |
+| Callbacks ≥ 5 ms | 0 | 0 |
+| Hook silently removed | no (0 watchdog strikes) | no |
+| Input samples dropped | 0 | 0 |
+| Characters typed / bursts / enters / clicks | 2,337 / 32 / 31 / 51 | ≥ 300 chars |
+| Screenshots taken | 51 | — |
+| Whisper 5 s chunks: median / worst | 2.69 s / 6.25 s (59 chunks, 527 words) | — |
+| OCR: frames, median, mean confidence | 51, 1.19 s, 0.92 | 700 ms (ST-041) |
+| Screenshot capture + encode p95 / max | 178 ms / 200 ms | 120 ms (ST-025) |
+| UIA polls / p95 / max | 1,118 / 21 ms / 56 ms | — |
+| Process CPU p50 / max (% of all cores) | 41 / 66 | < 15% recording (ST-031) |
+| Working set max | 529 MB | < 600 MB (ST-031) |
+| GC pause, total | 6.9 ms over 5 min | — |
+
+- **AC1 is met.** Under a full five minutes of sustained input with every subsystem running, the worst single hook callback was 0.445 ms, eleven times inside the budget, and the OS never removed a hook.
+- **AC3 is clean here too:** both overlay checks measured the correct 450×55 rectangle, and every one of the 51 frames that overlapped the pill contained none of it.
+- **The classifier doesn't over-report opacity.** The focus table shows the typing target's large childless text box classified as accessible, because its control type is Edit rather than a plain pane. That's the distinction ST-022 and ST-023 depend on.
+- **CPU and memory are the real constraint, not latency.** Speech-to-text plus OCR held 41–66% of the laptop's CPU and 529 MB, against ST-031's budgets of 15% and 600 MB. Findings 8, 9 and 10 are where that gets fixed.
 
 ### Hosted-runner results (2026-09-11)
 
@@ -109,8 +135,8 @@ These came up while building the spike and hold regardless of how the Windows ru
 6. **Elevated windows.** Low-level hooks installed by a medium-integrity process don't receive input sent to elevated windows or to the secure desktop. That affects the unhook watchdog (false positives) and is the mechanism behind the "Elevated window, screen not captured" state in ST-021.
 7. **Windows on ARM.** Whisper.net has arm64 native binaries; Tesseract doesn't, so the capture process runs as x64 under emulation. If technicians on ARM laptops matter, Windows.Media.Ocr removes this constraint.
 8. **Whisper must be gated by voice activity detection, not run continuously.** On the hosted runner, feeding Whisper `base` every 5 s of audio used most of the CPU (see the hosted-runner results). ST-027 should run VAD first (Whisper.net ships a Silero VAD model) and transcribe only speech segments, with CPU rate-limited so capture and hooks always win (ST-031). Technicians talk for a fraction of a session, so this is the difference between being always busy and mostly idle. The laptop run gives the real per-core cost: 49–62% of an 8-thread laptop CPU, and 505 MB resident.
-9. **OCR is far slower than ST-041 budgets for.** On the laptop, Tesseract took **2.46 s per 1600×900 frame**, against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
-10. **Screen capture and encoding cost more than ST-025 budgets for.** Capturing, downscaling and JPEG-encoding one 1920×1080 window took **228 ms and 346 ms** on the laptop, against ST-025's budget of 120 ms for a 4K frame. The path measured here is GDI BitBlt plus GDI+ bicubic downscale and encode, all on the CPU. ST-025 should compare Windows.Graphics.Capture (which keeps the frame on the GPU and honours display affinity) and a WIC encoder before accepting the budget.
+9. **OCR is slower than ST-041 budgets for.** On the laptop, Tesseract took a median **1.19 s per 1600×900 frame** across 51 frames (the two-frame human run measured 2.46 s, before any warm-up), against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
+10. **Screen capture and encoding cost more than ST-025 budgets for.** Capturing, downscaling and JPEG-encoding one 1920×1080 window took **p95 178 ms, worst 200 ms** over 51 frames on the laptop (228–346 ms in the short human runs), against ST-025's budget of 120 ms for a 4K frame. The path measured here is GDI BitBlt plus GDI+ bicubic downscale and encode, all on the CPU. ST-025 should compare Windows.Graphics.Capture (which keeps the frame on the GPU and honours display affinity) and a WIC encoder before accepting the budget.
 
 ## Python fallback assessment
 

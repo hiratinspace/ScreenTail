@@ -25,6 +25,14 @@ ScreenTail's client is Windows-only, and it's developed on a Mac. Each change go
 
 Services run in session 0, which has no desktop. There, low-level hooks never fire, UI Automation sees nothing, and screen captures come back empty. The runner therefore starts from the Startup folder inside the signed-in session. That's also why the laptop needs automatic sign-in and no lock screen.
 
+### What a self-hosted runner can't do
+
+Both of these cost a failed run before the real work started, so jobs that run on the laptop differ from the hosted ones:
+
+- **It isn't an administrator,** so `actions/setup-dotnet` fails: it installs into `C:\Program Files\dotnet`, which the runner account can't write to. The laptop job uses the SDKs that `setup-test-laptop.ps1` installed and fails with a clear message if they're missing.
+- **It has no PowerShell 7.** Hosted runners do, so `shell: pwsh` works there; the laptop job uses `shell: powershell` (Windows PowerShell 5.1), which is what the scripts target. CI parse-checks every script against 5.1.
+- Windows PowerShell 5.1 writes a byte-order mark with `Out-File -Encoding utf8`, which corrupts `GITHUB_PATH`. Append to GitHub's files with `[System.IO.File]::AppendAllText` instead.
+
 ### Security
 
 - A self-hosted runner executes whatever the repository's workflows tell it to. That's acceptable here because the repo is private, only its owner can open PRs, and the laptop has nothing else on it. **Never attach this runner to a public repo.**
