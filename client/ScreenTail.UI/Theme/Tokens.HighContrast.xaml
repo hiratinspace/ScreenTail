@@ -1,0 +1,44 @@
+<!-- Spec §7: when Windows high contrast is on, every token maps to the system palette the user chose.
+     Same keys as the generated theme dictionaries, so components need no changes. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <Color x:Key="Token.bg.base">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.base" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.surface">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.surface" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.raised">{x:Static SystemColors.ControlColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.raised" Color="{DynamicResource {x:Static SystemColors.ControlColorKey}}" />
+    <Color x:Key="Token.border.subtle">{x:Static SystemColors.ActiveBorderColor}</Color>
+    <SolidColorBrush x:Key="Brush.border.subtle" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}" />
+    <Color x:Key="Token.border.strong">{x:Static SystemColors.WindowFrameColor}</Color>
+    <SolidColorBrush x:Key="Brush.border.strong" Color="{DynamicResource {x:Static SystemColors.WindowFrameColorKey}}" />
+    <Color x:Key="Token.text.primary">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.text.primary" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.text.secondary">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.text.secondary" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.text.muted">{x:Static SystemColors.GrayTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.text.muted" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}" />
+    <Color x:Key="Token.accent.primary">{x:Static SystemColors.HighlightColor}</Color>
+    <SolidColorBrush x:Key="Brush.accent.primary" Color="{DynamicResource {x:Static SystemColors.HighlightColorKey}}" />
+    <Color x:Key="Token.accent.primary.hover">{x:Static SystemColors.HotTrackColor}</Color>
+    <SolidColorBrush x:Key="Brush.accent.primary.hover" Color="{DynamicResource {x:Static SystemColors.HotTrackColorKey}}" />
+    <Color x:Key="Token.state.recording">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.state.recording" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.state.paused">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.state.paused" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.state.scope">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.state.scope" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.state.published">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.state.published" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.state.offline">{x:Static SystemColors.GrayTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.state.offline" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}" />
+    <Color x:Key="Token.state.danger">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.state.danger" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.confidence.low">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.confidence.low" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.text.on-accent">{x:Static SystemColors.HighlightTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.text.on-accent" Color="{DynamicResource {x:Static SystemColors.HighlightTextColorKey}}" />
+    <sys:String x:Key="Token.theme">high-contrast</sys:String>
+    <sys:Boolean x:Key="Token.elevation.enabled">False</sys:Boolean>
+</ResourceDictionary>

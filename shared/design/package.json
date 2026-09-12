@@ -1,0 +1,13 @@
+{
+  "name": "screentail-design-tokens",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "codegen": "node codegen/generate.mjs",
+    "check": "npm run codegen && git diff --exit-code -- ../../client/ScreenTail.UI/Theme/*.g.xaml ../../web/src/styles/tokens.g.css"
+  }
+}
