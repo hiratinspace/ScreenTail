@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screentail.app/schemas/prompts/note_v1.json",
+  "title": "note_v1 output",
+  "description": "The only shape a drafting model may return. Mirrors DraftNote in session.v1: the pair is checked for drift by research/tests/test_prompt_schema.py, because a note the client cannot store is a failed draft.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "problem",
+    "steps",
+    "result",
+    "follow_ups",
+    "suggested_title",
+    "suggested_time_minutes",
+    "kb_candidate",
+    "kb_reason",
+    "source",
+    "prompt_version"
+  ],
+  "properties": {
+    "problem": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600,
+      "description": "The symptom as the customer experienced it, not the cause."
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 30,
+      "items": { "$ref": "#/$defs/Step" },
+      "description": "What was done, in order. Empty is valid when the session holds no usable evidence."
+    },
+    "result": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600,
+      "description": "What is true now, stated so a colleague could verify it."
+    },
+    "follow_ups": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "minLength": 1, "maxLength": 400 },
+      "description": "Only what is genuinely left open. Empty is a correct answer."
+    },
+    "suggested_title": { "type": "string", "minLength": 1, "maxLength": 70 },
+    "suggested_time_minutes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1440,
+      "description": "Active minutes, unrounded. The client applies the tenant's billing rounding (ST-066)."
+    },
+    "kb_candidate": { "type": "boolean" },
+    "kb_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "description": "One sentence saying why, either way. Read by whoever decides to write the article."
+    },
+    "source": { "enum": ["cloud", "local"] },
+    "prompt_version": { "const": "note_v1" }
+  },
+  "$defs": {
+    "Step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "confidence", "frame_refs", "transcript_refs"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "confidence": {
+          "enum": ["high", "low"],
+          "description": "high only when the technician said what they were doing or the frames show the change itself. A step with no transcript_refs is low."
+        },
+        "frame_refs": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Frame ids from the input, verbatim."
+        },
+        "transcript_refs": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Transcript segment ids from the input, verbatim."
+        }
+      }
+    }
+  }
+}

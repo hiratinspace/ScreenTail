@@ -1,82 +1,106 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-12, ~09:30 CDT (end of the second build session; the build agent worked on its own overnight per "keep working on things you can do without me")
+**Snapshot taken:** 2026-09-12, ~15:30 CDT
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 
 ---
 
-## 1. What exists
+## 1. The one thing that needs you
+
+**Eleven pull requests are waiting, ten of them in a single stack.** Nothing has merged to `main` yet, so
+every ticket since ST-002 is sitting on a branch built on the branch before it. That works, and CI is
+green on all of it, but the stack only gets harder to review the longer it waits, and a change you want
+in ST-002 now has nine descendants to rebase.
+
+**My recommendation:** merge #3 today, even if you read nothing else. It's the repo skeleton and CI; the
+rest rebases onto `main` from there. Then work down §2 at whatever pace suits you.
+
+## 2. What exists
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub repo (private) | https://github.com/hiratinspace/ScreenTail | `main` still holds only the plan docs; **8 draft PRs** wait for you (see §2) |
-| Build plan | `Build Plan/` | Spec amended to v0.4.1 (ST-014 decisions) and **v0.4.2 (contrast fixes, ST-016)**; guide amended for .NET 10 and the Core project (ADR-0002). All amendments live on branches |
-| Windows test loop | GitHub-hosted Windows VM + spare laptop (runner `SCREENTRAIL`) | Working. Laptop is **off** right now; every PR still runs on the hosted VM, which also runs DPAPI tests and renders the UI gallery |
-| Branch protection for `main` | GitHub ruleset "main" | Created, **switched off** until PR #3 merges |
+| GitHub repo (private) | https://github.com/hiratinspace/ScreenTail | `main` holds only the plan docs; **11 open PRs** |
+| Build plan | `Build Plan/` | Spec at v0.4.2 (ST-014 decisions + the contrast fixes); guide amended for .NET 10 and ADR-0002. All amendments live on branches |
+| Windows test loop | GitHub-hosted Windows VM + spare laptop (runner `SCREENTRAIL`) | Working. Laptop **off**; every PR still runs on the hosted VM, which also runs the DPAPI tests and renders the UI gallery |
+| Client test suite | `client/` | **143 tests**, green on macOS and on Windows CI |
+| Research suite | `research/` | **62 tests** (fixtures + prompt contract), green |
+| Branch protection for `main` | GitHub ruleset "main" | Created, **switched off** until #3 merges |
 
-## 2. Pull requests, in merge order
+## 3. Pull requests, in merge order
 
-Each is a draft with its acceptance criteria ticked in the description. Merge with "Rebase and merge" or a merge commit, **not squash**. After #3 merges I turn on branch protection and retarget the stacked PRs.
+All are drafts with their acceptance criteria ticked (or explicitly not ticked) in the description.
+Merge with "Rebase and merge" or a merge commit, **not squash** — squash rewrites the commit messages the
+conventional-commit check depends on.
 
-| Order | PR | Ticket | CI | Notes |
-|---|---|---|---|---|
-| 1 | [#3](https://github.com/hiratinspace/ScreenTail/pull/3) | ST-002 repo, CI, quality gates | green | Base of everything. Includes one review fix (Vitest cleanup). **Needs your yes on ADR-0002** (`ScreenTail.Core`) |
-| 2 | [#4](https://github.com/hiratinspace/ScreenTail/pull/4) | ST-003 session schema | green | Review found the C# side accepted documents the schema rejects → `SessionValidator` added; 34 tests |
-| 3 | [#5](https://github.com/hiratinspace/ScreenTail/pull/5) | ST-005 encrypted store | green (50/50 on Windows incl. DPAPI) | SQLCipher, two-stage frame lifecycle, INV-1 at three layers |
-| 4 | [#6](https://github.com/hiratinspace/ScreenTail/pull/6) | ST-004 service + UI over authenticated pipe | green (76/76 on Windows) | **Needs your yes on ADR-0003** (per-user background process, not a Windows Service; the three-check handshake) |
-| 5 | [#8](https://github.com/hiratinspace/ScreenTail/pull/8) | ST-020 session state machine | running at snapshot time | Grace, INV-6 gating, crash recovery; 13 tests against the real store |
-| 6 | [#7](https://github.com/hiratinspace/ScreenTail/pull/7) | ST-016 tokens + WPF components + gallery | green; re-run after a pill-radius fix in progress | Independent of the stack above (based on #3). **Needs your veto or nod on the v0.4.2 token changes** |
-| 7 | [#2](https://github.com/hiratinspace/ScreenTail/pull/2) | ST-014 wireframes | n/a (docs) | Still needs the two technician sessions (script in `docs/ux/wireframes/README.md`) |
-| 8 | [#1](https://github.com/hiratinspace/ScreenTail/pull/1) | ST-001 spike + ADR-0001 | hosted green; laptop run green | AC2 (RDP opacity) still needs a second machine. **Needs your accept on ADR-0001** |
+| Order | PR | Ticket | Notes |
+|---|---|---|---|
+| 1 | [#3](https://github.com/hiratinspace/ScreenTail/pull/3) | ST-002 repo, CI, quality gates | Base of everything. **Needs your yes on ADR-0002** (`ScreenTail.Core`) |
+| 2 | [#4](https://github.com/hiratinspace/ScreenTail/pull/4) | ST-003 session schema | Review found the C# side accepted documents the schema rejects → `SessionValidator` |
+| 3 | [#5](https://github.com/hiratinspace/ScreenTail/pull/5) | ST-005 encrypted store | SQLCipher, two-stage frame lifecycle, INV-1 enforced in three places |
+| 4 | [#6](https://github.com/hiratinspace/ScreenTail/pull/6) | ST-004 service + UI over an authenticated pipe | **Needs your yes on ADR-0003** (per-user process, not a Windows Service) |
+| 5 | [#8](https://github.com/hiratinspace/ScreenTail/pull/8) | ST-020 session state machine | Redaction grace, INV-6 gating, crash recovery |
+| 6 | [#9](https://github.com/hiratinspace/ScreenTail/pull/9) | ST-044 retention purge + delete-everything | Includes a retention-bypass fix (see §5) |
+| 7 | [#10](https://github.com/hiratinspace/ScreenTail/pull/10) | ST-066 suggested time entry | Small; pure arithmetic over the machine's active time |
+| 8 | [#11](https://github.com/hiratinspace/ScreenTail/pull/11) | ST-042 redaction engine | **Partial by design** — the corpus recall gate needs ST-030 |
+| 9 | [#12](https://github.com/hiratinspace/ScreenTail/pull/12) | ST-006 fixture bundles + redaction seed | Frames are **drawn, not staged** — read the deviation note in the PR |
+| 10 | [#13](https://github.com/hiratinspace/ScreenTail/pull/13) | ST-061 note prompt + output contract | The prompt's rules as enforced post-conditions |
+| — | [#7](https://github.com/hiratinspace/ScreenTail/pull/7) | ST-016 tokens, components, gallery | Branches off #3 only. **Needs your veto or nod on the v0.4.2 colours.** Merge any time after #3 |
+| — | [#2](https://github.com/hiratinspace/ScreenTail/pull/2) | ST-014 wireframes | Independent. Still needs the two technician sessions |
+| — | [#1](https://github.com/hiratinspace/ScreenTail/pull/1) | ST-001 spike + ADR-0001 | Independent. AC2 (RDP opacity) needs a second machine |
 
-Stack: #3 ← #4 ← #5 ← #6 ← #8, and #3 ← #7. #2 and #1 are independent of all.
+Stack: #3 ← #4 ← #5 ← #6 ← #8 ← #9 ← #10 ← #11 ← #12 ← #13, and #3 ← #7.
 
-## 3. Decisions already made
+## 4. Decisions already made
 - **.NET 10 LTS** (support for 8 ends November 2026).
-- **OCR runs on the full-size screenshot on the device**; only the display/upload copy is shrunk (ADR-0001 finding 2a).
+- **OCR on the full-size frame**; only the display/upload copy is shrunk (ADR-0001 finding 2a).
 - **Spec v0.4.1 (Q1–Q6):** HUD always visible during screen-share; Internal note type default; tray discard stops capture before confirming; Publish disabled after a failed draft; elevated-window wording; bulk discard confirms by count.
-- **Spec v0.4.2 (ST-016, pending your veto):** the CI contrast test found 10 pairs under 4.5:1 → `text.muted` and light `accent.primary` adjusted, `text.on-accent` added (dark text on the dark theme's bright blue), and a rule: state colours are indicators, never body-size text.
-- **ADR-0002 (proposed):** platform-neutral `ScreenTail.Core` so client logic is test-driven on the Mac. Working exactly as intended: every ticket since has been finished here.
-- **ADR-0003 (proposed):** capture service is a per-user background process in the signed-in session; UI is a view over it; pipe handshake = user ACL + verified client executable + per-run token.
+- **Spec v0.4.2 (pending your veto):** the CI contrast test found 10 text pairs under 4.5:1 → `text.muted` and light `accent.primary` adjusted, `text.on-accent` added, and a rule that state colours are indicators, never body-size text.
+- **A draft reports unrounded active minutes**; the client applies the tenant's billing rounding. Rounding in both places would round twice (ST-061 + ST-066).
+- **ADR-0002 (proposed):** platform-neutral `ScreenTail.Core`. Working as intended — every ticket since has been finished on the Mac.
+- **ADR-0003 (proposed):** capture service is a per-user background process; pipe handshake = user ACL + verified client executable + per-run token.
 
-## 4. What the overnight stretch found
-- **Review pass** (hand-done; the multi-agent reviewer hit the session limit): Vitest wasn't cleaning up between tests; the generated C# accepted sessions the schema rejects (pending frames with OCR text, dangling references, unordered timestamps, any `schema_version`). Both fixed with tests.
-- **The spec's own palette failed its own contrast rule** in 10 places (§3, v0.4.2).
-- **WPF distorts corner radii larger than half the height**; the CI gallery render showed it, fixed.
-- **Crash recovery had an ordering bug** (recovered timeline restarted at 0); the schema validator caught it in the state-machine tests.
-- **Self-hosted runner constraints** are documented in `docs/dev/windows-test-loop.md`: no admin (so no `setup-dotnet`), no PowerShell 7.
+## 5. What this stretch found
+Things that were wrong and are now fixed, each with a test that would catch it again:
+- **A retention bypass** (flagged by the automated security review): raw data from a session that never reached finalize — what a crash leaves behind — would have sat on disk for ever, and sessions finalized before the migration would have been exempt too. Retention now ages a session from its end *or* its creation, and only the session being recorded right now is exempt. One of my own tests had asserted the hole as intended behaviour.
+- **The spec's palette failed the spec's own contrast rule** in 10 places → v0.4.2.
+- **WPF distorts corner radii larger than half an element's height** — found in the CI gallery render, not by eye.
+- **Crash recovery restarted a recovered session's clock at zero**, so the timeline came back unordered.
+- **My ST-006 fixtures billed twice** — 15/30/45-minute drafts on 6–12 minute sessions — caught by ST-061's own checks.
+- **A flaky test of my own making**: fixed `ts_ms` values racing the machine's real clock. It only showed once the suite got slow enough.
+- **The generated C# accepted sessions the JSON Schema rejects** (earlier in the week) → `SessionValidator`.
 
-## 5. Decisions the owner needs to make
+## 6. Decisions the owner needs to make
 - [ ] Accept ADR-0001 (stack), ADR-0002 (Core project), ADR-0003 (hosting + pipe). Recommendation: yes to all three.
-- [ ] Veto or accept the spec v0.4.2 token changes (PR #7).
-- [ ] Merge in the order in §2.
-- [ ] Keep going with more tickets before the first merge? The stack is five deep; review gets harder the longer it waits.
+- [ ] Veto or accept spec v0.4.2 (PR #7).
+- [ ] Start merging (§1).
+- [ ] ST-006's frames are **drawn, not captured**. Fine as a stand-in, but say if you'd rather wait for staged captures.
 
-## 6. Next steps
-### Build agent (no owner or laptop needed)
-- **ST-044** retention purge (INV-12) — small, store-only. *In progress at snapshot time.*
-- **ST-066** suggested time-entry calculation — pure logic, uses the machine's active time.
-- **ST-042** pattern-based redaction engine (regex + Luhn + transcript scrub) — the engine and unit tests; the recall gate waits for the real corpus (ST-030).
-- **ST-061** note-generation prompt and output schema — research; the fixture-driven check waits for ST-006.
+## 7. Next steps
+### Build agent (no owner, no laptop)
+The well of work that needs neither is nearly dry — most remaining tickets need either Windows APIs, a
+cloud account, or your decisions. What's left: ST-062 (draft-quality eval harness, now that fixtures and
+the prompt exist), ST-043's matching logic, and backend tickets once you decide on hosting.
 
 ### Needs the laptop (turn it on and tell me)
-- ST-021 capability checks, ST-022 foreground detection, ST-024 hooks, ST-025 screenshots, ST-027 speech: Windows adapters. Most of their logic will be written here first; their acceptance tests run on the laptop through CI.
-- ST-004's "starts at login" and ST-016's focus-ring check by eye.
+ST-021 capability checks · ST-022 foreground detection · ST-024 hooks · ST-025 screenshots ·
+ST-027 speech. Most of their logic gets written here first; their acceptance tests run on the laptop
+through CI. Also ST-004's "starts at login" and a by-eye check of ST-016's focus rings.
 
 ### Only you
-- **ST-110 pilot-MSP baseline measurement** (Sprint 1 background work; gates the pilot metric).
+- **ST-110 pilot-MSP baseline measurement** — Sprint 1 background work; it gates the pilot metric, so the sooner it starts the better.
 - Two technician sessions on the Review wireframe (ST-014).
-- RDP check for ST-001 (5 min with a second Windows machine).
+- RDP check for ST-001 (5 minutes with a second Windows machine).
 - Laptop: automatic sign-in and lock-screen settings so unattended runs survive reboots.
 
-## 7. Handy commands
+## 8. Handy commands
 
 | Want to… | Do |
 |---|---|
 | See open PRs | `gh pr list` |
+| Run client tests here (Mac) | `dotnet test client/ScreenTail.sln` |
+| Run research tests | `cd research && pytest` |
+| Render the component gallery | on Windows: `dotnet run --project client/ScreenTail.UI -- --gallery` |
+| Look at a fixture session | `research/fixtures/handcrafted/<name>/session.json` + its `frames/` |
+| Regenerate fixtures (macOS only) | `cd research && python tools/… render_fixtures.py` — see `fixtures/README.md` |
 | Trigger a laptop spike run | `gh workflow run spike-windows.yml --ref <branch>` |
-| Check the laptop runner | `gh api repos/hiratinspace/ScreenTail/actions/runners` |
-| Run client tests here (Mac) | `dotnet test client/ScreenTail.sln` (on any branch from #3 up) |
-| Render the component gallery | on Windows: `dotnet run --project client/ScreenTail.UI -- --gallery` (`--screenshot <dir>` to save PNGs) |
 | Open the wireframes | `open docs/ux/wireframes/index.html` (ST-014 branch) |
-| Regenerate schema or token outputs | `npm run codegen` in `shared/schema` or `shared/design` |
