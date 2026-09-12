@@ -59,3 +59,8 @@ dotnet_diagnostic.CA1716.severity = none
 dotnet_diagnostic.IDE0161.severity = warning
 dotnet_diagnostic.IDE0011.severity = warning
 dotnet_diagnostic.IDE0044.severity = warning
+
+[client/ScreenTail.Tests/**.cs]
+# Tests call short-lived store/API methods dozens of times; threading TestContext.Current.CancellationToken
+# through every call adds noise without making cancellation meaningfully faster.
+dotnet_diagnostic.xUnit1051.severity = suggestion

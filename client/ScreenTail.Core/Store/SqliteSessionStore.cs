@@ -1,0 +1,627 @@
+using System.Data;
+using System.Globalization;
+using System.Reflection;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using ScreenTail.Shared.Schema;
+
+namespace ScreenTail.Core.Store;
+
+/// <summary>
+/// <see cref="ISessionStore"/> on SQLite + SQLCipher. One connection, commands serialized, WAL journal.
+/// Open with <see cref="OpenAsync"/>; it keys the connection and applies pending migrations.
+/// </summary>
+public sealed class SqliteSessionStore : ISessionStore
+{
+    private static readonly Lock BatteriesLock = new();
+    private static bool _batteriesReady;
+
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SqliteConnection _connection;
+    private bool _disposed;
+
+    private SqliteSessionStore(SqliteConnection connection)
+    {
+        _connection = connection;
+    }
+
+    public static async Task<SqliteSessionStore> OpenAsync(string path, IStoreKeyProvider keys, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(keys);
+        EnsureBatteries();
+
+        var key = keys.GetKey();
+        if (key.Length != keys.KeyLength)
+        {
+            throw new StoreKeyException($"The key provider returned {key.Length} bytes; {keys.KeyLength} are required.");
+        }
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        // Pooling off: a pooled connection handed back without PRAGMA key would see ciphertext.
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
+        }.ToString());
+
+        try
+        {
+            await connection.OpenAsync(ct).ConfigureAwait(false);
+            await KeyAsync(connection, key, ct).ConfigureAwait(false);
+            await ExecuteAsync(connection, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;", ct).ConfigureAwait(false);
+            await MigrateAsync(connection, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+        finally
+        {
+            Array.Clear(key);
+        }
+
+        return new SqliteSessionStore(connection);
+    }
+
+    public Task CreateSessionAsync(NewSession session, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var now = Iso(DateTimeOffset.UtcNow);
+        return RunAsync(
+            """
+            INSERT INTO sessions (id, started_at, remote_tool_kind, remote_tool_version, local_only, policy_version, created_at, updated_at)
+            VALUES (@id, @started, @kind, @version, @local, @policy, @now, @now)
+            """,
+            ct,
+            ("@id", session.SessionId),
+            ("@started", Iso(session.StartedAt)),
+            ("@kind", EnumName(session.RemoteTool.Kind)),
+            ("@version", session.RemoteTool.ClientVersion),
+            ("@local", session.LocalOnly ? 1 : 0),
+            ("@policy", session.PolicyVersion),
+            ("@now", now));
+    }
+
+    public Task AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sessionEvent);
+
+        // Serialized as the base type so the "type" discriminator is written.
+        var json = JsonSerializer.Serialize<SessionEvent>(sessionEvent, SessionJson.Options);
+        return RunAsync(
+            """
+            INSERT INTO events (session_id, seq, ts_ms, json)
+            VALUES (@session, (SELECT COALESCE(MAX(seq), -1) + 1 FROM events WHERE session_id = @session), @ts, @json)
+            """,
+            ct,
+            ("@session", sessionId),
+            ("@ts", sessionEvent.TsMs),
+            ("@json", json));
+    }
+
+    public Task AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
+        return RunAsync(
+            """
+            INSERT INTO transcript (id, session_id, ts_ms, end_ms, speaker, text, frame_id, confidence)
+            VALUES (@id, @session, @ts, @end, @speaker, @text, @frame, @confidence)
+            """,
+            ct,
+            ("@id", segment.Id),
+            ("@session", sessionId),
+            ("@ts", segment.TsMs),
+            ("@end", segment.EndMs),
+            ("@speaker", EnumName(segment.Speaker)),
+            ("@text", segment.Text),
+            ("@frame", segment.FrameId),
+            ("@confidence", segment.Confidence));
+    }
+
+    public Task StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        return RunAsync(
+            """
+            INSERT INTO frames (id, session_id, ts_ms, trigger, width, height, cursor_x, cursor_y, redaction_pending, image)
+            VALUES (@id, @session, @ts, @trigger, @w, @h, @cx, @cy, 1, @image)
+            """,
+            ct,
+            ("@id", frame.Id),
+            ("@session", sessionId),
+            ("@ts", frame.TsMs),
+            ("@trigger", EnumName(frame.Trigger)),
+            ("@w", frame.Width),
+            ("@h", frame.Height),
+            ("@cx", frame.Cursor?.X),
+            ("@cy", frame.Cursor?.Y),
+            ("@image", frame.Image.ToArray()));
+    }
+
+    public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT id, session_id, ts_ms, image FROM frames WHERE redaction_pending = 1 ORDER BY ts_ms LIMIT 1",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
+                ? new PendingFrame(reader.GetString(0), reader.GetString(1), reader.GetInt64(2), (byte[])reader[3])
+                : null,
+            ct);
+
+    public async Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        var changed = await RunAsync(
+            """
+            UPDATE frames
+            SET image = @image, ocr_text = @ocr, masked_regions_json = @regions, sensitive_context = @sensitive,
+                redacted_at = @at, redaction_pending = 0
+            WHERE id = @id AND redaction_pending = 1
+            """,
+            ct,
+            ("@id", frameId),
+            ("@image", outcome.RedactedImage.ToArray()),
+            ("@ocr", outcome.OcrText),
+            ("@regions", JsonSerializer.Serialize(outcome.MaskedRegions, SessionJson.Options)),
+            ("@sensitive", outcome.SensitiveContext ? 1 : 0),
+            ("@at", Iso(outcome.RedactedAt))).ConfigureAwait(false);
+
+        if (changed != 1)
+        {
+            throw new InvalidOperationException($"Frame '{frameId}' is not pending redaction (missing or already redacted).");
+        }
+    }
+
+    public Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default) =>
+        ScalarAsync<int>("SELECT COUNT(*) FROM frames WHERE session_id = @session AND redaction_pending = 1", ct, ("@session", sessionId));
+
+    public async Task<int> PurgePendingFramesAsync(string sessionId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var purged = await ExecuteAsync(
+                _connection,
+                "DELETE FROM frames WHERE session_id = @session AND redaction_pending = 1",
+                ct,
+                ("@session", sessionId)).ConfigureAwait(false);
+            if (purged > 0)
+            {
+                await ExecuteAsync(
+                    _connection,
+                    "UPDATE sessions SET frames_purged_unredacted = frames_purged_unredacted + @n, updated_at = @now WHERE id = @session",
+                    ct,
+                    ("@n", purged),
+                    ("@now", Iso(DateTimeOffset.UtcNow)),
+                    ("@session", sessionId)).ConfigureAwait(false);
+                await AuditAsync(sessionId, AuditTypes.FramesPurgedUnredacted, purged, ct).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return purged;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default) =>
+        RunAsync("UPDATE frames SET excluded_by_user = @x WHERE id = @id", ct, ("@id", frameId), ("@x", excluded ? 1 : 0));
+
+    public Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        return RunAsync(
+            "UPDATE sessions SET draft_json = @draft, updated_at = @now WHERE id = @id",
+            ct,
+            ("@draft", JsonSerializer.Serialize(draft, SessionJson.Options)),
+            ("@now", Iso(DateTimeOffset.UtcNow)),
+            ("@id", sessionId));
+    }
+
+    public Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        return RunAsync(
+            "UPDATE sessions SET duration_ms = @duration, partial_capture = @partial, updated_at = @now WHERE id = @id",
+            ct,
+            ("@duration", info.DurationMs),
+            ("@partial", info.PartialCapture ? 1 : 0),
+            ("@now", Iso(DateTimeOffset.UtcNow)),
+            ("@id", sessionId));
+    }
+
+    public async Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var header = await ReadSessionHeaderAsync(sessionId, ct).ConfigureAwait(false);
+            if (header is null)
+            {
+                return null;
+            }
+
+            // INV-1: only redacted frames are ever materialized.
+            var frames = await ReadFramesAsync(sessionId, ct).ConfigureAwait(false);
+            var frameIds = frames.Select(f => f.Id).ToHashSet(StringComparer.Ordinal);
+            var transcript = await ReadTranscriptAsync(sessionId, frameIds, ct).ConfigureAwait(false);
+            var segmentIds = transcript.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+            var events = await ReadEventsAsync(sessionId, frameIds, ct).ConfigureAwait(false);
+
+            var session = header with
+            {
+                Frames = frames,
+                Transcript = transcript,
+                Events = events,
+                Draft = header.Draft is null ? null : ScrubDraft(header.Draft, frameIds, segmentIds),
+            };
+
+            var problems = SessionValidator.Validate(session);
+            return problems.Count == 0
+                ? session
+                : throw new InvalidOperationException($"Stored session '{sessionId}' is inconsistent: {string.Join("; ", problems)}");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public Task<byte[]?> GetRedactedFrameImageAsync(string frameId, CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT image FROM frames WHERE id = @id AND redaction_pending = 0",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? (byte[])reader[0] : null,
+            ct,
+            ("@id", frameId));
+
+    public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var deleted = await ExecuteAsync(_connection, "DELETE FROM sessions WHERE id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            if (deleted > 0)
+            {
+                await AuditAsync(sessionId, AuditTypes.SessionDiscarded, null, ct).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) =>
+        QueryAsync<IReadOnlyList<AuditEntry>>(
+            "SELECT id, at, session_id, type, count FROM audit_log WHERE (@session IS NULL OR session_id = @session) ORDER BY id",
+            async reader =>
+            {
+                var entries = new List<AuditEntry>();
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    entries.Add(new AuditEntry(
+                        reader.GetInt64(0),
+                        ParseIso(reader.GetString(1)),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.GetString(3),
+                        reader.IsDBNull(4) ? null : reader.GetInt64(4)));
+                }
+
+                return entries;
+            },
+            ct,
+            ("@session", sessionId));
+
+    public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) =>
+        ScalarAsync<int>("SELECT COALESCE(MAX(version), 0) FROM schema_migrations", ct);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        await _connection.DisposeAsync().ConfigureAwait(false);
+        _gate.Dispose();
+    }
+
+    // ---- reads -----------------------------------------------------------------------------------------
+
+    private async Task<Session?> ReadSessionHeaderAsync(string sessionId, CancellationToken ct)
+    {
+        await using var command = Command(
+            _connection,
+            """
+            SELECT id, started_at, remote_tool_kind, remote_tool_version, duration_ms, partial_capture,
+                   frames_purged_unredacted, local_only, policy_version, draft_json
+            FROM sessions WHERE id = @id
+            """,
+            ("@id", sessionId));
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new Session
+        {
+            SchemaVersion = SessionValidator.ExpectedSchemaVersion,
+            SessionId = reader.GetString(0),
+            StartedAt = ParseIso(reader.GetString(1)),
+            RemoteTool = new RemoteTool
+            {
+                Kind = ParseEnum<RemoteToolKind>(reader.GetString(2)),
+                ClientVersion = reader.IsDBNull(3) ? null : reader.GetString(3),
+            },
+            DurationMs = reader.IsDBNull(4) ? null : reader.GetInt64(4),
+            PartialCapture = reader.GetInt64(5) == 1,
+            FramesPurgedUnredacted = reader.GetInt64(6),
+            LocalOnly = reader.GetInt64(7) == 1,
+            PolicyVersion = reader.IsDBNull(8) ? null : reader.GetString(8),
+            Draft = reader.IsDBNull(9) ? null : JsonSerializer.Deserialize<DraftNote>(reader.GetString(9), SessionJson.Options),
+            Events = [],
+            Frames = [],
+            Transcript = [],
+        };
+    }
+
+    private async Task<List<Frame>> ReadFramesAsync(string sessionId, CancellationToken ct)
+    {
+        await using var command = Command(
+            _connection,
+            """
+            SELECT id, ts_ms, trigger, width, height, cursor_x, cursor_y, redacted_at, ocr_text,
+                   masked_regions_json, sensitive_context, excluded_by_user
+            FROM frames WHERE session_id = @session AND redaction_pending = 0 ORDER BY ts_ms, id
+            """,
+            ("@session", sessionId));
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        var frames = new List<Frame>();
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var id = reader.GetString(0);
+            frames.Add(new Frame
+            {
+                Id = id,
+                TsMs = reader.GetInt64(1),
+                Trigger = ParseEnum<FrameTrigger>(reader.GetString(2)),
+                Image = $"frames/{id}.jpg",
+                Width = reader.GetInt64(3),
+                Height = reader.GetInt64(4),
+                Cursor = reader.IsDBNull(5) ? null : new Point { X = reader.GetInt64(5), Y = reader.GetInt64(6) },
+                RedactionPending = false,
+                RedactedAt = ParseIso(reader.GetString(7)),
+                OcrText = reader.IsDBNull(8) ? null : reader.GetString(8),
+                MaskedRegions = JsonSerializer.Deserialize<List<MaskedRegion>>(reader.GetString(9), SessionJson.Options) ?? [],
+                SensitiveContext = reader.GetInt64(10) == 1,
+                ExcludedByUser = reader.GetInt64(11) == 1,
+            });
+        }
+
+        return frames;
+    }
+
+    private async Task<List<TranscriptSegment>> ReadTranscriptAsync(string sessionId, HashSet<string> frameIds, CancellationToken ct)
+    {
+        await using var command = Command(
+            _connection,
+            "SELECT id, ts_ms, end_ms, speaker, text, frame_id, confidence FROM transcript WHERE session_id = @session ORDER BY ts_ms, id",
+            ("@session", sessionId));
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        var segments = new List<TranscriptSegment>();
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var frameId = reader.IsDBNull(5) ? null : reader.GetString(5);
+            segments.Add(new TranscriptSegment
+            {
+                Id = reader.GetString(0),
+                TsMs = reader.GetInt64(1),
+                EndMs = reader.GetInt64(2),
+                Speaker = ParseEnum<Speaker>(reader.GetString(3)),
+                Text = reader.GetString(4),
+                FrameId = frameId is not null && frameIds.Contains(frameId) ? frameId : null,
+                Confidence = reader.IsDBNull(6) ? null : reader.GetDouble(6),
+            });
+        }
+
+        return segments;
+    }
+
+    private async Task<List<SessionEvent>> ReadEventsAsync(string sessionId, HashSet<string> frameIds, CancellationToken ct)
+    {
+        await using var command = Command(_connection, "SELECT json FROM events WHERE session_id = @session ORDER BY seq", ("@session", sessionId));
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        var events = new List<SessionEvent>();
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var sessionEvent = JsonSerializer.Deserialize<SessionEvent>(reader.GetString(0), SessionJson.Options)
+                ?? throw new InvalidOperationException("A stored event is null.");
+
+            // A frame that was purged or is still pending doesn't exist for readers, so neither does the reference.
+            events.Add(sessionEvent switch
+            {
+                ClickEvent { FrameId: { } f } click when !frameIds.Contains(f) => click with { FrameId = null },
+                MarkerEvent { FrameId: { } f } marker when !frameIds.Contains(f) => marker with { FrameId = null },
+                _ => sessionEvent,
+            });
+        }
+
+        return events;
+    }
+
+    private static DraftNote ScrubDraft(DraftNote draft, HashSet<string> frameIds, HashSet<string> segmentIds) =>
+        draft with
+        {
+            Steps = draft.Steps.Select(step => step with
+            {
+                FrameRefs = step.FrameRefs.Where(frameIds.Contains).ToList(),
+                TranscriptRefs = step.TranscriptRefs?.Where(segmentIds.Contains).ToList(),
+            }).ToList(),
+        };
+
+    // ---- plumbing --------------------------------------------------------------------------------------
+
+    private static void EnsureBatteries()
+    {
+        lock (BatteriesLock)
+        {
+            if (!_batteriesReady)
+            {
+                SQLitePCL.Batteries_V2.Init();
+                _batteriesReady = true;
+            }
+        }
+    }
+
+    private static async Task KeyAsync(SqliteConnection connection, byte[] key, CancellationToken ct)
+    {
+        // A raw key ("x'...'") skips SQLCipher's passphrase KDF; the key already has full entropy.
+        var hex = Convert.ToHexString(key);
+        await ExecuteAsync(connection, $"PRAGMA key = \"x'{hex}'\";", ct).ConfigureAwait(false);
+        try
+        {
+            // The first real read fails with "file is not a database" when the key is wrong.
+            await ExecuteAsync(connection, "SELECT count(*) FROM sqlite_master;", ct).ConfigureAwait(false);
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 26)
+        {
+            throw new StoreKeyException("The store could not be opened with this key.", ex);
+        }
+    }
+
+    private static async Task MigrateAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        await ExecuteAsync(connection, "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);", ct).ConfigureAwait(false);
+        await using var current = Command(connection, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations");
+        var applied = Convert.ToInt32(await current.ExecuteScalarAsync(ct).ConfigureAwait(false), CultureInfo.InvariantCulture);
+
+        foreach (var (version, sql) in LoadMigrations().Where(m => m.Version > applied))
+        {
+            await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            await ExecuteAsync(connection, sql, ct).ConfigureAwait(false);
+            await ExecuteAsync(
+                connection,
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (@v, @at)",
+                ct,
+                ("@v", version),
+                ("@at", Iso(DateTimeOffset.UtcNow))).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+        }
+    }
+
+    private static IEnumerable<(int Version, string Sql)> LoadMigrations()
+    {
+        var assembly = typeof(SqliteSessionStore).Assembly;
+        const string prefix = "ScreenTail.Core.Store.Migrations.";
+        var migrations = new List<(int, string)>();
+        foreach (var name in assembly.GetManifestResourceNames().Where(n => n.StartsWith(prefix, StringComparison.Ordinal)))
+        {
+            var file = name[prefix.Length..];
+            var version = int.Parse(file.AsSpan(0, file.IndexOf('_', StringComparison.Ordinal)), CultureInfo.InvariantCulture);
+            using var stream = assembly.GetManifestResourceStream(name) ?? throw new InvalidOperationException($"Missing resource {name}.");
+            using var reader = new StreamReader(stream);
+            migrations.Add((version, reader.ReadToEnd()));
+        }
+
+        return migrations.OrderBy(m => m.Item1);
+    }
+
+    private async Task<int> RunAsync(string sql, CancellationToken ct, params (string Name, object? Value)[] parameters)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await ExecuteAsync(_connection, sql, ct, parameters).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<T> ScalarAsync<T>(string sql, CancellationToken ct, params (string Name, object? Value)[] parameters)
+        where T : IConvertible
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var command = Command(_connection, sql, parameters);
+            var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture)!;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<T> QueryAsync<T>(string sql, Func<SqliteDataReader, Task<T>> read, CancellationToken ct, params (string Name, object? Value)[] parameters)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var command = Command(_connection, sql, parameters);
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            return await read(reader).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private Task<int> AuditAsync(string? sessionId, string type, long? count, CancellationToken ct) =>
+        ExecuteAsync(
+            _connection,
+            "INSERT INTO audit_log (at, session_id, type, count) VALUES (@at, @session, @type, @count)",
+            ct,
+            ("@at", Iso(DateTimeOffset.UtcNow)),
+            ("@session", sessionId),
+            ("@type", type),
+            ("@count", count));
+
+    private static async Task<int> ExecuteAsync(SqliteConnection connection, string sql, CancellationToken ct, params (string Name, object? Value)[] parameters)
+    {
+        await using var command = Command(connection, sql, parameters);
+        return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static SqliteCommand Command(SqliteConnection connection, string sql, params (string Name, object? Value)[] parameters)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        }
+
+        return command;
+    }
+
+    private static string Iso(DateTimeOffset value) => value.ToString("o", CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset ParseIso(string value) => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+    /// <summary>The schema's snake_case name for an enum member, read off its JsonStringEnumMemberName.</summary>
+    private static string EnumName<TEnum>(TEnum value)
+        where TEnum : struct, Enum =>
+        JsonSerializer.Serialize(value, SessionJson.Options).Trim('"');
+
+    private static TEnum ParseEnum<TEnum>(string name)
+        where TEnum : struct, Enum =>
+        JsonSerializer.Deserialize<TEnum>($"\"{name}\"", SessionJson.Options);
+}

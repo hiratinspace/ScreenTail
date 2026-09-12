@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Windows-bound tests (ADR-0002): adapters that need real Windows APIs. They run in CI's Windows jobs and
+       are skipped elsewhere via [Fact(SkipUnless = ...)]. Compiles on any OS thanks to EnableWindowsTargeting. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ScreenTail.Tests.Windows</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTail.Service\ScreenTail.Service.csproj" />
+  </ItemGroup>
+</Project>
