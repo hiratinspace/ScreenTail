@@ -105,12 +105,20 @@ jobs:
       - name: Shell screenshots
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
-          dotnet run --project ScreenTail.UI -c Release --no-build -- --screenshot $out
+          $log = Join-Path $env:RUNNER_TEMP 'shell-render.log'
+          dotnet run --project ScreenTail.UI -c Release --no-build -- --screenshot $out | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $shell = Get-ChildItem $out -Filter 'shell-*.png'
           if ($shell.Count -lt 6) { throw "Expected 6 shell screenshots, found $($shell.Count)." }
-          foreach ($file in $shell) {
-            if ($file.Length -lt 10000) { throw "$($file.Name) is $($file.Length) bytes; the shell rendered nothing." }
+          # The renderer reports how many distinct colours it drew. A window that rendered nothing is one
+          # flat rectangle; anything with text, borders and a badge on it is hundreds. File size was the
+          # first version of this and was wrong - it failed on a shell that had just been improved,
+          # because flat colour compresses smaller than the drop shadow it replaced.
+          $counts = Select-String -Path $log -Pattern 'distinct colours' -AllMatches
+          foreach ($line in $counts) {
+            if ($line -match '(\d+) distinct colours') {
+              if ([int]$Matches[1] -lt 20) { throw "$line - the shell rendered nothing." }
+            }
           }
           $shell | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 

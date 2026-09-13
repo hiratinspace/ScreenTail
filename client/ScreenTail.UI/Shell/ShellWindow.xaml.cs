@@ -74,8 +74,37 @@ public partial class ShellWindow : Window
         bitmap.Render(this);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var stream = File.Create(path);
-        encoder.Save(stream);
-        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"wrote {path} ({width}x{height})"));
+        using (var stream = File.Create(path))
+        {
+            encoder.Save(stream);
+        }
+
+        // Counted here rather than measured as a file size in CI. The first version of this check used
+        // bytes, and then failed on a shell that had just been *improved*: flattening the background and
+        // dropping a drop-shadow made the PNG compress smaller. Bytes measure how compressible a picture
+        // is; what the check means to ask is whether anything was drawn.
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"wrote {path} ({width}x{height}, {DistinctColours(bitmap)} distinct colours)"));
+    }
+
+    /// <summary>How many different colours are on the rendered window, sampled on a grid.</summary>
+    private static int DistinctColours(RenderTargetBitmap bitmap)
+    {
+        var stride = bitmap.PixelWidth * 4;
+        var pixels = new byte[stride * bitmap.PixelHeight];
+        bitmap.CopyPixels(pixels, stride, 0);
+
+        var seen = new HashSet<uint>();
+        for (var y = 0; y < bitmap.PixelHeight; y += 4)
+        {
+            for (var x = 0; x < bitmap.PixelWidth; x += 4)
+            {
+                var i = (y * stride) + (x * 4);
+                seen.Add(BitConverter.ToUInt32(pixels, i));
+            }
+        }
+
+        return seen.Count;
     }
 }
