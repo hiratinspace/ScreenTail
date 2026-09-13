@@ -128,6 +128,14 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         LogOcr(logger, recogniser.Available, recogniser.Language ?? "none");
         var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), new RedactionEngine());
         redaction.BacklogChanged += machine.ReportPendingRedactions;
+
+        // Without this the login heuristic fires into nothing: the frame is marked sensitive and the next
+        // click still screenshots the same password prompt. INV-6 is about capture stopping, not about an
+        // event being raised.
+        var sensitive = new SensitiveContextGuard(machine);
+        redaction.SensitiveContextSeen += sensitive.Seen;
+        var guarding = sensitive.RunAsync(stoppingToken);
+
         var redacting = redaction.RunAsync(stoppingToken);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
@@ -149,7 +157,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, redacting).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, redacting, guarding).ConfigureAwait(false);
         LogStopping(logger);
     }
 
