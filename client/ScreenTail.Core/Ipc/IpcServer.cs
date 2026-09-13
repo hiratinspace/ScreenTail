@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Pipes;
 using ScreenTail.Core.Audit;
 using ScreenTail.Shared.Ipc;
@@ -20,6 +21,8 @@ public sealed class IpcServer : IAsyncDisposable
     private readonly string _serviceVersion;
     private readonly ConcurrentDictionary<Guid, Connection> _clients = new();
     private readonly CancellationTokenSource _stopping = new();
+    private readonly Dictionary<string, (long At, long Count)> _rejections = new(StringComparer.Ordinal);
+    private int _handshaking;
     private Task? _acceptLoop;
 
     public IpcServer(
@@ -53,6 +56,24 @@ public sealed class IpcServer : IAsyncDisposable
         PipeOptions.Asynchronous);
 
     public int ConnectedClients => _clients.Count;
+
+    /// <summary>Connections turned away before they said anything useful. Counts only (INV-10).</summary>
+    public long RefusedConnections { get; private set; }
+
+    /// <summary>
+    /// How long a peer has to complete the handshake. Generous for a local pipe, and short enough that
+    /// holding one open costs an attacker something.
+    /// </summary>
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>One row per reason per minute, however fast the rejections arrive.</summary>
+    private static readonly TimeSpan RejectionWindow = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Handshakes allowed in flight at once. The real UI opens one connection, the HUD a second, the
+    /// diagnostics panel a third; anything beyond a handful at the same instant is not a technician.
+    /// </summary>
+    private const int MaxHandshakesInFlight = 16;
 
     public void Start()
     {
@@ -108,7 +129,31 @@ public sealed class IpcServer : IAsyncDisposable
     {
         while (!_stopping.IsCancellationRequested)
         {
-            var pipe = _pipeFactory();
+            NamedPipeServerStream pipe;
+            try
+            {
+                // Inside the try. CreateNamedPipe runs eagerly here and throws on resource failure, and
+                // this loop is an unobserved Task.Run: an escape stopped it for good, silently, leaving
+                // the service unable to accept the UI ever again — no HUD, and no way to stop capture
+                // from the UI. Backing off and retrying is the only safe answer, because the cause is
+                // usually the handle pressure that this loop's own connections created.
+                pipe = _pipeFactory();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                RefusedConnections++;
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), _stopping.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                continue;
+            }
+
             try
             {
                 await pipe.WaitForConnectionAsync(_stopping.Token).ConfigureAwait(false);
@@ -124,6 +169,17 @@ public sealed class IpcServer : IAsyncDisposable
                 continue;
             }
 
+            // A peer that connects and says nothing used to be held for ever, and there was no limit on
+            // how many of them. A same-user process could open thousands, park a task and a pipe handle
+            // for each, and starve the service out of the handles it needs to accept the real UI.
+            if (Interlocked.Increment(ref _handshaking) > MaxHandshakesInFlight)
+            {
+                _ = Interlocked.Decrement(ref _handshaking);
+                RefusedConnections++;
+                await pipe.DisposeAsync().ConfigureAwait(false);
+                continue;
+            }
+
             _ = HandleConnectionAsync(pipe);
         }
     }
@@ -131,15 +187,34 @@ public sealed class IpcServer : IAsyncDisposable
     private async Task HandleConnectionAsync(NamedPipeServerStream pipe)
     {
         var connection = new Connection(pipe);
+        var counted = true;
         try
         {
-            var reason = await HandshakeAsync(connection, _stopping.Token).ConfigureAwait(false);
+            // A handshake has to arrive promptly. Without a deadline, a peer that connects and sends
+            // nothing holds a pipe instance and a task until the service stops.
+            using var handshake = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+            handshake.CancelAfter(HandshakeTimeout);
+
+            string? reason;
+            try
+            {
+                reason = await HandshakeAsync(connection, handshake.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!_stopping.IsCancellationRequested)
+            {
+                RefusedConnections++;
+                return;
+            }
+
             if (reason is not null)
             {
                 await connection.SendAsync(new Rejected { Reason = reason }, _stopping.Token).ConfigureAwait(false);
-                await _audit.RecordAsync("ipc_rejected_" + reason, ct: _stopping.Token).ConfigureAwait(false);
+                await AuditRejectionAsync(reason).ConfigureAwait(false);
                 return;
             }
+
+            _ = Interlocked.Decrement(ref _handshaking);
+            counted = false;
 
             _clients[connection.Id] = connection;
             await ServeAsync(connection, _stopping.Token).ConfigureAwait(false);
@@ -150,9 +225,48 @@ public sealed class IpcServer : IAsyncDisposable
         }
         finally
         {
+            if (counted)
+            {
+                _ = Interlocked.Decrement(ref _handshaking);
+            }
+
             _clients.TryRemove(connection.Id, out _);
             await connection.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Records that connections were refused, without letting an unauthenticated peer write to the store
+    /// as fast as it can connect.
+    ///
+    /// Every rejection used to INSERT a row. A same-user process looping a bad token at a few thousand a
+    /// second had an unbounded write primitive into the encrypted database — audit rows are never pruned,
+    /// so it grew until the disk filled, and every real store write starved behind the gate it held. The
+    /// rejections are counted in memory and one row is written per minute per reason, which is what an
+    /// audit of "somebody is trying" actually needs: that it happened, and how much.
+    /// </summary>
+    private async Task AuditRejectionAsync(string reason)
+    {
+        long since;
+        lock (_rejections)
+        {
+            var seen = _rejections.TryGetValue(reason, out var previous);
+
+            // Inside the window since the last row for this reason: count it and write nothing. The test
+            // that caught the first version of this got 24 rows from 25 attempts, because resetting the
+            // counter after each write made every rejection look like the first one in its window.
+            if (seen && Stopwatch.GetElapsedTime(previous.At) < RejectionWindow)
+            {
+                _rejections[reason] = (previous.At, previous.Count + 1);
+                return;
+            }
+
+            // First of a window, or the window has passed. The row carries everything since the last one.
+            since = (seen ? previous.Count : 0) + 1;
+            _rejections[reason] = (Stopwatch.GetTimestamp(), 0);
+        }
+
+        await _audit.RecordAsync("ipc_rejected_" + reason, count: since, ct: _stopping.Token).ConfigureAwait(false);
     }
 
     private async Task<string?> HandshakeAsync(Connection connection, CancellationToken ct)
