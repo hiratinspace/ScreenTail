@@ -141,27 +141,29 @@ public sealed class ModelDownloadTests : IDisposable
         // same from outside, and the technician restarts the service in the middle of a support call.
         var server = new StubServer(Weights);
         var download = new ModelDownload(new HttpClient(server)) { ReportEvery = TimeSpan.Zero };
-        var seen = new List<DownloadProgress>();
         var path = Path.Combine(_dir, "model.bin");
 
-        await download.EnsureAsync(
-            Model(),
-            path,
-            new Progress<DownloadProgress>(p => { lock (seen) { seen.Add(p); } }),
-            TestContext.Current.CancellationToken);
+        // Collected synchronously. Progress<T> posts to the captured synchronization context, so the
+        // reports arrive after the download returns and the assertions become a race against the thread
+        // pool — the test would pass locally and fail on a loaded CI machine.
+        var seen = new Collected();
 
-        // Progress is raised on the synchronization context, so give the posted callbacks a moment.
-        for (var i = 0; i < 50 && (seen.Count == 0 || seen[^1].Fraction < 1); i++)
-        {
-            await Task.Delay(10, TestContext.Current.CancellationToken);
-        }
+        await download.EnsureAsync(Model(), path, seen, TestContext.Current.CancellationToken);
 
-        lock (seen)
-        {
-            Assert.NotEmpty(seen);
-            Assert.Equal(1.0, seen[^1].Fraction);
-            Assert.All(seen, p => Assert.InRange(p.Fraction, 0, 1));
-        }
+        Assert.NotEmpty(seen.Reports);
+        Assert.Equal(1.0, seen.Reports[^1].Fraction);
+        Assert.All(seen.Reports, p => Assert.InRange(p.Fraction, 0, 1));
+        Assert.True(
+            seen.Reports.Any(p => p.Fraction > 0 && p.Fraction < 1) || seen.Reports.Count >= 2,
+            "progress went straight from nothing to done, which tells the technician nothing");
+    }
+
+    /// <summary>Records reports on the thread that raised them, so a test can assert without waiting.</summary>
+    private sealed class Collected : IProgress<DownloadProgress>
+    {
+        public List<DownloadProgress> Reports { get; } = [];
+
+        public void Report(DownloadProgress value) => Reports.Add(value);
     }
 
     [Fact]
