@@ -58,7 +58,7 @@ public sealed class ForegroundWatcherTests
         Assert.Equal(Environment.ProcessId, reported.ProcessId);
         Assert.Equal(Path.GetFileNameWithoutExtension(Environment.ProcessPath), reported.ProcessName);
         Assert.False(reported.IsElevated);
-        Console.WriteLine($"focus change reported in {clock.ElapsedMilliseconds} ms (budget 100 ms, enforced: {PerformanceCounts})");
+        Record($"Focus change reported in **{clock.ElapsedMilliseconds} ms** (budget 100 ms, enforced: {PerformanceCounts})");
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count; the laptop enforces this.");
         Assert.True(clock.ElapsedMilliseconds < 100, $"took {clock.ElapsedMilliseconds} ms, budget is 100 ms");
     }
@@ -109,7 +109,7 @@ public sealed class ForegroundWatcherTests
         var used = PumpThreadTime(watcher.PumpThreadId)!.Value - before!.Value;
 
         var percent = used.TotalMilliseconds / clock.Elapsed.TotalMilliseconds * 100;
-        Console.WriteLine($"watcher used {percent:F3}% of a core while idle (budget 0.5%, enforced: {PerformanceCounts})");
+        Record($"Watcher used **{percent:F3}%** of a core while idle (budget 0.5%, enforced: {PerformanceCounts})");
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count; the laptop enforces this.");
         Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core while idle, budget is 0.5%");
     }
@@ -150,6 +150,22 @@ public sealed class ForegroundWatcherTests
         if (!watcher.Current.IsNone)
         {
             Assert.NotEqual(0, watcher.Current.ProcessId);
+        }
+    }
+
+    /// <summary>
+    /// Puts a measurement where it can be seen. xUnit keeps a passing test's console output to itself, so
+    /// the earlier Console.WriteLine only ever appeared on failure — which is precisely when the number is
+    /// least interesting. On a runner this writes to the job summary instead, so each run records how much
+    /// headroom is left against the budget.
+    /// </summary>
+    private static void Record(string measurement)
+    {
+        Console.WriteLine(measurement);
+        var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
+        if (!string.IsNullOrEmpty(summary))
+        {
+            File.AppendAllText(summary, $"- {measurement}{Environment.NewLine}");
         }
     }
 
