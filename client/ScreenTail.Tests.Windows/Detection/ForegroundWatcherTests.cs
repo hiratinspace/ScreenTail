@@ -15,7 +15,6 @@ namespace ScreenTail.Tests.Windows.Detection;
 /// spare laptop. Skipping is the honest outcome there: a foreground test on a machine with no foreground
 /// proves nothing, and passing it vacuously would be worse than not running it.
 /// </summary>
-[Collection("foreground")]
 public sealed class ForegroundWatcherTests
 {
     private static bool HasDesktop =>

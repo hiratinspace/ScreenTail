@@ -15,7 +15,6 @@ namespace ScreenTail.Tests.Windows.Input;
 ///
 /// Input is aimed at a window this test owns and focuses first, so the keystrokes land nowhere else.
 /// </summary>
-[Collection("input-injection")]
 public sealed class InputHookTests
 {
     private static bool CanInject =>
