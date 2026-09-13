@@ -1,0 +1,34 @@
+{
+  "version": "exclusions-2026-09-13",
+  "_comment": "ST-043. Windows a technician may have open that must never be photographed, whatever the capture scope says. Tenant-editable and policy-syncable (ST-047); this is the floor, not the whole list.",
+  "processes": [
+    { "id": "1password", "display_name": "1Password", "processes": ["1Password", "1Password.exe", "op", "1PasswordNativeMessageHost"] },
+    { "id": "bitwarden", "display_name": "Bitwarden", "processes": ["Bitwarden", "Bitwarden.exe", "bitwarden-desktop"] },
+    { "id": "keepass", "display_name": "KeePass", "processes": ["KeePass", "KeePass.exe", "KeePassXC", "KeePassXC.exe"] },
+    { "id": "lastpass", "display_name": "LastPass", "processes": ["LastPass", "LastPass.exe"] },
+    { "id": "dashlane", "display_name": "Dashlane", "processes": ["Dashlane", "Dashlane.exe"] },
+    { "id": "keeper", "display_name": "Keeper", "processes": ["Keeper", "KeeperPasswordManager", "Keeper.exe"] },
+    { "id": "nordpass", "display_name": "NordPass", "processes": ["NordPass", "NordPass.exe"] },
+    { "id": "roboform", "display_name": "RoboForm", "processes": ["RoboForm", "RoboForm.exe", "RoboTaskBarIcon"] },
+    { "id": "enpass", "display_name": "Enpass", "processes": ["Enpass", "Enpass.exe"] },
+    { "id": "passwordstate", "display_name": "Passwordstate", "processes": ["Passwordstate", "PasswordstateWindowsClient"] },
+    { "id": "devolutions", "display_name": "Devolutions Password Hub", "processes": ["PasswordHub", "RemoteDesktopManager", "Devolutions.Hub"] },
+    { "id": "itglue", "display_name": "IT Glue / Hudu vault", "processes": ["ITGlue", "MyGlue"] },
+    { "id": "secret-server", "display_name": "Delinea Secret Server", "processes": ["SecretServer", "Delinea.Desktop", "thycotic"] },
+    { "id": "cyberark", "display_name": "CyberArk", "processes": ["CyberArk", "PSMApp", "PVWA"] },
+    { "id": "windows-credentials", "display_name": "Windows credential prompts", "processes": ["CredentialUIBroker", "consent", "LogonUI"] },
+    { "id": "authenticator", "display_name": "Authenticator apps", "processes": ["Authy", "WinAuth", "2FAS"] }
+  ],
+  "title_patterns": [
+    { "id": "banking", "display_name": "Banking", "pattern": "(?i)\\b(online ?bank(ing)?|bank of |chase|wells fargo|barclays|natwest|lloyds|santander|hsbc|monzo|starling|revolut)\\b" },
+    { "id": "payments", "display_name": "Payments", "pattern": "(?i)\\b(stripe dashboard|paypal|checkout\\.|billing portal|card details?)\\b" },
+    { "id": "vaults", "display_name": "Password vaults in a browser", "pattern": "(?i)\\b(1password|bitwarden|lastpass|dashlane|keeper security|nordpass|vault|passwords?)\\b" },
+    { "id": "sign-in", "display_name": "Sign-in pages", "pattern": "(?i)\\b(sign in|sign-in|log ?in|log ?on|authenticat|two-factor|verify your identity)\\b" },
+    { "id": "health", "display_name": "Health and payroll records", "pattern": "(?i)\\b(payroll|patient|medical record|health record|insurance claim)\\b" }
+  ],
+  "url_fragments": [
+    { "id": "banking-urls", "display_name": "Banking and payments", "fragments": ["bank", "banking", "paypal.com", "stripe.com/dashboard", "checkout.", "billing"] },
+    { "id": "vault-urls", "display_name": "Password vaults", "fragments": ["1password.com", "bitwarden.com", "lastpass.com", "dashlane.com", "keepersecurity.com", "nordpass.com", "vault."] },
+    { "id": "identity-urls", "display_name": "Identity providers", "fragments": ["login.microsoftonline.com", "accounts.google.com", "okta.com", "duosecurity.com", "auth0.com"] }
+  ]
+}
