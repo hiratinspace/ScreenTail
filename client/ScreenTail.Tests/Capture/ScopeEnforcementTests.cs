@@ -1,5 +1,6 @@
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Tests.Capture;
@@ -56,6 +57,43 @@ public sealed class ScopeEnforcementTests
     }
 
     [Fact]
+    public void AnExcludedApplicationBeatsBeingInScope()
+    {
+        // ST-043's list was built, tested, and consulted by nothing - the fourth time in this codebase
+        // that logic reached no caller. A password manager opened during a support session is still
+        // support work and still must not be photographed, so the exclusion has to beat every reason the
+        // window might otherwise be in scope.
+        var policy = new ScopePolicy(Registry, new ScopeOptions { Exclusions = Exclusions });
+
+        var decision = policy.Decide(Window("1Password", handle: 7));
+
+        Assert.Equal(CaptureScope.Excluded, decision.Scope);
+        Assert.False(decision.MayCaptureFrames);
+        Assert.False(decision.MayRecord(new TypingBurstEvent { TsMs = 1, CharCount = 9 }));
+    }
+
+    [Fact]
+    public void AnExcludedAdminToolIsStillExcluded()
+    {
+        // The ordering that matters. "mmc" is an admin tool and in scope; if a tenant excludes it, the
+        // exclusion has to be consulted before the admin-tool allowlist rather than after it.
+        var json = "{ \"version\": \"test\", \"processes\": [{ \"id\": \"mmc\", \"display_name\": \"Management Console\", \"processes\": [\"mmc\"] }], \"title_patterns\": [], \"url_fragments\": [] }";
+        var excluded = ExclusionList.Load(json);
+
+        var decision = new ScopePolicy(Registry, new ScopeOptions { Exclusions = excluded }).Decide(Window("mmc", handle: 8));
+
+        Assert.Equal(CaptureScope.Excluded, decision.Scope);
+    }
+
+    [Fact]
+    public void WithNoExclusionsLoadedNothingChanges()
+    {
+        // The list is optional at the type level, so the policy must behave exactly as before without it
+        // rather than excluding everything or throwing.
+        Assert.True(new ScopePolicy(Registry).Decide(Window("mstsc", handle: 9)).MayCaptureFrames);
+    }
+
+    [Fact]
     public void OutOfScopeKeystrokeCountsAreNotWritten()
     {
         // INV-6: "excluded app, elevated window, out-of-scope → no frames, no typing events written."
@@ -100,6 +138,9 @@ public sealed class ScopeEnforcementTests
         Assert.False(excluded.MayCaptureFrames);
         Assert.False(excluded.MayRecord(new TypingBurstEvent { TsMs = 1, CharCount = 9 }));
     }
+
+    private static ExclusionList Exclusions => ExclusionList.Load(File.ReadAllText(Path.GetFullPath(
+        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "shared", "registry", "exclusions-default.json"))));
 
     private static ForegroundWindowInfo Window(string process, nint handle) =>
         new(handle, 42, process, "a window", "Window", null, false, DateTimeOffset.UnixEpoch);

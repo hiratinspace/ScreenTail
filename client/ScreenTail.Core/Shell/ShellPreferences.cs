@@ -24,10 +24,11 @@ public sealed record ShellPreferences
     public bool Maximised { get; init; }
 
     /// <summary>
-    /// Whether the technician hid the HUD for this session (Spec §5 S2 right-click). Kept here rather than
-    /// in the session, because it is a preference about the UI and not a fact about what was captured.
+    /// Where the HUD sits, so it comes back where the technician left it (Spec §5 S2 "position persists").
     /// </summary>
-    public bool HudHidden { get; init; }
+    public double HudX { get; init; }
+
+    public double HudY { get; init; }
 }
 
 /// <summary>
@@ -43,6 +44,12 @@ public sealed record ShellPreferences
 /// middle of a support call. A bad file is replaced by defaults and overwritten on the next save.
 ///
 /// Nothing here is content (INV-10): a window size, a theme, and which of three views was open.
+///
+/// <b>"Hide the HUD" is deliberately not here.</b> Spec §5 S2 makes it a per-session choice and INV-4
+/// allows a tray-only session only where "the user explicitly chose" it. Persisting it would turn one
+/// right-click into a standing tray-only mode across reboots that the technician never opted into — a
+/// recording with no visible indicator, which is the thing INV-4 exists to prevent. It lives with the
+/// session instead, and ends with it.
 /// </summary>
 public sealed class ShellPreferencesStore(string path)
 {

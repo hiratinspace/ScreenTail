@@ -22,12 +22,25 @@ public sealed class ShellPreferencesTests : IDisposable
             Width = 1_280,
             Height = 800,
             Maximised = true,
-            HudHidden = true,
+            HudX = 1_600,
+            HudY = 40,
         };
 
         Assert.True(store.Save(preferences));
 
         Assert.Equal(preferences, Store().Load());
+    }
+
+    [Fact]
+    public void HidingTheHudIsNotRemembered()
+    {
+        // INV-4 allows a session with no visible indicator only where "the user explicitly chose" it, and
+        // Spec §5 S2 makes hiding the HUD a per-session choice. Persisting it would turn one right-click
+        // into a standing tray-only mode across reboots — a recording with no indicator that nobody opted
+        // into, which is the thing INV-4 exists to prevent. The type has nowhere to put it.
+        Assert.DoesNotContain(
+            typeof(ShellPreferences).GetProperties(),
+            p => p.Name.Contains("Hidden", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

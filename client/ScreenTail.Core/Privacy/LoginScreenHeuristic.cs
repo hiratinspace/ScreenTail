@@ -54,10 +54,11 @@ public static class LoginScreenHeuristic
             return false;
         }
 
-        // Joined with spaces so two-word cues ("sign in", "windows security") can be found at all.
-        var text = string.Join(' ', words.Select(w => w.Text)).ToLowerInvariant();
+        // Joined with spaces so two-word cues ("sign in", "windows security") can be found at all, and
+        // padded at both ends so a cue at the very start or end still has a boundary beside it.
+        var text = " " + string.Join(' ', words.Select(w => w.Text)).ToLowerInvariant() + " ";
 
-        var strong = Strong.Count(cue => text.Contains(cue, StringComparison.Ordinal));
+        var strong = Strong.Count(cue => Mentions(text, cue));
         if (strong == 0)
         {
             return false;
@@ -66,13 +67,42 @@ public static class LoginScreenHeuristic
         // "Password" alone is enough: on a screen we cannot inspect, that word beside a box is the whole
         // situation this exists for. Anything else needs a second cue so a help article about passwords
         // doesn't suppress a session.
-        if (text.Contains("password", StringComparison.Ordinal) || text.Contains("passphrase", StringComparison.Ordinal))
+        if (Mentions(text, "password") || Mentions(text, "passphrase"))
         {
             return true;
         }
 
-        var supporting = Supporting.Count(cue => text.Contains(cue, StringComparison.Ordinal));
+        var supporting = Supporting.Count(cue => Mentions(text, cue));
         return strong >= 2 || (strong >= 1 && supporting >= 2);
     }
 
+    /// <summary>
+    /// Whether the screen mentions this cue as a word, rather than as letters inside another one.
+    ///
+    /// Substring matching put "pin" inside "shipping" and "mapping", "ok" inside "token" and "broken",
+    /// and "next", "account" and "email" are ordinary words in their own right. A customer's orders page
+    /// scored two supporting cues and a strong one and suppressed capture for ten seconds — failing safe,
+    /// but blanking the screenshots at exactly the step the technician was documenting.
+    ///
+    /// The cues are lower-case and may contain spaces and hyphens ("sign-in", "one-time code"), so the
+    /// boundary test is "not a letter or a digit on either side" rather than a regex word boundary, which
+    /// would split the multi-word cues in the middle.
+    /// </summary>
+    private static bool Mentions(string text, string cue)
+    {
+        var at = text.IndexOf(cue, StringComparison.Ordinal);
+        while (at >= 0)
+        {
+            var before = text[at - 1];
+            var after = text[at + cue.Length];
+            if (!char.IsLetterOrDigit(before) && !char.IsLetterOrDigit(after))
+            {
+                return true;
+            }
+
+            at = text.IndexOf(cue, at + 1, StringComparison.Ordinal);
+        }
+
+        return false;
+    }
 }
