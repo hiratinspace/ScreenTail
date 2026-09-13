@@ -121,6 +121,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             logger);
         var capturing = capture.RunAsync(stoppingToken);
 
+        // ST-026: clicks miss everything the technician reads rather than does — a dialog appearing while
+        // they watch, a service finally starting. This looks once a second and only pays for a full capture
+        // when the screen actually changed.
+        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger);
+        var sampling = scenes.RunAsync(stoppingToken);
+
         // ST-041: without this, every staged frame stays redaction_pending and is deleted at finalize —
         // the session would end with no screenshots at all. This is also the only thing allowed to read a
         // pending frame or to clear the flag, so INV-1 rests on it.
@@ -157,7 +163,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, redacting, guarding).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding).ConfigureAwait(false);
         LogStopping(logger);
     }
 

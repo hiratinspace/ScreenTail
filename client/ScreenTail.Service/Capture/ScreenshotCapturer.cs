@@ -32,6 +32,8 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private IntPtr _screenDc;
     private IntPtr _memoryDc;
     private IntPtr _bitmap;
+    private IntPtr _gridDc;
+    private IntPtr _gridBitmap;
     private int _bitmapWidth;
     private int _bitmapHeight;
     private bool _disposed;
@@ -86,6 +88,101 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             // No resize stage: the frame is staged at the size it was captured.
             return new CapturedFrame(bytes, stored.Width, stored.Height, width, height, new CaptureTiming(grab, convert, TimeSpan.Zero, encode));
         }
+    }
+
+    /// <summary>
+    /// ST-026: the window in front, reduced to <see cref="PerceptualHash.GridLength"/> cells.
+    ///
+    /// StretchBlt with HALFTONE does the averaging on the way out of the screen DC, so this never
+    /// materialises a full-size bitmap, never converts one, and never encodes anything. The box filter it
+    /// applies is the same one <see cref="SceneGrid"/> applies to a synthetic screen, which is what lets
+    /// the Mac tests mean something about this path.
+    ///
+    /// The deliberate difference from <see cref="CaptureForegroundWindow"/>: no CAPTUREBLT and no cursor.
+    /// A cursor moving is not a scene change, and drawing it here would make the pointer travelling across
+    /// a still screen look like news once a second.
+    /// </summary>
+    public byte[]? CaptureSceneGrid()
+    {
+        var window = GetForegroundWindow();
+        if (window == IntPtr.Zero || !GetWindowRect(window, out var rect))
+        {
+            return null;
+        }
+
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        if (width < PerceptualHash.Columns || height < PerceptualHash.Rows)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            if (_disposed || !PrepareGrid())
+            {
+                return null;
+            }
+
+            var previous = SelectObject(_gridDc, _gridBitmap);
+            _ = SetStretchBltMode(_gridDc, STRETCH_HALFTONE);
+            _ = SetBrushOrgEx(_gridDc, 0, 0, IntPtr.Zero);
+            var copied = StretchBlt(
+                _gridDc, 0, 0, PerceptualHash.Columns, PerceptualHash.Rows,
+                _screenDc, rect.Left, rect.Top, width, height,
+                SRCCOPY);
+            _ = SelectObject(_gridDc, previous);
+            if (!copied)
+            {
+                return null;
+            }
+
+            using var reduced = Image.FromHbitmap(_gridBitmap);
+            var grid = new byte[PerceptualHash.GridLength];
+            for (var row = 0; row < PerceptualHash.Rows; row++)
+            {
+                for (var column = 0; column < PerceptualHash.Columns; column++)
+                {
+                    var pixel = reduced.GetPixel(column, row);
+
+                    // Rec. 601 luma, in integers: the grid is compared against itself, so what matters is
+                    // that green counts for most of it and that the same sum is produced every time.
+                    grid[(row * PerceptualHash.Columns) + column] =
+                        (byte)(((pixel.R * 299) + (pixel.G * 587) + (pixel.B * 114)) / 1000);
+                }
+            }
+
+            return grid;
+        }
+    }
+
+    /// <summary>The tiny destination for <see cref="CaptureSceneGrid"/>, made once and kept.</summary>
+    private bool PrepareGrid()
+    {
+        if (_screenDc == IntPtr.Zero)
+        {
+            _screenDc = GetDC(IntPtr.Zero);
+            if (_screenDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_gridDc == IntPtr.Zero)
+        {
+            _gridDc = CreateCompatibleDC(_screenDc);
+            if (_gridDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_gridBitmap == IntPtr.Zero)
+        {
+            _gridBitmap = CreateCompatibleBitmap(_screenDc, PerceptualHash.Columns, PerceptualHash.Rows);
+        }
+
+        return _gridBitmap != IntPtr.Zero;
     }
 
     /// <summary>
@@ -145,6 +242,18 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
                 _bitmap = IntPtr.Zero;
             }
 
+            if (_gridBitmap != IntPtr.Zero)
+            {
+                _ = DeleteObject(_gridBitmap);
+                _gridBitmap = IntPtr.Zero;
+            }
+
+            if (_gridDc != IntPtr.Zero)
+            {
+                _ = DeleteDC(_gridDc);
+                _gridDc = IntPtr.Zero;
+            }
+
             if (_memoryDc != IntPtr.Zero)
             {
                 _ = DeleteDC(_memoryDc);
@@ -191,6 +300,9 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     }
 
     private const int SRCCOPY = 0x00CC0020;
+
+    /// <summary>Averages the source pixels into each destination pixel — a box filter, done by GDI.</summary>
+    private const int STRETCH_HALFTONE = 4;
     private const int CAPTUREBLT = 0x40000000;
     private const int CURSOR_SHOWING = 0x00000001;
     private const int DI_NORMAL = 0x0003;
@@ -251,6 +363,17 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     [DllImport("gdi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DeleteObject(IntPtr ho);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest, IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, uint rop);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern int SetStretchBltMode(IntPtr hdc, int mode);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr previous);
 
     [DllImport("gdi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
