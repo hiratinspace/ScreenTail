@@ -7,6 +7,7 @@ using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Capabilities;
+using ScreenTail.Service.Capture;
 using ScreenTail.Service.Detection;
 using ScreenTail.Service.Input;
 using ScreenTail.Service.Ipc;
@@ -108,6 +109,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         await hooks.StartAsync(stoppingToken).ConfigureAwait(false);
         LogHooks(logger, hooks.Installed);
 
+        // ST-025: clicks become events always, and screenshots only where scope allows.
+        var capture = new ClickCaptureLoop(
+            machine,
+            new WindowsInputHooksAccessor(hooks),
+            new ScreenshotCapturer(),
+            () => coordinator.CurrentScope,
+            logger);
+        var capturing = capture.RunAsync(stoppingToken);
+
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
@@ -127,7 +137,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         {
         }
 
-        await coordinating.ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing).ConfigureAwait(false);
         LogStopping(logger);
     }
 
