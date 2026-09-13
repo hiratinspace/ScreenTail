@@ -69,7 +69,7 @@ public sealed class OcrTests
         Assert.Contains(redaction.Counts, c => c.Key == MaskKind.Card);
         Assert.DoesNotContain("4111", redaction.Text, StringComparison.Ordinal);
         var region = redaction.Regions.First(r => r.Kind == MaskKind.Card);
-        Assert.InRange(region.Y, 400, 700);   // drawn at y=520 by RenderDialog
+        Assert.InRange(region.Y, 250, 400);   // drawn at y=300 by RenderDialog
         Assert.True(region.Width > 100, $"the masked box is only {region.Width}px wide for a 19-character number");
     }
 
@@ -166,7 +166,10 @@ public sealed class OcrTests
 
         if (secret is not null)
         {
-            graphics.DrawString(secret, body, ink, 100, 520);
+            // In the empty right-hand column. Drawn at x=100 it landed on top of the "Service status"
+            // label, and OCR read the overlapping glyphs as neither — which failed this test for a reason
+            // that had nothing to do with the code under test.
+            graphics.DrawString(secret, body, ink, 900, 300);
         }
 
         using var buffer = new MemoryStream();
