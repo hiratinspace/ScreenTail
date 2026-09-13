@@ -1,0 +1,77 @@
+{
+  "$comment": "ST-023. Which windows are a remote-support session, and which admin tools may be captured alongside one. This file decides what ScreenTail is allowed to photograph, so it is validated on load and every pattern is anchored: see ScreenTail.Core/Detection/Registry. Synced by tenant policy (ST-047); a technician can narrow it, never widen it.",
+  "version": "2026-09-13",
+  "grace_seconds": 90,
+
+  "tools": [
+    {
+      "id": "screenconnect",
+      "kind": "screenconnect",
+      "display_name": "ScreenConnect",
+      "processes": ["ScreenConnect.WindowsClient", "ScreenConnect.ClientService", "Connectwisecontrol.client"],
+      "window_class_patterns": ["^ScreenConnect"],
+      "version_from": "file"
+    },
+    {
+      "id": "rdp",
+      "kind": "rdp",
+      "display_name": "Remote Desktop",
+      "processes": ["mstsc", "msrdc", "RdClient"],
+      "window_class_patterns": ["^TscShellContainerClass$", "^RAIL_WINDOW$"],
+      "version_from": "file"
+    },
+    {
+      "id": "splashtop",
+      "kind": "splashtop",
+      "display_name": "Splashtop",
+      "processes": ["SRManager", "strwinclt", "SplashtopBusiness"],
+      "version_from": "file"
+    },
+    {
+      "id": "teamviewer",
+      "kind": "teamviewer",
+      "display_name": "TeamViewer",
+      "processes": ["TeamViewer", "tv_w32", "tv_x64"],
+      "version_from": "file"
+    },
+    {
+      "id": "anydesk",
+      "kind": "anydesk",
+      "display_name": "AnyDesk",
+      "processes": ["AnyDesk"],
+      "version_from": "file"
+    }
+  ],
+
+  "browser_patterns": [
+    {
+      "id": "azure-virtual-desktop",
+      "display_name": "Azure Virtual Desktop",
+      "title_pattern": "(?i)\\b(azure virtual desktop|windows 365|remote desktop web client)\\b",
+      "url_pattern": "(?i)^https://(client\\.wvd\\.microsoft\\.com|windows365\\.microsoft\\.com|rdweb\\.wvd\\.microsoft\\.com)/"
+    },
+    {
+      "id": "screenconnect-web",
+      "display_name": "ScreenConnect (web)",
+      "title_pattern": "(?i)\\b(connectwise control|screenconnect)\\b",
+      "url_pattern": "(?i)^https://[^/]+/Host#"
+    },
+    {
+      "id": "splashtop-web",
+      "display_name": "Splashtop (web)",
+      "title_pattern": "(?i)\\bsplashtop (business|web)\\b",
+      "url_pattern": "(?i)^https://my\\.splashtop\\.com/"
+    }
+  ],
+
+  "admin_tools": [
+    { "id": "powershell", "display_name": "PowerShell", "processes": ["powershell", "pwsh", "WindowsTerminal"] },
+    { "id": "command-prompt", "display_name": "Command Prompt", "processes": ["cmd", "conhost"] },
+    { "id": "management-console", "display_name": "Management Console", "processes": ["mmc"] },
+    { "id": "task-manager", "display_name": "Task Manager", "processes": ["Taskmgr"] },
+    { "id": "registry-editor", "display_name": "Registry Editor", "processes": ["regedit"] },
+    { "id": "event-viewer", "display_name": "Event Viewer", "processes": ["eventvwr"] },
+    { "id": "control-panel", "display_name": "Control Panel", "processes": ["control", "SystemPropertiesAdvanced"] },
+    { "id": "explorer", "display_name": "File Explorer", "processes": ["explorer"] }
+  ]
+}

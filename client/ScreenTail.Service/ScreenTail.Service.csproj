@@ -22,4 +22,8 @@
     <!-- The Windows tests exercise the capability probe against real Windows (ST-021). -->
     <InternalsVisibleTo Include="ScreenTail.Tests.Windows" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

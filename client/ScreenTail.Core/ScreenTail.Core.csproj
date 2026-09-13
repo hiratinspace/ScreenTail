@@ -24,4 +24,9 @@
     <!-- The redaction tests stand in for the pattern library to simulate a detector running out of budget. -->
     <InternalsVisibleTo Include="ScreenTail.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- ST-023: one registry, shipped with the service and used by its tests. -->
+    <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
