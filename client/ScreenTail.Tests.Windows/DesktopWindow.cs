@@ -30,7 +30,32 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>A text box that masks what is typed into it — a real one, with ES_PASSWORD (ST-040).</summary>
     public IntPtr PasswordField { get; private set; }
 
+    /// <summary>
+    /// The marker a run leaves when the laptop has no usable desktop. The workflow fails on it, because the
+    /// alternative is what happened on 2026-09-13: the laptop's session became unavailable mid-afternoon,
+    /// every test that needs a window started skipping, and both hardware jobs went on reporting success —
+    /// a green tick against a run that verified nothing on the hardware it exists to verify on.
+    /// </summary>
+    public const string NoDesktopMarker = "NO-DESKTOP";
+
     public static DesktopWindow Create(string title) => new(title);
+
+    /// <summary>
+    /// Takes the foreground or skips the test — loudly. A skip here does not mean "this check does not
+    /// apply to this runner"; it means the machine that was supposed to answer could not be asked.
+    /// </summary>
+    public void RequireForeground()
+    {
+        if (TakeForeground())
+        {
+            return;
+        }
+
+        Measurements.Record(
+            $"{NoDesktopMarker}: a test window could not take the foreground, so every check that needs one "
+            + "was skipped. The laptop's session is locked, asleep, or signed out.");
+        Assert.Skip("No interactive desktop: the test window could not take the foreground.");
+    }
 
     /// <summary>
     /// Adds the two edit controls the password-field tests need. They are created on the window's own

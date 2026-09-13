@@ -22,7 +22,7 @@ public sealed class PasswordFieldTests
         Assert.SkipUnless(OnWindows, "Windows only.");
         using var window = DesktopWindow.Create("ScreenTail password probe");
         window.AddFields();
-        Assert.SkipUnless(window.TakeForeground(), "Could not bring the test window to the front.");
+        window.RequireForeground();
         using var probe = new WindowsFocusedFieldProbe();
 
         window.Focus(window.PlainField);
@@ -51,7 +51,7 @@ public sealed class PasswordFieldTests
         Assert.SkipUnless(OnWindows, "Windows only.");
         using var window = DesktopWindow.Create("ScreenTail automation probe");
         window.AddFields();
-        Assert.SkipUnless(window.TakeForeground(), "Could not bring the test window to the front.");
+        window.RequireForeground();
         using var probe = new WindowsFocusedFieldProbe();
 
         window.Focus(window.PasswordField);
@@ -67,7 +67,7 @@ public sealed class PasswordFieldTests
         Assert.SkipUnless(OnWindows, "Windows only.");
         using var window = DesktopWindow.Create("ScreenTail focus hook");
         window.AddFields();
-        Assert.SkipUnless(window.TakeForeground(), "Could not bring the test window to the front.");
+        window.RequireForeground();
 
         await using var watcher = new WindowsFocusWatcher();
         var moved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -93,7 +93,7 @@ public sealed class PasswordFieldTests
         Assert.SkipUnless(OnWindows, "Windows only.");
         using var window = DesktopWindow.Create("ScreenTail probe cost");
         window.AddFields();
-        Assert.SkipUnless(window.TakeForeground(), "Could not bring the test window to the front.");
+        window.RequireForeground();
         using var probe = new WindowsFocusedFieldProbe();
 
         _ = probe.Read();   // the first call creates the automation object
