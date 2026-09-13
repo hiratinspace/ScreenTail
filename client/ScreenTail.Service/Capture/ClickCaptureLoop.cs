@@ -33,6 +33,9 @@ internal sealed partial class ClickCaptureLoop(
     private readonly ClickDebouncer _debouncer = new();
     private readonly InputSignal[] _scratch = new InputSignal[2048];
 
+    /// <summary>A new session starts with no history, so its first click is captured (ST-029).</summary>
+    public void Reset() => _debouncer.Reset();
+
     public async Task RunAsync(CancellationToken ct)
     {
         // Drained on a timer rather than on every signal: the callbacks must stay free of everything but a
