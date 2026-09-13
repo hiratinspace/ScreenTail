@@ -5,6 +5,7 @@ using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Capabilities;
+using ScreenTail.Service.Detection;
 using ScreenTail.Service.Ipc;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
@@ -69,6 +70,21 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             LogCapability(logger, problem.Capability.ToString(), problem.State.ToString(), problem.Message);
         }
 
+        // ST-022: watch the foreground so ST-023 can decide scope and ST-040 can suppress. Only the window's
+        // identity is logged, never its title (INV-10).
+        await using var foreground = new WindowsForegroundWatcher();
+        // Passed as separate values rather than a formatted string: nothing is built unless the log is on,
+        // and the title is reduced to its length here, never its text.
+        foreground.Changed += window => LogForeground(
+            logger,
+            window.ProcessName ?? "unknown",
+            window.ProcessId,
+            window.ClassName,
+            window.Title.Length,
+            window.IsElevated);
+        await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
+        LogForegroundMode(logger, foreground.UsingHook ? "event hook" : "polling");
+
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
@@ -96,6 +112,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
     private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Foreground: {Process}#{ProcessId} class={Class} title={TitleLength} chars elevated={Elevated}")]
+    private static partial void LogForeground(ILogger logger, string process, int processId, string @class, int titleLength, bool elevated);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Foreground detection using {Mode}")]
+    private static partial void LogForegroundMode(ILogger logger, string mode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Capability {Capability} is {State}: {Message}")]
     private static partial void LogCapability(ILogger logger, string capability, string state, string message);
