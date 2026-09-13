@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Json.Schema;
 using ScreenTail.Core.Timeline;
-using ScreenTail.Tests.Schema;
 using ScreenTail.Shared.Schema;
+using ScreenTail.Tests.Schema;
 
 namespace ScreenTail.Tests.Timeline;
 
@@ -198,11 +198,11 @@ public sealed class TimelineAlignerTests
         var session = SessionJson.Deserialize(
             File.ReadAllText(Path.Combine(SessionSchema.Root, "examples", "valid", "minimal-recording.json")))
             with
-            {
-                Frames = frames,
-                Transcript = alignment.Segments,
-                Events = [.. alignment.Narration],
-            };
+        {
+            Frames = frames,
+            Transcript = alignment.Segments,
+            Events = [.. alignment.Narration],
+        };
 
         var results = schema.Evaluate(
             JsonSerializer.Deserialize<JsonElement>(SessionJson.Serialize(session)),
