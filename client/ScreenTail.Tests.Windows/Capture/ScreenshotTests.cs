@@ -88,6 +88,11 @@ public sealed class ScreenshotTests
         var storedMp = Downscale.For(3840, 2160) is var plan ? plan.Width * (double)plan.Height / 1_000_000 : 0;
         var fourK = grabFixed + (grabSlope * FourKMp) + (convertSlope * FourKMp) + (resizeSlope * FourKMp) + (encodeSlope * storedMp);
 
+        // A frame to look at, not just numbers to trust. Shrinking during the copy replaced GDI+ resampling
+        // with HALFTONE averaging, and whether screenshot text survives that is a question for eyes.
+        Measurements.Save("capture-downscaled.jpg", resized.Image);
+        Measurements.Save("capture-native.jpg", large.Image);
+
         Measurements.Record($"Capture {small.SourceWidth}x{small.SourceHeight}: {small.Timing}");
         Measurements.Record($"Capture {large.SourceWidth}x{large.SourceHeight}: {large.Timing}");
         Measurements.Record($"Capture {resized.SourceWidth}x{resized.SourceHeight} → {resized.Width}x{resized.Height}: {resized.Timing}");
