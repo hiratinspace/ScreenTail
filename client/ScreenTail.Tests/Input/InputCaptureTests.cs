@@ -195,18 +195,27 @@ public sealed class InputCaptureTests
         // Raw timestamps rather than Stopwatch.StartNew, which allocates the Stopwatch itself — 40 bytes
         // that the first version of this test blamed on the buffer.
         var before = GC.GetAllocatedBytesForCurrentThread();
-        var start = Stopwatch.GetTimestamp();
-        for (var i = 0; i < 100_000; i++)
+
+        // Three batches, and the fastest one counts. A lock or an allocation creeping in would slow every
+        // batch; a GC pause or the scheduler taking the core slows one. Judging on the total made this
+        // fail about once in four runs on a machine doing anything else, and an intermittently red suite
+        // is one people stop reading.
+        var fastest = double.MaxValue;
+        for (var batch = 0; batch < 3; batch++)
         {
-            buffer.Write(signal);
+            var start = Stopwatch.GetTimestamp();
+            for (var i = 0; i < 100_000; i++)
+            {
+                buffer.Write(signal);
+            }
+
+            fastest = Math.Min(fastest, Stopwatch.GetElapsedTime(start).TotalMilliseconds / 100_000);
         }
 
-        var elapsed = Stopwatch.GetElapsedTime(start);
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
-        var perWrite = elapsed.TotalMilliseconds / 100_000;
-        Assert.True(perWrite < 0.001, $"{perWrite * 1000:F3} µs per write");
+        Assert.True(fastest < 0.001, $"{fastest * 1000:F3} µs per write");
     }
 
     private static Session SessionWith(IReadOnlyList<SessionEvent> events) => new()
