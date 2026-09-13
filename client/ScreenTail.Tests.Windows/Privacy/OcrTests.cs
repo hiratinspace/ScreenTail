@@ -63,6 +63,7 @@ public sealed class OcrTests
         Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
         var image = RenderDialog(1920, 1080, secret: "4111 1111 1111 1111");
 
+        Measurements.Save("ocr-secret.jpg", image);
         var text = await recogniser.ReadAsync(image, TestContext.Current.CancellationToken);
         var redaction = new RedactionEngine().RedactFrame(text.Words);
 
