@@ -153,11 +153,38 @@ public sealed class ForegroundWatcherTests
 
         public static SyntheticWindow Create(string title) => new(title);
 
+        /// <summary>
+        /// Windows won't let a process that hasn't received input steal the foreground, which is exactly the
+        /// situation on an unattended runner: the first attempt at this skipped on the laptop. Attaching to
+        /// the current foreground thread's input queue lifts that restriction for the moment it takes to
+        /// activate, and injects nothing — this workflow must stay safe to run on a machine in use.
+        /// </summary>
         public bool BringToFront()
         {
             _ = ShowWindow(Handle, SW_SHOW);
-            _ = SetForegroundWindow(Handle);
-            for (var i = 0; i < 20 && GetForegroundWindow() != Handle; i++)
+
+            var ours = GetCurrentThreadId();
+            var theirs = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+            var attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true);
+            try
+            {
+                _ = BringWindowToTop(Handle);
+                _ = SetForegroundWindow(Handle);
+                if (GetForegroundWindow() != Handle)
+                {
+                    // The shell's own way of activating a window, which the foreground lock doesn't refuse.
+                    SwitchToThisWindow(Handle, true);
+                }
+            }
+            finally
+            {
+                if (attached)
+                {
+                    _ = AttachThreadInput(ours, theirs, false);
+                }
+            }
+
+            for (var i = 0; i < 40 && GetForegroundWindow() != Handle; i++)
             {
                 Thread.Sleep(25);
             }
@@ -234,6 +261,23 @@ public sealed class ForegroundWatcherTests
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern void SwitchToThisWindow(IntPtr hWnd, [MarshalAs(UnmanagedType.Bool)] bool altTab);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool AttachThreadInput(uint attachTo, uint attachFrom, [MarshalAs(UnmanagedType.Bool)] bool attach);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         [return: MarshalAs(UnmanagedType.Bool)]
