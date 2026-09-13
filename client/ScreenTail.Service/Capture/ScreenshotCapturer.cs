@@ -58,36 +58,16 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
                 return null;
             }
 
-            // The downscale happens during the copy, not after it. The laptop measured a separate GDI+
-            // resize at 21.4 ms per megapixel — at 4K that is ~178 ms, more than the copy itself, and it is
-            // spent shrinking pixels we just paid to move. StretchBlt reads the screen and writes the
-            // smaller bitmap in one pass, so those megapixels are never carried at full size at all.
-            var plan = Downscale.For(width, height, maxEdge);
-            if (!Prepare(plan.Width, plan.Height))
-            {
-                return null;
-            }
-
+            // Captured and staged at native resolution (ADR-0001 finding 2a). Shrinking here would be
+            // quicker — downscaling during the copy measured a 4K frame at about 48 ms against a 120 ms
+            // budget — but the redaction worker has to read this frame's text to find the secrets in it,
+            // and 1600 px was measured as illegible below 200% scaling. A cheaper capture that makes OCR
+            // miss a password is not a cheaper capture. The downscale happens in the worker instead, after
+            // masking, on pixels that have already been read.
             var grabStart = Stopwatch.GetTimestamp();
             var previous = SelectObject(_memoryDc, _bitmap);
-            bool copied;
-            if (plan.Resamples)
-            {
-                // HALFTONE averages the pixels it discards; without it StretchBlt drops them and text turns
-                // to noise. It requires the brush origin to be reset, which is a documented quirk.
-                _ = SetStretchBltMode(_memoryDc, STRETCH_HALFTONE);
-                _ = SetBrushOrgEx(_memoryDc, 0, 0, IntPtr.Zero);
-                copied = StretchBlt(
-                    _memoryDc, 0, 0, plan.Width, plan.Height,
-                    _screenDc, rect.Left, rect.Top, width, height,
-                    SRCCOPY | CAPTUREBLT);
-            }
-            else
-            {
-                copied = BitBlt(_memoryDc, 0, 0, width, height, _screenDc, rect.Left, rect.Top, SRCCOPY | CAPTUREBLT);
-            }
-
-            DrawCursor(_memoryDc, rect, plan.Scale);
+            var copied = BitBlt(_memoryDc, 0, 0, width, height, _screenDc, rect.Left, rect.Top, SRCCOPY | CAPTUREBLT);
+            DrawCursor(_memoryDc, rect, 1.0);
             _ = SelectObject(_memoryDc, previous);
             var grab = Stopwatch.GetElapsedTime(grabStart);
             if (!copied)
@@ -103,7 +83,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             var bytes = Encode(stored);
             var encode = Stopwatch.GetElapsedTime(encodeStart);
 
-            // Resize is no longer a stage of its own; it is part of the copy.
+            // No resize stage: the frame is staged at the size it was captured.
             return new CapturedFrame(bytes, stored.Width, stored.Height, width, height, new CaptureTiming(grab, convert, TimeSpan.Zero, encode));
         }
     }
@@ -211,7 +191,6 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     }
 
     private const int SRCCOPY = 0x00CC0020;
-    private const int STRETCH_HALFTONE = 4;
     private const int CAPTUREBLT = 0x40000000;
     private const int CURSOR_SHOWING = 0x00000001;
     private const int DI_NORMAL = 0x0003;
@@ -264,17 +243,6 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest, IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, int rop);
-
-    [DllImport("gdi32.dll")]
-    private static extern int SetStretchBltMode(IntPtr hdc, int mode);
-
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr previous);
 
     [DllImport("gdi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
