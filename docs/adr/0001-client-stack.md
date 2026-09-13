@@ -135,6 +135,16 @@ These came up while building the spike and hold regardless of how the Windows ru
 6. **Elevated windows.** Low-level hooks installed by a medium-integrity process don't receive input sent to elevated windows or to the secure desktop. That affects the unhook watchdog (false positives) and is the mechanism behind the "Elevated window, screen not captured" state in ST-021.
 7. **Windows on ARM.** Whisper.net has arm64 native binaries; Tesseract doesn't, so the capture process runs as x64 under emulation. If technicians on ARM laptops matter, Windows.Media.Ocr removes this constraint.
 8. **Whisper must be gated by voice activity detection, not run continuously.** On the hosted runner, feeding Whisper `base` every 5 s of audio used most of the CPU (see the hosted-runner results). ST-027 should run VAD first (Whisper.net ships a Silero VAD model) and transcribe only speech segments, with CPU rate-limited so capture and hooks always win (ST-031). Technicians talk for a fraction of a session, so this is the difference between being always busy and mostly idle. The laptop run gives the real per-core cost: 49–62% of an 8-thread laptop CPU, and 505 MB resident.
+
+    **Gate written and its duty cycle measured in ST-027 (2026-09-13).** `SpeechGate` applies hysteresis
+    (open at 0.6, close at 0.35), a 700 ms hangover, a 250 ms preroll, a 400 ms minimum and a 20 s
+    maximum. Played a synthetic ten-minute session with about 3.5 s of speech a minute, it hands on
+    **7.0% of the audio** — 42 s of 600 s, as 10 segments. Against the 49–62% of eight threads measured
+    above for continuous feeding, that projects to roughly 3–4%, inside ST-031's 15% for all of ScreenTail.
+
+    **That is a duty cycle, not a CPU measurement.** It says how much audio reaches Whisper, not what
+    Whisper then costs, and it is computed from probabilities a test made up rather than from Silero
+    reading a real microphone. The real number needs the laptop, a microphone and ST-027's remaining half.
 9. **OCR is slower than ST-041 budgets for.** On the laptop, Tesseract took a median **1.19 s per 1600×900 frame** across 51 frames (the two-frame human run measured 2.46 s, before any warm-up), against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
 
     **Settled in ST-041 (2026-09-13, same laptop): Windows.Media.Ocr, and the budget is no longer close.**
