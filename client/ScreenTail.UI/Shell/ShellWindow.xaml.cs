@@ -62,16 +62,31 @@ public partial class ShellWindow : Window
             }
         }
 
+        // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
+        // rather than appearing inside the shell's.
+        foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+        {
+            ThemeManager.Apply(theme, Application.Current.Resources);
+            var panel = new Diagnostics.DiagnosticsWindow { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+            panel.Show();
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+            panel.UpdateLayout();
+            Save(panel, Path.Combine(_screenshotDirectory!, $"panel-{theme.ToString().ToLowerInvariant()}.png"));
+            panel.Close();
+        }
+
         Application.Current.Shutdown();
     }
 
-    private void Save(string path)
+    private void Save(string path) => Save(this, path);
+
+    private static void Save(Window window, string path)
     {
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var width = (int)Math.Ceiling(ActualWidth * dpi.DpiScaleX);
-        var height = (int)Math.Ceiling(ActualHeight * dpi.DpiScaleY);
+        var dpi = VisualTreeHelper.GetDpi(window);
+        var width = (int)Math.Ceiling(window.ActualWidth * dpi.DpiScaleX);
+        var height = (int)Math.Ceiling(window.ActualHeight * dpi.DpiScaleY);
         var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-        bitmap.Render(this);
+        bitmap.Render(window);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using (var stream = File.Create(path))
