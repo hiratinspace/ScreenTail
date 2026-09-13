@@ -99,17 +99,27 @@ public sealed class ForegroundWatcherTests
         await watcher.StartAsync(TestContext.Current.CancellationToken);
         await Task.Delay(500, TestContext.Current.CancellationToken);
 
-        // The watcher's own pump thread, not the whole process: the first version of this measured the test
+        // Two things this test learned the hard way.
+        //
+        // It measures the watcher's own pump thread, not the process: the first version measured the test
         // host with other tests running in parallel and reported 2.1%, which said nothing about the watcher.
+        //
+        // And it measures for long enough to mean something. Windows accounts thread CPU in scheduler
+        // quanta of about 15.625 ms, so over three seconds the smallest non-zero answer possible is exactly
+        // 0.52% — which is what this reported, twice, while the true figure was somewhere between zero and
+        // one tick. Over twenty seconds a single tick is 0.08%, so the budget is now measuring the watcher
+        // rather than the clock's resolution.
+        var window = TimeSpan.FromSeconds(20);
         var before = PumpThreadTime(watcher.PumpThreadId);
         Assert.SkipWhen(before is null, "Could not find the watcher's pump thread.");
-        var clock = Stopwatch.StartNew();
-        await Task.Delay(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
-        clock.Stop();
+        var start = Stopwatch.GetTimestamp();
+        await Task.Delay(window, TestContext.Current.CancellationToken);
+        var elapsed = Stopwatch.GetElapsedTime(start);
         var used = PumpThreadTime(watcher.PumpThreadId)!.Value - before!.Value;
 
-        var percent = used.TotalMilliseconds / clock.Elapsed.TotalMilliseconds * 100;
-        Record($"Watcher used **{percent:F3}%** of a core while idle (budget 0.5%, enforced: {PerformanceCounts})");
+        var percent = used.TotalMilliseconds / elapsed.TotalMilliseconds * 100;
+        var quanta = used.TotalMilliseconds / 15.625;
+        Record($"Watcher used **{percent:F3}%** of a core over {elapsed.TotalSeconds:F0}s idle — {quanta:F0} scheduler quanta (budget 0.5%, enforced: {PerformanceCounts})");
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count; the laptop enforces this.");
         Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core while idle, budget is 0.5%");
     }

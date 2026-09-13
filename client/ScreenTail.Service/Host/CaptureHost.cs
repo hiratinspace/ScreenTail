@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Detection;
+using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
@@ -83,8 +85,22 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             window.ClassName,
             window.Title.Length,
             window.IsElevated);
+
+        // ST-023: the registry decides what counts as a support session and what may be photographed
+        // alongside one (INV-5). A registry that fails validation stops the service rather than falling back
+        // to something permissive — the safe default here is to capture nothing, not to guess.
+        var registry = RemoteToolRegistry.Load(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
+            stoppingToken).ConfigureAwait(false));
+        LogRegistry(logger, registry.Version, registry.Tools.Count, registry.BrowserPatterns.Count, registry.Grace.TotalSeconds);
+
+        var policy = new ScopePolicy(registry);
+        var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), logger);
+        foreground.Changed += coordinator.Observe;
+
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
         LogForegroundMode(logger, foreground.UsingHook ? "event hook" : "polling");
+        var coordinating = coordinator.RunAsync(stoppingToken);
 
         // ST-024: hooks run for the life of the service; the state machine decides whether what they see is
         // recorded (INV-6). Draining on a timer keeps the callbacks free of everything but a buffer write.
@@ -111,6 +127,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         {
         }
 
+        await coordinating.ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -119,6 +136,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
     private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Remote-tool registry {Version}: {Tools} tools, {Patterns} browser patterns, {Grace}s grace")]
+    private static partial void LogRegistry(ILogger logger, string version, int tools, int patterns, double grace);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Input hooks installed: {Installed}")]
     private static partial void LogHooks(ILogger logger, bool installed);

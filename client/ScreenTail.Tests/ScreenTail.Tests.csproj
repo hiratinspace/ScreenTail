@@ -32,4 +32,9 @@
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- ST-023: one registry, shipped with the service and used by its tests. -->
+    <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
