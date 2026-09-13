@@ -7,7 +7,7 @@
         MinWidth="1024"
         MinHeight="680"
         Style="{StaticResource Window.Base}">
-    <Grid>
+    <Grid Background="{DynamicResource Brush.bg.base}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -65,12 +65,12 @@
 
                 <!-- What the service says it is doing. Its own region so a screen reader is told when it
                      changes without the whole window being re-announced (Spec §7). -->
-                <Border Grid.Column="2" Style="{StaticResource StatusPill}">
-                    <TextBlock Style="{StaticResource Text.Secondary}"
-                               Text="{Binding Status}"
-                               AutomationProperties.Name="Capture state"
-                               AutomationProperties.LiveSetting="Polite" />
-                </Border>
+                <ContentControl Grid.Column="2"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource Badge}"
+                                Content="{Binding Status}"
+                                AutomationProperties.Name="Capture state"
+                                AutomationProperties.LiveSetting="Polite" />
             </Grid>
         </Border>
 
