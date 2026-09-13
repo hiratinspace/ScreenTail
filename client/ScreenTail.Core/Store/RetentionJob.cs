@@ -44,7 +44,24 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
 /// </summary>
 public static class LocalDataEraser
 {
-    public static readonly string[] DataFiles = ["store.db", "store.db-wal", "store.db-shm", "store.key", "ipc.token"];
+    /// <summary>
+    /// Everything "delete everything" has to remove (INV-12).
+    ///
+    /// The two with -journal and .tmp are not hypothetical: SQLite falls back to a rollback journal
+    /// wherever WAL cannot be enabled, which is any redirected or network profile, and the token's
+    /// temporary file survives a failure between writing it and restricting it. Both would otherwise be
+    /// left holding real data after the user asked for all of it to go.
+    /// </summary>
+    public static readonly string[] DataFiles =
+    [
+        "store.db",
+        "store.db-wal",
+        "store.db-shm",
+        "store.db-journal",
+        "store.key",
+        "ipc.token",
+        "ipc.token.tmp",
+    ];
 
     public const string TokensDirectory = "tokens";
 

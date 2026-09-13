@@ -161,6 +161,47 @@ public sealed class IpcServerTests : IAsyncDisposable
         await client.DisposeAsync();
     }
 
+    [Fact]
+    public async Task APeerThatSaysNothingDoesNotHoldAConnectionForEver()
+    {
+        // Before this there was no handshake deadline. A same-user process could connect, send nothing,
+        // and hold a pipe instance and a parked task until the service stopped — thousands of them, until
+        // the service ran out of the handles it needs to accept the real UI.
+        await StartServerAsync();
+
+        await using var silent = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await silent.ConnectAsync((int)Soon.TotalMilliseconds);
+
+        // The server drops it on its own; the read ends when the far side closes.
+        var buffer = new byte[1];
+        var read = await silent.ReadAsync(buffer).AsTask().WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Equal(0, read);
+        Assert.Equal(0, _server!.ConnectedClients);
+        Assert.True(_server.RefusedConnections > 0, "the connection was dropped without being counted");
+    }
+
+    [Fact]
+    public async Task ARejectedPeerCannotWriteToTheStoreAsFastAsItCanConnect()
+    {
+        // Every rejection used to INSERT a row, which gave an unauthenticated local peer an unbounded
+        // write primitive into the encrypted database: audit rows are never pruned, so it grew until the
+        // disk filled and every real store write starved behind the gate it held. One row a minute per
+        // reason still records that somebody is trying, and how often.
+        await StartServerAsync();
+
+        for (var i = 0; i < 25; i++)
+        {
+            // Either outcome is a refusal: rejected with a reason, or dropped for being one of too many
+            // handshakes at once. What matters is that neither reaches the store.
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => IpcClient.ConnectAsync(_pipeName, IpcToken.Generate(), "ui"));
+        }
+
+        await WaitUntilAsync(() => _audit.Types.Contains("ipc_rejected_" + RejectReasons.BadToken));
+        Assert.Equal(1, _audit.Types.Count(t => t == "ipc_rejected_" + RejectReasons.BadToken));
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_server is not null)

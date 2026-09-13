@@ -53,9 +53,29 @@ public static class IpcTokenFile
 
         // Write beside, restrict, then move into place so a reader never sees a half-written or open file.
         var temp = path + ".tmp";
-        File.WriteAllBytes(temp, token);
-        RestrictToCurrentUser(temp);
-        File.Move(temp, path, overwrite: true);
+        try
+        {
+            File.WriteAllBytes(temp, token);
+            RestrictToCurrentUser(temp);
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            // The temporary file holds a live token and is created with whatever permissions it inherits
+            // — the ACL is applied a moment later. If anything between those two points throws, leaving
+            // it on disk hands the token to anyone who can read the folder, and "delete everything" would
+            // not find it: LocalDataEraser knows about ipc.token, not ipc.token.tmp.
+            try
+            {
+                File.Delete(temp);
+            }
+            catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+            {
+                // Nothing more can be done here; the throw below is the one that matters.
+            }
+
+            throw;
+        }
     }
 
     public static byte[] Read(string path)
