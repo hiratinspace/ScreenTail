@@ -38,10 +38,18 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private int _bitmapHeight;
     private bool _disposed;
 
-    public CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge)
+    public CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge, nint expected = 0)
     {
         var window = GetForegroundWindow();
         if (window == IntPtr.Zero || !GetWindowRect(window, out var rect))
+        {
+            return null;
+        }
+
+        // The window that was judged in scope, or nothing. Checked here rather than at the caller because
+        // this is the last moment before the pixels are read, and any gap between the two is a window in
+        // which the foreground can move (INV-5).
+        if (expected != 0 && window != expected)
         {
             return null;
         }
@@ -102,10 +110,15 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     /// A cursor moving is not a scene change, and drawing it here would make the pointer travelling across
     /// a still screen look like news once a second.
     /// </summary>
-    public byte[]? CaptureSceneGrid()
+    public byte[]? CaptureSceneGrid(nint expected = 0)
     {
         var window = GetForegroundWindow();
         if (window == IntPtr.Zero || !GetWindowRect(window, out var rect))
+        {
+            return null;
+        }
+
+        if (expected != 0 && window != expected)
         {
             return null;
         }

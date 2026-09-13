@@ -18,10 +18,34 @@ public sealed record ScopeOptions
 /// <param name="Scope">What the timeline records for this window.</param>
 /// <param name="ToolId">The registry entry that matched, when one did.</param>
 /// <param name="Reason">The HUD's words for why (Spec §5 S2). Carries a process name, never window content.</param>
-public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToolKind? Tool, string Reason)
+/// <param name="Window">
+/// The window this decision is about. Carried so a capture can prove it is photographing the window that
+/// was judged, rather than whatever happens to be in front a moment later (INV-5).
+/// </param>
+public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToolKind? Tool, string Reason, nint Window = 0)
 {
     /// <summary>Whether a screenshot may be taken. Clicks are still recorded out of scope; frames are not.</summary>
     public bool MayCaptureFrames => Scope is CaptureScope.RemoteTool or CaptureScope.AdminTool;
+
+    /// <summary>
+    /// Whether this event may be written while the window in front is the one this decision is about.
+    ///
+    /// INV-6: "excluded app, elevated window, out-of-scope → no frames, <b>no typing events written</b>."
+    /// Anything keyboard-derived is dropped out of scope — a burst count, a shortcut and an Enter all say
+    /// something about what was typed, and Ctrl+C in a customer's password manager is the case that
+    /// matters.
+    ///
+    /// Clicks are the deliberate exception, and ST-023's own criterion asks for it: "switching to Outlook
+    /// logs clicks but captures no frames". A click out of scope records that the technician went
+    /// somewhere and did something, with no picture and nothing of what they typed, which is what makes
+    /// "clicks logged, no frames" visible in Review instead of a silent gap. That is the line INV-6 draws,
+    /// and it is drawn between a keystroke and a mouse button rather than between an event and no event.
+    /// </summary>
+    public bool MayRecord(SessionEvent sessionEvent)
+    {
+        ArgumentNullException.ThrowIfNull(sessionEvent);
+        return MayCaptureFrames || sessionEvent is not (TypingBurstEvent or ShortcutEvent or EnterEvent);
+    }
 }
 
 /// <summary>
@@ -65,22 +89,22 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
 
         if (registry.MatchTool(window) is { } tool)
         {
-            return new ScopeDecision(CaptureScope.RemoteTool, tool.Id, tool.Kind, $"Capturing — {tool.DisplayName}");
+            return new ScopeDecision(CaptureScope.RemoteTool, tool.Id, tool.Kind, $"Capturing — {tool.DisplayName}", window.Handle);
         }
 
         if (registry.MatchBrowser(window) is { } browser)
         {
-            return new ScopeDecision(CaptureScope.RemoteTool, browser.Id, RemoteToolKind.Browser, $"Capturing — {browser.DisplayName}");
+            return new ScopeDecision(CaptureScope.RemoteTool, browser.Id, RemoteToolKind.Browser, $"Capturing — {browser.DisplayName}", window.Handle);
         }
 
         if (registry.MatchAdminTool(window) is { } admin)
         {
-            return new ScopeDecision(CaptureScope.AdminTool, admin.Id, null, $"Capturing — {admin.DisplayName}");
+            return new ScopeDecision(CaptureScope.AdminTool, admin.Id, null, $"Capturing — {admin.DisplayName}", window.Handle);
         }
 
         if (_options.CaptureAllWindows)
         {
-            return new ScopeDecision(CaptureScope.AdminTool, null, null, $"Capturing — {process} (all windows)");
+            return new ScopeDecision(CaptureScope.AdminTool, null, null, $"Capturing — {process} (all windows)", window.Handle);
         }
 
         return new ScopeDecision(CaptureScope.OutOfScope, null, null, $"Not capturing — {process}");

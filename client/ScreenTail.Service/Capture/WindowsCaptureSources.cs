@@ -59,7 +59,7 @@ internal sealed partial class WindowsCaptureSources(
             return;
         }
 
-        var frame = capturer.CaptureForegroundWindow();
+        var frame = capturer.CaptureForegroundWindow(expected: scope.Window);
         if (frame is null)
         {
             LogNoFrame(logger);

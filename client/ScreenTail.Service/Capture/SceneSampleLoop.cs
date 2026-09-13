@@ -73,7 +73,7 @@ internal sealed partial class SceneSampleLoop(
             return;
         }
 
-        var grid = capturer.CaptureSceneGrid();
+        var grid = capturer.CaptureSceneGrid(scope.Window);
         if (grid is null)
         {
             return;
@@ -86,7 +86,7 @@ internal sealed partial class SceneSampleLoop(
 
         // The screen changed, so now it is worth the full capture. Everything before this point cost one
         // StretchBlt into a 17x16 bitmap.
-        var frame = capturer.CaptureForegroundWindow();
+        var frame = capturer.CaptureForegroundWindow(expected: scope.Window);
         if (frame is null)
         {
             LogNoFrame(logger);
