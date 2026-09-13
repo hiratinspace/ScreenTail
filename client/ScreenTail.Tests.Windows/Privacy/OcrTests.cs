@@ -66,7 +66,13 @@ public sealed class OcrTests
         var text = await recogniser.ReadAsync(image, TestContext.Current.CancellationToken);
         var redaction = new RedactionEngine().RedactFrame(text.Words);
 
-        Assert.Contains(redaction.Counts, c => c.Key == MaskKind.Card);
+        // What the engine actually read, in the failure message and in the run's measurements: a card that
+        // is not detected is either a pattern problem or a recognition problem, and only the words say which.
+        var digits = string.Join(' ', text.Words.Select(w => w.Text).Where(w => w.Any(char.IsDigit)));
+        Measurements.Record($"OCR read these digit groups: `{digits}`");
+        Assert.True(
+            redaction.Counts.ContainsKey(MaskKind.Card),
+            $"no card was found; OCR read the digits as: '{digits}' and the full text as: '{redaction.Text}'");
         Assert.DoesNotContain("4111", redaction.Text, StringComparison.Ordinal);
         var region = redaction.Regions.First(r => r.Kind == MaskKind.Card);
         Assert.InRange(region.Y, 250, 400);   // drawn at y=300 by RenderDialog
