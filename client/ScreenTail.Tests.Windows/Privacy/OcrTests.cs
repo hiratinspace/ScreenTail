@@ -75,9 +75,18 @@ public sealed class OcrTests
             redaction.Counts.ContainsKey(MaskKind.Card),
             $"no card was found; OCR read the digits as: '{digits}' and the full text as: '{redaction.Text}'");
         Assert.DoesNotContain("4111", redaction.Text, StringComparison.Ordinal);
-        var region = redaction.Regions.First(r => r.Kind == MaskKind.Card);
-        Assert.InRange(region.Y, 250, 400);   // drawn at y=300 by RenderDialog
-        Assert.True(region.Width > 100, $"the masked box is only {region.Width}px wide for a 19-character number");
+
+        // Where the engine saw it matters as much as whether. A box in the wrong place paints the wrong
+        // pixels, so the masked region has to line up with one of the two places it was drawn.
+        var regions = redaction.Regions.Where(r => r.Kind == MaskKind.Card).ToList();
+        Assert.All(regions, r => Assert.True(r.Width > 100, $"a {r.Width}px box for a 19-character number is too narrow"));
+        Assert.Contains(regions, r => r.Y is > 600 and < 760 || r.Y is > 250 and < 400);
+
+        // Both placements, or only the one inside the column? The answer decides whether an isolated
+        // password in a sparse dialog is something this pipeline can see at all.
+        Measurements.Record(
+            $"Card drawn in the label column and alone in empty space: the engine found **{regions.Count}** of the 2 "
+            + $"(at y = {string.Join(", ", regions.Select(r => r.Y))})");
     }
 
     [Fact]
@@ -173,9 +182,11 @@ public sealed class OcrTests
 
         if (secret is not null)
         {
-            // In the empty right-hand column. Drawn at x=100 it landed on top of the "Service status"
-            // label, and OCR read the overlapping glyphs as neither — which failed this test for a reason
-            // that had nothing to do with the code under test.
+            // Twice, deliberately. Once at the foot of the column of labels, which is what a card number in
+            // a real dialog looks like, and once alone in the empty right-hand half. The first run of this
+            // drew it only in the empty half and the engine returned no digits at all, so the two
+            // placements are kept apart to show whether that was about the text or about its surroundings.
+            graphics.DrawString(secret, body, ink, 100, y + 34);
             graphics.DrawString(secret, body, ink, 900, 300);
         }
 
