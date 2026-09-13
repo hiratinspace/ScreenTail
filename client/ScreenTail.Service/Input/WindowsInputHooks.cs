@@ -35,6 +35,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
     private IntPtr _keyboardHook;
     private IntPtr _window;
     private long _installs;
+    private long _worstCallbackTicks;
 
     public WindowsInputHooks(InputRingBuffer? buffer = null)
     {
@@ -55,6 +56,17 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
     public bool Installed => _mouseHook != IntPtr.Zero && _keyboardHook != IntPtr.Zero;
 
     internal uint PumpThreadId => _pumpThreadId;
+
+    /// <summary>
+    /// The longest a callback has held the input path, in microseconds. ST-024 budgets 1 ms; the spike
+    /// measured 0.445 ms on this hardware. Measuring costs two timestamps and a compare — about fifty
+    /// nanoseconds against that budget — and it is the only number that says whether the machine still
+    /// feels right to the person using it.
+    /// </summary>
+    public double WorstCallbackMicroseconds =>
+        Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _worstCallbackTicks)).TotalMicroseconds;
+
+    public void ResetWorstCallback() => Interlocked.Exchange(ref _worstCallbackTicks, 0);
 
     /// <summary>Converts a hook timestamp into milliseconds since <paramref name="sessionStart"/>.</summary>
     public static long ToSessionMs(long timestamp, long sessionStart) =>
@@ -104,6 +116,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
 
     private IntPtr OnMouse(int code, IntPtr wParam, IntPtr lParam)
     {
+        var entered = Stopwatch.GetTimestamp();
         if (code == HC_ACTION)
         {
             var message = (uint)wParam;
@@ -128,11 +141,13 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
             }
         }
 
+        RecordCost(entered);
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
     }
 
     private IntPtr OnKeyboard(int code, IntPtr wParam, IntPtr lParam)
     {
+        var entered = Stopwatch.GetTimestamp();
         if (code == HC_ACTION && ((uint)wParam is WM_KEYDOWN or WM_SYSKEYDOWN))
         {
             // The only moment a key's identity exists. It is classified and dropped before this returns;
@@ -145,7 +160,25 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
             }
         }
 
+        RecordCost(entered);
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+    }
+
+    /// <summary>Keeps the worst callback seen so far. One compare, no lock, no allocation.</summary>
+    private void RecordCost(long entered)
+    {
+        var cost = Stopwatch.GetTimestamp() - entered;
+        var worst = Interlocked.Read(ref _worstCallbackTicks);
+        while (cost > worst)
+        {
+            var seen = Interlocked.CompareExchange(ref _worstCallbackTicks, cost, worst);
+            if (seen == worst)
+            {
+                break;
+            }
+
+            worst = seen;
+        }
     }
 
     /// <summary>

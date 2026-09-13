@@ -125,10 +125,22 @@ public sealed class InputHookTests
         Assert.Equal(InputKind.Click, click.Kind);
         Assert.Equal(MouseButtonKind.Left, click.Button);
 
-        var latency = Stopwatch.GetElapsedTime(sent, click.Timestamp);
-        Record($"Click buffered **{latency.TotalMilliseconds:F3} ms** after it was sent (budget 2 ms, enforced: {PerformanceCounts})");
+        // Two different numbers, and only one of them is ours.
+        //
+        // End to end is the time from asking Windows to inject a click to our hook seeing it: SendInput,
+        // the system input queue, and every other low-level hook installed on the machine. It came in at
+        // 12 ms on the laptop and none of it is under our control, so it is reported, not enforced.
+        //
+        // The callback's own duration is ours, and it is what ST-024 budgets: the click is written to the
+        // buffer inside the callback, so a callback under 1 ms is a click buffered within 1 ms of the hook
+        // being handed it.
+        var endToEnd = Stopwatch.GetElapsedTime(sent, click.Timestamp);
+        var callback = hooks.WorstCallbackMicroseconds;
+        Record($"Click: callback **{callback:F1} µs** (budget 1000 µs, enforced: {PerformanceCounts}), end to end {endToEnd.TotalMilliseconds:F1} ms via SendInput");
+
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count.");
-        Assert.True(latency.TotalMilliseconds < 2, $"buffered after {latency.TotalMilliseconds:F3} ms, budget is 2 ms");
+        Assert.True(callback < 1000, $"worst callback was {callback:F1} µs, budget is 1000 µs");
+        Assert.True(endToEnd.TotalMilliseconds < 200, $"end to end {endToEnd.TotalMilliseconds:F0} ms suggests something is blocking the input path");
     }
 
     [Fact]
@@ -158,10 +170,11 @@ public sealed class InputHookTests
         Assert.True(count > 600, $"only {count} of ~860 keystrokes reached the buffer");
         Assert.Equal(0, buffer.Dropped);
 
-        // Per-callback cost is not directly observable from here; what is observable is that the hook kept
-        // up with sustained input without Windows removing it, which is what a slow callback causes.
         Assert.True(hooks.Installed, "Windows removed the hook, which is what it does to a slow callback");
-        Record($"Handled **{count}** keystrokes in {wall.TotalMilliseconds:F0} ms with {buffer.Dropped} dropped");
+        var worst = hooks.WorstCallbackMicroseconds;
+        Record($"Sustained typing: **{count}** keystrokes in {wall.TotalMilliseconds:F0} ms, {buffer.Dropped} dropped, worst callback **{worst:F1} µs** (budget 1000 µs, enforced: {PerformanceCounts})");
+        Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count.");
+        Assert.True(worst < 1000, $"worst callback under load was {worst:F1} µs, budget is 1000 µs");
     }
 
     private static void Record(string measurement)
