@@ -348,7 +348,7 @@ public sealed class IpcServerTests : IAsyncDisposable
             }
         }
 
-        public Task RecordAsync(string type, string? sessionId = null, long? count = null, CancellationToken ct = default)
+        public Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
         {
             lock (_types)
             {

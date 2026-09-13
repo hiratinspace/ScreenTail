@@ -1,3 +1,4 @@
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
@@ -68,6 +69,9 @@ public sealed class SessionMachine : IAsyncDisposable
     /// session time. Zero when nothing is running.
     /// </summary>
     public long SessionStartedAt => _session?.StartedAt ?? 0;
+
+    /// <summary>Why capture is suppressed and since when, so the interval can be recorded when it ends.</summary>
+    private (CaptureStateReason Reason, DateTimeOffset At)? _suppressedSince;
 
     /// <summary>Monotonic milliseconds since the current session started; 0 when idle.</summary>
     public long NowMs => _session is { } s ? s.BaseMs + (long)_time.GetElapsedTime(s.StartedAt).TotalMilliseconds : 0;
@@ -267,6 +271,15 @@ public sealed class SessionMachine : IAsyncDisposable
         }
 
         await _store.StageFrameAsync(session.Id, frame, ct).ConfigureAwait(false);
+
+        // ST-045: every frame that reaches the store passes through here, so this is the one place that
+        // can promise the count is complete. What triggered it is a label, not content (INV-10).
+        if (_store is IAuditLog audit)
+        {
+            await audit.RecordAsync(
+                AuditTypes.FrameCaptured, session.Id, 1, AuditDetail.Of(frame.Trigger), ct).ConfigureAwait(false);
+        }
+
         return true;
     }
 
@@ -314,6 +327,26 @@ public sealed class SessionMachine : IAsyncDisposable
     {
         var session = _session ?? throw new InvalidOperationException("No active session.");
         session.Account(_time, State, next);
+
+        // ST-045: suppressed intervals, recorded where every transition already passes. The two guards
+        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves
+        // — an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
+        // catches the ends the guards never see: a session stopped or discarded while still suppressed.
+        if (State is SessionState.Suppressed && next is not SessionState.Suppressed && _suppressedSince is { } since)
+        {
+            var held = (long)(_time.GetUtcNow() - since.At).TotalMilliseconds;
+            if (_store is IAuditLog leaving)
+            {
+                await leaving.RecordAsync(
+                    AuditTypes.CaptureSuppressed, session.Id, held, AuditDetail.Of(since.Reason), ct).ConfigureAwait(false);
+            }
+
+            _suppressedSince = null;
+        }
+        else if (next is SessionState.Suppressed && State is not SessionState.Suppressed)
+        {
+            _suppressedSince = (reason, _time.GetUtcNow());
+        }
 
         await _store.SetSessionStateAsync(session.Id, next.ToWire(), reason == CaptureStateReason.User ? null : ReasonName(reason), ct).ConfigureAwait(false);
         if (SchemaState(next) is { } schemaState)

@@ -610,13 +610,74 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             ct,
             ("@session", sessionId));
 
-    public async Task RecordAsync(string type, string? sessionId = null, long? count = null, CancellationToken ct = default)
+    /// <summary>Every audit row with its chain links, for the export and for verification (ST-045).</summary>
+    public Task<IReadOnlyList<AuditRecord>> GetAuditRecordsAsync(string? sessionId = null, CancellationToken ct = default) =>
+        QueryAsync<IReadOnlyList<AuditRecord>>(
+            "SELECT id, at, session_id, type, count, detail, prev_hash, hash FROM audit_log "
+            + "WHERE (@session IS NULL OR session_id = @session) ORDER BY id",
+            async reader =>
+            {
+                var records = new List<AuditRecord>();
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    records.Add(new AuditRecord(
+                        reader.GetInt64(0),
+                        ParseIso(reader.GetString(1)),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.GetString(3),
+                        reader.IsDBNull(4) ? null : reader.GetInt64(4),
+                        reader.IsDBNull(5) ? null : reader.GetString(5),
+                        reader.IsDBNull(6) ? null : reader.GetString(6),
+                        reader.IsDBNull(7) ? null : reader.GetString(7)));
+                }
+
+                return records;
+            },
+            ct,
+            ("@session", sessionId));
+
+    /// <summary>
+    /// Walks the whole chain and says whether it holds (ST-045).
+    ///
+    /// Always the whole chain, never one session's rows: a row's hash covers the row before it in the log,
+    /// not the row before it in the session, so verifying a filtered view would report a break at every gap
+    /// where another session's row sits. The export filters what it shows and verifies what is there.
+    /// </summary>
+    public async Task<AuditVerification> VerifyAuditAsync(CancellationToken ct = default)
+    {
+        var records = await GetAuditRecordsAsync(ct: ct).ConfigureAwait(false);
+        string? previous = null;
+        var checked_ = 0;
+        var unchained = 0;
+
+        foreach (var record in records)
+        {
+            if (record.Hash is null)
+            {
+                // Written before schema 4. Genuinely unattested rather than broken.
+                unchained++;
+                continue;
+            }
+
+            if (record.PreviousHash != previous || AuditChain.Hash(record, previous) != record.Hash)
+            {
+                return new AuditVerification(false, checked_, unchained, record.Id);
+            }
+
+            previous = record.Hash;
+            checked_++;
+        }
+
+        return new AuditVerification(true, checked_, unchained, null);
+    }
+
+    public async Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await AuditAsync(sessionId, type, count, ct).ConfigureAwait(false);
+            await AuditAsync(sessionId, type, count, detail, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -896,14 +957,45 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
     }
 
     private Task<int> AuditAsync(string? sessionId, string type, long? count, CancellationToken ct) =>
-        ExecuteAsync(
+        AuditAsync(sessionId, type, count, null, ct);
+
+    /// <summary>
+    /// Appends one audit row, linked to the one before it (ST-045).
+    ///
+    /// The previous hash is read inside the same gate as the insert. Two rows reading the same predecessor
+    /// would both claim to follow it, and the chain would fork — which verification would report as
+    /// tampering, on a log nobody had touched. Every caller already holds the gate, which is why this reads
+    /// through the connection directly rather than through QueryAsync: that would take the same
+    /// non-reentrant semaphore and deadlock, as DiscardPendingFrameAsync found the hard way.
+    /// </summary>
+    private async Task<int> AuditAsync(string? sessionId, string type, long? count, string? detail, CancellationToken ct)
+    {
+        if (!AuditDetail.IsValid(detail))
+        {
+            throw new ArgumentException("An audit detail is a short label, never content (INV-10).", nameof(detail));
+        }
+
+        string? previous = null;
+        await using (var head = Command(_connection, "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1"))
+        {
+            var value = await head.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            previous = value is string hash ? hash : null;
+        }
+
+        var at = _time.GetUtcNow();
+        return await ExecuteAsync(
             _connection,
-            "INSERT INTO audit_log (at, session_id, type, count) VALUES (@at, @session, @type, @count)",
+            "INSERT INTO audit_log (at, session_id, type, count, detail, prev_hash, hash) "
+            + "VALUES (@at, @session, @type, @count, @detail, @prev, @hash)",
             ct,
-            ("@at", Iso(_time.GetUtcNow())),
+            ("@at", Iso(at)),
             ("@session", sessionId),
             ("@type", type),
-            ("@count", count));
+            ("@count", count),
+            ("@detail", detail),
+            ("@prev", previous),
+            ("@hash", AuditChain.Hash(previous, at, sessionId, type, count, detail))).ConfigureAwait(false);
+    }
 
     private static async Task<int> ExecuteAsync(SqliteConnection connection, string sql, CancellationToken ct, params (string Name, object? Value)[] parameters)
     {
