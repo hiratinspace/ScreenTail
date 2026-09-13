@@ -21,10 +21,21 @@ namespace ScreenTail.Service.Capture;
 /// Windows.Graphics.Capture and a slow encode argues for WIC; without it, either change is a guess.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapturer
+internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapturer, IDisposable
 {
     private static readonly ImageCodecInfo JpegCodec =
         ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+
+    // Held between captures. The laptop measured the grab at 18.7 ms for a 420x220 window, which is far too
+    // much for 92,000 pixels: almost all of it is creating and destroying these, not copying pixels. They
+    // are cheap to keep and expensive to make, so they are made once and kept until the size changes.
+    private readonly Lock _gate = new();
+    private IntPtr _screenDc;
+    private IntPtr _memoryDc;
+    private IntPtr _bitmap;
+    private int _bitmapWidth;
+    private int _bitmapHeight;
+    private bool _disposed;
 
     public CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge)
     {
@@ -41,71 +52,109 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             return null;
         }
 
-        var grabStart = Stopwatch.GetTimestamp();
-        using var captured = Grab(rect, width, height);
-        if (captured is null)
+        lock (_gate)
         {
-            return null;
-        }
-
-        var grab = Stopwatch.GetElapsedTime(grabStart);
-
-        var plan = Downscale.For(width, height, maxEdge);
-        var resizeStart = Stopwatch.GetTimestamp();
-        using var stored = plan.Resamples ? Resize(captured, plan) : captured;
-        var resize = Stopwatch.GetElapsedTime(resizeStart);
-
-        var encodeStart = Stopwatch.GetTimestamp();
-        var bytes = Encode(stored);
-        var encode = Stopwatch.GetElapsedTime(encodeStart);
-
-        return new CapturedFrame(bytes, stored.Width, stored.Height, width, height, new CaptureTiming(grab, resize, encode));
-    }
-
-    /// <summary>
-    /// Copies the window's pixels from the screen. CAPTUREBLT includes layered windows, which is what makes
-    /// the HUD's exclusion meaningful: without it, the HUD would be missing for the wrong reason and the
-    /// exclusion would look like it worked (ADR-0001 finding 3).
-    /// </summary>
-    private static Bitmap? Grab(Rect rect, int width, int height)
-    {
-        var screen = GetDC(IntPtr.Zero);
-        if (screen == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        var memory = IntPtr.Zero;
-        var bitmap = IntPtr.Zero;
-        try
-        {
-            memory = CreateCompatibleDC(screen);
-            bitmap = CreateCompatibleBitmap(screen, width, height);
-            if (memory == IntPtr.Zero || bitmap == IntPtr.Zero)
+            if (_disposed || !Prepare(width, height))
             {
                 return null;
             }
 
-            var previous = SelectObject(memory, bitmap);
-            var copied = BitBlt(memory, 0, 0, width, height, screen, rect.Left, rect.Top, SRCCOPY | CAPTUREBLT);
-            DrawCursor(memory, rect);
-            _ = SelectObject(memory, previous);
+            var grabStart = Stopwatch.GetTimestamp();
+            var previous = SelectObject(_memoryDc, _bitmap);
+            var copied = BitBlt(_memoryDc, 0, 0, width, height, _screenDc, rect.Left, rect.Top, SRCCOPY | CAPTUREBLT);
+            DrawCursor(_memoryDc, rect);
+            _ = SelectObject(_memoryDc, previous);
+            var grab = Stopwatch.GetElapsedTime(grabStart);
+            if (!copied)
+            {
+                return null;
+            }
 
-            return copied ? Image.FromHbitmap(bitmap) : null;
+            var convertStart = Stopwatch.GetTimestamp();
+            using var captured = Image.FromHbitmap(_bitmap);
+            var convert = Stopwatch.GetElapsedTime(convertStart);
+
+            var plan = Downscale.For(width, height, maxEdge);
+            var resizeStart = Stopwatch.GetTimestamp();
+            using var stored = plan.Resamples ? Resize(captured, plan) : captured;
+            var resize = Stopwatch.GetElapsedTime(resizeStart);
+
+            var encodeStart = Stopwatch.GetTimestamp();
+            var bytes = Encode(stored);
+            var encode = Stopwatch.GetElapsedTime(encodeStart);
+
+            return new CapturedFrame(bytes, stored.Width, stored.Height, width, height, new CaptureTiming(grab, convert, resize, encode));
         }
-        finally
+    }
+
+    /// <summary>
+    /// Makes sure the device contexts and the bitmap exist and are the right size, reusing them when they
+    /// are. CAPTUREBLT, used in the copy, includes layered windows — which is what makes the HUD's
+    /// exclusion meaningful: without it the HUD would be missing for the wrong reason (ADR-0001 finding 3).
+    /// </summary>
+    private bool Prepare(int width, int height)
+    {
+        if (_screenDc == IntPtr.Zero)
         {
-            if (bitmap != IntPtr.Zero)
+            _screenDc = GetDC(IntPtr.Zero);
+            if (_screenDc == IntPtr.Zero)
             {
-                _ = DeleteObject(bitmap);
+                return false;
+            }
+        }
+
+        if (_memoryDc == IntPtr.Zero)
+        {
+            _memoryDc = CreateCompatibleDC(_screenDc);
+            if (_memoryDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_bitmap != IntPtr.Zero && _bitmapWidth == width && _bitmapHeight == height)
+        {
+            return true;
+        }
+
+        if (_bitmap != IntPtr.Zero)
+        {
+            _ = DeleteObject(_bitmap);
+        }
+
+        _bitmap = CreateCompatibleBitmap(_screenDc, width, height);
+        _bitmapWidth = width;
+        _bitmapHeight = height;
+        return _bitmap != IntPtr.Zero;
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
             }
 
-            if (memory != IntPtr.Zero)
+            _disposed = true;
+            if (_bitmap != IntPtr.Zero)
             {
-                _ = DeleteDC(memory);
+                _ = DeleteObject(_bitmap);
+                _bitmap = IntPtr.Zero;
             }
 
-            _ = ReleaseDC(IntPtr.Zero, screen);
+            if (_memoryDc != IntPtr.Zero)
+            {
+                _ = DeleteDC(_memoryDc);
+                _memoryDc = IntPtr.Zero;
+            }
+
+            if (_screenDc != IntPtr.Zero)
+            {
+                _ = ReleaseDC(IntPtr.Zero, _screenDc);
+                _screenDc = IntPtr.Zero;
+            }
         }
     }
 

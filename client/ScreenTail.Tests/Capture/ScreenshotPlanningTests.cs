@@ -128,9 +128,13 @@ public sealed class ScreenshotPlanningTests
     [Fact]
     public void TheTimingBreakdownAddsUpAndReadsPlainly()
     {
-        var timing = new CaptureTiming(TimeSpan.FromMilliseconds(40), TimeSpan.FromMilliseconds(12), TimeSpan.FromMilliseconds(60));
+        var timing = new CaptureTiming(
+            TimeSpan.FromMilliseconds(40),
+            TimeSpan.FromMilliseconds(8),
+            TimeSpan.FromMilliseconds(12),
+            TimeSpan.FromMilliseconds(60));
 
-        Assert.Equal(112, timing.Total.TotalMilliseconds);
+        Assert.Equal(120, timing.Total.TotalMilliseconds);
         Assert.Contains("grab 40.0 ms", timing.ToString(), StringComparison.Ordinal);
         Assert.Contains("encode 60.0 ms", timing.ToString(), StringComparison.Ordinal);
     }

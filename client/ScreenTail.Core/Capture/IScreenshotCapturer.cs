@@ -17,15 +17,16 @@ public sealed record CapturedFrame(
 /// recorded only the total, which is not enough to know what to fix: a slow grab points at
 /// Windows.Graphics.Capture, a slow encode points at the encoder.
 /// </summary>
-/// <param name="Grab">Getting the pixels off the screen.</param>
+/// <param name="Grab">The BitBlt itself: pixels off the screen into a GDI bitmap.</param>
+/// <param name="Convert">Turning that GDI bitmap into something the encoder can read. A copy, and not a free one.</param>
 /// <param name="Resize">Downscaling to the stored size.</param>
 /// <param name="Encode">JPEG encoding.</param>
-public readonly record struct CaptureTiming(TimeSpan Grab, TimeSpan Resize, TimeSpan Encode)
+public readonly record struct CaptureTiming(TimeSpan Grab, TimeSpan Convert, TimeSpan Resize, TimeSpan Encode)
 {
-    public TimeSpan Total => Grab + Resize + Encode;
+    public TimeSpan Total => Grab + Convert + Resize + Encode;
 
     public override string ToString() =>
-        $"grab {Grab.TotalMilliseconds:F1} ms, resize {Resize.TotalMilliseconds:F1} ms, encode {Encode.TotalMilliseconds:F1} ms, total {Total.TotalMilliseconds:F1} ms";
+        $"grab {Grab.TotalMilliseconds:F1} ms, convert {Convert.TotalMilliseconds:F1} ms, resize {Resize.TotalMilliseconds:F1} ms, encode {Encode.TotalMilliseconds:F1} ms, total {Total.TotalMilliseconds:F1} ms";
 }
 
 /// <summary>Takes the picture (ST-025). The caller decides whether it is allowed to (ST-023) and stores it.</summary>

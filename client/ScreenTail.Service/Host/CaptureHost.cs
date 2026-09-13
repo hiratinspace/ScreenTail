@@ -110,10 +110,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         LogHooks(logger, hooks.Installed);
 
         // ST-025: clicks become events always, and screenshots only where scope allows.
+        using var capturer = new ScreenshotCapturer();
         var capture = new ClickCaptureLoop(
             machine,
             new WindowsInputHooksAccessor(hooks),
-            new ScreenshotCapturer(),
+            capturer,
             () => coordinator.CurrentScope,
             logger);
         var capturing = capture.RunAsync(stoppingToken);
