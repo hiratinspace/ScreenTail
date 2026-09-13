@@ -40,6 +40,26 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 
 `state` is a `CaptureStateSnapshot`: `state` (`idle`, `recording`, `paused`, `suppressed`, `finalizing`, `draft_ready`, `draft_failed`), `session_id?`, `elapsed_ms?` (active time, excluding pauses), `remote_tool?`, `pending_redactions`, `drafts_ready`, `draft_failure_reason?` (only in `draft_failed`). ST-020's `SessionMachine` owns the transitions.
 
+
+### `get_capabilities` → `capabilities`
+
+ST-021. The service re-runs the checks on each request rather than answering from a cache: a technician can
+revoke microphone access halfway through a working day, and a report that says otherwise is worse than none.
+
+```json
+{ "type": "capabilities", "request_id": 4, "checked_at": "2026-09-12T18:00:00Z", "can_capture": true,
+  "checks": [ { "capability": "microphone", "state": "blocked",
+                "message": "Microphone is blocked by Windows privacy settings.",
+                "fix_hint": "Allow desktop apps to use your microphone, then start the session again.",
+                "fix_link": "ms-settings:privacy-microphone" } ] }
+```
+
+`capability` is one of `desktop_session`, `microphone`, `screen_capture`, `input_hooks`, `elevated_windows`;
+`state` is `ok`, `degraded`, `blocked` or `unknown`. `unknown` means the check itself failed and is treated as
+blocking — "we couldn't tell" must never read as "fine". `can_capture` is false when any of the desktop
+session, screen capture or input hooks is blocked; a blocked microphone costs narration, not the session.
+`fix_link` is a Windows Settings deep link for the HUD's "Fix" button (ST-072). Messages describe Windows
+settings only and never contain anything captured (INV-10).
 ## Authentication
 
 Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.

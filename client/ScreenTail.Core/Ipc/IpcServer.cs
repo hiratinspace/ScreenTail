@@ -213,6 +213,13 @@ public sealed class IpcServer : IAsyncDisposable
                     await connection.SendAsync(new StateChanged { State = _handler.CurrentState }, ct).ConfigureAwait(false);
                     result = new CommandResult { RequestId = command.RequestId, Ok = true };
                     break;
+
+                case GetCapabilitiesCommand:
+                    await connection.SendAsync(
+                        _handler.CurrentCapabilities with { RequestId = command.RequestId },
+                        ct).ConfigureAwait(false);
+                    result = new CommandResult { RequestId = command.RequestId, Ok = true };
+                    break;
                 default:
                     result = await _handler.HandleAsync(command, ct).ConfigureAwait(false);
                     break;

@@ -1,0 +1,112 @@
+name: hardware-checks
+
+# ST-021: ask a real Windows machine what it will let ScreenTail do, and publish the answer.
+# The hosted runner can't answer this honestly — it has no desktop session, so it reports blocked for
+# everything capture needs, which is correct and useless. The laptop is the machine whose answer matters.
+# Nothing here touches the keyboard or mouse: the probe installs a hook and removes it, and takes a
+# one-pixel screenshot. Safe to run while the laptop is in use.
+
+on:
+  pull_request:
+    paths:
+      - 'client/ScreenTail.Service/Capabilities/**'
+      - 'client/ScreenTail.Core/Capabilities/**'
+      - '.github/workflows/hardware-checks.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: hardware-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  capabilities:
+    name: Spare laptop - capability report
+    if: vars.HW_RUNNER == 'true'
+    runs-on: [self-hosted, Windows, screentail-win]
+    timeout-minutes: 15
+    defaults:
+      run:
+        # Windows PowerShell 5.1: the laptop has no pwsh.
+        shell: powershell
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      # The laptop already has the SDKs (scripts/windows/setup-test-laptop.ps1). setup-dotnet would try to
+      # install into C:\Program Files\dotnet, which the non-admin runner account cannot write to.
+      - name: Use the preinstalled .NET SDK
+        run: |
+          if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+            $installed = Join-Path $env:ProgramFiles 'dotnet'
+            if (-not (Test-Path (Join-Path $installed 'dotnet.exe'))) {
+              throw 'No .NET SDK on this runner. Re-run scripts/windows/setup-test-laptop.ps1.'
+            }
+            [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$installed`r`n")
+            $env:Path = "$installed;$env:Path"
+          }
+          dotnet --list-sdks
+
+      - name: Build the service
+        run: dotnet build ScreenTail.Service/ScreenTail.Service.csproj -c Release
+
+      - name: What this machine allows
+        id: probe
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'capabilities'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $file = Join-Path $out 'capability-report.json'
+
+          # Exit code 1 means "cannot capture", which is a finding to publish, not a reason to stop.
+          $json = (dotnet run --project ScreenTail.Service -c Release --no-build -- --capabilities) -join "`r`n"
+          $code = $LASTEXITCODE
+          Write-Host $json
+
+          # Tee-Object and Set-Content write UTF-16 on PowerShell 5.1, which makes the artifact unreadable
+          # as JSON by anything else. Same family of bug as the GITHUB_PATH BOM in docs/dev/windows-test-loop.md.
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($file, $json, $utf8)
+
+          $report = $json | ConvertFrom-Json
+          $rows = foreach ($c in $report.checks) {
+            $icon = switch ($c.state) { 'ok' { 'OK' } 'degraded' { 'DEGRADED' } default { 'BLOCKED' } }
+            "| ``$($c.capability)`` | $icon | $($c.message) | $($c.fix_hint) |"
+          }
+          $summary = @(
+            "## Capability report - $env:COMPUTERNAME",
+            "",
+            "Checked $($report.checked_at). **Can capture: $($report.can_capture)**",
+            "",
+            "| Capability | State | Message | What to do |",
+            "|---|---|---|---|"
+          ) + $rows + @("", "Exit code $code (0 = capture is possible).")
+          [System.IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, ($summary -join "`r`n") + "`r`n")
+
+          # Record the machine's identity alongside the answers, so a stale report is obvious later.
+          $facts = [ordered]@{
+            machine       = $env:COMPUTERNAME
+            user          = $env:USERNAME
+            interactive   = [Environment]::UserInteractive
+            os            = (Get-CimInstance Win32_OperatingSystem).Caption
+            os_build      = [Environment]::OSVersion.Version.ToString()
+            screens       = (Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty VideoModeDescription)
+            audio_inputs  = @(Get-CimInstance Win32_SoundDevice | Select-Object -ExpandProperty Name)
+            checked_at    = $report.checked_at
+          }
+          $machineJson = $facts | ConvertTo-Json -Depth 4
+          [System.IO.File]::WriteAllText((Join-Path $out 'machine.json'), $machineJson, $utf8)
+          Write-Host $machineJson
+
+      - name: Windows tests on real hardware
+        run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: capability-report
+          path: ${{ runner.temp }}/capabilities
+          if-no-files-found: warn
