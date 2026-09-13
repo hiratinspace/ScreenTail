@@ -177,15 +177,7 @@ public sealed class InputHookTests
         Assert.True(worst < 1000, $"worst callback under load was {worst:F1} µs, budget is 1000 µs");
     }
 
-    private static void Record(string measurement)
-    {
-        Console.WriteLine(measurement);
-        var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
-        if (!string.IsNullOrEmpty(summary))
-        {
-            File.AppendAllText(summary, $"- {measurement}{Environment.NewLine}");
-        }
-    }
+    private static void Record(string measurement) => Measurements.Record(measurement);
 
     /// <summary>Synthetic input, aimed at whatever currently has focus — which the caller has just taken.</summary>
     private static class Synthetic

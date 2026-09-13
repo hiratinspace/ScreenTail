@@ -108,6 +108,8 @@ jobs:
       # Includes the ST-022 foreground tests, which create real windows and time how long the watcher takes
       # to notice. They skip on any machine without an interactive desktop, which is why they live here.
       - name: Windows tests on real hardware
+        env:
+          SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/capabilities/measurements.txt
         run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
 
       - name: Upload the report
@@ -148,4 +150,20 @@ jobs:
           }
 
       - name: Hooks under real keystrokes and clicks
+        env:
+          SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/measurements/input.txt
         run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+
+      - name: What it measured
+        if: always()
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP 'measurements\input.txt'
+          if (Test-Path $file) { Get-Content $file } else { Write-Host 'no measurements recorded' }
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: input-measurements
+          path: ${{ runner.temp }}/measurements
+          if-no-files-found: warn

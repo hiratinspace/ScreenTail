@@ -153,21 +153,7 @@ public sealed class ForegroundWatcherTests
         }
     }
 
-    /// <summary>
-    /// Puts a measurement where it can be seen. xUnit keeps a passing test's console output to itself, so
-    /// the earlier Console.WriteLine only ever appeared on failure — which is precisely when the number is
-    /// least interesting. On a runner this writes to the job summary instead, so each run records how much
-    /// headroom is left against the budget.
-    /// </summary>
-    private static void Record(string measurement)
-    {
-        Console.WriteLine(measurement);
-        var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
-        if (!string.IsNullOrEmpty(summary))
-        {
-            File.AppendAllText(summary, $"- {measurement}{Environment.NewLine}");
-        }
-    }
+    private static void Record(string measurement) => Measurements.Record(measurement);
 
     /// <summary>CPU time used by one OS thread, or null when it has gone.</summary>
     private static TimeSpan? PumpThreadTime(uint threadId)
