@@ -27,12 +27,19 @@
                    AutomationProperties.Name="Capture status"
                    AutomationProperties.LiveSetting="Polite" />
 
-        <ItemsControl Grid.Row="2" ItemsSource="{Binding Rows}">
+        <!-- Spec §5 S1 fixes the panel at 360x420 and there are twelve rows, so it has to scroll: without
+             this the last two were drawn behind the Copy button and the technician simply never saw the
+             client version. -->
+        <ScrollViewer Grid.Row="2"
+                      Margin="0,0,0,12"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Rows}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <Grid Margin="0,0,0,6">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="118" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Style="{StaticResource Text.Secondary}" Text="{Binding Label}" />
@@ -44,6 +51,7 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+        </ScrollViewer>
 
         <!-- States only, never content. The clipboard text is built from the diagnostics record alone. -->
         <Button Grid.Row="3"
