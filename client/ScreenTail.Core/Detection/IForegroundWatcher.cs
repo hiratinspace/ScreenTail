@@ -29,16 +29,17 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
     private long _reportedAt;
 
     /// <summary>
-    /// How long a window must hold focus before it counts. Alt-tabbing through five windows should report
-    /// where the technician landed, not everything they passed through.
+    /// How long the same window must hold a new title before the change counts. Titles are the noisy ones —
+    /// a progress percentage or an unsaved-changes marker can rewrite the title several times a second.
+    /// A change of window is never held back: the 100 ms budget is measured on exactly that.
     /// </summary>
-    public TimeSpan Settle { get; init; } = TimeSpan.FromMilliseconds(60);
+    public TimeSpan TitleSettle { get; init; } = TimeSpan.FromMilliseconds(250);
 
     public ForegroundWindowInfo? Reported => _reported;
 
     /// <summary>
     /// Offers an observation. Returns what should be reported, or null for "nothing new". The caller is
-    /// expected to offer again after <see cref="Settle"/> when this returns null for a pending window.
+    /// expected to offer again after <see cref="TitleSettle"/> when this returns null for a pending window.
     /// </summary>
     public ForegroundWindowInfo? Offer(ForegroundWindowInfo observed)
     {
@@ -48,14 +49,15 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
             return null;
         }
 
-        // The first window we ever see is reported immediately: there is nothing to settle against, and the
-        // session needs to know where it started.
-        if (_reported is null)
+        // A different window is a real event and goes out at once. Holding it back to debounce cost 233 ms
+        // on the laptop against a 100 ms budget, because the change then waited for the next poll.
+        if (_reported is null || observed.Handle != _reported.Handle)
         {
             return Accept(observed);
         }
 
-        return _time.GetElapsedTime(_reportedAt) < Settle ? null : Accept(observed);
+        // Same window, new title: let it settle, so a title that rewrites itself doesn't become a stream.
+        return _time.GetElapsedTime(_reportedAt) < TitleSettle ? null : Accept(observed);
     }
 
     /// <summary>Whatever is in front once things stop moving, reported even if it never settled.</summary>

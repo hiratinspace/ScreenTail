@@ -41,39 +41,51 @@ public sealed class ForegroundDetectionTests
     }
 
     [Fact]
-    public void WindowsPassedThroughWhileAltTabbingAreNotReported()
+    public void AChangeOfWindowIsNeverHeldBack()
     {
+        // The 100 ms budget is measured on exactly this. Debouncing it cost 233 ms on real hardware.
         var clock = new ManualTime(At);
-        var filter = new ForegroundChangeFilter(clock) { Settle = TimeSpan.FromMilliseconds(60) };
+        var filter = new ForegroundChangeFilter(clock) { TitleSettle = TimeSpan.FromSeconds(10) };
         filter.Offer(Window(1, "mstsc", "RECEPTION-02"));
 
-        // Three windows in 30 ms: the technician is holding alt, not working in any of them.
-        clock.Advance(TimeSpan.FromMilliseconds(10));
-        Assert.Null(filter.Offer(Window(2, "explorer", "Documents")));
-        clock.Advance(TimeSpan.FromMilliseconds(10));
-        Assert.Null(filter.Offer(Window(3, "outlook", "Inbox")));
-        clock.Advance(TimeSpan.FromMilliseconds(10));
-        Assert.Null(filter.Offer(Window(4, "chrome", "Tickets - Google Chrome")));
+        clock.Advance(TimeSpan.FromMilliseconds(5));
+        var next = filter.Offer(Window(2, "outlook", "Inbox"));
 
-        // Where they landed does get reported, once things settle.
-        clock.Advance(TimeSpan.FromMilliseconds(100));
-        var landed = filter.Offer(Window(4, "chrome", "Tickets - Google Chrome"));
-        Assert.NotNull(landed);
-        Assert.Equal("chrome", landed.ProcessName);
+        Assert.NotNull(next);
+        Assert.Equal("outlook", next.ProcessName);
+    }
+
+    [Fact]
+    public void ATitleThatKeepsRewritingItselfIsNotAStream()
+    {
+        // A progress percentage in the title would otherwise be an event several times a second.
+        var clock = new ManualTime(At);
+        var filter = new ForegroundChangeFilter(clock) { TitleSettle = TimeSpan.FromMilliseconds(250) };
+        filter.Offer(Window(1, "explorer", "Copying 1%"));
+
+        clock.Advance(TimeSpan.FromMilliseconds(40));
+        Assert.Null(filter.Offer(Window(1, "explorer", "Copying 2%")));
+        clock.Advance(TimeSpan.FromMilliseconds(40));
+        Assert.Null(filter.Offer(Window(1, "explorer", "Copying 3%")));
+
+        clock.Advance(TimeSpan.FromMilliseconds(300));
+        var settled = filter.Offer(Window(1, "explorer", "Copying 94%"));
+        Assert.NotNull(settled);
+        Assert.Equal("Copying 94%", settled.Title);
     }
 
     [Fact]
     public void FlushReportsWhateverIsInFrontEvenIfItNeverSettled()
     {
         var clock = new ManualTime(At);
-        var filter = new ForegroundChangeFilter(clock) { Settle = TimeSpan.FromSeconds(10) };
+        var filter = new ForegroundChangeFilter(clock) { TitleSettle = TimeSpan.FromSeconds(10) };
         filter.Offer(Window(1, "mstsc", "RECEPTION-02"));
 
-        Assert.Null(filter.Offer(Window(2, "outlook", "Inbox")));
-        var flushed = filter.Flush(Window(2, "outlook", "Inbox"));
+        Assert.Null(filter.Offer(Window(1, "mstsc", "RECEPTION-02 (reconnecting)")));
+        var flushed = filter.Flush(Window(1, "mstsc", "RECEPTION-02 (reconnecting)"));
 
         Assert.NotNull(flushed);
-        Assert.Equal("outlook", flushed.ProcessName);
+        Assert.Equal("RECEPTION-02 (reconnecting)", flushed.Title);
     }
 
     [Theory]

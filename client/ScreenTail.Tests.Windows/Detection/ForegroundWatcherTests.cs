@@ -86,16 +86,17 @@ public sealed class ForegroundWatcherTests
         await watcher.StartAsync(TestContext.Current.CancellationToken);
         await Task.Delay(500, TestContext.Current.CancellationToken);
 
-        using var self = Process.GetCurrentProcess();
-        var before = self.TotalProcessorTime;
+        // The watcher's own pump thread, not the whole process: the first version of this measured the test
+        // host with other tests running in parallel and reported 2.1%, which said nothing about the watcher.
+        var before = PumpThreadTime(watcher.PumpThreadId);
+        Assert.SkipWhen(before is null, "Could not find the watcher's pump thread.");
         var clock = Stopwatch.StartNew();
         await Task.Delay(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
         clock.Stop();
-        self.Refresh();
-        var used = self.TotalProcessorTime - before;
+        var used = PumpThreadTime(watcher.PumpThreadId)!.Value - before!.Value;
 
-        var percent = used.TotalMilliseconds / (clock.Elapsed.TotalMilliseconds * Environment.ProcessorCount) * 100;
-        Assert.True(percent < 0.5, $"used {percent:F3}% of CPU while idle, budget is 0.5%");
+        var percent = used.TotalMilliseconds / clock.Elapsed.TotalMilliseconds * 100;
+        Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core while idle, budget is 0.5%");
     }
 
     [Fact]
@@ -132,6 +133,21 @@ public sealed class ForegroundWatcherTests
         {
             Assert.NotEqual(0, watcher.Current.ProcessId);
         }
+    }
+
+    /// <summary>CPU time used by one OS thread, or null when it has gone.</summary>
+    private static TimeSpan? PumpThreadTime(uint threadId)
+    {
+        using var self = Process.GetCurrentProcess();
+        foreach (ProcessThread thread in self.Threads)
+        {
+            if (thread.Id == threadId)
+            {
+                return thread.TotalProcessorTime;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>A real top-level window on its own message-pumping thread, so it behaves like any other app's.</summary>

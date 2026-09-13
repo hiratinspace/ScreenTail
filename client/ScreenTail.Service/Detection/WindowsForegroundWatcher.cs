@@ -27,6 +27,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private readonly WinEventProc _callback;
     private Thread? _pump;
     private uint _pumpThreadId;
+    private (uint ProcessId, string? Name, bool Elevated) _lastProcess;
     private volatile bool _hookInstalled;
     private ForegroundWindowInfo _current;
 
@@ -47,6 +48,9 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     /// <summary>False when the hook couldn't be installed and polling is carrying the load.</summary>
     public bool UsingHook => _hookInstalled;
+
+    /// <summary>OS id of the pump thread, so a test can measure what this watcher actually costs.</summary>
+    internal uint PumpThreadId => _pumpThreadId;
 
     public Task StartAsync(CancellationToken ct = default)
     {
@@ -186,7 +190,16 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         _ = GetWindowThreadProcessId(window, out var processId);
         var title = ReadTitle(window);
         var className = ReadClassName(window);
-        var (processName, elevated) = ReadProcess(processId);
+
+        // Opening the process and resolving its image name is by far the most expensive part of this, and
+        // the poll asks the same question four times a second about the same window. Ask once per process.
+        if (_lastProcess.ProcessId != processId)
+        {
+            var resolved = ReadProcess(processId);
+            _lastProcess = (processId, resolved.Name, resolved.Elevated);
+        }
+
+        var (_, processName, elevated) = _lastProcess;
 
         return new ForegroundWindowInfo(
             window,
