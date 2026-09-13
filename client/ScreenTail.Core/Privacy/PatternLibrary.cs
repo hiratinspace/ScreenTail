@@ -98,19 +98,35 @@ internal static partial class PatternLibrary
             }
             catch (RegexMatchTimeoutException)
             {
-                // A tenant pattern that can't keep up is skipped for this frame rather than stalling capture.
+                // Skipped for this frame rather than stalling capture — but the text was then not fully
+                // searched, and saying nothing here reported it as clean. The built-ins have always
+                // called this; the custom path did not, so a tenant pattern that timed out let every
+                // account number on the screen be stored with Complete = true (INV-1).
+                onIncomplete();
                 continue;
             }
 
-            while (match.Success && match.Length > 0)
+            while (match.Success)
             {
-                yield return new PatternMatch(MaskKind.CustomPattern, match.Index, match.Length, "[REDACTED]");
+                if (match.Length > 0)
+                {
+                    yield return new PatternMatch(MaskKind.CustomPattern, match.Index, match.Length, "[REDACTED]");
+                }
+                else if (match.Index >= text.Length)
+                {
+                    break;
+                }
+
                 try
                 {
-                    match = match.NextMatch();
+                    // A zero-length match returns itself from NextMatch for ever, so it used to end the
+                    // scan — silently, part-way through, leaving the rest of the text unsearched while
+                    // reporting it clean. Stepping past it keeps going.
+                    match = match.Length > 0 ? match.NextMatch() : regex.Match(text, match.Index + 1);
                 }
                 catch (RegexMatchTimeoutException)
                 {
+                    onIncomplete();
                     break;
                 }
             }
@@ -180,7 +196,16 @@ internal static partial class PatternLibrary
     }
 
     // 123-45-6789 and 123 45 6789; the exclusions are the ranges the SSA never issues.
-    [GeneratedRegex(@"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
+    //
+    // A bare 123456789 is included only where a cue says what it is. Nine digits on their own are an order
+    // number, a part number or a phone number far more often than a social security number, and ST-042
+    // budgets 2% false positives — masking every nine-digit run would spend that many times over on one
+    // screen of a customer's order history.
+    [GeneratedRegex(
+        @"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b"
+        + @"|(?<=(?i:ssn|social\s?security(?:\s?(?:number|no|#))?)\s{0,3}[:=#]?\s{0,3})(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b",
+        RegexOptions.CultureInvariant,
+        BuiltInTimeoutMs)]
     private static partial Regex Ssn();
 
     // Either a contiguous 13–19 digit number or the usual 4-4-4-4 / 4-6-5 groupings — not an unbroken run of
@@ -197,19 +222,19 @@ internal static partial class PatternLibrary
           | xox[baprs]-[A-Za-z0-9-]{10,}
           | sk-[A-Za-z0-9_-]{20,}
           | eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}
-          | -----BEGIN[ A-Z]*PRIVATE\ KEY-----
-          | (?<=(?i:api[ _-]?key|secret|token|bearer)\s{0,3}[:=]?\s{0,3})[A-Za-z0-9+/_-]{24,}={0,2}
+          | -----BEGIN[\ A-Z]*PRIVATE\ KEY-----(?s:.*?)(?:-----END[\ A-Z]*PRIVATE\ KEY-----|$)
+          | (?<=(?i:(?:api|access|secret|private|auth)[ _-]?(?:key|token|secret)?|secret|token|bearer)["']?\s{0,4}[:=]?\s{0,4}["']?)[A-Za-z0-9+/_-]{24,}={0,2}
         )
         """,
         RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace,
-        100)]
+        BuiltInTimeoutMs)]
     private static partial Regex ApiKey();
 
     // "password is Winter2026", "pwd: hunter2", "passphrase = abc". The value is masked, the cue stays.
     [GeneratedRegex(
         @"\b(?:password|passphrase|passwd|pwd|pass\s?code|pin(?:\s?number)?)\b[\s:=]*(?:is|was|to|equals|set\s+to)?[\s:=]*(?<value>[^\s,.;!?]{2,})",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
-        100)]
+        BuiltInTimeoutMs)]
     private static partial Regex PasswordPair();
 
     [GeneratedRegex(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
