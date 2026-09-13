@@ -1,0 +1,430 @@
+/* ST-015: hi-fi Review screen.
+ *
+ * Every colour comes from tokens.g.css, which is generated from shared/design/tokens.json — the same
+ * source the WPF dictionaries are generated from. That is deliberate: a prototype with its own palette
+ * looks decided and is a lie, because the thing that ships uses different colours. Nothing here may add
+ * a hex value; if a colour is missing, it belongs in tokens.json where the contrast test can see it.
+ *
+ * Sizes, spacing and radii are the token scale too, restated as custom properties so this file reads
+ * like the spec (size.lg, space.4) rather than like a pile of pixels.
+ */
+
+:root {
+  --size-xs: 11px;
+  --size-sm: 12px;
+  --size-md: 13px;
+  --size-lg: 15px;
+  --size-xl: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --radius-pill: 999px;
+  --font-ui: Inter, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--size-md);
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+
+/* ---- chrome ---------------------------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  font-size: var(--size-sm);
+}
+
+.toolbar .spacer { flex: 1; }
+
+.toolbar button {
+  font: inherit;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.toolbar button[aria-pressed="true"] {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.window {
+  width: 1280px;
+  height: 800px;
+  margin: var(--space-5) auto;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  height: 48px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.titlebar h1 {
+  margin: 0;
+  font-size: var(--size-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.titlebar .meta { color: var(--text-secondary); font-size: var(--size-sm); }
+
+.panes {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr) 320px;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.pane:last-child { border-right: 0; }
+
+.pane > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--size-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pane > .body { flex: 1; overflow: auto; padding: var(--space-4); }
+
+/* ---- note editor ----------------------------------------------------------------------------- */
+
+.section-heading {
+  font-size: var(--size-lg);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.section-heading:first-child { margin-top: 0; }
+
+.note-text {
+  color: var(--text-primary);
+  line-height: 1.55;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+}
+
+.note-text:hover { border-color: var(--border-subtle); }
+
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  line-height: 1.55;
+}
+
+.step:hover { border-color: var(--border-subtle); background: var(--bg-surface); }
+
+.step::before {
+  counter-increment: step;
+  content: counter(step) ".";
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A low-confidence step is marked three ways, because Spec §7 requires every state to read without
+   colour: the warning glyph, the word "inferred", and a left rule. Colour alone would fail. */
+.step.low {
+  border-left: 3px solid var(--confidence-low);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: var(--bg-surface);
+}
+
+.step .warn {
+  /* The glyph carries the state colour; the sentence beside it does not. Spec v0.4.2: state colours are
+     indicators, never body-size text. Amber on the light surface measures 3.19:1 — fine for a shape,
+     under AA for anything anybody has to read, and the contrast report is what caught it. */
+  color: var(--confidence-low);
+  font-weight: 600;
+  margin-right: var(--space-1);
+  font-size: var(--size-lg);
+  line-height: 1;
+}
+
+.step .inferred {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--size-sm);
+}
+
+.chip {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  margin: 0 var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.chip:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+
+.quote {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--size-sm);
+  color: var(--text-muted);
+}
+
+.autosave {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--size-sm);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ---- banners --------------------------------------------------------------------------------- */
+
+.banner {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-left-width: 3px;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  font-size: var(--size-sm);
+  color: var(--text-secondary);
+}
+
+/* Each kind differs by more than a colour: a different glyph, and danger is boxed on every side. Spec §7
+   requires the state to read in greyscale, and the review that measured these found warning and danger
+   identical with the colour removed. */
+.banner.warning { border-left-color: var(--state-paused); }
+.banner.info { border-left-color: var(--accent-primary); }
+.banner.danger { border-color: var(--state-danger); border-left-width: 3px; }
+.banner .kind { font-weight: 600; margin-right: var(--space-1); }
+
+/* ---- filmstrip ------------------------------------------------------------------------------- */
+
+.filmstrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px);
+  gap: var(--space-2);
+}
+
+.frame {
+  /* A figure carries a 40px default margin either side. In a 160px grid track that is 240px of box,
+     which is why the third column was clipped two renders running — the screenshot showed frame 1
+     starting forty pixels in, and that was the tell. */
+  margin: 0;
+  width: 160px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.frame .shot {
+  height: 90px;
+  background:
+    linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
+    repeating-linear-gradient(135deg, var(--border-subtle) 0 6px, transparent 6px 14px);
+}
+
+.frame figcaption {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--size-xs);
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.frame.excluded .shot { opacity: 0.35; }
+.frame.excluded figcaption::after { content: "excluded"; color: var(--text-secondary); }
+.frame.included figcaption::after { content: "included"; color: var(--text-secondary); }
+.frame.included figcaption::before { content: "✓"; color: var(--state-published); margin-right: var(--space-1); }
+
+/* A suppressed interval is a gap in the strip, not a missing frame: the technician has to be able to
+   see that something was deliberately not captured, or the note looks like it simply lost time. */
+.gap {
+  width: 160px;
+  height: 113px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: var(--space-2);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+  background: repeating-linear-gradient(135deg, var(--bg-raised) 0 8px, transparent 8px 16px);
+}
+
+/* ---- publish --------------------------------------------------------------------------------- */
+
+.field { margin-bottom: var(--space-4); }
+
+.field > label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--size-sm);
+  color: var(--text-secondary);
+}
+
+.control {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  font-size: var(--size-xs);
+  color: var(--text-secondary);
+  background: var(--bg-raised);
+}
+
+/* The border carries the colour, the words stay readable. Green on the light surface is 3.30:1, which is
+   enough to distinguish a rule and not enough to read. */
+.badge.published { border-color: var(--state-published); color: var(--text-secondary); }
+.badge.published::before { content: "✓ "; color: var(--state-published); }
+
+.hint { font-size: var(--size-sm); color: var(--text-muted); margin-top: var(--space-1); }
+
+.primary {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-control);
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary[disabled] {
+  background: var(--bg-raised);
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.danger-ghost {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.danger-ghost:hover { border-color: var(--state-danger); color: var(--state-danger); }
+
+/* ---- timeline -------------------------------------------------------------------------------- */
+
+.timeline {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--size-sm);
+  color: var(--text-secondary);
+}
+
+.track {
+  position: relative;
+  height: 20px;
+  margin: var(--space-2) 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.track .scope {
+  position: absolute;
+  inset: 0 40% 0 8%;
+  background: color-mix(in srgb, var(--state-scope) 22%, transparent);
+  border-top: 2px dotted var(--state-scope);
+}
+
+.legend { display: flex; gap: var(--space-4); font-size: var(--size-xs); color: var(--text-muted); }
+.legend span::before { display: inline-block; width: 8px; height: 8px; margin-right: var(--space-1); content: ""; vertical-align: middle; }
+.legend .l-click::before { border-radius: var(--radius-pill); background: var(--text-secondary); }
+.legend .l-frame::before { border-radius: 2px; background: var(--accent-primary); }
+.legend .l-scope::before { width: 16px; height: 6px; background: color-mix(in srgb, var(--state-scope) 22%, transparent); border-top: 2px dotted var(--state-scope); }
+.legend .l-paused::before { width: 16px; height: 8px; background: repeating-linear-gradient(135deg, var(--state-paused) 0 3px, transparent 3px 6px); }
+
+.track .suppressed {
+  position: absolute;
+  inset: 0 26% 0 58%;
+  background: repeating-linear-gradient(135deg, var(--state-paused) 0 4px, transparent 4px 10px);
+}
+
+.track .mark {
+  position: absolute;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--text-secondary);
+}
+
+.track .mark.frame { border-radius: 2px; background: var(--accent-primary); }
+
+.transcript { font-family: var(--font-mono); color: var(--text-muted); }
+
+[hidden] { display: none !important; }
