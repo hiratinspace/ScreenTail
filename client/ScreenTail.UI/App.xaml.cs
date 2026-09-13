@@ -11,8 +11,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Dark by default (Scope §6.2); ST-070 persists the user's choice. High contrast always wins.
-        ThemeManager.Apply(ThemeManager.Effective(AppTheme.Dark), Resources);
+        // Dark by default (Scope §6.2); ST-070 persists the user's choice. High contrast always wins —
+        // Apply substitutes it, so every caller gets that rather than only this one, and FollowSystem
+        // keeps it true if Windows switches while the app is running.
+        ThemeManager.Apply(AppTheme.Dark, Resources);
+        ThemeManager.FollowSystem(Resources);
 
         var args = e.Args;
         var screenshotIndex = Array.IndexOf(args, "--screenshot");

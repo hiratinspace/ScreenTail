@@ -49,6 +49,116 @@ public class ContrastTests
         Assert.True(ratio >= minimum, $"{theme}: {text} on {background} is {ratio:0.00}:1, below {minimum}:1");
     }
 
+    public static TheoryData<string, string, string> IndicatorPairs
+    {
+        get
+        {
+            var data = new TheoryData<string, string, string>();
+            var contrast = Tokens.RootElement.GetProperty("contrast");
+            foreach (var theme in new[] { "dark", "light" })
+            {
+                foreach (var indicator in contrast.GetProperty("indicators").EnumerateArray())
+                {
+                    foreach (var background in contrast.GetProperty("backgrounds").EnumerateArray())
+                    {
+                        data.Add(theme, indicator.GetString()!, background.GetString()!);
+                    }
+                }
+
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(IndicatorPairs))]
+    public void AnIndicatorIsDistinguishableFromItsBackground(string theme, string indicator, string background)
+    {
+        // Spec v0.4.2 confines state colours to a rule, a border, a dot or a glyph, so WCAG's non-text
+        // 3:1 is the bar rather than AA. They were checked against nothing at all before: seven colour
+        // tokens sat outside every list, and the Review hi-fi was quietly using one of them for 11px
+        // text at 3.30:1 — under AA, three paragraphs below a comment saying not to.
+        var minimum = Tokens.RootElement.GetProperty("contrast").GetProperty("indicator_minimum").GetDouble();
+
+        var ratio = ContrastRatio(Hex(theme, indicator), Hex(theme, background));
+
+        Assert.True(ratio >= minimum, $"{theme}: {indicator} on {background} is {ratio:0.00}:1, below {minimum}:1");
+    }
+
+    public static TheoryData<string, string, string> StructuralPairs
+    {
+        get
+        {
+            var data = new TheoryData<string, string, string>();
+            var contrast = Tokens.RootElement.GetProperty("contrast");
+            foreach (var theme in new[] { "dark", "light" })
+            {
+                foreach (var structural in contrast.GetProperty("structural").EnumerateArray())
+                {
+                    foreach (var background in contrast.GetProperty("backgrounds").EnumerateArray())
+                    {
+                        data.Add(theme, structural.GetString()!, background.GetString()!);
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(StructuralPairs))]
+    public void ADividerIsNotTheSameColourAsWhatItDivides(string theme, string border, string background)
+    {
+        // Deliberately not 3:1. WCAG 1.4.11 covers visuals that are the *sole* means of identifying a
+        // component or its state, and a divider is not one: a control is identified by its own surface
+        // and its label, and the focus ring is accent.primary, which sits in the text list at 4.5:1.
+        // Holding dividers to 3:1 would force a palette the spec never asked for; holding them to
+        // nothing would let one become invisible. This asserts the weaker true thing rather than
+        // inventing a number that happens to fit today's colours.
+        var ratio = ContrastRatio(Hex(theme, border), Hex(theme, background));
+
+        Assert.True(ratio > 1.0, $"{theme}: {border} is the same colour as {background}, so it draws nothing");
+    }
+
+    [Fact]
+    public void EveryColourHasToSayWhatItIsAllowedToDo()
+    {
+        // The structural fix. The lists were hand-kept, so a new token was unchecked until somebody
+        // remembered to add it — and nothing said they had forgotten. Now a token that is neither text,
+        // nor a background, nor an indicator, nor structural, nor half of a pair fails here, and whoever
+        // adds it has to decide which it is.
+        var contrast = Tokens.RootElement.GetProperty("contrast");
+        var classified = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var list in new[] { "text", "backgrounds", "indicators", "structural" })
+        {
+            foreach (var name in contrast.GetProperty(list).EnumerateArray())
+            {
+                classified.Add(name.GetString()!);
+            }
+        }
+
+        // Both halves. A colour that only ever meets one specific other is declared and checked by the
+        // pair itself — accent.primary.hover is never a surface for anything but text.on-accent, so
+        // listing it as a general background would have every state dot checked against a hovered
+        // button, which is not a combination that exists.
+        foreach (var pair in contrast.GetProperty("pairs").EnumerateArray())
+        {
+            classified.Add(pair[0].GetString()!);
+            classified.Add(pair[1].GetString()!);
+        }
+
+        var unclassified = Tokens.RootElement.GetProperty("color").EnumerateObject()
+            .Select(c => c.Name)
+            .Where(name => !classified.Contains(name))
+            .ToList();
+
+        Assert.True(
+            unclassified.Count == 0,
+            $"these colours are in no contrast list, so nothing checks them: {string.Join(", ", unclassified)}");
+    }
+
     [Fact]
     public void EveryColorHasBothThemesAndAUse()
     {

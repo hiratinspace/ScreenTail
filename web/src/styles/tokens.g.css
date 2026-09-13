@@ -11,12 +11,12 @@
   --accent-primary: #2A64CC;
   --accent-primary-hover: #265DBF;
   --state-recording: #DC2626;
-  --state-paused: #D97706;
+  --state-paused: #CF7206;
   --state-scope: #7C3AED;
-  --state-published: #16A34A;
+  --state-published: #159F48;
   --state-offline: #64748B;
   --state-danger: #DC2626;
-  --confidence-low: #D97706;
+  --confidence-low: #CF7206;
   --text-on-accent: #FFFFFF;
   --shadow-none: 0 1px 3px rgba(15,23,32,.08);
   --shadow-raised: 0 1px 3px rgba(15,23,32,.08);
