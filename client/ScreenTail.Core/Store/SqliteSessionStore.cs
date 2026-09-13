@@ -156,12 +156,32 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
     }
 
     public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) =>
-        QueryAsync(
-            "SELECT id, session_id, ts_ms, image FROM frames WHERE redaction_pending = 1 ORDER BY ts_ms LIMIT 1",
+        TakeNextPendingFrameAsync(null, ct);
+
+    /// <param name="except">
+    /// Frames another worker is already redacting. Without this, two workers select the same row — the
+    /// query cannot claim it, because a frame stays <c>redaction_pending</c> until the redaction finishes
+    /// — and the slower one's MarkFrameRedactedAsync then finds nothing to update and throws.
+    /// </param>
+    public Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default)
+    {
+        // Built rather than parameterised because the set is a handful of ids the caller owns, never user
+        // input; SQLite has no array parameter, and the ids are our own GUID-derived strings.
+        var skip = except is { Count: > 0 }
+            ? " AND id NOT IN (" + string.Join(",", except.Select((_, i) => "@skip" + i.ToString(System.Globalization.CultureInfo.InvariantCulture))) + ")"
+            : string.Empty;
+        var parameters = except is { Count: > 0 }
+            ? except.Select((id, i) => ("@skip" + i.ToString(System.Globalization.CultureInfo.InvariantCulture), (object?)id)).ToArray()
+            : [];
+
+        return QueryAsync(
+            "SELECT id, session_id, ts_ms, image FROM frames WHERE redaction_pending = 1" + skip + " ORDER BY ts_ms LIMIT 1",
             async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
                 ? new PendingFrame(reader.GetString(0), reader.GetString(1), reader.GetInt64(2), (byte[])reader[3])
                 : null,
-            ct);
+            ct,
+            parameters);
+    }
 
     public async Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default)
     {
