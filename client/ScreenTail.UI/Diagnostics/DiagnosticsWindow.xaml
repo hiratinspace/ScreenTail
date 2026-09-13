@@ -1,0 +1,56 @@
+<Window x:Class="ScreenTail.UI.Diagnostics.DiagnosticsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="What's being captured right now?"
+        Width="360"
+        Height="420"
+        ResizeMode="NoResize"
+        Style="{StaticResource Window.Base}">
+    <Grid Background="{DynamicResource Brush.bg.base}" Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Style="{StaticResource Text.SectionHeading}"
+                   Text="What's being captured right now?" />
+
+        <!-- The one line a customer standing behind the technician needs to be able to read. -->
+        <TextBlock Grid.Row="1"
+                   Margin="0,8,0,12"
+                   TextWrapping="Wrap"
+                   Style="{StaticResource Text.Body}"
+                   Text="{Binding Headline}"
+                   AutomationProperties.Name="Capture status"
+                   AutomationProperties.LiveSetting="Polite" />
+
+        <ItemsControl Grid.Row="2" ItemsSource="{Binding Rows}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{StaticResource Text.Secondary}" Text="{Binding Label}" />
+                        <TextBlock Grid.Column="1"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource Text.Mono}"
+                                   Text="{Binding Value}" />
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- States only, never content. The clipboard text is built from the diagnostics record alone. -->
+        <Button Grid.Row="3"
+                HorizontalAlignment="Left"
+                Style="{StaticResource Button.Secondary}"
+                Content="Copy diagnostics"
+                Command="{Binding CopyCommand}"
+                AutomationProperties.Name="Copy diagnostics to the clipboard" />
+    </Grid>
+</Window>

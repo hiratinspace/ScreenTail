@@ -110,6 +110,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $shell = Get-ChildItem $out -Filter 'shell-*.png'
           if ($shell.Count -lt 6) { throw "Expected 6 shell screenshots, found $($shell.Count)." }
+          $panel = Get-ChildItem $out -Filter 'panel-*.png'
+          if ($panel.Count -lt 3) { throw "Expected 3 diagnostics-panel screenshots, found $($panel.Count)." }
           # The renderer reports how many distinct colours it drew. A window that rendered nothing is one
           # flat rectangle; anything with text, borders and a badge on it is hundreds. File size was the
           # first version of this and was wrong - it failed on a shell that had just been improved,
