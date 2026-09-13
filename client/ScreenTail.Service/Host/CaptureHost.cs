@@ -101,7 +101,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             stoppingToken).ConfigureAwait(false));
         LogRegistry(logger, registry.Version, registry.Tools.Count, registry.BrowserPatterns.Count, registry.Grace.TotalSeconds);
 
-        var policy = new ScopePolicy(registry);
+        // ST-043: the shipped exclusions — password managers, banking tabs, credential prompts. Loaded
+        // beside the registry and refused the same way if it will not parse: a privacy list that silently
+        // half-loaded would stop excluding whatever came after the broken rule, and nothing would say so.
+        var exclusions = ExclusionList.Load(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Registry", "exclusions-default.json"),
+            stoppingToken).ConfigureAwait(false));
+        LogExclusions(logger, exclusions.Version, exclusions.ExcludedApplications, exclusions.Rules);
+
+        var policy = new ScopePolicy(registry, new ScopeOptions { Exclusions = exclusions });
         var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), logger);
         foreground.Changed += coordinator.Observe;
 
@@ -215,6 +223,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Foreground detection using {Mode}")]
     private static partial void LogForegroundMode(ILogger logger, string mode);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Exclusions {Version}: {Applications} applications, {Rules} rules")]
+    private static partial void LogExclusions(ILogger logger, string version, int applications, int rules);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Hotkey {Hotkey} is unavailable: {Reason} Suggested instead: {Suggestion}")]
     private static partial void LogHotkeyConflict(ILogger logger, string hotkey, string reason, string suggestion);

@@ -31,5 +31,6 @@
 
   <ItemGroup>
     <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\shared\registry\exclusions-default.json" Link="Registry\exclusions-default.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

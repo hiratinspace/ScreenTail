@@ -61,6 +61,15 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
             wanted = _until > _time.GetUtcNow();
         }
 
+        // Re-derived from the session rather than trusted, because Holding is only this guard's belief.
+        // A session that stopped and started again inside the ten-second window left it true while the
+        // new session was Recording: the guard saw "already holding", did nothing, and the credential
+        // prompt still on screen was captured for the whole of the new session.
+        if (Holding && machine.State is not SessionState.Suppressed)
+        {
+            Holding = false;
+        }
+
         if (wanted == Holding)
         {
             return Holding;

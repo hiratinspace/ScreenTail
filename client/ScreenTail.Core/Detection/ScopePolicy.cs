@@ -13,6 +13,13 @@ public sealed record ScopeOptions
 
     /// <summary>Processes the technician has excluded outright (ST-043). Beats everything else.</summary>
     public IReadOnlySet<string> ExcludedProcesses { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The shipped and tenant-synced exclusions: password managers, banking tabs, credential prompts
+    /// (ST-043). Null means none are loaded, which is a misconfiguration rather than a policy — the
+    /// defaults ship with the product.
+    /// </summary>
+    public Privacy.ExclusionList? Exclusions { get; init; }
 }
 
 /// <param name="Scope">What the timeline records for this window.</param>
@@ -73,6 +80,15 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
         }
 
         var process = window.ProcessName ?? "an unknown app";
+
+        // The shipped list first: password managers, banking tabs, credential prompts. Checked before the
+        // technician's own additions and before anything else, because an exclusion beats every reason a
+        // window might otherwise be in scope — a password manager opened during a support session is
+        // still support work, and still must not be photographed (ST-043).
+        if (_options.Exclusions?.Match(window) is { } excluded)
+        {
+            return new ScopeDecision(CaptureScope.Excluded, excluded.Id, null, $"Not capturing — {excluded.DisplayName} is excluded.");
+        }
 
         // A window the technician excluded is never captured, whatever else it looks like.
         if (window.ProcessName is { } name && _options.ExcludedProcesses.Contains(name))
