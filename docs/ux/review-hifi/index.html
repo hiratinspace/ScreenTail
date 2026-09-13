@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-state="default">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScreenTail — Review, hi-fi (ST-015)</title>
+<link rel="stylesheet" href="tokens.g.css">
+<link rel="stylesheet" href="review.css">
+</head>
+<body>
+
+<div class="toolbar">
+  <strong>Review — hi-fi</strong>
+  <span class="badge">ST-015</span>
+  <span class="spacer"></span>
+  <span style="color:var(--text-muted)">State</span>
+  <button data-state-set="default" aria-pressed="true">Default</button>
+  <button data-state-set="low-confidence" aria-pressed="false">Low confidence</button>
+  <button data-state-set="partial" aria-pressed="false">Partial capture</button>
+  <button data-state-set="purged" aria-pressed="false">Frames purged</button>
+  <button data-state-set="offline" aria-pressed="false">Offline</button>
+  <button data-state-set="draft-failed" aria-pressed="false">Draft failed</button>
+  <button data-state-set="partial-publish" aria-pressed="false">Publish partly failed</button>
+  <button data-state-set="published" aria-pressed="false">Published</button>
+  <span class="spacer"></span>
+  <button data-theme-set="dark" aria-pressed="true">Dark</button>
+  <button data-theme-set="light" aria-pressed="false">Light</button>
+</div>
+
+<main class="window">
+
+  <div class="titlebar">
+    <h1>Review — Printer offline</h1>
+    <span class="meta">Acme Dental · 12 min · Sep 10, 14:02</span>
+    <span class="badge published" data-when="published">Published</span>
+    <span class="spacer" style="flex:1"></span>
+    <button class="danger-ghost">Discard</button>
+    <button class="primary" style="width:auto" data-unless="draft-failed offline">Publish ▸</button>
+    <button class="primary" style="width:auto" disabled data-when="draft-failed offline">Publish ▸</button>
+  </div>
+
+  <div class="panes">
+
+    <!-- ---------------------------------------------------------------- note -->
+    <section class="pane" aria-label="Note">
+      <header><span>Note</span><span>Ctrl+S saves now</span></header>
+      <div class="body">
+
+        <div class="banner warning" data-when="partial">
+          <span aria-hidden="true">⚠</span>
+          <span><span class="kind">Partial capture.</span>Capture started late or was interrupted. Some steps may be missing.</span>
+        </div>
+        <div class="banner warning" data-when="purged">
+          <span aria-hidden="true">⚠</span>
+          <span><span class="kind">Frames removed.</span>3 screenshots were removed because they could not be redacted in time.</span>
+        </div>
+        <div class="banner info" data-when="offline">
+          <span aria-hidden="true">◷</span>
+          <span><span class="kind">Offline.</span>Draft pending — offline. It will be drafted when the connection returns.</span>
+        </div>
+
+        <div data-when="draft-failed">
+          <h2 class="section-heading" style="margin-top:0">We couldn't draft this session</h2>
+          <p class="note-text">The transcript and timeline are still here, so nothing was lost. Retrying
+            drafts it again from what was captured.</p>
+          <button class="primary" style="width:auto">Retry draft</button>
+          <p class="hint">Publish stays disabled: there is no note to publish yet.</p>
+        </div>
+
+        <div data-unless="draft-failed">
+          <h2 class="section-heading" style="margin-top:0">Problem</h2>
+          <p class="note-text">The front-desk printer stopped accepting jobs. Queued documents stayed at
+            “Printing” and nothing reached the device.</p>
+
+          <h2 class="section-heading">Steps</h2>
+          <ol class="steps">
+            <li class="step">
+              <span>Opened Services and checked the Print Spooler service — it was stopped.
+                <span class="chip">frame 2</span></span>
+            </li>
+            <li class="step" data-unless="low-confidence">
+              <span>Restarted the Print Spooler service and set it to start automatically.
+                <span class="chip">frame 3</span></span>
+            </li>
+            <li class="step low" data-when="low-confidence">
+              <span>
+                <span class="warn" aria-hidden="true">⚠</span>Restarted the Print Spooler service and set it
+                to start automatically.
+                <span class="chip">frame 3</span>
+                <span class="inferred">Inferred from screen only — please verify. Alt+C confirms.</span>
+              </span>
+            </li>
+            <li class="step">
+              <span>Cleared the stuck print queue and sent a test page.
+                <span class="chip">frame 6</span>
+                <span class="quote">14:02:10 “clearing the queue now”</span></span>
+            </li>
+          </ol>
+
+          <h2 class="section-heading">Result</h2>
+          <p class="note-text">The test page printed. The user confirmed their queued invoice came out.</p>
+
+          <h2 class="section-heading">Follow-ups</h2>
+          <p class="note-text">The spooler had been set to Manual. Worth checking the other two front-desk
+            machines for the same setting.</p>
+        </div>
+      </div>
+      <div class="autosave">Saved</div>
+    </section>
+
+    <!-- --------------------------------------------------------- screenshots -->
+    <section class="pane" aria-label="Screenshots">
+      <header>
+        <span>Screenshots</span>
+        <span data-unless="purged">7 of 14 included</span>
+        <span data-when="purged">7 of 11 included · 3 removed</span>
+      </header>
+      <div class="body">
+        <div class="filmstrip">
+          <figure class="frame included"><div class="shot"></div><figcaption>1</figcaption></figure>
+          <figure class="frame included"><div class="shot"></div><figcaption>2</figcaption></figure>
+          <figure class="frame included"><div class="shot"></div><figcaption>3</figcaption></figure>
+          <figure class="frame excluded"><div class="shot"></div><figcaption>4</figcaption></figure>
+          <div class="gap">Paused — sensitive window<br>14:04:02 – 14:04:19</div>
+          <figure class="frame included"><div class="shot"></div><figcaption>5</figcaption></figure>
+          <figure class="frame included"><div class="shot"></div><figcaption>6</figcaption></figure>
+          <figure class="frame included"><div class="shot"></div><figcaption>7</figcaption></figure>
+        </div>
+      </div>
+      <div class="autosave">Space include · B blur · Del delete · Enter enlarge</div>
+    </section>
+
+    <!-- ------------------------------------------------------------- publish -->
+    <section class="pane" aria-label="Publish">
+      <header><span>Publish</span><span>Ctrl+Enter</span></header>
+      <div class="body">
+
+        <div data-when="published">
+          <div class="banner info"><span aria-hidden="true">✓</span><span>Published to ConnectWise.</span></div>
+          <ul style="padding-left:var(--space-4); line-height:1.8">
+            <li>Ticket note <span class="badge published">added</span></li>
+            <li>Time entry, 0:30 <span class="badge published">added</span></li>
+          </ul>
+          <button class="primary" style="width:auto">Open in ConnectWise</button>
+        </div>
+
+        <div data-when="partial-publish">
+          <div class="banner danger">
+            <span aria-hidden="true">✕</span>
+            <span><span class="kind">Publish incomplete.</span>The note was added. The time entry was rejected.</span>
+          </div>
+          <ul style="padding-left:var(--space-4); line-height:1.8">
+            <li>Ticket note <span class="badge published">added</span></li>
+            <li>Time entry <span class="badge">failed — the ticket is closed to new time</span></li>
+          </ul>
+          <button class="primary" style="width:auto">Retry time entry</button>
+        </div>
+
+        <div data-unless="published partial-publish">
+          <div class="field">
+            <label for="ticket">Ticket <span class="badge">Suggested</span></label>
+            <input class="control" id="ticket" value="#48213 Printer offline — Acme Dental">
+            <p class="hint">Suggested from the window title — check it is the right ticket.</p>
+          </div>
+
+          <div class="field">
+            <label>Note type</label>
+            <label style="display:block"><input type="radio" name="type" checked> Internal</label>
+            <label style="display:block"><input type="radio" name="type"> Discussion — visible to the customer</label>
+          </div>
+
+          <div class="field">
+            <label for="time">Time entry</label>
+            <input class="control" id="time" value="0:30">
+            <p class="hint">12 minutes captured, rounded to 15 by this tenant's billing rule.</p>
+          </div>
+
+          <div class="field">
+            <label>Destinations</label>
+            <label style="display:block"><input type="checkbox" checked> Ticket note</label>
+            <label style="display:block"><input type="checkbox"> KB article</label>
+            <p class="hint">Not a KB candidate: a one-off device fault.</p>
+          </div>
+
+          <button class="primary" data-unless="draft-failed offline">Publish &nbsp; Ctrl+Enter</button>
+          <button class="primary" disabled data-when="draft-failed">Publish &nbsp; Ctrl+Enter</button>
+          <p class="hint" data-when="draft-failed">There is no note to publish yet. Retry the draft first.</p>
+          <button class="primary" disabled data-when="offline">Publish &nbsp; Ctrl+Enter</button>
+          <p class="hint" data-when="offline">Publishing needs a connection. The draft is saved on this device.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- --------------------------------------------------------------- timeline -->
+  <div class="timeline">
+    <strong>Timeline &amp; transcript</strong> <span style="color:var(--text-muted)">Alt+T</span>
+    <div class="track">
+      <div class="scope"></div>
+      <div class="suppressed"></div>
+      <div class="mark" style="left:12%"></div>
+      <div class="mark frame" style="left:18%"></div>
+      <div class="mark" style="left:24%"></div>
+      <div class="mark frame" style="left:31%"></div>
+      <div class="mark" style="left:47%"></div>
+      <div class="mark frame" style="left:80%"></div>
+    </div>
+    <div class="legend">
+      <span class="l-click">click</span><span class="l-frame">screenshot</span>
+      <span class="l-scope">in scope</span><span class="l-paused">paused</span>
+    </div>
+    <div class="transcript">[14:02:10] clearing the queue now</div>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  const root = document.documentElement;
+
+  function apply(attribute, value) {
+    root.dataset[attribute] = value;
+    document.querySelectorAll(`[data-${attribute}-set]`).forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset[attribute + 'Set'] === value)));
+    document.querySelectorAll('[data-when]').forEach(el =>
+      el.hidden = !el.dataset.when.split(' ').includes(root.dataset.state));
+    document.querySelectorAll('[data-unless]').forEach(el =>
+      el.hidden = el.dataset.unless.split(' ').includes(root.dataset.state));
+  }
+
+  document.addEventListener('click', e => {
+    const button = e.target.closest('[data-state-set], [data-theme-set]');
+    if (!button) return;
+    if (button.dataset.stateSet) apply('state', button.dataset.stateSet);
+    if (button.dataset.themeSet) apply('theme', button.dataset.themeSet);
+  });
+
+  // ?state=purged&theme=light deep-links a view, so a screenshot is reproducible and a README can point
+  // at one state rather than at "open it and click the fourth button".
+  const query = new URLSearchParams(location.search);
+  const states = [...document.querySelectorAll('[data-state-set]')].map(b => b.dataset.stateSet);
+  const requestedState = query.get('state');
+  const requestedTheme = query.get('theme');
+  apply('state', states.includes(requestedState) ? requestedState : root.dataset.state);
+  apply('theme', ['dark', 'light'].includes(requestedTheme) ? requestedTheme : root.dataset.theme);
+})();
+</script>
+</body>
+</html>

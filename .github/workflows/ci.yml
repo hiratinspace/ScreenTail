@@ -60,7 +60,7 @@ jobs:
             flag '^(web/|\.nvmrc)' web
             flag '^research/' research
             flag '^(shared/schema/|client/ScreenTail\.Shared/Generated/|web/src/generated/)' schema
-            flag '^(shared/design/|client/ScreenTail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css)' design
+            flag '^(shared/design/|client/ScreenTail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -239,6 +239,12 @@ jobs:
           node-version-file: .nvmrc
       - name: Generated WPF dictionaries and CSS match tokens.json
         run: npm run check
+
+      # ST-015: the Review hi-fi's contrast report is measured from tokens.json, not written by hand, and
+      # this is what keeps it true after a token change. It exits non-zero on any pair under its floor.
+      - name: Review hi-fi still passes AA contrast
+        working-directory: docs/ux/review-hifi
+        run: python3 contrast.py
 
   workflows:
     name: Workflows are well-formed
