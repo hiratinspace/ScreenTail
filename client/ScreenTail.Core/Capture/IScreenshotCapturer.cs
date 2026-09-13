@@ -37,4 +37,14 @@ public interface IScreenshotCapturer
     /// the click and the capture, or Windows refused. A null is a missing frame, never a blank one.
     /// </summary>
     CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge);
+
+    /// <summary>
+    /// Reduces the window in front to the small grid the scene sampler compares (ST-026), or null when
+    /// there is nothing to look at.
+    ///
+    /// Separate from <see cref="CaptureForegroundWindow"/> because this runs once a second whether or not
+    /// anything happened, and the answer is almost always "nothing did". Encoding a JPEG to find that out
+    /// would spend the session's CPU budget on frames that are thrown away.
+    /// </summary>
+    byte[]? CaptureSceneGrid();
 }
