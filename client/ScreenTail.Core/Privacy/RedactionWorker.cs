@@ -31,12 +31,17 @@ public sealed record RedactionOptions
 /// <param name="Masked">How many regions were painted over, by kind. Counts only (INV-10).</param>
 /// <param name="Spent">Time spent redacting, across all frames — the numerator of the per-frame cost.</param>
 /// <param name="Slowest">The worst single frame, which is what a technician notices, not the average.</param>
+/// <param name="Failed">
+/// Frames whose redaction threw. Counted rather than swallowed: a rising number here means redaction is
+/// broken, and the alternative was a worker that died and took every future screenshot with it.
+/// </param>
 public sealed record RedactionProgress(
     long Frames,
     long Unreadable,
     IReadOnlyDictionary<MaskKind, long> Masked,
     TimeSpan Spent = default,
-    TimeSpan Slowest = default)
+    TimeSpan Slowest = default,
+    long Failed = 0)
 {
     /// <summary>ST-041 budgets 700 ms a frame; this is the number that gets compared to it.</summary>
     public TimeSpan PerFrame => Frames == 0 ? TimeSpan.Zero : Spent / Frames;
@@ -70,8 +75,11 @@ public sealed class RedactionWorker(
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly Dictionary<MaskKind, long> _masked = [];
     private readonly Lock _counters = new();
+    private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _givenUp = new(StringComparer.Ordinal);
     private long _frames;
     private long _unreadable;
+    private long _failed;
     private TimeSpan _spent;
     private TimeSpan _slowest;
 
@@ -88,7 +96,7 @@ public sealed class RedactionWorker(
             lock (_counters)
             {
                 return new RedactionProgress(
-                    _frames, _unreadable, new Dictionary<MaskKind, long>(_masked), _spent, _slowest);
+                    _frames, _unreadable, new Dictionary<MaskKind, long>(_masked), _spent, _slowest, _failed);
             }
         }
     }
@@ -105,13 +113,55 @@ public sealed class RedactionWorker(
     /// <summary>Processes one frame if any is waiting. Returns false when the queue is empty.</summary>
     public async Task<bool> ProcessOneAsync(CancellationToken ct = default)
     {
-        var frame = await store.TakeNextPendingFrameAsync(ct).ConfigureAwait(false);
+        HashSet<string> busy;
+        lock (_counters)
+        {
+            busy = [.. _inFlight, .. _givenUp];
+        }
+
+        var frame = await store.TakeNextPendingFrameAsync(busy, ct).ConfigureAwait(false);
         if (frame is null)
         {
             return false;
         }
 
-        await RedactAsync(frame, ct).ConfigureAwait(false);
+        // Claimed before any await that could let the other worker in. A frame stays redaction_pending
+        // until its redaction finishes, so the query cannot tell "waiting" from "being worked on": without
+        // this both workers take the same row, both run OCR on it, and the slower one's write finds
+        // nothing to update and throws.
+        lock (_counters)
+        {
+            if (!_inFlight.Add(frame.Id))
+            {
+                return false;
+            }
+        }
+
+        try
+        {
+            await RedactAsync(frame, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Given up on rather than retried. A frame whose redaction throws will throw again — the
+            // store refusing a write does not become a different store on the next pass — and retrying it
+            // is a tight loop burning the CPU budget on one frame forever, which is a worse failure than
+            // the one this replaced. Left pending, so finalize purges it: a frame nobody could make
+            // readable is exactly what INV-1 says must not be kept.
+            lock (_counters)
+            {
+                _givenUp.Add(frame.Id);
+                _failed++;
+            }
+        }
+        finally
+        {
+            lock (_counters)
+            {
+                _inFlight.Remove(frame.Id);
+            }
+        }
+
         return true;
     }
 
@@ -121,7 +171,7 @@ public sealed class RedactionWorker(
         {
             while (!ct.IsCancellationRequested)
             {
-                if (!await ProcessOneAsync(ct).ConfigureAwait(false))
+                if (!await StepAsync(ct).ConfigureAwait(false))
                 {
                     // Nothing waiting. Frames arrive on clicks, so idling briefly costs nothing and keeps
                     // the worker off the CPU while the technician is reading rather than clicking.
@@ -131,6 +181,36 @@ public sealed class RedactionWorker(
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    /// <summary>
+    /// The loop's last line of defence.
+    ///
+    /// Before this, an exception from anywhere outside <see cref="RedactAsync"/>'s own try blocks — most
+    /// realistically the store refusing a write for a frame something else had already redacted — faulted
+    /// the worker task and ended the loop. Both workers went the same way, and from then on every staged
+    /// frame stayed pending until finalize purged it: a service that produced no screenshots at all for
+    /// the rest of the day, with nothing in the log to say why.
+    ///
+    /// <see cref="ProcessOneAsync"/> already handles a frame that fails; this catches everything else, so
+    /// that no future change can end the loop by throwing somewhere new.
+    /// </summary>
+    private async Task<bool> StepAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await ProcessOneAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            lock (_counters)
+            {
+                _failed++;
+            }
+
+            // False, so the loop waits before trying again rather than spinning on whatever is wrong.
+            return false;
         }
     }
 

@@ -22,6 +22,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>For the redaction worker only: the oldest frame still waiting for redaction, with its image.</summary>
     Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// The same, skipping frames another worker already has in hand. A frame stays
+    /// <c>redaction_pending</c> until its redaction finishes, so the query alone cannot tell "waiting"
+    /// from "being worked on" and two workers would take the same row.
+    /// </summary>
+    Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default);
+
     /// <summary>Replaces the staged image with the redacted one and clears <c>redaction_pending</c>.</summary>
     /// <exception cref="InvalidOperationException">The frame doesn't exist or was already redacted.</exception>
     Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default);
