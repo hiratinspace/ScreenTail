@@ -98,6 +98,22 @@ jobs:
           if ($files.Count -lt 3) { throw "Expected 3 gallery screenshots, found $($files.Count)." }
           $files | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 
+      # ST-070: the same trick for the shell. RenderTargetBitmap draws offscreen, so this works on a
+      # runner with no interactive desktop — which is what makes a WPF shell checkable without a machine
+      # to look at. A blank or tiny PNG means the window rendered nothing, which is what a missing
+      # resource key or a style on the wrong target type actually produces.
+      - name: Shell screenshots
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gallery'
+          dotnet run --project ScreenTail.UI -c Release --no-build -- --screenshot $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $shell = Get-ChildItem $out -Filter 'shell-*.png'
+          if ($shell.Count -lt 6) { throw "Expected 6 shell screenshots, found $($shell.Count)." }
+          foreach ($file in $shell) {
+            if ($file.Length -lt 10000) { throw "$($file.Name) is $($file.Length) bytes; the shell rendered nothing." }
+          }
+          $shell | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+
       - name: Upload gallery screenshots
         if: always()
         uses: actions/upload-artifact@v7

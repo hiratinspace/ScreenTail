@@ -15,16 +15,22 @@ public partial class App : Application
         ThemeManager.Apply(ThemeManager.Effective(AppTheme.Dark), Resources);
 
         var args = e.Args;
+        var screenshotIndex = Array.IndexOf(args, "--screenshot");
+        var directory = screenshotIndex >= 0 && screenshotIndex + 1 < args.Length ? args[screenshotIndex + 1] : null;
+
         Window window;
         if (Array.IndexOf(args, "--gallery") >= 0)
         {
-            var screenshotIndex = Array.IndexOf(args, "--screenshot");
-            var directory = screenshotIndex >= 0 && screenshotIndex + 1 < args.Length ? args[screenshotIndex + 1] : null;
             window = new GalleryWindow(directory);
         }
         else
         {
-            window = new ShellWindow();
+            // The shell renders itself the same way the gallery does when asked. RenderTargetBitmap draws
+            // offscreen, so this works on a hosted runner with no interactive desktop — which is what makes
+            // a XAML shell checkable at all without a machine to look at. It catches what writing XAML
+            // blind actually gets wrong: a missing resource key, a style on the wrong target type, a
+            // binding to a property that is not there.
+            window = new ShellWindow(directory);
         }
 
         MainWindow = window;

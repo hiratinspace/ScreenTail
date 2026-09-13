@@ -7,9 +7,73 @@
         MinWidth="1024"
         MinHeight="680"
         Style="{StaticResource Window.Base}">
-    <!-- Shell placeholder. ST-070 builds navigation, theming and the service-connection banner. -->
-    <TextBlock Margin="16"
-               Style="{StaticResource Text.Body}"
-               Text="{Binding Status}"
-               AutomationProperties.Name="Service connection status" />
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Spec §5 S1: shown only when the service is not answering. A bar that is always there is a bar
+             nobody reads, including on the day it says something that matters. -->
+        <Border Grid.Row="0"
+                Style="{StaticResource Banner.Warning}"
+                Visibility="{Binding BannerVisibility}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource Text.Body}"
+                           Text="{Binding Banner}"
+                           AutomationProperties.LiveSetting="Assertive" />
+                <Button Grid.Column="1"
+                        Style="{StaticResource Button.Secondary}"
+                        Content="Start"
+                        Command="{Binding StartServiceCommand}"
+                        AutomationProperties.Name="Start the capture service" />
+            </Grid>
+        </Border>
+
+        <!-- Navigation. Spec §5: Review, History, Settings. -->
+        <Border Grid.Row="1" Padding="16,12" Background="{DynamicResource Brush.bg.raised}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button Style="{StaticResource Pill.Control}"
+                            Margin="0,0,8,0"
+                            Content="Review"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="Review" />
+                    <Button Style="{StaticResource Pill.Control}"
+                            Margin="0,0,8,0"
+                            Content="History"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="History" />
+                    <Button Style="{StaticResource Pill.Control}"
+                            Content="Settings"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="Settings" />
+                </StackPanel>
+
+                <!-- What the service says it is doing. Its own region so a screen reader is told when it
+                     changes without the whole window being re-announced (Spec §7). -->
+                <Border Grid.Column="2" Style="{StaticResource StatusPill}">
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Text="{Binding Status}"
+                               AutomationProperties.Name="Capture state"
+                               AutomationProperties.LiveSetting="Polite" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <ContentControl Grid.Row="2" Margin="16" Content="{Binding CurrentView}" />
+    </Grid>
 </Window>
