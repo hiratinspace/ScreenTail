@@ -58,43 +58,59 @@ public sealed class ScreenshotTests
     [Fact]
     public void WhatEachStageOfCaptureCosts()
     {
-        // The measurement this ticket is really for, taken at two sizes.
+        // The measurement this ticket is really for, and it took three attempts to make it mean anything.
         //
-        // One size cannot answer the question. The first run of this measured a 420x220 window at 20 ms and
-        // divided by its area, which said "217 ms per megapixel" and implied 1.8 seconds for a 4K frame.
-        // That number was an artifact: almost all of those 20 ms were fixed cost, and dividing fixed cost by
-        // a tiny area inflates it without limit. Two points separate the constant from the slope, and the
-        // slope is what a 4K frame actually costs.
+        // One window size divided total time by a tiny area and claimed 217 ms per megapixel. Two sizes
+        // fixed that but still charged a 4K frame for an 8.3-megapixel encode, which never happens: the
+        // stored image is capped at 1600 px, so grab and convert scale with the source while encode scales
+        // with what is kept. A third measurement, taken with the cap lowered so a resize actually occurs,
+        // gives the resize its own slope. Only then does "what would 4K cost" mean something.
         Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
         using var capturer = new ScreenshotCapturer();
 
-        var small = MeasureAt(capturer, 420, 220);
-        var large = MeasureAt(capturer, 0, 0);
-        Assert.SkipWhen(small is null || large is null, "Could not take the foreground.");
+        var small = MeasureAt(capturer, 420, 220, Downscale.MaxEdge);
+        var large = MeasureAt(capturer, 0, 0, Downscale.MaxEdge);
+        var resized = MeasureAt(capturer, 0, 0, maxEdge: 640);
+        Assert.SkipWhen(small is null || large is null || resized is null, "Could not take the foreground.");
 
-        var smallPixels = small!.SourceWidth * (double)small.SourceHeight;
-        var largePixels = large!.SourceWidth * (double)large.SourceHeight;
-        Assert.SkipWhen(largePixels <= smallPixels * 4, "The two windows are too close in size to separate fixed from per-pixel cost.");
+        var smallMp = small!.SourceWidth * (double)small.SourceHeight / 1_000_000;
+        var largeMp = large!.SourceWidth * (double)large.SourceHeight / 1_000_000;
+        Assert.SkipWhen(largeMp <= smallMp * 4, "The two windows are too close in size to separate fixed cost from slope.");
 
-        // total = fixed + slope x pixels, solved from the two measurements.
-        var slopePerPixel = (large.Timing.Total.TotalMilliseconds - small.Timing.Total.TotalMilliseconds) / (largePixels - smallPixels);
-        var fixedCost = small.Timing.Total.TotalMilliseconds - (slopePerPixel * smallPixels);
-        var fourK = fixedCost + (slopePerPixel * 3840 * 2160);
+        // Per stage, because the stages scale against different things.
+        var grabSlope = Slope(small.Timing.Grab, large.Timing.Grab, smallMp, largeMp);
+        var grabFixed = small.Timing.Grab.TotalMilliseconds - (grabSlope * smallMp);
+        var convertSlope = Slope(small.Timing.Convert, large.Timing.Convert, smallMp, largeMp);
+        var encodeSlope = Slope(small.Timing.Encode, large.Timing.Encode, smallMp, largeMp);
+        var resizeSlope = resized!.Timing.Resize.TotalMilliseconds / largeMp;
+
+        const double FourKMp = 3840 * 2160 / 1_000_000.0;
+        var storedMp = Downscale.For(3840, 2160) is var plan ? plan.Width * (double)plan.Height / 1_000_000 : 0;
+        var fourK = grabFixed + (grabSlope * FourKMp) + (convertSlope * FourKMp) + (resizeSlope * FourKMp) + (encodeSlope * storedMp);
 
         Measurements.Record($"Capture {small.SourceWidth}x{small.SourceHeight}: {small.Timing}");
         Measurements.Record($"Capture {large.SourceWidth}x{large.SourceHeight}: {large.Timing}");
+        Measurements.Record($"Capture {resized.SourceWidth}x{resized.SourceHeight} → {resized.Width}x{resized.Height}: {resized.Timing}");
         Measurements.Record(
-            $"Capture cost: **{fixedCost:F1} ms fixed** + **{slopePerPixel * 1_000_000:F1} ms/megapixel** → a 4K frame would be about **{fourK:F0} ms** against a 120 ms budget");
+            $"Per stage: grab **{grabFixed:F1} ms fixed + {grabSlope:F1} ms/MP**, convert {convertSlope:F1} ms/MP, "
+            + $"resize {resizeSlope:F1} ms/MP, encode {encodeSlope:F1} ms/MP of stored");
+        Measurements.Record(
+            $"A 4K frame (8.3 MP → {plan.Width}x{plan.Height} stored) would cost about **{fourK:F0} ms** against a 120 ms budget");
 
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count.");
 
-        // The real budget is 4K, which this display is not, so what is enforced here is the thing that
-        // would make 4K hopeless: a fixed cost already eating the whole budget before a pixel is copied.
-        Assert.True(fixedCost < 120, $"fixed cost alone is {fixedCost:F1} ms, and the whole 4K budget is 120 ms");
+        // What a 1080p window costs is enforceable on this hardware; 4K is reported, because this display
+        // is not 4K and asserting an extrapolation would be asserting arithmetic rather than a machine.
+        Assert.True(
+            large.Timing.Total.TotalMilliseconds < 120,
+            $"a {largeMp:F1} MP window took {large.Timing.Total.TotalMilliseconds:F0} ms ({large.Timing})");
     }
 
+    private static double Slope(TimeSpan small, TimeSpan large, double smallMp, double largeMp) =>
+        (large.TotalMilliseconds - small.TotalMilliseconds) / (largeMp - smallMp);
+
     /// <summary>Captures one window of the requested size, or the whole screen when given zero.</summary>
-    private static CapturedFrame? MeasureAt(ScreenshotCapturer capturer, int width, int height)
+    private static CapturedFrame? MeasureAt(ScreenshotCapturer capturer, int width, int height, int maxEdge)
     {
         using var window = DesktopWindow.Create($"ScreenTail timing {width}x{height}");
         if (!window.TakeForeground())
@@ -113,10 +129,10 @@ public sealed class ScreenshotTests
 
         Thread.Sleep(150);
 
-        // Warm first: the first capture at a new size allocates the bitmap, and that cost belongs to
-        // start-up rather than to every click.
-        capturer.CaptureForegroundWindow();
-        var frames = Enumerable.Range(0, 10).Select(_ => capturer.CaptureForegroundWindow()).Where(f => f is not null).ToList();
+        // Warm first: the first capture at a new size allocates the bitmap, and that belongs to start-up
+        // rather than to every click.
+        capturer.CaptureForegroundWindow(maxEdge);
+        var frames = Enumerable.Range(0, 10).Select(_ => capturer.CaptureForegroundWindow(maxEdge)).Where(f => f is not null).ToList();
         return frames.Count == 0 ? null : frames.MaxBy(f => f!.Timing.Total);
     }
 
