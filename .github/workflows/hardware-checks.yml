@@ -11,6 +11,9 @@ on:
     paths:
       - 'client/ScreenTail.Service/Capabilities/**'
       - 'client/ScreenTail.Core/Capabilities/**'
+      - 'client/ScreenTail.Service/Detection/**'
+      - 'client/ScreenTail.Core/Detection/**'
+      - 'client/ScreenTail.Tests.Windows/**'
       - '.github/workflows/hardware-checks.yml'
   workflow_dispatch:
 
@@ -100,6 +103,8 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $out 'machine.json'), $machineJson, $utf8)
           Write-Host $machineJson
 
+      # Includes the ST-022 foreground tests, which create real windows and time how long the watcher takes
+      # to notice. They skip on any machine without an interactive desktop, which is why they live here.
       - name: Windows tests on real hardware
         run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
 
