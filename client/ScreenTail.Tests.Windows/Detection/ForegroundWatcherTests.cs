@@ -4,6 +4,7 @@ using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Detection;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Detection;
+using ScreenTail.Tests.Windows;
 
 namespace ScreenTail.Tests.Windows.Detection;
 
@@ -47,9 +48,9 @@ public sealed class ForegroundWatcherTests
         };
         await watcher.StartAsync(TestContext.Current.CancellationToken);
 
-        using var window = SyntheticWindow.Create(title);
+        using var window = DesktopWindow.Create(title);
         var clock = Stopwatch.StartNew();
-        Assert.SkipUnless(window.BringToFront(), "Windows refused to change the foreground window on this desktop.");
+        Assert.SkipUnless(window.TakeForeground(), "Windows refused to change the foreground window on this desktop.");
         var reported = await seen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         clock.Stop();
 
@@ -80,8 +81,8 @@ public sealed class ForegroundWatcherTests
         };
         await watcher.StartAsync(TestContext.Current.CancellationToken);
 
-        using var window = SyntheticWindow.Create(first);
-        Assert.SkipUnless(window.BringToFront(), "Windows refused to change the foreground window on this desktop.");
+        using var window = DesktopWindow.Create(first);
+        Assert.SkipUnless(window.TakeForeground(), "Windows refused to change the foreground window on this desktop.");
         await Task.Delay(200, TestContext.Current.CancellationToken);
         window.Retitle(second);
 
@@ -183,167 +184,4 @@ public sealed class ForegroundWatcherTests
         return null;
     }
 
-    /// <summary>A real top-level window on its own message-pumping thread, so it behaves like any other app's.</summary>
-    private sealed class SyntheticWindow : IDisposable
-    {
-        private readonly Thread _thread;
-        private readonly TaskCompletionSource<IntPtr> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private volatile bool _closing;
-
-        private SyntheticWindow(string title)
-        {
-            _thread = new Thread(() => Run(title)) { IsBackground = true, Name = "synthetic window" };
-            _thread.SetApartmentState(ApartmentState.STA);
-            _thread.Start();
-            Handle = _created.Task.GetAwaiter().GetResult();
-        }
-
-        public IntPtr Handle { get; }
-
-        public static SyntheticWindow Create(string title) => new(title);
-
-        /// <summary>
-        /// Windows won't let a process that hasn't received input steal the foreground, which is exactly the
-        /// situation on an unattended runner: the first attempt at this skipped on the laptop. Attaching to
-        /// the current foreground thread's input queue lifts that restriction for the moment it takes to
-        /// activate, and injects nothing — this workflow must stay safe to run on a machine in use.
-        /// </summary>
-        public bool BringToFront()
-        {
-            _ = ShowWindow(Handle, SW_SHOW);
-
-            var ours = GetCurrentThreadId();
-            var theirs = GetWindowThreadProcessId(GetForegroundWindow(), out _);
-            var attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true);
-            try
-            {
-                _ = BringWindowToTop(Handle);
-                _ = SetForegroundWindow(Handle);
-                if (GetForegroundWindow() != Handle)
-                {
-                    // The shell's own way of activating a window, which the foreground lock doesn't refuse.
-                    SwitchToThisWindow(Handle, true);
-                }
-            }
-            finally
-            {
-                if (attached)
-                {
-                    _ = AttachThreadInput(ours, theirs, false);
-                }
-            }
-
-            for (var i = 0; i < 40 && GetForegroundWindow() != Handle; i++)
-            {
-                Thread.Sleep(25);
-            }
-
-            return GetForegroundWindow() == Handle;
-        }
-
-        public void Retitle(string title) => SetWindowText(Handle, title);
-
-        public void Dispose()
-        {
-            _closing = true;
-            _ = PostMessage(Handle, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-            _thread.Join(TimeSpan.FromSeconds(2));
-        }
-
-        private void Run(string title)
-        {
-            // "STATIC" is a class Windows already registers, so there's no class to register or clean up.
-            var window = CreateWindowEx(
-                0,
-                "STATIC",
-                title,
-                WS_OVERLAPPEDWINDOW,
-                40,
-                40,
-                420,
-                220,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                IntPtr.Zero);
-            _created.SetResult(window);
-
-            while (!_closing && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
-            {
-                _ = TranslateMessage(ref message);
-                _ = DispatchMessage(ref message);
-            }
-
-            _ = DestroyWindow(window);
-        }
-
-        private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
-        private const int SW_SHOW = 5;
-        private const uint WM_CLOSE = 0x0010;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Msg
-        {
-            public IntPtr Hwnd;
-            public uint Message;
-            public IntPtr WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public int PointX;
-            public int PointY;
-        }
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DestroyWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool BringWindowToTop(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern void SwitchToThisWindow(IntPtr hWnd, [MarshalAs(UnmanagedType.Bool)] bool altTab);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool AttachThreadInput(uint attachTo, uint attachFrom, [MarshalAs(UnmanagedType.Bool)] bool attach);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-
-        [DllImport("kernel32.dll")]
-        private static extern uint GetCurrentThreadId();
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetWindowText(IntPtr hWnd, string text);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern int GetMessage(out Msg lpMsg, IntPtr hWnd, uint filterMin, uint filterMax);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool TranslateMessage(ref Msg lpMsg);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr DispatchMessage(ref Msg lpMsg);
-    }
 }

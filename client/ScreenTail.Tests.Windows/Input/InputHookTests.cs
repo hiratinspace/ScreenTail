@@ -4,6 +4,7 @@ using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Input;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Input;
+using ScreenTail.Tests.Windows;
 
 namespace ScreenTail.Tests.Windows.Input;
 
@@ -68,8 +69,8 @@ public sealed class InputHookTests
         await using var hooks = new WindowsInputHooks(buffer);
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
-        using var window = FocusedWindow.Create("ScreenTail input target");
-        Assert.SkipUnless(window.Focused, "Could not take the foreground; another window owns input.");
+        using var window = DesktopWindow.Create("ScreenTail input target");
+        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
         Synthetic.Type(Password);
         await Task.Delay(300, TestContext.Current.CancellationToken);
 
@@ -92,8 +93,8 @@ public sealed class InputHookTests
         await using var hooks = new WindowsInputHooks(buffer);
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
-        using var window = FocusedWindow.Create("ScreenTail enter target");
-        Assert.SkipUnless(window.Focused, "Could not take the foreground; another window owns input.");
+        using var window = DesktopWindow.Create("ScreenTail enter target");
+        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
         Synthetic.PressEnter();
         await Task.Delay(300, TestContext.Current.CancellationToken);
 
@@ -111,8 +112,8 @@ public sealed class InputHookTests
         await using var hooks = new WindowsInputHooks(buffer);
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
-        using var window = FocusedWindow.Create("ScreenTail click target");
-        Assert.SkipUnless(window.Focused, "Could not take the foreground; another window owns input.");
+        using var window = DesktopWindow.Create("ScreenTail click target");
+        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
 
         var sent = Stopwatch.GetTimestamp();
         Synthetic.ClickLeft();
@@ -140,8 +141,8 @@ public sealed class InputHookTests
         await using var hooks = new WindowsInputHooks(buffer);
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
-        using var window = FocusedWindow.Create("ScreenTail load target");
-        Assert.SkipUnless(window.Focused, "Could not take the foreground; another window owns input.");
+        using var window = DesktopWindow.Create("ScreenTail load target");
+        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
 
         var start = Stopwatch.GetTimestamp();
         for (var i = 0; i < 20; i++)
@@ -276,133 +277,4 @@ public sealed class InputHookTests
         private static extern short VkKeyScan(char ch);
     }
 
-    /// <summary>A window of ours, brought to the front so injected input lands on it and nowhere else.</summary>
-    private sealed class FocusedWindow : IDisposable
-    {
-        private readonly Thread _thread;
-        private readonly TaskCompletionSource<IntPtr> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private volatile bool _closing;
-
-        private FocusedWindow(string title)
-        {
-            _thread = new Thread(() => Run(title)) { IsBackground = true, Name = "input target" };
-            _thread.SetApartmentState(ApartmentState.STA);
-            _thread.Start();
-            Handle = _created.Task.GetAwaiter().GetResult();
-            Focused = TakeForeground();
-        }
-
-        public IntPtr Handle { get; }
-
-        public bool Focused { get; }
-
-        public static FocusedWindow Create(string title) => new(title);
-
-        public void Dispose()
-        {
-            _closing = true;
-            _ = PostMessage(Handle, 0x0010, IntPtr.Zero, IntPtr.Zero);
-            _thread.Join(TimeSpan.FromSeconds(2));
-        }
-
-        private bool TakeForeground()
-        {
-            _ = ShowWindow(Handle, 5);
-            var ours = GetCurrentThreadId();
-            var theirs = GetWindowThreadProcessId(GetForegroundWindow(), out _);
-            var attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true);
-            try
-            {
-                _ = SetForegroundWindow(Handle);
-                if (GetForegroundWindow() != Handle)
-                {
-                    SwitchToThisWindow(Handle, true);
-                }
-            }
-            finally
-            {
-                if (attached)
-                {
-                    _ = AttachThreadInput(ours, theirs, false);
-                }
-            }
-
-            for (var i = 0; i < 40 && GetForegroundWindow() != Handle; i++)
-            {
-                Thread.Sleep(25);
-            }
-
-            return GetForegroundWindow() == Handle;
-        }
-
-        private void Run(string title)
-        {
-            var window = CreateWindowEx(0, "STATIC", title, 0x00CF0000, 60, 60, 380, 200, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            _created.SetResult(window);
-            while (!_closing && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
-            {
-                _ = TranslateMessage(ref message);
-                _ = DispatchMessage(ref message);
-            }
-
-            _ = DestroyWindow(window);
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Msg
-        {
-            public IntPtr Hwnd;
-            public uint Message;
-            public IntPtr WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public int PointX;
-            public int PointY;
-        }
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DestroyWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
-
-        [DllImport("user32.dll")]
-        private static extern void SwitchToThisWindow(IntPtr hWnd, [MarshalAs(UnmanagedType.Bool)] bool altTab);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool AttachThreadInput(uint attachTo, uint attachFrom, [MarshalAs(UnmanagedType.Bool)] bool attach);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-
-        [DllImport("kernel32.dll")]
-        private static extern uint GetCurrentThreadId();
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern int GetMessage(out Msg lpMsg, IntPtr hWnd, uint filterMin, uint filterMax);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool TranslateMessage(ref Msg lpMsg);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr DispatchMessage(ref Msg lpMsg);
-    }
 }
