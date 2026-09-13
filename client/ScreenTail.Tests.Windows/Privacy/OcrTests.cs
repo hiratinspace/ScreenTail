@@ -53,6 +53,12 @@ public sealed class OcrTests
         Assert.True(rate >= 0.9, $"only {rate:P0} of the labels were recognised; the redaction engine can only mask text it can read");
     }
 
+    /// <summary>
+    /// A Luhn-valid card number that is not the canonical 4111 1111 1111 1111 test card, because the OCR
+    /// engine will not read sixteen repeated ones — see <see cref="TheEngineReadsDigitsAndNotOnlyWords"/>.
+    /// </summary>
+    private const string Card = "4532 7891 2345 6789";
+
     [Fact]
     public async Task TheEngineFindsASecretWhereItSitsOnScreen()
     {
@@ -61,7 +67,7 @@ public sealed class OcrTests
         Assert.SkipUnless(OnWindows, "Windows only.");
         var recogniser = new WindowsOcrRecogniser();
         Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
-        var image = RenderDialog(1920, 1080, secret: "4111 1111 1111 1111");
+        var image = RenderDialog(1920, 1080, secret: Card);
 
         Measurements.Save("ocr-secret.jpg", image);
         var text = await recogniser.ReadAsync(image, TestContext.Current.CancellationToken);
@@ -74,19 +80,73 @@ public sealed class OcrTests
         Assert.True(
             redaction.Counts.ContainsKey(MaskKind.Card),
             $"no card was found; OCR read the digits as: '{digits}' and the full text as: '{redaction.Text}'");
-        Assert.DoesNotContain("4111", redaction.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(Card[..4], redaction.Text, StringComparison.Ordinal);
 
         // Where the engine saw it matters as much as whether. A box in the wrong place paints the wrong
-        // pixels, so the masked region has to line up with one of the two places it was drawn.
+        // pixels, so every masked region has to line up with one of the two places it was drawn: the foot
+        // of the label column, or alone in the empty right-hand half.
         var regions = redaction.Regions.Where(r => r.Kind == MaskKind.Card).ToList();
         Assert.All(regions, r => Assert.True(r.Width > 100, $"a {r.Width}px box for a 19-character number is too narrow"));
-        Assert.Contains(regions, r => r.Y is > 600 and < 760 || r.Y is > 250 and < 400);
+        Assert.All(regions, r => Assert.True(
+            r.Y is > 600 and < 780 || r.Y is > 250 and < 400,
+            $"a box at y={r.Y} is nowhere near either place the card was drawn"));
+        Assert.Equal(2, regions.Count);
+    }
 
-        // Both placements, or only the one inside the column? The answer decides whether an isolated
-        // password in a sparse dialog is something this pipeline can see at all.
-        Measurements.Record(
-            $"Card drawn in the label column and alone in empty space: the engine found **{regions.Count}** of the 2 "
-            + $"(at y = {string.Join(", ", regions.Select(r => r.Y))})");
+    /// <summary>
+    /// One probe per hypothesis, all on one frame, because each run on the spare laptop costs minutes.
+    /// This started as an investigation — the engine read 18 of 18 words on the dialog fixture and none of
+    /// the card digits beside them, in two different places on the page — and it stays as a regression test
+    /// because every card, account and phone pattern ST-042 ships is dead code if digits stop coming back.
+    ///
+    /// The answer it gave: digits are read. Every row here is read except one, and the one is
+    /// <c>4111 1111 1111 1111</c>, a line of sixteen repeated ones. A different sixteen-digit card at the
+    /// same size and the same rendering hint comes back whole. So the engine's blind spot is not digits,
+    /// or isolation, or ClearType, or small text — it is a long run of one ambiguous glyph, and a real card
+    /// number is not that. <c>MustRead</c> is false only for that row: asserting it stays missed would fail
+    /// the day Windows fixes it, which is not a failure.
+    /// </summary>
+    private static readonly (string Name, string Text, bool ClearType, float Points, bool MustRead)[] DigitProbes =
+    [
+        ("repeated-card", "4111 1111 1111 1111", true, 11f, false),
+        ("varied-card", "4532 7891 2345 6789", true, 11f, true),
+        ("card-with-words", "Card number 4532 7891 2345 6789", true, 11f, true),
+        ("short-number", "Phone 555 0123", true, 11f, true),
+        ("varied-card-antialias", "4532 7891 2345 6789", false, 11f, true),
+        ("varied-card-large", "4532 7891 2345 6789", true, 18f, true),
+    ];
+
+    [Fact]
+    public async Task TheEngineReadsDigitsAndNotOnlyWords()
+    {
+        // INV-1 rests on this. A pattern library that can spot a card number is worth nothing if the engine
+        // underneath never hands it any digits, so this asks the narrow question directly.
+        Assert.SkipUnless(OnWindows, "Windows only.");
+        var recogniser = new WindowsOcrRecogniser();
+        Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
+        var image = RenderDigitProbes();
+
+        Measurements.Save("ocr-digits.jpg", image);
+        var text = await recogniser.ReadAsync(image, TestContext.Current.CancellationToken);
+        var read = string.Join(' ', text.Words.Select(w => w.Text));
+
+        // A probe counts as read when the longest run of digits in it comes back somewhere in the text.
+        var lines = new List<string>();
+        var missed = new List<string>();
+        foreach (var probe in DigitProbes)
+        {
+            var needle = probe.Text.Split(' ').Where(p => p.All(char.IsDigit)).MaxBy(p => p.Length) ?? probe.Text;
+            var found = read.Contains(needle, StringComparison.Ordinal);
+            lines.Add($"- `{probe.Name}` ({probe.Points:F0}pt, {(probe.ClearType ? "ClearType" : "greyscale")}): "
+                + (found ? "**read**" : "missed") + (probe.MustRead ? string.Empty : " (known miss, not asserted)"));
+            if (!found && probe.MustRead)
+            {
+                missed.Add(probe.Name);
+            }
+        }
+
+        Measurements.Record($"Digit probes on a 1920x1080 frame:\n{string.Join('\n', lines)}\n\nAll text read: `{read}`");
+        Assert.True(missed.Count == 0, $"the engine returned no digits for {string.Join(", ", missed)}; read: '{read}'");
     }
 
     [Fact]
@@ -141,7 +201,7 @@ public sealed class OcrTests
     {
         // The ordering that makes masking correct: paint at native size, downscale afterwards.
         Assert.SkipUnless(OnWindows, "Windows only.");
-        var image = RenderDialog(1920, 1080, secret: "4111 1111 1111 1111");
+        var image = RenderDialog(1920, 1080, secret: Card);
         var masker = new WindowsFrameMasker();
 
         var masked = masker.Mask(
@@ -183,11 +243,35 @@ public sealed class OcrTests
         if (secret is not null)
         {
             // Twice, deliberately. Once at the foot of the column of labels, which is what a card number in
-            // a real dialog looks like, and once alone in the empty right-hand half. The first run of this
-            // drew it only in the empty half and the engine returned no digits at all, so the two
-            // placements are kept apart to show whether that was about the text or about its surroundings.
+            // a real dialog looks like, and once alone in the empty right-hand half, which is what a value
+            // in a sparse form looks like. Both have to be found: a redaction that only works when a secret
+            // has other text around it is not a redaction anyone should rely on.
             graphics.DrawString(secret, body, ink, 100, y + 34);
             graphics.DrawString(secret, body, ink, 900, 300);
+        }
+
+        using var buffer = new MemoryStream();
+        bitmap.Save(buffer, ImageFormat.Jpeg);
+        return buffer.ToArray();
+    }
+
+    /// <summary>One probe per row, on the same grey card and in the same column as the labels the engine reads.</summary>
+    private static byte[] RenderDigitProbes()
+    {
+        using var bitmap = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.FromArgb(243, 243, 243));
+        using var ink = new SolidBrush(Color.FromArgb(28, 28, 28));
+
+        var y = 110;
+        foreach (var probe in DigitProbes)
+        {
+            graphics.TextRenderingHint = probe.ClearType
+                ? System.Drawing.Text.TextRenderingHint.ClearTypeGridFit
+                : System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            using var font = new Font("Segoe UI", probe.Points);
+            graphics.DrawString(probe.Text, font, ink, 100, y);
+            y += 90;
         }
 
         using var buffer = new MemoryStream();

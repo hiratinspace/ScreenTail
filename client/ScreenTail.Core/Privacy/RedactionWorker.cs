@@ -29,7 +29,18 @@ public sealed record RedactionOptions
 
 /// <param name="Frames">How many frames have been redacted since the worker started.</param>
 /// <param name="Masked">How many regions were painted over, by kind. Counts only (INV-10).</param>
-public sealed record RedactionProgress(long Frames, long Unreadable, IReadOnlyDictionary<MaskKind, long> Masked);
+/// <param name="Spent">Time spent redacting, across all frames — the numerator of the per-frame cost.</param>
+/// <param name="Slowest">The worst single frame, which is what a technician notices, not the average.</param>
+public sealed record RedactionProgress(
+    long Frames,
+    long Unreadable,
+    IReadOnlyDictionary<MaskKind, long> Masked,
+    TimeSpan Spent = default,
+    TimeSpan Slowest = default)
+{
+    /// <summary>ST-041 budgets 700 ms a frame; this is the number that gets compared to it.</summary>
+    public TimeSpan PerFrame => Frames == 0 ? TimeSpan.Zero : Spent / Frames;
+}
 
 /// <summary>
 /// Turns staged frames into readable ones (ST-041).
@@ -61,6 +72,8 @@ public sealed class RedactionWorker(
     private readonly Lock _counters = new();
     private long _frames;
     private long _unreadable;
+    private TimeSpan _spent;
+    private TimeSpan _slowest;
 
     /// <summary>Reports how many frames are still waiting, for the HUD and the diagnostics panel.</summary>
     public event Action<int>? BacklogChanged;
@@ -74,7 +87,8 @@ public sealed class RedactionWorker(
         {
             lock (_counters)
             {
-                return new RedactionProgress(_frames, _unreadable, new Dictionary<MaskKind, long>(_masked));
+                return new RedactionProgress(
+                    _frames, _unreadable, new Dictionary<MaskKind, long>(_masked), _spent, _slowest);
             }
         }
     }
@@ -194,10 +208,15 @@ public sealed class RedactionWorker(
 
     private void Record(IReadOnlyDictionary<MaskKind, int> counts, TimeSpan took)
     {
-        _ = took;
         lock (_counters)
         {
             _frames++;
+            _spent += took;
+            if (took > _slowest)
+            {
+                _slowest = took;
+            }
+
             foreach (var (kind, count) in counts)
             {
                 _masked[kind] = _masked.GetValueOrDefault(kind) + count;

@@ -136,6 +136,27 @@ These came up while building the spike and hold regardless of how the Windows ru
 7. **Windows on ARM.** Whisper.net has arm64 native binaries; Tesseract doesn't, so the capture process runs as x64 under emulation. If technicians on ARM laptops matter, Windows.Media.Ocr removes this constraint.
 8. **Whisper must be gated by voice activity detection, not run continuously.** On the hosted runner, feeding Whisper `base` every 5 s of audio used most of the CPU (see the hosted-runner results). ST-027 should run VAD first (Whisper.net ships a Silero VAD model) and transcribe only speech segments, with CPU rate-limited so capture and hooks always win (ST-031). Technicians talk for a fraction of a session, so this is the difference between being always busy and mostly idle. The laptop run gives the real per-core cost: 49–62% of an 8-thread laptop CPU, and 505 MB resident.
 9. **OCR is slower than ST-041 budgets for.** On the laptop, Tesseract took a median **1.19 s per 1600×900 frame** across 51 frames (the two-frame human run measured 2.46 s, before any warm-up), against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
+
+    **Settled in ST-041 (2026-09-13, same laptop): Windows.Media.Ocr, and the budget is no longer close.**
+    A 1920×1080 settings dialog reads in a median of **51–64 ms** against the 700 ms budget — 18× faster
+    than the Tesseract number above — and it recognised **18 of 18** dialog labels. It also removes the ARM
+    constraint in finding 7 and ships no native binaries of its own. Two things it does not give us, both
+    recorded rather than worked around:
+
+    - **No confidence score.** Tesseract reports per-word confidence and `RedactionWorker` uses it to throw
+      away frames it could not read. This engine reports none, so that gate is inert on Windows and says so
+      in `WindowsOcrRecogniser.UnknownConfidence`. The frame-level protections (incomplete scan → discard,
+      masker failure → discard) still hold.
+    - **It will not read a long run of one ambiguous glyph.** `4111 1111 1111 1111` — the canonical Visa
+      test card — comes back as nothing at all, twice, in two different places on the page, while every word
+      beside it reads. A probe sheet (`TheEngineReadsDigitsAndNotOnlyWords`) narrowed it down: a different
+      sixteen-digit card at the same size and rendering hint reads whole, as do digits with words around
+      them, greyscale-rendered digits, larger digits and a short phone number. So it is not digits, not
+      isolation, not ClearType and not small text — sixteen `1`s in Segoe UI are apparently ambiguous enough
+      with `l` and `I` to lose the line. Real card numbers are not sixteen repeated ones, so this does not
+      change the design, but it is the concrete reminder that **OCR is a best-effort input to redaction, not
+      a guarantee**: INV-1 cannot rest on the engine reading everything, which is why ST-060's manual review
+      and the blur tool exist, and why fixtures must not use the repeated-digit test card.
 10. **Screen capture and encoding cost more than ST-025 budgets for.** Capturing, downscaling and JPEG-encoding one 1920×1080 window took **p95 178 ms, worst 200 ms** over 51 frames on the laptop (228–346 ms in the short human runs), against ST-025's budget of 120 ms for a 4K frame. The path measured here is GDI BitBlt plus GDI+ bicubic downscale and encode, all on the CPU. ST-025 should compare Windows.Graphics.Capture (which keeps the frame on the GPU and honours display affinity) and a WIC encoder before accepting the budget.
 
     **Measured again in ST-025 (2026-09-13, same laptop), each stage timed separately.** Staging a native
