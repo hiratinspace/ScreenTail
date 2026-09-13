@@ -123,6 +123,26 @@ public sealed class ScreenshotTests
     }
 
     [Fact]
+    public void NothingIsCapturedWhenTheForegroundHasMovedOn()
+    {
+        // INV-5, against the real screen. The scope decision is made on one task when the foreground
+        // changes; the click loop drains up to 50 ms later and the scene sampler ticks every second. A
+        // technician who clicks in the remote session and immediately alt-tabs would otherwise have the
+        // window they moved to photographed against a decision about the one they left.
+        Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
+        using var window = DesktopWindow.Create("ScreenTail scope target");
+        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground.");
+        using var capturer = new ScreenshotCapturer();
+
+        // A handle that is real but is not the foreground: this window's own child would do, and so does
+        // a handle that no longer exists. The point is that it is not what GetForegroundWindow returns.
+        var frame = capturer.CaptureForegroundWindow(expected: window.Handle + 1);
+
+        Assert.Null(frame);
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+    }
+
+    [Fact]
     public void CapturingRepeatedlyDoesNotLeakHandles()
     {
         // Every capture creates a DC, a bitmap and a GDI object. Leaking any of them exhausts the desktop

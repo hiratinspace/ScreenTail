@@ -36,7 +36,18 @@ public interface IScreenshotCapturer
     /// Captures the window in front, or null when there is nothing to capture — the window closed between
     /// the click and the capture, or Windows refused. A null is a missing frame, never a blank one.
     /// </summary>
-    CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge);
+    /// <param name="expected">
+    /// The window the caller's scope decision was about. When it no longer has the foreground, nothing is
+    /// captured (INV-5).
+    ///
+    /// Without this the two are coupled only by hope: scope is decided on one task when the foreground
+    /// changes, while the click loop drains every 50 ms and the scene sampler ticks every second, both
+    /// reading a decision that may already be stale. A technician who clicks in ScreenConnect and
+    /// immediately alt-tabs to Outlook would otherwise have their inbox photographed against a scope
+    /// decision made about a different window. Zero means "whatever is in front", for callers with no
+    /// decision to honour.
+    /// </param>
+    CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge, nint expected = 0);
 
     /// <summary>
     /// Reduces the window in front to the small grid the scene sampler compares (ST-026), or null when
@@ -46,5 +57,5 @@ public interface IScreenshotCapturer
     /// anything happened, and the answer is almost always "nothing did". Encoding a JPEG to find that out
     /// would spend the session's CPU budget on frames that are thrown away.
     /// </summary>
-    byte[]? CaptureSceneGrid();
+    byte[]? CaptureSceneGrid(nint expected = 0);
 }
