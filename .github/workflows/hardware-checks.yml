@@ -27,7 +27,7 @@ env:
 
 jobs:
   capabilities:
-    name: Spare laptop - capability report
+    name: Spare laptop - capabilities and real-window tests
     if: vars.HW_RUNNER == 'true'
     runs-on: [self-hosted, Windows, screentail-win]
     timeout-minutes: 15

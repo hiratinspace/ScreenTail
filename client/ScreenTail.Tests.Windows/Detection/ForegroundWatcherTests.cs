@@ -47,6 +47,7 @@ public sealed class ForegroundWatcherTests
         Assert.Equal(Environment.ProcessId, reported.ProcessId);
         Assert.Equal(Path.GetFileNameWithoutExtension(Environment.ProcessPath), reported.ProcessName);
         Assert.False(reported.IsElevated);
+        Console.WriteLine($"focus change reported in {clock.ElapsedMilliseconds} ms (budget 100 ms)");
         Assert.True(clock.ElapsedMilliseconds < 100, $"took {clock.ElapsedMilliseconds} ms, budget is 100 ms");
     }
 
@@ -96,6 +97,7 @@ public sealed class ForegroundWatcherTests
         var used = PumpThreadTime(watcher.PumpThreadId)!.Value - before!.Value;
 
         var percent = used.TotalMilliseconds / clock.Elapsed.TotalMilliseconds * 100;
+        Console.WriteLine($"watcher used {percent:F3}% of a core while idle (budget 0.5%)");
         Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core while idle, budget is 0.5%");
     }
 
