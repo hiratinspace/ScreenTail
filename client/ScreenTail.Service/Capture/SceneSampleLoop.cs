@@ -31,6 +31,9 @@ internal sealed partial class SceneSampleLoop(
 
     public SceneCounts Counts => _sampler.Counts;
 
+    /// <summary>A new session starts with no baseline, so nothing is compared across the gap (ST-029).</summary>
+    public void Reset() => _sampler.Reset();
+
     public async Task RunAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(_sampler.Options.SampleEvery);

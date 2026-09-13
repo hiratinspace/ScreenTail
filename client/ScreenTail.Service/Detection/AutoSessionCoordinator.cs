@@ -35,6 +35,33 @@ internal sealed partial class AutoSessionCoordinator(
     /// <summary>Called from the watcher's pump thread. Must not block, and does not.</summary>
     public void Observe(ForegroundWindowInfo window) => _windows.Writer.TryWrite(window);
 
+    /// <summary>
+    /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord and the tray's "Start capture"
+    /// (ST-029).
+    ///
+    /// The coordinator is asked rather than the machine directly, because starting needs a remote tool to
+    /// attribute the session to and only this knows what the technician is looking at. A window it does not
+    /// recognise still starts a session, as <c>other</c>: a technician reaching for the chord has decided
+    /// this is support work, and refusing because the tool is not in the registry would make the manual
+    /// path useless exactly when the automatic one has already failed.
+    /// </summary>
+    public async Task<bool> StartFromForegroundAsync(CancellationToken ct = default)
+    {
+        if (machine.State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed))
+        {
+            return false;
+        }
+
+        var tool = new RemoteTool { Kind = _lastReported?.Tool ?? RemoteToolKind.Other };
+        var started = await machine.StartAsync(tool, ct: ct).ConfigureAwait(false);
+        if (started)
+        {
+            LogManualStart(logger, _lastReported?.ToolId ?? "unknown");
+        }
+
+        return started;
+    }
+
     /// <summary>Avoids Enum.ToString() on a path the log may not even be listening to.</summary>
     private static string ScopeName(CaptureScope scope) => scope switch
     {
@@ -129,6 +156,9 @@ internal sealed partial class AutoSessionCoordinator(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Session started automatically: {Tool} took focus")]
     private static partial void LogAutoStart(ILogger logger, string tool);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Capture started by the technician ({Tool})")]
+    private static partial void LogManualStart(ILogger logger, string tool);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Session stopping automatically: {Reason}")]
     private static partial void LogAutoStop(ILogger logger, string reason);

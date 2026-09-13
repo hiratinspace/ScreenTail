@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
+using ScreenTail.Core.Input;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
@@ -41,7 +42,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             ct: stoppingToken).ConfigureAwait(false);
 
         // Recover before serving, so the first UI to connect sees the outcome, not the orphan.
-        await using var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        // The sources need the capturer and the scope coordinator, which are built further down; the
+        // machine has to exist before either, so it gets a holder that is filled in once they do.
+        var sources = new DeferredCaptureSources();
+        await using var machine = new SessionMachine(store, sources, new UnavailableDrafter());
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {
@@ -127,6 +131,30 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger);
         var sampling = scenes.RunAsync(stoppingToken);
 
+        // ST-029: "mark moment" is the only frame the technician asks for by name, so it goes around the
+        // debounce and the sampler both. Until this was wired the marker was written and the frame it
+        // pointed at never existed.
+        sources.Use(new WindowsCaptureSources(
+            capturer,
+            () => coordinator.CurrentScope,
+            () =>
+            {
+                capture.Reset();
+                scenes.Reset();
+            },
+            logger));
+
+        // ST-029: the global chords. A conflict costs a shortcut, not a capture service, so it is reported
+        // and the rest carry on.
+        var router = new HotkeyRouter(machine, coordinator.StartFromForegroundAsync);
+        await using var hotkeys = new Hotkeys();
+        hotkeys.Pressed += action => _ = Task.Run(() => router.InvokeAsync(action, stoppingToken), stoppingToken);
+        await hotkeys.StartAsync(stoppingToken).ConfigureAwait(false);
+        foreach (var conflict in hotkeys.Conflicts)
+        {
+            LogHotkeyConflict(logger, conflict.Hotkey.ToString(), conflict.Reason, conflict.Suggestion?.ToString() ?? "none");
+        }
+
         // ST-041: without this, every staged frame stays redaction_pending and is deleted at finalize —
         // the session would end with no screenshots at all. This is also the only thing allowed to read a
         // pending frame or to clear the flag, so INV-1 rests on it.
@@ -187,6 +215,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Foreground detection using {Mode}")]
     private static partial void LogForegroundMode(ILogger logger, string mode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Hotkey {Hotkey} is unavailable: {Reason} Suggested instead: {Suggestion}")]
+    private static partial void LogHotkeyConflict(ILogger logger, string hotkey, string reason, string suggestion);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Capability {Capability} is {State}: {Message}")]
     private static partial void LogCapability(ILogger logger, string capability, string state, string message);
