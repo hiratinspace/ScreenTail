@@ -60,7 +60,12 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
 
         Assert.Equal(Frames, await store.CountAllPendingFramesAsync(ct));
 
-        var worker = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), new RedactionEngine());
+        // Concurrency 0 so RunAsync starts the backlog reporter and no worker threads. The criterion is a
+        // per-frame median, and two threads pulling from the same queue would turn every sample into a
+        // number about contention. The loop below is the only thing taking frames.
+        var worker = new RedactionWorker(
+            store, recogniser, new WindowsFrameMasker(), new RedactionEngine(),
+            new RedactionOptions { Concurrency = 0 });
         var backlog = new List<int>();
         worker.BacklogChanged += depth =>
         {
@@ -70,8 +75,6 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
             }
         };
 
-        // Timed one at a time rather than through RunAsync: the criterion is a per-frame median, and the
-        // worker's two threads would turn every sample into a number about contention instead.
         var times = new List<double>(Frames);
         using var reporting = new CancellationTokenSource();
         var reported = RunReportingAsync(worker, reporting.Token);
@@ -120,10 +123,7 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
         Assert.True(median < BudgetMs, $"redaction took a median of {median:F0} ms a frame against a {BudgetMs:F0} ms budget");
     }
 
-    /// <summary>
-    /// Drives the backlog reporter on its own. <see cref="RedactionWorker.RunAsync"/> would also start the
-    /// worker threads, and those would race the loop above for frames.
-    /// </summary>
+    /// <summary>Runs the worker until cancelled, which with concurrency 0 is the backlog reporter alone.</summary>
     private static async Task RunReportingAsync(RedactionWorker worker, CancellationToken ct)
     {
         try

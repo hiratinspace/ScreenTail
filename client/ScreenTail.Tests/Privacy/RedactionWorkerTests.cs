@@ -199,6 +199,12 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     [InlineData(true, "Sign in Username Password Remember me")]
     [InlineData(true, "Enter your passphrase to continue")]
     [InlineData(true, "Login Username Account Next")]
+    // Spelled the way Windows and web forms actually draw it. OCR hands back the tokens on screen, so a
+    // cue list that only knows "logon" and "sign in" misses the classic logon banner and every hyphenated
+    // sign-in page — the screens this heuristic exists for.
+    [InlineData(true, "Log On to Windows User name Domain")]
+    [InlineData(true, "Sign-in Email Continue")]
+    [InlineData(true, "Log-in Account Submit")]
     [InlineData(false, "Print Spooler Stopped Automatic")]
     [InlineData(false, "Inbox 4 new messages")]
     [InlineData(false, "Services Local Computer")]

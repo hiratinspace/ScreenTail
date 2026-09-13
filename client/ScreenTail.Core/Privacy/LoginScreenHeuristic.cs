@@ -21,11 +21,19 @@ public static class LoginScreenHeuristic
     /// <summary>How long capture stays suppressed after a login screen is seen (ST-041).</summary>
     public static readonly TimeSpan Suppression = TimeSpan.FromSeconds(10);
 
-    /// <summary>Words that mean a credential is being asked for. Two of these together is the signal.</summary>
+    /// <summary>
+    /// Words that mean a credential is being asked for. Two of these together is the signal.
+    ///
+    /// The spellings are deliberately redundant. OCR returns what is drawn, so "Sign-in" arrives as one
+    /// token and never matches "sign in"; and Windows says "Log On" with a space in the places that matter
+    /// most — the classic logon banner an RDP session lands on, and the Services "Log On" tab, which has a
+    /// real password field on it. A cue list that knows "logon" but not "log on" misses both.
+    /// </summary>
     private static readonly string[] Strong =
     [
         "password", "passwort", "contraseña", "mot de passe", "passphrase", "passcode",
-        "sign in", "signin", "log in", "login", "logon", "credentials", "authenticate",
+        "sign in", "sign-in", "signin", "log in", "log-in", "login", "log on", "log-on", "logon",
+        "credentials", "authenticate",
         "unlock", "pin", "one-time code", "verification code", "two-factor", "mfa",
     ];
 
