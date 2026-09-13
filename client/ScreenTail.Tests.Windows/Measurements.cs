@@ -19,6 +19,23 @@ internal static class Measurements
         Append(Environment.GetEnvironmentVariable("SCREENTAIL_MEASUREMENTS"), measurement);
     }
 
+    /// <summary>Puts a file beside the measurements, so a run can hand back something to look at.</summary>
+    public static void Save(string name, byte[] content)
+    {
+        var path = Environment.GetEnvironmentVariable("SCREENTAIL_MEASUREMENTS");
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        lock (Gate)
+        {
+            var directory = Path.GetDirectoryName(path)!;
+            Directory.CreateDirectory(directory);
+            File.WriteAllBytes(Path.Combine(directory, name), content);
+        }
+    }
+
     private static void Append(string? path, string line)
     {
         if (string.IsNullOrEmpty(path))

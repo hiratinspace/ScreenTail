@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- ST-025: GDI+ for the downscale and JPEG encode. ADR-0001 flags this path as over budget; the
+         laptop's per-stage timings decide whether it is replaced by WIC or Windows.Graphics.Capture. -->
+    <PackageReference Include="System.Drawing.Common" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 

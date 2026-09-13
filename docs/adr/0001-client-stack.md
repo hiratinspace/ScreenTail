@@ -138,6 +138,16 @@ These came up while building the spike and hold regardless of how the Windows ru
 9. **OCR is slower than ST-041 budgets for.** On the laptop, Tesseract took a median **1.19 s per 1600×900 frame** across 51 frames (the two-frame human run measured 2.46 s, before any warm-up), against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
 10. **Screen capture and encoding cost more than ST-025 budgets for.** Capturing, downscaling and JPEG-encoding one 1920×1080 window took **p95 178 ms, worst 200 ms** over 51 frames on the laptop (228–346 ms in the short human runs), against ST-025's budget of 120 ms for a 4K frame. The path measured here is GDI BitBlt plus GDI+ bicubic downscale and encode, all on the CPU. ST-025 should compare Windows.Graphics.Capture (which keeps the frame on the GPU and honours display affinity) and a WIC encoder before accepting the budget.
 
+    **Measured again in ST-025 (2026-09-13, same laptop), each stage timed separately.** Staging a native
+    frame costs **14.6 ms fixed + 24.1 ms per megapixel**: 16.8 ms for a 420×220 window, 47.5 ms for
+    1552×880, about **214 ms extrapolated for 4K** against the 120 ms budget. The split matters more than
+    the total: the encode this finding suggested replacing with WIC is **0.9–9.3 ms** and was never the
+    problem — the grab is. Downscaling during the copy with `StretchBlt` brings a 4K frame to about 48 ms,
+    but it was reverted, because finding 2a keeps frames native until the redaction worker has read them
+    and capturing them already-shrunk would hand OCR the pixels this ADR measured as illegible.
+    **Windows.Graphics.Capture remains the fix**, now on evidence rather than expectation. 1080p is
+    comfortably inside the budget; only 4K is not.
+
 ## Python fallback assessment
 
 | Area | .NET (proposed) | Python (fallback) | Risk for Python |

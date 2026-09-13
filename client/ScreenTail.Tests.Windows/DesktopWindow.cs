@@ -75,6 +75,12 @@ internal sealed class DesktopWindow : IDisposable
 
     public void Retitle(string title) => SetWindowText(Handle, title);
 
+    public void Resize(int width, int height) =>
+        _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_SHOWWINDOW);
+
+    /// <summary>Fills the screen, so a capture measurement has a realistically large window to work on.</summary>
+    public void Maximize() => _ = ShowWindow(Handle, SW_MAXIMIZE);
+
     public void Dispose()
     {
         _closing = true;
@@ -99,6 +105,7 @@ internal sealed class DesktopWindow : IDisposable
 
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const int SW_SHOWNORMAL = 1;
+    private const int SW_MAXIMIZE = 3;
     private const uint WM_CLOSE = 0x0010;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;

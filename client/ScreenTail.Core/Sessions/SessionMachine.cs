@@ -63,6 +63,12 @@ public sealed class SessionMachine : IAsyncDisposable
 
     public string? SessionId => _session?.Id;
 
+    /// <summary>
+    /// The timestamp the running session started from, for turning a hook's monotonic timestamp into
+    /// session time. Zero when nothing is running.
+    /// </summary>
+    public long SessionStartedAt => _session?.StartedAt ?? 0;
+
     /// <summary>Monotonic milliseconds since the current session started; 0 when idle.</summary>
     public long NowMs => _session is { } s ? s.BaseMs + (long)_time.GetElapsedTime(s.StartedAt).TotalMilliseconds : 0;
 
