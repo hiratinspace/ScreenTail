@@ -11,9 +11,9 @@ namespace ScreenTail.Tests.Schema;
 /// </summary>
 public class SessionSchemaTests
 {
-    private static readonly string SchemaRoot = Path.Combine(AppContext.BaseDirectory, "Schema");
-    private static readonly JsonSchema Schema = JsonSchema.FromFile(Path.Combine(SchemaRoot, "session.v1.json"));
-    private static readonly EvaluationOptions Evaluation = new() { RequireFormatValidation = true, OutputFormat = OutputFormat.List };
+    private static readonly string SchemaRoot = SessionSchema.Root;
+    private static readonly JsonSchema Schema = SessionSchema.Instance;
+    private static readonly EvaluationOptions Evaluation = SessionSchema.Options;
 
     public static TheoryData<string> ValidExamples => Examples("valid");
 
