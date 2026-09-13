@@ -17,6 +17,8 @@ on:
       - 'client/ScreenTail.Core/Input/**'
       - 'client/ScreenTail.Service/Capture/**'
       - 'client/ScreenTail.Core/Capture/**'
+      - 'client/ScreenTail.Service/Privacy/**'
+      - 'client/ScreenTail.Core/Privacy/**'
       - 'client/ScreenTail.Tests.Windows/**'
       - '.github/workflows/hardware-checks.yml'
   workflow_dispatch:

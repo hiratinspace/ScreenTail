@@ -4,6 +4,7 @@ using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Capabilities;
@@ -11,6 +12,7 @@ using ScreenTail.Service.Capture;
 using ScreenTail.Service.Detection;
 using ScreenTail.Service.Input;
 using ScreenTail.Service.Ipc;
+using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
 
@@ -21,7 +23,7 @@ namespace ScreenTail.Service.Host;
 /// behind (ST-020), publishes this run's IPC token, and serves the pipe with the state machine behind it.
 /// Capture sources (hooks, screenshots, speech) and drafting arrive with their tickets.
 /// </summary>
-[SupportedOSPlatform("windows")]
+[SupportedOSPlatform("windows10.0.19041.0")]
 internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : BackgroundService
 {
     private static readonly string DataDirectory = Path.Combine(
@@ -119,6 +121,23 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
             logger);
         var capturing = capture.RunAsync(stoppingToken);
 
+        // ST-041: without this, every staged frame stays redaction_pending and is deleted at finalize —
+        // the session would end with no screenshots at all. This is also the only thing allowed to read a
+        // pending frame or to clear the flag, so INV-1 rests on it.
+        var recogniser = new WindowsOcrRecogniser();
+        LogOcr(logger, recogniser.Available, recogniser.Language ?? "none");
+        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), new RedactionEngine());
+        redaction.BacklogChanged += machine.ReportPendingRedactions;
+
+        // Without this the login heuristic fires into nothing: the frame is marked sensitive and the next
+        // click still screenshots the same password prompt. INV-6 is about capture stopping, not about an
+        // event being raised.
+        var sensitive = new SensitiveContextGuard(machine);
+        redaction.SensitiveContextSeen += sensitive.Seen;
+        var guarding = sensitive.RunAsync(stoppingToken);
+
+        var redacting = redaction.RunAsync(stoppingToken);
+
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
@@ -138,7 +157,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         {
         }
 
-        await Task.WhenAll(coordinating, capturing).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, redacting, guarding).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -147,6 +166,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
     private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "OCR available: {Available} ({Language})")]
+    private static partial void LogOcr(ILogger logger, bool available, string language);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Remote-tool registry {Version}: {Tools} tools, {Patterns} browser patterns, {Grace}s grace")]
     private static partial void LogRegistry(ILogger logger, string version, int tools, int patterns, double grace);

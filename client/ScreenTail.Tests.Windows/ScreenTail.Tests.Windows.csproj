@@ -2,7 +2,10 @@
   <!-- Windows-bound tests (ADR-0002): adapters that need real Windows APIs. They run in CI's Windows jobs and
        are skipped elsewhere via [Fact(SkipUnless = ...)]. Compiles on any OS thanks to EnableWindowsTargeting. -->
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Windows SDK projections, for Windows.Media.Ocr (ST-041): built into Windows, hardware
+         accelerated, no native binaries or language data to ship, and it works on ARM where Tesseract
+         does not. Fewer third-party binaries is also a smaller attack surface. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <RootNamespace>ScreenTail.Tests.Windows</RootNamespace>
@@ -17,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" />
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Service\ScreenTail.Service.csproj" />
   </ItemGroup>

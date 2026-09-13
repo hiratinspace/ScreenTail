@@ -28,6 +28,16 @@ public interface ISessionStore : IAsyncDisposable
 
     Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>Frames waiting for redaction across every session — the backlog depth the HUD shows (ST-041).</summary>
+    Task<int> CountAllPendingFramesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes one frame that could not be redacted, counting it against its session so Review can say a
+    /// screenshot was dropped rather than leaving a silent gap. Used by the redaction worker when a frame
+    /// cannot be read, masked, or fully searched — an unreadable frame kept is an unredacted frame.
+    /// </summary>
+    Task DiscardPendingFrameAsync(string frameId, CancellationToken ct = default);
+
     /// <summary>
     /// Deletes the session's frames that are still pending (finalize grace expired), records the count on
     /// the session and in the audit log, and returns it.
