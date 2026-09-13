@@ -190,6 +190,49 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
     public Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default) =>
         ScalarAsync<int>("SELECT COUNT(*) FROM frames WHERE session_id = @session AND redaction_pending = 1", ct, ("@session", sessionId));
 
+    public Task<int> CountAllPendingFramesAsync(CancellationToken ct = default) =>
+        ScalarAsync<int>("SELECT COUNT(*) FROM frames WHERE redaction_pending = 1", ct);
+
+    public async Task DiscardPendingFrameAsync(string frameId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+            // Read against the connection directly rather than through QueryAsync: the gate is already held
+            // here, and QueryAsync takes it too, which deadlocks rather than failing.
+            //
+            // The session is read before the delete, because afterwards the row is gone and there is
+            // nothing left to count the loss against.
+            string? sessionId;
+            await using (var lookup = Command(_connection, "SELECT session_id FROM frames WHERE id = @id AND redaction_pending = 1", ("@id", frameId)))
+            await using (var reader = await lookup.ExecuteReaderAsync(ct).ConfigureAwait(false))
+            {
+                sessionId = await reader.ReadAsync(ct).ConfigureAwait(false) ? reader.GetString(0) : null;
+            }
+
+            if (sessionId is null)
+            {
+                return;
+            }
+
+            await ExecuteAsync(_connection, "DELETE FROM frames WHERE id = @id", ct, ("@id", frameId)).ConfigureAwait(false);
+            await ExecuteAsync(
+                _connection,
+                "UPDATE sessions SET frames_purged_unredacted = frames_purged_unredacted + 1, updated_at = @now WHERE id = @session",
+                ct,
+                ("@now", Iso(_time.GetUtcNow())),
+                ("@session", sessionId)).ConfigureAwait(false);
+            await AuditAsync(sessionId, AuditTypes.FramesPurgedUnredacted, 1, ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<int> PurgePendingFramesAsync(string sessionId, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);

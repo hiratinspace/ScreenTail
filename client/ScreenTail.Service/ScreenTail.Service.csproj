@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <!-- Per-user capture service host: Windows adapters (hooks, UIA, capture, DPAPI, pipes) over ScreenTail.Core. -->
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Windows SDK projections, for Windows.Media.Ocr (ST-041): built into Windows, hardware
+         accelerated, no native binaries or language data to ship, and it works on ARM where Tesseract
+         does not. Fewer third-party binaries is also a smaller attack surface. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <!-- Exe for now so `dotnet run` shows logs; ST-004 decides how the per-user service is hosted. -->
     <OutputType>Exe</OutputType>
     <RootNamespace>ScreenTail.Service</RootNamespace>
