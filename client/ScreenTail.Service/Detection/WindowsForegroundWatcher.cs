@@ -108,7 +108,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                 _callback,
                 0,
                 0,
-                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+                WINEVENT_OUTOFCONTEXT);
             _hookInstalled = hook != IntPtr.Zero;
 
             // Report where we start, so a session that begins mid-task knows what was on screen.
@@ -285,7 +285,11 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint EVENT_OBJECT_NAMECHANGE = 0x800C;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
-    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
+    // Deliberately no WINEVENT_SKIPOWNPROCESS. The capture service owns no windows, so it filtered nothing
+    // in production — but it did hide the test's own window, which sent the acceptance test down the polling
+    // path and reported 259 ms against a 100 ms budget. Seeing our own UI come to the front is wanted
+    // anyway: ST-040 needs to know when the technician is in Review rather than in the remote session.
     private const int OBJID_WINDOW = 0;
     private const uint WM_QUIT = 0x0012;
     private const uint WM_TIMER = 0x0113;
