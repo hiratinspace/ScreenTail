@@ -22,7 +22,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 {
     private readonly TimeProvider _time;
     private readonly ForegroundChangeFilter _filter;
-    private readonly TimeSpan _pollInterval;
+    private readonly TimeSpan? _pollInterval;
     private readonly CancellationTokenSource _stopping = new();
     private readonly WinEventProc _callback;
     private Thread? _pump;
@@ -35,9 +35,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     {
         _time = time ?? TimeProvider.System;
         _filter = new ForegroundChangeFilter(_time);
-        // Slow enough to stay well inside the 0.5% idle-CPU budget, fast enough that a tab change lands
-        // before the technician has moved on.
-        _pollInterval = pollInterval ?? TimeSpan.FromMilliseconds(250);
+        _pollInterval = pollInterval;
         _callback = OnWinEvent;
         _current = ForegroundWindowInfo.None(_time.GetUtcNow());
     }
@@ -114,7 +112,11 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             // Report where we start, so a session that begins mid-task knows what was on screen.
             Publish(_filter.Offer(Read(GetForegroundWindow())));
 
-            timer = SetTimer(IntPtr.Zero, IntPtr.Zero, (uint)_pollInterval.TotalMilliseconds, IntPtr.Zero);
+            // With the hook installed, EVENT_OBJECT_NAMECHANGE already delivers title changes, so the timer is
+            // only a safety net and can be slow. Without it, the timer is the whole mechanism and has to be
+            // quick. Polling at 250 ms regardless cost 0.520% of a core against a 0.5% budget.
+            var interval = _pollInterval ?? (_hookInstalled ? TimeSpan.FromSeconds(2) : TimeSpan.FromMilliseconds(250));
+            timer = SetTimer(IntPtr.Zero, IntPtr.Zero, (uint)interval.TotalMilliseconds, IntPtr.Zero);
             ready.TrySetResult();
 
             while (!_stopping.IsCancellationRequested && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)

@@ -118,19 +118,22 @@ public sealed class ForegroundWatcherTests
     public async Task StartingAndStoppingLeavesNoThreadBehind()
     {
         Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
-        using var self = Process.GetCurrentProcess();
-        var before = self.Threads.Count;
+        var pumps = new List<uint>();
 
         for (var i = 0; i < 3; i++)
         {
             var watcher = new WindowsForegroundWatcher();
             await watcher.StartAsync(TestContext.Current.CancellationToken);
+            pumps.Add(watcher.PumpThreadId);
             await watcher.DisposeAsync();
         }
 
-        self.Refresh();
-        // The pump thread must actually exit: three cycles would otherwise leave three behind.
-        Assert.True(self.Threads.Count <= before + 1, $"thread count went from {before} to {self.Threads.Count}");
+        // Each watcher's own pump thread must be gone. Counting the process's threads instead looked right
+        // and wasn't: the thread pool grows and shrinks by itself, which failed this on a busy runner.
+        Assert.Equal(3, pumps.Distinct().Count());
+        using var self = Process.GetCurrentProcess();
+        var alive = self.Threads.Cast<ProcessThread>().Select(t => (uint)t.Id).ToHashSet();
+        Assert.All(pumps, pump => Assert.DoesNotContain(pump, alive));
     }
 
     [Fact]
