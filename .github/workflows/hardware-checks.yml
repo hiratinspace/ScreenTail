@@ -13,6 +13,8 @@ on:
       - 'client/ScreenTail.Core/Capabilities/**'
       - 'client/ScreenTail.Service/Detection/**'
       - 'client/ScreenTail.Core/Detection/**'
+      - 'client/ScreenTail.Service/Input/**'
+      - 'client/ScreenTail.Core/Input/**'
       - 'client/ScreenTail.Tests.Windows/**'
       - '.github/workflows/hardware-checks.yml'
   workflow_dispatch:
@@ -106,6 +108,8 @@ jobs:
       # Includes the ST-022 foreground tests, which create real windows and time how long the watcher takes
       # to notice. They skip on any machine without an interactive desktop, which is why they live here.
       - name: Windows tests on real hardware
+        env:
+          SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/capabilities/measurements.txt
         run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
 
       - name: Upload the report
@@ -114,4 +118,52 @@ jobs:
         with:
           name: capability-report
           path: ${{ runner.temp }}/capabilities
+          if-no-files-found: warn
+
+  # Separate job on purpose. This one drives the keyboard and mouse with SendInput, so it takes the laptop
+  # over for about a minute: keystrokes go to a window the test owns and focuses, but the machine is not
+  # usable meanwhile. The capabilities job above stays safe to run on a machine in use.
+  input:
+    name: Spare laptop - input injection (takes over the keyboard)
+    if: vars.HW_RUNNER == 'true'
+    needs: capabilities
+    runs-on: [self-hosted, Windows, screentail-win]
+    timeout-minutes: 15
+    env:
+      SCREENTAIL_ALLOW_INPUT_INJECTION: '1'
+    defaults:
+      run:
+        shell: powershell
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Use the preinstalled .NET SDK
+        run: |
+          if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+            $installed = Join-Path $env:ProgramFiles 'dotnet'
+            if (-not (Test-Path (Join-Path $installed 'dotnet.exe'))) {
+              throw 'No .NET SDK on this runner. Re-run scripts/windows/setup-test-laptop.ps1.'
+            }
+            [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$installed`r`n")
+            $env:Path = "$installed;$env:Path"
+          }
+
+      - name: Hooks under real keystrokes and clicks
+        env:
+          SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/measurements/input.txt
+        run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+
+      - name: What it measured
+        if: always()
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP 'measurements\input.txt'
+          if (Test-Path $file) { Get-Content $file } else { Write-Host 'no measurements recorded' }
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: input-measurements
+          path: ${{ runner.temp }}/measurements
           if-no-files-found: warn

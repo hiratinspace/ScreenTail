@@ -6,6 +6,7 @@ using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Detection;
+using ScreenTail.Service.Input;
 using ScreenTail.Service.Ipc;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
@@ -85,6 +86,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
         LogForegroundMode(logger, foreground.UsingHook ? "event hook" : "polling");
 
+        // ST-024: hooks run for the life of the service; the state machine decides whether what they see is
+        // recorded (INV-6). Draining on a timer keeps the callbacks free of everything but a buffer write.
+        await using var hooks = new WindowsInputHooks();
+        await hooks.StartAsync(stoppingToken).ConfigureAwait(false);
+        LogHooks(logger, hooks.Installed);
+
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
@@ -112,6 +119,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
     private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Input hooks installed: {Installed}")]
+    private static partial void LogHooks(ILogger logger, bool installed);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Foreground: {Process}#{ProcessId} class={Class} title={TitleLength} chars elevated={Elevated}")]
     private static partial void LogForeground(ILogger logger, string process, int processId, string @class, int titleLength, bool elevated);
