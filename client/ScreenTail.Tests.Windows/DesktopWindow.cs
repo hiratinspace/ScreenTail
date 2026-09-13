@@ -11,6 +11,7 @@ internal sealed class DesktopWindow : IDisposable
 {
     private readonly Thread _thread;
     private readonly TaskCompletionSource<IntPtr> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Queue<Action> _posted = new();
     private volatile bool _closing;
 
     private DesktopWindow(string title)
@@ -23,7 +24,55 @@ internal sealed class DesktopWindow : IDisposable
 
     public IntPtr Handle { get; }
 
+    /// <summary>A plain text box inside the window, once <see cref="AddFields"/> has run.</summary>
+    public IntPtr PlainField { get; private set; }
+
+    /// <summary>A text box that masks what is typed into it — a real one, with ES_PASSWORD (ST-040).</summary>
+    public IntPtr PasswordField { get; private set; }
+
     public static DesktopWindow Create(string title) => new(title);
+
+    /// <summary>
+    /// Adds the two edit controls the password-field tests need. They are created on the window's own
+    /// thread, because a child window belongs to the thread that created it and focus follows that.
+    /// </summary>
+    public void AddFields()
+    {
+        var done = new ManualResetEventSlim();
+        Post(() =>
+        {
+            PlainField = CreateWindowEx(0, "EDIT", string.Empty, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 20, 20, 200, 24, Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            PasswordField = CreateWindowEx(0, "EDIT", string.Empty, WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD, 20, 60, 200, 24, Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            done.Set();
+        });
+        done.Wait(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Gives a child control keyboard focus. SetFocus only works on the thread that owns the window, so
+    /// this runs on the window's thread rather than the test's — calling it from here would silently do
+    /// nothing and leave the probe reading whatever had focus before.
+    /// </summary>
+    public void Focus(IntPtr control)
+    {
+        var done = new ManualResetEventSlim();
+        Post(() =>
+        {
+            _ = SetFocus(control);
+            done.Set();
+        });
+        done.Wait(TimeSpan.FromSeconds(5));
+    }
+
+    private void Post(Action action)
+    {
+        lock (_posted)
+        {
+            _posted.Enqueue(action);
+        }
+
+        _ = PostMessage(Handle, WM_RUN_ACTION, IntPtr.Zero, IntPtr.Zero);
+    }
 
     /// <summary>
     /// Brings the window to the front and waits for Windows to agree.
@@ -185,6 +234,17 @@ internal sealed class DesktopWindow : IDisposable
 
         while (!_closing && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
         {
+            if (message.Message == WM_RUN_ACTION)
+            {
+                Action? action;
+                lock (_posted)
+                {
+                    action = _posted.Count > 0 ? _posted.Dequeue() : null;
+                }
+
+                action?.Invoke();
+            }
+
             _ = TranslateMessage(ref message);
             _ = DispatchMessage(ref message);
         }
@@ -193,6 +253,14 @@ internal sealed class DesktopWindow : IDisposable
     }
 
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
+    private const uint WS_CHILD = 0x40000000;
+    private const uint WS_VISIBLE = 0x10000000;
+    private const uint WS_TABSTOP = 0x00010000;
+    private const uint ES_PASSWORD = 0x0020;
+
+    /// <summary>WM_APP + 1: a message Windows will never send, so it can only be one of ours.</summary>
+    private const uint WM_RUN_ACTION = 0x8001;
+
     private const int SW_SHOWNORMAL = 1;
     private const int SW_MAXIMIZE = 3;
     private const uint WM_CLOSE = 0x0010;
@@ -248,6 +316,9 @@ internal sealed class DesktopWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
