@@ -114,6 +114,28 @@ public sealed class NoteDraftTests
     }
 
     [Fact]
+    public void TheLastStepCannotBeDeleted()
+    {
+        // Backspace on the only step would leave a Steps heading with nothing under it and nowhere for the
+        // technician's caret to be, and the next keystroke would go somewhere they did not choose.
+        var note = new NoteDraft(Draft());
+
+        Assert.False(note.DeleteStep(note.Steps[0].Id));
+        Assert.Single(note.Steps);
+    }
+
+    [Fact]
+    public void DeletingReportsWhetherItHappened()
+    {
+        // The view moves the caret to the step above, and only when there is one fewer step than before.
+        var note = new NoteDraft(Draft(Step("one"), Step("two")));
+
+        Assert.True(note.DeleteStep(note.Steps[1].Id));
+        Assert.False(note.DeleteStep("nonexistent"));
+        Assert.Single(note.Steps);
+    }
+
+    [Fact]
     public void ReorderingMovesTheStepAndNothingElse()
     {
         var note = new NoteDraft(Draft(Step("one"), Step("two"), Step("three")));

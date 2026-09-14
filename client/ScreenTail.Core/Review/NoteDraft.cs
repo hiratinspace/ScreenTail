@@ -207,17 +207,25 @@ public sealed class NoteDraft
         return step;
     }
 
-    /// <summary>`Backspace` on an empty step. Silent when the id is unknown — the caller is a keystroke.</summary>
-    public void DeleteStep(string id)
+    /// <summary>
+    /// `Backspace` on an empty step. Silent when the id is unknown — the caller is a keystroke, and the
+    /// step may be gone between the key going down and the handler running.
+    ///
+    /// Refuses the last one. A note with no Steps section has no shape, and the technician would be left
+    /// holding Backspace at a heading with nothing to type into.
+    /// </summary>
+    /// <returns>Whether the step was removed.</returns>
+    public bool DeleteStep(string id)
     {
         var at = IndexOf(id);
-        if (at < 0)
+        if (at < 0 || _steps.Count <= 1)
         {
-            return;
+            return false;
         }
 
         _steps.RemoveAt(at);
         Bump();
+        return true;
     }
 
     /// <summary>

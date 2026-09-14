@@ -69,8 +69,7 @@ public partial class NoteEditorView : UserControl
             // The focus goes to the step above so the technician carries on typing where they were.
             case Key.Back when box.Text.Length == 0:
                 var previous = PreviousOf(model, row);
-                model.RemoveStep(row);
-                if (previous is { } target)
+                if (model.RemoveStep(row) && previous is { } target)
                 {
                     Focus(target);
                 }

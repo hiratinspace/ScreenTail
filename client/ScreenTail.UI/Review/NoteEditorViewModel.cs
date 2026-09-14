@@ -242,18 +242,19 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         return added;
     }
 
-    /// <summary>`Backspace` on an empty step. Refuses the last one: a note with no steps has no shape.</summary>
-    public void RemoveStep(StepRow row)
+    /// <summary>`Backspace` on an empty step. Whether it may go is <see cref="NoteDraft"/>'s call.</summary>
+    /// <returns>Whether the row was removed, so the view knows whether to move the caret.</returns>
+    public bool RemoveStep(StepRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
-        if (Steps.Count <= 1)
+        if (!_note.DeleteStep(row.Id))
         {
-            return;
+            return false;
         }
 
-        _note.DeleteStep(row.Id);
         Steps.Remove(row);
         OnPropertyChanged(nameof(UnverifiedLabel));
+        return true;
     }
 
     /// <summary>
