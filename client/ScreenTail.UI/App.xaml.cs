@@ -26,6 +26,11 @@ public partial class App : Application
         {
             window = new GalleryWindow(directory);
         }
+        else if (Array.IndexOf(args, "--note") >= 0)
+        {
+            // ST-074's pane, rendered against a fixture in every state and theme. Same trick as the shell.
+            window = new Review.NotePreviewWindow(directory);
+        }
         else
         {
             // The shell renders itself the same way the gallery does when asked. RenderTargetBitmap draws

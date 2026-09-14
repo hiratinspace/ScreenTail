@@ -79,6 +79,19 @@ public interface ISessionStore : IAsyncDisposable
     /// </summary>
     Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Review's Discard (ST-074, Spec §5 S3). Deletes the frames, transcript and events, drops the drafted
+    /// note, marks the session discarded and writes the audit row — in one transaction, so there is no
+    /// moment where the raw data is gone and nothing says why.
+    ///
+    /// Not <see cref="DeleteSessionAsync"/>, which removes the row: Spec §5 S4 lists Discarded as a status
+    /// a technician can filter history by, and a row that is gone cannot have one. Not
+    /// <see cref="PurgeRawDataAsync"/> either, which keeps the note on purpose, because retention ages out
+    /// the evidence and leaves the deliverable — and here the note is the thing being thrown away.
+    /// </summary>
+    /// <returns>How many frames were deleted.</returns>
+    Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);
+
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
     Task VacuumAsync(CancellationToken ct = default);
 

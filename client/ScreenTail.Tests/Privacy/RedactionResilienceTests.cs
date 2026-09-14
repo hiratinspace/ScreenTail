@@ -195,6 +195,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default) => inner.PurgeRawDataAsync(sessionId, ct);
 
+        public Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default) => inner.DiscardSessionAsync(sessionId, ct);
+
         public Task VacuumAsync(CancellationToken ct = default) => inner.VacuumAsync(ct);
 
         public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => inner.LoadSessionAsync(sessionId, ct);

@@ -262,6 +262,61 @@ public sealed class SessionStoreTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task DiscardingFromReviewTakesTheNoteWithTheEvidence()
+    {
+        // ST-074's Discard. PurgeRawDataAsync keeps the drafted note on purpose - retention ages out the
+        // evidence and leaves the deliverable - and here the note is the thing being thrown away. A discard
+        // that left a readable note behind would be the worst of both: the technician believes it is gone.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.StageFrameAsync("s1", Staged("f1", 1000, Bytes(0xAA, 2000)));
+        await store.MarkFrameRedactedAsync("f1", Outcome(Bytes(0xBB, 1500), "Service status: Stopped"));
+        await store.AppendEventAsync("s1", new ClickEvent { TsMs = 990, X = 1, Y = 1, Button = MouseButton.Left });
+        await store.AppendTranscriptAsync("s1", new TranscriptSegment { Id = "t1", TsMs = 995, EndMs = 1200, Speaker = Speaker.Tech, Text = "hi" });
+        await store.SaveDraftAsync("s1", Note());
+
+        Assert.Equal(1, await store.DiscardSessionAsync("s1"));
+
+        // The row survives, because Spec §5 S4 lets a technician filter history by Discarded and a row that
+        // is gone cannot have a status.
+        var loaded = (await store.LoadSessionAsync("s1"))!;
+        Assert.Empty(loaded.Frames);
+        Assert.Empty(loaded.Events);
+        Assert.Empty(loaded.Transcript);
+        Assert.Null(loaded.Draft);
+        Assert.Null(await store.GetRedactedFrameImageAsync("f1"));
+
+        // And it says so: INV-12 keeps the audit log through every deletion, so there is a record that a
+        // human threw this away rather than a silent gap in the history.
+        var audit = await store.GetAuditAsync("s1");
+        var row = Assert.Single(audit, entry => entry.Type == AuditTypes.SessionDiscarded);
+        Assert.Equal(1, row.Count);
+    }
+
+    [Fact]
+    public async Task DiscardingASessionThatIsNotThereWritesNothing()
+    {
+        var store = await OpenAsync();
+
+        Assert.Equal(0, await store.DiscardSessionAsync("never-existed"));
+        Assert.Empty(await store.GetAuditAsync("never-existed"));
+    }
+
+    private static DraftNote Note() => new()
+    {
+        Problem = "Nothing printed.",
+        Steps = [new DraftStep { Text = "Started the spooler.", Confidence = StepConfidence.High, FrameRefs = [] }],
+        Result = "It prints.",
+        FollowUps = [],
+        SuggestedTitle = "Printer offline",
+        SuggestedTimeMinutes = 30,
+        KbCandidate = false,
+        KbReason = "one-off",
+        Source = DraftSource.Cloud,
+        PromptVersion = "note_v1",
+    };
+
     private async Task<SqliteSessionStore> OpenAsync()
     {
         var store = await SqliteSessionStore.OpenAsync(_path, _key);

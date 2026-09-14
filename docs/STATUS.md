@@ -1,6 +1,6 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-13, ~14:30 CDT
+**Snapshot taken:** 2026-09-13, ~16:40 CDT
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 
 ---
@@ -11,12 +11,13 @@
 frame is staged encrypted and unreadable, the redaction worker reads it, masks what it finds and only then
 shrinks it for storage. Hotkeys drive the session. Nothing is drafted yet.
 
-Twenty-one tickets are done or substantially done: ST-001 (spike), ST-002 (repo/CI), ST-003 (schema),
-ST-004 (service + IPC), ST-005 (store), ST-006 (fixtures), ST-014 (wireframes), ST-016 (design system),
-ST-020 (state machine), ST-021 (capability checks), ST-022 (foreground detection), ST-023 (scope policy),
-ST-024 (input hooks), ST-025 (screenshot on click), ST-026 (scene sampling), ST-029 (hotkeys),
-ST-041 (OCR and redaction worker), ST-042 (redaction engine, partial), ST-044 (retention),
-ST-061 (note prompt), ST-066 (time entry).
+Twenty-six tickets are done or substantially done: ST-001 (spike), ST-002 (repo/CI), ST-003 (schema),
+ST-004 (service + IPC), ST-005 (store), ST-006 (fixtures), ST-014 (wireframes), ST-015 (Review hi-fi),
+ST-016 (design system), ST-020 (state machine), ST-021 (capability checks), ST-022 (foreground detection),
+ST-023 (scope policy), ST-024 (input hooks), ST-025 (screenshot on click), ST-026 (scene sampling),
+ST-029 (hotkeys), ST-041 (OCR and redaction worker), ST-042 (redaction engine, partial), ST-043
+(exclusions), ST-044 (retention), ST-046 (egress guard), ST-061 (note prompt), ST-066 (time entry),
+ST-070 (shell), ST-071 (tray and diagnostics), ST-074 (note editor).
 
 **In flight:** ST-040 (password-field suppression) is complete and waiting on the laptop; ST-045 (audit
 log) is built and stacked behind it.
@@ -27,9 +28,9 @@ log) is built and stacked behind it.
 |---|---|---|
 | GitHub repo (private) | https://github.com/hiratinspace/ScreenTail | `main` plus whatever is in flight |
 | Build plan | `Build Plan/` | Spec at **v0.4.2** — ST-014's six decisions and the contrast fixes are both in the amendments table |
-| Client | `client/` | `.Shared` (schema + IPC), `.Core` (store, sessions, privacy, capture, input, audit), `.Service`, `.UI`. **348 tests** on macOS, plus a Windows-only suite |
+| Client | `client/` | `.Shared` (schema + IPC), `.Core` (store, sessions, privacy, capture, input, audit), `.Service`, `.UI`. **586 tests** on macOS, plus a Windows-only suite |
 | Backend / web | `backend/`, `web/` | Skeletons with CI gates; nothing built on them yet |
-| Research | `research/` | Fixtures, note prompt, output contract. **62 tests** |
+| Research | `research/` | Fixtures, note prompt, output contract. **100 tests** |
 | Windows test loop | Hosted Windows VM + spare laptop (`SCREENTRAIL`) | Both run on every PR touching capture. The laptop produces the numbers; the hosted runner's don't count |
 | Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion |
 
@@ -110,20 +111,26 @@ screen. What it cannot do yet: hear anything (ST-027) or write a note (ST-060/06
 - **ST-016's focus rings** were confirmed by code and CI render, not by tabbing through the app.
 
 ## 7. Next steps
-### Blocked only by the locked laptop
+### Blocked only by the laptop, which is switched off
 **ST-040** (password-field suppression) is complete — the one test that matters proves UI Automation, not
 the `EM_GETPASSWORDCHAR` fallback, is what answers, which is the whole reason the fallback is safe to keep.
 **ST-045** (audit log) is built and stacked behind it. Also waiting: ST-025's capture timings and ST-024's
-hook measurements, which have been skipping since the screen locked.
+hook measurements, which have been skipping since the screen locked. `HW_RUNNER` is set to `false` so the
+rest of CI can go green; **set it back to `true` when the laptop is on**, or the hardware tests will keep
+skipping silently.
 
 ### Next to build, in order
-1. **ST-027 speech pipeline** — Urgent, and the biggest unblocker left (ST-028, ST-030, ST-080, ST-123).
+1. **ST-075 screenshot strip** and **ST-076 publish pane** — the other two panes of Review. ST-074 put the
+   note pane and its rules in `ScreenTail.Core/Review`, and both remaining panes have the same shape: the
+   decisions in Core with tests, a thin WPF view, and a `--note`-style render on the Windows runner so the
+   XAML is checked without a machine to look at.
+2. **ST-027 speech pipeline** — Urgent, and the biggest unblocker left (ST-028, ST-030, ST-080, ST-123).
    Two things do not exist yet and neither is code: audio fixtures under `research/fixtures/audio/`, and
    the WER script the ticket names at `research/eval/wer.py`. The VAD gating, chunking, segment assembly
    and resumable model download can all be written and tested on the Mac; *WER ≤ 15% on a 10-minute
    narration* needs a real recording and a microphone.
-2. **ST-028 transcript-to-timeline alignment** — falls straight out of ST-027.
-3. **ST-030 dev-mode recorder and golden dataset** — unblocks ST-042's recall gate and ST-013.
+3. **ST-028 transcript-to-timeline alignment** — falls straight out of ST-027.
+4. **ST-030 dev-mode recorder and golden dataset** — unblocks ST-042's recall gate and ST-013.
 
 ### Needs a decision or an account
 Backend tickets (ST-007 onward) need a cloud account and a hosting decision. ST-063 (cloud drafting) needs
@@ -136,6 +143,7 @@ a model provider.
 | Run client tests | `dotnet test client/ScreenTail.sln` |
 | Run research tests | `cd research && pytest` |
 | Render the component gallery | on Windows: `dotnet run --project client/ScreenTail.UI -- --gallery` |
+| Render the note pane | on Windows: `dotnet run --project client/ScreenTail.UI -- --note --screenshot <dir>` |
 | Look at a fixture session | `research/fixtures/handcrafted/<name>/session.json` + its `frames/` |
 | Regenerate fixtures (macOS only) | `cd research && python fixtures/tools/render_fixtures.py` |
 | Regenerate schema or token outputs | `npm run codegen` in `shared/schema` or `shared/design` |

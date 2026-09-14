@@ -414,6 +414,38 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
         }
     }
 
+    public async Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var frames = await ExecuteAsync(_connection, "DELETE FROM frames WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            await ExecuteAsync(_connection, "DELETE FROM transcript WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            await ExecuteAsync(_connection, "DELETE FROM events WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            var now = Iso(_time.GetUtcNow());
+            var discarded = await ExecuteAsync(
+                _connection,
+                "UPDATE sessions SET draft_json = NULL, raw_purged_at = @now, state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now WHERE id = @id",
+                ct,
+                ("@now", now),
+                ("@state", Sessions.SessionStateNames.Discarded),
+                ("@id", sessionId)).ConfigureAwait(false);
+
+            if (discarded > 0)
+            {
+                await AuditAsync(sessionId, AuditTypes.SessionDiscarded, frames, ct).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return frames;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task VacuumAsync(CancellationToken ct = default)
     {
         // In WAL mode VACUUM writes the rebuilt file into the log; only a truncating checkpoint returns the space.

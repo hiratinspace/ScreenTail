@@ -124,6 +124,24 @@ jobs:
           }
           $shell | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 
+      # ST-074: the note pane, rendered against research/fixtures/handcrafted in all six states and three
+      # themes. Its AC is "renders fixture with no backend", and this is that sentence as a check.
+      - name: Note pane screenshots
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gallery'
+          $log = Join-Path $env:RUNNER_TEMP 'note-render.log'
+          dotnet run --project ScreenTail.UI -c Release --no-build -- --note --screenshot $out | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $notes = Get-ChildItem $out -Filter 'note-*.png'
+          if ($notes.Count -lt 18) { throw "Expected 18 note-pane screenshots, found $($notes.Count)." }
+          $counts = Select-String -Path $log -Pattern 'distinct colours' -AllMatches
+          foreach ($line in $counts) {
+            if ($line -match '(\d+) distinct colours') {
+              if ([int]$Matches[1] -lt 20) { throw "$line - the note pane rendered nothing." }
+            }
+          }
+          $notes | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+
       - name: Upload gallery screenshots
         if: always()
         uses: actions/upload-artifact@v7
