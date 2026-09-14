@@ -111,7 +111,6 @@ public sealed class NoteDraft
     private int _nextId;
     private string _problem;
     private string _result;
-    private string _title;
 
     public NoteDraft(DraftNote draft)
     {
@@ -119,11 +118,19 @@ public sealed class NoteDraft
         _origin = draft;
         _problem = draft.Problem;
         _result = draft.Result;
-        _title = draft.SuggestedTitle;
         _followUps.AddRange(draft.FollowUps);
         foreach (var step in draft.Steps)
         {
             _steps.Add(new NoteStep(NextId(), step));
+        }
+
+        // There is always one, even when the draft had none. DeleteStep refuses to remove the last step
+        // because a Steps heading with nothing under it leaves the technician's caret nowhere — and the
+        // only way to make a step is to press Enter in one. A note that arrives with zero steps would land
+        // in exactly that state and could never be written in again.
+        if (_steps.Count == 0)
+        {
+            _steps.Add(new NoteStep(NextId()));
         }
     }
 
@@ -140,8 +147,6 @@ public sealed class NoteDraft
 
     public string Result => _result;
 
-    public string Title => _title;
-
     public IReadOnlyList<NoteStep> Steps => _steps;
 
     public IReadOnlyList<string> FollowUps => _followUps;
@@ -152,8 +157,6 @@ public sealed class NoteDraft
     public void SetProblem(string text) => Set(ref _problem, text);
 
     public void SetResult(string text) => Set(ref _result, text);
-
-    public void SetTitle(string text) => Set(ref _title, text);
 
     public void SetStepText(string id, string text)
     {
@@ -197,12 +200,17 @@ public sealed class NoteDraft
 
     public string FollowUpsText() => string.Join('\n', _followUps);
 
-    /// <summary>`Enter` at the end of a step. Returns the new step so the caller can put the caret in it.</summary>
+    /// <summary>
+    /// `Enter` at the end of a step. Returns the new step so the caller can put the caret in it. An id
+    /// that is not there appends, like the other four methods ignore one — the first version computed
+    /// <c>IndexOf(id) + 1</c>, which is 0 for an unknown id, so a stale keystroke silently inserted the
+    /// new step at the top of the note.
+    /// </summary>
     public NoteStep InsertStepAfter(string? id)
     {
         var step = new NoteStep(NextId());
-        var at = id is null ? _steps.Count : IndexOf(id) + 1;
-        _steps.Insert(at < 0 ? _steps.Count : at, step);
+        var after = id is null ? -1 : IndexOf(id);
+        _steps.Insert(after < 0 ? _steps.Count : after + 1, step);
         Bump();
         return step;
     }
@@ -254,16 +262,20 @@ public sealed class NoteDraft
     }
 
     /// <summary>
-    /// What gets written. Steps with no text are left out: the schema requires <c>minLength 1</c>, so a
-    /// document containing one could not be saved at all, and refusing the whole save would mean a
+    /// What gets written. Steps with no text are left out, because <c>session.v1.json</c> requires
+    /// <c>minLength 1</c> on a step's text and the alternative — refusing the whole save — would mean a
     /// technician who pressed Enter and then went to lunch loses every other edit too. The empty step
     /// stays in the editor and is written as soon as it says something.
+    ///
+    /// That does mean a note can be written with no steps at all, and the client would not stop it:
+    /// <c>SessionValidator</c> mirrors the schema's bounds but a bundle is only rejected on the way in.
+    /// The constructor is what closes that loop — a draft that comes back with no steps gets an empty one
+    /// — so the editor can always be typed in again.
     /// </summary>
     public DraftNote ToSchema() => _origin with
     {
         Problem = _problem,
         Result = _result,
-        SuggestedTitle = _title,
         FollowUps = [.. _followUps],
         Steps = [.. _steps.Where(step => !string.IsNullOrWhiteSpace(step.Text)).Select(step => step.ToSchema())],
     };

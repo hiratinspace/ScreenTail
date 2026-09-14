@@ -29,22 +29,29 @@
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Style="{StaticResource Text.Body}"
+                        <!-- A Grid, not a horizontal StackPanel: a StackPanel measures its children with
+                             infinite width, so TextWrapping never fires and the sentence is cut off at the
+                             pane edge mid-word. The first version hid that behind MaxWidth="420", which is
+                             a magic number that is wrong at every other pane width. -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Style="{StaticResource Text.Body}"
                                        Text="{Binding Glyph}"
                                        Margin="0,0,8,0"
                                        VerticalAlignment="Top" />
-                            <StackPanel>
+                            <StackPanel Grid.Column="1">
                                 <TextBlock Style="{StaticResource Text.Muted}"
                                            FontSize="{DynamicResource Size.xs}"
                                            Text="{Binding Kind}" />
                                 <TextBlock Style="{StaticResource Text.Body}"
                                            TextWrapping="Wrap"
-                                           MaxWidth="420"
-                                           HorizontalAlignment="Left"
                                            Text="{Binding Text}" />
                             </StackPanel>
-                        </StackPanel>
+                        </Grid>
                     </Border>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
@@ -80,14 +87,17 @@
                         <DataTemplate DataType="{x:Type review:StepRow}">
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
+                                    <!-- Reserved whether or not the rule is drawn. With Auto the column
+                                         collapses when the marker clears, so pressing Alt+C slid the step
+                                         thirteen pixels left and left it out of line with its neighbours. -->
+                                    <ColumnDefinition Width="13" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
 
                                 <!-- The ⚠ rule down the left edge. One of three signals, not the signal. -->
                                 <Border Grid.Column="0"
                                         Width="3"
-                                        Margin="0,0,10,0"
+                                        HorizontalAlignment="Left"
                                         CornerRadius="2"
                                         Background="{DynamicResource Brush.confidence.low}"
                                         Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />

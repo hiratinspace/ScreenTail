@@ -140,6 +140,12 @@ jobs:
               if ([int]$Matches[1] -lt 20) { throw "$line - the note pane rendered nothing." }
             }
           }
+          # A binding to a property that does not exist does not throw and does not stop the layout - it
+          # leaves the control blank. A pane missing one label still has hundreds of distinct colours, so
+          # every other check here would pass. The render collects them; this is where they bite.
+          $bindings = Select-String -Path $log -Pattern '^(\d+) binding errors$'
+          if (-not $bindings) { throw "The render did not report a binding-error count." }
+          if ([int]$bindings.Matches[0].Groups[1].Value -ne 0) { throw "$($bindings.Line) - see the step log." }
           $notes | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 
       - name: Upload gallery screenshots

@@ -135,6 +135,86 @@ public sealed class AutoSaveTests
 
         Assert.Equal(SaveStatus.Failed, save.Status);
         Assert.Same(_throw, save.LastError);
+
+        // Not Assert.Empty(_written): the fake only records on the branch that did not run, so that
+        // assertion could not have failed. What matters is that the edit is still outstanding - the next
+        // due tick writes it, and the indicator is not saying "Saved" about it.
+        _throw = null;
+        _clock.Advance(TimeSpan.FromSeconds(5));
+        await save.TickAsync();
+        Assert.Equal(["at risk"], _written);
+    }
+
+    [Fact]
+    public async Task ACancelledWriteDoesNotBrickTheEditor()
+    {
+        // Status is set to Saving before the await and this is the only method that clears it, so an
+        // exception escaping left it Saving forever - and both TickAsync and FlushAsync return early while
+        // it is Saving. One cancelled write and the pane read "Saving…" for the life of the window while
+        // every subsequent edit went nowhere. Cancellation was excluded from the catch on purpose, which
+        // is what made it the one exception that could escape.
+        var save = Save();
+        _throw = new OperationCanceledException();
+        _note.SetProblem("still here");
+        save.Touch();
+        await save.FlushAsync();
+
+        Assert.Equal(SaveStatus.Failed, save.Status);
+
+        _throw = null;
+        _clock.Advance(TimeSpan.FromSeconds(5));
+        await save.TickAsync();
+
+        Assert.Equal(["still here"], _written);
+        Assert.Equal(SaveStatus.Saved, save.Status);
+    }
+
+    [Fact]
+    public async Task ClosingTheWindowWaitsForTheWriteAlreadyInFlight()
+    {
+        // FlushAsync used to return immediately when a write was in flight, which meant the close path
+        // dropped whatever was typed during that write - silently, and with the window already gone.
+        var gate = new TaskCompletionSource();
+        var save = new AutoSave(
+            async ct =>
+            {
+                var text = _note.Problem;
+                await gate.Task.WaitAsync(ct);
+                _written.Add(text);
+            },
+            () => _note.Revision,
+            _clock);
+
+        _note.SetProblem("first");
+        save.Touch();
+        var inFlight = save.FlushAsync();
+
+        _note.SetProblem("typed while the first write was going out");
+        save.Touch();
+        var closing = save.FlushAsync();
+
+        gate.SetResult();
+        await inFlight;
+        await closing;
+
+        Assert.Equal(["first", "typed while the first write was going out"], _written);
+        Assert.Equal(SaveStatus.Saved, save.Status);
+    }
+
+    [Fact]
+    public async Task NothingIsWrittenAfterTheSessionIsDiscarded()
+    {
+        // The session row survives a discard, so a later save would put a full readable note back into a
+        // session whose audit log says a human threw it away.
+        var save = Save();
+        _note.SetProblem("about to be discarded");
+        save.Touch();
+
+        save.Stop();
+        await save.FlushAsync();
+        _clock.Advance(TimeSpan.FromSeconds(5));
+        await save.TickAsync();
+
         Assert.Empty(_written);
     }
 

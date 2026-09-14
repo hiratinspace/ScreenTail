@@ -62,7 +62,7 @@ public sealed class NoteBannerTests
     [Fact]
     public void OfflineWithNoDraftSaysTheDraftIsPending()
     {
-        Assert.Contains(NoteBanners.For(Session(), offline: true), banner => banner.Text == "Draft pending — offline.");
+        Assert.Contains(NoteBanners.For(Session(), offline: true), banner => banner.Text == "Draft pending — offline");
     }
 
     [Fact]

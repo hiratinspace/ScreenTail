@@ -27,7 +27,7 @@ log) is built and stacked behind it.
 | Piece | Where | State |
 |---|---|---|
 | GitHub repo (private) | https://github.com/hiratinspace/ScreenTail | `main` plus whatever is in flight |
-| Build plan | `Build Plan/` | Spec at **v0.4.2** — ST-014's six decisions and the contrast fixes are both in the amendments table |
+| Build plan | `Build Plan/` | Spec at **v0.4.3** — ST-014's six decisions, the contrast fixes and ST-074's three S3 wording changes are all in the amendments table |
 | Client | `client/` | `.Shared` (schema + IPC), `.Core` (store, sessions, privacy, capture, input, audit), `.Service`, `.UI`. **586 tests** on macOS, plus a Windows-only suite |
 | Backend / web | `backend/`, `web/` | Skeletons with CI gates; nothing built on them yet |
 | Research | `research/` | Fixtures, note prompt, output contract. **100 tests** |

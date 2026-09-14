@@ -80,6 +80,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     private readonly Func<TypedConfirmation, bool> _confirm;
     private readonly Func<CancellationToken, Task>? _discard;
     private readonly Func<CancellationToken, Task>? _retryDraft;
+    private readonly bool _persists;
     private readonly Dictionary<string, string> _quotes;
     private readonly Dictionary<string, string> _frameLabels;
 
@@ -101,6 +102,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         _confirm = confirm ?? (_ => false);
         _discard = discard;
         _retryDraft = retryDraft;
+        _persists = write is not null;
 
         // Spec S3 draws the draft-failed state as the pane saying so, with the timeline and screenshots
         // still there. An empty editor over a session that has no note would look like a note nobody wrote.
@@ -142,8 +144,13 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
 
     public ObservableCollection<StepRow> Steps { get; }
 
-    /// <summary>Bottom-left of the pane, in <c>text.muted</c> (Spec §5 S3).</summary>
-    public string SaveLabel => _save.Status switch
+    /// <summary>
+    /// Bottom-left of the pane, in <c>text.muted</c> (Spec §5 S3). Empty when nothing is persisting the
+    /// note, which is the render harness: an editor that says "Saved" about a note going nowhere is
+    /// exactly the lie the indicator exists to prevent, and it would have been the first thing anyone
+    /// looking at the screenshots believed.
+    /// </summary>
+    public string SaveLabel => !_persists ? string.Empty : _save.Status switch
     {
         SaveStatus.Saved => "Saved",
         SaveStatus.Failed => "Not saved — retrying",
@@ -182,6 +189,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     {
         _note.Changed -= OnNoteChanged;
         await _save.FlushAsync().ConfigureAwait(false);
+        _save.Dispose();
     }
 
     partial void OnProblemChanged(string value) => _note.SetProblem(value);
@@ -269,8 +277,29 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
             return;
         }
 
-        await _discard(CancellationToken.None).ConfigureAwait(true);
+        // Before the store call, not after. The session row survives a discard on purpose, so a tick or a
+        // closing flush landing afterwards would put a full readable note back into a session whose audit
+        // log says a human threw it away — and there is nothing in the note that a discard was meant to
+        // keep.
+        _save.Stop();
+        try
+        {
+            await _discard(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // A discard that fails must not look like one that worked: the technician is standing in front
+            // of a customer believing the screenshots are gone.
+            DiscardError = error.Message;
+            OnPropertyChanged(nameof(DiscardError));
+            OnPropertyChanged(nameof(DiscardFailed));
+        }
     }
+
+    /// <summary>Why the discard did not happen, or null. Shown beside the button, never as a dialog.</summary>
+    public string? DiscardError { get; private set; }
+
+    public bool DiscardFailed => DiscardError is not null;
 
     private static DraftNote EmptyDraft => new()
     {

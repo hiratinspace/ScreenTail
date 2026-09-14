@@ -28,6 +28,13 @@ public partial class NotePreviewWindow : Window
 
     public NotePreviewWindow(string? screenshotDirectory)
     {
+        // Before any binding runs, so a property that does not exist is collected rather than merely
+        // leaving a label blank in eighteen otherwise convincing screenshots.
+        if (screenshotDirectory is not null)
+        {
+            BindingErrors.Listen();
+        }
+
         InitializeComponent();
         _screenshotDirectory = screenshotDirectory;
         Pane.DataContext = new NoteEditorViewModel(LoadFixture());
@@ -94,6 +101,20 @@ public partial class NotePreviewWindow : Window
             }
         }
 
+        Report();
         Application.Current.Shutdown();
+    }
+
+    private static void Report()
+    {
+        var errors = BindingErrors.Collected;
+        foreach (var error in errors)
+        {
+            Console.Error.WriteLine(error);
+        }
+
+        // Printed as a count the workflow can read. A binding error means a label that should say
+        // something says nothing, and every other check here would still pass.
+        Console.WriteLine($"{errors.Count} binding errors");
     }
 }

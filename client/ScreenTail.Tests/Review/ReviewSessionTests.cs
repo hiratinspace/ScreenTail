@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using ScreenTail.Core.Review;
+using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 using static ScreenTail.Tests.Review.ReviewFixture;
@@ -40,7 +41,8 @@ public sealed class ReviewSessionTests : IAsyncDisposable
     {
         var store = await OpenAsync();
         await SeedAsync(store);
-        var review = new ReviewSession(store, "s1");
+        const string sessionId = "s1";
+        var review = new ReviewSession(store, sessionId);
 
         await review.DiscardAsync();
 
@@ -48,6 +50,11 @@ public sealed class ReviewSessionTests : IAsyncDisposable
         Assert.Null(after.Draft);
         Assert.Empty(after.Frames);
         Assert.Contains(await store.GetAuditAsync("s1"), entry => entry.Type == AuditTypes.SessionDiscarded);
+
+        // The row is kept so Spec §5 S4 can filter history by Discarded, which is only true if the state
+        // is actually written. Nothing else in the codebase reads that column yet, so without this the
+        // claim in ISessionStore's own documentation is pinned by nothing.
+        Assert.Equal([sessionId], await store.ListSessionsInStatesAsync([SessionStateNames.Discarded]));
     }
 
     [Fact]

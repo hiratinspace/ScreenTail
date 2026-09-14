@@ -14,9 +14,29 @@ namespace ScreenTail.UI.Review;
 /// </summary>
 public partial class NoteEditorView : UserControl
 {
+    private readonly System.Windows.Threading.DispatcherTimer _tick = new()
+    {
+        // Four times a second. The autosave decides whether a write is due; this only has to arrive often
+        // enough that its 900 ms ceiling is not really 900 ms plus a tick.
+        Interval = TimeSpan.FromMilliseconds(250),
+    };
+
     public NoteEditorView()
     {
         InitializeComponent();
+
+        // Without this nothing ever calls TickAsync, and the autosave's whole debounce-and-ceiling
+        // argument would be code with no caller: edits would reach disk only on Ctrl+S or on close.
+        _tick.Tick += async (_, _) =>
+        {
+            if (Model is { } model)
+            {
+                await model.TickAsync();
+            }
+        };
+
+        Loaded += (_, _) => _tick.Start();
+        Unloaded += (_, _) => _tick.Stop();
     }
 
     /// <summary>Raised when a frame chip is clicked, so the shell can jump the filmstrip (ST-075).</summary>

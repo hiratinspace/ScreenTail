@@ -73,15 +73,16 @@ public static class NoteBanners
 
         if (session.Draft is null && offline)
         {
-            banners.Add(new Banner(BannerKind.Info, "Draft pending — offline."));
+            banners.Add(new Banner(BannerKind.Info, "Draft pending — offline"));
         }
 
         return banners;
     }
 
     /// <summary>
-    /// Why Publish is disabled, or null when it isn't. Spec §5 S3 puts this next to the button rather than
-    /// in a tooltip: a tooltip on a disabled control is the one place a keyboard user can never reach it.
+    /// Why Publish is disabled, or null when it isn't. Spec §5 S3 puts this in the disabled button's
+    /// tooltip; ST-015 moved it to a line beside the button, because a tooltip on a disabled control is
+    /// the one place a keyboard user can never reach it. Amendment v0.4.3.
     /// </summary>
     /// <param name="ticketChosen">A ticket has been picked in the right pane.</param>
     public static string? PublishBlockedBecause(Session session, bool ticketChosen, bool offline = false)
@@ -91,6 +92,9 @@ public static class NoteBanners
         // v0.4.1 Q4: writing a note by hand after a failed draft is v1.1, so there is nothing to publish.
         if (session.Draft is null)
         {
+            // Spec §5 S3 gives one sentence here, ending "Retry the draft first". Offline, that is an
+            // instruction the technician cannot carry out - a cloud draft retried with no connection fails
+            // again - and §6's own copy rule says always offer the next step. Amendment v0.4.3.
             return offline
                 ? "There is no note to publish yet. It will be drafted when you are back online."
                 : "There is no note to publish yet. Retry the draft first.";

@@ -13,7 +13,11 @@ public enum SaveStatus
     /// ours, not the technician's, and a third word would only invite them to wonder about it.</summary>
     Pending,
 
-    /// <summary>The last write threw. Said out loud, because the alternative is a pane that looks saved.</summary>
+    /// <summary>
+    /// The last write threw. Spec §5 S3 names two labels, "Saved" and "Saving…", and neither can be shown
+    /// truthfully here; a pane that looks saved while the edits are only in memory is the worst of the
+    /// three. Amendment v0.4.3.
+    /// </summary>
     Failed,
 }
 
@@ -47,13 +51,15 @@ public sealed record AutoSaveOptions
 /// <see cref="NoteDraft.Revision"/> is what it tracks, not a dirty flag. A save takes time, and a
 /// technician who keeps typing during it must not be told "Saved" about text that was never written.
 /// </summary>
-public sealed class AutoSave
+public sealed class AutoSave : IDisposable
 {
     private readonly Func<CancellationToken, Task> _write;
     private readonly Func<int> _revision;
     private readonly TimeProvider _time;
     private readonly AutoSaveOptions _options;
 
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private bool _stopped;
     private int _savedRevision;
     private int _inFlightRevision;
     private long? _firstUnsavedAt;
@@ -101,31 +107,55 @@ public sealed class AutoSave
     }
 
     /// <summary>
-    /// Call on a timer. Writes if a write is due; otherwise does nothing and returns immediately.
+    /// Call on a timer. Writes if a write is due; otherwise does nothing and returns immediately. A tick
+    /// that arrives while a write is in flight is dropped — another one is along shortly.
     /// </summary>
-    public async Task TickAsync(CancellationToken ct = default)
-    {
-        if (Status is SaveStatus.Saving || !IsDue())
-        {
-            return;
-        }
-
-        await SaveAsync(ct).ConfigureAwait(false);
-    }
+    public Task TickAsync(CancellationToken ct = default) => IsDue() ? WriteAsync(wait: false, ct) : Task.CompletedTask;
 
     /// <summary>
     /// `Ctrl+S`, and closing the window. Writes now if anything is unsaved, ignoring the debounce and any
     /// retry delay — a technician who asked has waited long enough, and a window about to close has no
     /// later.
+    ///
+    /// It waits for a write already in flight rather than returning. Returning was the first version, and
+    /// it dropped whatever was typed *during* that write, on the close path, silently — which is the one
+    /// outcome this whole class exists to prevent.
     /// </summary>
-    public async Task FlushAsync(CancellationToken ct = default)
+    public Task FlushAsync(CancellationToken ct = default) => WriteAsync(wait: true, ct);
+
+    /// <summary>
+    /// The session was discarded. Nothing more may be written: the row is still there, so a later save
+    /// would put a full readable note back into a session whose audit log says a human threw it away.
+    /// </summary>
+    public void Stop() => _stopped = true;
+
+    public void Dispose() => _gate.Dispose();
+
+    private async Task WriteAsync(bool wait, CancellationToken ct)
     {
-        if (Status is SaveStatus.Saving || _revision() == _savedRevision)
+        if (wait)
+        {
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+        }
+        else if (!await _gate.WaitAsync(0, ct).ConfigureAwait(false))
         {
             return;
         }
 
-        await SaveAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // Both re-read inside the gate: waiting for the in-flight write may have taken us past either.
+            if (_stopped || _revision() == _savedRevision)
+            {
+                return;
+            }
+
+            await SaveAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private bool IsDue()
@@ -154,11 +184,17 @@ public sealed class AutoSave
         {
             await _write(ct).ConfigureAwait(false);
         }
-        catch (Exception error) when (error is not OperationCanceledException)
+        catch (Exception error)
         {
             // The edits stay unsaved and _firstUnsavedAt keeps its original value, so the ceiling is
             // measured from when the technician typed rather than from the last attempt. They have been
             // waiting longer than anyone, and the indicator says so.
+            //
+            // Cancellation is caught here too, and does not rethrow. It used to be excluded, which set
+            // Status to Saving and then let the exception out of a method that is the only thing that
+            // ever clears it - so one cancelled write left the editor reading "Saving…" and refusing every
+            // subsequent tick and flush for the life of the window. A cancelled write is still a write
+            // that did not happen, and that is what the indicator has to say.
             LastError = error;
             Status = SaveStatus.Failed;
             _retryAfter = _time.GetTimestamp();

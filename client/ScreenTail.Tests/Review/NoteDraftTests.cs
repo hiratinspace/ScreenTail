@@ -136,6 +136,38 @@ public sealed class NoteDraftTests
     }
 
     [Fact]
+    public void ANoteThatComesBackWithNoStepsCanStillBeTypedIn()
+    {
+        // Clearing the only step's text writes steps: [], because ToSchema drops empty ones. On reopening,
+        // a Steps heading with nothing under it has nowhere for the caret to go, and the only way to make
+        // a step is to press Enter inside one - so the note would be unwritable for good.
+        var note = new NoteDraft(Draft());
+        note.SetStepText(note.Steps[0].Id, "   ");
+
+        var written = note.ToSchema();
+        Assert.Empty(written.Steps);
+
+        var reopened = new NoteDraft(written);
+
+        Assert.Single(reopened.Steps);
+        Assert.Equal(string.Empty, reopened.Steps[0].Text);
+    }
+
+    [Fact]
+    public void AStaleEnterAppendsRatherThanJumpingToTheTop()
+    {
+        // IndexOf returns -1 for an id that is gone, and the first version added 1 to it - so a keystroke
+        // about a deleted step put the new one at the top of the note. Every other method here ignores an
+        // unknown id; this one silently reordered the note.
+        var note = new NoteDraft(Draft(Step("one"), Step("two")));
+
+        var added = note.InsertStepAfter("nonexistent");
+
+        Assert.Equal(added.Id, note.Steps[^1].Id);
+        Assert.Equal(["one", "two"], note.Steps.Take(2).Select(step => step.Text));
+    }
+
+    [Fact]
     public void ReorderingMovesTheStepAndNothingElse()
     {
         var note = new NoteDraft(Draft(Step("one"), Step("two"), Step("three")));
@@ -188,7 +220,6 @@ public sealed class NoteDraftTests
         note.SetStepText(note.Steps[0].Id, text);
         note.SetProblem(note.Problem);
         note.SetResult(note.Result);
-        note.SetTitle(note.Title);
 
         Assert.Equal(before, note.Revision);
     }
