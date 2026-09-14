@@ -53,6 +53,25 @@ public interface ISessionStore : IAsyncDisposable
 
     Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default);
 
+    /// <summary>
+    /// Deletes one screenshot for good (ST-075) and writes <see cref="AuditTypes.FrameDeletedByUser"/>.
+    /// Called when the 5 s undo window closes, never before it — Spec §4 prefers an undo to a dialog, and
+    /// an undo that cannot put the frame back is a dialog with extra steps.
+    /// </summary>
+    /// <returns>Whether there was a frame to delete.</returns>
+    Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces a redacted frame's image with one the technician blurred a region out of, and records the
+    /// region as <c>user_blur</c> (ST-075).
+    ///
+    /// The original bytes are not kept anywhere. Spec §5 S3 calls this destructive and means it: a
+    /// technician blurring a password on a customer's screen is telling the product to destroy those
+    /// pixels, and a copy retained "for undo" is a copy.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The frame is gone, or still pending redaction.</exception>
+    Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default);
+
     Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
 
     Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default);
@@ -148,6 +167,9 @@ public static class AuditTypes
     public const string FramesPurgedUnredacted = "frames_purged_unredacted";
     public const string SessionDiscarded = "session_discarded";
     public const string RetentionPurged = "retention_purged";
+
+    /// <summary>ST-075: the technician deleted one screenshot in Review, after the undo window closed.</summary>
+    public const string FrameDeletedByUser = "frame_deleted_by_user";
 }
 
 /// <summary>The database could not be opened with the supplied key.</summary>

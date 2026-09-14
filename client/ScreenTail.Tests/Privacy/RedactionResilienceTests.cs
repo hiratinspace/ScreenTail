@@ -197,6 +197,10 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default) => inner.DiscardSessionAsync(sessionId, ct);
 
+        public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => inner.DeleteFrameAsync(frameId, ct);
+
+        public Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default) => inner.ApplyUserBlurAsync(frameId, image, region, ct);
+
         public Task VacuumAsync(CancellationToken ct = default) => inner.VacuumAsync(ct);
 
         public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => inner.LoadSessionAsync(sessionId, ct);
