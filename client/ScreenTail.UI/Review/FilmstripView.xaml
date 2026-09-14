@@ -1,0 +1,222 @@
+<UserControl x:Class="ScreenTail.UI.Review.FilmstripView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:review="clr-namespace:ScreenTail.UI.Review"
+             Background="{DynamicResource Brush.bg.base}"
+             AutomationProperties.Name="Screenshots">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+
+        <!-- A screenshot. Excluded ones are dimmed *and* say "excluded" (Spec §7: never colour alone, and
+             never opacity alone either) - and the word is outside the dimmed image, because fading the one
+             signal that makes the state readable is how the first version of this lost it. -->
+        <DataTemplate x:Key="FrameTemplate" DataType="{x:Type review:FrameItem}">
+            <StackPanel Width="160">
+                <Border Width="160"
+                        Height="90"
+                        CornerRadius="{DynamicResource Radius.control}"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource Brush.border.strong}"
+                        Background="{DynamicResource Brush.bg.raised}"
+                        ClipToBounds="True">
+                    <Image Source="{Binding Image}" Stretch="UniformToFill" />
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Included}" Value="False">
+                                    <Setter Property="Opacity" Value="0.4" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBlock Style="{StaticResource Text.Muted}" Text="{Binding Label}" />
+                    <TextBlock Style="{StaticResource Text.Muted}" Text=" · " />
+                    <TextBlock Style="{StaticResource Text.Muted}" Text="{Binding StateLabel}" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- A stretch with no screenshots because capture was deliberately off. The same width as a frame
+             so the strip keeps its rhythm, and dashed rather than merely tinted so it reads as a gap
+             without relying on colour. -->
+        <DataTemplate x:Key="GapTemplate" DataType="{x:Type review:GapItem}">
+            <StackPanel Width="160">
+                <Border Width="160"
+                        Height="90"
+                        CornerRadius="{DynamicResource Radius.control}"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource Brush.state.paused}"
+                        Background="{DynamicResource Brush.bg.surface}"
+                        ToolTip="{Binding Description}">
+                    <Border.OpacityMask>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0" SpreadMethod="Repeat" MappingMode="Absolute">
+                            <GradientStop Offset="0" Color="#FFFFFFFF" />
+                            <GradientStop Offset="0.5" Color="#FFFFFFFF" />
+                            <GradientStop Offset="0.5" Color="#40FFFFFF" />
+                            <GradientStop Offset="1" Color="#40FFFFFF" />
+                            <LinearGradientBrush.Transform>
+                                <ScaleTransform ScaleX="8" />
+                            </LinearGradientBrush.Transform>
+                        </LinearGradientBrush>
+                    </Border.OpacityMask>
+                    <TextBlock HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Muted}"
+                               Text="{Binding Duration}" />
+                </Border>
+                <TextBlock Margin="0,4,0,0"
+                           Style="{StaticResource Text.Muted}"
+                           TextWrapping="Wrap"
+                           Text="{Binding Description}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <review:StripItemTemplateSelector x:Key="StripTemplate"
+                                          Frame="{StaticResource FrameTemplate}"
+                                          Gap="{StaticResource GapTemplate}" />
+    </UserControl.Resources>
+
+    <Grid Margin="{DynamicResource Padding.pane}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Style="{StaticResource Text.SectionHeading}"
+                   Text="{Binding Header}"
+                   AutomationProperties.LiveSetting="Polite" />
+
+        <ListBox Grid.Row="1"
+                 x:Name="Strip"
+                 Margin="0,10,0,0"
+                 Style="{StaticResource Filmstrip}"
+                 ItemsSource="{Binding Items}"
+                 ItemTemplateSelector="{StaticResource StripTemplate}"
+                 KeyDown="OnStripKeyDown"
+                 MouseDoubleClick="OnStripDoubleClick" />
+
+        <!-- The chords that apply to this pane, on screen where they are used (Spec §5 S3). -->
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- The 5 s undo, beside the strip rather than floating over it: a toast a technician has to
+                 chase is a toast that expires while they are chasing it. -->
+            <Border Grid.Column="0"
+                    HorizontalAlignment="Left"
+                    Style="{StaticResource Toast}"
+                    Visibility="{Binding HasUndoToast, Converter={StaticResource Visible}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center"
+                               Style="{StaticResource Text.Body}"
+                               Text="{Binding UndoToast}"
+                               AutomationProperties.LiveSetting="Assertive" />
+                    <Button Margin="12,0,0,0"
+                            Style="{StaticResource Button.Secondary}"
+                            Content="Undo"
+                            Command="{Binding UndoCommand}" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock Grid.Column="1"
+                       VerticalAlignment="Center"
+                       Style="{StaticResource Text.Muted}"
+                       FontSize="{DynamicResource Size.xs}"
+                       Text="Space include · Enter enlarge · B blur · Del delete" />
+        </Grid>
+
+        <!-- Enlarged frame. Spans the pane, over everything, closed with Esc. -->
+        <Border Grid.Row="0"
+                Grid.RowSpan="3"
+                Background="{DynamicResource Brush.bg.base}"
+                Visibility="{Binding IsEnlarged, Converter={StaticResource Visible}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+                           Style="{StaticResource Text.SectionHeading}"
+                           Text="{Binding Enlarged.Label}" />
+
+                <Grid Grid.Row="1" Margin="0,10,0,0">
+                    <Image x:Name="EnlargedImage" Source="{Binding Enlarged.Image}" Stretch="Uniform" />
+
+                    <!-- The blur surface. Transparent rather than absent, because a Canvas with no
+                         background receives no mouse events at all and the drag would never start. -->
+                    <Canvas x:Name="BlurSurface"
+                            Background="Transparent"
+                            Visibility="Collapsed"
+                            MouseLeftButtonDown="OnBlurDown"
+                            MouseMove="OnBlurMove"
+                            MouseLeftButtonUp="OnBlurUp">
+                        <Rectangle x:Name="BlurRect"
+                                   Visibility="Collapsed"
+                                   Fill="#60000000"
+                                   Stroke="{DynamicResource Brush.state.danger}"
+                                   StrokeThickness="2"
+                                   StrokeDashArray="4 3" />
+                    </Canvas>
+
+                    <!-- What the redaction engine read off this frame. The point is verification: a
+                         technician who can see the OCR text can tell a mask that worked from one that
+                         missed, which is the only way INV-1 gets checked by a human. -->
+                    <Border Background="{DynamicResource Brush.bg.surface}"
+                            Padding="12"
+                            Visibility="{Binding ShowOcrText, Converter={StaticResource Visible}}">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <TextBlock Style="{StaticResource Text.Mono}"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding Enlarged.OcrText}" />
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button Style="{StaticResource Button.Secondary}"
+                            Content="Close  Esc"
+                            Command="{Binding CloseEnlargedCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Style="{StaticResource Button.Secondary}"
+                            Content="OCR text  T"
+                            Command="{Binding ToggleOcrTextCommand}"
+                            IsEnabled="{Binding Enlarged.HasOcrText}" />
+
+                    <!-- Danger styling, because the next drag destroys pixels for good. Spec §5 S3 asks
+                         for a region-draw overlay and calls it destructive; the button says so before the
+                         surface is even armed. -->
+                    <ToggleButton x:Name="BlurMode"
+                                  Margin="8,0,0,0"
+                                  Content="Blur a region  B"
+                                  Checked="OnBlurModeChanged"
+                                  Unchecked="OnBlurModeChanged">
+                        <ToggleButton.Style>
+                            <Style TargetType="ToggleButton" BasedOn="{StaticResource Pill.Control}">
+                                <Style.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ToggleButton.Style>
+                    </ToggleButton>
+
+                    <TextBlock Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Muted}"
+                               Text="Drag over what should be covered. This cannot be undone."
+                               Visibility="{Binding IsChecked, ElementName=BlurMode, Converter={StaticResource Visible}}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
