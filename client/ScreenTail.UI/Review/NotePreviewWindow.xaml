@@ -1,0 +1,12 @@
+<Window x:Class="ScreenTail.UI.Review.NotePreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:review="clr-namespace:ScreenTail.UI.Review"
+        Title="Review — note pane"
+        Width="460"
+        Height="720"
+        Style="{StaticResource Window.Base}">
+    <!-- Spec §5 S3 gives the note its own pane in a three-pane window. The other two are ST-075 and
+         ST-076, so this renders the left pane at the width it will have there. -->
+    <review:NoteEditorView x:Name="Pane" />
+</Window>

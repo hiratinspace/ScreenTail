@@ -151,6 +151,39 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- Multiline: the note's own fields, which are prose and grow. Input.Default fixes a height and
+         centres its content, which turns a three-line step into one clipped line. -->
+    <Style x:Key="Input.Multiline" BasedOn="{StaticResource Input.Default}" TargetType="TextBox">
+        <Setter Property="Height" Value="Auto" />
+        <Setter Property="MinHeight" Value="{DynamicResource Layout.control-height}" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="AcceptsReturn" Value="True" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="VerticalContentAlignment" Value="Top" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource Radius.control}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Top" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                            <Setter TargetName="Chrome" Property="BorderThickness" Value="2" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style x:Key="Input.Error" BasedOn="{StaticResource Input.Default}" TargetType="TextBox">
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
     </Style>

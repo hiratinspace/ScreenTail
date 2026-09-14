@@ -1,0 +1,39 @@
+<Window x:Class="ScreenTail.UI.Review.ConfirmTypedDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Discard this session?"
+        Width="420"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource Window.Base}">
+    <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="20">
+        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Heading}" />
+
+        <!-- What is actually lost, in the words of the thing being lost. Spec §3: irreversible actions say
+             what they destroy before they ask. -->
+        <TextBlock Margin="0,10,0,0"
+                   Style="{StaticResource Text.Body}"
+                   TextWrapping="Wrap"
+                   Text="{Binding Consequence}" />
+
+        <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Muted}" Text="{Binding Prompt}" />
+        <TextBox x:Name="Typed"
+                 Style="{StaticResource Input.Default}"
+                 TextChanged="OnTyped"
+                 AutomationProperties.Name="{Binding Prompt}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Style="{StaticResource Button.Secondary}"
+                    Margin="0,0,8,0"
+                    Content="Keep it"
+                    IsCancel="True"
+                    Click="OnCancel" />
+            <Button x:Name="Confirm"
+                    Style="{StaticResource Button.Danger}"
+                    Content="Discard"
+                    IsEnabled="False"
+                    Click="OnConfirm" />
+        </StackPanel>
+    </StackPanel>
+</Window>

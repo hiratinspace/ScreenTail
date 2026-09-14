@@ -124,6 +124,30 @@ jobs:
           }
           $shell | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 
+      # ST-074: the note pane, rendered against research/fixtures/handcrafted in all six states and three
+      # themes. Its AC is "renders fixture with no backend", and this is that sentence as a check.
+      - name: Note pane screenshots
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gallery'
+          $log = Join-Path $env:RUNNER_TEMP 'note-render.log'
+          dotnet run --project ScreenTail.UI -c Release --no-build -- --note --screenshot $out | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $notes = Get-ChildItem $out -Filter 'note-*.png'
+          if ($notes.Count -lt 18) { throw "Expected 18 note-pane screenshots, found $($notes.Count)." }
+          $counts = Select-String -Path $log -Pattern 'distinct colours' -AllMatches
+          foreach ($line in $counts) {
+            if ($line -match '(\d+) distinct colours') {
+              if ([int]$Matches[1] -lt 20) { throw "$line - the note pane rendered nothing." }
+            }
+          }
+          # A binding to a property that does not exist does not throw and does not stop the layout - it
+          # leaves the control blank. A pane missing one label still has hundreds of distinct colours, so
+          # every other check here would pass. The render collects them; this is where they bite.
+          $bindings = Select-String -Path $log -Pattern '^(\d+) binding errors$'
+          if (-not $bindings) { throw "The render did not report a binding-error count." }
+          if ([int]$bindings.Matches[0].Groups[1].Value -ne 0) { throw "$($bindings.Line) - see the step log." }
+          $notes | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+
       - name: Upload gallery screenshots
         if: always()
         uses: actions/upload-artifact@v7

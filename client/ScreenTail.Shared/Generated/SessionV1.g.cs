@@ -522,6 +522,16 @@ public sealed record DraftStep
     [JsonPropertyName("confidence")]
     public required StepConfidence Confidence { get; init; }
 
+    /// <summary>
+    /// The technician confirmed this step in Review (Alt+C) or edited its text, so the low-confidence
+    /// marker no longer applies (Spec S3). Absent means false. confidence stays as the draft was produced:
+    /// how a step was arrived at and whether a human has since checked it are different facts, and writing
+    /// "high" here would erase the first to record the second.
+    /// </summary>
+    [JsonPropertyName("confirmed")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Confirmed { get; init; }
+
     [JsonPropertyName("frame_refs")]
     public required IReadOnlyList<string> FrameRefs { get; init; }
 

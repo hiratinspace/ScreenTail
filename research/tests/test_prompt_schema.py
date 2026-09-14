@@ -48,6 +48,10 @@ def validator() -> Draft202012Validator:
 # ---- the contract itself ---------------------------------------------------------------------------
 
 
+# Fields the stored type has and the model's output schema deliberately does not.
+NOT_FOR_THE_MODEL = {"confirmed"}
+
+
 def test_output_schema_does_not_drift_from_the_stored_draft_type():
     # A note the model may return but the client cannot store is a failed draft, so the two shapes
     # have to agree. transcript_refs is the one deliberate difference: the prompt demands citations.
@@ -57,11 +61,23 @@ def test_output_schema_does_not_drift_from_the_stored_draft_type():
 
     step = OUTPUT_SCHEMA["$defs"]["Step"]
     stored_step = SESSION["$defs"]["DraftStep"]
-    assert set(step["properties"]) == set(stored_step["properties"])
+    assert set(stored_step["properties"]) - set(step["properties"]) == NOT_FOR_THE_MODEL
+    assert not set(step["properties"]) - set(stored_step["properties"])
     assert set(step["required"]) - set(stored_step["required"]) == {"transcript_refs"}
 
     assert OUTPUT_SCHEMA["properties"]["source"]["enum"] == SESSION["$defs"]["DraftSource"]["enum"]
     assert step["properties"]["confidence"]["enum"] == SESSION["$defs"]["StepConfidence"]["enum"]
+
+
+def test_the_model_cannot_mark_its_own_guess_as_checked(validator: Draft202012Validator):
+    # "confirmed" is a record that a person read the step and agreed with it (ST-074). A model that could
+    # set it would clear the low-confidence marker on its own inference - and that marker is the entire
+    # reason anybody looks at an inferred step twice. The output schema rejects unknown keys, so this is
+    # already true; it is asserted because the next person to widen that schema needs to know.
+    draft = copy.deepcopy(sessions_with_drafts()[0][1]["draft"])
+    draft["steps"][0]["confirmed"] = True
+
+    assert not validator.is_valid(draft)
 
 
 def test_output_schema_refuses_anything_it_did_not_ask_for(validator: Draft202012Validator):
