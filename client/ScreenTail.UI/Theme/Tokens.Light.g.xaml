@@ -36,14 +36,14 @@
     <Color x:Key="Token.state.recording">#DC2626</Color>
     <SolidColorBrush x:Key="Brush.state.recording" Color="#DC2626" />
     <!-- paused / suppressed -->
-    <Color x:Key="Token.state.paused">#D97706</Color>
-    <SolidColorBrush x:Key="Brush.state.paused" Color="#D97706" />
+    <Color x:Key="Token.state.paused">#CF7206</Color>
+    <SolidColorBrush x:Key="Brush.state.paused" Color="#CF7206" />
     <!-- out-of-scope, excluded -->
     <Color x:Key="Token.state.scope">#7C3AED</Color>
     <SolidColorBrush x:Key="Brush.state.scope" Color="#7C3AED" />
     <!-- success, published -->
-    <Color x:Key="Token.state.published">#16A34A</Color>
-    <SolidColorBrush x:Key="Brush.state.published" Color="#16A34A" />
+    <Color x:Key="Token.state.published">#159F48</Color>
+    <SolidColorBrush x:Key="Brush.state.published" Color="#159F48" />
     <!-- offline / pending -->
     <Color x:Key="Token.state.offline">#64748B</Color>
     <SolidColorBrush x:Key="Brush.state.offline" Color="#64748B" />
@@ -51,8 +51,8 @@
     <Color x:Key="Token.state.danger">#DC2626</Color>
     <SolidColorBrush x:Key="Brush.state.danger" Color="#DC2626" />
     <!-- low-confidence step marker -->
-    <Color x:Key="Token.confidence.low">#D97706</Color>
-    <SolidColorBrush x:Key="Brush.confidence.low" Color="#D97706" />
+    <Color x:Key="Token.confidence.low">#CF7206</Color>
+    <SolidColorBrush x:Key="Brush.confidence.low" Color="#CF7206" />
     <!-- text on accent.primary (primary buttons); dark theme uses dark text on the bright accent -->
     <Color x:Key="Token.text.on-accent">#FFFFFF</Color>
     <SolidColorBrush x:Key="Brush.text.on-accent" Color="#FFFFFF" />

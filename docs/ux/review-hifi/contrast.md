@@ -45,12 +45,12 @@ glyph, the word "Inferred", and a left rule.
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|
 | dark | `confidence.low` | `bg.surface` | 10.88:1 | ✅ |
-| light | `confidence.low` | `bg.surface` | 3.19:1 | ✅ |
+| light | `confidence.low` | `bg.surface` | 3.46:1 | ✅ |
 | dark | `state.published` | `bg.surface` | 7.97:1 | ✅ |
-| light | `state.published` | `bg.surface` | 3.30:1 | ✅ |
+| light | `state.published` | `bg.surface` | 3.45:1 | ✅ |
 | dark | `state.danger` | `bg.surface` | 6.57:1 | ✅ |
 | light | `state.danger` | `bg.surface` | 4.83:1 | ✅ |
 | dark | `state.scope` | `bg.surface` | 4.29:1 | ✅ |
 | light | `state.scope` | `bg.surface` | 5.70:1 | ✅ |
 | dark | `state.paused` | `bg.surface` | 8.46:1 | ✅ |
-| light | `state.paused` | `bg.surface` | 3.19:1 | ✅ |
+| light | `state.paused` | `bg.surface` | 3.46:1 | ✅ |

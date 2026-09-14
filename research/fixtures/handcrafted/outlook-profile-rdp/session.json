@@ -153,10 +153,10 @@
         ]
       },
       {
-        "text": "Signed in again at the Windows Security prompt.",
+        "text": "Signed in again and the profile connected.",
         "confidence": "low",
         "frame_refs": [
-          "f-0012"
+          "f-0013"
         ],
         "transcript_refs": []
       },
