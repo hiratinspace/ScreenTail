@@ -18,13 +18,15 @@ public partial class ConfirmTypedDialog : Window
         ArgumentNullException.ThrowIfNull(confirmation);
         _confirmation = confirmation;
         InitializeComponent();
-        DataContext = new
-        {
-            Heading = heading,
-            Consequence = consequence,
-            confirmation.Prompt,
-        };
+
+        // A named type, not an anonymous one: anonymous types are internal, and WPF binding to them
+        // depends on reflection permissions that have bitten this pattern before. The failure is a blank
+        // dialog with a disabled button, which is the last place to discover a quirk.
+        DataContext = new Words(heading, consequence, confirmation.Prompt);
     }
+
+    /// <summary>What the dialog says. Public so the binding engine can read it without help.</summary>
+    public sealed record Words(string Heading, string Consequence, string Prompt);
 
     /// <summary>Spec §5 S3's Discard: the raw data goes now, and the audit row records that it did.</summary>
     public static bool AskToDiscard(Window? owner) =>

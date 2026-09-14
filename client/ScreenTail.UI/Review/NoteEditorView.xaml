@@ -8,7 +8,7 @@
         <BooleanToVisibilityConverter x:Key="Visible" />
     </UserControl.Resources>
 
-    <Grid Margin="{DynamicResource Layout.pane-padding}">
+    <Grid Margin="{DynamicResource Padding.pane}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
