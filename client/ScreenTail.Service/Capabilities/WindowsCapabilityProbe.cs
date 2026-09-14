@@ -29,7 +29,21 @@ internal sealed class WindowsCapabilityProbe(TimeProvider? time = null) : ICapab
     {
         try
         {
-            if (!Environment.UserInteractive)
+            // Environment.UserInteractive is not the check it looks like: on .NET for Windows it returns
+            // true unconditionally, including inside a service in session 0. This probe reported "Running
+            // in your desktop session" on a machine where no window could take the foreground and every
+            // capture would have come back black — which is the exact mistake ADR-0003 exists to prevent,
+            // made by the check written to catch it.
+            //
+            // The window station is the fact that actually decides. An interactive process is on WinSta0;
+            // a service gets its own station (Service-0x0-3e7$) with no desktop behind it, and nothing
+            // there can be focused, hooked, or captured.
+            if (WindowStationName() is { } station && !station.StartsWith("WinSta0", StringComparison.OrdinalIgnoreCase))
+            {
+                return CapabilityCopy.NoDesktopSession();
+            }
+
+            if (ProcessIdToSessionId(GetCurrentProcessId(), out var session) && session == 0)
             {
                 return CapabilityCopy.NoDesktopSession();
             }
@@ -207,6 +221,37 @@ internal sealed class WindowsCapabilityProbe(TimeProvider? time = null) : ICapab
 
     [DllImport("user32.dll")]
     private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>The window station this process is on, or null when Windows will not say.</summary>
+    private static string? WindowStationName()
+    {
+        var station = GetProcessWindowStation();
+        if (station == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var buffer = new char[256];
+        return GetUserObjectInformation(station, UOI_NAME, buffer, (uint)(buffer.Length * sizeof(char)), out var needed)
+            ? new string(buffer, 0, Math.Max(0, ((int)needed / sizeof(char)) - 1))
+            : null;
+    }
+
+    private const int UOI_NAME = 2;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetProcessWindowStation();
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetUserObjectInformation(IntPtr hObj, int index, [Out] char[] info, uint length, out uint lengthNeeded);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentProcessId();
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenInputDesktop(uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit, uint dwDesiredAccess);
