@@ -77,20 +77,22 @@ public sealed class TimeEntryCalculatorTests
     [Fact]
     public async Task TheDurationTheStateMachineStoresIsTheActiveTime()
     {
-        // The calculator's input is FinalizeInfo.DurationMs, and the machine's accounting is what excludes pauses.
-        await using var harness = await MachineHarness.StartAsync();
+        // The calculator's input is FinalizeInfo.DurationMs, and the machine's accounting is what excludes
+        // pauses. On a hand-moved clock: with real sleeps the assertion is a band wide enough to pass on a
+        // loaded runner, which is a band wide enough to pass if the pause were counted too.
+        var clock = new ManualTime(DateTimeOffset.UnixEpoch);
+        await using var harness = await MachineHarness.StartAsync(clock);
 
         await harness.Machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp });
-        await Task.Delay(120);
+        clock.Advance(TimeSpan.FromMilliseconds(120));
         await harness.Machine.PauseAsync();
-        await Task.Delay(250);
+        clock.Advance(TimeSpan.FromMilliseconds(250));
         await harness.Machine.ResumeAsync();
-        await Task.Delay(120);
+        clock.Advance(TimeSpan.FromMilliseconds(120));
         await harness.Machine.StopAsync();
 
         var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!))!;
-        Assert.NotNull(stored.DurationMs);
-        Assert.InRange(stored.DurationMs.Value, 200, 480); // ~240 ms recording, not the ~490 ms of wall clock
+        Assert.Equal(240, stored.DurationMs); // not the 490 ms of wall clock
     }
 
     /// <summary>Mirrors the machine's accounting rule — recording time counts, paused time doesn't.</summary>

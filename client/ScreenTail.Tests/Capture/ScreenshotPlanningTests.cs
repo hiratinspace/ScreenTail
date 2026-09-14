@@ -138,17 +138,4 @@ public sealed class ScreenshotPlanningTests
         Assert.Contains("grab 40.0 ms", timing.ToString(), StringComparison.Ordinal);
         Assert.Contains("encode 60.0 ms", timing.ToString(), StringComparison.Ordinal);
     }
-
-    private sealed class ManualTime(DateTimeOffset start) : TimeProvider
-    {
-        private long _ticks = start.UtcTicks;
-
-        public override DateTimeOffset GetUtcNow() => new(_ticks, TimeSpan.Zero);
-
-        public override long GetTimestamp() => _ticks;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public void Advance(TimeSpan by) => _ticks += by.Ticks;
-    }
 }
