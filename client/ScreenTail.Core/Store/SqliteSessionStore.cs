@@ -288,6 +288,78 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
     public Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default) =>
         RunAsync("UPDATE frames SET excluded_by_user = @x WHERE id = @id", ct, ("@id", frameId), ("@x", excluded ? 1 : 0));
 
+    public async Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+            // The session id is read before the delete, because after it there is nothing left to read it
+            // from and an audit row with no session cannot be found again by the person it concerns.
+            var sessionId = await QueryInTransactionAsync(
+                "SELECT session_id FROM frames WHERE id = @id",
+                async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? reader.GetString(0) : null,
+                ct,
+                ("@id", frameId)).ConfigureAwait(false);
+
+            if (sessionId is null)
+            {
+                return false;
+            }
+
+            await ExecuteAsync(_connection, "DELETE FROM frames WHERE id = @id", ct, ("@id", frameId)).ConfigureAwait(false);
+            await AuditAsync(sessionId, AuditTypes.FrameDeletedByUser, 1, ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var existing = await QueryInTransactionAsync(
+                "SELECT masked_regions_json FROM frames WHERE id = @id AND redaction_pending = 0",
+                async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? reader.GetString(0) : null,
+                ct,
+                ("@id", frameId)).ConfigureAwait(false);
+
+            if (existing is null)
+            {
+                // A frame still pending redaction has no readable image to blur, and one that is gone
+                // cannot be written to. Either way the caller is working from a stale strip.
+                throw new InvalidOperationException($"Frame {frameId} is not a redacted frame.");
+            }
+
+            var regions = JsonSerializer.Deserialize<List<MaskedRegion>>(existing, SessionJson.Options) ?? [];
+            regions.Add(region);
+
+            // The blurred bytes replace the original in the same statement that records the region. There
+            // is no moment where the frame is on disk unblurred but claiming to be blurred, and none where
+            // it claims a region it does not have.
+            await ExecuteAsync(
+                _connection,
+                "UPDATE frames SET image = @image, masked_regions_json = @regions WHERE id = @id",
+                ct,
+                ("@id", frameId),
+                ("@image", image.ToArray()),
+                ("@regions", JsonSerializer.Serialize(regions, SessionJson.Options))).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(draft);
@@ -810,6 +882,17 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// <see cref="QueryAsync"/> without taking the gate, for callers that already hold it and are inside a
+    /// transaction. Taking it again would deadlock on a non-reentrant semaphore.
+    /// </summary>
+    private async Task<T> QueryInTransactionAsync<T>(string sql, Func<SqliteDataReader, Task<T>> read, CancellationToken ct, params (string Name, object? Value)[] parameters)
+    {
+        await using var command = Command(_connection, sql, parameters);
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        return await read(reader).ConfigureAwait(false);
     }
 
     private Task<int> AuditAsync(string? sessionId, string type, long? count, CancellationToken ct) =>

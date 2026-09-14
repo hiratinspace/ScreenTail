@@ -317,6 +317,92 @@ public sealed class SessionStoreTests : IAsyncDisposable
         PromptVersion = "note_v1",
     };
 
+    [Fact]
+    public async Task BlurringAFrameLeavesTheStoreHoldingOnlyTheBlurredImage()
+    {
+        // ST-075's first AC. The first version of this test searched the database file for the original
+        // bytes - which cannot fail: the store is SQLCipher, so no plaintext image appears in the file
+        // whatever the code does. Removing the UPDATE's image column entirely still passed it. What can be
+        // checked is that the store has one image per frame, it is the blurred one, and it reads that way
+        // through a connection that was not open when the blur happened.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.StageFrameAsync("s1", Staged("f1", 1000, Bytes(0xAA, 2000)));
+        await store.MarkFrameRedactedAsync("f1", Outcome(Bytes(0xBB, 1500), "Password: hunter2"));
+
+        var blurred = Bytes(0xCC, 1400);
+        await store.ApplyUserBlurAsync("f1", blurred, new MaskedRegion { X = 40, Y = 12, Width = 120, Height = 20, Kind = MaskKind.UserBlur });
+        await store.DisposeAsync();
+
+        var reopened = await OpenAsync();
+        Assert.Equal(blurred, await reopened.GetRedactedFrameImageAsync("f1"));
+        Assert.Single((await reopened.LoadSessionAsync("s1"))!.Frames);
+
+        // The original is unrecoverable because nothing kept it: the undo window holds it in memory alone
+        // (UndoWindowTests), and ApplyUserBlurAsync overwrites the one column that had it. There is no
+        // history table for this test to check, and that absence is the guarantee.
+    }
+
+    [Fact]
+    public async Task BlurringRecordsTheRegionAlongsideWhatRedactionAlreadyFound()
+    {
+        // The regions are how Review shows what was hidden and by whom. Overwriting the redaction worker's
+        // findings with the technician's one region would erase the record that a card number was masked.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.StageFrameAsync("s1", Staged("f1", 1000, Bytes(0xAA, 2000)));
+        await store.MarkFrameRedactedAsync("f1", Outcome(Bytes(0xBB, 1500), null));
+
+        await store.ApplyUserBlurAsync("f1", Bytes(0xCC, 1400), new MaskedRegion { X = 40, Y = 12, Width = 120, Height = 20, Kind = MaskKind.UserBlur });
+
+        var frame = Assert.Single((await store.LoadSessionAsync("s1"))!.Frames);
+        Assert.Equal([MaskKind.Card, MaskKind.UserBlur], frame.MaskedRegions.Select(region => region.Kind));
+    }
+
+    [Fact]
+    public async Task AFrameStillWaitingForRedactionCannotBeBlurred()
+    {
+        // There is nothing readable to blur, and the caller is working from a strip that cannot have shown
+        // it - LoadSessionAsync does not return pending frames (INV-1). Refusing loudly beats writing the
+        // caller's bytes over a frame the redaction worker is about to overwrite.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.StageFrameAsync("s1", Staged("f1", 1000, Bytes(0xAA, 2000)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.ApplyUserBlurAsync("f1", Bytes(0xCC, 10), new MaskedRegion { X = 1, Y = 1, Width = 2, Height = 2, Kind = MaskKind.UserBlur }));
+    }
+
+    [Fact]
+    public async Task DeletingAFrameSaysWhoDeletedItAndWhichSession()
+    {
+        // ST-075's third AC. The audit row is written in the same transaction as the delete, and its
+        // session id is read before the row is gone - afterwards there is nothing left to read it from,
+        // and an audit entry with no session cannot be found again by the person it concerns.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.StageFrameAsync("s1", Staged("f1", 1000, Bytes(0xAA, 2000)));
+        await store.MarkFrameRedactedAsync("f1", Outcome(Bytes(0xBB, 1500), null));
+
+        Assert.True(await store.DeleteFrameAsync("f1"));
+
+        Assert.Empty((await store.LoadSessionAsync("s1"))!.Frames);
+        Assert.Null(await store.GetRedactedFrameImageAsync("f1"));
+        var row = Assert.Single(await store.GetAuditAsync("s1"), entry => entry.Type == AuditTypes.FrameDeletedByUser);
+        Assert.Equal(1, row.Count);
+    }
+
+    [Fact]
+    public async Task DeletingAFrameThatIsNotThereWritesNoAuditRow()
+    {
+        // An audit log that records deletions which never happened is an audit log nobody can reason from.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+
+        Assert.False(await store.DeleteFrameAsync("never-existed"));
+        Assert.Empty(await store.GetAuditAsync("s1"));
+    }
+
     private async Task<SqliteSessionStore> OpenAsync()
     {
         var store = await SqliteSessionStore.OpenAsync(_path, _key);
