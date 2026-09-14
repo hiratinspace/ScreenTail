@@ -224,17 +224,24 @@ public sealed class StateMachineTests : IAsyncDisposable
     [Fact]
     public async Task ActiveTimeExcludesPauses()
     {
-        var machine = await MachineAsync();
+        // On a hand-moved clock, because the claim is arithmetic: paused milliseconds are not counted.
+        // This test used to sleep and assert a band of real milliseconds, which measures the runner's
+        // scheduler as much as the code, and it duly failed on a busy CI machine at 267 ms against a
+        // ceiling of 260. Widening the band would only have moved the next failure further out; the
+        // numbers below are exact.
+        var clock = new ManualTime(DateTimeOffset.UnixEpoch);
+        var machine = await MachineAsync(time: clock);
+
         await machine.StartAsync(ScreenConnect);
-        await Task.Delay(100);
+        clock.Advance(TimeSpan.FromMilliseconds(100));
         await machine.PauseAsync();
-        await Task.Delay(200);
+        clock.Advance(TimeSpan.FromMilliseconds(200));
         var whilePaused = machine.Snapshot.ElapsedMs!.Value;
         await machine.ResumeAsync();
-        await Task.Delay(50);
+        clock.Advance(TimeSpan.FromMilliseconds(50));
 
-        Assert.InRange(whilePaused, 80, 190);
-        Assert.InRange(machine.Snapshot.ElapsedMs!.Value, 130, 260);
+        Assert.Equal(100, whilePaused);
+        Assert.Equal(150, machine.Snapshot.ElapsedMs!.Value);
     }
 
     [Fact]
@@ -284,10 +291,10 @@ public sealed class StateMachineTests : IAsyncDisposable
 
     private async Task<SqliteSessionStore> OpenStoreAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
-    private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null)
+    private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null, TimeProvider? time = null)
     {
         var store = await OpenStoreAsync();
-        _machine = new SessionMachine(store, _sources, _drafter, options: new SessionMachineOptions
+        _machine = new SessionMachine(store, _sources, _drafter, time: time, options: new SessionMachineOptions
         {
             RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
             RedactionPoll = TimeSpan.FromMilliseconds(20),

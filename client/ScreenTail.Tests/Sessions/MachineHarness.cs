@@ -24,7 +24,9 @@ internal sealed class MachineHarness : IAsyncDisposable
 
     public SessionMachine Machine { get; }
 
-    public static async Task<MachineHarness> StartAsync()
+    /// <param name="time">A hand-moved clock for tests that assert durations, so they measure the
+    /// machine's accounting rather than the runner's scheduler.</param>
+    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null)
     {
         var path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
         var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
@@ -32,6 +34,7 @@ internal sealed class MachineHarness : IAsyncDisposable
             store,
             new NoCaptureSources(),
             new UnavailableDrafter(),
+            time: time,
             options: new SessionMachineOptions { RedactionGrace = TimeSpan.FromMilliseconds(100), RedactionPoll = TimeSpan.FromMilliseconds(20) });
         return new MachineHarness(path, store, machine);
     }

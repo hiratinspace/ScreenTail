@@ -258,13 +258,4 @@ public sealed class SceneSamplerTests
 
         return kept;
     }
-
-    private sealed class ManualTime(DateTimeOffset start) : TimeProvider
-    {
-        private long _ticks = start.UtcTicks;
-
-        public override DateTimeOffset GetUtcNow() => new(_ticks, TimeSpan.Zero);
-
-        public void Advance(TimeSpan by) => _ticks += by.Ticks;
-    }
 }
