@@ -58,6 +58,7 @@ internal static class HudPreview
                 window.UpdateLayout();
                 // The colour the state is supposed to be, taken off the pixels. Counting distinct
                 // colours says the pill drew something; only this says it drew the right state.
+                Console.WriteLine($"  {name}/{theme}: tone={tone} glyph foreground={window.GlyphForegroundDescription}");
                 WindowRenderer.SaveExpecting(
                     window,
                     Path.Combine(directory, $"hud-{name}-{theme.ToString().ToLowerInvariant()}.png"),
