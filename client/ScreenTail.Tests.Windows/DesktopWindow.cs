@@ -95,6 +95,7 @@ internal sealed class DesktopWindow : IDisposable
     public bool TakeForeground(TimeSpan? within = null)
     {
         var deadline = DateTime.UtcNow + (within ?? TimeSpan.FromSeconds(5));
+        var minimised = new HashSet<IntPtr>();
         do
         {
             _ = ShowWindow(Handle, SW_SHOWNORMAL);
@@ -123,6 +124,26 @@ internal sealed class DesktopWindow : IDisposable
             for (var i = 0; i < 20 && GetForegroundWindow() != Handle; i++)
             {
                 Thread.Sleep(25);
+            }
+
+            // Still not ours, and something else is holding it. On this runner that something is the
+            // runner's own console: run.cmd sits in the foreground for the life of the job, and a console
+            // window is hosted by conhost, so attaching to "its" thread does not buy the input state that
+            // Windows' foreground lock wants. Minimising it is what actually lets go.
+            //
+            // Only ever another process's window, and only after asking politely first. This is a laptop
+            // kept for tests — CI already screenshots its desktop — and the alternative was fourteen checks
+            // that never run.
+            var blocking = GetForegroundWindow();
+            if (blocking != IntPtr.Zero && blocking != Handle && !minimised.Contains(blocking))
+            {
+                var owner = GetWindowThreadProcessId(blocking, out _);
+                if (owner != GetCurrentThreadId())
+                {
+                    minimised.Add(blocking);
+                    _ = ShowWindow(blocking, SW_MINIMIZE);
+                    Thread.Sleep(100);
+                }
             }
         }
         while (GetForegroundWindow() != Handle && DateTime.UtcNow < deadline);
@@ -162,6 +183,7 @@ internal sealed class DesktopWindow : IDisposable
 
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const int SW_SHOWNORMAL = 1;
+    private const int SW_MINIMIZE = 6;
     private const int SW_MAXIMIZE = 3;
     private const uint WM_CLOSE = 0x0010;
     private const uint SWP_NOSIZE = 0x0001;
