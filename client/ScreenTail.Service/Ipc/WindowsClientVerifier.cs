@@ -3,7 +3,6 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using ScreenTail.Core.Ipc;
 
 namespace ScreenTail.Service.Ipc;
@@ -13,6 +12,9 @@ namespace ScreenTail.Service.Ipc;
 /// as the service. When the service itself is unsigned (a development build), the client executable must
 /// sit in the service's own directory instead. Reasons returned here go into audit rows, so they name
 /// the rule, never the path.
+///
+/// "Signed by" means <see cref="Authenticode"/> verified the signature against the file's contents, not
+/// that a matching certificate was found in it — see there for why that distinction is the whole point.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsClientVerifier : IClientVerifier
@@ -23,7 +25,7 @@ public sealed class WindowsClientVerifier : IClientVerifier
     public WindowsClientVerifier(string serviceExecutable)
     {
         _serviceExecutable = Path.GetFullPath(serviceExecutable);
-        _publisherThumbprint = SignerThumbprint(_serviceExecutable);
+        _publisherThumbprint = Authenticode.VerifiedSignerThumbprint(_serviceExecutable);
     }
 
     public bool ServiceIsSigned => _publisherThumbprint is not null;
@@ -63,7 +65,7 @@ public sealed class WindowsClientVerifier : IClientVerifier
 
         if (_publisherThumbprint is not null)
         {
-            var clientThumbprint = SignerThumbprint(client);
+            var clientThumbprint = Authenticode.VerifiedSignerThumbprint(client);
             return clientThumbprint is not null && CryptographicOperations.FixedTimeEquals(
                 Convert.FromHexString(clientThumbprint),
                 Convert.FromHexString(_publisherThumbprint))
@@ -76,25 +78,6 @@ public sealed class WindowsClientVerifier : IClientVerifier
             Path.GetDirectoryName(_serviceExecutable),
             StringComparison.OrdinalIgnoreCase);
         return sameDirectory ? null : "dev_build_outside_service_directory";
-    }
-
-    private static string? SignerThumbprint(string executable)
-    {
-        try
-        {
-            // SYSLIB0057 points at X509CertificateLoader, which has no way to read the signer of a signed
-            // executable; CreateFromSignedFile is the only in-box API for that. ST-012 replaces this thumbprint
-            // match with WinVerifyTrust, which also validates the chain and timestamp.
-#pragma warning disable SYSLIB0057
-            using var signer = X509Certificate.CreateFromSignedFile(executable);
-#pragma warning restore SYSLIB0057
-            using var certificate = new X509Certificate2(signer);
-            return certificate.Thumbprint;
-        }
-        catch (CryptographicException)
-        {
-            return null; // not signed
-        }
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

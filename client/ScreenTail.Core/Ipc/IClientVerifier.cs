@@ -24,3 +24,18 @@ public interface IIpcCommandHandler
 
     Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default);
 }
+
+/// <summary>
+/// The other half of ADR-0003 rule 2, and the half that was missing: the UI deciding whether the process
+/// answering on the pipe is really the capture service, <em>before</em> it hands over the session token.
+///
+/// Without it the handshake is one-sided. Anything that can create the pipe name first — a per-user pipe,
+/// so no privilege is needed — receives the token, and can then feed the UI whatever capture state it
+/// likes. That breaks INV-4 in the worst direction: a technician is shown "not recording" while recording
+/// continues, which is the one lie this product must never tell.
+/// </summary>
+public interface IServerVerifier
+{
+    /// <returns>null when the server is really the service; otherwise a short reason with no content in it.</returns>
+    ValueTask<string?> VerifyAsync(PipeStream connection, CancellationToken ct = default);
+}
