@@ -90,6 +90,7 @@ jobs:
       # ST-016: render the component gallery in dark, light and high contrast. Catches runtime XAML
       # errors the compiler can't, and produces the screenshots the ticket asks for.
       - name: Gallery screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           dotnet run --project ScreenTail.UI -c Release --no-build -- --gallery --screenshot $out
@@ -103,6 +104,7 @@ jobs:
       # to look at. A blank or tiny PNG means the window rendered nothing, which is what a missing
       # resource key or a style on the wrong target type actually produces.
       - name: Shell screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'shell-render.log'
@@ -127,6 +129,7 @@ jobs:
       # ST-074: the note pane, rendered against research/fixtures/handcrafted in all six states and three
       # themes. Its AC is "renders fixture with no backend", and this is that sentence as a check.
       - name: Note pane screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'note-render.log'
@@ -151,6 +154,7 @@ jobs:
       # ST-072: the recording pill in all ten variants and three themes. Spec §5 S2 names each state and
       # INV-4 makes this the indicator a technician trusts, so "renders per spec" is checked by rendering.
       - name: HUD screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'hud-render.log'
