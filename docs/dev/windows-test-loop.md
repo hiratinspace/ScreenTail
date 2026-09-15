@@ -4,7 +4,7 @@ ScreenTail's client is Windows-only, and it's developed on a Mac. Each change go
 
 | Where | What runs there | Who starts it |
 |---|---|---|
-| **Mac (dev box)** | Editing, and unit tests for platform-neutral projects (`net8.0`, not `net8.0-windows`). Windows projects compile via `EnableWindowsTargeting` but can't run. | Build agent |
+| **Mac (dev box)** | Editing, and unit tests for platform-neutral projects (`net10.0`, not `net10.0-windows`). Windows projects compile via `EnableWindowsTargeting` but can't run. | Build agent |
 | **GitHub-hosted Windows runner** | Build, all tests, and automated checks on a Windows VM for every pull request. Catches build breaks and crashes. Its performance numbers don't count. | Automatic on every PR |
 | **Spare laptop (self-hosted runner)** | The same checks on real hardware, plus unattended runs that inject typing and clicks (latency, performance budgets). | Automatic on every PR once `HW_RUNNER=true`; the agent can also trigger it with `gh workflow run` |
 | **A person at a Windows machine** | Anything that needs judgement or another machine: RDP or ScreenConnect sessions, real typing, the look and feel of the UI, usability. | You, via the ticket's guided script (e.g. `spike/run-spike.ps1`) |

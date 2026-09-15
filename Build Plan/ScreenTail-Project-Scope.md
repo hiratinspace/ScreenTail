@@ -1,9 +1,9 @@
 # ScreenTail — Project Scope Document
 
-**Version:** 0.1 (draft for review)
+**Version:** 0.1 — the original scope statement
 **Owner:** Hirat
 **Date:** September 10, 2026
-**Status:** Pre-build — scope approval needed before development starts
+**Status:** Superseded as the working spec by `00-Build-Agent-Guide.md`, `01-UX-Design-Spec.md` and `02-Backlog-v0.4.md` (2026-09-15). Kept unedited as the statement of goals, success metrics, non-goals and risks. Where §5.3 names libraries (Python, pywinauto, Tesseract, faster-whisper), ADR-0001 decided otherwise: .NET 10, Windows OCR, whisper.net. For where the build stands, read `docs/STATUS.md`.
 
 ---
 

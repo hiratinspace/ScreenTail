@@ -1,7 +1,8 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-15, ~16:30 CDT
+**Snapshot taken:** 2026-09-15, ~18:30 CDT
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
+**Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
 ---
 
@@ -17,7 +18,7 @@ shrinks it for storage. Hotkeys drive the session. Nothing is drafted yet.
 > running application (INV-4). Neither is a policy error — the decision classes are right — but the
 > enforcement points are weaker than the policy objects throughout.
 
-**Thirty-five tickets are done or substantially done:** ST-001 (spike), ST-002 (repo/CI), ST-003 (schema),
+**Thirty-five of 85 tickets are done or substantially done** (four were added on 2026-09-15: ST-018, ST-048, ST-049, ST-085 — see backlog Part D): ST-001 (spike), ST-002 (repo/CI), ST-003 (schema),
 ST-004 (service + IPC), ST-005 (store), ST-006 (fixtures), ST-012 (threat model + client hardening),
 ST-014 (wireframes), ST-015 (Review hi-fi), ST-016 (design system), ST-020 (state machine), ST-021
 (capability checks), ST-022 (foreground detection), ST-023 (scope policy), ST-024 (input hooks), ST-025
@@ -27,7 +28,7 @@ ST-041 (OCR and redaction worker), ST-042 (redaction engine, partial), ST-043 (e
 ST-070 (shell), ST-071 (tray and diagnostics), ST-072 (recording HUD), ST-074 (note editor), ST-075
 (screenshot strip), ST-079 (session history), ST-114 (privacy pack, partial), ST-027 (speech, partial).
 
-**In flight:** nothing. No open pull requests.
+**In flight:** the docs housekeeping PR (this page, the backlog's status lines and ordered plan, the ADRs, the docs index). No code PRs open.
 
 **Two tickets are partial and say so:** ST-027 has its gating, model download and transcript assembly but
 no audio capture and no WER number; ST-114 has its three documents but no security-lead review.
@@ -95,21 +96,27 @@ highest-leverage piece of work left, and it is not currently a ticket.
 - **A draft reports unrounded active minutes**; the client applies the tenant's billing rounding. Rounding in both places would round twice.
 - **Spec v0.4.3:** three S3 wording changes from ST-015/ST-074 — the disabled-Publish reason moves out of
   a tooltip, the offline no-draft message stops telling you to retry something that cannot succeed, and
-  the save indicator gains "Not saved — retrying". **Pending your veto, along with v0.4.2.**
+  the save indicator gains "Not saved — retrying". **Accepted 2026-09-15 with v0.4.2** (backlog Part D, D-6).
+- **2026-09-15, three sequencing decisions** (backlog Part D, D-1 to D-3): ST-060 waits for ST-042's engine, not its
+  recall gate; the backend runs on Docker Postgres locally so ST-008 no longer waits for a cloud account; the
+  usability round (ST-017) gates the pilot, not the publish panel. Each keeps every invariant; each removes an
+  owner purchase from the M1 path.
 - **ADR-0001** (.NET stack), **ADR-0002** (platform-neutral `ScreenTail.Core`), **ADR-0003** (per-user
-  process, not a Windows Service; three-check pipe handshake). All three say **"Proposed"**, and all three
-  say they become Accepted when ST-001 / ST-002 / ST-004 merge — which they all have. This is clerical,
-  not an open decision. ADR-0001's title also still says .NET 8 against a .NET 10 project.
+  process, not a Windows Service; three-check pipe handshake). All three **Accepted 2026-09-12**, status lines
+  corrected 2026-09-15.
 
 ## 5. Open items for the owner
 - [x] ~~Turn on the `main` ruleset.~~ **Done 2026-09-12.** `main` now requires a pull request and a
       green `ci-ok`, and refuses force-pushes and deletion. Nobody is on the bypass list, so this
       applies to you too: work on a branch, open a PR, let CI finish. Squash merging is still
       permitted by the ruleset — avoid it, since it discards the per-commit `Refs: ST-###` footers.
-- [ ] **Decide on the P0 findings** in `docs/review/weaknesses.md`. Two are invariant breaches and three
-      of the five are under twenty lines of code between them. This gates whether the product can be
-      pointed at a customer at all.
-- [ ] **Veto or accept spec amendments v0.4.2 and v0.4.3.** Both are marked pending in §9 of the spec.
+- [x] ~~Decide on the P0 findings.~~ **Ticketed 2026-09-15 as ST-048** (P0) and ST-049 (P1), ST-018 (skip gate),
+      ST-085 (wire the UI). They are Phase A and B1 of the ordered plan; nothing runs against a customer
+      screen before ST-048 merges.
+- [x] ~~Veto or accept spec amendments v0.4.2 and v0.4.3.~~ **Accepted 2026-09-15** (Part D, D-6).
+- [ ] **Choose the model provider and supply an API key and a monthly cap.** ST-063 (B7) has no workaround
+      for this; the backlog's default is Gemini Flash with Anthropic and OpenAI swappable behind the same
+      interface, so the choice can change later without code.
 - [ ] **Record the ten-minute narration** for ST-027's WER criterion. `research/fixtures/audio/README.md`
       says exactly what it needs and why a synthesised recording would measure the wrong thing. This
       unblocks ST-028, ST-030, ST-080 and ST-123.
@@ -120,12 +127,14 @@ highest-leverage piece of work left, and it is not currently a ticket.
       console on the unlocked desktop), not as a Windows service — a service has no desktop and every
       capture, hook and password-field check skips. The foreground lock is now lifted by the test harness
       itself, so the console holding the foreground is no longer a problem.
-- [ ] Flip the three ADRs to Accepted (clerical — see §4).
-- [ ] **ST-110 pilot-MSP baseline measurement** — Sprint 1 background work, and it gates the pilot's
-      success metric, so the earlier it starts the better.
-- [ ] **Decide which of the sixteen ideas in `docs/product/2026-09-15-market-scan-and-ideas.md`
-      become tickets.** The scan's one open question — faster notes, compounding knowledge, or
-      proof for disputes — belongs in the ST-110 interviews.
+- [x] ~~Flip the three ADRs to Accepted.~~ Done 2026-09-15.
+- [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions (B9) and ST-001 AC2.
+- [ ] **Hosting decision**, or leave the backend on Docker Postgres until Phase D (Part D, D-2).
+- [ ] **ST-110 pilot-MSP baseline measurement** — formally Phase D, but it gates the pilot's success
+      metric, so the earlier the interviews start the better the before/after number.
+- [ ] **Answer the market scan's question** (`docs/product/2026-09-15-market-scan-and-ideas.md` §6) — faster
+      notes, compounding knowledge, or proof for disputes — ideally in the ST-110 interviews. It orders Phase E.
+      Nothing from the scan becomes a ticket before M1.
 - [ ] Two technician sessions on the Review wireframe (ST-014's remaining criterion).
 - [ ] RDP opacity check for ST-001 AC2 (5 minutes with a second Windows machine).
 
@@ -153,29 +162,29 @@ highest-leverage piece of work left, and it is not currently a ticket.
 
 ## 7. Next steps
 
-### Nothing is blocked on the laptop right now
-ST-040 and ST-045 both merged with their hardware tests actually running — 46 tests, 0 skipped. The
-foreground problem that made them skip for three days was ours, not the machine's: Windows refuses
-`SetForegroundWindow` to a process that has received no input, and the harness now lifts that lock itself.
+**The plan is backlog Part C** — five phases in dependency order, replacing the sprint plan. The short form:
 
-### The work that matters most, in order
-1. **The three cheap P0s** — weaknesses P0-1 (one line), P0-3 (one clause), P0-5 (~5 lines). Two invariant
-   breaches and a correctness bug feeding scope decisions the wrong window.
-2. **P1-4, the CI skip gate.** 63% of the hardware suite can vanish green, and `hardware-checks` is not a
-   required check. Until this exists no hardware evidence means anything — including evidence for the
-   fixes above.
-3. **P2-1**, the doubled pattern-library pass: ~10 lines off a budget already being exceeded.
-4. **P0-4**, the scope-enforcement test, with the small refactor it needs to be testable at all.
-5. **Wire the UI to the capture service.** Large, not currently a ticket, and it closes P0-2, P1-1, P1-2,
-   P1-6 and three ⚠ answers in the questionnaire at once.
+| Phase | Exit | Tickets, in order |
+|---|---|---|
+| **A — safe to run** | Two invariant breaches closed; Windows evidence cannot vanish green | ST-048, ST-018 |
+| **B — close the loop** | **M1:** a real Review shows a real draft from a real session; eval reports edit rate | ST-085, ST-027 (mic), ST-028, ST-060, ST-008 (local), ST-090, ST-063, ST-064 + ST-073, ST-030, ST-062, ST-076 |
+| **C — publish** | **M2:** note, time entry and Hudu article from one review, behind a click | ST-009, ST-091 + ST-092, ST-077, ST-078, ST-093 + ST-094, ST-095–097, ST-049, ST-042 (recall gate) |
+| **D — pilot-ready** | **M3:** signed installer, onboarding, policy, reviewed docs; pilot begins | ST-007 … ST-116 (list in Part C) |
+| **E — v1.1+** | — | ST-120–123, then the market-scan ideas |
 
-### Then
-**ST-076** (timeline panel) needs ST-028, which needs ST-027's audio. **ST-078** (publish) needs ST-017
-and ST-092. **ST-030** unblocks ST-042's recall gate.
+**Why this order.** After 35 tickets the product has never drafted a note from a real session. Everything in
+Phase B is the thinnest thread from capture to draft; nothing is added ahead of it. Phase A comes first
+because ST-048's findings mean the capture path cannot be pointed at a customer yet, and ST-018 is what
+makes any Windows evidence for the fix count.
+
+**Nothing in Phases A or B waits on the owner** except three inputs, listed in Part C's last table: the
+laptop for hardware evidence, the model-provider key for ST-063, and the narration recording for ST-027's
+WER number. ST-030 additionally needs a ScreenConnect trial and a second machine.
 
 ### Needs a decision or an account
-Backend tickets (ST-007 onward) need a cloud account and a hosting decision. ST-063 (cloud drafting) needs
-a model provider. ST-017 and ST-110 need technicians and a pilot MSP.
+ST-063 needs a model provider (no workaround). ST-007 needs a cloud account and a hosting decision, now
+deferred to Phase D. ST-017, ST-110, ST-111 and ST-114's review need technicians, a pilot MSP, a lawyer
+and a security lead.
 
 ## 8. Handy commands
 

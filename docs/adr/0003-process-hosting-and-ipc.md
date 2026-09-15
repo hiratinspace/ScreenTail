@@ -1,6 +1,6 @@
 # ADR-0003: Process hosting and the service–UI channel
 
-- **Status:** Proposed (ST-004). Accepted when the ST-004 PR merges.
+- **Status:** **Accepted 2026-09-12** (ST-004 merged). Status line updated 2026-09-15.
 - **Date:** 2026-09-12
 - **Deciders:** project owner; build agent
 

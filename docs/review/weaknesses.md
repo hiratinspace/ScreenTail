@@ -334,10 +334,7 @@ prevent. Three byte-identical private copies of `ManualTime` also still exist.
 **Dead parameter:** `ScreenshotCapturer.cs:41` takes `maxEdge` and never uses it; four call sites pass it
 believing it downscales.
 
-**Documentation drift:** all three ADRs are still marked **Proposed** — ADR-0001 says it stays open "until
-the ST-001 spike has been run on Windows", which is done, and its title still says **.NET 8** against a
-.NET 10 project. `STATUS.md` claims 26 tickets and 586 tests; reality is 35 and 721, on a page that calls
-itself "one page to come back to".
+**Documentation drift** *(as found 2026-09-15; corrected the same day in the housekeeping PR)*: all three ADRs were still marked **Proposed** after their tickets merged, ADR-0001 still argued from .NET 8 against a .NET 10 project, and `STATUS.md` claimed 26 tickets and 586 tests against 35 and 721. The ADRs now say Accepted with the date, the .NET 8 residue is gone from the ADR, the spike README and the test-loop doc, and ticket state lives on a **Status** line per ticket in the backlog (Part D, D-5). The findings above are now tickets: P0-1/P0-3/P0-4/P0-5/P2-1 → **ST-048**; P1-4 → **ST-018**; P0-2/P1-1/P1-2/P1-6 → **ST-085**; the rest of P1 and the scheduled P2s → **ST-049**.
 
 **Dead on arrival.** Entire namespaces are written, tested, documented as shipping, and called by nothing:
 `Core/Net` (all of it), `Core/Speech` (all of it), `Core/History`, `Core/Timeline`, `Core/Intel`,

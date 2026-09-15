@@ -2,7 +2,8 @@
 
 **Read first:** `00-Build-Agent-Guide.md` (invariants INV-1…INV-12, conventions) and `01-UX-Design-Spec.md` (referenced below as **Spec §x**).
 **Format:** every ticket has an ID, epic, priority, estimate, dependencies by ID, acceptance criteria, and an *Agent brief* (Read / Write / Verify).
-**Totals:** 293 pts · 15 sprints solo · 8 with two agents. Sprint plan in Part C.
+**Totals:** 85 tickets · 314 pts (v0.4 listed 81 and 293; ST-018, ST-048, ST-049 and ST-085 were added 2026-09-15). Ordered plan in Part C, amendments in Part D.
+**State:** each ticket's **Status** line is the source of truth for whether it is done, partial or open. Update it in the PR that changes it. `docs/STATUS.md` summarises; it does not decide.
 
 Priority: `Urgent` = critical path to M1 or upstream of it · `High` = M2/M3 · `Medium` = M3 polish · `Low` = v1.1+
 
@@ -11,13 +12,14 @@ Priority: `Urgent` = critical path to M1 or upstream of it · `High` = M2/M3 · 
 ## Phase 0 — Foundation & Infrastructure (Epic: INFRA)
 
 ---
-### **ST-001 · Spike: validate .NET 8 client stack (hooks + UIA + WPF + whisper.net + OCR)**
+### **ST-001 · Spike: validate .NET client stack (hooks + UIA + WPF + whisper.net + OCR)**
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-12. AC2 (RDP opacity) still needs a second Windows machine — see `docs/STATUS.md` §5.
 
 **Description:**
-Throwaway solution proving a .NET 8 background process can run low-level hooks, query UI Automation (FlaUI), capture/downscale screenshots and run whisper.net concurrently with no perceptible input lag, while a separate WPF process shows a tray icon and a capture-excluded overlay. Produces ADR-0001.
+Throwaway solution proving a .NET background process can run low-level hooks, query UI Automation (FlaUI), capture/downscale screenshots and run whisper.net concurrently with no perceptible input lag, while a separate WPF process shows a tray icon and a capture-excluded overlay. Produces ADR-0001.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-002, ST-003, ST-004
@@ -41,6 +43,7 @@ Throwaway solution proving a .NET 8 background process can run low-level hooks, 
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-12. Branch protection on since 2026-09-12.
 
 **Description:**
 Repository layout per Guide §2, with analyzers, formatting, unit tests, Windows client build and backend container build on every PR.
@@ -65,6 +68,7 @@ Repository layout per Guide §2, with analyzers, formatting, unit tests, Windows
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-12.
 
 **Description:**
 `session.v1.json`: events, frames (`redaction_pending`, `ocr_text`, `masked_regions`, `sensitive_context`), transcript segments, draft note; generated C# and TS types in CI.
@@ -89,6 +93,7 @@ Repository layout per Guide §2, with analyzers, formatting, unit tests, Windows
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-12.
 
 **Description:**
 Per-user background capture service and separate WPF UI process connected by a named pipe with per-session tokens; UI can crash and restart without losing a recording.
@@ -114,6 +119,7 @@ Per-user background capture service and separate WPF UI process connected by a n
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-12.
 
 **Description:**
 SQLite + SQLCipher keyed via DPAPI (user scope). Frames written encrypted with `redaction_pending: true`; the read API used by Review, bundle builder and export returns only redacted frames; cleanup deletes frames still pending after finalize grace.
@@ -139,6 +145,7 @@ SQLite + SQLCipher keyed via DPAPI (user scope). Frames written encrypted with `
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 2
+- **Status:** Done 2026-09-12. Frames are drawn, not captured (`research/fixtures/README.md`); ST-030 supplies real ones.
 
 **Description:**
 Five schema-valid bundles assembled from staged VM screenshots, written transcripts and click lists, plus 20 frames with seeded secrets. Unblocks Review UI and prompt work before the capture engine exists.
@@ -163,6 +170,7 @@ Five schema-valid bundles assembled from staged VM screenshots, written transcri
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Open. Needs a cloud account and a hosting decision (owner). No longer blocks ST-008 (Part D, D-2).
 
 **Description:**
 Terraform for staging/production: API hosting, managed Postgres, KMS, secrets manager, TLS, release-feed bucket. No object storage for frames (INV-7).
@@ -187,13 +195,14 @@ Terraform for staging/production: API hosting, managed Postgres, KMS, secrets ma
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integrations/policies/metrics; JWT tenant and device tokens; never persists raw captures.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-009, ST-010, ST-047, ST-063, ST-090, ST-098
-- ⛓️ **Blocked By:** ST-002, ST-007
+- ⛓️ **Blocked By:** ST-002 (ST-007 is a deployment gate, not a build dependency — runs locally on Docker Postgres until then; Part D, D-2)
 
 **Acceptance Criteria:**
 - [ ] GIVEN a valid device token, WHEN `GET /v1/me`, THEN tenant/user/device info; invalid → 401
@@ -211,6 +220,7 @@ ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integra
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Envelope encryption (KMS key + per-record data key) for PSA/doc credentials; readable only by provider workers; masked in API responses.
@@ -235,6 +245,7 @@ Envelope encryption (KMS key + per-record data key) for PSA/doc credentials; rea
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 Owner signup (email/password or Microsoft SSO), invites, device activation by code, seat counting, 7-day offline licence grace, tenant offboarding with full deletion.
@@ -260,6 +271,7 @@ Owner signup (email/password or Microsoft SSO), invites, device activation by co
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Open.
 
 **Description:**
 Structured logs across service, UI, backend with a scrubber removing paths, window titles, transcript/OCR/note text; opt-in crash reports (stack traces only).
@@ -284,6 +296,7 @@ Structured logs across service, UI, backend with a scrubber removing paths, wind
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Done 2026-09-14 (#45).
 
 **Description:**
 STRIDE threat model with mitigations: signed binaries, authenticated IPC, no debug endpoints in release, service-binary integrity check, hash-chained audit log.
@@ -308,13 +321,14 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Windows 11 VM job installing the built client, replaying golden sessions through the real service and asserting bundle contents, redaction results and performance budgets. Nightly and on release branches.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-031, ST-115
-- ⛓️ **Blocked By:** ST-002, ST-030
+- ⛓️ **Blocked By:** ST-002, ST-018, ST-030
 
 **Acceptance Criteria:**
 - [ ] Golden replay produces a bundle within ±5% event count and exact redaction count
@@ -327,6 +341,33 @@ Windows 11 VM job installing the built client, replaying golden sessions through
 - Verify: nightly run link in PR
 ---
 
+---
+### **ST-018 · Hardware-suite skip gate and required check**
+- **Epic/Feature:** INFRA
+- **Priority:** Urgent
+- **Estimate:** 3
+- **Status:** Open. Added 2026-09-15 from `docs/review/weaknesses.md` P1-4.
+
+**Description:**
+Make hardware evidence count. Today 18 of 46 hardware facts always skip on the hosted runner and up to 29 can skip; `dotnet test` exits 0 when everything skips; `hardware-checks` is not in `ci-ok`'s required set; its `paths:` filter omits `Store/**` and `Ipc/**`; and the `NO-DESKTOP` canary misses tests that return from the capability probe before constructing a window. INV-2's only end-to-end proof (`TypingAPasswordRecordsOnlyHowManyKeys`) runs in that optional job.
+
+**Dependencies & Blockers:**
+- 🛑 **Blocks:** ST-013, ST-048 (its Windows evidence), ST-116
+- ⛓️ **Blocked By:** ST-002
+
+**Acceptance Criteria:**
+- [ ] The Windows test jobs emit a TRX report; a step parses it and fails the job when the skip count exceeds a committed baseline file, and the baseline can only go down
+- [ ] `hardware-checks` is required by `ci-ok` whenever a PR touches `client/**` and `HW_RUNNER` is `true`; when `HW_RUNNER` is `false` the PR is labelled `needs-hardware-evidence` and `ci-ok` says so in its summary
+- [ ] The `paths:` filter covers `Store/**`, `Ipc/**` and `Privacy/**`
+- [ ] The `NO-DESKTOP` canary marks a test as "skipped, no desktop" from inside the capability probe, so early-return tests are counted
+- [ ] A deliberately skipping PR (a test attributed to skip) fails CI, and the run log names the test
+
+**Agent brief**
+- Read: `docs/review/weaknesses.md` P1-4; `docs/dev/windows-test-loop.md`; `.github/workflows/hardware-checks.yml`, `ci.yml`
+- Write: `.github/workflows/*`, `client/ScreenTail.Tests.Windows/Support/*`, `docs/dev/windows-test-loop.md`
+- Verify: one PR that skips on purpose goes red; the baseline PR goes green with the count in the summary
+---
+
 ## Phase 1 — Design & UX (Epic: DESIGN) — parallel with Phase 2
 
 ---
@@ -334,6 +375,7 @@ Windows 11 VM job installing the built client, replaying golden sessions through
 - **Epic/Feature:** DESIGN
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Partial. Wireframes and Q1–Q6 done 2026-09-11; the two technician sessions have not happened (needs technicians — owner).
 
 **Description:**
 Wireframes for S1–S8 from Spec §5 with annotated flows (happy path, sensitive moment, bad draft, missed start, discard); reviewed with two technicians.
@@ -358,6 +400,7 @@ Wireframes for S1–S8 from Spec §5 with annotated flows (happy path, sensitive
 - **Epic/Feature:** DESIGN
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-13.
 
 **Description:**
 Pixel-level Review (Spec §5 S3) in both themes; clickable prototype covering ≥ 8 states.
@@ -382,6 +425,7 @@ Pixel-level Review (Spec §5 S3) in both themes; clickable prototype covering �
 - **Epic/Feature:** DESIGN
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-12.
 
 **Description:**
 Implement Spec §2 tokens as `/shared/design/tokens.json` consumed by WPF resource dictionaries and web CSS variables; base components from Spec §3 with a gallery window.
@@ -406,6 +450,7 @@ Implement Spec §2 tokens as `/shared/design/tokens.json` consumed by WPF resour
 - **Epic/Feature:** DESIGN
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open. Needs five technicians (owner). Gates M3, not ST-078 (Part D, D-3).
 
 **Description:**
 Moderated sessions on the prototype measuring time-to-publish, errors and confusion against Spec §8 metrics.
@@ -432,6 +477,7 @@ Moderated sessions on the prototype measuring time-to-publish, errors and confus
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-12.
 
 **Description:**
 `idle → recording[/suppressed] → paused → finalizing → draft_ready|draft_failed`; coordinates hooks/screenshots/STT; persists transitions; streams state over IPC; recovers orphans; enforces 20 s redaction grace at finalize.
@@ -457,6 +503,7 @@ Moderated sessions on the prototype measuring time-to-publish, errors and confus
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 2
+- **Status:** Done 2026-09-12 (#44 follow-up 2026-09-14).
 
 **Description:**
 Verify mic privacy permission, capture ability, hook installation, elevated-window blindness; report with fix hints via IPC.
@@ -481,6 +528,7 @@ Verify mic privacy permission, capture ability, hook installation, elevated-wind
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-12.
 
 **Description:**
 `EVENT_SYSTEM_FOREGROUND` (fallback polling); resolve PID/process/title/class; read active browser tab title via UIA.
@@ -505,6 +553,7 @@ Verify mic privacy permission, capture ability, hook installation, elevated-wind
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-12.
 
 **Description:**
 JSON registry of remote-tool processes and browser title/URL patterns; auto-start on focus, stop after grace; capture scope default = remote-tool windows + admin-tool allowlist (INV-5); records client versions.
@@ -530,6 +579,7 @@ JSON registry of remote-tool processes and browser title/URL patterns; auto-star
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-12.
 
 **Description:**
 `WH_MOUSE_LL`/`WH_KEYBOARD_LL` on a dedicated thread; lock-free buffer; clicks record position/button/hwnd; keys record categories only (INV-2).
@@ -554,6 +604,7 @@ JSON registry of remote-tool processes and browser title/URL patterns; auto-star
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-13.
 
 **Description:**
 On in-scope click: capture active window at native res with per-monitor DPI, debounce 400 ms, cursor marker, downscale ≤ 1600 px JPEG, write encrypted with `redaction_pending: true`.
@@ -578,6 +629,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Done 2026-09-13.
 
 **Description:**
 1 fps sampling of the in-scope window; keep frames when perceptual-hash distance exceeds threshold.
@@ -602,6 +654,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 8
+- **Status:** Partial. SpeechGate, model download and TranscriptAssembler merged (#49). Remaining: microphone capture (buildable now, Phase B) and AC1 WER, which needs the owner's ten-minute recording (`research/fixtures/audio/README.md`).
 
 **Description:**
 NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), timestamped `speaker: "tech"` segments (INV-9); lazy resumable model download.
@@ -627,6 +680,7 @@ NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), times
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Merge transcript, click, frame and marker events; attach segments to nearest preceding frame within ±8 s else standalone narration.
@@ -651,6 +705,7 @@ Merge transcript, click, frame and marker events; attach segments to nearest pre
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Done 2026-09-13.
 
 **Description:**
 Configurable chords per Spec §5 S1 defaults; "mark moment" forces a frame and marker.
@@ -675,6 +730,7 @@ Configurable chords per Spec §5 S1 defaults; "mark moment" forces a frame and m
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Open. Needs a ScreenConnect trial and a second Windows machine (owner).
 
 **Description:**
 Developer flag exporting full bundles from scripted VM scenarios against real RDP and ScreenConnect; produces 10 golden sessions and ≥ 50 labeled redaction frames.
@@ -699,6 +755,7 @@ Developer flag exporting full bundles from scripted VM scenarios against real RD
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, disk < 40 MB per 20 min; self-throttle sampling/OCR first; live figures in "What's being captured".
@@ -725,6 +782,7 @@ Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, dis
 - **Epic/Feature:** PRIVACY
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-14 (#22).
 
 **Description:**
 On UIA focus change read `IsPassword` (fallback `EM_GETPASSWORDCHAR`); enter `suppressed`, drop frames/typing, notify HUD, audit interval (INV-6).
@@ -749,6 +807,7 @@ On UIA focus change read `IsPassword` (fallback `EM_GETPASSWORDCHAR`); enter `su
 - **Epic/Feature:** PRIVACY
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-13.
 
 **Description:**
 Background worker pulls `redaction_pending` frames, runs OCR (Tesseract .NET) for text + boxes, applies login-screen heuristic, hands to pattern engine, flips flag; bounded concurrency; backlog depth exposed via IPC.
@@ -774,6 +833,7 @@ Background worker pulls `redaction_pending` frames, runs OCR (Tesseract .NET) fo
 - **Epic/Feature:** PRIVACY
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Partial. Engine and unit tests merged 2026-09-12. The ≥ 98% recall / ≤ 2% false-positive gate needs ST-030's labelled frames and closes in Phase C (Part D, D-1).
 
 **Description:**
 Pattern library (SSN, Luhn cards, API keys, password pairs, optional emails) masks matching boxes in stored frames and scrubs OCR/transcript text; tenant-custom regex.
@@ -799,6 +859,7 @@ Pattern library (SSN, Luhn cards, API keys, password pairs, optional emails) mas
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Done 2026-09-13.
 
 **Description:**
 Processes/title substrings/URL fragments that trigger `suppressed`; defaults for password managers and banking; policy-syncable.
@@ -823,6 +884,7 @@ Processes/title substrings/URL fragments that trigger `suppressed`; defaults for
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Done 2026-09-12.
 
 **Description:**
 Delete raw frames/OCR/transcripts/outbox older than retention (default 7 d); keep note text and audit; "Delete everything now" also removes tokens (INV-12).
@@ -847,6 +909,7 @@ Delete raw frames/OCR/transcripts/outbox older than retention (default 7 d); kee
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Done 2026-09-15 (#47).
 
 **Description:**
 Append-only hash-chained log of captured/suppressed/redacted/purged/sent/published events; export JSON/CSV without content.
@@ -871,6 +934,7 @@ Append-only hash-chained log of captured/suppressed/redacted/purged/sent/publish
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Done 2026-09-13.
 
 **Description:**
 Global/admin-enforceable setting routing summarization on-device and blocking all egress except user-initiated publish, via HTTP allowlist (INV-8).
@@ -895,6 +959,7 @@ Global/admin-enforceable setting routing summarization on-device and blocking al
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Backend policy (retention, Local-only enforce, exclusions, patterns, scope, telemetry) fetched at start and hourly; enforced fields read-only with "Set by your admin" (INV-11).
@@ -914,6 +979,66 @@ Backend policy (retention, Local-only enforce, exclusions, patterns, scope, tele
 - Verify: `PolicySyncTests` both sides
 ---
 
+---
+### **ST-048 · Enforcement fixes from the 2026-09-15 review (P0)**
+- **Epic/Feature:** PRIVACY
+- **Priority:** Urgent
+- **Estimate:** 5
+- **Status:** Open. Added 2026-09-15 from `docs/review/weaknesses.md`. Nothing runs against a customer screen before this merges.
+
+**Description:**
+The review found that the decision classes are right and the places that apply them are not. Five fixes, four of them under ten lines each: (P0-1) a frame the OCR engine reads nothing from is stored as redacted with nothing masked; (P0-3) the HUD hides itself when the UI does not know whether capture is running; (P0-5) the foreground watcher subscribes to an inclusive range of ~20 WinEvent types and publishes background windows as the foreground; (P2-1) the pattern library runs twice per frame; (P0-4) the excluded-app and out-of-scope drops live in the Windows loop layer where no test can reach them.
+
+**Dependencies & Blockers:**
+- 🛑 **Blocks:** ST-060, ST-085 (the HUD it shows must be right), ST-116
+- ⛓️ **Blocked By:** none (ST-018 supplies the Windows evidence for P0-5's re-measurement)
+
+**Acceptance Criteria:**
+- [ ] P0-1: empty OCR is treated as unreadable and the frame is discarded; "read nothing" and "nothing on screen" are counted separately; a test stages a frame whose recogniser returns no words and asserts it is not stored
+- [ ] P0-1 (design): decide and document whether a frame with genuinely no text is kept — the open question from ST-041 — in `docs/adr/0001-client-stack.md` findings or a new ADR
+- [ ] P0-3: `HudState.For(capture: null, hidden: true)` is visible; hidden takes effect only when the state is known idle; the test covers `null`
+- [ ] P0-5: two hooks (`EVENT_SYSTEM_FOREGROUND` and `EVENT_OBJECT_NAMECHANGE`) or an allow-list at the top of `OnWinEvent`; the CPU test measures on a busy desktop (a window redrawing at ≥ 30 fps under the cursor), not an idle one
+- [ ] P2-1: the pattern library resolves matches once per frame and `ScrubText` reuses them; `RedactionThroughputTests` asserts against a fixed budget rather than one that self-disarms
+- [ ] P0-4: the scope decision loop is lifted into `ScreenTail.Core` behind an interface (the `IForegroundWatcher` pattern); a store-level test proves recording + excluded scope → exactly one `ClickEvent`, zero typing-derived events, zero frames; deleting the drop lines makes it fail
+- [ ] `docs/review/weaknesses.md` marks each finding fixed with the PR number
+
+**Agent brief**
+- Read: `docs/review/weaknesses.md` P0-1, P0-3, P0-4, P0-5, P2-1; INV-1, INV-4, INV-5, INV-6
+- Write: `client/ScreenTail.Core/Privacy/RedactionWorker.cs`, `Core/Hud/HudState.cs`, `Service/Detection/WindowsForegroundWatcher.cs`, `Core/Privacy/RedactionEngine.cs`, `Core/Capture/*` (new decision loop), `Service/Capture/ClickCaptureLoop.cs`, `SceneSampleLoop.cs`, tests
+- Verify: `dotnet test client/ScreenTail.sln`; the Windows suite on the laptop with ST-018's gate green
+---
+
+---
+### **ST-049 · Hardening from the 2026-09-15 review (P1 and scheduled P2)**
+- **Epic/Feature:** PRIVACY
+- **Priority:** High
+- **Estimate:** 5
+- **Status:** Open. Added 2026-09-15 from `docs/review/weaknesses.md`. Before the pilot (ST-116), after ST-085.
+
+**Description:**
+The P1 findings that are not resolved by wiring the UI (ST-085 closes P1-1, P1-2 and P1-6), plus the P2 items with the best cost-to-fix ratio.
+
+**Dependencies & Blockers:**
+- 🛑 **Blocks:** ST-115, ST-116
+- ⛓️ **Blocked By:** ST-048, ST-085
+
+**Acceptance Criteria:**
+- [ ] P1-3: a masker fake that mutates, and a test asserting the stored bytes differ from the staged bytes; replacing `masked.Image` with `frame.Image` fails the suite
+- [ ] P1-5: the audit chain has a head anchor and a row count (or a signed high-water mark) so truncation from the tail is detected; the row id is part of the hash input; the tamper tests cover tail truncation and renumbering
+- [ ] P1-7: the SQLCipher key is passed as bytes (`sqlite3_key` via SQLitePCLRaw), never interpolated into a managed string; a test scans the process for the hex form after open (best effort) and the code has no `PRAGMA key` string
+- [ ] P1-8: `docs/security/threat-model.md` T8, T10 and T12 say what the code does (token on disk under a user ACL; egress guard wired in ST-085; any number of authenticated clients with per-peer limits from ST-085)
+- [ ] P1-9: `_givenUp` is bounded (size and age) and a tenant pattern that fails to compile is rejected at load with an audit row, not retried forever
+- [ ] P2-3: the filmstrip decodes thumbnails at `DecodePixelWidth`, the panel virtualises, and 150 frames stay under 150 MB
+- [ ] P2-4: `VACUUM` runs off the capture path (idle, no session, at most daily) and `PRAGMA secure_delete` is on (P2-12)
+- [ ] P2-9: blurring keeps the frame's encoding and runs off the UI thread
+- [ ] Every remaining P2 and P3 item in `docs/review/weaknesses.md` has either a fix in this PR or a line saying when it is scheduled
+
+**Agent brief**
+- Read: `docs/review/weaknesses.md` P1-3, P1-5, P1-7, P1-8, P1-9, P2-3, P2-4, P2-9, P2-12; INV-1, INV-12; T4, T11
+- Write: `client/ScreenTail.Core/Store/*`, `Core/Audit/*`, `Core/Privacy/*`, `UI/Review/Filmstrip*`, `docs/security/threat-model.md`, `docs/review/weaknesses.md`
+- Verify: `dotnet test client/ScreenTail.sln`; the audit tamper tests; a 150-frame session opened in Review on the laptop with memory recorded
+---
+
 ## Phase 4 — Intelligence Layer (Epic: INTEL)
 
 ---
@@ -921,13 +1046,14 @@ Backend policy (retention, Local-only enforce, exclusions, patterns, scope, tele
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 From redacted frames only, select ≤ 25 informative frames; assemble timeline, OCR, transcript, metadata, style hints; set `ocr_partial` and `frames_purged_unredacted`.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-063, ST-064, ST-065
-- ⛓️ **Blocked By:** ST-003, ST-024, ST-026, ST-028, ST-041, ST-042
+- ⛓️ **Blocked By:** ST-003, ST-024, ST-026, ST-028, ST-041, ST-042 (engine only — its recall gate is a release gate, Part D, D-1), ST-048
 
 **Acceptance Criteria:**
 - [ ] 200 redacted frames → ≤ 25 selected; payload < 4 MB
@@ -945,6 +1071,7 @@ From redacted frames only, select ≤ 25 informative frames; assemble timeline, 
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-12.
 
 **Description:**
 System prompt and strict JSON output (`problem`, `steps[]{text,confidence,frame_refs}`, `result`, `follow_ups`, `suggested_title`, `suggested_time_minutes`, `kb_candidate`); versioned files; first on fixtures then golden set.
@@ -969,6 +1096,7 @@ System prompt and strict JSON output (`problem`, `steps[]{text,confidence,frame_
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Human rubric (accuracy, completeness, no hallucination, tone) plus automated edit-distance proxy against reference notes; runs on prompt/model changes; regression gate.
@@ -993,6 +1121,7 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Open. Needs a model provider, an API key and a spend cap (owner).
 
 **Description:**
 `POST /v1/sessions/summarize` behind a provider interface (Gemini Flash default; OpenAI/Anthropic swappable) with fallback provider, schema validation + one repair retry, per-tenant daily cost cap; frames in memory only (INV-7).
@@ -1018,6 +1147,7 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Local outbox with idempotency keys; retry with backoff; "Draft pending — offline" state.
@@ -1042,6 +1172,7 @@ Local outbox with idempotency keys; retry with backoff; "Draft pending — offli
 - **Epic/Feature:** INTEL
 - **Priority:** High
 - **Estimate:** 8
+- **Status:** Open.
 
 **Description:**
 OCR text + transcript + click log → small local text model (Llama 3.2 3B / Phi-3.5-mini via llama.cpp Q4); optional vision when GPU present; flagged lower confidence.
@@ -1067,6 +1198,7 @@ OCR text + transcript + click log → small local text model (Llama 3.2 3B / Phi
 - **Epic/Feature:** INTEL
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Done 2026-09-12.
 
 **Description:**
 Active duration minus pauses with tenant rounding (6/15) and minimum increment.
@@ -1091,6 +1223,7 @@ Active duration minus pauses with tenant rounding (6/15) and minimum increment.
 - **Epic/Feature:** INTEL
 - **Priority:** Medium
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Diff draft vs final on publish; store structural style signals only; inject top signals as prompt hints.
@@ -1117,6 +1250,7 @@ Diff draft vs final on publish; store structural style signals only; inject top 
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-13. Renders sample data until ST-085 wires it to the service.
 
 **Description:**
 WPF host with navigation (Review, History, Settings), MVVM store fed by IPC events, theme switching, global shortcut routing (incl. `?` sheet), service-connection status.
@@ -1141,6 +1275,7 @@ WPF host with navigation (Review, History, Settings), MVVM store fed by IPC even
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Done 2026-09-13. No production tray icon until ST-085.
 
 **Description:**
 Implements Spec §5 S1 exactly: five icon states, menu order and chords, diagnostics panel with Copy diagnostics (states only).
@@ -1165,6 +1300,7 @@ Implements Spec §5 S1 exactly: five icon states, menu order and chords, diagnos
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 5
+- **Status:** Done 2026-09-15 (#46, #48). Shown only by the screenshot harness until ST-085.
 
 **Description:**
 Implements Spec §5 S2: pill with timer, mic meter, redaction count, pause/stop; all state variants; expand/double-click/right-click behaviors; capture-excluded; non-focus-stealing.
@@ -1189,13 +1325,14 @@ Implements Spec §5 S2: pill with timer, mic meter, redaction count, pause/stop;
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Open.
 
 **Description:**
 Toasts and banners per Spec §6; failure paths always expose the raw timeline.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** None
-- ⛓️ **Blocked By:** ST-064, ST-070
+- ⛓️ **Blocked By:** ST-064, ST-070, ST-085
 
 **Acceptance Criteria:**
 - [ ] Draft ready toast → Review opens within 1 s
@@ -1213,6 +1350,7 @@ Toasts and banners per Spec §6; failure paths always expose the raw timeline.
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 8
+- **Status:** Done 2026-09-13 (#42).
 
 **Description:**
 Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence markers with confirm, frame chips, transcript snippets, autosave, banners (partial, purged, local), Discard with typed confirmation. Built against fixtures.
@@ -1239,6 +1377,7 @@ Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence 
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Done 2026-09-13 (#43).
 
 **Description:**
 Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur with undo window, delete with undo toast, enlarge with OCR toggle, suppression/scope gap markers.
@@ -1264,13 +1403,14 @@ Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace transcript with click-to-jump.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** None
-- ⛓️ **Blocked By:** ST-028, ST-074
+- ⛓️ **Blocked By:** ST-028, ST-074, ST-085
 
 **Acceptance Criteria:**
 - [ ] Transcript line click → filmstrip highlights frame
@@ -1288,6 +1428,7 @@ Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace tr
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Parse title and clipboard at session start for a ticket-ID pattern; pre-select in picker with "Suggested" badge.
@@ -1312,13 +1453,14 @@ Parse title and clipboard at session start for a ticket-ID pattern; pre-select i
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entry, destinations, Publish with disabled reasons, result list with links and retry.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-093, ST-094, ST-096
-- ⛓️ **Blocked By:** ST-017, ST-066, ST-074, ST-075, ST-092
+- ⛓️ **Blocked By:** ST-066, ST-074, ST-075, ST-085, ST-092 (ST-017 gates M3, not this ticket — Part D, D-3)
 
 **Acceptance Criteria:**
 - [ ] 3+ chars → matches within 1 s showing `#id · summary · company`
@@ -1337,6 +1479,7 @@ Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entr
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Done 2026-09-15 (#50).
 
 **Description:**
 Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discard, audit export, empty state.
@@ -1361,13 +1504,14 @@ Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discar
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Implements Spec §5 S5 sections and copy, including scope warning and hotkey conflict UI.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-083
-- ⛓️ **Blocked By:** ST-023, ST-027, ST-070
+- ⛓️ **Blocked By:** ST-023, ST-027, ST-070, ST-085
 
 **Acceptance Criteria:**
 - [ ] Tool toggled off → no session starts for it
@@ -1385,13 +1529,14 @@ Implements Spec §5 S5 sections and copy, including scope warning and hotkey con
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns with live regex validator and test box, retention, telemetry with field list, export/delete; admin-locked variants.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-083
-- ⛓️ **Blocked By:** ST-042, ST-043, ST-044, ST-046, ST-047
+- ⛓️ **Blocked By:** ST-042, ST-043, ST-044, ST-046, ST-047, ST-085
 
 **Acceptance Criteria:**
 - [ ] Invalid regex → inline error blocks save
@@ -1410,6 +1555,7 @@ Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns wi
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech member, company mapping editor.
@@ -1434,13 +1580,14 @@ Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech memb
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-112
-- ⛓️ **Blocked By:** ST-010, ST-021, ST-080, ST-081, ST-082
+- ⛓️ **Blocked By:** ST-010, ST-021, ST-080, ST-081, ST-082, ST-085
 
 **Acceptance Criteria:**
 - [ ] 3/3 test users reach sample draft ≤ 5 min
@@ -1458,6 +1605,7 @@ Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 2
+- **Status:** Open.
 
 **Description:**
 Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
@@ -1477,6 +1625,44 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - Verify: Accessibility Insights report attached
 ---
 
+---
+### **ST-085 · Wire the UI process to the capture service**
+- **Epic/Feature:** UI
+- **Priority:** Urgent
+- **Estimate:** 8
+- **Status:** Open. Added 2026-09-15. The single highest-leverage ticket left: it makes INV-4 true in the running application.
+
+**Description:**
+Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`, `TrayPresence`, `LocalDataEraser`, `ReviewSession` and seven `ISessionStore` read methods have no production caller; the shell, HUD, history and diagnostics render literal sample data. This ticket connects the UI to the service over the authenticated pipe (ADR-0003) and makes every screen show live state. It also installs the egress guard at the composition root and adds the IPC command that ST-081's "delete everything" will call.
+
+**Architecture (holds for every later UI ticket):**
+- The UI references `ScreenTail.Shared` and `ScreenTail.Core` only. It never references `ScreenTail.Service`; everything crosses the pipe. Store reads the UI needs go through service commands, so INV-1's read-path filtering has one owner.
+- One `CaptureConnection` object owns the pipe, reconnects with backoff, and exposes an observable `CaptureSnapshot?` where `null` means unknown. View models bind to that, never to the pipe.
+- Unknown is a first-class state: the tray, the HUD and Review all render "Capture state unknown — it may still be recording" from `null`, and nothing hides on `null` (ST-048 P0-3).
+- All HTTP in the client is built through `EgressRequest.For(purpose)`; a `ReleaseSurfaceTests` scan bans bare `new HttpClient(` in client source.
+
+**Dependencies & Blockers:**
+- 🛑 **Blocks:** ST-049, ST-073, ST-076, ST-078, ST-080, ST-081, ST-083
+- ⛓️ **Blocked By:** ST-004, ST-048, ST-070, ST-071, ST-072
+
+**Acceptance Criteria:**
+- [ ] Start the service and the UI; focus a remote-tool window; a real tray icon and the HUD show Recording within 500 ms; stop the session and both show Idle
+- [ ] Kill the service: within 5 s the HUD and tray show unknown and stay visible; restart it: they recover without restarting the UI
+- [ ] The diagnostics panel's values come from the service (a test asserts no literal sample remains); Local-only and egress counts are live
+- [ ] Session history lists real sessions from the store via a service command, filtered to `redaction_pending = false` frames (INV-1)
+- [ ] The pipe handshake in the UI uses `WindowsServerVerifier`; a same-user impostor server is refused (test)
+- [ ] `IpcServer` enforces a per-peer connection limit and fairness so sixteen idle connections cannot lock the UI out (weaknesses P1-6)
+- [ ] `EgressGuard` is registered at the composition root; `ModelDownload` builds its request with a purpose; the bare-`HttpClient` scan passes (weaknesses P1-1)
+- [ ] An IPC command `EraseAllLocalData` exists, is authenticated, and calls `LocalDataEraser` (UI in ST-081)
+- [ ] `ScreenTail.UI` has no `ProjectReference` to `ScreenTail.Service` (test in `ReleaseSurfaceTests`)
+- [ ] Screenshots in both themes at 1366×768 and 1920×1080 with the live HUD over a remote window
+
+**Agent brief**
+- Read: ADR-0003; `docs/ipc-contract.md`; `docs/review/weaknesses.md` P0-2, P1-1, P1-2, P1-6; Spec §5 S1, S2, S4; INV-1, INV-4, INV-8
+- Write: `client/ScreenTail.UI/App.xaml.cs`, `UI/Shell/*`, `UI/Tray/*` (new), `UI/Hud/*`, `UI/Diagnostics/*`, `UI/History/*`, `Core/Ipc/IpcClient.cs`, `Service/Ipc/IpcServer.cs`, `Service/Host/*`, `docs/ipc-contract.md`, tests
+- Verify: `dotnet test client/ScreenTail.sln`; the laptop run with ST-018's gate green; the screenshots
+---
+
 ## Phase 6 — Integrations (Epic: INTEG)
 
 ---
@@ -1484,6 +1670,7 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 `IPsaProvider` / `IDocProvider`, shared DTOs, error taxonomy mapped to Spec §4 messages, contract-test harness with a fake provider.
@@ -1508,6 +1695,7 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 `IPsaProvider` for ConnectWise PSA REST: Basic auth `companyId+publicKey:privateKey`, `clientId` header, region base URL, backoff, error mapping.
@@ -1532,6 +1720,7 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Open.
 
 **Description:**
 Search by ID/summary/company via `conditions`; default "recently touched by this API member".
@@ -1556,6 +1745,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 `POST /service/tickets/{id}/notes` + document uploads of selected redacted frames; idempotent via outbox key; configurable footer.
@@ -1580,6 +1770,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 `POST /time/entries` with reviewed duration, work type, member; optional per-tech members; attribution limitation documented.
@@ -1604,6 +1795,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 `IDocProvider` for Hudu: companies, connection check, create/update articles, self-hosted URLs; verify image upload support and record approach.
@@ -1628,6 +1820,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Note → draft article scoped to mapped company/central KB; images inline if supported else link to ticket attachments.
@@ -1652,6 +1845,7 @@ Note → draft article scoped to mapped company/central KB; images inline if sup
 - **Epic/Feature:** INTEG
 - **Priority:** Medium
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Per-tenant mapping auto-matched by name with confidence, user-correctable in Settings.
@@ -1676,6 +1870,7 @@ Per-tenant mapping auto-matched by name with confidence, user-correctable in Set
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
+- **Status:** Open.
 
 **Description:**
 Anonymized per-session metrics to `session_metrics`; respects telemetry off; offline queue.
@@ -1700,6 +1895,7 @@ Anonymized per-session metrics to `session_metrics`; respects telemetry off; off
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 React + TS on shared tokens per Spec §5 S9: sign up/in, technicians and seats, policy editor, integration status, client download.
@@ -1726,6 +1922,7 @@ React + TS on shared tokens per Spec §5 S9: sign up/in, technicians and seats, 
 - **Epic/Feature:** RELEASE
 - **Priority:** Urgent
 - **Estimate:** 2
+- **Status:** Open. Needs the pilot MSP (owner).
 
 **Description:**
 Two-week measurement of documentation minutes per ticket (≥ 3 techs, ≥ 40 tickets) plus 5 interviews; go/no-go and detection priority.
@@ -1750,6 +1947,7 @@ Two-week measurement of documentation minutes per ticket (≥ 3 techs, ≥ 40 ti
 - **Epic/Feature:** RELEASE
 - **Priority:** Medium
 - **Estimate:** 2
+- **Status:** Open. Needs the pilot MSP and a lawyer's read of `docs/legal/consent-guidance.md` (owner).
 
 **Description:**
 Lightweight pilot agreement, plain-language privacy policy, DPA template based on the data-flow doc.
@@ -1774,6 +1972,7 @@ Lightweight pilot agreement, plain-language privacy policy, DPA template based o
 - **Epic/Feature:** RELEASE
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall removes binaries, store, tokens, models, tasks.
@@ -1798,6 +1997,7 @@ EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall r
 - **Epic/Feature:** RELEASE
 - **Priority:** Medium
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Signed updates, stable/beta channels, applied at idle launch, never during a session.
@@ -1822,6 +2022,7 @@ Signed updates, stable/beta channels, applied at idle launch, never during a ses
 - **Epic/Feature:** RELEASE
 - **Priority:** High
 - **Estimate:** 3
+- **Status:** Partial. Three documents merged 2026-09-15 (#51, #52); AC1 security-lead review outstanding (needs an MSP security lead — owner).
 
 **Description:**
 Plain-language data-flow doc with diagram (two-stage frames, scope), technician consent guidance, ≥ 40 pre-filled questionnaire answers referencing the threat model.
@@ -1846,6 +2047,7 @@ Plain-language data-flow doc with diagram (two-stage frames, scope), technician 
 - **Epic/Feature:** RELEASE
 - **Priority:** Urgent
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 ≥ 30 adversarial scenarios through the VM harness; fix or document every finding.
@@ -1870,6 +2072,7 @@ Plain-language data-flow doc with diagram (two-stage frames, scope), technician 
 - **Epic/Feature:** RELEASE
 - **Priority:** High
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 3+ techs, ≥ 50 sessions; compare to Stage 0; weekly feedback into backlog.
@@ -1895,6 +2098,7 @@ Plain-language data-flow doc with diagram (two-stage frames, scope), technician 
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 8
+- **Status:** Open.
 
 **Description:**
 Per Spec §5 S9 dashboard section; no session content.
@@ -1919,6 +2123,7 @@ Per Spec §5 S9 dashboard section; no session content.
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 5
+- **Status:** Open.
 
 **Description:**
 HaloPSA `IPsaProvider` passing contract harness; no Review UI changes.
@@ -1943,6 +2148,7 @@ HaloPSA `IPsaProvider` passing contract harness; no Review UI changes.
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 3
+- **Status:** Open.
 
 **Description:**
 Embed redacted note; search existing Hudu articles; offer "link existing" above threshold.
@@ -1967,6 +2173,7 @@ Embed redacted note; search existing Hudu articles; offer "link existing" above 
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 5
+- **Status:** Open. v1.2; needs legal review of the consent flow before it starts.
 
 **Description:**
 Implements Spec §5 S10; `end_user` diarization; redaction extended; off by default.
@@ -1986,25 +2193,84 @@ Implements Spec §5 S10; `end_user` diarization; redaction extended; off by defa
 - Verify: `ConsentTests`
 ---
 
-## Part C — Sprint plan (solo, ~18–20 pts)
+## Part C — Ordered plan (replaces the sprint plan, 2026-09-15)
 
-| Sprint | Tickets | Pts |
-|---|---|---|
-| 1 | ST-001, ST-002, ST-003, ST-004, ST-110 (background) | 16 |
-| 2 | ST-005, ST-006, ST-014, ST-016 | 17 |
-| 3 | ST-020, ST-021, ST-022, ST-023, ST-015 | 20 |
-| 4 | ST-024, ST-025, ST-026, ST-027 (start), ST-017 | 18 |
-| 5 | ST-027 (finish), ST-028, ST-029, ST-030, ST-007, ST-011 | 17 |
-| 6 | ST-040, ST-041, ST-042, ST-043, ST-012 | 18 |
-| 7 | ST-008, ST-060, ST-061, ST-062, ST-013 | 19 |
-| 8 | ST-063, ST-090, ST-070, ST-071, ST-066 | 18 |
-| 9 | ST-072, ST-074, ST-064, ST-073 — **M1** | 18 |
-| 10 | ST-075, ST-009, ST-091, ST-092, ST-044, ST-045 | 20 |
-| 11 | ST-078, ST-093, ST-094, ST-095, ST-096, ST-046 — **M2** | 20 |
-| 12 | ST-010, ST-047, ST-080, ST-081, ST-082, ST-031 | 20 |
-| 13 | ST-112, ST-114, ST-111, ST-115, ST-099, ST-098 | 20 |
-| 14 | ST-083, ST-079, ST-084, ST-077, ST-097 — **M3**, pilot begins | 16 |
-| 15 | ST-116, ST-065, ST-113, ST-067 | 19 |
-| 16+ | ST-120, ST-121, ST-122, ST-123 | 21 |
+The v0.4 sprint plan stopped describing the build once tickets were taken out of order (ST-079 in "Sprint 14"
+merged before anything in Sprints 7–13). This part replaces it. It is a **dependency order with phases and
+milestone exits**, not a calendar. Work the list top to bottom within a phase; start the next phase's
+unblocked tickets when the current one is waiting on the owner.
 
-**Two agents (8 sprints):** Agent A takes ST-020–031, ST-040–047, ST-060–067; Agent B takes ST-001–017, ST-070–084, ST-090–099, ST-110–116. Both on ST-115 and ST-116 in Sprint 8.
+**The rule that shapes it:** after 35 tickets the product has never produced a draft from a real session.
+Phase A makes it safe to run; Phase B is the thinnest thread from a real session to a real draft (M1);
+nothing else is added ahead of that.
+
+### Phase A — Safe to run against a real screen
+
+| Order | Ticket | Why here | Needs from owner |
+|---|---|---|---|
+| A1 | **ST-048** | Two invariant breaches and a correctness bug feeding scope the wrong window. ~20 lines for four of the five. | Nothing |
+| A2 | **ST-018** | Until the skip gate exists, no Windows evidence — including A1's — means anything. | Laptop on, `HW_RUNNER=true`, run interactively |
+
+### Phase B — Close the loop (exit: **M1**, a real Review shows a real draft from a real session, and the eval harness reports edit rate)
+
+| Order | Ticket | Why here | Needs from owner |
+|---|---|---|---|
+| B1 | **ST-085** | Wires the UI to the service; makes INV-4 true; closes four review findings and gives everything after it a live screen to be checked on. | Nothing |
+| B2 | **ST-027** (finish) | Microphone capture is buildable now. AC1 (WER) waits for the recording; the ticket stays Partial until it lands. | The ten-minute narration (`research/fixtures/audio/README.md`) |
+| B3 | **ST-028** | Pure Core logic; testable with synthetic transcripts before B2's WER number exists. | Nothing |
+| B4 | **ST-060** | The bundle. Blocked on ST-042's engine (merged), not its recall gate (Part D, D-1). | Nothing |
+| B5 | **ST-008** | Backend scaffold, run locally on Docker Postgres. ST-007 is a deployment gate (Part D, D-2). | Nothing |
+| B6 | **ST-090** | Provider interfaces and the fake provider; needed for ST-063's contract tests and Phase C. | Nothing |
+| B7 | **ST-063** | The one model call per session. Provider abstraction from the ticket as written; default provider is whatever the owner supplies a key for. | **Model provider, API key, monthly cap** — no workaround |
+| B8 | **ST-064**, **ST-073** | Offline outbox and the draft-failure UX; the draft path has to fail honestly before it is used. | Nothing |
+| B9 | **ST-030** | Ten golden sessions across RDP and ScreenConnect. Turns "it drafted something" into a number. | ScreenConnect trial, a second Windows machine |
+| B10 | **ST-062** | The eval harness on B9's sessions; M1's < 25% edit-rate criterion lives here. | Nothing |
+| B11 | **ST-076** | Timeline and transcript panel; the evidence-link principle from `docs/product/2026-09-15-market-scan-and-ideas.md` §4.1 #4 applies here. | Nothing |
+
+### Phase C — Publish (exit: **M2**, ticket note, time entry and Hudu article land from one review behind a human click)
+
+| Order | Ticket | Why here | Needs from owner |
+|---|---|---|---|
+| C1 | **ST-009** | Credential vault before any real PSA key is stored. | Nothing |
+| C2 | **ST-091**, **ST-092** | ConnectWise client and ticket search. | ConnectWise API member at the pilot MSP (a sandbox works until then) |
+| C3 | **ST-077** | Ticket inference from the window title; cheap once ST-092 exists. | Nothing |
+| C4 | **ST-078** | The publish panel. ST-017 no longer blocks it (Part D, D-3). | Nothing |
+| C5 | **ST-093**, **ST-094** | Note and time-entry push, field-level not blob (`docs/product/…` §4.4). | Nothing |
+| C6 | **ST-095**, **ST-096**, **ST-097** | Hudu client, KB publish, company mapping. | Hudu API key |
+| C7 | **ST-049** | The P1 hardening, before anyone outside the team runs it. | Nothing |
+| C8 | **ST-042** (close) | The recall gate on ST-030's labelled frames. | Nothing |
+
+### Phase D — Pilot-ready (exit: **M3**, signed installer, onboarding, policy, docs reviewed; pilot begins)
+
+In dependency order: ST-007 (cloud account, hosting decision), ST-010, ST-011, ST-013, ST-031, ST-047,
+ST-080, ST-081, ST-082, ST-083, ST-084, ST-098, ST-099, ST-111, ST-112, ST-113, ST-114 (the security-lead
+review), ST-115, ST-065, ST-067, ST-017 and ST-014's two technician sessions, ST-110, then ST-116.
+Owner inputs: cloud account and hosting; pilot MSP; technicians; an MSP security lead; a lawyer's read of
+the consent guidance; a code-signing certificate (ST-112).
+
+### Phase E — v1.1 and later
+
+ST-120, ST-121, ST-122, ST-123, then the ideas in `docs/product/2026-09-15-market-scan-and-ideas.md` §4,
+in the order the pilot's answer to its §6 question dictates. None becomes a ticket before M1.
+
+### What the owner can do now, in the order it unblocks work
+
+1. Laptop on, `HW_RUNNER=true`, runner interactive (A2, and every Windows check after it).
+2. Choose the model provider; supply the key and a monthly cap (B7).
+3. Record the ten-minute narration (B2's WER, then ST-080 and ST-123).
+4. ScreenConnect trial and a second Windows machine (B9, and ST-001 AC2).
+5. Decide hosting, or leave B5 on Docker until Phase D.
+6. Find the pilot MSP, five technicians and a security lead (Phase D; the earlier the baseline starts, the better the ROI number).
+
+---
+
+## Part D — Amendments to v0.4
+
+| # | Date | Change | Why |
+|---|---|---|---|
+| D-1 | 2026-09-15 | ST-060 depends on ST-042's engine, not its recall gate. The ≥ 98% / ≤ 2% criterion closes in Phase C (C8) on ST-030's frames. | The gate needs real captured frames that need ST-030 that needs owner hardware. Treating a release gate as a build dependency stalls M1 on a purchase. INV-1 is unaffected: every frame in a bundle is still redacted and reviewed. |
+| D-2 | 2026-09-15 | ST-008 is blocked by ST-002 only. ST-007 becomes a deployment gate for ST-113 and ST-116. The backend runs on Docker Postgres locally until then. | The summarisation endpoint is on the M1 path and a cloud account is not. Nothing in ST-008's acceptance criteria needs a hosted environment. |
+| D-3 | 2026-09-15 | ST-017 (usability round) gates M3, not ST-078. ST-078 is blocked by ST-085 instead. | Five technicians are an owner input with no date. The publish panel can be built to the spec and corrected by the round, as the Review screen was. |
+| D-4 | 2026-09-15 | Four tickets added: ST-018 (skip gate), ST-048 (P0 fixes), ST-049 (P1 hardening), ST-085 (wire UI to service). ST-073, ST-076, ST-080, ST-081, ST-083 gain ST-085 as a blocker; ST-013 gains ST-018. | `docs/review/weaknesses.md` found enforcement gaps with no ticket, and the UI wiring was named the highest-leverage work with no ticket. |
+| D-5 | 2026-09-15 | Every ticket carries a **Status** line, which is the source of truth for its state. Part C is an ordered plan, not sprints. | The backlog recorded no completion at all; state lived only in `docs/STATUS.md` prose, and the sprint plan no longer matched the order tickets were actually taken. |
+| D-6 | 2026-09-15 | Spec amendments v0.4.2 and v0.4.3 accepted (they were pending owner veto). | Both were made because the spec's own rules or the CI contrast test required them, and both are already implemented in tokens and code. |

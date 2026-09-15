@@ -1,13 +1,13 @@
 # ADR-0001: Client stack for the ScreenTail Windows client
 
-- **Status:** Proposed. This stays open until the ST-001 spike has been run on Windows (see [Evidence](#evidence)).
+- **Status:** **Accepted 2026-09-12**, when ST-001 AC1 and AC3 passed on real hardware (see [Evidence](#evidence)). Amended 2026-09-11 to .NET 10 (finding 1). Status line updated 2026-09-15; the decision itself is unchanged.
 - **Date:** 2026-09-10
 - **Ticket:** ST-001
 - **Deciders:** project owner; build agent
 
 ## Context
 
-The scope document leaves the client language open ("Python or C#/.NET"). The build guide (§5) already assumes .NET 8, WPF and MVVM. Before ST-002 through ST-004 commit the repository to a stack, we need evidence that .NET can handle the hard parts of the capture service together:
+The scope document leaves the client language open ("Python or C#/.NET"). The build guide (§5) at the time assumed .NET 8, WPF and MVVM (it now says .NET 10, per finding 1). Before ST-002 through ST-004 commit the repository to a stack, we need evidence that .NET can handle the hard parts of the capture service together:
 
 1. Low-level mouse and keyboard hooks that add less than 5 ms of input latency and are never silently removed by Windows, while UI Automation polling, Whisper transcription, screenshots and OCR all run in the same process.
 2. UI Automation (FlaUI) that correctly reports a remote-desktop canvas as opaque, so later tickets know they must rely on OCR and voice inside remote sessions.
@@ -16,7 +16,7 @@ The scope document leaves the client language open ("Python or C#/.NET"). The bu
 
 The spike lives in [`/spike`](../../spike/README.md).
 
-## Decision (proposed)
+## Decision
 
 Build the Windows client in **C# on .NET** as two processes: a per-user background capture service, and a WPF UI process. The spike validates these components:
 
@@ -200,11 +200,11 @@ These came up while building the spike and hold regardless of how the Windows ru
 - **ST-025 / ST-041 (finding 2a):** each click frame is kept at native resolution, encrypted and marked `redaction_pending`, until the redaction worker has run OCR and masking on it. Only then is the downscaled copy (≤ 1600 px) written for Review and the bundle builder, and the native frame deleted. INV-1 is unchanged: nothing is readable before redaction. ST-005's disk budget (< 40 MB per 20-minute session) applies to what remains after redaction; the native frames are transient.
 - **ST-027 (finding 8):** transcription is gated by voice activity detection.
 - Platform-neutral logic lives in projects that target plain `netX.0` so it can be unit-tested on any OS. Windows-only code sits behind thin adapters.
-- `/spike` is deleted once this ADR is accepted.
+- `/spike` stays as the measurement harness that `.github/workflows/spike-windows.yml` runs on the laptop; nothing in it ships (ADR accepted 2026-09-12 with this amendment, since the workflow still depends on it).
 
 ## To accept this ADR
 
 1. Run the steps in `spike/README.md` on a Windows x64 machine.
 2. Fill in the Evidence table and the test machine line, and attach the reports under `docs/adr/evidence/0001/`.
 3. Resolve finding 1 (the .NET version) and, if AC4 fails, choose among the options in finding 2.
-4. Change Status to **Accepted**, or record the amendment.
+4. Change Status to **Accepted**, or record the amendment. — **Done 2026-09-15**; steps 1–3 were done by 2026-09-12.

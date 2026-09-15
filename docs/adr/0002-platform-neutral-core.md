@@ -1,6 +1,6 @@
 # ADR-0002: A platform-neutral core project for client logic
 
-- **Status:** Proposed (ST-002). Accepted when the ST-002 PR merges.
+- **Status:** **Accepted 2026-09-12** (ST-002 merged). Status line updated 2026-09-15.
 - **Date:** 2026-09-11
 - **Deciders:** project owner; build agent
 
