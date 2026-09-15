@@ -65,8 +65,13 @@ while the technician is sharing their screen (INV-4). It cannot be dismissed mid
 out of screen-share and recording software so the customer's view never shows it. There is no
 silent-capture mode.
 
-*(Status: the pill is built and the tray icon ships today; the pill itself is shown once the UI connects
-to the capture service, which is the next piece of work. Until then the tray icon is the indicator.)*
+> **Status — read this before relying on the paragraph above.** The pill is built and tested, but the
+> shipping application does not show it: the UI process does not yet connect to the capture service. There
+> is **no tray icon** either — a component computes what one would display, and nothing renders it.
+>
+> **So there is currently no capture indicator at all.** An earlier version of this document said the tray
+> icon shipped. That was wrong. Until the UI is connected, INV-4 is unenforced and ScreenTail should not
+> be run against a real customer session.
 
 ---
 
@@ -104,9 +109,13 @@ For drafting, the note can be produced two ways:
   storage** (INV-7) — they are held in memory for the duration of the request and are not persisted, and
   the backend's tests assert that its storage does not grow.
 
-**Logs and metrics contain no content** (INV-10). Not window titles, not OCR text, not transcript, not
-note text, not company or ticket names. The diagnostics panel a technician can show a customer is built
-from a record that has nowhere to put any of those, which is a stronger guarantee than filtering them out.
+**Logs contain no content** (INV-10). Not window titles, not OCR text, not transcript, not note text, not
+company or ticket names. The record the diagnostics panel is built from has nowhere to put any of those,
+which is a stronger guarantee than filtering them out. There is no metrics system yet, so "metrics" in
+the invariant table describes an intent rather than a shipped component.
+
+*(Status: the diagnostics panel currently renders a hard-coded sample rather than live state, so it is not
+yet something to show a customer as evidence.)*
 
 ---
 
@@ -149,3 +158,9 @@ This document describes what is enforced today. These are named here rather than
   there is no running service.
 - **Tenant policy sync** (ST-047) is not implemented, so "a tenant can lock local-only mode" describes the
   designed behaviour, not a shipped one.
+- **The egress allowlist** (INV-8) is written and tested but **not installed on anything**. No component in
+  the client makes HTTP calls today, so nothing escapes — but the mechanism that would stop it is not in
+  the path. Treat INV-8 as designed, not enforced.
+- **"Delete everything"** is implemented in the store and unreachable: there is no Settings screen and no
+  IPC command that calls it.
+- **There is no audio capture at all**, so INV-9 is currently true by absence rather than by enforcement.
