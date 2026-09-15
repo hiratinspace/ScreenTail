@@ -178,6 +178,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         redaction.SensitiveContextSeen += sensitive.Seen;
         var guarding = sensitive.RunAsync(stoppingToken);
 
+        // ST-040: the other half of INV-6's sensitive-field rule, and the faster half. ST-041 reads the
+        // screen and takes seconds; this asks Windows directly the moment focus moves. Each covers what the
+        // other misses — a field with no automation peer, a prompt whose words give it away.
+        await using var focus = new WindowsFocusWatcher();
+        using var focusedField = new WindowsFocusedFieldProbe();
+        using var password = new PasswordFieldGuard(machine, focusedField);
+        focus.FocusMoved += password.FocusMoved;
+        await focus.StartAsync(stoppingToken).ConfigureAwait(false);
+        LogFocusMode(logger, focus.UsingHook ? "event hook" : "polling");
+        var watchingFields = password.RunAsync(stoppingToken);
+
         var redacting = redaction.RunAsync(stoppingToken);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
@@ -199,7 +210,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding, watchingFields).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -229,6 +240,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Hotkey {Hotkey} is unavailable: {Reason} Suggested instead: {Suggestion}")]
     private static partial void LogHotkeyConflict(ILogger logger, string hotkey, string reason, string suggestion);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Password-field detection using {Mode}")]
+    private static partial void LogFocusMode(ILogger logger, string mode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Capability {Capability} is {State}: {Message}")]
     private static partial void LogCapability(ILogger logger, string capability, string state, string message);

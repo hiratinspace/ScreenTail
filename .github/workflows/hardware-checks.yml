@@ -116,6 +116,19 @@ jobs:
           SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/capabilities/measurements.txt
         run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
 
+      # A green tick on a run that verified nothing is worse than a red one. On 2026-09-13 the laptop's
+      # session became unavailable mid-afternoon; every test that needs a window started skipping and both
+      # hardware jobs went on passing, so ST-040 looked verified on hardware it had never touched.
+      - name: The laptop actually had a desktop
+        if: always()
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP 'capabilities\measurements.txt'
+          if ((Test-Path $file) -and (Select-String -Path $file -Pattern 'NO-DESKTOP' -Quiet)) {
+            Write-Host '::error::The laptop has no interactive desktop, so every check that needs a window was skipped. Sign in on SCREENTRAIL, and set it not to sleep or lock (scripts/windows/setup-test-laptop.ps1).'
+            exit 1
+          }
+          Write-Host 'A test window could take the foreground.'
+
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@v7
@@ -163,6 +176,16 @@ jobs:
         run: |
           $file = Join-Path $env:RUNNER_TEMP 'measurements\input.txt'
           if (Test-Path $file) { Get-Content $file } else { Write-Host 'no measurements recorded' }
+
+      - name: The laptop actually had a desktop
+        if: always()
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP 'measurements\input.txt'
+          if ((Test-Path $file) -and (Select-String -Path $file -Pattern 'NO-DESKTOP' -Quiet)) {
+            Write-Host '::error::The laptop has no interactive desktop, so every check that needs a window was skipped. Sign in on SCREENTRAIL, and set it not to sleep or lock (scripts/windows/setup-test-laptop.ps1).'
+            exit 1
+          }
+          Write-Host 'A test window could take the foreground.'
 
       - name: Upload measurements
         if: always()
