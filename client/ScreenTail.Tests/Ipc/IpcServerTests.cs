@@ -99,7 +99,7 @@ public sealed class IpcServerTests : IAsyncDisposable
     {
         await StartServerAsync();
 
-        var ex = await Assert.ThrowsAsync<IpcRejectedException>(() => IpcClient.ConnectAsync(_pipeName, IpcToken.Generate(), "ui"));
+        var ex = await Assert.ThrowsAsync<IpcRejectedException>(() => IpcClient.ConnectAsync(_pipeName, IpcToken.Generate(), "ui", serverVerifier: null));
 
         Assert.Equal(RejectReasons.BadToken, ex.Reason);
         await WaitUntilAsync(() => _audit.Types.Contains("ipc_rejected_" + RejectReasons.BadToken));
@@ -195,7 +195,7 @@ public sealed class IpcServerTests : IAsyncDisposable
             // Either outcome is a refusal: rejected with a reason, or dropped for being one of too many
             // handshakes at once. What matters is that neither reaches the store.
             await Assert.ThrowsAnyAsync<Exception>(
-                () => IpcClient.ConnectAsync(_pipeName, IpcToken.Generate(), "ui"));
+                () => IpcClient.ConnectAsync(_pipeName, IpcToken.Generate(), "ui", serverVerifier: null));
         }
 
         await WaitUntilAsync(() => _audit.Types.Contains("ipc_rejected_" + RejectReasons.BadToken));
@@ -210,6 +210,71 @@ public sealed class IpcServerTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task TheTokenIsNotSentToAServerTheUiDoesNotTrust()
+    {
+        // ST-012. The handshake used to be one-sided: connect, write the token, then find out who caught
+        // it. Anything that can create this pipe name first - a per-user pipe, so no privilege is needed -
+        // receives the session token and can then tell the UI whatever it likes about capture state. INV-4
+        // fails in the worst direction: "not recording" on screen while recording continues.
+        //
+        // So the test is the impostor. A bare pipe server, no service behind it, and the question is
+        // whether a single byte arrives.
+        var pipeName = IpcPipeNames.ForUser("impostor-" + Guid.NewGuid().ToString("N"));
+        await using var impostor = IpcServer.DefaultPipeFactory(pipeName)();
+        var listening = impostor.WaitForConnectionAsync();
+        var refusing = new FakeServerVerifier("modified_binary");
+
+        var refused = await Assert.ThrowsAsync<IpcUntrustedServerException>(
+            () => IpcClient.ConnectAsync(pipeName, _token, "test-ui", refusing, "0.0.1", Soon));
+
+        Assert.Equal("modified_binary", refused.Reason);
+        Assert.True(refusing.Asked, "the verifier was never consulted");
+
+        // The connection itself is expected — that is how the verifier gets something to inspect. What
+        // must not have happened is a write.
+        await listening.WaitAsync(Soon);
+        var read = new byte[64];
+        using var noMore = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var arrived = 0;
+        try
+        {
+            arrived = await impostor.ReadAsync(read, noMore.Token).AsTask();
+        }
+        catch (OperationCanceledException)
+        {
+            // Nothing came, which is the point: the client hung up without writing.
+        }
+
+        Assert.Equal(0, arrived);
+    }
+
+    [Fact]
+    public async Task AVerifiedServerGetsTheUsualHandshake()
+    {
+        // The other half: a verifier that approves must not change anything a technician sees.
+        _controller.State = Recording("s1");
+        await StartServerAsync();
+        var trusting = new FakeServerVerifier(null);
+
+        await using var client = await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", trusting, "0.0.1", Soon);
+
+        Assert.True(trusting.Asked);
+        Assert.Equal(CaptureStates.Recording, client.State.State);
+        Assert.True((await client.SendAsync(id => new GetStateCommand { RequestId = id })).Ok);
+    }
+
+    private sealed class FakeServerVerifier(string? refusal) : IServerVerifier
+    {
+        public bool Asked { get; private set; }
+
+        public ValueTask<string?> VerifyAsync(PipeStream connection, CancellationToken ct = default)
+        {
+            Asked = true;
+            return ValueTask.FromResult(refusal);
+        }
+    }
+
     private async Task StartServerAsync(IClientVerifier? verifier = null)
     {
         _server = new IpcServer(IpcServer.DefaultPipeFactory(_pipeName), _token, verifier ?? new FakeVerifier(null), _controller, _audit, "0.0.1-test");
@@ -217,7 +282,7 @@ public sealed class IpcServerTests : IAsyncDisposable
         await Task.Yield();
     }
 
-    private Task<IpcClient> ConnectAsync() => IpcClient.ConnectAsync(_pipeName, _token, "test-ui", "0.0.1");
+    private Task<IpcClient> ConnectAsync() => IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1");
 
     private async Task<IpcEvent?> RawHandshakeAsync(IpcCommand first)
     {

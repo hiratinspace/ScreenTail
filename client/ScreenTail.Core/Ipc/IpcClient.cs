@@ -39,19 +39,44 @@ public sealed class IpcClient : IAsyncDisposable
 
     /// <exception cref="IpcRejectedException">The service refused the handshake.</exception>
     /// <exception cref="TimeoutException">No service answered on the pipe within <paramref name="timeout"/>.</exception>
+    /// <param name="serverVerifier">
+    /// Checks that the process answering on the pipe is really the capture service, before the token is
+    /// written (ST-012). Required rather than optional, and deliberately so: null is a decision to hand
+    /// the session token to whoever answers, which is right for a test and wrong everywhere else. A
+    /// default would make forgetting it look identical to choosing it.
+    /// </param>
     public static async Task<IpcClient> ConnectAsync(
         string pipeName,
         byte[] token,
         string clientName,
+        IServerVerifier? serverVerifier,
         string? clientVersion = null,
         TimeSpan? timeout = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(token);
-        var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+
+        // Anonymous impersonation: without it a pipe server can impersonate the user who connected to it,
+        // and this client runs as the technician. The service needs nothing from our identity — it checks
+        // the executable — so there is nothing to give up by refusing.
+        var pipe = new NamedPipeClientStream(
+            ".",
+            pipeName,
+            PipeDirection.InOut,
+            PipeOptions.Asynchronous,
+            System.Security.Principal.TokenImpersonationLevel.Anonymous);
         try
         {
             await pipe.ConnectAsync((int)(timeout ?? TimeSpan.FromSeconds(2)).TotalMilliseconds, ct).ConfigureAwait(false);
+
+            // Before the token, not after. The token is the thing worth stealing, and a handshake that
+            // proves who we are to an unverified stranger has proved it to the stranger.
+            if (serverVerifier is not null
+                && await serverVerifier.VerifyAsync(pipe, ct).ConfigureAwait(false) is { } refusal)
+            {
+                throw new IpcUntrustedServerException(refusal);
+            }
+
             await IpcFraming.WriteAsync<IpcCommand>(
                 pipe,
                 new HelloCommand
@@ -176,6 +201,33 @@ public sealed class IpcClient : IAsyncDisposable
             Disconnected?.Invoke();
         }
     }
+}
+
+/// <summary>
+/// Something answered on the pipe and it was not the capture service (ST-012). Distinct from
+/// <see cref="IpcRejectedException"/>, which is the service refusing us: this is us refusing it, and the
+/// shell says so rather than offering to start a service that is evidently already running.
+/// </summary>
+public sealed class IpcUntrustedServerException : Exception
+{
+    public IpcUntrustedServerException()
+        : this(RejectReasons.Protocol)
+    {
+    }
+
+    public IpcUntrustedServerException(string reason)
+        : base($"The process answering on the capture pipe is not the capture service: {reason}.")
+    {
+        Reason = reason;
+    }
+
+    public IpcUntrustedServerException(string message, Exception inner)
+        : base(message, inner)
+    {
+        Reason = RejectReasons.Protocol;
+    }
+
+    public string Reason { get; }
 }
 
 public sealed class IpcRejectedException : Exception
