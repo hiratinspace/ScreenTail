@@ -90,6 +90,7 @@ jobs:
       # ST-016: render the component gallery in dark, light and high contrast. Catches runtime XAML
       # errors the compiler can't, and produces the screenshots the ticket asks for.
       - name: Gallery screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           dotnet run --project ScreenTail.UI -c Release --no-build -- --gallery --screenshot $out
@@ -103,6 +104,7 @@ jobs:
       # to look at. A blank or tiny PNG means the window rendered nothing, which is what a missing
       # resource key or a style on the wrong target type actually produces.
       - name: Shell screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'shell-render.log'
@@ -127,6 +129,7 @@ jobs:
       # ST-074: the note pane, rendered against research/fixtures/handcrafted in all six states and three
       # themes. Its AC is "renders fixture with no backend", and this is that sentence as a check.
       - name: Note pane screenshots
+        timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'note-render.log'
@@ -147,6 +150,28 @@ jobs:
           if (-not $bindings) { throw "The render did not report a binding-error count." }
           if ([int]$bindings.Matches[0].Groups[1].Value -ne 0) { throw "$($bindings.Line) - see the step log." }
           $notes | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+
+      # ST-072: the recording pill in all ten variants and three themes. Spec §5 S2 names each state and
+      # INV-4 makes this the indicator a technician trusts, so "renders per spec" is checked by rendering.
+      - name: HUD screenshots
+        timeout-minutes: 4
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gallery'
+          $log = Join-Path $env:RUNNER_TEMP 'hud-render.log'
+          dotnet run --project ScreenTail.UI -c Release --no-build -- --hud --screenshot $out | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hud = Get-ChildItem $out -Filter 'hud-*.png'
+          if ($hud.Count -lt 30) { throw "Expected 30 HUD screenshots, found $($hud.Count)." }
+          $counts = Select-String -Path $log -Pattern 'distinct colours' -AllMatches
+          foreach ($line in $counts) {
+            if ($line -match '(\d+) distinct colours') {
+              if ([int]$Matches[1] -lt 8) { throw "$line - the pill rendered nothing." }
+            }
+          }
+          $bindings = Select-String -Path $log -Pattern '^(\d+) binding errors$'
+          if (-not $bindings) { throw "The render did not report a binding-error count." }
+          if ([int]$bindings.Matches[0].Groups[1].Value -ne 0) { throw "$($bindings.Line) - see the step log." }
+          $hud | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 
       - name: Upload gallery screenshots
         if: always()

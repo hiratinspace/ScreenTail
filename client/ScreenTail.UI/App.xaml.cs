@@ -26,6 +26,36 @@ public partial class App : Application
         {
             window = new GalleryWindow(directory);
         }
+        else if (Array.IndexOf(args, "--hud") >= 0 && directory is not null)
+        {
+            // ST-072's variants. Each pill is its own window, so there is no host window to hang the
+            // render off — and the first version hung a 1x1 Window's ContentRendered, which never fires
+            // on a window with no Content. The job sat there for twenty minutes before CI killed it.
+            //
+            // Driven from the dispatcher instead, with shutdown held open explicitly because nothing is
+            // shown until the first pill appears and OnLastWindowClose would end the app between them.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = Dispatcher.InvokeAsync(
+                async () =>
+                {
+                    try
+                    {
+                        await Hud.HudPreview.CaptureAsync(directory);
+                    }
+                    catch (Exception error)
+                    {
+                        // Printed and non-zero rather than hung: a render that cannot finish should say so
+                        // in seconds, which is the whole difference between a failing check and a wasted
+                        // twenty-minute job.
+                        Console.Error.WriteLine(error);
+                        Environment.ExitCode = 1;
+                    }
+
+                    Shutdown();
+                },
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            return;
+        }
         else if (Array.IndexOf(args, "--note") >= 0)
         {
             // ST-074's pane, rendered against a fixture in every state and theme. Same trick as the shell.
