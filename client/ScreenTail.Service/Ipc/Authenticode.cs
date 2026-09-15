@@ -33,15 +33,22 @@ internal static class Authenticode
     /// <summary>Whether Windows itself accepts the signature, chain and timestamp.</summary>
     private static bool Verifies(string file)
     {
-        var fileInfo = new WinTrustFileInfo
-        {
-            StructSize = (uint)Marshal.SizeOf<WinTrustFileInfo>(),
-            FilePath = file,
-        };
-
-        var fileHandle = GCHandle.Alloc(fileInfo, GCHandleType.Pinned);
+        // Marshalled by hand rather than pinned. WINTRUST_FILE_INFO holds an LPCWSTR, and a managed type
+        // with a string in it cannot be pinned at all — GCHandle.Alloc throws "Object contains references",
+        // which is a Windows-only failure and so invisible until CI ran it.
+        var path = Marshal.StringToHGlobalUni(file);
+        var fileInfoPtr = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustFileInfo>());
         try
         {
+            Marshal.StructureToPtr(
+                new WinTrustFileInfo
+                {
+                    StructSize = (uint)Marshal.SizeOf<WinTrustFileInfo>(),
+                    FilePath = path,
+                },
+                fileInfoPtr,
+                fDeleteOld: false);
+
             var data = new WinTrustData
             {
                 StructSize = (uint)Marshal.SizeOf<WinTrustData>(),
@@ -54,7 +61,7 @@ internal static class Authenticode
                 UnionChoice = WTD_CHOICE_FILE,
                 StateAction = WTD_STATEACTION_VERIFY,
                 ProvFlags = WTD_SAFER_FLAG | WTD_LIFETIME_SIGNING_FLAG,
-                FileInfoPtr = fileHandle.AddrOfPinnedObject(),
+                FileInfoPtr = fileInfoPtr,
             };
 
             var action = WintrustActionGenericVerifyV2;
@@ -69,7 +76,8 @@ internal static class Authenticode
         }
         finally
         {
-            fileHandle.Free();
+            Marshal.FreeHGlobal(fileInfoPtr);
+            Marshal.FreeHGlobal(path);
         }
     }
 
@@ -103,12 +111,13 @@ internal static class Authenticode
 
     private static readonly Guid WintrustActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private sealed class WinTrustFileInfo
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WinTrustFileInfo
     {
         public uint StructSize;
-        [MarshalAs(UnmanagedType.LPWStr)]
-        public string FilePath = string.Empty;
+
+        /// <summary>LPCWSTR, owned by the caller for the life of the verify call.</summary>
+        public IntPtr FilePath;
         public IntPtr FileHandle;
         public IntPtr KnownSubject;
     }
