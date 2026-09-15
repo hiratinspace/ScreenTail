@@ -13,7 +13,6 @@
         ShowInTaskbar="False">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
-        <hud:ToneBrushConverter x:Key="ToneBrush" />
     </Window.Resources>
 
     <!-- 44 px tall, 999 radius, bg.surface on border.strong (Spec §5 S2). -->
@@ -30,11 +29,33 @@
 
             <!-- The state segment. Glyph and words both, so it reads with no colour at all (Spec §7) —
                  which matters more here than anywhere: this is the indicator INV-4 is about. -->
-            <TextBlock VerticalAlignment="Center"
+            <!-- DataTriggers with DynamicResource, not a converter. A converter resolves the brush once,
+                 at bind time, so it cannot follow a theme swap — and the first version silently produced
+                 no Foreground at all for three of the four tones, leaving the glyph the TextBlock default
+                 black. The render now asserts each variant's token colour is actually on the pill, which
+                 is what caught it. -->
+            <TextBlock x:Name="StateGlyphText"
+                       VerticalAlignment="Center"
                        FontSize="{DynamicResource Size.lg}"
-                       Foreground="{Binding Tone, Converter={StaticResource ToneBrush}}"
                        Text="{Binding StateGlyph}"
-                       ToolTip="{Binding StateTooltip}" />
+                       ToolTip="{Binding StateTooltip}">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{DynamicResource Brush.text.muted}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Tone}" Value="Recording">
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.recording}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone}" Value="Paused">
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone}" Value="Scope">
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.scope}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
 
             <TextBlock Margin="8,0,0,0"
                        VerticalAlignment="Center"

@@ -55,6 +55,18 @@ public partial class HudWindow : Window
     private HudViewModel? Model => DataContext as HudViewModel;
 
     /// <summary>
+    /// What the state glyph is actually painted in, for the render harness to report when its colour
+    /// assertion fails. Three attempts at this bug were spent theorising about why the brush was not
+    /// applied; asking the element is quicker than any of them.
+    /// </summary>
+    public string GlyphForegroundDescription => StateGlyphText.Foreground switch
+    {
+        System.Windows.Media.SolidColorBrush solid => solid.Color.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        null => "(null)",
+        var other => other.GetType().Name,
+    };
+
+    /// <summary>
     /// Applies the two window styles that cannot be set from XAML, as soon as there is a handle.
     ///
     /// <c>WS_EX_NOACTIVATE</c> has to be on the handle before the window is shown: <c>ShowActivated</c>
