@@ -16,13 +16,66 @@ namespace ScreenTail.UI.Render;
 /// </summary>
 internal static class WindowRenderer
 {
+    /// <summary>
+    /// Renders and saves, and fails when <paramref name="mustContain"/> is not on the result.
+    ///
+    /// The distinct-colour check says something was drawn; it cannot say the right thing was drawn. A
+    /// recording pill whose state glyph came out the TextBlock default black counted exactly as many
+    /// colours as a correct one, and passed — which is how three of the HUD's four tones shipped with no
+    /// colour at all. A named token either appears on the pixels or it does not.
+    /// </summary>
+    public static void SaveExpecting(Window window, string path, (byte R, byte G, byte B) mustContain, string what)
+    {
+        var bitmap = Render(window);
+        Write(bitmap, path);
+
+        if (!Contains(bitmap, mustContain))
+        {
+            throw new InvalidOperationException(
+                $"{Path.GetFileName(path)} has no {what} pixels (#{mustContain.R:X2}{mustContain.G:X2}{mustContain.B:X2}) on it.");
+        }
+    }
+
+    /// <summary>Whether any pixel is within a hair of the colour, allowing for antialiasing on the edges.</summary>
+    private static bool Contains(RenderTargetBitmap bitmap, (byte R, byte G, byte B) colour)
+    {
+        var stride = bitmap.PixelWidth * 4;
+        var pixels = new byte[stride * bitmap.PixelHeight];
+        bitmap.CopyPixels(pixels, stride, 0);
+
+        for (var i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            // Pbgra32, and premultiplied — so only fully opaque pixels can be compared directly, which
+            // the glyph's own body is.
+            if (pixels[i + 3] > 200
+                && Math.Abs(pixels[i + 2] - colour.R) <= 24
+                && Math.Abs(pixels[i + 1] - colour.G) <= 24
+                && Math.Abs(pixels[i] - colour.B) <= 24)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static void Save(Window window, string path)
+    {
+        Write(Render(window), path);
+    }
+
+    private static RenderTargetBitmap Render(Window window)
     {
         var dpi = VisualTreeHelper.GetDpi(window);
         var width = (int)Math.Ceiling(window.ActualWidth * dpi.DpiScaleX);
         var height = (int)Math.Ceiling(window.ActualHeight * dpi.DpiScaleY);
         var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
         bitmap.Render(window);
+        return bitmap;
+    }
+
+    private static void Write(RenderTargetBitmap bitmap, string path)
+    {
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using (var stream = File.Create(path))
@@ -36,7 +89,7 @@ internal static class WindowRenderer
         // is; what the check means to ask is whether anything was drawn.
         Console.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"wrote {path} ({width}x{height}, {DistinctColours(bitmap)} distinct colours)"));
+            $"wrote {path} ({bitmap.PixelWidth}x{bitmap.PixelHeight}, {DistinctColours(bitmap)} distinct colours)"));
     }
 
     /// <summary>How many different colours are on the rendered window, sampled on a grid.</summary>

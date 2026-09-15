@@ -21,24 +21,24 @@ namespace ScreenTail.UI.Hud;
 internal static class HudPreview
 {
     /// <summary>Every variant the spec names, in the order it names them.</summary>
-    private static IEnumerable<(string Name, HudViewModel Model)> Variants()
+    private static IEnumerable<(string Name, HudViewModel Model, HudTone Tone)> Variants()
     {
-        yield return ("recording", For(CaptureStates.Recording, elapsedMs: 761_000));
-        yield return ("paused-user", For(CaptureStates.Paused, reason: CaptureReasons.User));
-        yield return ("suppressed-password", For(CaptureStates.Suppressed, reason: CaptureReasons.PasswordField));
-        yield return ("suppressed-excluded", For(CaptureStates.Suppressed, reason: CaptureReasons.ExcludedApp));
-        yield return ("suppressed-elevated", For(CaptureStates.Suppressed, reason: CaptureReasons.ElevatedWindow));
-        yield return ("out-of-scope", For(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope, process: "OUTLOOK"));
-        yield return ("no-mic", For(CaptureStates.Recording, elapsedMs: 92_000, microphone: CapabilityState.Blocked));
-        yield return ("offline", For(CaptureStates.Recording, elapsedMs: 92_000, online: false));
+        yield return ("recording", For(CaptureStates.Recording, elapsedMs: 761_000), HudTone.Recording);
+        yield return ("paused-user", For(CaptureStates.Paused, reason: CaptureReasons.User), HudTone.Paused);
+        yield return ("suppressed-password", For(CaptureStates.Suppressed, reason: CaptureReasons.PasswordField), HudTone.Paused);
+        yield return ("suppressed-excluded", For(CaptureStates.Suppressed, reason: CaptureReasons.ExcludedApp), HudTone.Paused);
+        yield return ("suppressed-elevated", For(CaptureStates.Suppressed, reason: CaptureReasons.ElevatedWindow), HudTone.Paused);
+        yield return ("out-of-scope", For(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope, process: "OUTLOOK"), HudTone.Scope);
+        yield return ("no-mic", For(CaptureStates.Recording, elapsedMs: 92_000, microphone: CapabilityState.Blocked), HudTone.Recording);
+        yield return ("offline", For(CaptureStates.Recording, elapsedMs: 92_000, online: false), HudTone.Recording);
 
         // Not a spec variant, but the one that matters most: the UI has lost the service and must not
         // claim capture has stopped.
-        yield return ("unknown", For(state: null));
+        yield return ("unknown", For(state: null), HudTone.Idle);
 
         // Redaction backlog, which shares the pill with everything else and is the piece most likely to
         // run into its neighbours.
-        yield return ("redacting", For(CaptureStates.Recording, elapsedMs: 761_000, pending: 3));
+        yield return ("redacting", For(CaptureStates.Recording, elapsedMs: 761_000, pending: 3), HudTone.Recording);
     }
 
     public static async Task CaptureAsync(string directory)
@@ -46,7 +46,7 @@ internal static class HudPreview
         Directory.CreateDirectory(directory);
         BindingErrors.Listen();
 
-        foreach (var (name, model) in Variants())
+        foreach (var (name, model, tone) in Variants())
         {
             var window = new HudWindow { DataContext = model, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
             window.Show();
@@ -56,7 +56,13 @@ internal static class HudPreview
                 ThemeManager.Apply(theme, Application.Current.Resources);
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 window.UpdateLayout();
-                WindowRenderer.Save(window, Path.Combine(directory, $"hud-{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                // The colour the state is supposed to be, taken off the pixels. Counting distinct
+                // colours says the pill drew something; only this says it drew the right state.
+                WindowRenderer.SaveExpecting(
+                    window,
+                    Path.Combine(directory, $"hud-{name}-{theme.ToString().ToLowerInvariant()}.png"),
+                    TokenColour(tone),
+                    $"{tone} state");
             }
 
             window.Close();
@@ -69,6 +75,22 @@ internal static class HudPreview
         }
 
         Console.WriteLine($"{errors.Count} binding errors");
+    }
+
+    /// <summary>The design token each tone must actually appear in, read from the live dictionary.</summary>
+    private static (byte R, byte G, byte B) TokenColour(HudTone tone)
+    {
+        var key = tone switch
+        {
+            HudTone.Recording => "Brush.state.recording",
+            HudTone.Paused => "Brush.state.paused",
+            HudTone.Scope => "Brush.state.scope",
+            _ => "Brush.text.muted",
+        };
+
+        // Looked up rather than hard-coded, so darkening a token for contrast does not fail this check.
+        var brush = (System.Windows.Media.SolidColorBrush)Application.Current.Resources[key];
+        return (brush.Color.R, brush.Color.G, brush.Color.B);
     }
 
     private static HudViewModel For(
