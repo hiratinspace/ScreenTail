@@ -26,6 +26,20 @@ public partial class App : Application
         {
             window = new GalleryWindow(directory);
         }
+        else if (Array.IndexOf(args, "--hud") >= 0 && directory is not null)
+        {
+            // ST-072's variants. The pill is its own window per variant, so it renders from a plain task
+            // rather than from a host window's ContentRendered.
+            window = new Window { Width = 1, Height = 1, ShowInTaskbar = false, Left = -4000, Top = -4000 };
+            window.ContentRendered += async (_, _) =>
+            {
+                await Hud.HudPreview.CaptureAsync(directory);
+                Shutdown();
+            };
+            MainWindow = window;
+            window.Show();
+            return;
+        }
         else if (Array.IndexOf(args, "--note") >= 0)
         {
             // ST-074's pane, rendered against a fixture in every state and theme. Same trick as the shell.

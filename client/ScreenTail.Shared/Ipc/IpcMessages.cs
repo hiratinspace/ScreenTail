@@ -129,6 +129,28 @@ public sealed record CaptureStateSnapshot
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RemoteTool { get; init; }
 
+    /// <summary>
+    /// Why capture is not running, when the state alone does not say (ST-072). A wire name from
+    /// <c>CaptureStateReason</c> in session.v1.json — <c>password_field</c>, <c>excluded_app</c>,
+    /// <c>elevated_window</c>, <c>sensitive_context</c>, <c>out_of_scope</c>, <c>user</c>.
+    ///
+    /// The HUD needs it because Spec §5 S2 gives each one different words, and a technician being told
+    /// "paused" without being told why cannot know whether to do anything about it.
+    /// </summary>
+    [JsonPropertyName("reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; init; }
+
+    /// <summary>
+    /// The process in front when capture is out of scope, so the HUD can say "Not capturing — Outlook".
+    ///
+    /// A process name, never a window title: titles are content (INV-10) and this crosses a pipe and
+    /// reaches a screen a customer may be looking at. session.v1.json draws the same line in FocusEvent.
+    /// </summary>
+    [JsonPropertyName("scope_process")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScopeProcess { get; init; }
+
     [JsonPropertyName("pending_redactions")]
     public int PendingRedactions { get; init; }
 
