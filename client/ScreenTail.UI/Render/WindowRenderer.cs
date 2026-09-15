@@ -24,33 +24,79 @@ internal static class WindowRenderer
     /// colours as a correct one, and passed — which is how three of the HUD's four tones shipped with no
     /// colour at all. A named token either appears on the pixels or it does not.
     /// </summary>
-    public static void SaveExpecting(Window window, string path, (byte R, byte G, byte B) mustContain, string what)
+    /// <param name="over">The background the colour is drawn on, so a partly covered pixel can be
+    /// recognised as the token blended with it rather than as some unrelated colour.</param>
+    public static void SaveExpecting(
+        Window window,
+        string path,
+        (byte R, byte G, byte B) mustContain,
+        (byte R, byte G, byte B) over,
+        string what)
     {
         var bitmap = Render(window);
         Write(bitmap, path);
 
-        if (!Contains(bitmap, mustContain))
+        if (!Contains(bitmap, mustContain, over))
         {
             throw new InvalidOperationException(
                 $"{Path.GetFileName(path)} has no {what} pixels (#{mustContain.R:X2}{mustContain.G:X2}{mustContain.B:X2}) on it.");
         }
     }
 
-    /// <summary>Whether any pixel is within a hair of the colour, allowing for antialiasing on the edges.</summary>
-    private static bool Contains(RenderTargetBitmap bitmap, (byte R, byte G, byte B) colour)
+    /// <summary>
+    /// Whether the colour is genuinely painted somewhere on the image, allowing for antialiasing.
+    ///
+    /// Exact matching was the first version and it was wrong in a way worth recording. A filled glyph
+    /// like ● has fully-covered pixels that are exactly the token colour, so it passed; a thin one like ‖
+    /// or ⏸ never reaches full coverage at 15px, so every one of its pixels is a <em>blend</em> of the
+    /// token and whatever is behind it, and none of them equals the token. The check failed three correct
+    /// pills and sent me looking for a bug in the binding that was not there.
+    ///
+    /// So this asks the question that was actually meant: is there a pixel on the line between the
+    /// background and the token, far enough along it to be the token rather than the background? That is
+    /// what "painted in this colour" means once a rasteriser has been involved.
+    /// </summary>
+    private static bool Contains(RenderTargetBitmap bitmap, (byte R, byte G, byte B) colour, (byte R, byte G, byte B) over)
     {
         var stride = bitmap.PixelWidth * 4;
         var pixels = new byte[stride * bitmap.PixelHeight];
         bitmap.CopyPixels(pixels, stride, 0);
 
+        double dr = colour.R - over.R;
+        double dg = colour.G - over.G;
+        double db = colour.B - over.B;
+        var lengthSquared = (dr * dr) + (dg * dg) + (db * db);
+        if (lengthSquared < 1)
+        {
+            // The token is the background. Nothing can be shown in it, and saying so beats passing.
+            return false;
+        }
+
         for (var i = 0; i + 3 < pixels.Length; i += 4)
         {
-            // Pbgra32, and premultiplied — so only fully opaque pixels can be compared directly, which
-            // the glyph's own body is.
-            if (pixels[i + 3] > 200
-                && Math.Abs(pixels[i + 2] - colour.R) <= 24
-                && Math.Abs(pixels[i + 1] - colour.G) <= 24
-                && Math.Abs(pixels[i] - colour.B) <= 24)
+            // Fully opaque only. Pbgra32 is premultiplied, so anything less has had its channels scaled
+            // by the alpha and comparing it to a straight colour compares two different things. Inside
+            // the pill every pixel is opaque, which is where the glyph is.
+            if (pixels[i + 3] != 255)
+            {
+                continue;
+            }
+
+            double pr = pixels[i + 2] - over.R;
+            double pg = pixels[i + 1] - over.G;
+            double pb = pixels[i] - over.B;
+
+            // How far along background → token this pixel sits, and how far off that line it strays.
+            var along = ((pr * dr) + (pg * dg) + (pb * db)) / lengthSquared;
+            if (along < 0.6)
+            {
+                continue;
+            }
+
+            var offR = pr - (along * dr);
+            var offG = pg - (along * dg);
+            var offB = pb - (along * db);
+            if ((offR * offR) + (offG * offG) + (offB * offB) <= 24 * 24)
             {
                 return true;
             }
