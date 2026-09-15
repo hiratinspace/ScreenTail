@@ -168,6 +168,27 @@ public sealed class HudStateTests
     }
 
     [Fact]
+    public void HidingThePillDoesNotWorkWhileTheStateIsUnknown()
+    {
+        // ST-048 (weaknesses P0-3). Hiding is permitted because between sessions there is nothing to
+        // indicate. When the UI has not heard from the service it does not know that — the pipe may have
+        // dropped mid-session, or the service may have restarted while recording — and every other line
+        // of this class says so out loud ("it may still be recording"). Hiding the pill in the one state
+        // the class refuses to guess at would take that sentence off the screen, which is the
+        // silent-capture path INV-4 exists to forbid. Unknown is treated as something to indicate.
+        Assert.True(HudState.For(capture: null, hidden: true).Visible);
+    }
+
+    [Fact]
+    public void AnUnknownStateSaysSoRatherThanSayingIdle()
+    {
+        var hud = HudState.For(capture: null, hidden: true);
+
+        Assert.Equal("Capture state unknown", hud.State.Text);
+        Assert.Equal("Not connected to the capture service. It may still be recording.", hud.State.Tooltip);
+    }
+
+    [Fact]
     public void TheRedactionCountIsWhateverTheServiceSaid()
     {
         Assert.Equal(3, HudState.For(Capture(CaptureStates.Recording, pending: 3)).PendingRedactions);

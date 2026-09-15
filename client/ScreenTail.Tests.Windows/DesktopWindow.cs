@@ -216,6 +216,14 @@ internal sealed class DesktopWindow : IDisposable
     public void Resize(int width, int height) =>
         _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_SHOWWINDOW);
 
+    /// <summary>
+    /// Moves and resizes the window without touching the z-order or the foreground, which is what a
+    /// window redrawing in the background does. Each call fires <c>EVENT_OBJECT_LOCATIONCHANGE</c> — one
+    /// of the 32,776 event types the watcher used to subscribe to by accident (ST-048, weaknesses P0-5).
+    /// </summary>
+    public void Jiggle(int width, int height) =>
+        _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+
     /// <summary>Fills the screen, so a capture measurement has a realistically large window to work on.</summary>
     public void Maximize() => _ = ShowWindow(Handle, SW_MAXIMIZE);
 
@@ -267,6 +275,8 @@ internal sealed class DesktopWindow : IDisposable
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
     private static readonly IntPtr HWND_TOP = IntPtr.Zero;
 
     [StructLayout(LayoutKind.Sequential)]

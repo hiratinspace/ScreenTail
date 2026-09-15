@@ -29,6 +29,12 @@ public sealed record RedactionOptions
 }
 
 /// <param name="Frames">How many frames have been redacted since the worker started.</param>
+/// <param name="Unread">
+/// Frames the recogniser returned no words at all for, which are discarded rather than stored (ST-048,
+/// ADR-0004). Counted apart from <paramref name="Unreadable"/> because the two mean opposite things: this
+/// is the engine seeing nothing, that is the engine seeing badly. A number climbing here on a machine that
+/// is plainly showing text is how a missing language pack or an unsupported theme announces itself.
+/// </param>
 /// <param name="Masked">How many regions were painted over, by kind. Counts only (INV-10).</param>
 /// <param name="Spent">Time spent redacting, across all frames — the numerator of the per-frame cost.</param>
 /// <param name="Slowest">The worst single frame, which is what a technician notices, not the average.</param>
@@ -39,6 +45,7 @@ public sealed record RedactionOptions
 public sealed record RedactionProgress(
     long Frames,
     long Unreadable,
+    long Unread,
     IReadOnlyDictionary<MaskKind, long> Masked,
     TimeSpan Spent = default,
     TimeSpan Slowest = default,
@@ -80,6 +87,7 @@ public sealed class RedactionWorker(
     private readonly HashSet<string> _givenUp = new(StringComparer.Ordinal);
     private long _frames;
     private long _unreadable;
+    private long _unread;
     private long _failed;
     private TimeSpan _spent;
     private TimeSpan _slowest;
@@ -97,7 +105,7 @@ public sealed class RedactionWorker(
             lock (_counters)
             {
                 return new RedactionProgress(
-                    _frames, _unreadable, new Dictionary<MaskKind, long>(_masked), _spent, _slowest, _failed);
+                    _frames, _unreadable, _unread, new Dictionary<MaskKind, long>(_masked), _spent, _slowest, _failed);
             }
         }
     }
@@ -226,15 +234,27 @@ public sealed class RedactionWorker(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // The recogniser failed, so nothing about this frame is known. It cannot be stored.
-            await DiscardAsync(frame, ct).ConfigureAwait(false);
+            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Zero words is not a clean frame, it is an unread one. Windows.Media.Ocr returns nothing at all
+        // for a page in a language with no pack installed, a theme it cannot segment, and a blank desktop
+        // alike, so nothing downstream can tell the harmless case from the dangerous one (ADR-0001
+        // finding 9). Storing it would clear redaction_pending on a frame no reader has ever seen, which
+        // is the one thing INV-1 forbids. ADR-0004 records the trade: genuinely blank frames are lost, and
+        // a screenshot of a wallpaper is worth less than the chance that the frame was a terminal.
+        if (text.IsEmpty)
+        {
+            await DiscardAsync(frame, unread: true, ct).ConfigureAwait(false);
             return;
         }
 
         // Too little confidence is not the same as nothing to hide. A frame the recogniser could not make
         // out is where a secret is most likely to survive, so it goes rather than being stored unchecked.
-        if (!text.IsEmpty && text.MeanConfidence < _options.MinimumConfidence)
+        if (text.MeanConfidence < _options.MinimumConfidence)
         {
-            await DiscardAsync(frame, ct).ConfigureAwait(false);
+            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
@@ -242,7 +262,7 @@ public sealed class RedactionWorker(
         if (!redaction.Complete)
         {
             // A pattern ran out of its budget, so parts of this text were never searched (ST-042).
-            await DiscardAsync(frame, ct).ConfigureAwait(false);
+            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
@@ -261,7 +281,7 @@ public sealed class RedactionWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await DiscardAsync(frame, ct).ConfigureAwait(false);
+            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
@@ -289,12 +309,24 @@ public sealed class RedactionWorker(
     /// can say "3 screenshots were removed because they could not be redacted in time" rather than leaving
     /// a silent gap (Spec §5 S3).
     /// </summary>
-    private async Task DiscardAsync(PendingFrame frame, CancellationToken ct)
+    /// <param name="unread">
+    /// True when the recogniser returned no words, false when it read something unusable. Both frames go;
+    /// they are counted apart so that an engine which has stopped reading anything is visible as itself
+    /// rather than as a slow rise in unreadable frames.
+    /// </param>
+    private async Task DiscardAsync(PendingFrame frame, bool unread, CancellationToken ct)
     {
         await store.DiscardPendingFrameAsync(frame.Id, ct).ConfigureAwait(false);
         lock (_counters)
         {
-            _unreadable++;
+            if (unread)
+            {
+                _unread++;
+            }
+            else
+            {
+                _unreadable++;
+            }
         }
     }
 

@@ -66,11 +66,26 @@ public static class HudState
             online ? null : new HudSegment(HudTone.Idle, "☁", "Offline", "Offline — draft will be created when connected."),
             capture?.PendingRedactions ?? 0,
 
-            // Hidden only ever hides the pill, and only while nothing is being captured — Spec v0.4.1 Q1
+            // Hidden only ever hides the pill, and only while capture is known to be off — Spec v0.4.1 Q1
             // settled that the HUD stays up during screen sharing, because an auto-hiding indicator is a
             // silent-capture path wearing a convenience's clothes. The tray icon remains either way.
-            Visible: !hidden || state.Tone is HudTone.Recording or HudTone.Paused or HudTone.Scope);
+            Visible: !hidden || !KnownIdle(capture));
     }
+
+    /// <summary>
+    /// Whether the service has positively said that nothing is being captured.
+    ///
+    /// The distinction the rest of this class turns on, applied to the one decision that can take the
+    /// indicator off the screen. Not-recording and don't-know both draw a grey pill, and only the first
+    /// of them may be dismissed: a technician who hides the pill between sessions is asking for quiet,
+    /// not for the indicator to stay gone through a dropped pipe, a service restart, or a session that
+    /// began while the UI was reconnecting (ST-048, weaknesses P0-3).
+    ///
+    /// An unrecognised state string counts as unknown for the same reason. A service newer than this UI
+    /// is exactly the case where guessing "idle" is least defensible.
+    /// </summary>
+    private static bool KnownIdle(CaptureStateSnapshot? capture) =>
+        capture is not null && capture.State == CaptureStates.Idle;
 
     /// <summary>mm:ss, or h:mm:ss once a session runs past the hour.</summary>
     public static string Elapsed(long? milliseconds)

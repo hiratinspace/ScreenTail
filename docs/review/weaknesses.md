@@ -4,6 +4,11 @@
 reviews (security, invariant enforcement, performance, test quality), every headline claim re-verified by
 hand against the code before being written down here.
 
+**Status, 2026-09-15:** **ST-048 (#57) fixes P0-1, P0-3, P0-4, P0-5 and P2-1.** Each of those sections now opens
+with what was done. P0-2 and P1-1, P1-2 and P1-6 are ST-085 (wire the UI to the service); P1-4 is ST-018;
+the rest of P1 and the scheduled P2s are ST-049. Nothing here is closed by being ticketed — only the five
+marked **Fixed** are.
+
 ## How this is ranked
 
 By **what the product cannot survive being wrong about**, not by how hard it is to fix.
@@ -29,6 +34,11 @@ untested, unwired, or both. Every P0 below is an enforcement gap, not a policy e
 # P0 — ship-blockers
 
 ## P0-1 · An unredacted screenshot can be stored as redacted (INV-1)
+
+> **Fixed in ST-048 (#57).** Zero words is now treated as unreadable and the frame is discarded; the two discard
+> reasons are counted apart as `Unread` and `Unreadable`. Three tests in `RedactionWorkerTests` cover it,
+> and all three fail if the check is removed. The design question this raised — whether a genuinely blank
+> frame should be kept — is decided and argued in **ADR-0004**: it is not, and the cost is accepted.
 
 **`client/ScreenTail.Core/Privacy/RedactionWorker.cs:235`**
 
@@ -89,6 +99,10 @@ work left in the project and it is not currently a ticket.
 
 ## P0-3 · The HUD hides itself exactly when it does not know whether capture is running (INV-4)
 
+> **Fixed in ST-048 (#57).** Hiding now takes effect only when capture is *known* idle, through a `KnownIdle`
+> helper that also refuses to guess at an unrecognised state string from a newer service. Two tests cover
+> the null case the original test omitted.
+
 **`client/ScreenTail.Core/Hud/HudState.cs:91`**
 
 ```csharp
@@ -115,6 +129,12 @@ its most important instance.
 
 ## P0-4 · INV-6's scope clause has no test, and deleting it leaves the suite green
 
+> **Fixed in ST-048 (#57).** The decision loop moved into `ScreenTail.Core/Capture/SessionRecorder.cs`, behind
+> `IScreenshotCapturer` and a `Func<ScopeDecision?>` — the `IForegroundWatcher` pattern this document
+> recommended. `ScopeRecordingTests` is the store-level twin of `PausedAndSuppressedWriteNothing`:
+> six tests reading the encrypted store, and deleting the drop fails three of them (verified by doing it).
+> `ClickCaptureLoop` keeps the hook buffer, the signal reader and the logging, and no longer holds a rule.
+
 `ScreenTail.Tests` references **Core and Shared only**. Twelve `ScreenTail.Service` files have zero test
 coverage, including all three sites that actually enforce scope:
 
@@ -140,6 +160,14 @@ exactly one `ClickEvent`, zero typing-derived events, zero frames.
 ---
 
 ## P0-5 · The foreground watcher subscribes to ~20 event types and publishes the wrong window
+
+> **Fixed in ST-048 (#57).** Two hooks, each asking for one event type, plus a Core allow-list
+> (`ForegroundEvents.Interesting`) at the top of `OnWinEvent` as the second line of defence. The range was
+> worse than "~20": the inclusive `eventMin`/`eventMax` swept **32,776** event types, which
+> `ForegroundEventTests` now measures. The idle CPU test is replaced by one that measures with a window
+> moving a hundred times a second, and a new Windows test asserts that a window which only moves is never
+> reported as the foreground. **The two Windows tests have not been run yet** — they need the laptop
+> (ST-018).
 
 **`client/ScreenTail.Service/Detection/WindowsForegroundWatcher.cs:102-109`**
 
@@ -286,7 +314,7 @@ service's life while frames keep being staged raw.**
 
 | # | Finding | Where | Cost |
 |---|---|---|---|
-| P2-1 | **The pattern library runs twice per frame.** `RedactFrame` resolves matches, then `ScrubText` resolves them again over the same text. | `RedactionEngine.cs:97` and `:109`→`:55` | Straight 2× on a path measured at 2012 ms worst case against a 700 ms budget. **~10 lines to fix — best ratio in this document.** |
+| P2-1 | ~~**The pattern library runs twice per frame.**~~ **Fixed in ST-048 (#57):** `RedactFrame` resolves once and the stored text is written from the same matches that placed the mask boxes. `PatternEngineTests` counts the passes and asserts one. The throughput test's cadence assertion, which shrank to nothing as redaction got faster, now measures over a fixed four-second window. | `RedactionEngine.cs` | Was a straight 2× on a path measured at 2012 ms worst case against a 700 ms budget. **The new median is not yet measured — it needs the laptop.** |
 | P2-2 | **4K frame staging is 2.5× over budget and unasserted.** The test asserts a 1.37 MP window (62 ms, passes); the 4K extrapolation of **309 ms against 120 ms** is recorded and never asserted. | `ScreenshotTests.cs:78-93` | Every frame on a 4K monitor blows the budget; nothing fails. |
 | P2-3 | **The filmstrip decodes ~230 MB to draw 40 thumbnails.** `byte[]` binding decodes at native size (no `DecodePixelWidth`), the panel is a bare non-virtualizing `WrapPanel`, and every frame is loaded up front with no eviction. | `FilmstripView.xaml:22`, `Components.xaml:416`, `FilmstripViewModel.cs:135` | ~5.76 MB per 160×90 thumbnail. 150 frames ≈ 860 MB and an OOM. Plus 200-600 ms of UI-thread jank. |
 | P2-4 | **Hourly `VACUUM` of the whole encrypted store, on the connection capture writes through.** | `RetentionJob.cs:31-34`, `SqliteSessionStore.cs:521` | Multi-GB rebuild, every page decrypted and re-encrypted, with capture blocked behind `_gate`. Fires mid-working-day on a 7-day retention. |

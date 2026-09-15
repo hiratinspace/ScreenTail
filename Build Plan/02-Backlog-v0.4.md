@@ -984,7 +984,7 @@ Backend policy (retention, Local-only enforce, exclusions, patterns, scope, tele
 - **Epic/Feature:** PRIVACY
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Open. Added 2026-09-15 from `docs/review/weaknesses.md`. Nothing runs against a customer screen before this merges.
+- **Status:** Done on the Mac side 2026-09-15 (#57) — five fixes, ADR-0004, 745 Core tests green, solution builds clean, `dotnet format` clean. **Two Windows tests have never been run** (the busy-desktop CPU measurement and the moving-window assertion for P0-5) and the redaction median has not been re-measured; both need the laptop, so the ticket closes when ST-018 is in and the hardware suite has run.
 
 **Description:**
 The review found that the decision classes are right and the places that apply them are not. Five fixes, four of them under ten lines each: (P0-1) a frame the OCR engine reads nothing from is stored as redacted with nothing masked; (P0-3) the HUD hides itself when the UI does not know whether capture is running; (P0-5) the foreground watcher subscribes to an inclusive range of ~20 WinEvent types and publishes background windows as the foreground; (P2-1) the pattern library runs twice per frame; (P0-4) the excluded-app and out-of-scope drops live in the Windows loop layer where no test can reach them.

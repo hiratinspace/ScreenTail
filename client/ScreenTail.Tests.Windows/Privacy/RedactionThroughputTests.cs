@@ -27,6 +27,12 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
 
     private const int Frames = 200;
 
+    /// <summary>
+    /// How long the backlog reporter is watched for on its own, after the queue has drained. Fixed on
+    /// purpose: a window derived from how long the work took shrinks to nothing as the work gets faster.
+    /// </summary>
+    private static readonly TimeSpan CadenceWindow = TimeSpan.FromSeconds(4);
+
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "screentail-tests", Guid.NewGuid().ToString("N"));
     private SqliteSessionStore? _store;
 
@@ -88,6 +94,19 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
         }
 
         var elapsed = Stopwatch.GetElapsedTime(wall);
+
+        // The reporter is then held open for a fixed window, independent of how long the queue took. The
+        // assertion below used to read "samples >= elapsed seconds - 2", which disarmed itself as
+        // redaction got faster: a queue that cleared in two seconds demanded zero reports and could not
+        // fail (ST-048, weaknesses P2-1). The HUD's claim is a cadence, so it is measured against a
+        // duration this test chooses rather than one the machine under test decides.
+        int drained;
+        lock (backlog)
+        {
+            drained = backlog.Count;
+        }
+
+        await Task.Delay(CadenceWindow, ct);
         await reporting.CancelAsync();
         await reported;
 
@@ -111,13 +130,14 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
             + $"{elapsed.TotalSeconds:F1} s for the queue (budget {BudgetMs:F0} ms, enforced: {PerformanceCounts})");
         Measurements.Record(
             $"Backlog depth reported **{samples}** times over {elapsed.TotalSeconds:F1} s "
-            + $"(every {worker.Progress.Frames / Math.Max(samples, 1)} frames), "
+            + $"({drained} while draining, {samples - drained} over a fixed {CadenceWindow.TotalSeconds:F0} s afterwards), "
             + $"ending at {(samples > 0 ? backlog[^1] : -1)}");
 
-        // Roughly one report a second, allowing for the first tick and the last partial one.
+        // One report a second over a fixed window, allowing for the first tick and the last partial one.
+        var cadence = samples - drained;
         Assert.True(
-            samples >= (int)elapsed.TotalSeconds - 2,
-            $"backlog was reported {samples} times in {elapsed.TotalSeconds:F1} s; the HUD expects one a second");
+            cadence >= (int)CadenceWindow.TotalSeconds - 1,
+            $"backlog was reported {cadence} times over a fixed {CadenceWindow.TotalSeconds:F0} s; the HUD expects one a second");
 
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count.");
         Assert.True(median < BudgetMs, $"redaction took a median of {median:F0} ms a frame against a {BudgetMs:F0} ms budget");
