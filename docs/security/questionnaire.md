@@ -37,14 +37,20 @@ By default, the remote-support tool plus an allowlist of admin tools. Capturing 
 warns that other customers' data may be on screen. *(INV-5)*
 
 **1.7 ⚠ Can capture be running without the user knowing?**
-The tray icon is shown whenever the service is running. The on-screen indicator is built and cannot be
-dismissed mid-session by design, but **it is not yet shown by the shipping application** — it is wired up
-when the UI connects to the capture service (ST-072's HUD exists; the connection is ST-072's follow-on
-work). Until then INV-4 rests on the tray icon alone. *(INV-4)*
+**Today, yes — there is no capture indicator in the shipping build.** This answer previously claimed a
+tray icon; that was wrong, and no tray icon exists in the codebase at all.
+
+The on-screen indicator is built, is designed so it cannot be dismissed mid-session, and has tests and
+rendered screenshots — but the UI process does not connect to the capture service, so nothing shows it.
+`TrayPresence` computes what a tray icon would display and nothing renders one.
+
+**Do not deploy to a customer-facing pilot until this is closed.** INV-4 is the invariant that makes the
+product's premise defensible, and it is currently unenforced. *(INV-4; tracked as the top item in the
+weakness review.)*
 
 **1.8 ⚠ Is the indicator visible to the customer during screen sharing?**
-The indicator sets `WDA_EXCLUDEFROMCAPTURE`, so the *technician* sees it and a screen-share viewer does
-not, and it is never hidden from the technician. Not yet exercised in a shipping build — see 1.7.
+The indicator sets `WDA_EXCLUDEFROMCAPTURE`, so a screen-share viewer would not see it. Moot until 1.7
+is closed: there is no indicator on screen to exclude.
 
 **1.9 What happens when a password field has focus?**
 Capture stops. No screenshot and no typing event is recorded for that interval — the data is dropped, not
@@ -122,8 +128,14 @@ No. Logs and metrics have no content-carrying fields — no window titles, OCR t
 company or ticket names. The diagnostics record has nowhere to put them, which is stronger than scrubbing
 them out. *(INV-10)*
 
-**3.8 What does telemetry send?**
-The exact field list is shown in Settings beside the toggle. Counts and states only.
+**3.8 ⚠ What does telemetry send?**
+No telemetry is sent: there is no metrics system in the client. The Settings screen that would list the
+fields does not exist either.
+
+**3.9 ⚠ Is the diagnostics panel trustworthy?**
+**Not yet.** It renders a hard-coded sample — including `Local-only: true` and `Egress blocked: 0` — because
+nothing populates it from live state. It must not be shown to a customer as evidence until it is wired to
+the running service.
 
 ---
 
