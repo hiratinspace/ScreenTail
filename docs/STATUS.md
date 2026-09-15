@@ -123,6 +123,9 @@ highest-leverage piece of work left, and it is not currently a ticket.
 - [ ] Flip the three ADRs to Accepted (clerical — see §4).
 - [ ] **ST-110 pilot-MSP baseline measurement** — Sprint 1 background work, and it gates the pilot's
       success metric, so the earlier it starts the better.
+- [ ] **Decide which of the sixteen ideas in `docs/product/2026-09-15-market-scan-and-ideas.md`
+      become tickets.** The scan's one open question — faster notes, compounding knowledge, or
+      proof for disputes — belongs in the ST-110 interviews.
 - [ ] Two technician sessions on the Review wireframe (ST-014's remaining criterion).
 - [ ] RDP opacity check for ST-001 AC2 (5 minutes with a second Windows machine).
 
@@ -184,6 +187,7 @@ a model provider. ST-017 and ST-110 need technicians and a pilot MSP.
 | Render the note pane | on Windows: `dotnet run --project client/ScreenTail.UI -- --note --screenshot <dir>` |
 | Render the HUD variants | on Windows: `dotnet run --project client/ScreenTail.UI -- --hud --screenshot <dir>` |
 | Read the ranked weaknesses | `docs/review/weaknesses.md` — P0 section first |
+| See the market and the idea list | `docs/product/2026-09-15-market-scan-and-ideas.md` — §2.4 for the wedge, §4 for ideas |
 | Look at a fixture session | `research/fixtures/handcrafted/<name>/session.json` + its `frames/` |
 | Regenerate fixtures (macOS only) | `cd research && python fixtures/tools/render_fixtures.py` |
 | Regenerate schema or token outputs | `npm run codegen` in `shared/schema` or `shared/design` |

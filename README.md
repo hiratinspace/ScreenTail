@@ -13,7 +13,7 @@ Start with [`Build Plan/00-Build-Agent-Guide.md`](Build%20Plan/00-Build-Agent-Gu
 | `web/` | Tenant onboarding and admin dashboard | React 18, TypeScript, Vite, Vitest |
 | `shared/` | Session schema (`schema/`) and design tokens (`design/`) | JSON |
 | `research/` | Prompts, evaluation harness, fixtures | Python 3.11+, pytest, ruff |
-| `docs/` | ADRs, UX, security, integrations | Markdown |
+| `docs/` | ADRs, UX, security, product research | Markdown |
 
 ## Local setup
 
