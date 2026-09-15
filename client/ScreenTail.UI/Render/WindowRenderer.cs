@@ -74,17 +74,19 @@ internal static class WindowRenderer
 
         for (var i = 0; i + 3 < pixels.Length; i += 4)
         {
-            // Fully opaque only. Pbgra32 is premultiplied, so anything less has had its channels scaled
-            // by the alpha and comparing it to a straight colour compares two different things. Inside
-            // the pill every pixel is opaque, which is where the glyph is.
-            if (pixels[i + 3] != 255)
+            // Near-opaque, then un-premultiplied. Pbgra32 scales each channel by the alpha, so a straight
+            // colour cannot be compared against it directly — and requiring alpha 255 was worse still:
+            // every antialiased glyph pixel on this pill comes back at 254, so the check skipped precisely
+            // the pixels it was looking for and failed a correctly painted amber ‖.
+            var alpha = pixels[i + 3];
+            if (alpha < 200)
             {
                 continue;
             }
 
-            double pr = pixels[i + 2] - over.R;
-            double pg = pixels[i + 1] - over.G;
-            double pb = pixels[i] - over.B;
+            double pr = Straight(pixels[i + 2], alpha) - over.R;
+            double pg = Straight(pixels[i + 1], alpha) - over.G;
+            double pb = Straight(pixels[i], alpha) - over.B;
 
             // How far along background → token this pixel sits, and how far off that line it strays.
             var along = ((pr * dr) + (pg * dg) + (pb * db)) / lengthSquared;
@@ -104,6 +106,8 @@ internal static class WindowRenderer
 
         return false;
     }
+
+    private static double Straight(byte channel, byte alpha) => Math.Min(255.0, channel * 255.0 / alpha);
 
     public static void Save(Window window, string path)
     {
