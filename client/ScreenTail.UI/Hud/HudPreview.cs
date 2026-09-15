@@ -63,6 +63,7 @@ internal static class HudPreview
                     window,
                     Path.Combine(directory, $"hud-{name}-{theme.ToString().ToLowerInvariant()}.png"),
                     TokenColour(tone),
+                    Colour("Brush.bg.surface"),
                     $"{tone} state");
             }
 
@@ -90,6 +91,11 @@ internal static class HudPreview
         };
 
         // Looked up rather than hard-coded, so darkening a token for contrast does not fail this check.
+        return Colour(key);
+    }
+
+    private static (byte R, byte G, byte B) Colour(string key)
+    {
         var brush = (System.Windows.Media.SolidColorBrush)Application.Current.Resources[key];
         return (brush.Color.R, brush.Color.G, brush.Color.B);
     }
