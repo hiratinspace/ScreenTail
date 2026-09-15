@@ -71,4 +71,29 @@ public sealed class WindowsCapabilityProbeTests
             Assert.False(report.CanCapture);
         }
     }
+
+    [Fact]
+    public void AClaimedDesktopSessionCanActuallyShowAWindow()
+    {
+        // The other direction, and the one nothing checked. The probe said "Running in your desktop
+        // session" and reported can_capture: true on a runner where no window could take the foreground
+        // and every capture would have come back black - so the HUD would have told a technician their
+        // session was being recorded while it was not.
+        //
+        // The old check asked Environment.UserInteractive, which on .NET for Windows returns true
+        // unconditionally, service or not. This asserts the claim against the thing the claim is about.
+        var report = new WindowsCapabilityProbe().Probe();
+        if (report[Capability.DesktopSession].State != CapabilityState.Ok)
+        {
+            // Correctly reporting no desktop is a pass. What must not happen is claiming one it hasn't got.
+            return;
+        }
+
+        using var window = DesktopWindow.Create("capability cross-check");
+
+        Assert.True(
+            window.TakeForeground(),
+            "The probe reports a desktop session, but a window cannot take the foreground. One of them is "
+            + "lying, and the probe is the one a technician trusts.");
+    }
 }

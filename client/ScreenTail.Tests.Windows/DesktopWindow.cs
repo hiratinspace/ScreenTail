@@ -35,8 +35,97 @@ internal sealed class DesktopWindow : IDisposable
     /// immediately after creating the window, is what made the ST-024 tests skip on hardware that could
     /// perfectly well have run them.
     /// </summary>
+    /// <summary>
+    /// Takes the foreground or skips the test, saying what was in the way.
+    ///
+    /// Three runs were spent guessing at this from the outside — a locked screen, then a service in
+    /// session 0 — while the capability probe insisted the machine was fine and another test in the same
+    /// run took the foreground without trouble. A skip that reports only its own existence cannot settle
+    /// that. These facts can.
+    /// </summary>
+    public void RequireForeground()
+    {
+        if (TakeForeground())
+        {
+            return;
+        }
+
+        var why = Why();
+        Measurements.Record($"{NoDesktopMarker}: {why}");
+        Assert.Skip($"Could not take the foreground. {why}");
+    }
+
+    /// <summary>What Windows says is in the way, for a run nobody is sitting in front of.</summary>
+    public static string Why()
+    {
+        var foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+        {
+            return "Nothing holds the foreground on this desktop. With no window to attach to, Windows' "
+                + "foreground lock refuses a process that has had no input, which is every unattended "
+                + "runner — a shell (explorer.exe) or any persistent window would give it one.";
+        }
+
+        var thread = GetWindowThreadProcessId(foreground, out var processId);
+        var title = new char[256];
+        var length = GetWindowText(foreground, title, title.Length);
+        var name = length > 0 ? new string(title, 0, length) : "(no title)";
+
+        string owner;
+        try
+        {
+            owner = System.Diagnostics.Process.GetProcessById((int)processId).ProcessName;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            owner = "(gone)";
+        }
+
+        return string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"The foreground is held by {owner} (pid {processId}, thread {thread}): \"{name}\", and it did not give it up within five seconds.");
+    }
+
+    /// <summary>
+    /// The marker a run leaves when no test could get a window in front. The workflow fails on it, because
+    /// the alternative is a green tick over a run that verified nothing on the hardware it exists for.
+    /// </summary>
+    public const string NoDesktopMarker = "NO-DESKTOP";
+
+    /// <summary>
+    /// Turns off the foreground lock for this user, once per run.
+    ///
+    /// Windows refuses SetForegroundWindow to a process that has received no input — which is every
+    /// unattended runner — and refuses it silently, so the call returns and nothing happens. The
+    /// diagnostic named the holder as the runner's own console (run.cmd), and minimising that turned out
+    /// not to release anything: the obstacle is the lock, not the window.
+    ///
+    /// SPI_SETFOREGROUNDLOCKTIMEOUT is the documented way to lift it, and it is what UI automation uses.
+    /// A per-user setting on a laptop kept for testing, where CI already screenshots the desktop; it is
+    /// not something the product ever does.
+    /// </summary>
+    private static void UnlockForeground()
+    {
+        if (Interlocked.Exchange(ref _unlocked, 1) == 1)
+        {
+            return;
+        }
+
+        _ = SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, SPIF_SENDCHANGE);
+    }
+
+    private static int _unlocked;
+
+    private const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
+    private const uint SPIF_SENDCHANGE = 0x02;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint action, uint param, IntPtr pvParam, uint winIni);
+
     public bool TakeForeground(TimeSpan? within = null)
     {
+        UnlockForeground();
         var deadline = DateTime.UtcNow + (within ?? TimeSpan.FromSeconds(5));
         do
         {
@@ -166,6 +255,9 @@ internal sealed class DesktopWindow : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowText(IntPtr hWnd, string text);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, [Out] char[] text, int count);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
