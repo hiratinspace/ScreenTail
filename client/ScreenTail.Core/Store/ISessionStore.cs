@@ -126,6 +126,15 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>Deletes the session and everything under it, and writes an audit row.</summary>
     Task DeleteSessionAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Every session, newest first, as the history table shows them (ST-079).
+    ///
+    /// One query rather than a list of ids followed by a load each: Spec §5 S4 renders two hundred rows
+    /// and <see cref="LoadSessionAsync"/> reads every frame, event and transcript segment of a session to
+    /// build one. Two hundred of those is the whole store.
+    /// </summary>
+    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(CancellationToken ct = default);
+
     Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default);
 
     Task<int> GetSchemaVersionAsync(CancellationToken ct = default);
@@ -158,6 +167,25 @@ public sealed record RedactionOutcome(
     DateTimeOffset RedactedAt);
 
 public sealed record FinalizeInfo(long DurationMs, bool PartialCapture);
+
+/// <summary>
+/// One row of the history table (ST-079, Spec §5 S4). Counts and states only: this list is rendered
+/// beside a customer and holds nothing that was on their screen (INV-10).
+/// </summary>
+/// <param name="Frames">Screenshots still held. Zero after retention has purged the raw data.</param>
+/// <param name="Title">The drafted note's suggested title, once there is one. The only free text here,
+/// and it is the technician's own note rather than anything captured.</param>
+public sealed record SessionSummary(
+    string Id,
+    DateTimeOffset StartedAt,
+    long? DurationMs,
+    string RemoteTool,
+    string State,
+    bool PartialCapture,
+    long FramesPurgedUnredacted,
+    int Frames,
+    bool RawPurged,
+    string? Title);
 
 public sealed record AuditEntry(long Id, DateTimeOffset At, string? SessionId, string Type, long? Count);
 

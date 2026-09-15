@@ -158,6 +158,8 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) => throw new NotSupportedException();

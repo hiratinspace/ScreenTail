@@ -589,6 +589,53 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
         }
     }
 
+    public Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(CancellationToken ct = default) =>
+        QueryAsync<IReadOnlyList<SessionSummary>>(
+            """
+            SELECT s.id, s.started_at, s.duration_ms, s.remote_tool_kind, s.state, s.partial_capture,
+                   s.frames_purged_unredacted, s.raw_purged_at, s.draft_json,
+                   (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0)
+            FROM sessions s
+            ORDER BY s.started_at DESC
+            """,
+            async reader =>
+            {
+                var rows = new List<SessionSummary>();
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    // Only the title is read out of the draft. Deserialising the whole note to show one
+                    // line would pull every step's text into a list rendered beside a customer.
+                    string? title = null;
+                    if (!reader.IsDBNull(8))
+                    {
+                        try
+                        {
+                            title = JsonSerializer.Deserialize<DraftNote>(reader.GetString(8), SessionJson.Options)?.SuggestedTitle;
+                        }
+                        catch (JsonException)
+                        {
+                            // A draft that will not parse is a row without a title, not a history that
+                            // refuses to open.
+                        }
+                    }
+
+                    rows.Add(new SessionSummary(
+                        reader.GetString(0),
+                        DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
+                        reader.IsDBNull(2) ? null : reader.GetInt64(2),
+                        reader.GetString(3),
+                        reader.GetString(4),
+                        reader.GetInt64(5) != 0,
+                        reader.GetInt64(6),
+                        reader.GetInt32(9),
+                        !reader.IsDBNull(7),
+                        string.IsNullOrWhiteSpace(title) ? null : title));
+                }
+
+                return rows;
+            },
+            ct);
+
     public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) =>
         QueryAsync<IReadOnlyList<AuditEntry>>(
             "SELECT id, at, session_id, type, count FROM audit_log WHERE (@session IS NULL OR session_id = @session) ORDER BY id",
