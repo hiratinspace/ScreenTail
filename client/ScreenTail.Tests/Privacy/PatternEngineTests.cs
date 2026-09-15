@@ -233,4 +233,53 @@ public sealed class PatternEngineTests
     [InlineData("411111111111111111111", false)] // too long
     public void OnlyCardLengthLuhnValidNumbersAreMasked(string candidate, bool masked) =>
         Assert.Equal(masked, Engine.ScrubText($"value {candidate} end").Text.Contains("[CARD]", StringComparison.Ordinal));
+    [Fact]
+    public void AFrameIsSearchedOnceNotTwice()
+    {
+        // ST-048 (weaknesses P2-1). RedactFrame resolved the page once to place the mask boxes and then
+        // called ScrubText, which resolved the identical text all over again to produce the stored string.
+        // Every pattern in the library ran twice on every frame, on a path already measured past its
+        // budget at the tail. The two answers were always the same by construction; only one is needed.
+        var passes = 0;
+        var engine = new RedactionEngine(
+            RedactionPolicy.Default,
+            (text, policy, exhausted) =>
+            {
+                passes++;
+                return PatternLibrary.Find(text, policy, exhausted);
+            });
+
+        var redaction = engine.RedactFrame([
+            new OcrWord("Card", 0, 0, 40, 20),
+            new OcrWord("4111111111111111", 50, 0, 200, 20),
+        ]);
+
+        Assert.Equal(1, passes);
+
+        // The saving must not cost the answer: the boxes, the stored text and the counts are unchanged.
+        Assert.Equal("Card [CARD]", redaction.Text);
+        Assert.Equal(MaskKind.Card, Assert.Single(redaction.Regions).Kind);
+        Assert.Equal(1, redaction.Counts[MaskKind.Card]);
+        Assert.True(redaction.Complete);
+    }
+
+    [Fact]
+    public void AFrameWithNoMatchesIsAlsoSearchedOnce()
+    {
+        var passes = 0;
+        var engine = new RedactionEngine(
+            RedactionPolicy.Default,
+            (text, policy, exhausted) =>
+            {
+                passes++;
+                return PatternLibrary.Find(text, policy, exhausted);
+            });
+
+        var redaction = engine.RedactFrame([new OcrWord("Print", 0, 0, 40, 20), new OcrWord("Spooler", 50, 0, 60, 20)]);
+
+        Assert.Equal(1, passes);
+        Assert.Equal("Print Spooler", redaction.Text);
+        Assert.Empty(redaction.Regions);
+    }
+
 }

@@ -94,25 +94,26 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     private void Pump(TaskCompletionSource ready)
     {
-        var hook = IntPtr.Zero;
+        var foregroundHook = IntPtr.Zero;
+        var nameHook = IntPtr.Zero;
         var timer = IntPtr.Zero;
         try
         {
             _pumpThreadId = GetCurrentThreadId();
-            hook = SetWinEventHook(
-                EVENT_SYSTEM_FOREGROUND,
-                EVENT_OBJECT_NAMECHANGE,
-                IntPtr.Zero,
-                _callback,
-                0,
-                0,
-                WINEVENT_OUTOFCONTEXT);
-            _hookInstalled = hook != IntPtr.Zero;
+
+            // Two hooks, each asking for one event. SetWinEventHook's first two arguments are eventMin and
+            // eventMax and the range is inclusive, so passing the two constants below to a single call
+            // subscribed to all 32,778 event types between them — every window move, focus change, menu
+            // and console caret on the desktop, each delivered with its own window handle and published as
+            // the foreground window (ST-048, weaknesses P0-5).
+            foregroundHook = Hook(ForegroundEvents.SystemForeground);
+            nameHook = Hook(ForegroundEvents.ObjectNameChange);
+            _hookInstalled = foregroundHook != IntPtr.Zero && nameHook != IntPtr.Zero;
 
             // Report where we start, so a session that begins mid-task knows what was on screen.
             Publish(_filter.Offer(Read(GetForegroundWindow())));
 
-            // With the hook installed, EVENT_OBJECT_NAMECHANGE already delivers title changes, so the timer is
+            // With the hooks installed, EVENT_OBJECT_NAMECHANGE already delivers title changes, so the timer is
             // only a safety net and can be slow. Without it, the timer is the whole mechanism and has to be
             // quick. Polling at 250 ms regardless cost 0.520% of a core against a 0.5% budget.
             var interval = _pollInterval ?? (_hookInstalled ? TimeSpan.FromSeconds(2) : TimeSpan.FromMilliseconds(250));
@@ -143,14 +144,23 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                 _ = KillTimer(IntPtr.Zero, timer);
             }
 
-            if (hook != IntPtr.Zero)
+            if (nameHook != IntPtr.Zero)
             {
-                _ = UnhookWinEvent(hook);
+                _ = UnhookWinEvent(nameHook);
+            }
+
+            if (foregroundHook != IntPtr.Zero)
+            {
+                _ = UnhookWinEvent(foregroundHook);
             }
 
             ready.TrySetResult();
         }
     }
+
+    /// <summary>One hook for one event type, out of context, across every process.</summary>
+    private IntPtr Hook(uint eventType) =>
+        SetWinEventHook(eventType, eventType, IntPtr.Zero, _callback, 0, 0, WINEVENT_OUTOFCONTEXT);
 
     private void OnWinEvent(IntPtr hook, uint eventType, IntPtr window, int objectId, int childId, uint thread, uint time)
     {
@@ -159,9 +169,16 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             return;
         }
 
+        // Belt and braces over the two hooks above: only these event types may say what is in front, so a
+        // future change to the subscription cannot quietly start feeding scope decisions the wrong window.
+        if (!ForegroundEvents.Interesting(eventType))
+        {
+            return;
+        }
+
         // A name change matters only for the window already in front; every other window renaming itself is
         // noise, and there is a lot of it.
-        if (eventType == EVENT_OBJECT_NAMECHANGE && (objectId != OBJID_WINDOW || window != GetForegroundWindow()))
+        if (eventType == ForegroundEvents.ObjectNameChange && (objectId != OBJID_WINDOW || window != GetForegroundWindow()))
         {
             return;
         }
@@ -284,8 +301,6 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     private delegate void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint dwmsEventTime);
 
-    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
-    private const uint EVENT_OBJECT_NAMECHANGE = 0x800C;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
     // Deliberately no WINEVENT_SKIPOWNPROCESS. The capture service owns no windows, so it filtered nothing

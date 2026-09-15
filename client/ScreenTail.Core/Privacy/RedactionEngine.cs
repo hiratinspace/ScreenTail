@@ -53,9 +53,20 @@ public sealed class RedactionEngine
     {
         ArgumentNullException.ThrowIfNull(text);
         var (matches, complete) = Resolve(text);
+        return new ScrubResult(Replace(text, matches), Count(matches), complete);
+    }
+
+    /// <summary>
+    /// Writes the replacements into the text. Separated from <see cref="ScrubText"/> so that a caller
+    /// which has already resolved the matches — <see cref="RedactFrame"/>, which needs them to place the
+    /// mask boxes — can produce the stored string without searching the same page a second time
+    /// (ST-048, weaknesses P2-1).
+    /// </summary>
+    private static string Replace(string text, List<PatternMatch> matches)
+    {
         if (matches.Count == 0)
         {
-            return new ScrubResult(text, new Dictionary<MaskKind, int>(), complete);
+            return text;
         }
 
         var builder = new StringBuilder(text.Length);
@@ -66,8 +77,7 @@ public sealed class RedactionEngine
             cursor = match.End;
         }
 
-        builder.Append(text, cursor, text.Length - cursor);
-        return new ScrubResult(builder.ToString(), Count(matches), complete);
+        return builder.Append(text, cursor, text.Length - cursor).ToString();
     }
 
     /// <summary>
@@ -106,8 +116,10 @@ public sealed class RedactionEngine
             }
         }
 
-        var scrubbed = ScrubText(text);
-        return new FrameRedaction(scrubbed.Text, regions, Count(matches), complete && scrubbed.Complete);
+        // The same matches that placed the boxes write the stored text. Resolving twice gave two answers
+        // that were identical by construction and cost the pattern library a second full pass over every
+        // frame — on the path ADR-0001 measured worst at 2012 ms against a 700 ms budget.
+        return new FrameRedaction(Replace(text, matches), regions, Count(matches), complete);
     }
 
     /// <summary>Sorted, non-overlapping matches: earliest first, and the longest wins a tie.</summary>

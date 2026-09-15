@@ -101,18 +101,58 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AnEmptyFrameIsStillStored()
+    public async Task AFrameTheRecogniserReadNothingFromIsDeletedRatherThanStored()
     {
-        // A screenshot with no text — a wallpaper, a progress bar — is not suspicious, it is just quiet.
+        // ST-048 (weaknesses P0-1), reversing the earlier reading that "no text" means "just quiet".
+        // Nothing downstream can tell a wallpaper from a dark-mode terminal the engine could not segment,
+        // a page in a language with no pack installed, or a frame it decoded and gave up on: all four
+        // arrive here as zero words. Storing them as redacted marks a customer's screen clean without
+        // anything having read it, which is the INV-1 breach this test exists to keep closed. ADR-0004
+        // records the cost — genuinely blank frames are lost — and why it is the cheaper of the two.
         var store = await OpenAsync();
         await StageAsync(store, "s1", "f1");
-        var worker = Worker(store, new FakeRecogniser { Words = [], Confidence = 0 });
+        var worker = Worker(store, new FakeRecogniser { Words = [], Confidence = 1.0 });
+
+        Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        var session = (await store.LoadSessionAsync("s1"))!;
+        Assert.Empty(session.Frames);
+        Assert.Equal(1, session.FramesPurgedUnredacted);
+    }
+
+    [Fact]
+    public async Task ReadingNothingIsCountedApartFromReadingBadly()
+    {
+        // Both end in a discarded frame, and they mean opposite things. A rising Unread is the recogniser
+        // failing to see anything at all — a missing language pack, a theme it cannot handle — and a
+        // rising Unreadable is it seeing badly. One number covering both would hide whichever is happening.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s2", "f2");
+        var readNothing = Worker(store, new FakeRecogniser { Words = [], Confidence = 1.0 });
+        await readNothing.ProcessOneAsync(TestContext.Current.CancellationToken);
+
+        var readBadly = Worker(store, new FakeRecogniser { Confidence = 0.05, Words = [new OcrWord("blurry", 0, 0, 10, 10)] });
+        await readBadly.ProcessOneAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, readNothing.Progress.Unread);
+        Assert.Equal(0, readNothing.Progress.Unreadable);
+        Assert.Equal(1, readBadly.Progress.Unreadable);
+        Assert.Equal(0, readBadly.Progress.Unread);
+    }
+
+    [Fact]
+    public async Task AFrameTheRecogniserSawNoWordsInIsNotCountedAsRedacted()
+    {
+        // The counter this bug hid behind: "read nothing" used to land in the success count, so a service
+        // whose OCR engine had stopped reading anything at all reported a healthy frame rate.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        var worker = Worker(store, new FakeRecogniser { Words = [], Confidence = 1.0 });
 
         await worker.ProcessOneAsync(TestContext.Current.CancellationToken);
 
-        var frame = Assert.Single((await store.LoadSessionAsync("s1"))!.Frames);
-        Assert.False(frame.RedactionPending);
-        Assert.Empty(frame.MaskedRegions);
+        Assert.Equal(0, worker.Progress.Frames);
     }
 
     [Fact]

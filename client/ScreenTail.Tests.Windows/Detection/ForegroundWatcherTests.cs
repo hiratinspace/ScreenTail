@@ -91,13 +91,79 @@ public sealed class ForegroundWatcherTests
     }
 
     [Fact]
-    public async Task TheWatcherCostsAlmostNothingWhileNothingHappens()
+    public async Task AWindowThatOnlyMovesAroundIsNeverReportedAsTheForegroundWindow()
     {
-        // AC3: idle CPU < 0.5%. The hook is event-driven; the timer is the only thing ticking.
+        // ST-048 (weaknesses P0-5). SetWinEventHook's first two arguments are an inclusive range, and the
+        // watcher passed EVENT_SYSTEM_FOREGROUND and EVENT_OBJECT_NAMECHANGE as though they were a pair —
+        // subscribing to every event type between them. Each arrived with its own window handle, and any
+        // handle different from the last was published as the foreground window, so ScopePolicy re-ran
+        // against windows that were never in front. This is that bug in the shape a technician creates:
+        // a window redrawing in the background while they work in the remote session.
         Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        var ct = TestContext.Current.CancellationToken;
+        var frontTitle = $"ScreenTail front {Guid.NewGuid():N}";
+        var noisyTitle = $"ScreenTail noisy {Guid.NewGuid():N}";
+
+        using var noisy = DesktopWindow.Create(noisyTitle);
+        using var front = DesktopWindow.Create(frontTitle);
+        front.RequireForeground();
+
+        await using var watcher = new WindowsForegroundWatcher();
+        var reported = new List<string?>();
+        watcher.Changed += info =>
+        {
+            lock (reported)
+            {
+                reported.Add(info.Title);
+            }
+        };
+        await watcher.StartAsync(ct);
+        await Task.Delay(200, ct);
+
+        for (var i = 0; i < 200; i++)
+        {
+            noisy.Jiggle(300 + (i % 40), 200 + (i % 40));
+            await Task.Delay(5, ct);
+        }
+
+        await Task.Delay(300, ct);
+
+        string[] seen;
+        lock (reported)
+        {
+            seen = [.. reported.Where(t => t is not null).Select(t => t!)];
+        }
+
+        Record($"200 background window moves produced **{seen.Count(t => t == noisyTitle)}** foreground reports for the moving window (must be 0)");
+        Assert.DoesNotContain(noisyTitle, seen);
+        Assert.Equal(frontTitle, watcher.Current.Title);
+    }
+
+    [Fact]
+    public async Task TheWatcherCostsAlmostNothingWhileTheDesktopIsBusy()
+    {
+        // AC3's budget, measured under the condition ST-031 actually budgets for. The earlier version of
+        // this test measured a deliberately idle desktop, which is the one condition where the event-range
+        // bug above costs nothing: no events, no wasted work, 0.000% of a core, and a green test sitting
+        // on top of a CPU firehose (ST-048, weaknesses P0-5). A window moving in the background is the
+        // cheapest honest approximation of a remote-desktop control redrawing under the cursor.
+        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        using var noisy = DesktopWindow.Create($"ScreenTail busy {Guid.NewGuid():N}");
         await using var watcher = new WindowsForegroundWatcher();
         await watcher.StartAsync(TestContext.Current.CancellationToken);
         await Task.Delay(500, TestContext.Current.CancellationToken);
+
+        using var churn = new CancellationTokenSource();
+        var churning = Task.Run(
+            async () =>
+            {
+                for (var i = 0; !churn.IsCancellationRequested; i++)
+                {
+                    noisy.Jiggle(300 + (i % 40), 200 + (i % 40));
+                    await Task.Delay(10, CancellationToken.None);
+                }
+            },
+            CancellationToken.None);
 
         // Two things this test learned the hard way.
         //
@@ -117,11 +183,14 @@ public sealed class ForegroundWatcherTests
         var elapsed = Stopwatch.GetElapsedTime(start);
         var used = PumpThreadTime(watcher.PumpThreadId)!.Value - before!.Value;
 
+        await churn.CancelAsync();
+        await churning;
+
         var percent = used.TotalMilliseconds / elapsed.TotalMilliseconds * 100;
         var quanta = used.TotalMilliseconds / 15.625;
-        Record($"Watcher used **{percent:F3}%** of a core over {elapsed.TotalSeconds:F0}s idle — {quanta:F0} scheduler quanta (budget 0.5%, enforced: {PerformanceCounts})");
+        Record($"Watcher used **{percent:F3}%** of a core over {elapsed.TotalSeconds:F0}s with a window moving 100 times a second — {quanta:F0} scheduler quanta (budget 0.5%, enforced: {PerformanceCounts})");
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count; the laptop enforces this.");
-        Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core while idle, budget is 0.5%");
+        Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core on a busy desktop, budget is 0.5%");
     }
 
     [Fact]

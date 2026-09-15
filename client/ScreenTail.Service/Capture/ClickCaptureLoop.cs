@@ -10,38 +10,50 @@ using ScreenTail.Shared.Schema;
 namespace ScreenTail.Service.Capture;
 
 /// <summary>
-/// Drains the hook buffer and turns what it finds into timeline events and screenshots (ST-025).
+/// Drains the hook buffer and hands what it finds to the recorder (ST-025).
 ///
-/// This is where the capture rules meet: the state machine decides whether anything may be recorded at all
-/// (INV-6), scope decides whether this particular window may be photographed (INV-5), and the debouncer
-/// decides whether this click is a new action or part of one already captured.
-///
-/// A click that fails the scope test still becomes an event, with no frame: ST-023 asks for exactly that,
-/// so Review can show "clicks logged, no frames" rather than a silent gap. Anything keyboard-derived is
-/// dropped instead — INV-6 says out-of-scope means "no typing events written", and a keystroke count taken
-/// in a customer's password manager is not made harmless by having no picture beside it.
-///
-/// Frames are staged with <c>redaction_pending</c>, which is the only state a frame can be born in: nothing
-/// outside the redaction worker can read one until it has been through ST-041 (INV-1).
+/// Windows-only on purpose, and deliberately thin: this reads the ring buffer the hook callbacks write
+/// into, turns raw signals into timeline events, and logs what a frame cost. Every decision about what
+/// may be recorded or photographed lives in <see cref="SessionRecorder"/> in Core, where a test can reach
+/// it without a Windows machine — which is what INV-5 and INV-6 turn on, and what this file used to hide
+/// (ST-048, weaknesses P0-4).
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed partial class ClickCaptureLoop(
-    SessionMachine machine,
-    WindowsInputHooksAccessor hooks,
-    IScreenshotCapturer capturer,
-    Func<ScopeDecision?> currentScope,
-    ILogger logger)
+internal sealed partial class ClickCaptureLoop
 {
     private readonly InputSignalReader _reader = new();
-    private readonly ClickDebouncer _debouncer = new();
     private readonly InputSignal[] _scratch = new InputSignal[2048];
-    private long _dropped;
+    private readonly SessionMachine _machine;
+    private readonly WindowsInputHooksAccessor _hooks;
+    private readonly SessionRecorder _recorder;
+
+    public ClickCaptureLoop(
+        SessionMachine machine,
+        WindowsInputHooksAccessor hooks,
+        IScreenshotCapturer capturer,
+        Func<ScopeDecision?> currentScope,
+        ILogger logger)
+    {
+        _machine = machine;
+        _hooks = hooks;
+        _recorder = new SessionRecorder(machine, capturer, currentScope);
+        _recorder.FrameMissed += tsMs => LogNoFrame(logger, tsMs);
+        _recorder.FrameStaged += frame =>
+        {
+            // Guarded because the timing string is built to be logged and is wasted otherwise.
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                var timing = frame.Timing.ToString();
+                LogFrame(logger, frame.SourceWidth, frame.SourceHeight, frame.Width, frame.Height, frame.Image.Length, timing);
+            }
+        };
+    }
 
     /// <summary>Keyboard events dropped because the window was out of scope (INV-6). Counts only.</summary>
-    public long DroppedOutOfScope => Interlocked.Read(ref _dropped);
+    public long DroppedOutOfScope => _recorder.DroppedOutOfScope;
 
     /// <summary>A new session starts with no history, so its first click is captured (ST-029).</summary>
-    public void Reset() => _debouncer.Reset();
+    public void Reset() => _recorder.Reset();
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -62,91 +74,19 @@ internal sealed partial class ClickCaptureLoop(
 
     private async Task DrainAsync(CancellationToken ct)
     {
-        var count = hooks.Buffer.Drain(_scratch);
+        var count = _hooks.Buffer.Drain(_scratch);
         if (count == 0)
         {
             return;
         }
 
-        if (machine.State != SessionState.Recording)
-        {
-            // Paused, suppressed or idle: the signals are dropped rather than held, so nothing observed
-            // while capture was off can arrive late and land in the session (INV-6).
-            return;
-        }
-
-        var sessionStart = machine.SessionStartedAt;
+        var sessionStart = _machine.SessionStartedAt;
         var events = _reader.Read(
             _scratch.AsMemory(0, count),
             timestamp => WindowsInputHooks.ToSessionMs(timestamp, sessionStart),
             WindowsInputHooks.Elapsed);
 
-        var scope = currentScope();
-        foreach (var sessionEvent in events)
-        {
-            // INV-6, decided by the scope decision itself so the rule is one thing in one place and can
-            // be argued about without a Windows machine. No scope decision yet means nothing is known
-            // about the window in front, which is not a reason to record a keystroke count.
-            if (scope is null ? IsKeyboard(sessionEvent) : !scope.MayRecord(sessionEvent))
-            {
-                _ = Interlocked.Increment(ref _dropped);
-                continue;
-            }
-
-            await machine.TryRecordEventAsync(sessionEvent, ct).ConfigureAwait(false);
-            if (sessionEvent is ClickEvent click)
-            {
-                await CaptureForAsync(click, ct).ConfigureAwait(false);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Keyboard-derived events, which INV-6 calls "typing events". A shortcut and an Enter say as much
-    /// about what someone typed as a burst count does — Ctrl+C in a password manager is the case — so all
-    /// three are treated alike.
-    /// </summary>
-    private static bool IsKeyboard(SessionEvent sessionEvent) =>
-        sessionEvent is TypingBurstEvent or ShortcutEvent or EnterEvent;
-
-    private async Task CaptureForAsync(ClickEvent click, CancellationToken ct)
-    {
-        var scope = currentScope();
-        if (scope is null || !scope.MayCaptureFrames)
-        {
-            return;
-        }
-
-        if (!_debouncer.ShouldCapture())
-        {
-            return;
-        }
-
-        var frame = capturer.CaptureForegroundWindow(expected: scope.Window);
-        if (frame is null)
-        {
-            // The window closed between the click and the capture. A missing frame, never a blank one.
-            LogNoFrame(logger, click.TsMs);
-            return;
-        }
-
-        await machine.TryStageFrameAsync(
-            new StagedFrame(
-                Guid.NewGuid().ToString("N")[..12],
-                click.TsMs,
-                FrameTrigger.Click,
-                frame.Width,
-                frame.Height,
-                new Point { X = click.X, Y = click.Y },
-                frame.Image),
-            ct).ConfigureAwait(false);
-
-        if (logger.IsEnabled(LogLevel.Debug))
-        {
-            var timing = frame.Timing.ToString();
-            var bytes = frame.Image.Length;
-            LogFrame(logger, frame.SourceWidth, frame.SourceHeight, frame.Width, frame.Height, bytes, timing);
-        }
+        await _recorder.RecordAsync([.. events], ct).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Staged a frame: {SourceWidth}x{SourceHeight} captured, stored {Width}x{Height} in {Bytes} bytes ({Timing})")]
