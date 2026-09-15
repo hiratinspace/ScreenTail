@@ -1,3 +1,4 @@
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
 

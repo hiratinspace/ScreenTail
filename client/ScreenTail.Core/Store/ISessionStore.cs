@@ -170,6 +170,18 @@ public static class AuditTypes
 
     /// <summary>ST-075: the technician deleted one screenshot in Review, after the undo window closed.</summary>
     public const string FrameDeletedByUser = "frame_deleted_by_user";
+
+    /// <summary>A frame was staged. Count only; nothing about what was on it (ST-045).</summary>
+    public const string FrameCaptured = "frame_captured";
+
+    /// <summary>A frame was masked and made readable. <c>detail</c> is the mask kind, <c>count</c> how many.</summary>
+    public const string FrameRedacted = "frame_redacted";
+
+    /// <summary>Capture stopped for a reason that was not the technician. <c>detail</c> is the reason, <c>count</c> the milliseconds.</summary>
+    public const string CaptureSuppressed = "capture_suppressed";
+
+    /// <summary>Bytes left the machine. <c>detail</c> is the destination host, <c>count</c> the bytes.</summary>
+    public const string BundleSent = "bundle_sent";
 }
 
 /// <summary>The database could not be opened with the supplied key.</summary>

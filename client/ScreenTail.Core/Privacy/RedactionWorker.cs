@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -268,6 +269,17 @@ public sealed class RedactionWorker(
             frame.Id,
             new RedactionOutcome(masked.Image, redaction.Text, regions, sensitive, _time.GetUtcNow()),
             ct).ConfigureAwait(false);
+
+        // ST-045: what was covered over, counted by kind. The customer's question is "what did it find on
+        // my screen", and the honest answer is a number per kind — never the matches themselves (INV-10).
+        if (store is IAuditLog audit)
+        {
+            foreach (var (kind, count) in redaction.Counts)
+            {
+                await audit.RecordAsync(
+                    AuditTypes.FrameRedacted, frame.SessionId, count, AuditDetail.Of(kind), ct).ConfigureAwait(false);
+            }
+        }
 
         Record(redaction.Counts, Stopwatch.GetElapsedTime(started));
     }
