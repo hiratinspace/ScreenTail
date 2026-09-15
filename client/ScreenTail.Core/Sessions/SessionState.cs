@@ -18,6 +18,15 @@ public static class SessionStateNames
 {
     public const string Discarded = "discarded";
 
+    /// <summary>
+    /// The session reached a PSA. Spec §5 S4 filters history by it, so the history knows the name — but
+    /// nothing writes it yet: publishing is ST-078, and this is the one place it will set.
+    ///
+    /// Declared here rather than as a literal in the history code so there is a single spelling to find,
+    /// and so the gap is visible next to the state that does exist.
+    /// </summary>
+    public const string Published = "published";
+
     public static string ToWire(this SessionState state) => state switch
     {
         SessionState.Idle => CaptureStates.Idle,
