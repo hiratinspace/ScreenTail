@@ -29,15 +29,22 @@ internal sealed class WindowsCapabilityProbe(TimeProvider? time = null) : ICapab
     {
         try
         {
-            // Environment.UserInteractive is not the check it looks like: on .NET for Windows it returns
-            // true unconditionally, including inside a service in session 0. This probe reported "Running
-            // in your desktop session" on a machine where no window could take the foreground and every
-            // capture would have come back black — which is the exact mistake ADR-0003 exists to prevent,
-            // made by the check written to catch it.
+            // Environment.UserInteractive is weaker than it looks: it is documented as unreliable on
+            // .NET for Windows and does not distinguish a service in session 0 from a desktop. It is kept
+            // as a first filter, and the two facts that actually decide are checked as well.
             //
-            // The window station is the fact that actually decides. An interactive process is on WinSta0;
-            // a service gets its own station (Service-0x0-3e7$) with no desktop behind it, and nothing
-            // there can be focused, hooked, or captured.
+            // The window station is the first. An interactive process is on WinSta0; a service gets its
+            // own station (Service-0x0-3e7$) with no desktop behind it, and nothing there can be focused,
+            // hooked, or captured — the mistake ADR-0003 exists to prevent. The session id is the second,
+            // because those are two different ways to be in session 0.
+            //
+            // Hardening, not a fix for an observed lie: on the laptop this probe answered correctly, and
+            // the cross-check in WindowsCapabilityProbeTests confirms it against a real window.
+            if (!Environment.UserInteractive)
+            {
+                return CapabilityCopy.NoDesktopSession();
+            }
+
             if (WindowStationName() is { } station && !station.StartsWith("WinSta0", StringComparison.OrdinalIgnoreCase))
             {
                 return CapabilityCopy.NoDesktopSession();

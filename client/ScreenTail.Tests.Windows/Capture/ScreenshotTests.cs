@@ -24,7 +24,7 @@ public sealed class ScreenshotTests
     {
         Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
         using var window = DesktopWindow.Create("ScreenTail capture target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground.");
+        window.RequireForeground();
 
         using var capturer = new ScreenshotCapturer();
         var frame = capturer.CaptureForegroundWindow();
@@ -49,7 +49,7 @@ public sealed class ScreenshotTests
         // to a tiny JPEG. Size is a crude but reliable way to tell "captured nothing" from "captured".
         Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
         using var window = DesktopWindow.Create("ScreenTail blankness target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground.");
+        window.RequireForeground();
 
         using var capturer = new ScreenshotCapturer();
         var frame = capturer.CaptureForegroundWindow();
@@ -131,7 +131,7 @@ public sealed class ScreenshotTests
         // window they moved to photographed against a decision about the one they left.
         Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
         using var window = DesktopWindow.Create("ScreenTail scope target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground.");
+        window.RequireForeground();
         using var capturer = new ScreenshotCapturer();
 
         // A handle that is real but is not the foreground: this window's own child would do, and so does
@@ -149,7 +149,7 @@ public sealed class ScreenshotTests
         // heap within a working day, and the symptom would be windows failing to draw rather than a crash here.
         Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
         using var window = DesktopWindow.Create("ScreenTail handle target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground.");
+        window.RequireForeground();
         using var capturer = new ScreenshotCapturer();
 
         using var self = System.Diagnostics.Process.GetCurrentProcess();
