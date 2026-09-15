@@ -34,7 +34,8 @@
                  no Foreground at all for three of the four tones, leaving the glyph the TextBlock default
                  black. The render now asserts each variant's token colour is actually on the pill, which
                  is what caught it. -->
-            <TextBlock VerticalAlignment="Center"
+            <TextBlock x:Name="StateGlyphText"
+                       VerticalAlignment="Center"
                        FontSize="{DynamicResource Size.lg}"
                        Text="{Binding StateGlyph}"
                        ToolTip="{Binding StateTooltip}">
