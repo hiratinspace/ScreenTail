@@ -50,7 +50,7 @@ public sealed class ForegroundWatcherTests
 
         using var window = DesktopWindow.Create(title);
         var clock = Stopwatch.StartNew();
-        Assert.SkipUnless(window.TakeForeground(), "Windows refused to change the foreground window on this desktop.");
+        window.RequireForeground();
         var reported = await seen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         clock.Stop();
 
@@ -82,7 +82,7 @@ public sealed class ForegroundWatcherTests
         await watcher.StartAsync(TestContext.Current.CancellationToken);
 
         using var window = DesktopWindow.Create(first);
-        Assert.SkipUnless(window.TakeForeground(), "Windows refused to change the foreground window on this desktop.");
+        window.RequireForeground();
         await Task.Delay(200, TestContext.Current.CancellationToken);
         window.Retitle(second);
 

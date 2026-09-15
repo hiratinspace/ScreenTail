@@ -92,10 +92,41 @@ internal sealed class DesktopWindow : IDisposable
     /// </summary>
     public const string NoDesktopMarker = "NO-DESKTOP";
 
+    /// <summary>
+    /// Turns off the foreground lock for this user, once per run.
+    ///
+    /// Windows refuses SetForegroundWindow to a process that has received no input — which is every
+    /// unattended runner — and refuses it silently, so the call returns and nothing happens. The
+    /// diagnostic named the holder as the runner's own console (run.cmd), and minimising that turned out
+    /// not to release anything: the obstacle is the lock, not the window.
+    ///
+    /// SPI_SETFOREGROUNDLOCKTIMEOUT is the documented way to lift it, and it is what UI automation uses.
+    /// A per-user setting on a laptop kept for testing, where CI already screenshots the desktop; it is
+    /// not something the product ever does.
+    /// </summary>
+    private static void UnlockForeground()
+    {
+        if (Interlocked.Exchange(ref _unlocked, 1) == 1)
+        {
+            return;
+        }
+
+        _ = SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, SPIF_SENDCHANGE);
+    }
+
+    private static int _unlocked;
+
+    private const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
+    private const uint SPIF_SENDCHANGE = 0x02;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint action, uint param, IntPtr pvParam, uint winIni);
+
     public bool TakeForeground(TimeSpan? within = null)
     {
+        UnlockForeground();
         var deadline = DateTime.UtcNow + (within ?? TimeSpan.FromSeconds(5));
-        var minimised = new HashSet<IntPtr>();
         do
         {
             _ = ShowWindow(Handle, SW_SHOWNORMAL);
@@ -124,26 +155,6 @@ internal sealed class DesktopWindow : IDisposable
             for (var i = 0; i < 20 && GetForegroundWindow() != Handle; i++)
             {
                 Thread.Sleep(25);
-            }
-
-            // Still not ours, and something else is holding it. On this runner that something is the
-            // runner's own console: run.cmd sits in the foreground for the life of the job, and a console
-            // window is hosted by conhost, so attaching to "its" thread does not buy the input state that
-            // Windows' foreground lock wants. Minimising it is what actually lets go.
-            //
-            // Only ever another process's window, and only after asking politely first. This is a laptop
-            // kept for tests — CI already screenshots its desktop — and the alternative was fourteen checks
-            // that never run.
-            var blocking = GetForegroundWindow();
-            if (blocking != IntPtr.Zero && blocking != Handle && !minimised.Contains(blocking))
-            {
-                var owner = GetWindowThreadProcessId(blocking, out _);
-                if (owner != GetCurrentThreadId())
-                {
-                    minimised.Add(blocking);
-                    _ = ShowWindow(blocking, SW_MINIMIZE);
-                    Thread.Sleep(100);
-                }
             }
         }
         while (GetForegroundWindow() != Handle && DateTime.UtcNow < deadline);
@@ -183,7 +194,6 @@ internal sealed class DesktopWindow : IDisposable
 
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const int SW_SHOWNORMAL = 1;
-    private const int SW_MINIMIZE = 6;
     private const int SW_MAXIMIZE = 3;
     private const uint WM_CLOSE = 0x0010;
     private const uint SWP_NOSIZE = 0x0001;

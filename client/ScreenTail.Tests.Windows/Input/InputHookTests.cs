@@ -70,7 +70,7 @@ public sealed class InputHookTests
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
         using var window = DesktopWindow.Create("ScreenTail input target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
+        window.RequireForeground();
         Synthetic.Type(Password);
         await Task.Delay(300, TestContext.Current.CancellationToken);
 
@@ -94,7 +94,7 @@ public sealed class InputHookTests
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
         using var window = DesktopWindow.Create("ScreenTail enter target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
+        window.RequireForeground();
         Synthetic.PressEnter();
         await Task.Delay(300, TestContext.Current.CancellationToken);
 
@@ -113,7 +113,7 @@ public sealed class InputHookTests
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
         using var window = DesktopWindow.Create("ScreenTail click target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
+        window.RequireForeground();
 
         var sent = Stopwatch.GetTimestamp();
         Synthetic.ClickLeft();
@@ -154,7 +154,7 @@ public sealed class InputHookTests
         await hooks.StartAsync(TestContext.Current.CancellationToken);
 
         using var window = DesktopWindow.Create("ScreenTail load target");
-        Assert.SkipUnless(window.TakeForeground(), "Could not take the foreground; another window owns input.");
+        window.RequireForeground();
 
         var start = Stopwatch.GetTimestamp();
         for (var i = 0; i < 20; i++)
