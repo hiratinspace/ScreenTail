@@ -33,7 +33,7 @@ The ticket requires two technicians to complete this task on the Review wirefram
 | T1 |  |  |  |  |  |  |
 | T2 |  |  |  |  |  |  |
 
-Save the filled sheet as `docs/ux/wireframes/review-sessions.md` and link it from the PR.
+**These two sessions have not happened yet** — they need two technicians (ST-014's remaining criterion; see `docs/STATUS.md` §5). When they do, save the filled sheet as `docs/ux/wireframes/review-sessions.md`, link it here, and update ST-014's status line in the backlog.
 
 ## Open questions for the spec
 

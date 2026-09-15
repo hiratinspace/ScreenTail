@@ -59,5 +59,5 @@ Needs Python 3.11+. Run `cd research && python -m venv .venv && . .venv/bin/acti
 
 - Branch `st-###-short-slug` from `main`; one PR per ticket.
 - Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `ci:` …) ending with `Refs: ST-###`.
-- Windows-bound work is verified as described in `docs/dev/windows-test-loop.md` (it arrives with ST-001).
+- Windows-bound work is verified as described in `docs/dev/windows-test-loop.md`.
 - Decisions that change the architecture get an ADR in `docs/adr/`.

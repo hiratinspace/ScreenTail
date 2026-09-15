@@ -30,15 +30,22 @@ ScreenTail is a Windows desktop app for MSP technicians. A background **capture 
 /shared
   /schema          session.v1.json and codegen config
   /design          tokens.json (consumed by WPF and web)
-/research          Python: prompts, eval harness, fixtures, golden set
+/research          Python: prompts, eval harness, fixtures (golden set arrives with ST-030)
 /docs
-  /adr             architecture decision records (ADR-0001 client stack, …)
-  /security        threat model, red-team reports
-  /integrations    ConnectWise, Hudu notes
-  /ux              exported design assets
+  /adr             architecture decision records and their evidence
+  /security        threat model, data-flow, questionnaire (red-team reports arrive with ST-115)
+  /review          ranked review findings (weaknesses.md)
+  /product         market scans and idea lists — reference, never tickets
+  /legal           consent guidance
+  /dev             the Windows test loop
+  /ux              wireframes and hi-fi assets
+  /integrations    ConnectWise, Hudu notes (arrive with ST-091, ST-095)
+  README.md        which document is intent, which is record, which is evidence
 ```
 
 Ticket IDs are `ST-###`. Branch naming: `st-###-short-slug`. One PR per ticket unless the ticket says otherwise.
+
+**Where state lives.** Each ticket in the backlog carries a **Status** line (Done / Partial / Open, with what remains and what it needs from the owner). That line is the source of truth; the PR that changes a ticket's state updates it. `docs/STATUS.md` is a summary for humans and is refreshed after each stretch of work, never instead of the status line.
 
 ---
 
@@ -70,7 +77,7 @@ An agent that finds a ticket seemingly requiring one of these to be broken must 
 3. **Write** only within the paths listed in *Agent brief → Write* unless a change elsewhere is unavoidable; if so, call it out in the PR.
 4. **Verify** with the commands in *Agent brief → Verify*. Every acceptance criterion must map to a test, a recorded manual check, or a screenshot in the PR.
 5. **Definition of Done** (all required):
-   - All acceptance criteria checked in the PR description
+   - All acceptance criteria checked in the PR description, and the ticket's **Status** line in the backlog updated in the same PR
    - Unit tests for new logic; integration test where the ticket touches the store, IPC or a provider
    - No new warnings from analyzers; formatting applied
    - UI tickets: screenshots in both themes at 1366×768 and 1920×1080; keyboard path demonstrated
@@ -96,16 +103,16 @@ An agent that finds a ticket seemingly requiring one of these to be broken must 
 
 ## 6. Execution order
 
-Work is grouped into sprints in `02-Backlog-v0.4.md` Part C. Within a sprint, execute in ID order unless a blocker forces otherwise. Two agents/engineers split as:
+Work follows the **ordered plan in `02-Backlog-v0.4.md` Part C** (phases A–E, replacing the v0.4 sprint plan on 2026-09-15). Work a phase top to bottom; when a ticket is waiting on the owner, take the next unblocked one, in the same phase first. Part D records every amendment to the v0.4 dependencies and why. Two agents/engineers split as:
 
 - **Agent A (capture, privacy, intelligence):** ST-020–ST-049, ST-060–ST-069
 - **Agent B (infra, design, UI, integrations, release):** ST-001–ST-019, ST-050–ST-059, ST-070–ST-129
 
 Milestone gates:
-- **M1** after Sprint 9 — real Review UI shows real drafts from real sessions; eval harness reports quality
-- **M2** after Sprint 11 — publish to ConnectWise + Hudu works end-to-end behind human review
-- **M3** after Sprint 14 — signed installer, onboarding, policy, docs; pilot begins
-- **M4** — v1.1 tickets
+- **M1** at the end of Phase B — real Review UI shows real drafts from real sessions; eval harness reports quality
+- **M2** at the end of Phase C — publish to ConnectWise + Hudu works end-to-end behind human review
+- **M3** at the end of Phase D — signed installer, onboarding, policy, docs; pilot begins
+- **M4** — Phase E, v1.1 tickets
 
 ---
 

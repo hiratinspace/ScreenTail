@@ -1,6 +1,6 @@
 # ST-001 spike: client stack validation (disposable)
 
-This is throwaway code that answers one question: can a .NET 8 background process run low-level hooks, UI Automation, screenshots, OCR and Whisper at the same time without adding noticeable input lag, while a separate WPF process shows a tray icon and an overlay hidden from capture? The results go into [`/docs/adr/0001-client-stack.md`](../docs/adr/0001-client-stack.md). Nothing here ships. `/client` starts fresh in ST-002.
+This is throwaway code that answers one question: can a .NET background process run low-level hooks, UI Automation, screenshots, OCR and Whisper at the same time without adding noticeable input lag, while a separate WPF process shows a tray icon and an overlay hidden from capture? The results go into [`/docs/adr/0001-client-stack.md`](../docs/adr/0001-client-stack.md). Nothing here ships. `/client` starts fresh in ST-002.
 
 | Project | Runs on | What it is |
 |---|---|---|
@@ -14,7 +14,7 @@ Privacy: the spike records no key identities (only the categories `typing_burst`
 ## Prerequisites (Windows machine)
 
 - Windows 11, or Windows 10 version 2004 or later (needed for `WDA_EXCLUDEFROMCAPTURE`). Use an x64 PC if you can. On Windows on ARM the capture app runs under x64 emulation, which makes the latency numbers unrepresentative. If that's all you have, say so when you send results.
-- .NET 8 SDK: `winget install Microsoft.DotNet.SDK.8`
+- .NET 10 SDK: `winget install Microsoft.DotNet.SDK.10` (the spike began on .NET 8; ADR-0001 finding 1 moved the project to 10)
 - Visual C++ 2015–2022 x64 runtime, needed by Tesseract: `winget install Microsoft.VCRedist.2015+.x64`
 - A microphone. It's optional: without one, synthetic audio keeps the speech-to-text CPU load the same.
 - An RDP target (any Windows PC or VM with Remote Desktop enabled) for AC2.
