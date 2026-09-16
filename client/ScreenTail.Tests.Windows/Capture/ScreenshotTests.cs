@@ -12,17 +12,12 @@ namespace ScreenTail.Tests.Windows.Capture;
 /// </summary>
 public sealed class ScreenshotTests
 {
-    private static bool CanCapture =>
-        new WindowsCapabilityProbe().Probe()[Capability.ScreenCapture].State == CapabilityState.Ok
-        && new WindowsCapabilityProbe().Probe()[Capability.DesktopSession].State == CapabilityState.Ok;
-
-    private static bool PerformanceCounts => !string.Equals(
-        Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.OrdinalIgnoreCase);
+    private static bool PerformanceCounts => Hardware.PerformanceCounts;
 
     [Fact]
     public void AWindowIsCapturedAtItsOwnSizeAndStoredSmaller()
     {
-        Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
+        Hardware.RequireScreenCapture();
         using var window = DesktopWindow.Create("ScreenTail capture target");
         window.RequireForeground();
 
@@ -47,7 +42,7 @@ public sealed class ScreenshotTests
     {
         // A capture from a session without a desktop comes back as a uniform black rectangle that encodes
         // to a tiny JPEG. Size is a crude but reliable way to tell "captured nothing" from "captured".
-        Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
+        Hardware.RequireScreenCapture();
         using var window = DesktopWindow.Create("ScreenTail blankness target");
         window.RequireForeground();
 
@@ -64,7 +59,7 @@ public sealed class ScreenshotTests
         // Frames are staged at native resolution (ADR-0001 finding 2a), so this measures what a click
         // costs: grab, convert, encode, all at the window's own size. The downscale belongs to the
         // redaction worker and is measured there.
-        Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
+        Hardware.RequireScreenCapture();
         using var capturer = new ScreenshotCapturer();
 
         var small = MeasureAt(capturer, 420, 220, Downscale.MaxEdge);
@@ -134,7 +129,7 @@ public sealed class ScreenshotTests
         // changes; the click loop drains up to 50 ms later and the scene sampler ticks every second. A
         // technician who clicks in the remote session and immediately alt-tabs would otherwise have the
         // window they moved to photographed against a decision about the one they left.
-        Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
+        Hardware.RequireScreenCapture();
         using var window = DesktopWindow.Create("ScreenTail scope target");
         window.RequireForeground();
         using var capturer = new ScreenshotCapturer();
@@ -152,7 +147,7 @@ public sealed class ScreenshotTests
     {
         // Every capture creates a DC, a bitmap and a GDI object. Leaking any of them exhausts the desktop
         // heap within a working day, and the symptom would be windows failing to draw rather than a crash here.
-        Assert.SkipUnless(CanCapture, "This machine cannot take screenshots.");
+        Hardware.RequireScreenCapture();
         using var window = DesktopWindow.Create("ScreenTail handle target");
         window.RequireForeground();
         using var capturer = new ScreenshotCapturer();

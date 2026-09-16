@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "ST-018. How many Windows tests each machine is allowed to skip.",
+    "dotnet test exits 0 when every test skips, so without this a run that verified nothing is",
+    "indistinguishable from one that verified everything. On 2026-09-13 that is exactly what happened:",
+    "the laptop's session went away mid-afternoon and both hardware jobs kept passing.",
+    "",
+    "Rules, enforced by scripts/windows/check-skips.ps1:",
+    "  1. A run may not skip more than its environment's number. More than this fails the job, and the",
+    "     log names every test that skipped and why.",
+    "  2. These numbers may not go up. A pull request that raises one fails, so loosening the gate is a",
+    "     decision someone has to make in review rather than a side effect of adding a skip.",
+    "Lowering a number needs no ceremony, and the job says so whenever a run skips fewer than its budget."
+  ],
+  "environments": {
+    "hosted": {
+      "maxSkipped": 99,
+      "why": "PLACEHOLDER, tightened to the measured number before this PR merges. windows-latest in CI: session 0, no interactive desktop, no OCR language pack. Every test that needs a real window or a real screen skips here, which is correct and useless. Measured, not guessed: see the run this number was committed from."
+    },
+    "laptop": {
+      "maxSkipped": 99,
+      "why": "PLACEHOLDER, tightened to the measured number before this PR merges. SCREENTRAIL, signed in and unlocked. This is the machine whose answers count, so its budget is meant to be zero or close to it. Anything skipping here is a fact nobody is checking."
+    }
+  }
+}
