@@ -84,8 +84,9 @@ jobs:
           fi
           git show "$BASE:$FILE" > /tmp/base-baseline.json
           bad=0
-          for envname in hosted laptop; do
-            was=$(jq -r ".environments.\"$envname\".maxSkipped" /tmp/base-baseline.json)
+          for envname in $(jq -r '.environments | keys[]' "$FILE"); do
+            was=$(jq -r ".environments.\"$envname\".maxSkipped // empty" /tmp/base-baseline.json)
+            if [ -z "$was" ]; then echo "$envname: new, nothing to compare"; continue; fi
             now=$(jq -r ".environments.\"$envname\".maxSkipped" "$FILE")
             echo "$envname: was $was, now $now"
             if [ "$now" -gt "$was" ]; then

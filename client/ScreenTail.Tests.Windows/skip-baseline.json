@@ -1,25 +1,33 @@
 {
   "_comment": [
-    "ST-018. How many Windows tests each machine is allowed to skip.",
+    "ST-018. How many Windows tests each job is allowed to skip.",
     "dotnet test exits 0 when every test skips, so without this a run that verified nothing is",
     "indistinguishable from one that verified everything. On 2026-09-13 that is exactly what happened:",
     "the laptop's session went away mid-afternoon and both hardware jobs kept passing.",
     "",
     "Rules, enforced by scripts/windows/check-skips.ps1:",
-    "  1. A run may not skip more than its environment's number. More than this fails the job, and the",
-    "     log names every test that skipped and why.",
-    "  2. These numbers may not go up. A pull request that raises one fails, so loosening the gate is a",
-    "     decision someone has to make in review rather than a side effect of adding a skip.",
-    "Lowering a number needs no ceremony, and the job says so whenever a run skips fewer than its budget."
+    "  1. A run may not skip more than its number. More than this fails the job, and the log names every",
+    "     test that skipped.",
+    "  2. These numbers may not go up. A pull request that raises one fails the 'skip budget has not been",
+    "     raised' check in ci.yml, so loosening the gate is a decision someone makes in review rather than",
+    "     a side effect of adding a skip.",
+    "Lowering a number needs no ceremony, and a job says so whenever it skips fewer than its budget.",
+    "",
+    "The same assembly is run by three jobs with different permissions, so each gets its own number.",
+    "All three were measured on 2026-09-16, not guessed."
   ],
   "environments": {
     "hosted": {
-      "maxSkipped": 99,
-      "why": "PLACEHOLDER, tightened to the measured number before this PR merges. windows-latest in CI: session 0, no interactive desktop, no OCR language pack. Every test that needs a real window or a real screen skips here, which is correct and useless. Measured, not guessed: see the run this number was committed from."
+      "maxSkipped": 10,
+      "why": "windows-latest in ci.yml, running both test projects (792 tests). Four input-injection tests need SCREENTAIL_ALLOW_INPUT_INJECTION, which only the laptop sets. Six performance tests refuse to enforce a budget on a shared cloud VM (docs/dev/windows-test-loop.md). Nothing else may skip here."
     },
-    "laptop": {
-      "maxSkipped": 99,
-      "why": "PLACEHOLDER, tightened to the measured number before this PR merges. SCREENTRAIL, signed in and unlocked. This is the machine whose answers count, so its budget is meant to be zero or close to it. Anything skipping here is a fact nobody is checking."
+    "laptop-capabilities": {
+      "maxSkipped": 4,
+      "why": "SCREENTRAIL, capabilities job (47 tests). The four input-injection tests belong to the job below, which is the only one allowed to take the keyboard. Everything else runs, budgets included."
+    },
+    "laptop-input": {
+      "maxSkipped": 0,
+      "why": "SCREENTRAIL, input-injection job. Measured on 2026-09-16."
     }
   }
 }

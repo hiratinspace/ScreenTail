@@ -154,7 +154,7 @@ jobs:
         if: always()
         shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: ${{ github.workspace }}
-        run: ./scripts/windows/check-skips.ps1 -Environment laptop -TrxGlob '${{ runner.temp }}/trx/*.trx'
+        run: ./scripts/windows/check-skips.ps1 -Environment laptop-capabilities -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
       # A green tick on a run that verified nothing is worse than a red one. On 2026-09-13 the laptop's
       # session became unavailable mid-afternoon; every test that needs a window started skipping and both
@@ -230,7 +230,7 @@ jobs:
         if: always()
         shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: ${{ github.workspace }}
-        run: ./scripts/windows/check-skips.ps1 -Environment laptop -TrxGlob '${{ runner.temp }}/trx/*.trx'
+        run: ./scripts/windows/check-skips.ps1 -Environment laptop-input -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
       - name: What it measured
         if: always()

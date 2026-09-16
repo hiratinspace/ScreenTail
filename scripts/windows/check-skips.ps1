@@ -14,7 +14,8 @@
     and in the job summary, so a run that skipped something says which fact went unchecked.
 
 .PARAMETER Environment
-    Which budget applies: 'hosted' (windows-latest) or 'laptop' (the self-hosted runner).
+    Which budget applies. The same assembly runs in three jobs with different permissions, so each
+    has its own number: 'hosted', 'laptop-capabilities', 'laptop-input'.
 
 .PARAMETER TrxGlob
     Where to find the TRX reports.
@@ -29,7 +30,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('hosted', 'laptop')][string]$Environment,
+    [Parameter(Mandatory)][ValidateSet('hosted', 'laptop-capabilities', 'laptop-input')][string]$Environment,
     [Parameter(Mandatory)][string]$TrxGlob,
     [string]$BaselinePath = 'client/ScreenTail.Tests.Windows/skip-baseline.json'
 )
