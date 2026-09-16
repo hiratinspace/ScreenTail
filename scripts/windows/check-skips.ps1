@@ -68,7 +68,11 @@ foreach ($report in $reports) {
         $total++
         switch ($result.outcome) {
             'NotExecuted' {
-                $reason = $result.Output.ErrorInfo.Message
+                # xUnit writes the skip reason to Output/StdOut. ErrorInfo is where a failure's message
+                # goes, and reading only that reported '(no reason recorded)' for every skip, which told
+                # whoever was looking nothing about why the fact went unchecked.
+                $reason = $result.Output.StdOut
+                if ([string]::IsNullOrWhiteSpace($reason)) { $reason = $result.Output.ErrorInfo.Message }
                 if ([string]::IsNullOrWhiteSpace($reason)) { $reason = '(no reason recorded)' }
                 $skipped.Add("$($result.testName): $($reason -replace '\s+', ' ')")
             }
