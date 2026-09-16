@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Windows adapters shared by the two processes that both talk on the pipe (ADR-0005).
+
+    ADR-0002 put platform-neutral logic in ScreenTail.Core and said Windows-only code sits behind thin
+    adapters. Every adapter lived in ScreenTail.Service, which was right while the service was the only
+    process that needed one. ST-085 gave the UI one too: before it writes the session token it has to
+    verify that the process answering on the pipe really is the capture service, and that check is
+    Authenticode, which is Windows.
+
+    The alternative was for the UI to reference ScreenTail.Service, which would pull the hooks, the store,
+    the OCR engine and the whole capture engine into the UI process for the sake of one signature check.
+    Only adapters both processes need belong here; anything one of them needs alone stays where it is.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>ScreenTail.Platform</RootNamespace>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
+  </ItemGroup>
+</Project>

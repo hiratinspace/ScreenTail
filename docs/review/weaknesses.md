@@ -5,8 +5,8 @@ reviews (security, invariant enforcement, performance, test quality), every head
 hand against the code before being written down here.
 
 **Status, 2026-09-15:** **ST-048 (#57) fixes P0-1, P0-3, P0-4, P0-5 and P2-1.** Each of those sections now opens
-with what was done. **ST-018 (#58) fixes P1-4.** P0-2 and P1-1, P1-2 and P1-6 are ST-085 (wire the UI to the service); the
-rest of P1 and the scheduled P2s are ST-049. Nothing here is closed by being ticketed — only the five
+with what was done. **ST-018 (#58) fixes P1-4. ST-085 (#59) fixes P0-2, P1-1, P1-2 and P1-6.** The rest of P1 and the
+scheduled P2s are ST-049. Nothing here is closed by being ticketed — only the five
 marked **Fixed** are.
 
 ## How this is ranked
@@ -72,6 +72,14 @@ difference is visible. Then decide whether a frame with genuinely no text (a bla
 ---
 
 ## P0-2 · There is no capture indicator at all (INV-4)
+
+> **Fixed in ST-085 (#59).** The UI process now connects. `CaptureConnection` in Core owns the pipe,
+> reconnects, and keeps the shell's store fed; `LiveShell` is the startup path that was missing, and it
+> owns a real tray icon (`TrayIconHost`, five drawn glyphs that differ by shape as well as colour) and the
+> pill, shown whenever the state is anything but known-idle. The shell's live constructor is separate from
+> the screenshot one, so the harness cannot share a path with the application. **The live behaviour —
+> tray and pill following a real session — has not been seen yet**; it needs a machine with the service
+> running, which is the ST-085 item left for the laptop.
 
 **No tray icon exists anywhere in the repository.** No `NotifyIcon`, no `Shell_NotifyIcon`, no taskbar
 package. `client/ScreenTail.Core/Shell/TrayPresence.cs:38` computes what a tray icon *would* display and
@@ -204,6 +212,11 @@ a remote-desktop control redrawing under the mouse.
 
 ## P1-1 · The egress allowlist is installed on nothing (INV-8)
 
+> **Fixed in ST-085 (#59).** The guard is constructed at the service's composition root, `ModelDownload`
+> builds its request through `EgressRequest.For` with a purpose, and `ReleaseSurfaceTests` now fails the
+> build on a bare `new HttpClient()` anywhere in the client. The convention the guard's own comment
+> described is now a test.
+
 `EgressGuard.cs:13` claims to be *"the handler every `HttpClient` in the client is built with."* Nothing
 in the client constructs an `EgressGuard`, an `HttpClient`, or registers either in DI. The only consumer
 that exists — `ModelDownload.cs:102` — builds its request **without a purpose**, so the first time a guard
@@ -217,6 +230,11 @@ add a `ReleaseSurfaceTests`-style scan banning bare `new HttpClient(` in client 
 already exists).
 
 ## P1-2 · The diagnostics panel shows fabricated data
+
+> **Fixed in ST-085 (#59).** The panel asks the service (`get_diagnostics`) every time it opens, and shows
+> "Not connected to the capture service — capture state unknown" when it cannot, rather than zeros that
+> read as facts. The sample survives for the CI render and a test fails the build if anything outside the
+> window's own file reaches it.
 
 `client/ScreenTail.UI/Diagnostics/DiagnosticsWindow.xaml.cs:25-36` — the parameterless constructor (the
 only one used) renders a hard-coded sample: `Local-only: true`, `Egress blocked: 0`,
@@ -278,6 +296,12 @@ is also not in the hash input, so ids can be renumbered freely.
 T11 (repudiation) rests on this.
 
 ## P1-6 · Sixteen idle connections lock the UI out of the capture service
+
+> **Fixed in ST-085 (#59).** The newcomer is never refused; when the handshake table is full the oldest
+> *silent* peer is dropped instead, which a real client never is because it writes `hello` in the same
+> breath as connecting. The deadline is two seconds rather than five. `SilentConnectionsCannotLockTheRealUiOut`
+> opens twenty silent pipes from one process and then connects normally; it failed before the change with
+> the exact symptom described here.
 
 `IpcServer.cs:175-181` caps in-flight handshakes with one global counter, no per-peer accounting and no
 fairness. A same-user process — explicitly in scope — opens 16+ connections, sends nothing, and refills

@@ -1,6 +1,6 @@
 using System.Runtime.Versioning;
+using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Host;
-using ScreenTail.Service.Ipc;
 
 namespace ScreenTail.Tests.Windows.Ipc;
 

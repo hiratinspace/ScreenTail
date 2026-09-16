@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using ScreenTail.Core.Net;
 
 namespace ScreenTail.Core.Speech;
 
@@ -99,7 +100,11 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
         IProgress<DownloadProgress>? progress,
         CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, model.Source);
+        // Built with its purpose, because the guard decides by purpose and refuses a request that arrives
+        // without one (INV-8). Before ST-085 wired the guard at the composition root nothing here carried
+        // one, so the first time a guard was installed model downloads would have failed closed and the
+        // tempting fix would have been to hand this an unguarded client.
+        using var request = EgressRequest.For(HttpMethod.Get, model.Source, EgressPurpose.ModelDownload);
         if (from > 0)
         {
             request.Headers.Range = new RangeHeaderValue(from, null);

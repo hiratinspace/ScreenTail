@@ -65,7 +65,7 @@ jobs:
             # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
             # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
             # for evidence that is never coming.
-            flag '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions)/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
+            flag '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 

@@ -3,7 +3,7 @@ using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
-namespace ScreenTail.Service.Ipc;
+namespace ScreenTail.Platform.Ipc;
 
 /// <summary>ADR-0003 rule 1: the pipe's DACL admits only the user the service runs as.</summary>
 [SupportedOSPlatform("windows")]

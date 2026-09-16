@@ -33,6 +33,7 @@ public sealed class ReleaseSurfaceTests
         "ScreenTail.Service",
         "ScreenTail.Shared",
         "ScreenTail.UI",
+        "ScreenTail.Platform",
     ];
 
     public static TheoryData<string> ClientProjects() => [.. Projects];
@@ -72,6 +73,55 @@ public sealed class ReleaseSurfaceTests
     }
 
     [Fact]
+    public void TheUiProcessCannotReachTheCaptureEngine()
+    {
+        // ST-085's architecture rule, and the reason the UI is safe to leave running all day. The UI holds
+        // no store, no hooks and no OCR: everything it knows arrives over the pipe, so INV-1's read-path
+        // filtering has one owner rather than one per window. A project reference is how that would be
+        // undone, and it would look like a convenience in the diff.
+        var project = ProjectFile("ScreenTail.UI");
+        var text = File.ReadAllText(project);
+
+        Assert.DoesNotContain("ScreenTail.Service", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryHttpClientInTheClientIsBuiltThroughTheEgressGuard()
+    {
+        // INV-8 says local-only mode is enforced by an allow-list, "not by convention". EgressGuard's own
+        // comment called itself "the handler every HttpClient in the client is built with" while nothing
+        // constructed one anywhere (weaknesses P1-1), which is precisely the convention it was written to
+        // replace. The first bare client is the one that gets it wrong, so there are none.
+        var offenders = Projects
+            .SelectMany(SourceFiles)
+            .Where(file => !file.EndsWith("EgressGuard.cs", StringComparison.Ordinal))
+            .Where(file => BareHttpClient.IsMatch(File.ReadAllText(file)))
+            .Select(Path.GetFileName)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            $"Build HttpClient through EgressGuard so INV-8 is enforced rather than remembered. Found in: {string.Join(", ", offenders)}");
+    }
+
+    [Fact]
+    public void TheDiagnosticsPanelsSampleIsOnlyForTheRenderHarness()
+    {
+        // The panel is what a technician turns the screen round and shows a customer. It rendered a
+        // literal in production — "local-only: yes" from a constant — which is worse than no panel at all
+        // (weaknesses P1-2). The sample stays for the CI render; nothing that runs may reach it.
+        var offenders = SourceFiles("ScreenTail.UI")
+            .Where(file => !Path.GetFileName(file).StartsWith("DiagnosticsWindow", StringComparison.Ordinal))
+            .Where(file => File.ReadAllText(file).Contains("DiagnosticsWindow.Sample", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            $"The diagnostics panel shows what the service said, never a sample. Found in: {string.Join(", ", offenders)}");
+    }
+
+    [Fact]
     public void TheseTestsAreLookingAtRealFiles()
     {
         // The whole suite above passes trivially if the glob finds nothing — which is what happens the
@@ -80,6 +130,29 @@ public sealed class ReleaseSurfaceTests
         {
             Assert.True(SourceFiles(project).Count > 0, $"No sources found for {project}.");
         }
+    }
+
+    /// <summary>
+    /// <c>new HttpClient(</c> with no handler, or <c>new HttpClient()</c>. A client built around the
+    /// guard passes one in, which is the whole distinction.
+    /// </summary>
+    private static readonly Regex BareHttpClient = new(@"new\s+HttpClient\s*\(\s*\)", RegexOptions.Compiled);
+
+    private static string ProjectFile(string project)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "client", project, project + ".csproj");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"No project file for {project}.");
     }
 
     private static IReadOnlyList<string> SourceFiles(string project)

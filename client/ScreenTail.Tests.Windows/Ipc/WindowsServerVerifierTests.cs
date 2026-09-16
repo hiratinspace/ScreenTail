@@ -1,5 +1,5 @@
 using System.Runtime.Versioning;
-using ScreenTail.Service.Ipc;
+using ScreenTail.Platform.Ipc;
 
 namespace ScreenTail.Tests.Windows.Ipc;
 

@@ -22,7 +22,8 @@ public sealed class IpcServer : IAsyncDisposable
     private readonly ConcurrentDictionary<Guid, Connection> _clients = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly Dictionary<string, (long At, long Count)> _rejections = new(StringComparer.Ordinal);
-    private int _handshaking;
+    private readonly ConcurrentDictionary<long, Handshake> _handshakes = new();
+    private long _nextHandshake;
     private Task? _acceptLoop;
 
     public IpcServer(
@@ -61,10 +62,11 @@ public sealed class IpcServer : IAsyncDisposable
     public long RefusedConnections { get; private set; }
 
     /// <summary>
-    /// How long a peer has to complete the handshake. Generous for a local pipe, and short enough that
-    /// holding one open costs an attacker something.
+    /// How long a peer has to complete the handshake. A real client writes <c>hello</c> in the same
+    /// breath as connecting; two seconds is generous for a local pipe and short enough that holding one
+    /// open costs an attacker something.
     /// </summary>
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(2);
 
     /// <summary>One row per reason per minute, however fast the rejections arrive.</summary>
     private static readonly TimeSpan RejectionWindow = TimeSpan.FromMinutes(1);
@@ -170,21 +172,47 @@ public sealed class IpcServer : IAsyncDisposable
             }
 
             // A peer that connects and says nothing used to be held for ever, and there was no limit on
-            // how many of them. A same-user process could open thousands, park a task and a pipe handle
-            // for each, and starve the service out of the handles it needs to accept the real UI.
-            if (Interlocked.Increment(ref _handshaking) > MaxHandshakesInFlight)
-            {
-                _ = Interlocked.Decrement(ref _handshaking);
-                RefusedConnections++;
-                await pipe.DisposeAsync().ConfigureAwait(false);
-                continue;
-            }
+            // how many of them. The limit that replaced it refused the newcomer once the table was full,
+            // which handed the same attack a better outcome: sixteen silent connections from one process
+            // kept the table full, every refusal fell on whoever asked next, and the real UI was the one
+            // turned away (weaknesses P1-6). It could then neither see nor change capture state, which
+            // defeats INV-4 by making the indicator unreachable rather than by touching capture.
+            //
+            // So the newcomer is never refused. When the table is full the *oldest silent* handshake is
+            // dropped to make room, which is the one least likely to be a real client: a real client
+            // writes hello in the same breath as connecting, and is never the one that has been sitting
+            // there longest saying nothing.
+            var id = Interlocked.Increment(ref _nextHandshake);
+            var handshake = new Handshake(_stopping.Token);
+            _handshakes[id] = handshake;
+            EvictOldestSilent();
 
-            _ = HandleConnectionAsync(pipe);
+            _ = HandleConnectionAsync(pipe, id, handshake);
         }
     }
 
-    private async Task HandleConnectionAsync(NamedPipeServerStream pipe)
+    /// <summary>
+    /// Drops the oldest handshakes that have not spoken yet, until the table is back within its limit.
+    ///
+    /// Only ever silent ones: an entry is removed from the table the moment its peer says hello, so
+    /// anything still here has sent nothing. Cancelling its token ends its read, which closes its pipe.
+    /// </summary>
+    private void EvictOldestSilent()
+    {
+        while (_handshakes.Count > MaxHandshakesInFlight)
+        {
+            var oldest = _handshakes.OrderBy(entry => entry.Key).FirstOrDefault();
+            if (oldest.Value is null || !_handshakes.TryRemove(oldest.Key, out var evicted))
+            {
+                return;
+            }
+
+            RefusedConnections++;
+            evicted.Cancel();
+        }
+    }
+
+    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, long id, Handshake handshake)
     {
         var connection = new Connection(pipe);
         var counted = true;
@@ -192,8 +220,7 @@ public sealed class IpcServer : IAsyncDisposable
         {
             // A handshake has to arrive promptly. Without a deadline, a peer that connects and sends
             // nothing holds a pipe instance and a task until the service stops.
-            using var handshake = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
-            handshake.CancelAfter(HandshakeTimeout);
+            handshake.Deadline(HandshakeTimeout);
 
             string? reason;
             try
@@ -213,7 +240,7 @@ public sealed class IpcServer : IAsyncDisposable
                 return;
             }
 
-            _ = Interlocked.Decrement(ref _handshaking);
+            _ = _handshakes.TryRemove(id, out _);
             counted = false;
 
             _clients[connection.Id] = connection;
@@ -227,9 +254,10 @@ public sealed class IpcServer : IAsyncDisposable
         {
             if (counted)
             {
-                _ = Interlocked.Decrement(ref _handshaking);
+                _ = _handshakes.TryRemove(id, out _);
             }
 
+            handshake.Dispose();
             _clients.TryRemove(connection.Id, out _);
             await connection.DisposeAsync().ConfigureAwait(false);
         }
@@ -335,12 +363,50 @@ public sealed class IpcServer : IAsyncDisposable
                     result = new CommandResult { RequestId = command.RequestId, Ok = true };
                     break;
                 default:
-                    result = await _handler.HandleAsync(command, ct).ConfigureAwait(false);
+                    // A question is answered with its own event first and a result after, so a client
+                    // that only understands results still learns the command was accepted.
+                    if (await _handler.ReplyToAsync(command, ct).ConfigureAwait(false) is { } reply)
+                    {
+                        await connection.SendAsync(reply with { RequestId = command.RequestId }, ct).ConfigureAwait(false);
+                        result = new CommandResult { RequestId = command.RequestId, Ok = true };
+                    }
+                    else
+                    {
+                        result = await _handler.HandleAsync(command, ct).ConfigureAwait(false);
+                    }
+
                     break;
             }
 
             await connection.SendAsync(result, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// One handshake in flight: a token that ends it, whether because the deadline passed, the service is
+    /// stopping, or the table filled up and this was the oldest peer that had not spoken.
+    /// </summary>
+    private sealed class Handshake(CancellationToken stopping) : IDisposable
+    {
+        private readonly CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+
+        public CancellationToken Token => _cts.Token;
+
+        public void Deadline(TimeSpan within) => _cts.CancelAfter(within);
+
+        public void Cancel()
+        {
+            try
+            {
+                _cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The handshake finished between being chosen for eviction and being cancelled.
+            }
+        }
+
+        public void Dispose() => _cts.Dispose();
     }
 
     private sealed class Connection(NamedPipeServerStream pipe) : IAsyncDisposable

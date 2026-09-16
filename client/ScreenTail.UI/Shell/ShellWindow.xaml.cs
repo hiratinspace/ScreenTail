@@ -11,8 +11,22 @@ public partial class ShellWindow : Window
     private readonly string? _screenshotDirectory;
 
     public ShellWindow()
-        : this(null)
+        : this((string?)null)
     {
+    }
+
+    /// <summary>
+    /// The running application's shell, bound to the store the pipe feeds (ST-085).
+    ///
+    /// The other constructor builds a sample and renders it; this one shows what the service actually
+    /// said. Keeping them apart is the point: a screenshot harness that shares a code path with the real
+    /// window is one edit away from shipping the sample.
+    /// </summary>
+    public ShellWindow(ShellState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        InitializeComponent();
+        DataContext = new ShellViewModel(state);
     }
 
     public ShellWindow(string? screenshotDirectory)

@@ -1630,7 +1630,7 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** Open. Added 2026-09-15. The single highest-leverage ticket left: it makes INV-4 true in the running application.
+- **Status:** **Done on the Mac side 2026-09-16 (#59)** — the UI connects, a real tray icon exists, the pill follows live state, diagnostics and the session list are answered by the service, `erase_all_local_data` reaches the eraser, the egress guard is at the composition root, and the connection flood no longer locks the UI out. 771 Core tests green. ADR-0005 adds `ScreenTail.Platform` so the UI can verify the service without referencing it. **Not yet seen running:** the tray and pill following a real session on a machine with the service up, and the screenshots over a remote window. Both need the laptop, so the ticket closes when the hardware run has produced them.
 
 **Description:**
 Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`, `TrayPresence`, `LocalDataEraser`, `ReviewSession` and seven `ISessionStore` read methods have no production caller; the shell, HUD, history and diagnostics render literal sample data. This ticket connects the UI to the service over the authenticated pipe (ADR-0003) and makes every screen show live state. It also installs the egress guard at the composition root and adds the IPC command that ST-081's "delete everything" will call.

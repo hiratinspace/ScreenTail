@@ -5,14 +5,15 @@ using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Input;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Net;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
+using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Detection;
 using ScreenTail.Service.Input;
-using ScreenTail.Service.Ipc;
 using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
@@ -25,13 +26,40 @@ namespace ScreenTail.Service.Host;
 /// Capture sources (hooks, screenshots, speech) and drafting arrive with their tickets.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
-internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : BackgroundService
+internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostApplicationLifetime lifetime) : BackgroundService
 {
+    /// <summary>
+    /// Set by the <c>erase_all_local_data</c> command, acted on after everything is closed (INV-12).
+    ///
+    /// Deleting the store from under the loops that are writing to it would race every one of them, and on
+    /// Windows an open database file cannot be deleted at all. So the command asks the service to stop and
+    /// the erase happens once the last handle is gone, which is also why the UI sees the pipe drop:
+    /// the thing it was talking to is being deleted.
+    /// </summary>
+    private volatile bool _eraseOnShutdown;
+
     private static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ScreenTail");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await RunAsync(stoppingToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (_eraseOnShutdown)
+            {
+                // Everything above is disposed by now: the store is closed and its file can be removed.
+                var deleted = LocalDataEraser.Erase(DataDirectory);
+                LogErased(logger, deleted.Count);
+            }
+        }
+    }
+
+    private async Task RunAsync(CancellationToken stoppingToken)
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         var serviceExecutable = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot determine the service executable.");
@@ -57,11 +85,31 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
         var verifier = new WindowsClientVerifier(serviceExecutable);
         var pipeName = WindowsPipeFactory.PipeNameForCurrentUser();
+
+        // ST-046: every HTTP request the client makes is built through this, so INV-8 is enforced by the
+        // composition root rather than by convention. Nothing in the service makes one yet; the guard is
+        // installed now so that the first thing that does cannot accidentally be the exception.
+        var egress = new EgressGuard(new EgressPolicy());
+
+        // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
+        // request, by which time everything is wired.
+        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, null, null, null);
+        var controller = new CaptureController(
+            machine,
+            new WindowsCapabilityProbe(),
+            store,
+            () => diagnostics(),
+            _ =>
+            {
+                _eraseOnShutdown = true;
+                lifetime.StopApplication();
+                return Task.FromResult(true);
+            });
         await using var server = new IpcServer(
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
             verifier,
-            new CaptureController(machine, new WindowsCapabilityProbe()),
+            controller,
             store,
             version);
         Array.Clear(token);
@@ -191,6 +239,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
         var redacting = redaction.RunAsync(stoppingToken);
 
+        // Everything the "What's being captured right now?" panel shows now has a live source (ST-085).
+        // Counts and states only: the scope decision names a process, never a window title (INV-10).
+        diagnostics = () => Diagnostics(version, egress, coordinator.CurrentScope?.Reason, redaction.Progress, capture.DroppedOutOfScope);
+
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
@@ -252,4 +304,39 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger) : Backgro
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service stopping")]
     private static partial void LogStopping(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Delete everything: removed {Count} file(s) and the tokens directory")]
+    private static partial void LogErased(ILogger logger, int count);
+
+    /// <summary>
+    /// What the diagnostics panel shows, assembled from the things only this process can see.
+    ///
+    /// Every field is a state, a count or a device name. The active window appears as the scope decision's
+    /// own words — a process name and what is being done about it — because this text goes on a clipboard
+    /// and into tickets, and a window title there is a customer's business in someone's ticket (INV-10).
+    /// </summary>
+    private static DiagnosticsReported Diagnostics(
+        string version,
+        EgressGuard egress,
+        string? scope,
+        RedactionProgress? redaction,
+        long? keystrokesDropped)
+    {
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        return new DiagnosticsReported
+        {
+            Scope = scope ?? "Not capturing — no remote session in front",
+            Microphone = null, // ST-027 names the device once audio capture exists.
+            Suppression = null, // The HUD carries this from the capture state; the panel echoes it in ST-081.
+            RedactionBacklog = 0,
+            FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0),
+            KeystrokesDropped = keystrokesDropped ?? 0,
+            EgressBlocked = egress.Blocked,
+            LocalOnly = new EgressPolicy().Settings.LocalOnly,
+            PolicyVersion = "local", // ST-047 replaces this with the tenant's policy version.
+            CpuPercent = 0,
+            WorkingSetBytes = self.WorkingSet64,
+            ServiceVersion = version,
+        };
+    }
 }

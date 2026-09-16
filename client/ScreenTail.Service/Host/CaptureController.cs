@@ -1,18 +1,53 @@
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.History;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
+using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Service.Host;
 
-/// <summary>Maps pipe commands onto the session state machine (ST-020) and reports its state.</summary>
-internal sealed class CaptureController(SessionMachine machine, ICapabilityProbe capabilities) : IIpcCommandHandler
+/// <summary>
+/// Maps pipe commands onto the session state machine (ST-020), and answers the questions the UI asks
+/// about state that only the service can see (ST-085).
+///
+/// The questions matter as much as the commands. The UI process has no store, no hooks and no counters of
+/// its own, and that is deliberate: the service is the only thing that reads a frame, so INV-1's
+/// read-path filtering has one owner rather than one per window. Before this, every screen in the UI
+/// rendered a literal — a diagnostics panel that told a customer "local-only: yes" from a constant is
+/// worse than no panel at all (weaknesses P1-2).
+/// </summary>
+/// <param name="diagnostics">
+/// Built by the host, which is the only thing that can see the redaction worker, the capture loops, the
+/// scope decision and the egress guard at once. Counts and states only (INV-10).
+/// </param>
+/// <param name="eraseAll">
+/// Starts "delete everything" (INV-12). Returns once the service has agreed to shut down and erase, which
+/// is why the pipe drops immediately afterwards: the store it was serving is about to be deleted.
+/// </param>
+internal sealed class CaptureController(
+    SessionMachine machine,
+    ICapabilityProbe capabilities,
+    ISessionStore store,
+    Func<DiagnosticsReported> diagnostics,
+    Func<CancellationToken, Task<bool>> eraseAll) : IIpcCommandHandler
 {
     public CaptureStateSnapshot CurrentState => machine.Snapshot;
 
     // Probed on each request rather than cached: a technician can revoke microphone access mid-session.
     public CapabilitiesReported CurrentCapabilities => capabilities.Probe().ToWire();
+
+    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        return command switch
+        {
+            GetDiagnosticsCommand => diagnostics(),
+            ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
+            _ => null,
+        };
+    }
 
     public async Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default)
     {
@@ -26,6 +61,7 @@ internal sealed class CaptureController(SessionMachine machine, ICapabilityProbe
             StopCommand => await machine.StopAsync(ct).ConfigureAwait(false),
             DiscardCommand => await machine.DiscardAsync(ct).ConfigureAwait(false),
             MarkMomentCommand => await machine.MarkMomentAsync(ct).ConfigureAwait(false),
+            EraseAllLocalDataCommand => await eraseAll(ct).ConfigureAwait(false),
             _ => false,
         };
 
@@ -34,6 +70,32 @@ internal sealed class CaptureController(SessionMachine machine, ICapabilityProbe
             RequestId = command.RequestId,
             Ok = accepted,
             Error = accepted ? null : $"Not possible while {machine.State.ToWire()}.",
+        };
+    }
+
+    private async Task<SessionsListed> ListAsync(ListSessionsCommand command, CancellationToken ct)
+    {
+        var sessions = await store.ListSessionsAsync(ct).ConfigureAwait(false);
+        return new SessionsListed
+        {
+            Sessions = [.. sessions
+                .Take(Math.Clamp(command.Limit, 1, 1000))
+                .Select(s => new SessionRow
+                {
+                    Id = s.Id,
+                    StartedAt = s.StartedAt,
+                    DurationMs = s.DurationMs ?? 0,
+
+                    // ST-079's rule, applied here rather than in the UI, so the draft's text never
+                    // crosses the pipe just to be turned back into the word "Draft".
+                    Status = SessionHistory.StatusOf(s).ToString().ToLowerInvariant(),
+                    Tool = s.RemoteTool,
+
+                    // Redacted frames only. The store already counts them that way; saying so here keeps
+                    // the reason with the number (INV-1).
+                    Frames = s.Frames,
+                    FramesPurged = s.FramesPurgedUnredacted,
+                })],
         };
     }
 }

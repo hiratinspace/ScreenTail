@@ -5,7 +5,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using ScreenTail.Core.Ipc;
 
-namespace ScreenTail.Service.Ipc;
+namespace ScreenTail.Platform.Ipc;
 
 /// <summary>
 /// ST-012's third acceptance criterion: a modified service binary means the UI refuses to connect.
