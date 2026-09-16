@@ -115,16 +115,28 @@ jobs:
         run: dotnet format ScreenTail.sln --verify-no-changes --no-restore
       - name: Build (warnings are errors)
         run: dotnet build ScreenTail.sln -c Release --no-restore
-      # --report-trx so the next step can see what did not run. dotnet test exits 0 when every test
-      # skips, which is the hole ST-018 closes.
+      # Each test app is run directly rather than through `dotnet test`, so that it writes a TRX the
+      # skip gate below can read. `dotnet test` exits 0 when every test skips, which is the hole ST-018
+      # closes, and its argument forwarding does not reach xUnit's own -result-trx.
       - name: Test
-        run: dotnet test ScreenTail.sln -c Release --no-build -- --report-trx
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'trx'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $failed = $false
+          foreach ($proj in 'ScreenTail.Tests/ScreenTail.Tests.csproj', 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj') {
+            $name = [System.IO.Path]::GetFileNameWithoutExtension($proj)
+            $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release).Trim()
+            if (-not (Test-Path $dll)) { throw "No test binary for $proj at '$dll'." }
+            Write-Host "== $name"
+            dotnet $dll -result-trx (Join-Path $out "$name.trx")
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::$name exited $LASTEXITCODE"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
 
       - name: Skip gate
         if: always()
-        shell: pwsh
         working-directory: ${{ github.workspace }}
-        run: ./scripts/windows/check-skips.ps1 -Environment hosted -TrxGlob 'client/**/TestResults/*.trx'
+        run: ./scripts/windows/check-skips.ps1 -Environment hosted -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
       # ST-016: render the component gallery in dark, light and high contrast. Catches runtime XAML
       # errors the compiler can't, and produces the screenshots the ticket asks for.
