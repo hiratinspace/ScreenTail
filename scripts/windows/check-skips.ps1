@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     `dotnet test` exits 0 when every test skips. That makes a green tick mean "nothing went wrong",
-    not "the checks ran" — and on hardware that is the whole point of the run, the difference matters.
+    not "the checks ran", and on hardware that is the whole point of the run, the difference matters.
     Of 46 hardware facts, 18 always skipped on the hosted runner and up to 29 could skip, including
     TypingAPasswordRecordsOnlyHowManyKeys, which is INV-2's only end-to-end proof
     (docs/review/weaknesses.md P1-4).
@@ -21,6 +21,11 @@
 
 .PARAMETER BaselinePath
     The committed budget file.
+
+    Kept to ASCII on purpose. Windows PowerShell 5.1 reads a .ps1 with no byte-order mark as ANSI, so a
+    single non-ASCII character several lines up turns into mojibake and the parser then fails somewhere
+    else entirely with "the string is missing the terminator". spike-windows.yml parse-checks this file
+    against 5.1 and refuses non-ASCII in it.
 #>
 [CmdletBinding()]
 param(
@@ -64,7 +69,7 @@ foreach ($report in $reports) {
             'NotExecuted' {
                 $reason = $result.Output.ErrorInfo.Message
                 if ([string]::IsNullOrWhiteSpace($reason)) { $reason = '(no reason recorded)' }
-                $skipped.Add("$($result.testName) — $($reason -replace '\s+', ' ')")
+                $skipped.Add("$($result.testName): $($reason -replace '\s+', ' ')")
             }
             'Failed' { $failed++ }
         }
@@ -72,7 +77,7 @@ foreach ($report in $reports) {
 }
 
 $lines = @(
-    "## Windows skip gate — $Environment",
+    "## Windows skip gate: $Environment",
     '',
     "Ran **$total** tests from $($reports.Count) report(s): $failed failed, **$($skipped.Count) skipped**, budget **$($budget.maxSkipped)**.",
     ''
@@ -94,7 +99,7 @@ foreach ($line in $skipped) {
 }
 
 if ($skipped.Count -gt $budget.maxSkipped) {
-    Write-Host "::error::$($skipped.Count) tests skipped on $Environment against a budget of $($budget.maxSkipped). Every one of them is a fact nobody checked. Fix the machine, or make the case in review and lower the count another way — raising the budget is refused by the baseline check."
+    Write-Host "::error::$($skipped.Count) tests skipped on $Environment against a budget of $($budget.maxSkipped). Every one of them is a fact nobody checked. Fix the machine, or make the case in review and lower the count another way. Raising the budget is refused by the baseline check."
     exit 1
 }
 

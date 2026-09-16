@@ -101,8 +101,8 @@ else {
 # --- 2b. Let the runner execute step scripts -------------------------------------------------
 
 Write-Step 'Allow PowerShell scripts for this user'
-# The runner writes each `run:` block to a .ps1 and invokes it. A Restricted policy — the default on a
-# fresh Windows install — refuses, and every step on the machine fails with UnauthorizedAccess before it
+# The runner writes each `run:` block to a .ps1 and invokes it. A Restricted policy, the default on a
+# fresh Windows install, refuses: and every step on the machine fails with UnauthorizedAccess before it
 # runs a line. This bit the laptop on 2026-09-16, when hardware-checks failed on its first job.
 # RemoteSigned, at CurrentUser scope, needs no administrator and still refuses unsigned scripts from the
 # internet. The workflows also pass -ExecutionPolicy Bypass per invocation, so neither depends on the other.

@@ -49,10 +49,24 @@ jobs:
         shell: powershell
         run: |
           $failed = $false
-          foreach ($file in 'run-spike.ps1', 'ci-checks.ps1', '..\scripts\windows\setup-test-laptop.ps1') {
+          $scripts = 'run-spike.ps1', 'ci-checks.ps1',
+                     '..\scripts\windows\setup-test-laptop.ps1',
+                     '..\scripts\windows\check-skips.ps1'
+          foreach ($file in $scripts) {
+            $path = (Resolve-Path $file).Path
             $errors = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$null, [ref]$errors)
+            [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
             foreach ($e in $errors) { Write-Host "::error file=$file::$e"; $failed = $true }
+
+            # 5.1 reads a BOM-less .ps1 as ANSI, so one non-ASCII character corrupts everything after it
+            # and the parser fails somewhere unrelated. Cheaper to forbid the character than to debug the
+            # error it produces on a machine three time zones away (ST-018).
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $high = @($bytes | Where-Object { $_ -gt 127 })
+            if ($high.Count -gt 0) {
+              Write-Host "::error file=$file::$($high.Count) non-ASCII byte(s). Windows PowerShell 5.1 reads this file as ANSI and will mis-parse it. Use plain ASCII."
+              $failed = $true
+            }
           }
           if ($failed) { exit 1 }
 
