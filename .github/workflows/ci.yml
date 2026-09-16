@@ -125,7 +125,10 @@ jobs:
           $failed = $false
           foreach ($proj in 'ScreenTail.Tests/ScreenTail.Tests.csproj', 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj') {
             $name = [System.IO.Path]::GetFileNameWithoutExtension($proj)
-            $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release).Trim()
+            $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
+              Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
+            if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
+            $dll = $dll.Trim()
             if (-not (Test-Path $dll)) { throw "No test binary for $proj at '$dll'." }
             Write-Host "== $name"
             dotnet $dll -result-trx (Join-Path $out "$name.trx")

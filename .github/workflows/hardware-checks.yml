@@ -76,6 +76,11 @@ jobs:
       - name: Build the service
         run: dotnet build ScreenTail.Service/ScreenTail.Service.csproj -c Release
 
+      # Built explicitly because the test app is launched directly below rather than through
+      # `dotnet test`, which used to do this as a side effect.
+      - name: Build the Windows tests
+        run: dotnet build ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+
       - name: What this machine allows
         id: probe
         run: |
@@ -134,8 +139,11 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP 'trx'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $proj = 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
-          $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release).Trim()
-          if (-not (Test-Path $dll)) { throw "No test binary at '$dll'." }
+          $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
+            Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
+          if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
+          $dll = $dll.Trim()
+          if (-not (Test-Path $dll)) { throw "No test binary at '$dll'. Was it built?" }
           dotnet $dll -result-trx (Join-Path $out 'capabilities.trx')
           exit $LASTEXITCODE
 
@@ -198,6 +206,9 @@ jobs:
             $env:Path = "$installed;$env:Path"
           }
 
+      - name: Build the Windows tests
+        run: dotnet build ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+
       - name: Hooks under real keystrokes and clicks
         env:
           SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/measurements/input.txt
@@ -205,8 +216,11 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP 'trx'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $proj = 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
-          $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release).Trim()
-          if (-not (Test-Path $dll)) { throw "No test binary at '$dll'." }
+          $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
+            Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
+          if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
+          $dll = $dll.Trim()
+          if (-not (Test-Path $dll)) { throw "No test binary at '$dll'. Was it built?" }
           dotnet $dll -result-trx (Join-Path $out 'input.trx')
           exit $LASTEXITCODE
 

@@ -52,7 +52,7 @@ $reports = @(Get-ChildItem -Path $TrxGlob -Recurse -ErrorAction SilentlyContinue
 if ($reports.Count -eq 0) {
     # A missing report is the failure mode this script exists to catch, wearing a different hat: no
     # report means no evidence the tests ran at all.
-    Write-Host "::error::No TRX reports matched '$TrxGlob'. The test step must pass --report-trx."
+    Write-Host "::error::No TRX reports matched '$TrxGlob'. The test step must run the test app with -result-trx."
     exit 1
 }
 
