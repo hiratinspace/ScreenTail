@@ -28,6 +28,9 @@ on:
       - 'client/ScreenTail.Core/Ipc/**'
       - 'client/ScreenTail.Service/Sessions/**'
       - 'client/ScreenTail.Core/Sessions/**'
+      # ST-027: this one opens a real microphone, which is exactly what only this machine can check.
+      - 'client/ScreenTail.Service/Speech/**'
+      - 'client/ScreenTail.Core/Speech/**'
       - 'client/ScreenTail.Platform/**'
       - 'client/ScreenTail.Tests.Windows/**'
       - 'scripts/windows/**'
