@@ -54,15 +54,27 @@ All three were measured on 2026-09-16, not guessed.
 
 **The budgets may only go down.** A pull request that raises one fails the `The skip budget has not been raised` check in `ci.yml`. Lowering needs no ceremony, and a job says so whenever it skips fewer than its budget.
 
-The path filter that decides when the laptop is asked lives in two places that must agree:
-`hardware-checks.yml`'s `paths:` and the `hardware` flag in `ci.yml`'s change detection. If the first says
-no and the second says yes, the gate waits for evidence that is never coming; if the reverse, a change
-reaches `main` without the laptop seeing it. That second one happened on 2026-09-16: the speech pipeline,
-which opens a real microphone, was not in either list.
+**The path filter lives in two places and they have to agree exactly**: `hardware-checks.yml`'s `paths:`
+and the `hardware` flag in `ci.yml`'s change detection, which for this one flag uses `only` rather than
+`flag` so the shared files are not ORed in. If the filter says no and the flag says yes, the gate waits
+five minutes for evidence that is never coming and then says so. If the reverse, a change reaches `main`
+without the laptop seeing it.
+
+Both directions happened on 2026-09-16. The speech pipeline, which opens a real microphone, was in
+neither list. Then the shared files — `ci.yml` itself among them — were in the flag and not in the
+filter, so the pull request fixing the first problem failed its own gate. They were brought into line by
+narrowing the flag rather than widening the filter, because widening meant a one-line workflow edit took
+over the laptop's keyboard, and the hosted Windows job builds and tests everything either way.
 
 ### Hardware evidence is required now
 
 `hardware-checks` is a separate workflow, so it cannot be a `needs:` of `ci-ok`. The `Hardware evidence` job in `ci.yml` bridges them: when a PR touches the paths that need a real machine, it waits for the laptop's two jobs on the same commit and fails if they did not pass. It is part of `ci-ok`, so the one required check on `main` now covers hardware.
+
+**It runs on pull requests only.** `hardware-checks.yml` has no `push` trigger, so on a merge the gate
+would wait for laptop jobs that are never created. It did exactly that for three merges on 2026-09-16:
+the pull requests were green, the merge commits went red thirty-five minutes later, and nothing was wrong
+with any of them. Branch protection means every commit on `main` arrived through a pull request where the
+gate already ran, so re-checking the merge buys nothing.
 
 When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs-hardware-evidence`** and writes into the run summary that nothing needing a real desktop, screen or input has been checked. An unverified branch should say so rather than leave it to be inferred from a workflow that quietly did not run.
 
