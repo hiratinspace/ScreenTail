@@ -55,6 +55,15 @@ jobs:
           flag() {
             if [ "$files" = "__all__" ] || printf '%s\n' "$files" | grep -Eq "$1|$common"; then echo "$2=true"; else echo "$2=false"; fi
           }
+
+          # Without the shared files, unlike flag(). This one has to match hardware-checks.yml's paths:
+          # exactly, because the gate below waits for that workflow and a flag that says yes where the
+          # filter says no waits for a run that never starts. Widening the filter to match instead was
+          # the other way to make them agree, and it meant a one-line workflow edit took over the
+          # laptop's keyboard; the hosted Windows job still builds and tests everything either way.
+          only() {
+            if [ "$files" = "__all__" ] || printf '%s\n' "$files" | grep -Eq "$1"; then echo "$2=true"; else echo "$2=false"; fi
+          }
           {
             flag '^client/' client
             flag '^(backend/|\.dockerignore)' backend
@@ -65,7 +74,7 @@ jobs:
             # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
             # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
             # for evidence that is never coming.
-            flag '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
+            only '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 

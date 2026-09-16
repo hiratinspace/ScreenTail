@@ -55,14 +55,16 @@ All three were measured on 2026-09-16, not guessed.
 **The budgets may only go down.** A pull request that raises one fails the `The skip budget has not been raised` check in `ci.yml`. Lowering needs no ceremony, and a job says so whenever it skips fewer than its budget.
 
 **The path filter lives in two places and they have to agree exactly**: `hardware-checks.yml`'s `paths:`
-and the `hardware` flag in `ci.yml`'s change detection, which also ORs in the shared files that count as
-touching everything. If the first says no and the second says yes, the gate waits five minutes for
-evidence that is never coming and then says so. If the reverse, a change reaches `main` without the
-laptop seeing it.
+and the `hardware` flag in `ci.yml`'s change detection, which for this one flag uses `only` rather than
+`flag` so the shared files are not ORed in. If the filter says no and the flag says yes, the gate waits
+five minutes for evidence that is never coming and then says so. If the reverse, a change reaches `main`
+without the laptop seeing it.
 
 Both directions happened on 2026-09-16. The speech pipeline, which opens a real microphone, was in
-neither list. And the shared files — `ci.yml` itself among them — were in the `ci.yml` flag and not in
-the `paths:`, so the pull request that fixed the first problem failed its own gate.
+neither list. Then the shared files — `ci.yml` itself among them — were in the flag and not in the
+filter, so the pull request fixing the first problem failed its own gate. They were brought into line by
+narrowing the flag rather than widening the filter, because widening meant a one-line workflow edit took
+over the laptop's keyboard, and the hosted Windows job builds and tests everything either way.
 
 ### Hardware evidence is required now
 
