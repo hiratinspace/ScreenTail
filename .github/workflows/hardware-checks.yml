@@ -49,8 +49,12 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        # Windows PowerShell 5.1: the laptop has no pwsh.
-        shell: powershell
+        # Windows PowerShell 5.1 (the laptop has no pwsh), with the execution policy set per-invocation.
+        # The runner account's policy is Restricted by default and the runner invokes each step as a
+        # script file, so without this every step on this machine dies with UnauthorizedAccess — which is
+        # how the laptop came back on 2026-09-16. setup-test-laptop.ps1 sets the policy too; this makes
+        # the workflow independent of whether anyone remembered to.
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: client
     steps:
       - uses: actions/checkout@v7
@@ -131,7 +135,7 @@ jobs:
       # vanish and the job still went green.
       - name: Skip gate
         if: always()
-        shell: pwsh
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: ${{ github.workspace }}
         run: ./scripts/windows/check-skips.ps1 -Environment laptop -TrxGlob 'client/ScreenTail.Tests.Windows/**/TestResults/*.trx'
 
@@ -169,7 +173,7 @@ jobs:
       SCREENTAIL_ALLOW_INPUT_INJECTION: '1'
     defaults:
       run:
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: client
     steps:
       - uses: actions/checkout@v7
@@ -194,7 +198,7 @@ jobs:
       # this gate it could skip and take the invariant's evidence with it, silently.
       - name: Skip gate
         if: always()
-        shell: pwsh
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: ${{ github.workspace }}
         run: ./scripts/windows/check-skips.ps1 -Environment laptop -TrxGlob 'client/ScreenTail.Tests.Windows/**/TestResults/*.trx'
 

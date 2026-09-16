@@ -77,7 +77,7 @@ jobs:
     defaults:
       run:
         # Windows PowerShell 5.1: the laptop has no pwsh, and the scripts target 5.1 anyway.
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: spike
     steps:
       - uses: actions/checkout@v7

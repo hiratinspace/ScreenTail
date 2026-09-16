@@ -11,8 +11,9 @@
       2. downloads the latest GitHub Actions runner into -RunnerDir and registers it for the repo with
          the label 'screentail-win'. It does NOT install it as a Windows service: services run in
          session 0, where there is no desktop to hook or capture;
-      3. adds a Startup-folder shortcut so the runner starts at sign-in, and starts it now;
-      4. stops the laptop sleeping or turning off the screen while plugged in.
+      3. allows this user to run PowerShell scripts, which the runner needs to execute a workflow step;
+      4. adds a Startup-folder shortcut so the runner starts at sign-in, and starts it now;
+      5. stops the laptop sleeping or turning off the screen while plugged in.
     Steps it cannot do for you are printed at the end.
 
 .PARAMETER Token
@@ -95,6 +96,22 @@ else {
     finally {
         Pop-Location
     }
+}
+
+# --- 2b. Let the runner execute step scripts -------------------------------------------------
+
+Write-Step 'Allow PowerShell scripts for this user'
+# The runner writes each `run:` block to a .ps1 and invokes it. A Restricted policy — the default on a
+# fresh Windows install — refuses, and every step on the machine fails with UnauthorizedAccess before it
+# runs a line. This bit the laptop on 2026-09-16, when hardware-checks failed on its first job.
+# RemoteSigned, at CurrentUser scope, needs no administrator and still refuses unsigned scripts from the
+# internet. The workflows also pass -ExecutionPolicy Bypass per invocation, so neither depends on the other.
+$policy = Get-ExecutionPolicy -Scope CurrentUser
+if ($policy -in @('Restricted', 'Undefined')) {
+    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+    Write-Host "Execution policy for this user: $policy -> RemoteSigned"
+} else {
+    Write-Host "Execution policy for this user is already $policy."
 }
 
 # --- 3. Start at sign-in, in the desktop session ---------------------------------------------
