@@ -5,7 +5,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using ScreenTail.Core.Ipc;
 
-namespace ScreenTail.Service.Ipc;
+namespace ScreenTail.Platform.Ipc;
 
 /// <summary>
 /// ADR-0003 rule 2: the connecting process's executable must be Authenticode-signed by the same publisher

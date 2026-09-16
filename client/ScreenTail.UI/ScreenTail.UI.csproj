@@ -4,9 +4,21 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- For NotifyIcon only (ST-071, ST-085). WPF has no tray icon of its own, and INV-4 makes one
+         non-negotiable: the tray is the indicator that is on screen even when the HUD is dismissed.
+         Nothing else in the UI uses Windows Forms. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>ScreenTail.UI</RootNamespace>
     <AssemblyName>ScreenTail.UI</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Enabling Windows Forms brings its implicit usings with it, and System.Windows.Forms and
+         System.Drawing then collide with WPF's Application, Point, Size, TextBox and both EventArgs
+         types across every file in the project. The tray icon names what it needs explicitly instead. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
@@ -14,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTail.Platform\ScreenTail.Platform.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>
 </Project>

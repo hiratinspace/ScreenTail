@@ -9,11 +9,11 @@ namespace ScreenTail.Core.Ipc;
 /// <see cref="IpcRejectedException"/>; afterwards commands get their <see cref="CommandResult"/> and
 /// events raise <see cref="StateChanged"/>. Holds no capture state of its own: the service does (ADR-0003).
 /// </summary>
-public sealed class IpcClient : IAsyncDisposable
+public sealed class IpcClient : ICaptureChannel
 {
     private readonly NamedPipeClientStream _pipe;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<CommandResult>> _pending = new();
+    private readonly ConcurrentDictionary<int, TaskCompletionSource<IpcEvent>> _pending = new();
     private readonly CancellationTokenSource _closing = new();
     private int _nextRequestId;
     private Task? _readLoop;
@@ -112,6 +112,34 @@ public sealed class IpcClient : IAsyncDisposable
     /// <summary>Sends a command built with a fresh request id and waits for its result.</summary>
     public async Task<CommandResult> SendAsync(Func<int, IpcCommand> build, CancellationToken ct = default)
     {
+        var reply = await ExchangeAsync(build, ct).ConfigureAwait(false);
+        return reply as CommandResult
+            ?? new CommandResult { RequestId = reply.RequestId, Ok = false, Error = $"Unexpected reply {reply.GetType().Name}." };
+    }
+
+    /// <summary>
+    /// Sends a command whose answer is an event of its own rather than a bare result, and waits for it
+    /// (<c>get_capabilities</c>, <c>get_diagnostics</c>, <c>list_sessions</c>).
+    ///
+    /// The service answers a failure with a <see cref="CommandResult"/> even for these, so a refusal
+    /// arrives as an exception carrying the service's own words rather than as a null the caller has to
+    /// remember to check.
+    /// </summary>
+    /// <exception cref="IpcProtocolException">The service refused, or answered with something else.</exception>
+    public async Task<TReply> RequestAsync<TReply>(Func<int, IpcCommand> build, CancellationToken ct = default)
+        where TReply : IpcEvent
+    {
+        var reply = await ExchangeAsync(build, ct).ConfigureAwait(false);
+        return reply switch
+        {
+            TReply typed => typed,
+            CommandResult { Ok: false } failed => throw new IpcProtocolException(failed.Error ?? "The capture service refused the request."),
+            _ => throw new IpcProtocolException($"Expected {typeof(TReply).Name}, got {reply.GetType().Name}."),
+        };
+    }
+
+    private async Task<IpcEvent> ExchangeAsync(Func<int, IpcCommand> build, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(build);
         var requestId = Interlocked.Increment(ref _nextRequestId);
         var command = build(requestId);
@@ -120,7 +148,7 @@ public sealed class IpcClient : IAsyncDisposable
             throw new ArgumentException("The command must carry the request id it was given.", nameof(build));
         }
 
-        var completion = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<IpcEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[requestId] = completion;
         try
         {
@@ -168,21 +196,17 @@ public sealed class IpcClient : IAsyncDisposable
                     break;
                 }
 
-                switch (ipcEvent)
+                // A state change is always volunteered; everything else that carries a request id is an
+                // answer to one, whatever its type. One rule rather than a case per reply type, which is
+                // what let get_capabilities ship with a reply nothing could ever receive.
+                if (ipcEvent is StateChanged changed)
                 {
-                    case CommandResult result:
-                        if (_pending.TryGetValue(result.RequestId, out var completion))
-                        {
-                            completion.TrySetResult(result);
-                        }
-
-                        break;
-                    case StateChanged changed:
-                        State = changed.State;
-                        StateChanged?.Invoke(changed.State);
-                        break;
-                    default:
-                        break;
+                    State = changed.State;
+                    StateChanged?.Invoke(changed.State);
+                }
+                else if (ipcEvent.RequestId is { } id && _pending.TryGetValue(id, out var completion))
+                {
+                    completion.TrySetResult(ipcEvent);
                 }
             }
         }

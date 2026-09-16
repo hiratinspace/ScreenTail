@@ -60,6 +60,12 @@ public sealed class ShellPreferencesStore(string path)
         Converters = { new JsonStringEnumConverter() },
     };
 
+    /// <summary>Where the UI keeps them: beside the store, under the user's local app data.</summary>
+    public static string DefaultPath { get; } = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ScreenTail",
+        "shell.json");
+
     public string Path => path;
 
     public ShellPreferences Load()

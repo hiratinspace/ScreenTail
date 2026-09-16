@@ -3,7 +3,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
-namespace ScreenTail.Service.Ipc;
+namespace ScreenTail.Platform.Ipc;
 
 /// <summary>
 /// Whether a file's Authenticode signature is real, and who signed it (ST-012).

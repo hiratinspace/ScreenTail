@@ -16,6 +16,9 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(MarkMomentCommand), "mark_moment")]
 [JsonDerivedType(typeof(GetStateCommand), "get_state")]
 [JsonDerivedType(typeof(GetCapabilitiesCommand), "get_capabilities")]
+[JsonDerivedType(typeof(GetDiagnosticsCommand), "get_diagnostics")]
+[JsonDerivedType(typeof(ListSessionsCommand), "list_sessions")]
+[JsonDerivedType(typeof(EraseAllLocalDataCommand), "erase_all_local_data")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -55,6 +58,38 @@ public sealed record GetStateCommand : IpcCommand;
 /// <summary>Asks the service to re-check what Windows allows (ST-021). Answered by a <see cref="CapabilitiesReported"/>.</summary>
 public sealed record GetCapabilitiesCommand : IpcCommand;
 
+/// <summary>
+/// Asks what is being captured right now (ST-071, ST-085). Answered by a <see cref="DiagnosticsReported"/>.
+///
+/// The panel it feeds is what a technician turns to a customer and shows, so the answer has to come from
+/// the service rather than from anything the UI believes: a panel that says "local-only: yes" from a
+/// literal in the UI process is worse than no panel at all (weaknesses P1-2).
+/// </summary>
+public sealed record GetDiagnosticsCommand : IpcCommand;
+
+/// <summary>
+/// Asks for the session list behind the History screen (ST-079, ST-085). Answered by a
+/// <see cref="SessionsListed"/>.
+///
+/// The UI does not open the store. The service owns it, and it is the only process that reads a frame,
+/// so INV-1's read-path filtering has one owner rather than one per window.
+/// </summary>
+public sealed record ListSessionsCommand : IpcCommand
+{
+    /// <summary>How many rows at most. The screen pages; the pipe does not stream.</summary>
+    [JsonPropertyName("limit")]
+    public int Limit { get; init; } = 200;
+}
+
+/// <summary>
+/// Deletes every captured session and the tokens with them (INV-12).
+///
+/// The path existed in <c>LocalDataEraser</c> and was unreachable: nothing in the UI and no command on
+/// the pipe called it, so "delete everything" was a promise the product could not keep. ST-081 builds the
+/// Settings screen that asks for confirmation; this is the command behind the button.
+/// </summary>
+public sealed record EraseAllLocalDataCommand : IpcCommand;
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
@@ -62,7 +97,23 @@ public sealed record GetCapabilitiesCommand : IpcCommand;
 [JsonDerivedType(typeof(CommandResult), "result")]
 [JsonDerivedType(typeof(StateChanged), "state_changed")]
 [JsonDerivedType(typeof(CapabilitiesReported), "capabilities")]
-public abstract record IpcEvent;
+[JsonDerivedType(typeof(DiagnosticsReported), "diagnostics")]
+[JsonDerivedType(typeof(SessionsListed), "sessions")]
+public abstract record IpcEvent
+{
+    /// <summary>
+    /// The command this answers, when it answers one. Null for events the service volunteers, such as
+    /// <see cref="StateChanged"/>.
+    ///
+    /// On the base type so that one rule covers every reply: the client completes the pending request
+    /// whose id matches, whatever the event's type. Without it each new request/reply pair needed its own
+    /// plumbing, and <c>get_capabilities</c> — which has had a reply type since ST-021 — would have hung
+    /// the first time anything asked, because the read loop only ever completed a <see cref="CommandResult"/>.
+    /// </summary>
+    [JsonPropertyName("request_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RequestId { get; init; }
+}
 
 public sealed record HelloAck : IpcEvent
 {
@@ -85,9 +136,7 @@ public sealed record Rejected : IpcEvent
 
 public sealed record CommandResult : IpcEvent
 {
-    [JsonPropertyName("request_id")]
-    public required int RequestId { get; init; }
-
+    /// <summary>Always present on a result, unlike on the base type, where an unsolicited event has none.</summary>
     [JsonPropertyName("ok")]
     public required bool Ok { get; init; }
 
@@ -169,10 +218,6 @@ public sealed record CaptureStateSnapshot
 /// <summary>What Windows is allowing right now (ST-021). Sent on request and whenever a check changes.</summary>
 public sealed record CapabilitiesReported : IpcEvent
 {
-    [JsonPropertyName("request_id")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? RequestId { get; init; }
-
     [JsonPropertyName("checked_at")]
     public required DateTimeOffset CheckedAt { get; init; }
 
@@ -216,4 +261,99 @@ public static class CaptureStates
     public const string Finalizing = "finalizing";
     public const string DraftReady = "draft_ready";
     public const string DraftFailed = "draft_failed";
+}
+
+/// <summary>
+/// What the "What's being captured right now?" panel shows (ST-071, ST-085).
+///
+/// Every field is a state, a count or a device name. Nothing here has ever been on a customer's screen:
+/// the active window is named by its process, never by its title, because this text goes on a clipboard
+/// and into tickets (INV-10).
+/// </summary>
+public sealed record DiagnosticsReported : IpcEvent
+{
+    /// <summary>The scope decision's own words: a process name and what is being done about it.</summary>
+    [JsonPropertyName("scope")]
+    public required string Scope { get; init; }
+
+    /// <summary>The device name, or null when there is none. A device name, never audio.</summary>
+    [JsonPropertyName("microphone")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Microphone { get; init; }
+
+    [JsonPropertyName("suppression")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Suppression { get; init; }
+
+    [JsonPropertyName("redaction_backlog")]
+    public required int RedactionBacklog { get; init; }
+
+    /// <summary>Frames deleted because they could not be checked (INV-1).</summary>
+    [JsonPropertyName("frames_dropped")]
+    public required long FramesDropped { get; init; }
+
+    /// <summary>Keyboard events dropped for being out of scope (INV-6).</summary>
+    [JsonPropertyName("keystrokes_dropped")]
+    public required long KeystrokesDropped { get; init; }
+
+    /// <summary>Requests the egress guard refused (INV-8).</summary>
+    [JsonPropertyName("egress_blocked")]
+    public required long EgressBlocked { get; init; }
+
+    [JsonPropertyName("local_only")]
+    public required bool LocalOnly { get; init; }
+
+    [JsonPropertyName("policy_version")]
+    public required string PolicyVersion { get; init; }
+
+    [JsonPropertyName("cpu_percent")]
+    public required double CpuPercent { get; init; }
+
+    [JsonPropertyName("working_set_bytes")]
+    public required long WorkingSetBytes { get; init; }
+
+    [JsonPropertyName("service_version")]
+    public required string ServiceVersion { get; init; }
+}
+
+/// <summary>The History screen's rows (ST-079), read from the store by the service.</summary>
+public sealed record SessionsListed : IpcEvent
+{
+    [JsonPropertyName("sessions")]
+    public required IReadOnlyList<SessionRow> Sessions { get; init; }
+}
+
+/// <summary>
+/// One row of the History screen (Spec §5 S4).
+///
+/// The status is computed by the service rather than derived here from the note, so the draft's text
+/// never crosses the pipe to be displayed as a status. What the screen shows is a state, a count and a
+/// process name.
+/// </summary>
+public sealed record SessionRow
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("started_at")]
+    public required DateTimeOffset StartedAt { get; init; }
+
+    [JsonPropertyName("duration_ms")]
+    public required long DurationMs { get; init; }
+
+    /// <summary>One of <c>draft</c>, <c>published</c>, <c>discarded</c>, <c>partial</c>, <c>pending</c>.</summary>
+    [JsonPropertyName("status")]
+    public required string Status { get; init; }
+
+    [JsonPropertyName("tool")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Tool { get; init; }
+
+    /// <summary>Redacted frames only. A pending frame is not one anything outside redaction may count (INV-1).</summary>
+    [JsonPropertyName("frames")]
+    public required int Frames { get; init; }
+
+    /// <summary>Frames deleted because they could not be checked, so Review can show the gap rather than hide it.</summary>
+    [JsonPropertyName("frames_purged")]
+    public required long FramesPurged { get; init; }
 }

@@ -5,8 +5,17 @@ using ScreenTail.UI.Theme;
 
 namespace ScreenTail.UI;
 
-public partial class App : Application
+/// <summary>
+/// Entry point for both of the UI's lives: the CI screenshot harnesses, and the application.
+///
+/// Disposable because the application owns the live shell, which owns the pipe, the tray icon and the
+/// pill. WPF calls <see cref="OnExit"/> on a clean shutdown; <see cref="Dispose"/> is what makes that
+/// promise good when something else tears the process down first.
+/// </summary>
+public partial class App : Application, IDisposable
 {
+    private Shell.LiveShell? _live;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -61,7 +70,7 @@ public partial class App : Application
             // ST-074's pane, rendered against a fixture in every state and theme. Same trick as the shell.
             window = new Review.NotePreviewWindow(directory);
         }
-        else
+        else if (directory is not null)
         {
             // The shell renders itself the same way the gallery does when asked. RenderTargetBitmap draws
             // offscreen, so this works on a hosted runner with no interactive desktop — which is what makes
@@ -70,8 +79,38 @@ public partial class App : Application
             // binding to a property that is not there.
             window = new ShellWindow(directory);
         }
+        else
+        {
+            // The application (ST-085). Everything above this line is a screenshot harness; this is the
+            // only path that connects to the capture service, and until it existed the UI process was a
+            // set of windows rendering literals with INV-4 enforced by nothing (weaknesses P0-2).
+            //
+            // It starts in the tray rather than opening a window. A technician's first session of the day
+            // begins by focusing a remote-support tool, not by opening us, and the pill and the tray icon
+            // are the whole interface until there is a draft to review.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _live = new Shell.LiveShell();
+            _ = _live.StartAsync();
+            return;
+        }
 
         MainWindow = window;
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        Dispose();
+        base.OnExit(e);
+    }
+
+    public void Dispose()
+    {
+        // Synchronous on purpose: this runs on the way out, and an async void here would let the process
+        // exit with the tray icon still in the notification area — the ghost icon that only disappears
+        // when the mouse passes over it.
+        _live?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _live = null;
+        GC.SuppressFinalize(this);
     }
 }

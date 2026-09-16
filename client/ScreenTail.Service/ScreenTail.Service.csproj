@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTail.Platform\ScreenTail.Platform.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>
 

@@ -83,6 +83,97 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task SilentConnectionsCannotLockTheRealUiOut()
+    {
+        // ST-085 (weaknesses P1-6). The handshake limit was one global counter with no fairness, so a
+        // same-user process — explicitly in scope — could open sixteen connections, send nothing, and
+        // refill every slot as the timeout reaped them. The real UI then saw the pipe closed during its
+        // handshake, could not see or change capture state, and INV-4's indicator became unreachable
+        // without touching capture at all.
+        await StartServerAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        // Twenty silent peers: more than the global limit, all from one process.
+        var squatters = new List<NamedPipeClientStream>();
+        try
+        {
+            for (var i = 0; i < 20; i++)
+            {
+                var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                try
+                {
+                    await pipe.ConnectAsync(200, ct);
+                    squatters.Add(pipe);
+                }
+                catch (TimeoutException)
+                {
+                    await pipe.DisposeAsync();
+                }
+            }
+
+            // The UI still gets in, while every one of them is still holding its pipe open and saying
+            // nothing.
+            await using var ui = await ConnectAsync();
+            Assert.Equal(CaptureStates.Idle, ui.State.State);
+        }
+        finally
+        {
+            foreach (var pipe in squatters)
+            {
+                await pipe.DisposeAsync();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AQuestionIsAnsweredWithItsOwnEventCarryingTheRequestId()
+    {
+        // ST-085. Commands were answered by a result and nothing else, so a reply type with its own shape
+        // had no way home: get_capabilities has had one since ST-021 and would have hung the first time
+        // anything asked, because the client only ever completed a CommandResult. The reply now carries
+        // the request id like everything else, and one rule in the read loop matches them up.
+        _controller.Answer = new SessionsListed
+        {
+            Sessions = [new SessionRow
+            {
+                Id = "s1",
+                StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero),
+                DurationMs = 61_000,
+                Status = "draft",
+                Tool = "screenconnect",
+                Frames = 7,
+                FramesPurged = 1,
+            }],
+        };
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+
+        var reply = await ui.RequestAsync<SessionsListed>(
+            id => new ListSessionsCommand { RequestId = id },
+            TestContext.Current.CancellationToken);
+
+        var row = Assert.Single(reply.Sessions);
+        Assert.Equal("s1", row.Id);
+        Assert.Equal(7, row.Frames);
+    }
+
+    [Fact]
+    public async Task AQuestionTheServiceWillNotAnswerFailsRatherThanHanging()
+    {
+        // No answer set, so the handler treats it as an instruction and returns a plain result. The
+        // client must turn that into an error the caller can show, not wait for an event that is never
+        // coming: a screen that hangs on open is worse than one that says it could not ask.
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+
+        var reply = await ui.SendAsync(
+            id => new ListSessionsCommand { RequestId = id },
+            TestContext.Current.CancellationToken);
+
+        Assert.True(reply.Ok);
+    }
+
+    [Fact]
     public async Task UnverifiedClientIsRejectedAndAudited()
     {
         await StartServerAsync(new FakeVerifier("unsigned"));
@@ -321,10 +412,24 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         public CaptureStateSnapshot CurrentState => State;
 
+        /// <summary>What a question is answered with, when a test sets one.</summary>
+        public IpcEvent? Answer { get; set; }
+
         public Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default)
         {
             Received.Add(command);
             return Task.FromResult(new CommandResult { RequestId = command.RequestId, Ok = true });
+        }
+
+        public Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+        {
+            if (Answer is null || command is not ListSessionsCommand)
+            {
+                return Task.FromResult<IpcEvent?>(null);
+            }
+
+            Received.Add(command);
+            return Task.FromResult<IpcEvent?>(Answer);
         }
     }
 

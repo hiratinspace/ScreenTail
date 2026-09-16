@@ -23,6 +23,17 @@ public interface IIpcCommandHandler
     CapabilitiesReported CurrentCapabilities { get; }
 
     Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// The reply an asking command wants, or null when the command is an instruction rather than a
+    /// question (ST-085).
+    ///
+    /// Separate from <see cref="HandleAsync"/> because the two answer differently: an instruction gets a
+    /// result saying whether it was accepted, while a question gets an event of its own and a result
+    /// saying the question was understood. Keeping them apart is what stops <see cref="IpcServer"/>
+    /// growing a case per reply type.
+    /// </summary>
+    Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default) => Task.FromResult<IpcEvent?>(null);
 }
 
 /// <summary>
