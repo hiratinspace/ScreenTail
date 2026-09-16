@@ -8,6 +8,7 @@ using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
+using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
@@ -15,6 +16,7 @@ using ScreenTail.Service.Capture;
 using ScreenTail.Service.Detection;
 using ScreenTail.Service.Input;
 using ScreenTail.Service.Privacy;
+using ScreenTail.Service.Speech;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
 
@@ -239,9 +241,41 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         var redacting = redaction.RunAsync(stoppingToken);
 
+        // ST-027: the technician's narration, transcribed on this machine and never anywhere else
+        // (INV-9). The model is fetched on first use through the egress guard, which is the only network
+        // request the capture service makes; audio itself never leaves.
+        //
+        // Nothing here can stop the session. A machine with no microphone, a blocked one, or a model that
+        // will not download all end the same way: clicks and screenshots are still recorded and the note
+        // is written without narration.
+        await using var microphone = new WindowsMicrophone();
+        await using var whisper = new WhisperRecogniser(new ModelDownload(new HttpClient(egress)));
+        var narration = new NarrationRecorder(
+            microphone,
+            whisper,
+            (segment, ct) => machine.TryAppendTranscriptAsync(segment, ct));
+        LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
+
+        var preparing = Task.Run(
+            async () =>
+            {
+                if (microphone.DeviceName is not null && !await whisper.PrepareAsync(stoppingToken).ConfigureAwait(false))
+                {
+                    LogNoModel(logger, whisper.ModelName);
+                }
+            },
+            stoppingToken);
+        var listening = narration.RunAsync(stoppingToken);
+
         // Everything the "What's being captured right now?" panel shows now has a live source (ST-085).
         // Counts and states only: the scope decision names a process, never a window title (INV-10).
-        diagnostics = () => Diagnostics(version, egress, coordinator.CurrentScope?.Reason, redaction.Progress, capture.DroppedOutOfScope);
+        diagnostics = () => Diagnostics(
+            version,
+            egress,
+            coordinator.CurrentScope?.Reason,
+            redaction.Progress,
+            capture.DroppedOutOfScope,
+            narration.Microphone);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
@@ -262,7 +296,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding, watchingFields).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding, watchingFields, listening, preparing).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -308,6 +342,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Warning, Message = "Delete everything: removed {Count} file(s) and the tokens directory")]
     private static partial void LogErased(ILogger logger, int count);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
+    private static partial void LogMicrophone(ILogger logger, string device, string model);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Speech model {Model} could not be prepared; this session has no narration")]
+    private static partial void LogNoModel(ILogger logger, string model);
+
     /// <summary>
     /// What the diagnostics panel shows, assembled from the things only this process can see.
     ///
@@ -320,13 +360,14 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         EgressGuard egress,
         string? scope,
         RedactionProgress? redaction,
-        long? keystrokesDropped)
+        long? keystrokesDropped,
+        string? microphone = null)
     {
         using var self = System.Diagnostics.Process.GetCurrentProcess();
         return new DiagnosticsReported
         {
             Scope = scope ?? "Not capturing — no remote session in front",
-            Microphone = null, // ST-027 names the device once audio capture exists.
+            Microphone = microphone, // A device name, never audio (INV-10).
             Suppression = null, // The HUD carries this from the capture state; the panel echoes it in ST-081.
             RedactionBacklog = 0,
             FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0),

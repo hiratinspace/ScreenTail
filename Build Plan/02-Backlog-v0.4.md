@@ -654,7 +654,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** Partial. SpeechGate, model download and TranscriptAssembler merged (#49). Remaining: microphone capture (buildable now, Phase B) and AC1 WER, which needs the owner's ten-minute recording (`research/fixtures/audio/README.md`).
+- **Status:** Partial. The pipeline is complete as of 2026-09-16 (#60): microphone capture, voice-activity detection, the gate, local transcription with hash-checked models, the hallucination filter, and the whole of it wired into the capture service. **AC1 (WER) and AC4 (lag) are unmeasured** and both are one command away — `--transcribe` runs a recording through the real pipeline and prints the transcript and the real-time ratio. They need the owner's ten-minute narration (`research/fixtures/audio/README.md`). The ticket closes when that number exists.
 
 **Description:**
 NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), timestamped `speaker: "tech"` segments (INV-9); lazy resumable model download.

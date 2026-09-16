@@ -1,7 +1,10 @@
 # Audio fixtures (ST-027)
 
-**Status: empty, and it needs a person with a microphone.** Everything else in the speech pipeline is
-built and tested; this is the one acceptance criterion that cannot be synthesised.
+**Status: empty, and it needs a person with a microphone.** The whole speech pipeline is built as of
+2026-09-16 — microphone capture, voice-activity detection, the gate, local transcription and the
+hallucination filter — and this is the one acceptance criterion that cannot be synthesised.
+
+When the recording lands, one command measures it. Nothing else is waiting.
 
 > ST-027 AC1 — *10-minute narrated test → WER ≤ 15% default model*
 
@@ -53,10 +56,24 @@ ffmpeg -i narration-01.m4a -ac 1 -ar 16000 -c:a pcm_s16le narration-01.wav
 
 ## Then
 
+On Windows, run the recording through the real pipeline — the same detector, gate, model and
+hallucination filter a session uses — and keep what it heard:
+
+```powershell
+dotnet run --project client/ScreenTail.Service -c Release -- `
+    --transcribe research/fixtures/audio/narration-01.wav > heard.txt
+```
+
+The first run downloads the model, which is about 150 MB and hash-checked. It also prints, to standard
+error, how long it took against how long the recording was: under 1.00x real time is ST-027's lag
+criterion (AC4) met on that machine.
+
+Then score it:
+
 ```
 python research/eval/wer.py \
     research/fixtures/audio/narration-01.txt \
-    <transcript the pipeline produced> \
+    heard.txt \
     --budget 0.15
 ```
 

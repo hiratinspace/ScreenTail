@@ -54,6 +54,12 @@ All three were measured on 2026-09-16, not guessed.
 
 **The budgets may only go down.** A pull request that raises one fails the `The skip budget has not been raised` check in `ci.yml`. Lowering needs no ceremony, and a job says so whenever it skips fewer than its budget.
 
+The path filter that decides when the laptop is asked lives in two places that must agree:
+`hardware-checks.yml`'s `paths:` and the `hardware` flag in `ci.yml`'s change detection. If the first says
+no and the second says yes, the gate waits for evidence that is never coming; if the reverse, a change
+reaches `main` without the laptop seeing it. That second one happened on 2026-09-16: the speech pipeline,
+which opens a real microphone, was not in either list.
+
 ### Hardware evidence is required now
 
 `hardware-checks` is a separate workflow, so it cannot be a `needs:` of `ci-ok`. The `Hardware evidence` job in `ci.yml` bridges them: when a PR touches the paths that need a real machine, it waits for the laptop's two jobs on the same commit and fails if they did not pass. It is part of `ci-ok`, so the one required check on `main` now covers hardware.
