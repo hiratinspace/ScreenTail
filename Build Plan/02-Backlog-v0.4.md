@@ -346,7 +346,7 @@ Windows 11 VM job installing the built client, replaying golden sessions through
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Open. Added 2026-09-15 from `docs/review/weaknesses.md` P1-4.
+- **Status:** **Done 2026-09-16 (#58).** Budgets measured, not guessed: hosted 10, laptop-capabilities 4, laptop-input 0. Proved by deliberately skipping a test — the gate failed all three jobs and named it — then removing it and watching them go green. Also fixed three things the laptop's return exposed: its execution policy blocked every step, Windows PowerShell mis-parsed a non-ASCII script, and `dotnet test` rejects the TRX option so the apps are run directly.
 
 **Description:**
 Make hardware evidence count. Today 18 of 46 hardware facts always skip on the hosted runner and up to 29 can skip; `dotnet test` exits 0 when everything skips; `hardware-checks` is not in `ci-ok`'s required set; its `paths:` filter omits `Store/**` and `Ipc/**`; and the `NO-DESKTOP` canary misses tests that return from the capability probe before constructing a window. INV-2's only end-to-end proof (`TypingAPasswordRecordsOnlyHowManyKeys`) runs in that optional job.
@@ -984,7 +984,7 @@ Backend policy (retention, Local-only enforce, exclusions, patterns, scope, tele
 - **Epic/Feature:** PRIVACY
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done on the Mac side 2026-09-15 (#57) — five fixes, ADR-0004, 745 Core tests green, solution builds clean, `dotnet format` clean. **Two Windows tests have never been run** (the busy-desktop CPU measurement and the moving-window assertion for P0-5) and the redaction median has not been re-measured; both need the laptop, so the ticket closes when ST-018 is in and the hardware suite has run.
+- **Status:** **Done 2026-09-16 (#57).** Five fixes and ADR-0004; 745 Core tests green. Verified on SCREENTRAIL during ST-018's runs: the moving-window assertion passes, the watcher costs 0.000-0.078% of a core with a window moving a hundred times a second (budget 0.5%), and redaction's worst frame fell from 2012 ms to 256-335 ms with the median at 171-173 ms (budget 700 ms). Each fix was also proved to have teeth by removing it.
 
 **Description:**
 The review found that the decision classes are right and the places that apply them are not. Five fixes, four of them under ten lines each: (P0-1) a frame the OCR engine reads nothing from is stored as redacted with nothing masked; (P0-3) the HUD hides itself when the UI does not know whether capture is running; (P0-5) the foreground watcher subscribes to an inclusive range of ~20 WinEvent types and publishes background windows as the foreground; (P2-1) the pattern library runs twice per frame; (P0-4) the excluded-app and out-of-scope drops live in the Windows loop layer where no test can reach them.
