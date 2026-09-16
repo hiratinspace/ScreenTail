@@ -35,6 +35,16 @@ on:
       - 'client/ScreenTail.Tests.Windows/**'
       - 'scripts/windows/**'
       - '.github/workflows/hardware-checks.yml'
+      # The files ci.yml treats as touching everything. Both filters have to agree exactly: ci.yml's
+      # `hardware` flag ORs this same set in, so a file listed there and not here makes the gate wait for
+      # a run that never starts. That is not hypothetical — leaving ci.yml out of this list is what made
+      # the pull request adding this comment fail its own gate.
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.editorconfig'
+      - '.gitattributes'
+      - '.github/workflows/ci.yml'
+      - 'shared/**'
   workflow_dispatch:
 
 concurrency:

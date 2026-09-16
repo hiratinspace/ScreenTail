@@ -54,11 +54,15 @@ All three were measured on 2026-09-16, not guessed.
 
 **The budgets may only go down.** A pull request that raises one fails the `The skip budget has not been raised` check in `ci.yml`. Lowering needs no ceremony, and a job says so whenever it skips fewer than its budget.
 
-The path filter that decides when the laptop is asked lives in two places that must agree:
-`hardware-checks.yml`'s `paths:` and the `hardware` flag in `ci.yml`'s change detection. If the first says
-no and the second says yes, the gate waits for evidence that is never coming; if the reverse, a change
-reaches `main` without the laptop seeing it. That second one happened on 2026-09-16: the speech pipeline,
-which opens a real microphone, was not in either list.
+**The path filter lives in two places and they have to agree exactly**: `hardware-checks.yml`'s `paths:`
+and the `hardware` flag in `ci.yml`'s change detection, which also ORs in the shared files that count as
+touching everything. If the first says no and the second says yes, the gate waits five minutes for
+evidence that is never coming and then says so. If the reverse, a change reaches `main` without the
+laptop seeing it.
+
+Both directions happened on 2026-09-16. The speech pipeline, which opens a real microphone, was in
+neither list. And the shared files — `ci.yml` itself among them — were in the `ci.yml` flag and not in
+the `paths:`, so the pull request that fixed the first problem failed its own gate.
 
 ### Hardware evidence is required now
 
