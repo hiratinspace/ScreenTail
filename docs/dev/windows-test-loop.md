@@ -30,8 +30,35 @@ Services run in session 0, which has no desktop. There, low-level hooks never fi
 Both of these cost a failed run before the real work started, so jobs that run on the laptop differ from the hosted ones:
 
 - **It isn't an administrator,** so `actions/setup-dotnet` fails: it installs into `C:\Program Files\dotnet`, which the runner account can't write to. The laptop job uses the SDKs that `setup-test-laptop.ps1` installed and fails with a clear message if they're missing.
-- **It has no PowerShell 7.** Hosted runners do, so `shell: pwsh` works there; the laptop job uses `shell: powershell` (Windows PowerShell 5.1), which is what the scripts target. CI parse-checks every script against 5.1.
+- **It has no PowerShell 7.** Hosted runners do, so `shell: pwsh` works there. Every laptop step runs through `powershell -ExecutionPolicy Bypass`, because the runner account's execution policy is Restricted by default and the runner invokes each step as a script file — without the flag every step dies with `UnauthorizedAccess` before running a line. `setup-test-laptop.ps1` sets the policy too, so neither depends on the other.
+- **Its PowerShell reads a BOM-less `.ps1` as ANSI.** One non-ASCII character corrupts everything after it and the parser then fails somewhere unrelated, complaining about an unterminated string eighty lines away. The scripts are ASCII, and `spike-windows.yml` parse-checks them and refuses a non-ASCII byte.
 - Windows PowerShell 5.1 writes a byte-order mark with `Out-File -Encoding utf8`, which corrupts `GITHUB_PATH`. Append to GitHub's files with `[System.IO.File]::AppendAllText` instead.
+
+## The skip gate (ST-018)
+
+`dotnet test` exits 0 when every test skips, so a green tick used to mean "nothing went wrong" rather than "the checks ran". On a machine that exists to answer questions no other machine can, those are very different claims — and on 2026-09-13 the laptop's session went away mid-afternoon, every test that needs a window started skipping, and both hardware jobs went on passing.
+
+Three things close that hole.
+
+**Each test app is run directly**, not through `dotnet test`, at the path `dotnet msbuild -getProperty:TargetPath` reports, with xUnit's `-result-trx`. `dotnet test` does not forward that option and rejects the Microsoft.Testing.Platform equivalent, which this project has no extension package for.
+
+**`scripts/windows/check-skips.ps1` counts what did not execute** and compares it with `client/ScreenTail.Tests.Windows/skip-baseline.json`. Every skipped test is named in the log and the job summary with its reason. The same assembly runs in three jobs with different permissions, so each has its own number:
+
+| Job | Budget | Why |
+|---|---|---|
+| `hosted` (windows-latest, both test projects) | 10 | Four input-injection tests need `SCREENTAIL_ALLOW_INPUT_INJECTION`; six performance tests refuse to enforce a budget on a shared cloud VM |
+| `laptop-capabilities` | 4 | The four input-injection tests belong to the job below |
+| `laptop-input` | 0 | Everything runs |
+
+All three were measured on 2026-09-16, not guessed.
+
+**The budgets may only go down.** A pull request that raises one fails the `The skip budget has not been raised` check in `ci.yml`. Lowering needs no ceremony, and a job says so whenever it skips fewer than its budget.
+
+### Hardware evidence is required now
+
+`hardware-checks` is a separate workflow, so it cannot be a `needs:` of `ci-ok`. The `Hardware evidence` job in `ci.yml` bridges them: when a PR touches the paths that need a real machine, it waits for the laptop's two jobs on the same commit and fails if they did not pass. It is part of `ci-ok`, so the one required check on `main` now covers hardware.
+
+When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs-hardware-evidence`** and writes into the run summary that nothing needing a real desktop, screen or input has been checked. An unverified branch should say so rather than leave it to be inferred from a workflow that quietly did not run.
 
 ### Security
 

@@ -5,8 +5,8 @@ reviews (security, invariant enforcement, performance, test quality), every head
 hand against the code before being written down here.
 
 **Status, 2026-09-15:** **ST-048 (#57) fixes P0-1, P0-3, P0-4, P0-5 and P2-1.** Each of those sections now opens
-with what was done. P0-2 and P1-1, P1-2 and P1-6 are ST-085 (wire the UI to the service); P1-4 is ST-018;
-the rest of P1 and the scheduled P2s are ST-049. Nothing here is closed by being ticketed — only the five
+with what was done. **ST-018 (#58) fixes P1-4.** P0-2 and P1-1, P1-2 and P1-6 are ST-085 (wire the UI to the service); the
+rest of P1 and the scheduled P2s are ST-049. Nothing here is closed by being ticketed — only the five
 marked **Fixed** are.
 
 ## How this is ranked
@@ -241,6 +241,15 @@ the same assertion.
 staged bytes.
 
 ## P1-4 · 63% of the hardware suite can vanish green, and it is not a required check
+
+> **Fixed in ST-018.** The Windows test apps emit TRX, a gate counts what did not execute against a
+> per-job budget measured on 2026-09-16 (hosted 10, laptop-capabilities 4, laptop-input 0) and names
+> every skipped test with its reason, and the budgets may only go down. A bridge job in `ci.yml` waits
+> for the laptop's jobs and is part of `ci-ok`, so hardware evidence is required; when the laptop is off
+> the PR is labelled `needs-hardware-evidence` and the summary says what went unverified. The `NO-DESKTOP`
+> canary is now written by the capability probe itself, so the ten tests that returned before building a
+> window are counted. The path filter gained the store, the pipe and the session machine. Proved by
+> deliberately skipping a test: the gate failed all three jobs and named it.
 
 Of 46 hardware facts, **18 always skip on the hosted runner and up to 29 can skip.** `dotnet test` exits 0
 when everything skips, and the `client` job has no skip gate.

@@ -18,24 +18,18 @@ namespace ScreenTail.Tests.Windows.Detection;
 /// </summary>
 public sealed class ForegroundWatcherTests
 {
-    private static bool HasDesktop =>
-        new WindowsCapabilityProbe().Probe()[Capability.DesktopSession].State == CapabilityState.Ok;
-
     /// <summary>
     /// Whether a timing measured here means anything. A GitHub-hosted runner is a shared cloud VM whose
     /// numbers the test loop has never counted (docs/dev/windows-test-loop.md) — it measured 322 ms against
     /// the 100 ms budget on a build that the laptop passed. Correctness is still checked everywhere; only
     /// the budget is held back for hardware we can reason about.
     /// </summary>
-    private static bool PerformanceCounts => !string.Equals(
-        Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"),
-        "github-hosted",
-        StringComparison.OrdinalIgnoreCase);
+    private static bool PerformanceCounts => Hardware.PerformanceCounts;
 
     [Fact]
     public async Task AFocusChangeIsReportedWithinTheBudget()
     {
-        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        Hardware.RequireDesktop();
         var title = $"ScreenTail probe {Guid.NewGuid():N}";
         await using var watcher = new WindowsForegroundWatcher();
         var seen = new TaskCompletionSource<ForegroundWindowInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -67,7 +61,7 @@ public sealed class ForegroundWatcherTests
     public async Task RetitlingTheWindowInFrontIsReported()
     {
         // What a browser does when the technician switches tabs: same window, new title.
-        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        Hardware.RequireDesktop();
         var first = $"ScreenTail before {Guid.NewGuid():N}";
         var second = $"ScreenTail after {Guid.NewGuid():N}";
         await using var watcher = new WindowsForegroundWatcher();
@@ -99,7 +93,7 @@ public sealed class ForegroundWatcherTests
         // handle different from the last was published as the foreground window, so ScopePolicy re-ran
         // against windows that were never in front. This is that bug in the shape a technician creates:
         // a window redrawing in the background while they work in the remote session.
-        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        Hardware.RequireDesktop();
         var ct = TestContext.Current.CancellationToken;
         var frontTitle = $"ScreenTail front {Guid.NewGuid():N}";
         var noisyTitle = $"ScreenTail noisy {Guid.NewGuid():N}";
@@ -147,7 +141,7 @@ public sealed class ForegroundWatcherTests
         // bug above costs nothing: no events, no wasted work, 0.000% of a core, and a green test sitting
         // on top of a CPU firehose (ST-048, weaknesses P0-5). A window moving in the background is the
         // cheapest honest approximation of a remote-desktop control redrawing under the cursor.
-        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        Hardware.RequireDesktop();
         using var noisy = DesktopWindow.Create($"ScreenTail busy {Guid.NewGuid():N}");
         await using var watcher = new WindowsForegroundWatcher();
         await watcher.StartAsync(TestContext.Current.CancellationToken);
@@ -196,7 +190,7 @@ public sealed class ForegroundWatcherTests
     [Fact]
     public async Task StartingAndStoppingLeavesNoThreadBehind()
     {
-        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        Hardware.RequireDesktop();
         var pumps = new List<uint>();
 
         for (var i = 0; i < 3; i++)
@@ -218,7 +212,7 @@ public sealed class ForegroundWatcherTests
     [Fact]
     public async Task TheWatcherReportsWhatIsAlreadyInFrontWhenItStarts()
     {
-        Assert.SkipUnless(HasDesktop, "No interactive desktop on this runner.");
+        Hardware.RequireDesktop();
         await using var watcher = new WindowsForegroundWatcher();
 
         await watcher.StartAsync(TestContext.Current.CancellationToken);

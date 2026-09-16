@@ -19,7 +19,17 @@ on:
       - 'client/ScreenTail.Core/Capture/**'
       - 'client/ScreenTail.Service/Privacy/**'
       - 'client/ScreenTail.Core/Privacy/**'
+      # ST-018: the store and the pipe were missing, so a change to either reached main without the
+      # laptop ever seeing it — including the encrypted store the capture path writes every frame
+      # through, and the handshake that decides who may talk to the service.
+      - 'client/ScreenTail.Service/Store/**'
+      - 'client/ScreenTail.Core/Store/**'
+      - 'client/ScreenTail.Service/Ipc/**'
+      - 'client/ScreenTail.Core/Ipc/**'
+      - 'client/ScreenTail.Service/Sessions/**'
+      - 'client/ScreenTail.Core/Sessions/**'
       - 'client/ScreenTail.Tests.Windows/**'
+      - 'scripts/windows/**'
       - '.github/workflows/hardware-checks.yml'
   workflow_dispatch:
 
@@ -39,8 +49,12 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        # Windows PowerShell 5.1: the laptop has no pwsh.
-        shell: powershell
+        # Windows PowerShell 5.1 (the laptop has no pwsh), with the execution policy set per-invocation.
+        # The runner account's policy is Restricted by default and the runner invokes each step as a
+        # script file, so without this every step on this machine dies with UnauthorizedAccess — which is
+        # how the laptop came back on 2026-09-16. setup-test-laptop.ps1 sets the policy too; this makes
+        # the workflow independent of whether anyone remembered to.
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: client
     steps:
       - uses: actions/checkout@v7
@@ -61,6 +75,11 @@ jobs:
 
       - name: Build the service
         run: dotnet build ScreenTail.Service/ScreenTail.Service.csproj -c Release
+
+      # Built explicitly because the test app is launched directly below rather than through
+      # `dotnet test`, which used to do this as a side effect.
+      - name: Build the Windows tests
+        run: dotnet build ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
 
       - name: What this machine allows
         id: probe
@@ -111,10 +130,31 @@ jobs:
 
       # Includes the ST-022 foreground tests, which create real windows and time how long the watcher takes
       # to notice. They skip on any machine without an interactive desktop, which is why they live here.
+      # Run the test app directly so it writes a TRX for the skip gate; see ci.yml for why not
+      # `dotnet test`.
       - name: Windows tests on real hardware
         env:
           SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/capabilities/measurements.txt
-        run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'trx'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $proj = 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
+          $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
+            Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
+          if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
+          $dll = $dll.Trim()
+          if (-not (Test-Path $dll)) { throw "No test binary at '$dll'. Was it built?" }
+          dotnet $dll -result-trx (Join-Path $out 'capabilities.trx')
+          exit $LASTEXITCODE
+
+      # ST-018. This is the machine whose answers count, so its budget is zero or close to it: a test
+      # that skips here is a fact nobody is checking, and until this step existed 63% of the suite could
+      # vanish and the job still went green.
+      - name: Skip gate
+        if: always()
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/windows/check-skips.ps1 -Environment laptop-capabilities -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
       # A green tick on a run that verified nothing is worse than a red one. On 2026-09-13 the laptop's
       # session became unavailable mid-afternoon; every test that needs a window started skipping and both
@@ -150,7 +190,7 @@ jobs:
       SCREENTAIL_ALLOW_INPUT_INJECTION: '1'
     defaults:
       run:
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: client
     steps:
       - uses: actions/checkout@v7
@@ -166,10 +206,31 @@ jobs:
             $env:Path = "$installed;$env:Path"
           }
 
+      - name: Build the Windows tests
+        run: dotnet build ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+
       - name: Hooks under real keystrokes and clicks
         env:
           SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/measurements/input.txt
-        run: dotnet test ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'trx'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $proj = 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
+          $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
+            Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
+          if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
+          $dll = $dll.Trim()
+          if (-not (Test-Path $dll)) { throw "No test binary at '$dll'. Was it built?" }
+          dotnet $dll -result-trx (Join-Path $out 'input.trx')
+          exit $LASTEXITCODE
+
+      # TypingAPasswordRecordsOnlyHowManyKeys is INV-2's only end-to-end proof and it runs here. Without
+      # this gate it could skip and take the invariant's evidence with it, silently.
+      - name: Skip gate
+        if: always()
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/windows/check-skips.ps1 -Environment laptop-input -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
       - name: What it measured
         if: always()

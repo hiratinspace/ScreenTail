@@ -32,6 +32,7 @@ jobs:
       research: ${{ steps.areas.outputs.research }}
       schema: ${{ steps.areas.outputs.schema }}
       design: ${{ steps.areas.outputs.design }}
+      hardware: ${{ steps.areas.outputs.hardware }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -61,8 +62,39 @@ jobs:
             flag '^research/' research
             flag '^(shared/schema/|client/ScreenTail\.Shared/Generated/|web/src/generated/)' schema
             flag '^(shared/design/|client/ScreenTail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
+            # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
+            # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
+            # for evidence that is never coming.
+            flag '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions)/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
+
+      # ST-018, the second half of the skip gate. The budget in skip-baseline.json is a ratchet: a pull
+      # request may tighten it freely and may not loosen it, so adding a skip cannot quietly buy itself
+      # room. Raising a number is a decision that has to be argued for, not a side effect.
+      - name: The skip budget has not been raised
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          FILE: client/ScreenTail.Tests.Windows/skip-baseline.json
+        run: |
+          if ! git cat-file -e "$BASE:$FILE" 2>/dev/null; then
+            echo "No baseline on the base branch yet; nothing to compare."
+            exit 0
+          fi
+          git show "$BASE:$FILE" > /tmp/base-baseline.json
+          bad=0
+          for envname in $(jq -r '.environments | keys[]' "$FILE"); do
+            was=$(jq -r ".environments.\"$envname\".maxSkipped // empty" /tmp/base-baseline.json)
+            if [ -z "$was" ]; then echo "$envname: new, nothing to compare"; continue; fi
+            now=$(jq -r ".environments.\"$envname\".maxSkipped" "$FILE")
+            echo "$envname: was $was, now $now"
+            if [ "$now" -gt "$was" ]; then
+              echo "::error file=$FILE::The '$envname' skip budget went from $was to $now. It may only go down. A test that skips is a fact nobody is checking; if the machine genuinely cannot run it, say so in the PR and get agreement rather than widening the gate."
+              bad=1
+            fi
+          done
+          exit $bad
 
   client:
     name: Client (Windows)
@@ -84,8 +116,31 @@ jobs:
         run: dotnet format ScreenTail.sln --verify-no-changes --no-restore
       - name: Build (warnings are errors)
         run: dotnet build ScreenTail.sln -c Release --no-restore
+      # Each test app is run directly rather than through `dotnet test`, so that it writes a TRX the
+      # skip gate below can read. `dotnet test` exits 0 when every test skips, which is the hole ST-018
+      # closes, and its argument forwarding does not reach xUnit's own -result-trx.
       - name: Test
-        run: dotnet test ScreenTail.sln -c Release --no-build
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'trx'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $failed = $false
+          foreach ($proj in 'ScreenTail.Tests/ScreenTail.Tests.csproj', 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj') {
+            $name = [System.IO.Path]::GetFileNameWithoutExtension($proj)
+            $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
+              Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
+            if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
+            $dll = $dll.Trim()
+            if (-not (Test-Path $dll)) { throw "No test binary for $proj at '$dll'." }
+            Write-Host "== $name"
+            dotnet $dll -result-trx (Join-Path $out "$name.trx")
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::$name exited $LASTEXITCODE"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Skip gate
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/windows/check-skips.ps1 -Environment hosted -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
       # ST-016: render the component gallery in dark, light and high contrast. Catches runtime XAML
       # errors the compiler can't, and produces the screenshots the ticket asks for.
@@ -363,10 +418,104 @@ jobs:
           done
           exit $bad
 
+  # ST-018. hardware-checks.yml runs on the spare laptop and cannot be a `needs:` of ci-ok, because it
+  # is a different workflow. This job is the bridge: it waits for that workflow's jobs on this commit and
+  # fails if they did not pass, so the one required check on main covers hardware evidence too.
+  #
+  # Before this, `hardware-checks` was not required by anything. It could fail, or never run, and a PR
+  # touching the capture path merged green (docs/review/weaknesses.md P1-4).
+  hardware-gate:
+    name: Hardware evidence
+    needs: changes
+    if: always() && needs.changes.outputs.hardware == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      checks: read
+      pull-requests: write
+    steps:
+      - name: Wait for the spare laptop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HW_RUNNER: ${{ vars.HW_RUNNER }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          required='Spare laptop - capabilities and real-window tests
+          Spare laptop - input injection (takes over the keyboard)'
+
+          if [ "${HW_RUNNER:-false}" != "true" ]; then
+            # The laptop is off. Saying so on the pull request is the point: this is the state in which
+            # every capture claim on the branch is unverified, and it should be visible rather than
+            # inferred from a workflow that quietly did not run.
+            {
+              echo "## Hardware evidence: none"
+              echo
+              echo "\`HW_RUNNER\` is not \`true\`, so the spare laptop did not run. Nothing on this branch that needs"
+              echo "a real desktop, a real screen or real input has been checked."
+              echo
+              echo "To get evidence: sign in on SCREENTRAIL, start the runner interactively, set the \`HW_RUNNER\`"
+              echo "repository variable to \`true\`, and re-run this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "${PR:-}" ]; then
+              gh label create needs-hardware-evidence --repo "$REPO" --color 'B60205' \
+                --description 'Touches the capture path; the spare laptop has not verified it' 2>/dev/null || true
+              gh pr edit "$PR" --repo "$REPO" --add-label needs-hardware-evidence || true
+            fi
+            echo "::warning::No hardware evidence for this branch; labelled needs-hardware-evidence."
+            exit 0
+          fi
+
+          if [ -n "${PR:-}" ]; then
+            gh pr edit "$PR" --repo "$REPO" --remove-label needs-hardware-evidence 2>/dev/null || true
+          fi
+
+          deadline=$(( $(date +%s) + 2100 ))
+          while :; do
+            runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" --paginate \
+              --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv' || true)
+            pending=0
+            missing=0
+            failed=0
+            while IFS= read -r name; do
+              [ -z "$name" ] && continue
+              line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n {print; exit}')
+              if [ -z "$line" ]; then
+                missing=$((missing + 1))
+                continue
+              fi
+              status=$(printf '%s' "$line" | cut -f2)
+              conclusion=$(printf '%s' "$line" | cut -f3)
+              if [ "$status" != "completed" ]; then
+                pending=$((pending + 1))
+              elif [ "$conclusion" != "success" ] && [ "$conclusion" != "skipped" ]; then
+                echo "::error::$name concluded '$conclusion'."
+                failed=$((failed + 1))
+              fi
+            done <<< "$(printf '%s\n' "$required" | sed 's/^ *//')"
+
+            if [ "$failed" -gt 0 ]; then
+              echo "The spare laptop did not pass. This branch touches the capture path, so that is a blocker."
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ]; then
+              echo "The spare laptop passed on $SHA." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Waited 35 minutes and the spare laptop's jobs are still $pending pending, $missing missing. A run that never reports is the same as one that failed: there is no evidence."
+              exit 1
+            fi
+            echo "waiting: $pending running, $missing not started yet"
+            sleep 20
+          done
+
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, backend, web, research, schema, design, commits, workflows]
+    needs: [changes, client, backend, web, research, schema, design, commits, workflows, hardware-gate]
     runs-on: ubuntu-latest
     steps:
       - env:

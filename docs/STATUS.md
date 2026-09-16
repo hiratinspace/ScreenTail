@@ -1,6 +1,6 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-15, ~18:30 CDT
+**Snapshot taken:** 2026-09-16, ~01:55 CDT
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -28,7 +28,7 @@ ST-041 (OCR and redaction worker), ST-042 (redaction engine, partial), ST-043 (e
 ST-070 (shell), ST-071 (tray and diagnostics), ST-072 (recording HUD), ST-074 (note editor), ST-075
 (screenshot strip), ST-079 (session history), ST-114 (privacy pack, partial), ST-027 (speech, partial).
 
-**In flight:** the docs housekeeping PR (this page, the backlog's status lines and ordered plan, the ADRs, the docs index). No code PRs open.
+**In flight:** ST-018 (#58), the hardware skip gate. **Phase A is otherwise done:** ST-048 merged and is now verified on the laptop.
 
 **Two tickets are partial and say so:** ST-027 has its gating, model download and transcript assembly but
 no audio capture and no WER number; ST-114 has its three documents but no security-lead review.
@@ -122,11 +122,11 @@ highest-leverage piece of work left, and it is not currently a ticket.
       unblocks ST-028, ST-030, ST-080 and ST-123.
 - [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). Until then answer 7.4 says it is
       unreviewed, and it must not be represented otherwise.
-- [ ] **`SCREENTRAIL` is switched off and `HW_RUNNER` is `false`.** When it comes back: sign in to the
-      desktop, then set `HW_RUNNER=true`. Note the runner must run **interactively** (`run.cmd` in a
-      console on the unlocked desktop), not as a Windows service — a service has no desktop and every
-      capture, hook and password-field check skips. The foreground lock is now lifted by the test harness
-      itself, so the console holding the foreground is no longer a problem.
+- [x] ~~`SCREENTRAIL` is switched off and `HW_RUNNER` is `false`.~~ **Back on 2026-09-16**, `HW_RUNNER`
+      set to `true`, and the full Windows suite runs on it: 47 tests, 0 failed, 4 skipped in the
+      capabilities job and 0 in the input job. Its return exposed three things ST-018 fixed: the runner
+      account's PowerShell execution policy blocked every step, a non-ASCII character made Windows
+      PowerShell mis-parse a script, and `dotnet test` rejects the report option the skip gate needs.
 - [x] ~~Flip the three ADRs to Accepted.~~ Done 2026-09-15.
 - [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions (B9) and ST-001 AC2.
 - [ ] **Hosting decision**, or leave the backend on Docker Postgres until Phase D (Part D, D-2).
