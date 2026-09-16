@@ -424,10 +424,16 @@ jobs:
   #
   # Before this, `hardware-checks` was not required by anything. It could fail, or never run, and a PR
   # touching the capture path merged green (docs/review/weaknesses.md P1-4).
+  #
+  # Pull requests only, and that is the whole of it: hardware-checks.yml has no `push` trigger, so on a
+  # merge to main this job waited thirty-five minutes for laptop jobs that were never going to be created
+  # and then failed, taking ci-ok with it. Three merges went red that way on 2026-09-16 with nothing
+  # wrong in them. Re-checking on the merge would buy nothing anyway: branch protection means every
+  # commit on main arrived through a pull request, where this gate already ran and would have blocked it.
   hardware-gate:
     name: Hardware evidence
     needs: changes
-    if: always() && needs.changes.outputs.hardware == 'true'
+    if: always() && github.event_name == 'pull_request' && needs.changes.outputs.hardware == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -473,6 +479,12 @@ jobs:
           fi
 
           deadline=$(( $(date +%s) + 2100 ))
+
+          # A job that has not even been created after five minutes is not a slow job, it is one that is
+          # never coming: a path filter that disagrees with this one, or a workflow that did not trigger.
+          # Waiting the full thirty-five minutes to say so held a runner for half an hour and buried the
+          # reason under a timeout message.
+          appeared=$(( $(date +%s) + 300 ))
           while :; do
             runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" --paginate \
               --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv' || true)
@@ -504,6 +516,11 @@ jobs:
               echo "The spare laptop passed on $SHA." | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
+            if [ "$missing" -gt 0 ] && [ "$pending" -eq 0 ] && [ "$(date +%s)" -ge "$appeared" ]; then
+              echo "::error::$missing of the spare laptop's jobs never started. hardware-checks.yml did not run for this commit: check that its paths: filter and the 'hardware' flag in this file still agree."
+              exit 1
+            fi
+
             if [ "$(date +%s)" -ge "$deadline" ]; then
               echo "::error::Waited 35 minutes and the spare laptop's jobs are still $pending pending, $missing missing. A run that never reports is the same as one that failed: there is no evidence."
               exit 1

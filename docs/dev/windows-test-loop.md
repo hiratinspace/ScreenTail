@@ -64,6 +64,12 @@ which opens a real microphone, was not in either list.
 
 `hardware-checks` is a separate workflow, so it cannot be a `needs:` of `ci-ok`. The `Hardware evidence` job in `ci.yml` bridges them: when a PR touches the paths that need a real machine, it waits for the laptop's two jobs on the same commit and fails if they did not pass. It is part of `ci-ok`, so the one required check on `main` now covers hardware.
 
+**It runs on pull requests only.** `hardware-checks.yml` has no `push` trigger, so on a merge the gate
+would wait for laptop jobs that are never created. It did exactly that for three merges on 2026-09-16:
+the pull requests were green, the merge commits went red thirty-five minutes later, and nothing was wrong
+with any of them. Branch protection means every commit on `main` arrived through a pull request where the
+gate already ran, so re-checking the merge buys nothing.
+
 When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs-hardware-evidence`** and writes into the run summary that nothing needing a real desktop, screen or input has been checked. An unverified branch should say so rather than leave it to be inferred from a workflow that quietly did not run.
 
 ### Security
