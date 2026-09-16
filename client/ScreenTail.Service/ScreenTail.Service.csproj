@@ -20,6 +20,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- ST-027: local speech. The audio never leaves the machine whatever the tenant's egress settings
+         say, because a transcript of a support call is the most sensitive thing a session produces. -->
+    <PackageReference Include="Whisper.net" />
+    <PackageReference Include="Whisper.net.Runtime" />
+    <PackageReference Include="NAudio" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Platform\ScreenTail.Platform.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />

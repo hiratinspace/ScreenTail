@@ -1,9 +1,11 @@
 using System.Security.Principal;
 using System.Text.Json;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Speech;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Host;
+using ScreenTail.Service.Speech;
 
 // One capture service per user (ADR-0003). A second copy exits quietly instead of fighting over the pipe.
 var userIdentity = OperatingSystem.IsWindows()
@@ -35,7 +37,35 @@ if (args.Contains("--capabilities", StringComparer.Ordinal))
     return report.CanCapture ? 0 : 1;
 }
 
+// `--transcribe <file.wav>` runs a recording through the real speech pipeline and prints what it heard.
+// ST-027's word-error-rate criterion is measured with it: the transcript goes to research/eval/wer.py
+// against the reference text beside the recording.
+//
+// It exists because the criterion cannot be a unit test. It needs ten minutes of real human narration —
+// research/fixtures/audio/README.md says why a synthesised recording would measure the wrong thing — and
+// a test that skipped until somebody recorded one would be a skipped test on the one machine whose
+// answers count (ST-018).
+if (Array.IndexOf(args, "--transcribe") is var flag and >= 0)
+{
+    if (flag + 1 >= args.Length)
+    {
+        Console.Error.WriteLine("Usage: --transcribe <recording.wav> [--model tiny.en|base.en|small.en]");
+        return 2;
+    }
+
+    return await Transcribe.RunAsync(args[flag + 1], ModelFrom(args)).ConfigureAwait(false);
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<CaptureHost>();
 await builder.Build().RunAsync().ConfigureAwait(false);
 return 0;
+
+
+static SpeechModel ModelFrom(string[] args)
+{
+    var at = Array.IndexOf(args, "--model");
+    var name = at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+    return SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? SpeechModels.For(Environment.ProcessorCount);
+}

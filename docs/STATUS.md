@@ -118,8 +118,10 @@ highest-leverage piece of work left, and it is not currently a ticket.
       for this; the backlog's default is Gemini Flash with Anthropic and OpenAI swappable behind the same
       interface, so the choice can change later without code.
 - [ ] **Record the ten-minute narration** for ST-027's WER criterion. `research/fixtures/audio/README.md`
-      says exactly what it needs and why a synthesised recording would measure the wrong thing. This
-      unblocks ST-028, ST-030, ST-080 and ST-123.
+      says exactly what it needs, why a synthesised recording would measure the wrong thing, and now the
+      one command that scores it. **The rest of the speech pipeline is built** as of 2026-09-16, so this
+      is the only thing between ScreenTail and a measured transcript. It also unblocks ST-028, ST-030,
+      ST-080 and ST-123.
 - [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). Until then answer 7.4 says it is
       unreviewed, and it must not be represented otherwise.
 - [x] ~~`SCREENTRAIL` is switched off and `HW_RUNNER` is `false`.~~ **Back on 2026-09-16**, `HW_RUNNER`

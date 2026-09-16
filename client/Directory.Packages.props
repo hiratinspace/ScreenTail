@@ -11,6 +11,13 @@
     <PackageVersion Include="System.Drawing.Common" Version="10.0.0" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <!-- ST-027. Whisper.net is the .NET binding to whisper.cpp; the Runtime package carries the native
+         library, and only the Windows one ships with the client. NAudio is WASAPI capture and the
+         resampler that turns whatever the device gives us into the 16 kHz mono the model wants. -->
+    <PackageVersion Include="Whisper.net" Version="1.9.1" />
+    <PackageVersion Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageVersion Include="NAudio" Version="3.1.0" />
+
     <!-- xUnit v3 runs on Microsoft.Testing.Platform (global.json "test.runner"); no VSTest packages needed. -->
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
   </ItemGroup>
