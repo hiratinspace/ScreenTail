@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.Versioning;
 using System.Windows;
+using ScreenTail.Core.Notifications;
 using ScreenTail.Core.Shell;
 using Forms = System.Windows.Forms;
 
@@ -30,6 +31,7 @@ public sealed class TrayIconHost : IDisposable
     private readonly List<IntPtr> _handles = [];
     private readonly Forms.ToolStripMenuItem _stateLine;
     private TrayPresence? _shown;
+    private NotificationAction? _pending;
 
     public TrayIconHost()
     {
@@ -48,6 +50,15 @@ public sealed class TrayIconHost : IDisposable
         menu.Items.Add(Item("Quit", () => Quit?.Invoke()));
         _icon.ContextMenuStrip = menu;
         _icon.DoubleClick += (_, _) => Open?.Invoke();
+        _icon.BalloonTipClicked += (_, _) =>
+        {
+            // Spec §6 gives every message at most one action, so there is only ever one thing this can
+            // mean. None means the notification was informational and pressing it opens nothing.
+            if (_pending is { } action && action != NotificationAction.None)
+            {
+                NotificationClicked?.Invoke(action);
+            }
+        };
     }
 
     public event Action? Pause;
@@ -67,6 +78,9 @@ public sealed class TrayIconHost : IDisposable
     public event Action? HidePill;
 
     public event Action? Quit;
+
+    /// <summary>The technician pressed the notification. Carries what it was about.</summary>
+    public event Action<NotificationAction>? NotificationClicked;
 
     /// <summary>Shows the icon. Until this is called nothing appears, which is only right before startup finishes.</summary>
     public void Show(ShellSnapshot snapshot)
@@ -100,6 +114,34 @@ public sealed class TrayIconHost : IDisposable
         // Windows truncates a tooltip past 63 characters, and a truncated state is a misread state.
         _icon.Text = presence.Tooltip.Length <= 63 ? presence.Tooltip : presence.Tooltip[..60] + "...";
         _stateLine.Text = presence.StateLine;
+    }
+
+    /// <summary>
+    /// Says one thing, through Windows' own notification path (ST-073).
+    ///
+    /// A balloon on the tray icon rather than a window of our own, and that is the whole of "Focus Assist
+    /// respected": Windows decides whether to show it, so a technician with Do Not Disturb on — presenting,
+    /// on a call, mid-demo — is not interrupted by us, and we do not have to detect a setting that has
+    /// changed name twice. A custom toast window would have to ask, and would get it wrong the first time
+    /// Microsoft renamed it again.
+    /// </summary>
+    public void Notify(Notification notice)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(() => Notify(notice));
+            return;
+        }
+
+        _pending = notice.Action;
+        _icon.BalloonTipTitle = "ScreenTail";
+        _icon.BalloonTipText = notice.Text;
+        _icon.BalloonTipIcon = Forms.ToolTipIcon.None;
+
+        // Ten seconds is a hint; Windows applies its own accessibility timeout, which is longer for
+        // people who have asked for longer.
+        _icon.ShowBalloonTip(10_000);
     }
 
     public void Dispose()
