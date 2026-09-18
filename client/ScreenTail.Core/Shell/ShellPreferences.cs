@@ -29,6 +29,15 @@ public sealed record ShellPreferences
     public double HudX { get; init; }
 
     public double HudY { get; init; }
+
+    /// <summary>
+    /// Whether Review's timeline panel is open (ST-076, Spec §5 S3 "Alt+T toggles; state persists").
+    ///
+    /// Unlike the HUD's hidden flag, this one is safe to remember: an open or closed transcript panel
+    /// changes nothing about whether capture is indicated, and a technician who works with it open should
+    /// not reopen it for every session.
+    /// </summary>
+    public bool TimelineExpanded { get; init; }
 }
 
 /// <summary>

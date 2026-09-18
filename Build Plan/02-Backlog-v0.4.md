@@ -1403,7 +1403,7 @@ Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done on the Mac side 2026-09-18 (#67).** The model in Core: markers for every kind Spec §5 S3 lists, wall-clock transcript lines, click-to-frame from ST-028's alignment, and a panel state that persists. 16 tests. **The WPF view is not built** — the Review window's three panes are ST-074/ST-075 and the bottom panel needs to be laid out with them; the model is what ST-078 and the evidence-link idea depend on, and it is done. AC3's screenshot needs a Windows session.
 
 **Description:**
 Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace transcript with click-to-jump.
