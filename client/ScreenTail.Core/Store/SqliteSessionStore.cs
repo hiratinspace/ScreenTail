@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using ScreenTail.Core.Audit;
+using ScreenTail.Core.Outbox;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Core.Store;
@@ -12,7 +13,7 @@ namespace ScreenTail.Core.Store;
 /// <see cref="ISessionStore"/> on SQLite + SQLCipher. One connection, commands serialized, WAL journal.
 /// Open with <see cref="OpenAsync"/>; it keys the connection and applies pending migrations.
 /// </summary>
-public sealed class SqliteSessionStore : ISessionStore, IAuditLog
+public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 {
     private static readonly Lock BatteriesLock = new();
     private static readonly Lazy<int> LatestVersion = new(() => LoadMigrations().Max(m => m.Version));
@@ -469,6 +470,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             var frames = await ExecuteAsync(_connection, "DELETE FROM frames WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
             await ExecuteAsync(_connection, "DELETE FROM transcript WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
             await ExecuteAsync(_connection, "DELETE FROM events WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+
+            // ST-064 AC3. A queued publish holds the note it was going to send, so leaving it would keep
+            // the session's text past the tenant's retention window in the one table nobody thinks to look
+            // at (INV-12). Work that has not gone by now is not going. The session row survives a purge,
+            // so the foreign key never cascades and this has to be explicit.
+            await ExecuteAsync(_connection, "DELETE FROM outbox WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
             var now = Iso(_time.GetUtcNow());
             await ExecuteAsync(
                 _connection,
@@ -495,6 +502,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
             var frames = await ExecuteAsync(_connection, "DELETE FROM frames WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
             await ExecuteAsync(_connection, "DELETE FROM transcript WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
             await ExecuteAsync(_connection, "DELETE FROM events WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+
+            // The technician asked for this session to go. Queued work for it goes with it, or a
+            // discarded session publishes itself half an hour later (ST-064).
+            await ExecuteAsync(_connection, "DELETE FROM outbox WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
             var now = Iso(_time.GetUtcNow());
             var discarded = await ExecuteAsync(
                 _connection,
@@ -734,6 +745,133 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog
 
     public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) =>
         ScalarAsync<int>("SELECT COALESCE(MAX(version), 0) FROM schema_migrations", ct);
+
+    // ---- outbox (ST-064) -------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Queues work, unless the same work is already live.
+    ///
+    /// The uniqueness is the index's, not this method's: two finalizes racing would both see nothing and
+    /// both insert, and a check-then-write here would not stop them. The constraint violation is the
+    /// answer, and it is the honest one.
+    /// </summary>
+    public async Task<bool> EnqueueAsync(OutboxItem item, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        try
+        {
+            await RunAsync(
+                """
+                INSERT INTO outbox (id, session_id, kind, idempotency_key, payload, state, attempts,
+                                    created_at, due_at, last_attempt_at, last_error, remote_id)
+                VALUES (@id, @session, @kind, @key, @payload, @state, @attempts,
+                        @created, @due, @attempted, @error, @remote)
+                """,
+                ct,
+                ("@id", item.Id),
+                ("@session", item.SessionId),
+                ("@kind", item.Kind.ToString()),
+                ("@key", item.IdempotencyKey),
+                ("@payload", item.Payload),
+                ("@state", Wire(item.State)),
+                ("@attempts", item.Attempts),
+                ("@created", Iso(item.CreatedAt)),
+                ("@due", Iso(item.DueAt)),
+                ("@attempted", item.LastAttemptAt is { } at ? Iso(at) : null),
+                ("@error", item.LastError),
+                ("@remote", item.RemoteId)).ConfigureAwait(false);
+
+            return true;
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            // The partial unique index refused it: this work is already queued. Not a failure.
+            return false;
+        }
+    }
+
+    public Task<OutboxItem?> TakeDueAsync(DateTimeOffset now, CancellationToken ct = default) =>
+        QueryAsync(
+            """
+            SELECT id, session_id, kind, idempotency_key, payload, state, attempts, created_at, due_at,
+                   last_attempt_at, last_error, remote_id
+            FROM outbox
+            WHERE state = 'pending' AND due_at <= @now
+            ORDER BY created_at, id
+            LIMIT 1
+            """,
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadOutbox(reader) : null,
+            ct,
+            ("@now", Iso(now)));
+
+    public Task<OutboxItem?> TakeUncertainAsync(CancellationToken ct = default) =>
+        QueryAsync(
+            """
+            SELECT id, session_id, kind, idempotency_key, payload, state, attempts, created_at, due_at,
+                   last_attempt_at, last_error, remote_id
+            FROM outbox
+            WHERE state = 'uncertain'
+            ORDER BY created_at, id
+            LIMIT 1
+            """,
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadOutbox(reader) : null,
+            ct);
+
+    public Task UpdateAsync(OutboxItem item, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return RunAsync(
+            """
+            UPDATE outbox
+            SET state = @state, attempts = @attempts, due_at = @due, last_attempt_at = @attempted,
+                last_error = @error, remote_id = @remote
+            WHERE id = @id
+            """,
+            ct,
+            ("@id", item.Id),
+            ("@state", Wire(item.State)),
+            ("@attempts", item.Attempts),
+            ("@due", Iso(item.DueAt)),
+            ("@attempted", item.LastAttemptAt is { } at ? Iso(at) : null),
+            ("@error", item.LastError),
+            ("@remote", item.RemoteId));
+    }
+
+    public Task<OutboxWaiting> CountWaitingAsync(CancellationToken ct = default) =>
+        QueryAsync(
+            """
+            SELECT
+                COALESCE(SUM(state = 'pending' AND kind = 'Draft'), 0),
+                COALESCE(SUM(state = 'pending' AND kind <> 'Draft'), 0),
+                COALESCE(SUM(state = 'uncertain'), 0)
+            FROM outbox
+            """,
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
+                ? new OutboxWaiting(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2))
+                : default,
+            ct);
+
+    private static OutboxItem ReadOutbox(SqliteDataReader reader) => new(
+        reader.GetString(0),
+        reader.GetString(1),
+        Enum.Parse<OutboxKind>(reader.GetString(2)),
+        reader.GetString(3),
+        reader.GetString(4),
+        reader.GetString(5) switch
+        {
+            "pending" => OutboxState.Pending,
+            "uncertain" => OutboxState.Uncertain,
+            "done" => OutboxState.Done,
+            _ => OutboxState.Failed,
+        },
+        reader.GetInt32(6),
+        DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        reader.IsDBNull(10) ? null : reader.GetString(10),
+        reader.IsDBNull(11) ? null : reader.GetString(11));
+
+    private static string Wire(OutboxState state) => state.ToString().ToLowerInvariant();
 
     public async ValueTask DisposeAsync()
     {

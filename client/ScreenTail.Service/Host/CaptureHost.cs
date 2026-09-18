@@ -6,6 +6,7 @@ using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Input;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
+using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Speech;
@@ -79,7 +80,14 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-060: the bundle is assembled for real when a session ends, and the only missing step is a
         // provider to send it to. Building it from today means the selection rules run against real
         // sessions on real hardware before there is anything at stake in them.
-        var drafter = new BundlingDrafter(store, logger);
+        // ST-064: work that has to reach the network, kept until it does. The sender is not wired yet —
+        // ST-063 supplies the provider — so nothing leaves the machine; what exists now is the queue, so
+        // that a draft owed while offline is still owed after a restart rather than lost at finalize.
+        var outbox = new Core.Outbox.Outbox(
+            store,
+            (item, _) => Task.FromResult(SendOutcome.Retry("No summarization provider is configured yet.")),
+            TimeProvider.System);
+        var drafter = new BundlingDrafter(store, logger, outbox);
         await using var machine = new SessionMachine(store, sources, drafter);
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
@@ -284,6 +292,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
+
+        // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
+        // technician is not waiting on, and a tight loop on a laptop is a battery complaint.
+        var draining = DrainOutboxAsync(outbox, logger, stoppingToken);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {
@@ -301,7 +313,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding, watchingFields, listening, preparing).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -346,6 +358,37 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Delete everything: removed {Count} file(s) and the tokens directory")]
     private static partial void LogErased(ILogger logger, int count);
+
+    /// <summary>
+    /// Works the outbox until the service stops.
+    ///
+    /// One item per tick and a long tick: nothing in the queue is something a technician is waiting on,
+    /// and a queue that spins costs battery on a machine that is also capturing.
+    /// </summary>
+    private static async Task DrainOutboxAsync(Core.Outbox.Outbox outbox, ILogger logger, CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+            {
+                _ = await outbox.DrainAsync(ct).ConfigureAwait(false);
+                var waiting = await outbox.WaitingAsync(ct).ConfigureAwait(false);
+                if (waiting.Total > 0)
+                {
+                    LogOutbox(logger, waiting.Drafts, waiting.Publishes, waiting.Uncertain);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Outbox: {Drafts} draft(s) and {Publishes} publish(es) waiting, {Uncertain} needing a look")]
+    private static partial void LogOutbox(ILogger logger, int drafts, int publishes, int uncertain);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
     private static partial void LogMicrophone(ILogger logger, string device, string model);
