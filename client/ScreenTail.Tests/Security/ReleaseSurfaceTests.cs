@@ -122,6 +122,29 @@ public sealed class ReleaseSurfaceTests
     }
 
     [Fact]
+    public void TheClientNeverNamesAConcreteProvider()
+    {
+        // ST-090's third criterion. The client asks the backend to publish and never learns which PSA
+        // that means. A client that knew about ConnectWise would need a ConnectWise release to support
+        // HaloPSA, and — worse — would need a second set of a customer's PSA credentials sitting on a
+        // technician's laptop.
+        //
+        // The provider *names* may appear in copy: Settings has to say which platform is connected.
+        // What may not appear is a provider type, because that is a dependency rather than a word.
+        var types = new[] { "IPsaProvider", "IDocProvider", "ProviderResult", "ConnectWiseClient", "HuduClient" };
+        var offenders = Projects
+            .SelectMany(SourceFiles)
+            .SelectMany(file => types
+                .Where(type => File.ReadAllText(file).Contains(type, StringComparison.Ordinal))
+                .Select(type => $"{Path.GetFileName(file)}: {type}"))
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            $"The client publishes through the backend and knows no provider by type. Found: {string.Join(", ", offenders)}");
+    }
+
+    [Fact]
     public void TheseTestsAreLookingAtRealFiles()
     {
         // The whole suite above passes trivially if the glob finds nothing — which is what happens the
