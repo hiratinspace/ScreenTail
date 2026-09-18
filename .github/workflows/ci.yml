@@ -251,6 +251,24 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # ST-008. The tests run the whole API over SQLite so the model and every query are exercised on any
+    # machine, including a build box with no database. What SQLite cannot check is the migration SQL, so
+    # a real Postgres is started here and the real migrations are applied to it below. Between the two,
+    # nothing about the data layer is taken on trust.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: screentail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -267,6 +285,35 @@ jobs:
         run: dotnet build ScreenTail.Backend.sln -c Release --no-restore
       - name: Test
         run: dotnet test ScreenTail.Backend.sln -c Release --no-build
+
+      # The migrations are what a deployment actually runs, and they are generated code: a model change
+      # that produces SQL Postgres rejects would pass every test above and fail on the day it ships.
+      - name: Migrations apply to a real Postgres
+        env:
+          ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=screentail;Username=postgres;Password=ci-only-not-a-secret
+          Jwt__SigningKey: ci-only-signing-key-that-is-long-enough
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.12
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api --no-build -c Release
+
+          # Applying twice must be a no-op. A migration that is not idempotent breaks the second
+          # deployment rather than the first, which is the one nobody is watching.
+          dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api --no-build -c Release
+
+      - name: Every table the model declares exists
+        env:
+          PGPASSWORD: ci-only-not-a-secret
+        run: |
+          missing=0
+          for table in tenants users devices integrations policies session_metrics; do
+            if ! psql -h localhost -U postgres -d screentail -tAc "select to_regclass('public.$table')" | grep -q "^$table$"; then
+              echo "::error::The migrations did not create '$table'."
+              missing=1
+            fi
+          done
+          exit $missing
+
       - name: Container build
         working-directory: .
         run: docker build -f backend/Dockerfile -t screentail-api:ci .

@@ -195,7 +195,7 @@ Terraform for staging/production: API hosting, managed Postgres, KMS, secrets ma
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Open.
+- **Status:** **Done 2026-09-18 (#63).** EF model and migrations for all six tables, JWT device tokens pinned to HS256 with no default signing key, `GET /v1/me`, and a summarization endpoint that exists so INV-7 can be tested against it. 20 tests. Runs on local Docker Postgres; ST-007 remains a deployment gate (Part D, D-2).
 
 **Description:**
 ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integrations/policies/metrics; JWT tenant and device tokens; never persists raw captures.

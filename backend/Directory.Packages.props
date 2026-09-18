@@ -5,6 +5,15 @@
 
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+
+    <!-- ST-008. Postgres in production, SQLite for the tests: the same EF model builds both, so the
+         model and every query are exercised on any machine, and CI applies the real migrations against a
+         real Postgres so the generated SQL is checked too. -->
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <!-- xUnit v3 runs on Microsoft.Testing.Platform (global.json "test.runner"); no VSTest packages needed. -->
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
   </ItemGroup>
