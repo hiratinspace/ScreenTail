@@ -3,6 +3,9 @@
 *
 !Directory.Build.props
 !global.json
+# The analyzer settings, including the exemption for EF's generated migrations. Without it the publish
+# inside the image is held to different rules than the build outside it, and fails on generated code.
+!.editorconfig
 !backend/
 backend/**/bin/
 backend/**/obj/
