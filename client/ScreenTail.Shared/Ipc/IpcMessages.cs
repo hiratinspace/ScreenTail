@@ -211,6 +211,23 @@ public sealed record CaptureStateSnapshot
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DraftFailureReason { get; init; }
 
+    /// <summary>
+    /// The draft's own suggested title, for the "Draft ready" notification (Spec §6). Present only in
+    /// <c>draft_ready</c>.
+    ///
+    /// This is model-written text about a session the technician is about to review, and it crosses the
+    /// pipe to the same user's UI on the same machine. It is not a window title and never becomes one:
+    /// INV-10 is about what reaches logs, metrics and the backend, and none of those see this.
+    /// </summary>
+    [JsonPropertyName("draft_title")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DraftTitle { get; init; }
+
+    /// <summary>The company the session's ticket belongs to, so a notification names the customer.</summary>
+    [JsonPropertyName("draft_company")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DraftCompany { get; init; }
+
     public static CaptureStateSnapshot Idle { get; } = new() { State = CaptureStates.Idle };
 }
 

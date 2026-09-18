@@ -1325,7 +1325,7 @@ Implements Spec §5 S2: pill with timer, mic meter, redaction count, pause/stop;
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** Open.
+- **Status:** **Done on the Mac side 2026-09-18 (#66).** Spec §6's messages verbatim and asserted verbatim, raised once each, silent during a session (§4). A failed draft always leaves the timeline, frames and transcript reachable. 14 tests. **One spec question decided here and worth a veto:** Retry is disabled when the failure is permanent, following v0.4.3's own reasoning about the offline case; see the PR. Screenshots of each toast (AC3) need a Windows session and are not done.
 
 **Description:**
 Toasts and banners per Spec §6; failure paths always expose the raw timeline.

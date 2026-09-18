@@ -5,6 +5,7 @@ using System.Windows;
 using ScreenTail.Core.Hud;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
+using ScreenTail.Core.Notifications;
 using ScreenTail.Core.Shell;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Shared.Ipc;
@@ -47,6 +48,12 @@ public sealed class LiveShell : IAsyncDisposable
     /// pill and exactly what INV-4 forbids.
     /// </summary>
     private bool _hudHidden;
+
+    /// <summary>
+    /// Raises each notification once (ST-073). The service repeats its state on every reconnect, so
+    /// without this a dropped pipe would announce a draft that has been ready for an hour.
+    /// </summary>
+    private readonly Notifier _notifier = new();
     private HudWindowHolder? _hud;
     private ShellWindow? _window;
 
@@ -59,6 +66,7 @@ public sealed class LiveShell : IAsyncDisposable
         {
             _tray.Update(snapshot);
             ShowOrHideHud(snapshot);
+            Announce(snapshot);
         };
 
         _tray.Pause += () => Send(id => new PauseCommand { RequestId = id });
@@ -67,6 +75,7 @@ public sealed class LiveShell : IAsyncDisposable
         _tray.Open += ShowWindow;
         _tray.ShowDiagnostics += ShowDiagnostics;
         _tray.HidePill += HidePillForThisSession;
+        _tray.NotificationClicked += _ => ShowWindow();
         _tray.Quit += () => Application.Current.Shutdown();
     }
 
@@ -97,6 +106,20 @@ public sealed class LiveShell : IAsyncDisposable
     {
         _hudHidden = true;
         ShowOrHideHud(_state.Snapshot);
+    }
+
+    /// <summary>
+    /// Says whatever this state has to say, once.
+    ///
+    /// Spec §4 forbids interrupting a recording and <see cref="Notices"/> holds that rule, so this can be
+    /// called on every change without checking: during a session it returns nothing.
+    /// </summary>
+    private void Announce(ShellSnapshot snapshot)
+    {
+        if (_notifier.Observe(snapshot.Capture) is { } notice)
+        {
+            _tray.Notify(notice);
+        }
     }
 
     public void ShowWindow()
