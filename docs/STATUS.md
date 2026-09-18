@@ -1,6 +1,6 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-16, ~01:55 CDT
+**Snapshot taken:** 2026-09-18
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -28,7 +28,7 @@ ST-041 (OCR and redaction worker), ST-042 (redaction engine, partial), ST-043 (e
 ST-070 (shell), ST-071 (tray and diagnostics), ST-072 (recording HUD), ST-074 (note editor), ST-075
 (screenshot strip), ST-079 (session history), ST-114 (privacy pack, partial), ST-027 (speech, partial).
 
-**In flight:** ST-018 (#58), the hardware skip gate. **Phase A is otherwise done:** ST-048 merged and is now verified on the laptop.
+**In flight:** ST-060 (#62), the session bundle. **Phase A is done**; Phase B is four tickets in, with the draft itself waiting on a model provider.
 
 **Two tickets are partial and say so:** ST-027 has its gating, model download and transcript assembly but
 no audio capture and no WER number; ST-114 has its three documents but no security-lead review.
