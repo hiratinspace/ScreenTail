@@ -4,7 +4,7 @@
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /repo
-COPY Directory.Build.props global.json ./
+COPY Directory.Build.props global.json .editorconfig ./
 COPY backend/Directory.Build.props backend/Directory.Packages.props backend/
 COPY backend/src/ScreenTail.Api/ScreenTail.Api.csproj backend/src/ScreenTail.Api/
 RUN dotnet restore backend/src/ScreenTail.Api/ScreenTail.Api.csproj

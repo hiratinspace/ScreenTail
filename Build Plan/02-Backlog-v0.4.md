@@ -195,7 +195,7 @@ Terraform for staging/production: API hosting, managed Postgres, KMS, secrets ma
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Open.
+- **Status:** **Done 2026-09-18 (#63).** EF model and migrations for all six tables, JWT device tokens pinned to HS256 with no default signing key, `GET /v1/me`, and a summarization endpoint that exists so INV-7 can be tested against it. 20 tests. Runs on local Docker Postgres; ST-007 remains a deployment gate (Part D, D-2).
 
 **Description:**
 ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integrations/policies/metrics; JWT tenant and device tokens; never persists raw captures.
@@ -1670,7 +1670,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done 2026-09-18 (#64).** `IPsaProvider`, `IDocProvider`, a five-kind error taxonomy written to Spec §4's two-sentence pattern, and a contract harness the fakes pass. 38 backend tests. The interfaces live in `backend/src/ScreenTail.Api/Providers/` rather than a separate project; the README the ticket asks for is there. ST-091 and ST-095 derive from the harness.
 
 **Description:**
 `IPsaProvider` / `IDocProvider`, shared DTOs, error taxonomy mapped to Spec §4 messages, contract-test harness with a fake provider.

@@ -64,3 +64,14 @@ dotnet_diagnostic.IDE0044.severity = warning
 # Tests call short-lived store/API methods dozens of times; threading TestContext.Current.CancellationToken
 # through every call adds noise without making cancellation meaningfully faster.
 dotnet_diagnostic.xUnit1051.severity = suggestion
+
+# EF Core writes these and rewrites them on every `dotnet ef migrations add`. Holding generated code to
+# the hand-written style rules means either editing a file the tool owns or a build that fails the next
+# time somebody adds a migration. The code still compiles under warnings-as-errors; only style and
+# micro-optimisation rules are off (ST-008).
+[**/Data/Migrations/*.cs]
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.IDE0300.severity = none
+dotnet_diagnostic.IDE0305.severity = none
+generated_code = true
