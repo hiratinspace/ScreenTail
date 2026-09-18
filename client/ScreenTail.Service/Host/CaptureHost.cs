@@ -15,6 +15,7 @@ using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Detection;
 using ScreenTail.Service.Input;
+using ScreenTail.Service.Intel;
 using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Speech;
 using ScreenTail.Service.Store;
@@ -75,7 +76,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // The sources need the capturer and the scope coordinator, which are built further down; the
         // machine has to exist before either, so it gets a holder that is filled in once they do.
         var sources = new DeferredCaptureSources();
-        await using var machine = new SessionMachine(store, sources, new UnavailableDrafter());
+        // ST-060: the bundle is assembled for real when a session ends, and the only missing step is a
+        // provider to send it to. Building it from today means the selection rules run against real
+        // sessions on real hardware before there is anything at stake in them.
+        var drafter = new BundlingDrafter(store, logger);
+        await using var machine = new SessionMachine(store, sources, drafter);
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {

@@ -680,7 +680,7 @@ NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), times
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done 2026-09-13** (`97e7b31`), corrected 2026-09-18 (#62): the status line said Open while all three criteria had been tested since it merged. It had no caller until ST-060, which is what made it look unfinished — `docs/review/weaknesses.md` listed `Core/Timeline` among the namespaces written, tested and called by nothing.
 
 **Description:**
 Merge transcript, click, frame and marker events; attach segments to nearest preceding frame within ±8 s else standalone narration.
@@ -1046,7 +1046,7 @@ The P1 findings that are not resolved by wiring the UI (ST-085 closes P1-1, P1-2
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Open.
+- **Status:** **Done 2026-09-18 (#62).** 21 tests, including the adversarial store test the ticket names. Four kinds of frame are excluded and each has a test that fails when its filter is deleted: pending, sensitive-context, captured while paused or suppressed, and removed by the technician in Review. `BundlingDrafter` assembles the bundle on every real session and logs its size and token estimate (AC3); the only missing step is a provider to send it to, which is ST-063 and needs the owner's API key.
 
 **Description:**
 From redacted frames only, select ≤ 25 informative frames; assemble timeline, OCR, transcript, metadata, style hints; set `ocr_partial` and `frames_purged_unredacted`.
