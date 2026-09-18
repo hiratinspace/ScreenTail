@@ -295,11 +295,14 @@ jobs:
         run: |
           dotnet tool install --global dotnet-ef --version 10.0.12
           export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api --no-build -c Release
+          # --configuration in full: `dotnet ef` reads -c as --context, so the short form sends it looking
+          # for a DbContext named "Release" and then for a Debug build that the Release step never made.
+          ef() { dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api --no-build --configuration Release; }
+          ef
 
           # Applying twice must be a no-op. A migration that is not idempotent breaks the second
           # deployment rather than the first, which is the one nobody is watching.
-          dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api --no-build -c Release
+          ef
 
       - name: Every table the model declares exists
         env:
