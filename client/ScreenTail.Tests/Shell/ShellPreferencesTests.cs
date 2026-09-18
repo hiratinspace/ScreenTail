@@ -124,4 +124,25 @@ public sealed class ShellPreferencesTests : IDisposable
             Directory.Delete(_dir, recursive: true);
         }
     }
+    [Fact]
+    public void TheTimelinePanelIsRememberedAndTheHudsHiddenFlagIsNot()
+    {
+        // Two toggles that look alike and are not. An open transcript panel is a preference; a hidden
+        // recording pill is a capture indicator, and INV-4 allows that only as a per-session choice, so
+        // it deliberately has no home here.
+        var path = Path.Combine(Path.GetTempPath(), $"screentail-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new ShellPreferencesStore(path);
+            store.Save(new ShellPreferences { TimelineExpanded = true });
+
+            Assert.True(new ShellPreferencesStore(path).Load().TimelineExpanded);
+            Assert.DoesNotContain("Hud" + "Hidden", File.ReadAllText(path), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
 }
