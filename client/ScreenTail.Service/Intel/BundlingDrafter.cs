@@ -1,4 +1,5 @@
 using ScreenTail.Core.Intel;
+using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 
@@ -19,7 +20,11 @@ namespace ScreenTail.Service.Intel;
 /// technician sees is honest: Review shows "we could not draft this" with the reason, and the screenshots
 /// and transcript are still there (Spec §5 S3).
 /// </summary>
-internal sealed partial class BundlingDrafter(ISessionStore store, ILogger logger, BundleOptions? options = null) : IDrafter
+internal sealed partial class BundlingDrafter(
+    ISessionStore store,
+    ILogger logger,
+    Core.Outbox.Outbox? outbox = null,
+    BundleOptions? options = null) : IDrafter
 {
     public const string NoProviderReason = "No summarization provider is configured, so this session could not be drafted.";
 
@@ -56,6 +61,17 @@ internal sealed partial class BundlingDrafter(ISessionStore store, ILogger logge
             bundle.EstimatedTokens,
             bundle.OcrPartial,
             bundle.FramesPurgedUnredacted);
+
+        // ST-064: the work is queued before it is refused, so a draft owed on a train is still owed when
+        // the machine comes back. The queue holds the request, not the bundle: frames are re-selected when
+        // it is finally sent, from a store that retention may have thinned in the meantime, so a queued
+        // draft can never resurrect a frame the tenant's window has already removed (INV-12).
+        if (outbox is not null)
+        {
+            _ = await outbox.EnqueueAsync(
+                new NewOutboxItem(sessionId, OutboxKind.Draft, $"draft:{sessionId}", "{}"),
+                ct).ConfigureAwait(false);
+        }
 
         return DraftOutcome.Failure(NoProviderReason);
     }

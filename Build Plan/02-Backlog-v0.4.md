@@ -1147,7 +1147,7 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done 2026-09-18 (#65).** Durable queue in the encrypted store, backoff to an hour, and an `uncertain` state for an attempt whose outcome nobody knows — nothing retries those, and they leave only by asking the provider. 19 tests, and removing the retention deletes fails two of them. The sender is a stub until ST-063 supplies a provider; the queue is real from today, so a draft owed while offline survives a restart.
 
 **Description:**
 Local outbox with idempotency keys; retry with backoff; "Draft pending — offline" state.
