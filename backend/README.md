@@ -44,10 +44,25 @@ SQLite cannot check and is what a deployment actually runs.
 
 ## Drafting
 
-Set the provider key in the environment. There is no default and none is in the repository.
+The key has no default and none is in the repository. There are two places to put it.
+
+**Developing locally — user secrets.** They live in your user profile, outside the repository, so there
+is nothing here to commit by mistake and nothing to export each morning:
 
 ```bash
-export Summarization__ApiKey='…'          # required before anything can be drafted
+cd backend/src/ScreenTail.Api
+dotnet user-secrets set "Summarization:ApiKey" "…"
+dotnet user-secrets set "Jwt:SigningKey" "$(openssl rand -base64 48)"
+dotnet user-secrets list          # prints the values, so mind the shoulder
+```
+
+A colon separates section from key here. The host reads user secrets only in the Development
+environment, so nothing about a deployment changes.
+
+**Deployed, or in CI — environment variables.** A double underscore is the separator:
+
+```bash
+export Summarization__ApiKey='…'
 export Summarization__Provider=gemini-flash
 export Summarization__DailyCostCapUsd=10  # per tenant, per UTC day
 ```
