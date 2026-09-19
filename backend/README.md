@@ -42,6 +42,32 @@ query is compiled and executed on any machine with no database server. CI additi
 migrations to a real Postgres and checks every table arrived, because the migration SQL is the part
 SQLite cannot check and is what a deployment actually runs.
 
+## Drafting
+
+Set the provider key in the environment. There is no default and none is in the repository.
+
+```bash
+export Summarization__ApiKey='…'          # required before anything can be drafted
+export Summarization__Provider=gemini-flash
+export Summarization__DailyCostCapUsd=10  # per tenant, per UTC day
+```
+
+Without a key the service still starts and answers `501 not_configured`, which a technician can act on.
+With one, a session gets exactly one model call, and:
+
+- **The cap is checked before the call**, not after. A cap enforced afterwards is an alert.
+- **A rejected draft is retried once, with the reasons.** A model that cited a frame it invented usually
+  fixes it when told which one. Once, because a second failure is a bad day and a third is a bill.
+- **Only an outage falls over to a fallback.** A rejected payload is rejected twice, and a revoked key is
+  not fixed by spending money somewhere else.
+- **Nothing is stored.** The bundle lives for one call; what is written is a `draft_costs` row holding a
+  tenant, a session id, a provider name and a number.
+
+`DraftValidator` refuses a draft before it is returned: an invented frame reference, a quotation nobody
+uttered, a credential written back out, or a note that reads as an instruction. That last one is the
+prompt-injection defence — text on a customer's screen can ask a model to emit a command, and a note is
+where somebody downstream would find it and run it.
+
 ## Authentication
 
 A device is activated once and holds a long-lived refresh token; the database keeps only its SHA-256. It

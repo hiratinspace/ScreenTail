@@ -29,6 +29,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<SessionMetric> SessionMetrics => Set<SessionMetric>();
 
+    public DbSet<DraftCost> DraftCosts => Set<DraftCost>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -76,6 +78,16 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
             policy.HasKey(p => p.Id);
             policy.HasIndex(p => new { p.TenantId, p.Version }).IsUnique();
             policy.HasOne(p => p.Tenant).WithMany(t => t.Policies).HasForeignKey(p => p.TenantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DraftCost>(cost =>
+        {
+            cost.ToTable("draft_costs");
+            cost.HasKey(c => c.Id);
+
+            // The daily cap's query: everything one tenant spent since midnight.
+            cost.HasIndex(c => new { c.TenantId, c.At });
+            cost.Property(c => c.CostUsd).HasPrecision(12, 6);
         });
 
         modelBuilder.Entity<SessionMetric>(metric =>

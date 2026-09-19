@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
+using ScreenTail.Api.Providers.Llm;
+using ScreenTail.Api.Summarize;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +40,26 @@ builder.Services
         options.IncludeErrorDetails = false;
         options.MapInboundClaims = false;
     });
+
+// ST-063. The key has no default and is read from the environment; with none set the service still
+// starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
+var summarization = builder.Configuration.GetSection(SummarizationOptions.Section).Get<SummarizationOptions>()
+    ?? new SummarizationOptions();
+builder.Services.AddSingleton(summarization);
+builder.Services.AddScoped<ICostLedger, CostLedger>();
+
+var prompt = PromptLibrary.Note();
+builder.Services.AddHttpClient<GeminiProvider>(client =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
+    client.Timeout = summarization.Timeout;
+});
+
+builder.Services.AddScoped<SummarizationService>(services => new SummarizationService(
+    ActivatorUtilities.CreateInstance<GeminiProvider>(services, summarization, prompt),
+    fallback: null,
+    services.GetRequiredService<ICostLedger>(),
+    summarization));
 
 builder.Services.AddAuthorization();
 builder.Services.AddOpenApi();

@@ -7,6 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- ST-063: the prompt ships with the service, so a deployment cannot drift from the version its
+         post-conditions were written against. -->
+    <EmbeddedResource Include="..\..\..\research\prompts\note_v1.md" LogicalName="ScreenTail.Api.Prompts.note_v1.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />

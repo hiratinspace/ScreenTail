@@ -1121,7 +1121,7 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Open. Needs a model provider, an API key and a spend cap (owner).
+- **Status:** **Done on the Mac side 2026-09-19 (#68).** Gemini Flash chosen by the owner. Provider abstraction, fallback on an outage only, one repair retry with the reasons, per-tenant daily cost cap checked before the call, and C# post-conditions that refuse an invented frame reference, an unspoken quotation, a leaked credential or a note that reads as an instruction. 68 backend tests. **Unmeasured until a key is set:** the 30 s p95 and the ≤ $0.10 average (AC1, AC4), which need live calls; the cost figures are the published rates applied to the provider's own token counts.
 
 **Description:**
 `POST /v1/sessions/summarize` behind a provider interface (Gemini Flash default; OpenAI/Anthropic swappable) with fallback provider, schema validation + one repair retry, per-tenant daily cost cap; frames in memory only (INV-7).

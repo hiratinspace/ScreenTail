@@ -33,3 +33,14 @@ spike/**/tessdata/
 spike/**/out/
 *.ggml
 *.bin
+
+# Secrets never belong in the repository (ST-063). The services read every credential from the
+# environment and have no defaults, so nothing here is needed to run them — these patterns exist to
+# catch the local settings file somebody adds in a hurry with a model provider's key in it.
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+*.env
+.env
+.env.*
+secrets.json

@@ -177,3 +177,30 @@ public sealed class SessionMetric
 
     public bool Published { get; set; }
 }
+
+/// <summary>
+/// What one drafting call cost (ST-063).
+///
+/// A tenant, a session id, a provider name and a number. No prompt, no draft, no frame — INV-7 holds
+/// here as everywhere, and the daily cap is computed by summing this rather than by trusting a counter
+/// that a restart would reset.
+/// </summary>
+public sealed class DraftCost
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    /// <summary>The client's session id. An opaque identifier, not a name.</summary>
+    [MaxLength(64)]
+    public required string SessionId { get; set; }
+
+    /// <summary>Which model answered. A name, never a key.</summary>
+    [MaxLength(50)]
+    public required string Provider { get; set; }
+
+    /// <summary>US dollars. Stored exact rather than as a float, because it is money.</summary>
+    public decimal CostUsd { get; set; }
+
+    public DateTimeOffset At { get; set; }
+}
