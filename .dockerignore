@@ -6,6 +6,14 @@
 # The analyzer settings, including the exemption for EF's generated migrations. Without it the publish
 # inside the image is held to different rules than the build outside it, and fails on generated code.
 !.editorconfig
+# ST-063: the note prompt is embedded in the API assembly, so it is an input to this build. Only the
+# prompt itself — the fixtures, the eval harness and the virtualenv beside it are not.
+!research/
+research/*
+!research/prompts/
+research/prompts/*
+!research/prompts/note_v1.md
+
 !backend/
 backend/**/bin/
 backend/**/obj/
