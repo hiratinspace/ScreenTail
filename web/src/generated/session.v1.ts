@@ -49,7 +49,13 @@ export type CaptureState = 'recording' | 'paused' | 'suppressed' | 'finalizing';
  * via the `definition` "CaptureStateReason".
  */
 export type CaptureStateReason =
-  'user' | 'password_field' | 'excluded_app' | 'elevated_window' | 'sensitive_context' | 'out_of_scope';
+  | 'user'
+  | 'password_field'
+  | 'excluded_app'
+  | 'elevated_window'
+  | 'sensitive_context'
+  | 'out_of_scope'
+  | 'no_indicator';
 /**
  * This interface was referenced by `Session`'s JSON-Schema
  * via the `definition` "FrameTrigger".

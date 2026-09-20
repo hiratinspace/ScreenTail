@@ -19,10 +19,16 @@ namespace ScreenTail.Service.Detection;
 /// oldest observation, not the watcher's responsiveness.
 /// </summary>
 [SupportedOSPlatform("windows")]
+/// <param name="indicated">
+/// Whether anything is on screen saying capture is happening. A session that starts with no indicator is
+/// a recording nobody was told about (INV-4), and one that should never have begun is worse than one
+/// suppressed a moment later: it leaves a start time in the timeline that nobody witnessed.
+/// </param>
 internal sealed partial class AutoSessionCoordinator(
     SessionMachine machine,
     ScopePolicy policy,
     SessionTrigger trigger,
+    Func<bool> indicated,
     ILogger logger)
 {
     private readonly Channel<ForegroundWindowInfo> _windows = Channel.CreateBounded<ForegroundWindowInfo>(
@@ -50,6 +56,12 @@ internal sealed partial class AutoSessionCoordinator(
     {
         if (machine.State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed))
         {
+            return false;
+        }
+
+        if (!indicated())
+        {
+            LogNoIndicator(logger);
             return false;
         }
 
@@ -105,7 +117,11 @@ internal sealed partial class AutoSessionCoordinator(
         if (triggered.Start && machine.State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed)
         {
             var tool = new RemoteTool { Kind = decision.Tool ?? RemoteToolKind.Other };
-            if (await machine.StartAsync(tool, ct: ct).ConfigureAwait(false))
+            if (!indicated())
+            {
+                LogNoIndicator(logger);
+            }
+            else if (await machine.StartAsync(tool, ct: ct).ConfigureAwait(false))
             {
                 LogAutoStart(logger, triggered.ToolId ?? "unknown");
             }
@@ -158,6 +174,11 @@ internal sealed partial class AutoSessionCoordinator(
             onFailure: failure => LogLoopFailed(logger, "auto-stop", failure.GetType().Name),
             ct).ConfigureAwait(false);
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Not starting a session: nothing is on screen to show that capture is happening.")]
+    private static partial void LogNoIndicator(ILogger logger);
 
     // The type and never the message: a store error can quote what it was asked to write (INV-10).
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Loop} loop hit {Error} and carried on")]

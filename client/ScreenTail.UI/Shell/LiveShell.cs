@@ -76,7 +76,7 @@ public sealed class LiveShell : IAsyncDisposable
         _tray.ShowDiagnostics += ShowDiagnostics;
         _tray.HidePill += HidePillForThisSession;
         _tray.NotificationClicked += _ => ShowWindow();
-        _tray.Quit += () => Application.Current.Shutdown();
+        _tray.Quit += QuitWithoutLeavingCaptureRunning;
     }
 
     /// <summary>The store every window binds to.</summary>
@@ -221,6 +221,49 @@ public sealed class LiveShell : IAsyncDisposable
         }
 
         Send(id => build(issued.Token) with { RequestId = id });
+    }
+
+    /// <summary>
+    /// Quits, having made sure nothing is left recording without an indicator.
+    ///
+    /// Closing this process takes the tray icon and the pill with it, and the service goes on recording:
+    /// it starts sessions by itself and owns the hotkeys. Quitting mid-session was therefore a way to
+    /// arrive at invisible capture through a menu item (INV-4; 2026-09-19 review).
+    ///
+    /// The service suppresses capture within seconds of the last window closing, so this is belt and
+    /// braces rather than the guarantee — but it is also the difference between a session the technician
+    /// stopped and one that stops itself with a gap in the middle. Asked, not assumed: quitting during a
+    /// live session is a choice, and Spec §3 says an interruption to a session is one to confirm.
+    /// </summary>
+    private void QuitWithoutLeavingCaptureRunning()
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(QuitWithoutLeavingCaptureRunning);
+            return;
+        }
+
+        if (_state.Snapshot.KnownCapture is { } capture && capture.State != CaptureStates.Idle)
+        {
+            var stop = MessageBox.Show(
+                "A session is being captured. Quitting closes the recording indicator, so ScreenTail will "
+                    + "stop capturing and finish the note."
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + "Quit and finish the session?",
+                "ScreenTail",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning);
+
+            if (stop != MessageBoxResult.OK)
+            {
+                return;
+            }
+
+            Send(id => new StopCommand { RequestId = id });
+        }
+
+        Application.Current?.Shutdown();
     }
 
     private void ShowDiagnostics()

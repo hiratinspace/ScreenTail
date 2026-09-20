@@ -266,6 +266,9 @@ public enum CaptureStateReason
 
     [JsonStringEnumMemberName("out_of_scope")]
     OutOfScope,
+
+    [JsonStringEnumMemberName("no_indicator")]
+    NoIndicator,
 }
 
 /// <summary>
