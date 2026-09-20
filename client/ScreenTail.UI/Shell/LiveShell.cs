@@ -71,7 +71,7 @@ public sealed class LiveShell : IAsyncDisposable
 
         _tray.Pause += () => Send(id => new PauseCommand { RequestId = id });
         _tray.Stop += () => Send(id => new StopCommand { RequestId = id });
-        _tray.Discard += () => Send(id => new DiscardCommand { RequestId = id });
+        _tray.Discard += DiscardWithConfirmation;
         _tray.Open += ShowWindow;
         _tray.ShowDiagnostics += ShowDiagnostics;
         _tray.HidePill += HidePillForThisSession;
@@ -173,6 +173,55 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void Send(Func<int, IpcCommand> build) =>
         _ = _connection.SendAsync(build, CancellationToken.None);
+
+    /// <summary>
+    /// Asks the service for a confirmation token, asks the technician to type the word, and sends both.
+    ///
+    /// Two round trips, and neither is decoration. The dialog is why a misclick no longer costs a
+    /// technician the whole job — this item sits one below "Stop and draft" — and the token is why a
+    /// process that is not the UI cannot skip the dialog: the service refuses a discard that does not
+    /// carry one it issued moments ago (Spec §3, 2026-09-19 review).
+    ///
+    /// Nothing happens if the service is not there. A discard sent into a dropped pipe would be reported
+    /// as done and would not be.
+    /// </summary>
+    private void DiscardWithConfirmation()
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(DiscardWithConfirmation);
+            return;
+        }
+
+        _ = ConfirmAndSendAsync(
+            "discard_session",
+            "Discard this session?",
+            "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
+            token => new DiscardCommand { RequestId = 0, Confirmation = token });
+    }
+
+    private async Task ConfirmAndSendAsync(string action, string heading, string consequence, Func<string, IpcCommand> build)
+    {
+        var issued = await _connection
+            .RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = action })
+            .ConfigureAwait(true);
+
+        if (issued is null)
+        {
+            // Not connected, or the service does not know this action. Either way there is nothing to
+            // confirm, and a dialog that led somewhere would be worse than none.
+            return;
+        }
+
+        if (!ConfirmWindow.Asks(_window, heading, consequence, issued.Phrase))
+        {
+            // The token is left to expire. Telling the service it went unused would be another round
+            // trip to say nothing, and thirty seconds from now it is worthless anyway.
+            return;
+        }
+
+        Send(id => build(issued.Token) with { RequestId = id });
+    }
 
     private void ShowDiagnostics()
     {

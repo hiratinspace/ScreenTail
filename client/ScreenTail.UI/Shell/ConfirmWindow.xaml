@@ -1,0 +1,64 @@
+<Window x:Class="ScreenTail.UI.Shell.ConfirmWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="420"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Style="{StaticResource Window.Base}">
+    <Grid Background="{DynamicResource Brush.bg.base}" Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="Heading"
+                   Grid.Row="0"
+                   Style="{StaticResource Text.SectionHeading}"
+                   TextWrapping="Wrap" />
+
+        <!-- What is actually lost, in the words a technician would use. A dialog that says "are you
+             sure?" asks a question nobody can answer; this one says what disappears. -->
+        <TextBlock x:Name="Consequence"
+                   Grid.Row="1"
+                   Margin="0,10,0,0"
+                   Style="{StaticResource Text.Body}"
+                   TextWrapping="Wrap" />
+
+        <TextBlock x:Name="Instruction"
+                   Grid.Row="2"
+                   Margin="0,16,0,6"
+                   Style="{StaticResource Text.Secondary}"
+                   TextWrapping="Wrap" />
+
+        <!-- Typed rather than clicked (Spec §3). The point is that agreeing takes an act rather than a
+             reflex, and a button next to "Stop and draft" is a reflex. -->
+        <TextBox x:Name="Typed"
+                 Grid.Row="3"
+                 Padding="8,6"
+                 Style="{StaticResource Text.Mono}"
+                 TextChanged="OnTyped" />
+
+        <StackPanel Grid.Row="4"
+                    Margin="0,20,0,0"
+                    HorizontalAlignment="Right"
+                    Orientation="Horizontal">
+            <Button x:Name="Cancel"
+                    Content="Keep it"
+                    IsCancel="True"
+                    MinWidth="96"
+                    Style="{StaticResource Button.Secondary}"
+                    Click="OnCancel" />
+            <Button x:Name="Confirm"
+                    Margin="10,0,0,0"
+                    MinWidth="96"
+                    IsEnabled="False"
+                    Style="{StaticResource Button.Danger}"
+                    Click="OnConfirm" />
+        </StackPanel>
+    </Grid>
+</Window>
