@@ -58,10 +58,68 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         await stopping.CancelAsync();
         await running;
 
-        // The two good frames went through; the bad one was given up on rather than retried forever, and
-        // is left pending so finalize purges it — a frame nobody could make readable must not be kept.
+        // The two good frames went through, and the bad one was given up on rather than retried for ever.
+        //
+        // It is discarded now rather than left pending for finalize (2026-09-20). Same answer, sooner:
+        // a frame nobody could make readable must not be kept, and leaving it pending meant the worker
+        // had to remember it to avoid picking it up again — a list that grew for the life of the service
+        // and a backlog count that never reached zero.
         Assert.Equal(2, worker.Progress.Frames);
         Assert.Equal(1, worker.Progress.Failed);
+        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AFrameNobodyCanMakeReadableIsRemovedRatherThanRemembered()
+    {
+        // 2026-09-19 review, and the September one before it (P1-9). A frame whose redaction threw was
+        // added to an in-memory set that nothing ever emptied. Three things followed: the set grew for
+        // the life of the service, every poll of the queue expanded it into a NOT IN list that grew with
+        // it, and the backlog the pill shows counts pending frames — so it never reached zero again, and
+        // a technician watching it saw work that was never going to finish.
+        //
+        // The frame is discarded instead. That is what INV-1 wants anyway: nobody has read it, so nobody
+        // can say what is on it, and ADR-0004 says such a frame goes. Leaving it pending for finalize was
+        // the same answer arrived at later and more expensively.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        var worker = new RedactionWorker(
+            new RefusesOneWrite(store, "f1"), Reads(), new PassThroughMasker(), new RedactionEngine());
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(async () => await store.CountAllPendingFramesAsync() == 0);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, worker.Progress.Failed);
+        Assert.Equal(1, worker.Progress.Frames);
+    }
+
+    [Fact]
+    public async Task AFrameThatCannotEvenBeDiscardedIsNotRetriedForEver()
+    {
+        // The other half. If the store refuses the discard as well — a full disk refuses both — there is
+        // nowhere to record the decision, so the worker has to remember it. That memory is bounded, and
+        // the frame is tried again once the bound pushes it out, which is the right way round: a
+        // temporary failure recovers, and a permanent one costs a bounded amount of work.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        var worker = new RedactionWorker(
+            new RefusesOneWrite(store, "f1", alsoDiscard: true), Reads(), new PassThroughMasker(), new RedactionEngine());
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(() => worker.Progress.Frames >= 1);
+        await stopping.CancelAsync();
+        await running;
+
+        // The good frame still went through, and the bad one is still pending for finalize to purge.
+        Assert.Equal(1, worker.Progress.Frames);
+        Assert.True(worker.Progress.Failed >= 1);
         Assert.Equal(1, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
     }
 
@@ -147,8 +205,13 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
             new(image.ToArray(), 80, 60);
     }
 
-    /// <summary>Stands in for the store refusing one frame's write, the way a double take used to.</summary>
-    private sealed class RefusesOneWrite(SqliteSessionStore inner, string frameId) : ISessionStore
+    /// <summary>
+    /// Stands in for the store refusing one frame's write, the way a double take used to.
+    ///
+    /// <paramref name="alsoDiscard"/> refuses to discard it as well, which is what a full disk does:
+    /// there is then nowhere at all to record what was decided about the frame.
+    /// </summary>
+    private sealed class RefusesOneWrite(SqliteSessionStore inner, string frameId, bool alsoDiscard = false) : ISessionStore
     {
         public Task MarkFrameRedactedAsync(string id, RedactionOutcome outcome, CancellationToken ct = default) =>
             id == frameId
@@ -161,7 +224,10 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         public Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default) =>
             inner.TakeNextPendingFrameAsync(except, ct);
 
-        public Task DiscardPendingFrameAsync(string id, CancellationToken ct = default) => inner.DiscardPendingFrameAsync(id, ct);
+        public Task DiscardPendingFrameAsync(string id, CancellationToken ct = default) =>
+            alsoDiscard && id == frameId
+                ? throw new IOException("There is no space left on the device.")
+                : inner.DiscardPendingFrameAsync(id, ct);
 
         public Task<int> CountAllPendingFramesAsync(CancellationToken ct = default) => inner.CountAllPendingFramesAsync(ct);
 

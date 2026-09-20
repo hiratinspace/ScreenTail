@@ -89,7 +89,25 @@ internal static partial class PatternLibrary
 
         foreach (var pattern in policy.CustomPatterns)
         {
-            var regex = new Regex(pattern, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, RedactionPolicy.MatchTimeout);
+            Regex regex;
+            try
+            {
+                regex = new Regex(pattern, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, RedactionPolicy.MatchTimeout);
+            }
+            catch (ArgumentException)
+            {
+                // An administrator types these (ST-047), and a typed regex is a regex with a typo in it
+                // sooner or later. Building it threw on the first frame of every session and took the
+                // redaction worker's loop with it, so the tenant that configured the pattern was the one
+                // that lost capture (2026-09-19 review).
+                //
+                // Skipped and reported incomplete, like a pattern that ran out of time: a rule that did
+                // not run is text that was not searched, and ADR-0004 discards such a frame rather than
+                // storing it.
+                onIncomplete();
+                continue;
+            }
+
             Match match;
             try
             {

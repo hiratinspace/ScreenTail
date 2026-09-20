@@ -139,4 +139,39 @@ public sealed class PatternLibraryGapTests
         // a redactor that cries wolf is one that gets switched off.
         Assert.Equal(text, Engine.ScrubText(text).Text);
     }
+
+    [Theory]
+    [InlineData("(unclosed")]
+    [InlineData("a{2,1}")]
+    [InlineData("[z-a]")]
+    [InlineData("*")]
+    public void ATenantPatternThatIsNotAPatternIsSkippedRatherThanFatal(string bad)
+    {
+        // An administrator types their own redaction patterns (ST-047), and a typed regex is a regex
+        // with a typo in it sooner or later. Building it threw ArgumentException on the first frame of
+        // every session, which took the redaction worker's loop with it: no frame was ever made
+        // readable again, and the tenant that configured the pattern was the one that lost capture
+        // (2026-09-19 review).
+        //
+        // The frame still has to be scanned by everything else, and the scan has to report itself as
+        // incomplete — a pattern that did not run is text that was not searched, and ADR-0004 says such
+        // a frame is discarded rather than stored.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = [bad] });
+
+        var scrubbed = engine.ScrubText("the card is 4111 1111 1111 1111");
+
+        Assert.False(scrubbed.Complete);
+        Assert.DoesNotContain("4111", scrubbed.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AGoodTenantPatternStillRuns()
+    {
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["ACME-[0-9]{4}"] });
+
+        var scrubbed = engine.ScrubText("asset ACME-1234 was replaced");
+
+        Assert.True(scrubbed.Complete);
+        Assert.DoesNotContain("ACME-1234", scrubbed.Text, StringComparison.Ordinal);
+    }
 }

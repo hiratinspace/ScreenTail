@@ -84,7 +84,20 @@ public sealed class RedactionWorker(
     private readonly Dictionary<MaskKind, long> _masked = [];
     private readonly Lock _counters = new();
     private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _givenUp = new(StringComparer.Ordinal);
+    /// <summary>
+    /// Frames that could not even be discarded, so the decision could not be written down anywhere.
+    ///
+    /// A queue rather than a set, and bounded by <see cref="MaxRemembered"/>: it is skipped on every
+    /// poll, and a list that grows for the life of the service is both a leak and a query that gets
+    /// slower all day.
+    /// </summary>
+    private readonly Queue<string> _givenUp = new();
+
+    /// <summary>
+    /// How many un-discardable frames are skipped at once. Enough to get past a handful that are
+    /// genuinely stuck, small enough that the NOT IN list stays short.
+    /// </summary>
+    private const int MaxRemembered = 16;
     private long _frames;
     private long _unreadable;
     private long _unread;
@@ -153,15 +166,21 @@ public sealed class RedactionWorker(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Given up on rather than retried. A frame whose redaction throws will throw again — the
-            // store refusing a write does not become a different store on the next pass — and retrying it
-            // is a tight loop burning the CPU budget on one frame forever, which is a worse failure than
-            // the one this replaced. Left pending, so finalize purges it: a frame nobody could make
-            // readable is exactly what INV-1 says must not be kept.
+            // store refusing a write does not become a different store on the next pass — and retrying
+            // it is a tight loop burning the CPU budget on one frame forever.
+            //
+            // Discarded rather than remembered. Nobody has read it, so nobody can say what is on it, and
+            // ADR-0004 says such a frame goes; leaving it pending for finalize was the same answer
+            // reached later. Remembering it instead cost three things, all of which showed up in review:
+            // a set that grew for the life of the service, a NOT IN list on every poll that grew with
+            // it, and a backlog count that never reached zero again — so the pill showed a technician
+            // work that was never going to finish (weaknesses P1-9).
             lock (_counters)
             {
-                _givenUp.Add(frame.Id);
                 _failed++;
             }
+
+            await ForgetAsync(frame, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -314,6 +333,37 @@ public sealed class RedactionWorker(
     /// they are counted apart so that an engine which has stopped reading anything is visible as itself
     /// rather than as a slow rise in unreadable frames.
     /// </param>
+    /// <summary>
+    /// Removes a frame that could not be processed, or — when even that fails — remembers it briefly.
+    ///
+    /// A full disk refuses the discard as well, and then there is nowhere to record the decision, so it
+    /// has to be held in memory. Bounded, and oldest-out: a frame pushed out of the set is tried again,
+    /// which is the right way round. A temporary failure recovers on its own, and a permanent one costs
+    /// a bounded amount of repeated work instead of an unbounded amount of memory.
+    /// </summary>
+    private async Task ForgetAsync(PendingFrame frame, CancellationToken ct)
+    {
+        try
+        {
+            await store.DiscardPendingFrameAsync(frame.Id, ct).ConfigureAwait(false);
+            lock (_counters)
+            {
+                _unreadable++;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            lock (_counters)
+            {
+                _givenUp.Enqueue(frame.Id);
+                while (_givenUp.Count > MaxRemembered)
+                {
+                    _ = _givenUp.Dequeue();
+                }
+            }
+        }
+    }
+
     private async Task DiscardAsync(PendingFrame frame, bool unread, CancellationToken ct)
     {
         await store.DiscardPendingFrameAsync(frame.Id, ct).ConfigureAwait(false);
