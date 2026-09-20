@@ -24,6 +24,19 @@ public sealed record ForegroundWindowInfo(
     bool IsElevated,
     DateTimeOffset At)
 {
+    /// <summary>
+    /// The active tab's address, when something can read it. Null everywhere today.
+    ///
+    /// A tab title is not evidence of what a tab is. "ScreenConnect" appears in a support email, a search
+    /// result and the vendor's own documentation, and matching on it put the whole browser in scope and
+    /// started a session — so a technician reading about a tool had their browsing captured (INV-5,
+    /// 2026-09-19 review). The registry has carried a url_pattern for every browser entry since it was
+    /// written; nothing ever filled this in for it to match against.
+    ///
+    /// Reading it needs UI Automation against the address bar, which is ST-043's work.
+    /// </summary>
+    public string? BrowserUrl { get; init; }
+
     /// <summary>Nothing is in the foreground — the desktop, a lock screen, or a window that just closed.</summary>
     public static ForegroundWindowInfo None(DateTimeOffset at) =>
         new(0, 0, null, string.Empty, string.Empty, null, false, at);
