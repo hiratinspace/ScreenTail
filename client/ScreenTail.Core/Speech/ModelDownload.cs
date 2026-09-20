@@ -78,7 +78,17 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
             already = 0;
         }
 
-        await FetchAsync(model, partial, already, progress, ct).ConfigureAwait(false);
+        // False means the server refused the range: there was nothing left to fetch. That happens when
+        // the local file is already the whole model — a download that finished and was interrupted before
+        // the move — and it used to throw before the hash was ever computed, so a complete and correct
+        // file sat on disk while narration stayed broken for the life of the machine (2026-09-19 review).
+        if (!await FetchAsync(model, partial, already, progress, ct).ConfigureAwait(false)
+            && !await MatchesAsync(partial, model.Sha256, ct).ConfigureAwait(false))
+        {
+            // Not the model, then. Start again rather than ask for a range that does not exist for ever.
+            File.Delete(partial);
+            _ = await FetchAsync(model, partial, 0, progress, ct).ConfigureAwait(false);
+        }
 
         if (!await MatchesAsync(partial, model.Sha256, ct).ConfigureAwait(false))
         {
@@ -93,7 +103,8 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
         return true;
     }
 
-    private async Task FetchAsync(
+    /// <returns>False when the server refused the range, so there was nothing to write.</returns>
+    private async Task<bool> FetchAsync(
         SpeechModel model,
         string partial,
         long from,
@@ -113,6 +124,13 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
         using var response = await client
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
             .ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable && from > 0)
+        {
+            // Asked to resume from the end. Either the file is already complete or it is not the model at
+            // all, and the caller decides which by hashing what is there.
+            return false;
+        }
+
         response.EnsureSuccessStatusCode();
 
         // A server that ignores the Range header answers 200 with the whole file. Appending that to what
@@ -146,6 +164,17 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
                 break;
             }
 
+            if (model.Bytes > 0 && received + read > model.Bytes)
+            {
+                // The size is known and the hash would catch this anyway — but only after the whole
+                // thing had been written. A server that does not stop fills the disk holding the
+                // encrypted store before anybody finds out.
+                await file.DisposeAsync().ConfigureAwait(false);
+                File.Delete(partial);
+                throw new ModelIntegrityException(
+                    $"The {model.Name} model is longer than it should be and has been discarded.");
+            }
+
             await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
             received += read;
 
@@ -157,6 +186,7 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
         }
 
         progress?.Report(new DownloadProgress(received, model.Bytes));
+        return true;
     }
 
     private static async Task<bool> MatchesAsync(string path, string expected, CancellationToken ct)
