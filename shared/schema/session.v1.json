@@ -164,7 +164,7 @@
     "CaptureState": { "title": "CaptureState", "enum": ["recording", "paused", "suppressed", "finalizing"] },
     "CaptureStateReason": {
       "title": "CaptureStateReason",
-      "enum": ["user", "password_field", "excluded_app", "elevated_window", "sensitive_context", "out_of_scope"]
+      "enum": ["user", "password_field", "excluded_app", "elevated_window", "sensitive_context", "out_of_scope", "no_indicator"]
     },
     "MarkerEvent": {
       "title": "MarkerEvent",

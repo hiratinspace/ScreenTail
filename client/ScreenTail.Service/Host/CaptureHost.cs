@@ -200,7 +200,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         LogExclusions(logger, exclusions.Version, exclusions.ExcludedApplications, exclusions.Rules);
 
         var policy = new ScopePolicy(registry, new ScopeOptions { Exclusions = exclusions });
-        var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), logger);
+        // INV-4, at the one place a session can begin on its own. The tray icon and the pill live in the
+        // UI process, so a service recording with nothing attached is a recording nobody was told about.
+        var indicator = new IndicatorGuard(machine, () => server.ConnectedClients);
+        indicator.Failed += failure => LogGuardFailed(logger, "indicator", failure.GetType().Name);
+
+        var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), () => indicator.Indicated, logger);
         foreground.Changed += coordinator.Observe;
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
@@ -267,6 +272,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var sensitive = new SensitiveContextGuard(machine);
         sensitive.Failed += failure => LogGuardFailed(logger, "sensitive-context", failure.GetType().Name);
         redaction.SensitiveContextSeen += sensitive.Seen;
+        var showing = indicator.RunAsync(stoppingToken);
         var guarding = sensitive.RunAsync(stoppingToken);
 
         // ST-040: the other half of INV-6's sensitive-field rule, and the faster half. ST-041 reads the
@@ -348,7 +354,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
         LogStopping(logger);
     }
 
