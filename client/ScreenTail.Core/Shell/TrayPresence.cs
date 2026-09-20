@@ -62,7 +62,13 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
             "finalizing" => (TrayIcon.Paused, "Finishing up"),
             "draft_ready" => (TrayIcon.DraftReady, "Draft ready"),
             "draft_failed" => (TrayIcon.DraftReady, "Draft failed"),
-            _ => (drafts > 0 ? TrayIcon.DraftReady : TrayIcon.Idle, "Not capturing"),
+            CaptureStates.Idle => (drafts > 0 ? TrayIcon.DraftReady : TrayIcon.Idle, "Not capturing"),
+
+            // A state this build has never heard of, which means a service newer than this UI. Saying
+            // "not capturing" is a guess, and it is the one guess INV-4 cannot afford to get wrong —
+            // a newer service adding a recording-like state would show the idle ring (2026-09-19
+            // review). Unknown is the honest word, and it is what the Offline glyph already means.
+            _ => (TrayIcon.Offline, "Capture state unknown"),
         };
 
         var detail = (tool, elapsed) switch

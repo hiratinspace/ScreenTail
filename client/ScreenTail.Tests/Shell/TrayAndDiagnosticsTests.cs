@@ -147,4 +147,45 @@ public sealed class TrayAndDiagnosticsTests
         RemoteTool = "screenconnect",
         ElapsedMs = (12 * 60 * 1000) + 41_000,
     };
+
+    [Fact]
+    public void AStateThisBuildHasNeverHeardOfIsUnknownRatherThanIdle()
+    {
+        // 2026-09-19 review. An unrecognised state fell through to "Not capturing" and the idle ring, so
+        // a service newer than this UI — one that had added a recording-like state — would show a
+        // technician the icon that means nothing is happening. That is the one guess INV-4 cannot afford
+        // to get wrong, and KnownIdle already says so about whether the pill is shown; this is the same
+        // reasoning applied to what it says.
+        var presence = TrayPresence.From(new ShellSnapshot(
+            ServiceConnection.Connected,
+            new CaptureStateSnapshot { State = "recording_with_audio" },
+            ShellView.Review,
+            null));
+
+        Assert.Equal(TrayIcon.Offline, presence.Icon);
+        Assert.Contains("unknown", presence.Tooltip, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void IdleStillLooksIdle()
+    {
+        // The control: a change that made everything unknown would pass the test above and would put a
+        // warning glyph in the tray all day.
+        var presence = TrayPresence.From(new ShellSnapshot(
+            ServiceConnection.Connected,
+            new CaptureStateSnapshot { State = CaptureStates.Idle },
+            ShellView.Review,
+            null));
+
+        Assert.Equal(TrayIcon.Idle, presence.Icon);
+    }
+
+    [Fact]
+    public void ThePillSaysUnknownForAStateItDoesNotKnow()
+    {
+        var hud = Core.Hud.HudState.For(new CaptureStateSnapshot { State = "recording_with_audio" });
+
+        Assert.Contains("unknown", hud.State.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.True(hud.Visible);
+    }
 }
