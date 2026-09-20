@@ -80,6 +80,90 @@ public sealed class AuditLogTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task CuttingTheLogShortFromTheEndIsNoticed()
+    {
+        // The tamper the chain alone cannot see, open since the September review (P1-5). Delete the last
+        // rows and what is left is a shorter chain that verifies perfectly — so the export said "all N
+        // audit rows verify" about a log that used to have more, which is exactly the edit somebody
+        // covering a purge would make.
+        //
+        // The log now says separately how long it is supposed to be.
+        var store = await OpenAsync();
+        for (var i = 0; i < 6; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        store = await TamperAsync("DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 2)");
+
+        var verification = await store.VerifyAuditAsync();
+
+        Assert.False(verification.Intact);
+        Assert.Equal(2, verification.Missing);
+        Assert.Contains("missing from the end", verification.Describe(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EmptyingTheLogEntirelyIsNoticed()
+    {
+        // The laziest version of the same thing, and the one that used to report "All 0 audit rows verify."
+        var store = await OpenAsync();
+        for (var i = 0; i < 4; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        store = await TamperAsync("DELETE FROM audit_log");
+
+        var verification = await store.VerifyAuditAsync();
+
+        Assert.False(verification.Intact);
+        Assert.Equal(4, verification.Missing);
+    }
+
+    [Fact]
+    public async Task ReplacingTheLastRowIsNoticedEvenWithTheCountUnchanged()
+    {
+        // Same number of rows, ending somewhere else. Recomputing the chain from a forged last row keeps
+        // the count right, and the head hash is what disagrees.
+        var store = await OpenAsync();
+        for (var i = 0; i < 4; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        var records = await store.GetAuditRecordsAsync();
+        var last = records[^1];
+        var forged = AuditChain.Hash(last.PreviousHash, last.At, last.SessionId, last.Type, 99, last.Detail);
+        store = await TamperAsync(
+            "UPDATE audit_log SET count = 99, hash = @hash WHERE id = @id",
+            ("@hash", forged),
+            ("@id", last.Id));
+
+        var verification = await store.VerifyAuditAsync();
+
+        Assert.False(verification.Intact);
+    }
+
+    [Fact]
+    public async Task AnUntouchedLogStillSaysSo()
+    {
+        // The control. A head record read wrongly would make every honest log look tampered with, which
+        // is the failure that gets a verification switched off.
+        var store = await OpenAsync();
+        for (var i = 0; i < 6; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        var verification = await store.VerifyAuditAsync();
+
+        Assert.True(verification.Intact, verification.Describe());
+        Assert.Equal(0, verification.Missing);
+        Assert.Equal(6, verification.Checked);
+    }
+
+    [Fact]
     public async Task RewritingARowAndItsHashStillBreaksTheChain()
     {
         // The obvious next move for someone editing the table: fix the row's own hash too. Every row after

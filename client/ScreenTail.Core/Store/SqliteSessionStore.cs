@@ -726,8 +726,37 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             checked_++;
         }
 
+        // The chain is intact as far as it goes. Whether it goes far enough is a separate question, and
+        // the one the chain alone cannot answer: rows deleted from the end leave a shorter chain that
+        // verifies perfectly.
+        var head = await ReadAuditHeadAsync(ct).ConfigureAwait(false);
+        if (head is { } end)
+        {
+            var have = checked_ + unchained;
+            if (have < end.Rows)
+            {
+                return new AuditVerification(false, checked_, unchained, null, end.Rows - have);
+            }
+
+            if (previous is not null && end.Hash.Length > 0 && previous != end.Hash)
+            {
+                // As many rows as there should be, ending somewhere else. A row replaced wholesale at
+                // the end, or a chain rebuilt from a different point.
+                return new AuditVerification(false, checked_, unchained, records.Count > 0 ? records[^1].Id : null);
+            }
+        }
+
         return new AuditVerification(true, checked_, unchained, null);
     }
+
+    /// <summary>Where the log says it should end, or null on a store older than schema 7.</summary>
+    private async Task<(long Rows, string Hash)?> ReadAuditHeadAsync(CancellationToken ct) =>
+        await QueryAsync(
+            "SELECT rows, hash FROM audit_head WHERE id = 1",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
+                ? ((long Rows, string Hash)?)(reader.GetInt64(0), reader.GetString(1))
+                : null,
+            ct).ConfigureAwait(false);
 
     public async Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
     {
@@ -1164,11 +1193,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         await using (var head = Command(_connection, "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1"))
         {
             var value = await head.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            previous = value is string hash ? hash : null;
+            previous = value as string;
         }
 
         var at = _time.GetUtcNow();
-        return await ExecuteAsync(
+        var hash = AuditChain.Hash(previous, at, sessionId, type, count, detail);
+        var written = await ExecuteAsync(
             _connection,
             "INSERT INTO audit_log (at, session_id, type, count, detail, prev_hash, hash) "
             + "VALUES (@at, @session, @type, @count, @detail, @prev, @hash)",
@@ -1179,7 +1209,21 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@count", count),
             ("@detail", detail),
             ("@prev", previous),
-            ("@hash", AuditChain.Hash(previous, at, sessionId, type, count, detail))).ConfigureAwait(false);
+            ("@hash", hash)).ConfigureAwait(false);
+
+        // Where the log is supposed to end, written down separately (schema 7). The chain catches an
+        // edited or removed row because every hash after it stops matching; it cannot catch rows removed
+        // from the end, and a shorter chain verifies perfectly. This is the row count and the last hash,
+        // so a truncated log no longer agrees with itself (weaknesses P1-5).
+        _ = await ExecuteAsync(
+            _connection,
+            "INSERT INTO audit_head (id, rows, hash, at) VALUES (1, 1, @hash, @at) "
+            + "ON CONFLICT(id) DO UPDATE SET rows = rows + 1, hash = @hash, at = @at",
+            ct,
+            ("@hash", hash),
+            ("@at", Iso(at))).ConfigureAwait(false);
+
+        return written;
     }
 
     private static async Task<int> ExecuteAsync(SqliteConnection connection, string sql, CancellationToken ct, params (string Name, object? Value)[] parameters)
