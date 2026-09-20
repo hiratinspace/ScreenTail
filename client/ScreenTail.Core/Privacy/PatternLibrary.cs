@@ -51,10 +51,9 @@ internal static partial class PatternLibrary
         {
             foreach (Match m in Safely(CardCandidate().Matches(text), onIncomplete))
             {
-                // Only a Luhn-valid number is a card. Without this, order numbers and asset tags get masked.
-                if (PassesLuhn(m.Value))
+                foreach (var (index, length) in CardsIn(m, text))
                 {
-                    yield return new PatternMatch(MaskKind.Card, m.Index, m.Length, "[CARD]");
+                    yield return new PatternMatch(MaskKind.Card, index, length, "[CARD]");
                 }
             }
         }
@@ -164,6 +163,78 @@ internal static partial class PatternLibrary
     }
 
     /// <summary>Luhn check over the digits of a candidate card number.</summary>
+    /// <summary>
+    /// The card numbers inside one run of digit groups.
+    ///
+    /// A run is not a card. OCR joins a page's words with single spaces, so whatever sits beside the
+    /// number on a payment form — the CVV, the expiry, a zip code, an order number — arrives in the same
+    /// run. Taking the run as the candidate meant the checksum was computed over the card <i>and</i> its
+    /// neighbour, failed, and the card went through unmasked with its CVV beside it (2026-09-19 review).
+    ///
+    /// So when the run as a whole is not a card, every window of three to five whole groups inside it is
+    /// tried. Whole groups, because a card does not start halfway through a word.
+    ///
+    /// <b>Every window that passes is masked, and overlaps are merged.</b> One window in ten passes the
+    /// checksum by accident, and choosing between a true window and an accidental one that overlaps it
+    /// risks choosing wrong and leaving four digits of a real card on the screen. Masking the union
+    /// costs a neighbouring number now and then and never leaves part of a card behind.
+    ///
+    /// Windows must begin with 2 to 6, the digits payment cards begin with. That is what keeps a
+    /// spreadsheet of ordinary numbers from coming back full of holes. It is not applied to a run that
+    /// is a card all by itself, which behaves exactly as it always has.
+    /// </summary>
+    private static List<(int Index, int Length)> CardsIn(Match run, string text)
+    {
+        // Only a Luhn-valid number is a card. Without this, order numbers and asset tags get masked.
+        if (PassesLuhn(run.ValueSpan))
+        {
+            return [(run.Index, run.Length)];
+        }
+
+        var groups = run.Groups["g"].Captures;
+        var found = new List<(int Start, int End)>();
+        for (var first = 0; first + MinCardGroups <= groups.Count; first++)
+        {
+            if (text[groups[first].Index] is < '2' or > '6')
+            {
+                continue;
+            }
+
+            var last = Math.Min(groups.Count, first + MaxCardGroups) - 1;
+            for (; last >= first + MinCardGroups - 1; last--)
+            {
+                var start = groups[first].Index;
+                var end = groups[last].Index + groups[last].Length;
+                if (PassesLuhn(text.AsSpan(start, end - start)))
+                {
+                    found.Add((start, end));
+                }
+            }
+        }
+
+        // Already ordered by start. Merge anything that touches, so callers never see overlapping masks.
+        var merged = new List<(int Index, int Length)>();
+        foreach (var (start, end) in found)
+        {
+            if (merged.Count > 0 && start <= merged[^1].Index + merged[^1].Length)
+            {
+                var previous = merged[^1];
+                merged[^1] = (previous.Index, Math.Max(previous.Index + previous.Length, end) - previous.Index);
+            }
+            else
+            {
+                merged.Add((start, end - start));
+            }
+        }
+
+        return merged;
+    }
+
+    /// <summary>4-4-4-4 is four groups, 4-6-5 is three, and nothing in use has more than five.</summary>
+    private const int MinCardGroups = 3;
+
+    private const int MaxCardGroups = 5;
+
     internal static bool PassesLuhn(ReadOnlySpan<char> candidate)
     {
         var sum = 0;
@@ -208,9 +279,11 @@ internal static partial class PatternLibrary
         BuiltInTimeoutMs)]
     private static partial Regex Ssn();
 
-    // Either a contiguous 13–19 digit number or the usual 4-4-4-4 / 4-6-5 groupings — not an unbroken run of
-    // digits across a space, which would let a card swallow whatever number follows it. Luhn decides the rest.
-    [GeneratedRegex(@"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
+    // Either a contiguous 13–19 digit number, or a run of digit groups of any length. The run is a place
+    // to look, not a candidate: CardsIn finds the 4-4-4-4 and 4-6-5 shapes inside it. It used to stop at
+    // five groups and treat what it had as the number, which is how a card swallowed the CVV beside it,
+    // failed Luhn as a whole, and was left alone.
+    [GeneratedRegex(@"\b(?:\d{13,19}|(?<g>\d{3,6})(?:[ -](?<g>\d{3,6})){2,})\b", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, BuiltInTimeoutMs)]
     private static partial Regex CardCandidate();
 
     // Recognisable credential shapes plus any long random-looking string introduced as a key or token.
