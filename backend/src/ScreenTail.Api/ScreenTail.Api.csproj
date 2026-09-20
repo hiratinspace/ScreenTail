@@ -20,7 +20,9 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
+    <!-- A build-time tool: dotnet-ef reads it to create migrations. PrivateAssets keeps it out of the
+         published image, where a design-time assembly is surface nobody asked for (2026-09-19 review). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
   </ItemGroup>
