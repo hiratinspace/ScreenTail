@@ -54,17 +54,44 @@ public sealed class ScopePolicyTests
     }
 
     [Theory]
-    [InlineData("Azure Virtual Desktop — Acme - Google Chrome", "azure-virtual-desktop")]
-    [InlineData("Windows 365 - Microsoft Edge", "azure-virtual-desktop")]
-    [InlineData("ConnectWise Control — RECEPTION-02 - Google Chrome", "screenconnect-web")]
-    [InlineData("Splashtop Business - Google Chrome", "splashtop-web")]
-    public void ARemoteSessionInABrowserTabIsInScope(string title, string expectedId)
+    [InlineData("Azure Virtual Desktop — Acme - Google Chrome", "https://client.wvd.microsoft.com/arm/webclient/", "azure-virtual-desktop")]
+    [InlineData("Windows 365 - Microsoft Edge", "https://windows365.microsoft.com/", "azure-virtual-desktop")]
+    [InlineData("ConnectWise Control — RECEPTION-02 - Google Chrome", "https://acme.screenconnect.com/Host#access", "screenconnect-web")]
+    [InlineData("Splashtop Business - Google Chrome", "https://my.splashtop.com/computers", "splashtop-web")]
+    public void ARemoteSessionInABrowserTabIsInScope(string title, string url, string expectedId)
     {
-        var decision = new ScopePolicy(Shipped).Decide(Browser(title));
+        var decision = new ScopePolicy(Shipped).Decide(Browser(title, url));
 
         Assert.Equal(CaptureScope.RemoteTool, decision.Scope);
         Assert.Equal(expectedId, decision.ToolId);
         Assert.Equal(RemoteToolKind.Browser, decision.Tool);
+    }
+
+    [Theory]
+    [InlineData("ConnectWise Control pricing — Google Search - Google Chrome", "https://www.google.com/search?q=connectwise+control")]
+    [InlineData("Your ScreenConnect invoice — Inbox - Google Chrome", "https://mail.google.com/mail/u/0/")]
+    [InlineData("Splashtop Business documentation - Google Chrome", "https://support-splashtopbusiness.splashtop.com/hc/en-us")]
+    [InlineData("Azure Virtual Desktop overview | Microsoft Learn - Microsoft Edge", "https://learn.microsoft.com/azure/virtual-desktop/")]
+    public void APageAboutAToolIsNotASessionWithIt(string title, string url)
+    {
+        // 2026-09-19 review. Matching on the title alone put the whole browser in scope and started a
+        // session, so a technician reading about a tool had their browsing captured (INV-5). Every one
+        // of these is a page somebody would have open during an ordinary working day.
+        var decision = new ScopePolicy(Shipped).Decide(Browser(title, url));
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
+        Assert.False(decision.MayCaptureFrames);
+    }
+
+    [Fact]
+    public void ATabWhoseAddressCannotBeReadIsNotASession()
+    {
+        // Nothing reads a browser's address bar yet (ST-043), so this is the behaviour today: browser
+        // entries do not match at all. A feature turned off rather than a wrong answer given, and
+        // Ctrl+Alt+R still starts a session by hand.
+        var decision = new ScopePolicy(Shipped).Decide(Browser("ConnectWise Control — RECEPTION-02 - Google Chrome"));
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
     }
 
     [Theory]
@@ -170,7 +197,9 @@ public sealed class ScopePolicyTests
         var clock = new ManualTime(At);
         var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock);
 
-        Assert.True(trigger.Observe(Browser("Azure Virtual Desktop — Acme - Google Chrome")).Start);
+        Assert.True(trigger.Observe(Browser(
+            "Azure Virtual Desktop — Acme - Google Chrome",
+            "https://client.wvd.microsoft.com/arm/webclient/")).Start);
     }
 
     [Fact]
@@ -321,7 +350,13 @@ public sealed class ScopePolicyTests
     private static ForegroundWindowInfo Window(string process, string title, string className = "Window") =>
         new(1, 100, process, title, className, BrowserTitles.ActiveTab(process, title), false, At);
 
-    private static ForegroundWindowInfo Browser(string title) => Window("chrome", title);
+    /// <param name="url">
+    /// The tab's address. Required for a browser entry that declares one, because a title is not
+    /// evidence of what a tab is: a support email, a search result and the vendor's own documentation
+    /// all carry the tool's name.
+    /// </param>
+    private static ForegroundWindowInfo Browser(string title, string? url = null) =>
+        Window("chrome", title) with { BrowserUrl = url };
 
     private sealed class ManualTime(DateTimeOffset start) : TimeProvider
     {

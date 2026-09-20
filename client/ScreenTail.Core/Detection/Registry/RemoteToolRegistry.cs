@@ -164,10 +164,24 @@ public sealed class RemoteToolRegistry
 
         foreach (var pattern in BrowserPatterns)
         {
-            if (SafeMatch(pattern.CompiledTitle, title))
+            if (!SafeMatch(pattern.CompiledTitle, title))
             {
-                return pattern;
+                continue;
             }
+
+            // The title got us this far, and on its own it is not evidence. Every browser entry declares
+            // the addresses its tool actually lives at, and until 2026-09-20 nothing compared them: a
+            // support email, a search result or the vendor's own documentation matched the same word,
+            // put the whole browser in scope and started a session (INV-5, 2026-09-19 review).
+            //
+            // An address we cannot read is not a match. That is a feature turned off rather than a
+            // wrong answer given, and Ctrl+Alt+R still starts a session by hand.
+            if (pattern.CompiledUrl is { } url && !SafeMatch(url, window.BrowserUrl ?? string.Empty))
+            {
+                continue;
+            }
+
+            return pattern;
         }
 
         return null;
@@ -274,12 +288,26 @@ public sealed class BrowserPatternEntry
     [JsonPropertyName("title_pattern")]
     public required string TitlePattern { get; init; }
 
-    /// <summary>Matched against the tab's URL once ST-043 can read it. Unused until then.</summary>
+    /// <summary>
+    /// The addresses this tool actually lives at.
+    ///
+    /// Required for a match when it is present, because a tab title is not evidence of what a tab is.
+    /// Nothing reads a browser's address bar yet (ST-043), so today this means browser entries do not
+    /// match at all — a feature turned off rather than a wrong answer given.
+    /// </summary>
     [JsonPropertyName("url_pattern")]
     public string? UrlPattern { get; init; }
 
+    private Regex? _url;
+
     internal Regex CompiledTitle =>
         _title ??= new Regex(TitlePattern, RegexOptions.CultureInvariant | RegexOptions.Compiled, RemoteToolRegistry.MatchTimeout);
+
+    /// <summary>Null when the entry names no addresses, in which case the title is all there is.</summary>
+    internal Regex? CompiledUrl =>
+        UrlPattern is null
+            ? null
+            : _url ??= new Regex(UrlPattern, RegexOptions.CultureInvariant | RegexOptions.Compiled, RemoteToolRegistry.MatchTimeout);
 }
 
 public sealed class AdminToolEntry
