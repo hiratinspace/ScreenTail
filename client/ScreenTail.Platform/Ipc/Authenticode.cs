@@ -22,16 +22,32 @@ namespace ScreenTail.Platform.Ipc;
 internal static class Authenticode
 {
     /// <summary>
+    /// TRUST_E_NOSIGNATURE. The file carries no signature at all, which is every build until ST-112's
+    /// certificate exists — as opposed to one that carries a signature Windows will not accept.
+    /// </summary>
+    private const uint NoSignature = 0x800B0100;
+
+    /// <summary>
     /// The signer's thumbprint when the file carries a signature that verifies against its own contents,
     /// or null when it is unsigned, tampered with, or chains to something untrusted.
     /// </summary>
     internal static string? VerifiedSignerThumbprint(string file)
     {
-        return Verifies(file) ? SignerThumbprint(file) : null;
+        return Verify(file) == 0 ? SignerThumbprint(file) : null;
     }
 
-    /// <summary>Whether Windows itself accepts the signature, chain and timestamp.</summary>
-    private static bool Verifies(string file)
+    /// <summary>
+    /// Whether this file is unsigned, as opposed to signed and unacceptable.
+    ///
+    /// The difference decides whether a build may fall back to the development rule. Both used to arrive
+    /// as a null thumbprint, so a release whose own signature failed to verify — a certificate the
+    /// machine does not trust, a chain that cannot be built, a tampered binary — quietly applied the rule
+    /// meant for builds nobody signed, and said so only in an Information log line (2026-09-19 review).
+    /// </summary>
+    internal static bool IsUnsigned(string file) => Verify(file) == NoSignature;
+
+    /// <summary>Whether Windows itself accepts the signature, chain and timestamp. Zero means yes.</summary>
+    private static uint Verify(string file)
     {
         // Marshalled by hand rather than pinned. WINTRUST_FILE_INFO holds an LPCWSTR, and a managed type
         // with a string in it cannot be pinned at all — GCHandle.Alloc throws "Object contains references",
@@ -72,7 +88,7 @@ internal static class Authenticode
             data.StateAction = WTD_STATEACTION_CLOSE;
             _ = WinVerifyTrust(INVALID_HANDLE_VALUE, ref action, ref data);
 
-            return result == 0;
+            return unchecked((uint)result);
         }
         finally
         {
