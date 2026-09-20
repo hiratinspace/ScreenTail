@@ -149,6 +149,51 @@ public sealed class ShellStateTests
         Assert.Equal(ShellView.Review, state.Snapshot.View);
     }
 
+    [Fact]
+    public void WhatTheServiceLastSaidIsNotWhatIsTrueOnceItStopsAnswering()
+    {
+        // The store keeps the last capture state across a dropped pipe on purpose, so the UI can say
+        // "it was recording, and may still be". The mistake was letting callers read that value as the
+        // present tense. Idle, then a lost pipe, then a session the service starts by itself: the pill
+        // read "Not recording" and stayed hidden through all of it (INV-4; 2026-09-19 review).
+        //
+        // KnownCapture is the present tense. It is null whenever nobody is answering.
+        var state = new ShellState();
+        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
+
+        Assert.NotNull(state.Snapshot.KnownCapture);
+
+        state.Lost();
+
+        Assert.NotNull(state.Snapshot.Capture);
+        Assert.Null(state.Snapshot.KnownCapture);
+    }
+
+    [Fact]
+    public void AHiddenPillComesBackTheMomentTheServiceStopsAnswering()
+    {
+        // The two halves together, which is the behaviour a technician would actually see.
+        var state = new ShellState();
+        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
+        Assert.False(ScreenTail.Core.Hud.HudState.For(state.Snapshot.KnownCapture, hidden: true).Visible);
+
+        state.Lost();
+
+        var hud = ScreenTail.Core.Hud.HudState.For(state.Snapshot.KnownCapture, hidden: true);
+        Assert.True(hud.Visible);
+        Assert.Contains("may still be recording", hud.State.Tooltip, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WhileStillConnectingNothingIsKnownEither()
+    {
+        var state = new ShellState();
+        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
+        state.Connecting();
+
+        Assert.Null(state.Snapshot.KnownCapture);
+    }
+
     private static CaptureStateSnapshot Recording(string sessionId) => new()
     {
         State = "recording",

@@ -201,6 +201,8 @@ public sealed class LiveShell : IAsyncDisposable
         }
 
         _hud ??= new HudWindowHolder(_state, _connection, _preferences);
-        _hud.SetVisible(HudState.For(snapshot.Capture, hidden: _hudHidden).Visible);
+        // KnownCapture, not Capture: what the service last said is not what is true once it stops
+        // answering, and this is the one decision that can take the indicator off the screen.
+        _hud.SetVisible(HudState.For(snapshot.KnownCapture, hidden: _hudHidden).Visible);
     }
 }
