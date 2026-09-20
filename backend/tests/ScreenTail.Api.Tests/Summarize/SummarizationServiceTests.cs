@@ -228,6 +228,24 @@ public sealed class SummarizationServiceTests
         Assert.Equal(0.08m, ledger.Recorded);
     }
 
+    [Fact]
+    public async Task AProviderThatThrowsGivesTheBudgetBack()
+    {
+        // 2026-09-20 review. The first call to the model sat outside the try that settles the
+        // reservation, so a provider that threw rather than returning a failure left ten cents claimed
+        // and never released. A hundred of those is a tenant's whole day, spent on nothing: the way the
+        // production wiring was broken at the time, every single request did it.
+        var provider = new FakeLlm { Throws = new InvalidOperationException("misconfigured") };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, ledger.Settles);
+        Assert.Equal(0m, ledger.Recorded);
+    }
+
     private static SummarizeBundle Bundle() => new()
     {
         SessionId = "s1",
@@ -265,11 +283,19 @@ public sealed class SummarizationServiceTests
 
         public ProviderError? Failure { get; set; }
 
+        /// <summary>A provider that fails by throwing, which is what a bug in one looks like.</summary>
+        public Exception? Throws { get; set; }
+
         public int Calls { get; private set; }
 
         public Task<ProviderResult<LlmDraft>> DraftAsync(SummarizeBundle bundle, string? repair, CancellationToken ct = default)
         {
             Calls++;
+            if (Throws is not null)
+            {
+                throw Throws;
+            }
+
             if (Failure is { } error)
             {
                 return Task.FromResult(ProviderResult.Failure<LlmDraft>(error));
@@ -306,8 +332,14 @@ public sealed class SummarizationServiceTests
             return Task.FromResult<Guid?>(spent >= Cap ? null : Guid.NewGuid());
         }
 
-        public Task SettleAsync(Guid reservationId, decimal costUsd, CancellationToken ct = default) =>
-            RecordAsync(Tenant, "settled", "fake", costUsd, ct);
+        /// <summary>How many reservations were settled, at any figure. One per reservation or it leaked.</summary>
+        public int Settles { get; private set; }
+
+        public Task SettleAsync(Guid reservationId, decimal costUsd, CancellationToken ct = default)
+        {
+            Settles++;
+            return RecordAsync(Tenant, "settled", "fake", costUsd, ct);
+        }
 
         public Task RecordAsync(Guid tenantId, string sessionId, string provider, decimal costUsd, CancellationToken ct = default)
         {
