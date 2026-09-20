@@ -114,6 +114,15 @@ public static partial class BundleLimits
                 return "Every frame needs an id.";
             }
 
+            if (frame.Excluded)
+            {
+                // The technician looked at this frame in Review and said no (ST-075). The client already
+                // drops these, so one arriving means a client that is out of date or is not ours — and
+                // either way its picture must not reach the provider. Refused rather than quietly
+                // dropped: a bundle that is not what it says it is should be fixed, not worked around.
+                return "A frame the technician excluded was sent anyway.";
+            }
+
             if (!ids.Add(frame.Id))
             {
                 // The draft's post-conditions index frames by id, and two of the same threw there —

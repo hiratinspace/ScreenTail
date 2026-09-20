@@ -22,7 +22,29 @@ public sealed class SummarizationOptions
     /// </summary>
     public string Provider { get; set; } = "gemini-flash";
 
-    public string ApiKey { get; set; } = string.Empty;
+    /// <summary>
+    /// The provider key.
+    ///
+    /// Trimmed on the way in, because a key mounted from a file or a secrets store almost always arrives
+    /// with a trailing newline — and an HTTP header value cannot contain one, so the request threw a
+    /// FormatException that no catch here covered. Every draft came back as a 500 on a deployment whose
+    /// key was perfectly correct (2026-09-19 review).
+    /// </summary>
+    public string ApiKey
+    {
+        get => _apiKey;
+        set => _apiKey = value?.Trim() ?? string.Empty;
+    }
+
+    public string FallbackApiKey
+    {
+        get => _fallbackApiKey;
+        set => _fallbackApiKey = value?.Trim() ?? string.Empty;
+    }
+
+    private string _apiKey = string.Empty;
+
+    private string _fallbackApiKey = string.Empty;
 
     /// <summary>
     /// Which model, by the name the provider publishes it under.
@@ -81,8 +103,6 @@ public sealed class SummarizationOptions
     /// than a second bill, which is the right default for a pilot.
     /// </summary>
     public string? FallbackProvider { get; set; }
-
-    public string? FallbackApiKey { get; set; }
 
     /// <summary>
     /// What one tenant may spend on drafting in a day, in US dollars.

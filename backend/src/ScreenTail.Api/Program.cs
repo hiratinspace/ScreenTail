@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
@@ -64,9 +65,15 @@ builder.Services.AddScoped<SummarizationService>(services => new SummarizationSe
 builder.Services.AddAuthorization();
 builder.Services.AddOpenApi();
 
-// Every endpoint under /v1 requires a valid token unless it says otherwise. Opt-out rather than opt-in,
-// because an endpoint someone forgot to protect is the failure that actually happens.
-builder.Services.AddRequestTimeouts();
+// A request that has not finished in this long has stopped being a request and started being a held
+// connection. AddRequestTimeouts alone does nothing — the middleware below is what applies it, and
+// without that line this was a registration with no effect (2026-09-19 review).
+builder.Services.AddRequestTimeouts(timeouts =>
+{
+    // Longer than the drafting deadline, which is 60 s and is enforced by the summarisation service
+    // itself with a message a technician can act on. This is the backstop for everything else.
+    timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(90) };
+});
 
 var app = builder.Build();
 
@@ -76,13 +83,21 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
+app.UseRequestTimeouts();
 app.UseAuthentication();
 app.UseAuthorization();
 
 // Liveness only: checks no dependencies and returns no data (INV-7, INV-10).
 app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")));
 
-app.MapOpenApi("/swagger/v1/swagger.json");
+// Development only. The document lists every endpoint, every field of the bundle and every error shape,
+// which is a map of the service for anyone who asks — and it was served unauthenticated in every
+// environment, including production (2026-09-19 review). A deployment that wants it published can put it
+// behind whatever its operators already use to publish documentation.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi("/swagger/v1/swagger.json");
+}
 
 var v1 = app.MapGroup("/v1").RequireAuthorization();
 _ = v1.MapMe();

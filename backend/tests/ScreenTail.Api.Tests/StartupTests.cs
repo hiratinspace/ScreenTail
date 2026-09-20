@@ -1,5 +1,6 @@
 using Microsoft.IdentityModel.Tokens;
 using ScreenTail.Api.Auth;
+using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Tests;
 
@@ -56,5 +57,75 @@ public sealed class StartupTests
         Assert.Equal(64, DeviceTokens.Hash(first).Length);
         Assert.True(DeviceTokens.Matches(DeviceTokens.Hash(first), DeviceTokens.Hash(first)));
         Assert.False(DeviceTokens.Matches(DeviceTokens.Hash(first), DeviceTokens.Hash(second)));
+    }
+
+    [Theory]
+    [InlineData("a-real-key\n")]
+    [InlineData("  a-real-key  ")]
+    [InlineData("a-real-key\r\n")]
+    public void AKeyMountedFromAFileStillWorks(string mounted)
+    {
+        // 2026-09-19 review. A secret mounted from a file or a secrets store almost always arrives with a
+        // trailing newline, and an HTTP header value cannot contain one — so building the request threw a
+        // FormatException that no catch covered, and every draft came back as a 500 on a deployment whose
+        // key was perfectly correct. The operator would have had no way to tell that from a bad key.
+        var options = new SummarizationOptions { ApiKey = mounted };
+
+        Assert.Equal("a-real-key", options.ApiKey);
+        Assert.True(options.Configured);
+    }
+
+    [Fact]
+    public void AKeyOfNothingButWhitespaceIsNoKey()
+    {
+        Assert.False(new SummarizationOptions { ApiKey = "   \n" }.Configured);
+    }
+
+    [Fact]
+    public void TheApiDocumentIsNotPublishedOutsideDevelopment()
+    {
+        // It lists every endpoint, every field of the bundle and every error shape: a map of the service
+        // for anyone who asks. It was served unauthenticated in every environment, production included.
+        var source = File.ReadAllText(ProgramPath());
+        var at = source.IndexOf("MapOpenApi", StringComparison.Ordinal);
+
+        Assert.True(at > 0, "MapOpenApi has moved; this test needs to follow it.");
+        Assert.Contains("IsDevelopment", source[Math.Max(0, at - 400)..at], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestTimeoutsAreAppliedAndNotOnlyRegistered()
+    {
+        // AddRequestTimeouts on its own does nothing: the middleware is what applies it. Without
+        // UseRequestTimeouts this was a registration with no effect, and the comment above it described
+        // authorization instead.
+        var source = File.ReadAllText(ProgramPath());
+
+        Assert.Contains("AddRequestTimeouts", source, StringComparison.Ordinal);
+        Assert.Contains("UseRequestTimeouts", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Program.cs, found by walking up from the test binary.
+    ///
+    /// Read as text because what is being checked is a decision in the composition root, and there is no
+    /// object to ask: a middleware that was never added leaves nothing behind to inspect. Brittle in the
+    /// one way that is acceptable — it fails loudly if the line moves, and says so.
+    /// </summary>
+    private static string ProgramPath()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "backend", "src", "ScreenTail.Api", "Program.cs");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("Program.cs is not above the test binary.");
     }
 }
