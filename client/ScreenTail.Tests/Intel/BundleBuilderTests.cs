@@ -22,7 +22,7 @@ public sealed class BundleBuilderTests
     {
         // INV-1, at the last place it can still be broken. A frame nobody has read is exactly what the
         // redaction worker exists to stop reaching a reader, and a model provider is a reader.
-        var bundle = BundleBuilder.Build(Session(
+        var bundle = Build(Session(
             Frame("f1", 1_000),
             Frame("f2", 2_000) with { RedactionPending = true, RedactedAt = null, OcrText = null }));
 
@@ -34,7 +34,7 @@ public sealed class BundleBuilderTests
     {
         // The login heuristic marked it: the frame looked like a sign-in screen. Redaction masked what it
         // found, and what it found is not the same as what was there.
-        var bundle = BundleBuilder.Build(Session(
+        var bundle = Build(Session(
             Frame("f1", 1_000),
             Frame("f2", 2_000) with { SensitiveContext = true }));
 
@@ -57,7 +57,7 @@ public sealed class BundleBuilderTests
             ],
         };
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         Assert.Equal(["f1", "f3"], bundle.Frames.Select(f => f.Id));
     }
@@ -74,7 +74,7 @@ public sealed class BundleBuilderTests
             ],
         };
 
-        Assert.Equal(["f1"], BundleBuilder.Build(session).Frames.Select(f => f.Id));
+        Assert.Equal(["f1"], Build(session).Frames.Select(f => f.Id));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class BundleBuilderTests
             Events = [new CaptureStateEvent { TsMs = 4_000, State = CaptureState.Suppressed }],
         };
 
-        Assert.Equal(["f1"], BundleBuilder.Build(session).Frames.Select(f => f.Id));
+        Assert.Equal(["f1"], Build(session).Frames.Select(f => f.Id));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class BundleBuilderTests
     {
         // Review's "remove this screenshot" (ST-075). The technician looked at it and said no, which is
         // the most explicit instruction anything in this system ever receives.
-        var bundle = BundleBuilder.Build(Session(
+        var bundle = Build(Session(
             Frame("f1", 1_000),
             Frame("f2", 2_000) with { ExcludedByUser = true }));
 
@@ -107,7 +107,7 @@ public sealed class BundleBuilderTests
     {
         var session = Session([.. Enumerable.Range(0, 200).Select(i => Frame($"f{i:D3}", i * 1_000))]);
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         Assert.True(bundle.Frames.Count <= 25, $"{bundle.Frames.Count} frames is more than the ticket's ceiling of 25");
         Assert.Equal(200, bundle.FramesConsidered);
@@ -117,14 +117,40 @@ public sealed class BundleBuilderTests
     public void ThePayloadStaysUnderFourMegabytes()
     {
         // Twenty-five frames is a count, not a size. Big screenshots hit the byte budget first, and a
-        // request that is refused for being too large costs the whole note rather than a few pictures.
-        var heavy = new string('A', 300_000);
-        var session = Session([.. Enumerable.Range(0, 200).Select(i => Frame($"f{i:D3}", i * 1_000) with { Image = heavy })]);
+        // request refused for being too large costs the whole note rather than a few pictures.
+        //
+        // The weight comes from the store now. This test used to fake it by putting 300,000 characters
+        // in Frame.Image — which is the *path*, "frames/f001.jpg" — so it measured a string nobody
+        // stores and passed against a budget that could never be reached (2026-09-19 review).
+        var session = Session([.. Enumerable.Range(0, 200).Select(i => Frame($"f{i:D3}", i * 1_000))]);
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session, bytesEach: 300_000);
 
         Assert.True(bundle.EstimatedBytes < 4 * 1024 * 1024, $"{bundle.EstimatedBytes} bytes is over the 4 MB budget");
         Assert.True(bundle.Frames.Count < 25, "the byte budget should have bitten before the count did");
+    }
+
+    [Fact]
+    public void ASessionOfSmallScreenshotsStillGetsTwentyFive()
+    {
+        // The control. A budget that bit on ordinary frames would quietly halve every note.
+        var session = Session([.. Enumerable.Range(0, 200).Select(i => Frame($"f{i:D3}", i * 1_000))]);
+
+        var bundle = Build(session, bytesEach: 40_000);
+
+        Assert.Equal(25, bundle.Frames.Count);
+    }
+
+    [Fact]
+    public void TheWeightReportedIsTheWeightOfThePictures()
+    {
+        // EstimatedBytes is what the cost cap and the log read. It used to be the length of a handful of
+        // file paths, which is to say about twenty-three bytes a frame.
+        var session = Session(Frame("f1", 1_000), Frame("f2", 2_000));
+
+        var bundle = Build(session, bytesEach: 100_000);
+
+        Assert.True(bundle.EstimatedBytes >= 200_000, $"{bundle.EstimatedBytes} is not the weight of two 100 KB frames");
     }
 
     [Fact]
@@ -134,7 +160,7 @@ public sealed class BundleBuilderTests
         // What the technician did at the end is usually the fix.
         var session = Session([.. Enumerable.Range(0, 200).Select(i => Frame($"f{i:D3}", i * 1_000))]);
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         var last = bundle.Frames[^1].TsMs;
         Assert.True(last > 150_000, $"the last frame chosen was at {last} ms of a 199 s session");
@@ -150,7 +176,7 @@ public sealed class BundleBuilderTests
             Frame("blank", 1_000) with { OcrText = null },
             Frame("words", 2_000) with { OcrText = "The print spooler service is not running" });
 
-        var bundle = BundleBuilder.Build(session, new BundleOptions { MaxFrames = 1 });
+        var bundle = Build(session, new BundleOptions { MaxFrames = 1 });
 
         Assert.Equal("words", Assert.Single(bundle.Frames).Id);
     }
@@ -177,7 +203,7 @@ public sealed class BundleBuilderTests
             ],
         };
 
-        var bundle = BundleBuilder.Build(session, new BundleOptions { MaxFrames = 1 });
+        var bundle = Build(session, new BundleOptions { MaxFrames = 1 });
 
         Assert.Equal("explained", Assert.Single(bundle.Frames).Id);
     }
@@ -194,7 +220,7 @@ public sealed class BundleBuilderTests
             ],
         };
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         Assert.Equal("f1", bundle.Transcript.Single(s => s.Id == "t1").FrameId);
         Assert.Null(bundle.Transcript.Single(s => s.Id == "t2").FrameId);
@@ -214,7 +240,7 @@ public sealed class BundleBuilderTests
             ],
         };
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         Assert.Empty(bundle.Frames);
         Assert.Null(Assert.Single(bundle.Transcript).FrameId);
@@ -230,8 +256,8 @@ public sealed class BundleBuilderTests
             Frame("f1", 1_000) with { OcrText = "Services" },
             Frame("f2", 2_000) with { OcrText = null });
 
-        Assert.False(BundleBuilder.Build(complete).OcrPartial);
-        Assert.True(BundleBuilder.Build(partial).OcrPartial);
+        Assert.False(Build(complete).OcrPartial);
+        Assert.True(Build(partial).OcrPartial);
     }
 
     [Fact]
@@ -239,7 +265,7 @@ public sealed class BundleBuilderTests
     {
         var session = Session(Frame("f1", 1_000)) with { FramesPurgedUnredacted = 3, PartialCapture = true };
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         Assert.Equal(3, bundle.FramesPurgedUnredacted);
         Assert.True(bundle.PartialCapture);
@@ -251,8 +277,8 @@ public sealed class BundleBuilderTests
         var text = Session(Frame("f1", 1_000) with { OcrText = new string('x', 4_000) });
         var none = Session(Frame("f1", 1_000) with { OcrText = null });
 
-        Assert.True(BundleBuilder.Build(text).EstimatedTokens > BundleBuilder.Build(none).EstimatedTokens);
-        Assert.True(BundleBuilder.Build(none).EstimatedTokens > 0, "a picture costs tokens even with no text on it");
+        Assert.True(Build(text).EstimatedTokens > Build(none).EstimatedTokens);
+        Assert.True(Build(none).EstimatedTokens > 0, "a picture costs tokens even with no text on it");
     }
 
     [Fact]
@@ -263,8 +289,8 @@ public sealed class BundleBuilderTests
         var session = Session([.. Enumerable.Range(0, 60).Select(i => Frame($"f{i:D3}", i * 1_000))]);
 
         Assert.Equal(
-            BundleBuilder.Build(session).Frames.Select(f => f.Id),
-            BundleBuilder.Build(session).Frames.Select(f => f.Id));
+            Build(session).Frames.Select(f => f.Id),
+            Build(session).Frames.Select(f => f.Id));
     }
 
     [Fact]
@@ -272,7 +298,7 @@ public sealed class BundleBuilderTests
     {
         var session = Session([.. Enumerable.Range(0, 60).Select(i => Frame($"f{i:D3}", i * 1_000))]);
 
-        var times = BundleBuilder.Build(session).Frames.Select(f => f.TsMs).ToList();
+        var times = Build(session).Frames.Select(f => f.TsMs).ToList();
 
         Assert.Equal(times.OrderBy(t => t), times);
     }
@@ -284,7 +310,7 @@ public sealed class BundleBuilderTests
         // timeline are often enough for Problem and Result, and returning nothing would lose those too.
         var session = Session(Frame("f1", 1_000) with { RedactionPending = true, RedactedAt = null });
 
-        var bundle = BundleBuilder.Build(session);
+        var bundle = Build(session);
 
         Assert.Empty(bundle.Frames);
         Assert.Equal("s1", bundle.SessionId);
@@ -296,11 +322,21 @@ public sealed class BundleBuilderTests
         // INV-10. The bundle is built from a session that never held a title, and this is the test that
         // notices the day someone adds one to make the drafting better.
         var json = System.Text.Json.JsonSerializer.Serialize(
-            BundleBuilder.Build(Session(Frame("f1", 1_000))),
+            Build(Session(Frame("f1", 1_000))),
             SessionJson.Options);
 
         Assert.DoesNotContain("title", json, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <param name="bytesEach">
+    /// What each frame's stored image weighs. Supplied because a Frame carries a path rather than a
+    /// picture, so the builder cannot work it out and neither could these tests.
+    /// </param>
+    private static SessionBundle Build(Session session, BundleOptions? options = null, long bytesEach = 50_000) =>
+        BundleBuilder.Build(
+            session,
+            session.Frames.ToDictionary(frame => frame.Id, _ => bytesEach, StringComparer.Ordinal),
+            options);
 
     private static Session Session(params Frame[] frames) => new()
     {

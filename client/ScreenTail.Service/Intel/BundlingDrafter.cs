@@ -41,7 +41,10 @@ internal sealed partial class BundlingDrafter(
             return DraftOutcome.Failure("The session was gone before it could be drafted.");
         }
 
-        var bundle = BundleBuilder.Build(session, options);
+        // The real weight of each picture, which only the store knows: a Frame carries a path, not the
+        // bytes, so the byte budget used to be measuring a filename (2026-09-19 review).
+        var sizes = await store.GetFrameImageSizesAsync(sessionId, ct).ConfigureAwait(false);
+        var bundle = BundleBuilder.Build(session, sizes, options);
         Last = new BundleReport(
             bundle.FramesConsidered,
             bundle.Frames.Count,

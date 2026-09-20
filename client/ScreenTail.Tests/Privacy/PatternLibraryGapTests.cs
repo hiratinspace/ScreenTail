@@ -174,4 +174,63 @@ public sealed class PatternLibraryGapTests
         Assert.True(scrubbed.Complete);
         Assert.DoesNotContain("ACME-1234", scrubbed.Text, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("P@ss.word1!")]
+    [InlineData("tomato99")]
+    [InlineData("Winter-2026!")]
+    [InlineData("hunter2;extra")]
+    public void TheStoredTextHidesAsMuchAsThePictureDoes(string secret)
+    {
+        // 2026-09-19 review. The image masks every word a match touches — "a partly painted number is
+        // still readable" — and the stored text masked only the matched span. So a value the pattern
+        // stopped short of kept its tail in ocr_text: painted out of the picture, and sent to the model
+        // and shown in Review in writing.
+        //
+        // "P@ss.word1!" is the clearest case: the password pattern's value ends at the full stop, so the
+        // picture lost the whole word and the text kept ".word1!".
+        var words = Words("the", "password", "is", secret);
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain(secret, redaction.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret[^4..], redaction.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheWordsAroundASecretAreLeftAlone()
+    {
+        // The control. Widening to whole words must not swallow the sentence: a note that says
+        // "[REDACTED]" where the technician wrote three useful words is a note nobody can read.
+        var redaction = Engine.RedactFrame(Words("the", "password", "is", "P@ss.word1!", "on", "the", "reception", "workstation"));
+
+        Assert.Contains("reception workstation", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("the password is", redaction.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ASecretSpreadAcrossWordsTakesAllOfThemWithIt()
+    {
+        // A card number is four OCR words. Masking to the match alone would leave whichever groups the
+        // pattern's edges fell short of.
+        var redaction = Engine.RedactFrame(Words("card", "4111", "1111", "1111", "1111", "expires", "09/27"));
+
+        Assert.DoesNotContain("4111", redaction.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("1111", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("expires", redaction.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Laid out left to right, as a line of OCR on one row.</summary>
+    private static OcrWord[] Words(params string[] text)
+    {
+        var words = new OcrWord[text.Length];
+        var x = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            words[i] = new OcrWord(text[i], x, 0, text[i].Length * 8, 14);
+            x += (text[i].Length * 8) + 8;
+        }
+
+        return words;
+    }
 }

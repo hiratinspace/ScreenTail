@@ -36,6 +36,15 @@ public interface ISessionStore : IAsyncDisposable
     Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>Frames waiting for redaction across every session — the backlog depth the HUD shows (ST-041).</summary>
+    /// <summary>
+    /// How many bytes each redacted frame's stored image weighs, by frame id.
+    ///
+    /// The bundle's byte budget needs this and nothing else has it: a <c>Frame</c> carries the path
+    /// "frames/abc123.jpg" rather than a picture, so measuring its Image told you about twenty-three
+    /// characters (2026-09-19 review). Lengths only — no image leaves the store here.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default);
+
     Task<int> CountAllPendingFramesAsync(CancellationToken ct = default);
 
     /// <summary>
