@@ -71,6 +71,37 @@ public sealed class WindowsServerVerifierTests : IDisposable
         Assert.Equal("dev_build_outside_ui_directory", verifier.Verify(Environment.ProcessPath!));
     }
 
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void ASignedBuildThatCannotVouchForItselfVouchesForNothing()
+    {
+        // 2026-09-19 review. A release whose own signature will not verify — an untrusted certificate, a
+        // chain that cannot be built, a tampered binary — produced the same null thumbprint as a build
+        // nobody had signed, so it quietly applied the development rule and accepted any peer sitting in
+        // the same directory. The only sign was an Information log line.
+        //
+        // A tampered copy of a signed executable is exactly that state: it carries a signature, and the
+        // signature does not hold.
+        var dotnet = Path.Combine(
+            Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
+            "dotnet.exe");
+        Assert.SkipUnless(File.Exists(dotnet), "dotnet.exe not found");
+
+        Directory.CreateDirectory(_dir);
+        var brokenSelf = Path.Combine(_dir, "ScreenTail.UI.exe");
+        var bytes = File.ReadAllBytes(dotnet);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        File.WriteAllBytes(brokenSelf, bytes);
+
+        // A sibling, which the development rule would have accepted without question.
+        var sibling = Path.Combine(_dir, "ScreenTail.Service.exe");
+        File.WriteAllBytes(sibling, [0x4D, 0x5A]);
+
+        var verifier = new WindowsServerVerifier(brokenSelf);
+
+        Assert.False(verifier.UiIsSigned);
+        Assert.Equal("own_signature_unverifiable", verifier.Verify(sibling));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

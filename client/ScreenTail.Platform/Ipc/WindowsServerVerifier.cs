@@ -75,6 +75,16 @@ public sealed class WindowsServerVerifier : IServerVerifier
                 : "unsigned_or_other_publisher";
         }
 
+        // Only a build that carries no signature at all may fall back to the directory rule. Our own
+        // signature failing to verify — an untrusted certificate, a chain that will not build, a
+        // tampered binary — used to arrive here as the same null thumbprint, so a release quietly
+        // applied the rule meant for builds nobody signed (2026-09-19 review). A release that cannot
+        // vouch for itself vouches for nothing.
+        if (!Authenticode.IsUnsigned(_uiExecutable))
+        {
+            return "own_signature_unverifiable";
+        }
+
         var sameDirectory = string.Equals(
             Path.GetDirectoryName(server),
             Path.GetDirectoryName(_uiExecutable),
