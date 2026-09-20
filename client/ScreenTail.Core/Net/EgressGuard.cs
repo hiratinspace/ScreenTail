@@ -137,6 +137,17 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
             // Every other redirect is a GET: 302 on a POST is defined as one, and re-sending a bundle to
             // a second host is the thing being prevented.
             using var hopRequest = EgressRequest.For(HttpMethod.Get, next, purpose);
+
+            // Range, and nothing else, by name.
+            //
+            // A redirect is a stranger's instruction to go and talk to a second host, so what travels
+            // there is a list rather than a filter: copying everything would hand that host whatever
+            // credential was on the first request, and an allowlisted hop would become a token leak.
+            // Range carries no identity — it is a byte offset — and without it a resumed download is
+            // not resumed. The model host answers 302 to a CDN, so every resume was being answered with
+            // the whole file, and a 150 MB download interrupted once restarted from zero for ever
+            // (2026-09-20 review).
+            hopRequest.Headers.Range = request.Headers.Range;
             _ = Interlocked.Increment(ref _allowed);
             response = await base.SendAsync(hopRequest, ct).ConfigureAwait(false);
             from = next;
