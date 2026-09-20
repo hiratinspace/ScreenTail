@@ -19,4 +19,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ScreenTail.Api\ScreenTail.Api.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The drafts both implementations of the note prompt's post-conditions must agree about. The
+         research harness reads the same file from its own tests; embedding it means this suite does not
+         depend on where the repository is checked out, and a case added on either side fails both. -->
+    <EmbeddedResource Include="..\..\..\research\prompts\hardening-cases.json" LogicalName="ScreenTail.Api.Tests.hardening-cases.json" />
+  </ItemGroup>
 </Project>
