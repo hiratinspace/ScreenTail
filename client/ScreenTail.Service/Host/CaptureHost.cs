@@ -57,8 +57,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             if (_eraseOnShutdown)
             {
                 // Everything above is disposed by now: the store is closed and its file can be removed.
-                var deleted = LocalDataEraser.Erase(DataDirectory);
-                LogErased(logger, deleted.Count);
+                // The marker was written before the UI was told yes, so a file we cannot delete here
+                // leaves the erasure owed and the next start finishes it.
+                var erased = LocalDataEraser.Erase(DataDirectory);
+                LogErased(logger, erased.Deleted.Count, erased.Complete);
             }
         }
     }
@@ -67,6 +69,13 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         var serviceExecutable = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot determine the service executable.");
+
+        // Before the store is opened, because an erasure that was promised and did not finish must not be
+        // undone by something reopening what is left of it.
+        if (LocalDataEraser.EraseIfPending(DataDirectory) is { } owed)
+        {
+            LogErased(logger, owed.Deleted.Count, owed.Complete);
+        }
 
         await using var store = await SqliteSessionStore.OpenAsync(
             Path.Combine(DataDirectory, "store.db"),
@@ -130,6 +139,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             () => diagnostics(),
             _ =>
             {
+                // Written down before the UI is told yes. Everything after this can fail — a file held
+                // open by antivirus, or the process dying on the way out — and the next start will
+                // finish the job rather than opening what survived (INV-12).
+                LocalDataEraser.MarkPending(DataDirectory);
                 _eraseOnShutdown = true;
                 lifetime.StopApplication();
                 return Task.FromResult(true);
@@ -381,8 +394,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service stopping")]
     private static partial void LogStopping(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Delete everything: removed {Count} file(s) and the tokens directory")]
-    private static partial void LogErased(ILogger logger, int count);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Erased {Count} item(s) of local data; complete={Complete}")]
+    private static partial void LogErased(ILogger logger, int count, bool complete);
 
     /// <summary>
     /// Works the outbox until the service stops.
