@@ -86,6 +86,15 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("ConnectionStrings:Postgres", "Host=never-opened;Database=screentail");
         builder.UseEnvironment(Environments.Development);
 
+        // No drafting provider, said out loud rather than left to the machine.
+        //
+        // The host runs as Development so that it reads user secrets, which is where a developer's real
+        // provider key lives. Without this line these tests inherit that key, call Google for real, and
+        // bill somebody for every run — and they pass or fail depending on whose laptop they are on.
+        // Pinned to empty so the suite behaves the same on a developer machine as in CI.
+        builder.UseSetting("Summarization:ApiKey", string.Empty);
+        builder.UseSetting("Summarization:FallbackApiKey", string.Empty);
+
         builder.ConfigureServices(services =>
         {
             // AddDbContext registers the provider's whole service graph, not just the options, and EF

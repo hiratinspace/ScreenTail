@@ -42,6 +42,23 @@ query is compiled and executed on any machine with no database server. CI additi
 migrations to a real Postgres and checks every table arrived, because the migration SQL is the part
 SQLite cannot check and is what a deployment actually runs.
 
+Nothing in the suite calls a real model. The host under test runs as Development so that it behaves like
+a developer's machine, and Development is where user secrets are read — which is where the provider key
+lives. `ApiFixture` pins the key to empty and `NoLiveProviderInTestsTests` asserts it, because without
+that the suite bills whoever owns the key on every run and passes or fails depending on whose laptop it
+is on.
+
+The one measurement that does call the model is opt-in:
+
+```bash
+SCREENTAIL_LIVE_LLM=1 dotnet test ScreenTail.Backend.sln --filter LiveDraftingBudget
+```
+
+It reads the same user secret, drafts the everyday and heaviest fixture bundles several times, and
+asserts ST-063's budgets against what came back. Unset, it skips. A free-tier key allows twenty requests
+a day per model, which is not enough to finish a second run; when the provider stops answering, the
+measurement skips with its reason rather than reporting a budget miss that never happened.
+
 ## Drafting
 
 The key has no default and none is in the repository. There are two places to put it.
@@ -64,8 +81,38 @@ environment, so nothing about a deployment changes.
 ```bash
 export Summarization__ApiKey='…'
 export Summarization__Provider=gemini-flash
-export Summarization__DailyCostCapUsd=10  # per tenant, per UTC day
+export Summarization__Model=gemini-3.6-flash
+export Summarization__DailyCostCapUsd=10   # per tenant, per UTC day
+export Summarization__MediaResolution=MEDIA_RESOLUTION_LOW
+export Summarization__InputCostPerMillionUsd=0.75
+export Summarization__OutputCostPerMillionUsd=3.75
 ```
+
+**The model name is a setting, and it expires.** The first build of this asked for `gemini-2.0-flash`;
+by the time a key was pointed at it Google had retired that name, and every draft was a 404. Retirements
+are announced months ahead, and the 404 names the replacement, so this is an outage an operator can end
+in one line rather than one that waits for a release.
+
+**Pictures are sent small on purpose.** Measured on 2026-09-19 against `gemini-3.6-flash`, on the
+heaviest bundle a client may send — twenty-five frames, which is `BundleOptions.MaxFrames`:
+
+| `MediaResolution` | Time to draft | Prompt tokens | Cost |
+| --- | --- | --- | --- |
+| default (unset) | 39.9 s | 31,150 | $0.055 |
+| `MEDIA_RESOLUTION_MEDIUM` | 21.3 s | 16,825 | $0.029 |
+| `MEDIA_RESOLUTION_LOW` | 10.5 s | 10,250 | $0.015 |
+
+The provider's default misses ST-063's thirty-second budget outright. Low makes it with room for a slow
+network on top, and costs a seventh as much. It costs little in quality because the model is not reading
+these pictures for their text: every frame arrives with the redaction worker's own OCR beside it,
+already masked, and that is what the note is built from. Sending the picture small also means the model
+sees less of whatever OCR missed, which is the right direction for INV-1.
+
+**The token rates are settings too, and they are estimates.** The defaults are Gemini Flash 3.x standard
+rates read on 2026-09-19; they are scheduled to double on 2027-01-01. They feed a spending cap rather
+than an invoice, so being slightly wrong costs a tenant a few sessions either way — but a rate that is
+stale by a factor of ten, as the first set was, is not a cap at all. Thinking tokens are billed at the
+output rate and are counted separately by the provider from the answer's own tokens; both are charged.
 
 Without a key the service still starts and answers `501 not_configured`, which a technician can act on.
 With one, a session gets exactly one model call, and:
