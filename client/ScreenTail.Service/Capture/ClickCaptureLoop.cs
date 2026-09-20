@@ -13,7 +13,7 @@ namespace ScreenTail.Service.Capture;
 /// Drains the hook buffer and hands what it finds to the recorder (ST-025).
 ///
 /// Windows-only on purpose, and deliberately thin: this reads the ring buffer the hook callbacks write
-/// into, turns raw signals into timeline events, and logs what a frame cost. Every decision about what
+/// into, hands the raw signals on, and logs what a frame cost. Every decision about what
 /// may be recorded or photographed lives in <see cref="SessionRecorder"/> in Core, where a test can reach
 /// it without a Windows machine — which is what INV-5 and INV-6 turn on, and what this file used to hide
 /// (ST-048, weaknesses P0-4).
@@ -21,11 +21,12 @@ namespace ScreenTail.Service.Capture;
 [SupportedOSPlatform("windows")]
 internal sealed partial class ClickCaptureLoop
 {
-    private readonly InputSignalReader _reader = new();
     private readonly InputSignal[] _scratch = new InputSignal[2048];
     private readonly SessionMachine _machine;
     private readonly WindowsInputHooksAccessor _hooks;
     private readonly SessionRecorder _recorder;
+    private readonly ILogger _logger;
+    private long _failedDrains;
 
     public ClickCaptureLoop(
         SessionMachine machine,
@@ -36,6 +37,7 @@ internal sealed partial class ClickCaptureLoop
     {
         _machine = machine;
         _hooks = hooks;
+        _logger = logger;
         _recorder = new SessionRecorder(machine, capturer, currentScope);
         _recorder.FrameMissed += tsMs => LogNoFrame(logger, tsMs);
         _recorder.FrameStaged += frame =>
@@ -64,7 +66,19 @@ internal sealed partial class ClickCaptureLoop
         {
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
-                await DrainAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    await DrainAsync(ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One bad batch costs that batch. This loop used to end on the first exception of any
+                    // kind and stay ended for the life of the service, with the pill still saying
+                    // Recording and no click ever captured again. The type and a count, never the
+                    // message: a store error can quote what it was asked to write (INV-10).
+                    _failedDrains++;
+                    LogDrainFailed(_logger, ex.GetType().Name, _failedDrains);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -80,17 +94,21 @@ internal sealed partial class ClickCaptureLoop
             return;
         }
 
+        // Raw signals, not finished events. What may be counted is decided in Core before the keys are
+        // added up; turning them into a burst here first is how a password's length got into a session.
         var sessionStart = _machine.SessionStartedAt;
-        var events = _reader.Read(
+        await _recorder.RecordSignalsAsync(
             _scratch.AsMemory(0, count),
             timestamp => WindowsInputHooks.ToSessionMs(timestamp, sessionStart),
-            WindowsInputHooks.Elapsed);
-
-        await _recorder.RecordAsync([.. events], ct).ConfigureAwait(false);
+            WindowsInputHooks.Elapsed,
+            ct).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Staged a frame: {SourceWidth}x{SourceHeight} captured, stored {Width}x{Height} in {Bytes} bytes ({Timing})")]
     private static partial void LogFrame(ILogger logger, int sourceWidth, int sourceHeight, int width, int height, int bytes, string timing);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "An input batch could not be recorded ({Error}); {Total} so far. Capture continues.")]
+    private static partial void LogDrainFailed(ILogger logger, string error, long total);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No frame for the click at {TsMs} ms: the window was gone")]
     private static partial void LogNoFrame(ILogger logger, long tsMs);

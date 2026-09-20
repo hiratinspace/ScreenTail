@@ -99,6 +99,17 @@ public sealed class InputSignalReader(TimeSpan? burstGap = null)
         return events;
     }
 
+    /// <summary>
+    /// Forgets the burst in progress without writing it down.
+    ///
+    /// The counter below outlives every boundary the rest of the product respects. The hooks run for the
+    /// life of the service, so left alone it goes on counting through a pause, a password field and a
+    /// customer's password manager, and hands the total to whichever event next closes the burst — by
+    /// which time capture is back on and nothing about the event says where its keys were typed. The
+    /// caller knows when typing may not be counted; this is how it says so.
+    /// </summary>
+    public void Discard() => _burstKeys = 0;
+
     /// <summary>Emits any burst still open, for when capture stops mid-sentence.</summary>
     public SessionEvent? Flush(Func<long, long> toSessionMs)
     {
