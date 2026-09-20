@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -314,12 +315,73 @@ public sealed class GeminiProviderTests
             .Last();
     }
 
-    private static GeminiProvider Provider(RecordingHandler handler, Action<SummarizationOptions>? configure = null)
+    [Fact]
+    public async Task TheAnswerHasACeilingToo()
+    {
+        // 2026-09-20 review. Nothing bounded the answer, and output is billed at five times input. A
+        // model having a bad day can spend more on one runaway completion than the whole session was
+        // reserved for, which is the daily cap missing the only cost it cannot predict.
+        var handler = new RecordingHandler(Answer());
+
+        _ = await Provider(handler).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            new SummarizationOptions().MaxOutputTokens,
+            Generation(handler.Body!).GetProperty("maxOutputTokens").GetInt32());
+    }
+
+    [Fact]
+    public async Task AModelWeStoppedWaitingForMayStillHaveBeenBilled()
+    {
+        // A deadline is not a refused connection. The request was sent and the model probably ran it, so
+        // the failure has to say so or the ledger settles it at nothing.
+        using var handler = new SlowHandler();
+        var provider = Provider(handler, options => options.Timeout = TimeSpan.FromMilliseconds(50));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.True(result.Error!.MayHaveBeenBilled);
+    }
+
+    [Fact]
+    public async Task AProviderNobodyCouldReachWasNotBilled()
+    {
+        using var handler = new BrokenHandler();
+
+        var result = await Provider(handler).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.False(result.Error!.MayHaveBeenBilled);
+    }
+
+    /// <summary>Never answers, so the caller's own deadline is what ends the call.</summary>
+    private sealed class SlowHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new UnreachableException();
+        }
+    }
+
+    /// <summary>Fails the way an unreachable host does: nothing was sent.</summary>
+    private sealed class BrokenHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new HttpRequestException("No such host is known.");
+    }
+
+    private static GeminiProvider Provider(HttpMessageHandler handler, Action<SummarizationOptions>? configure = null)
     {
         var options = new SummarizationOptions { ApiKey = "test-key" };
         configure?.Invoke(options);
 
-        var http = new HttpClient(handler) { BaseAddress = new Uri("https://generativelanguage.googleapis.com/") };
+        var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://generativelanguage.googleapis.com/"),
+            Timeout = options.Timeout,
+        };
         return new GeminiProvider(http, options, "the note prompt");
     }
 
