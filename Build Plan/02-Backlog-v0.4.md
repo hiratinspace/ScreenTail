@@ -1162,6 +1162,8 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Estimate:** 3
 - **Status:** **Done 2026-09-18 (#65).** Durable queue in the encrypted store, backoff to an hour, and an `uncertain` state for an attempt whose outcome nobody knows — nothing retries those, and they leave only by asking the provider. 19 tests, and removing the retention deletes fails two of them. The sender is a stub until ST-063 supplies a provider; the queue is real from today, so a draft owed while offline survives a restart.
 
+  **Follow-up left deliberately (2026-09-19):** the Gemini provider now reads Google's own retry hint out of a rate-limit body, where it is the only place the number exists — Google sends no `Retry-After` header. `ProviderError.RetryAfter` carries it and nothing reads it yet. Carrying it to the client means a field on `SummarizeResult`, a `Retry-After` header on the endpoint's 503, and this queue preferring it over its own backoff. That belongs here rather than in ST-063, because this is the only thing that would consume it, and it needs an endpoint test — which needs the LLM provider to be substitutable in DI, since the suite is now forbidden from configuring a real one.
+
 **Description:**
 Local outbox with idempotency keys; retry with backoff; "Draft pending — offline" state.
 
