@@ -38,6 +38,28 @@ internal sealed class CaptureController(
     // Probed on each request rather than cached: a technician can revoke microphone access mid-session.
     public CapabilitiesReported CurrentCapabilities => capabilities.Probe().ToWire();
 
+    private readonly Confirmations _confirmations = new();
+
+    /// <summary>
+    /// Issues a token for something irreversible, and says what the technician has to type.
+    ///
+    /// The phrase comes from here rather than from the UI so that the wording a customer is shown and
+    /// the wording the service expects cannot drift apart. Spec §3 asks for a typed confirmation because
+    /// agreeing should take an act rather than a reflex.
+    /// </summary>
+    private ConfirmationIssued? Confirm(RequestConfirmationCommand request) => request.Action switch
+    {
+        "discard_session" => Issued(DestructiveAction.DiscardSession, "DISCARD"),
+        "erase_everything" => Issued(DestructiveAction.EraseEverything, "DELETE EVERYTHING"),
+
+        // An action nobody defined. Answering null is a refusal the caller can see, and inventing a
+        // token for it would be a token for something the service cannot name.
+        _ => null,
+    };
+
+    private ConfirmationIssued Issued(DestructiveAction action, string phrase) =>
+        new() { Token = _confirmations.Issue(action), Phrase = phrase };
+
     public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -45,6 +67,7 @@ internal sealed class CaptureController(
         {
             GetDiagnosticsCommand => diagnostics(),
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
+            RequestConfirmationCommand request => Confirm(request),
             _ => null,
         };
     }
@@ -59,9 +82,21 @@ internal sealed class CaptureController(
             PauseCommand => await machine.PauseAsync(ct).ConfigureAwait(false),
             ResumeCommand => await machine.ResumeAsync(ct).ConfigureAwait(false),
             StopCommand => await machine.StopAsync(ct).ConfigureAwait(false),
-            DiscardCommand => await machine.DiscardAsync(ct).ConfigureAwait(false),
+
+            // Confirmed first, and spent whether or not the machine accepts it: a token that survived a
+            // refused discard would authorise the next one, which is the second round trip gone.
+            DiscardCommand discard => _confirmations.Spend(discard.Confirmation, DestructiveAction.DiscardSession)
+                && await machine.DiscardAsync(ct).ConfigureAwait(false),
+
             MarkMomentCommand => await machine.MarkMomentAsync(ct).ConfigureAwait(false),
-            EraseAllLocalDataCommand => await eraseAll(ct).ConfigureAwait(false),
+
+            // Not while a session is running. Erasing mid-recording destroys work the technician is in
+            // the middle of and gives them nothing to look at afterwards; stopping first is one click and
+            // makes the decision a decision (2026-09-19 review).
+            EraseAllLocalDataCommand erase =>
+                machine.State == SessionState.Idle
+                && _confirmations.Spend(erase.Confirmation, DestructiveAction.EraseEverything)
+                && await eraseAll(ct).ConfigureAwait(false),
             _ => false,
         };
 

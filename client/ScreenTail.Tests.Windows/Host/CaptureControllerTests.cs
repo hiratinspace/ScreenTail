@@ -83,7 +83,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task DeleteEverythingReachesTheEraser()
+    public async Task DeleteEverythingReachesTheEraserWhenItIsConfirmed()
     {
         // The path existed and was unreachable: nothing in the UI and no command on the pipe called it,
         // so INV-12's "delete everything" was a promise the product could not keep.
@@ -96,10 +96,106 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             return Task.FromResult(true);
         });
 
-        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1 }, ct);
+        var result = await controller.HandleAsync(
+            new EraseAllLocalDataCommand { RequestId = 1, Confirmation = await TokenAsync(controller, "erase_everything", ct) },
+            ct);
 
         Assert.True(result.Ok);
         Assert.True(asked);
+    }
+
+    [Fact]
+    public async Task DeleteEverythingWithNothingBehindItErasesNothing()
+    {
+        // 2026-09-19 review. The command had no fields at all, so one frame on the pipe wiped the store —
+        // and the pipe only proves the peer is the same user, which a compromised same-user process is.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var asked = false;
+        var controller = Controller(store, erase: _ =>
+        {
+            asked = true;
+            return Task.FromResult(true);
+        });
+
+        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1 }, ct);
+
+        Assert.False(result.Ok);
+        Assert.False(asked);
+    }
+
+    [Fact]
+    public async Task ATokenIsGoodForOneEraseAndNoMore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var erased = 0;
+        var controller = Controller(store, erase: _ =>
+        {
+            erased++;
+            return Task.FromResult(true);
+        });
+
+        var token = await TokenAsync(controller, "erase_everything", ct);
+        _ = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token }, ct);
+        var again = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 2, Confirmation = token }, ct);
+
+        Assert.False(again.Ok);
+        Assert.Equal(1, erased);
+    }
+
+    [Fact]
+    public async Task ConfirmingADiscardDoesNotAuthoriseErasingEverything()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var asked = false;
+        var controller = Controller(store, erase: _ =>
+        {
+            asked = true;
+            return Task.FromResult(true);
+        });
+
+        var token = await TokenAsync(controller, "discard_session", ct);
+        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token }, ct);
+
+        Assert.False(result.Ok);
+        Assert.False(asked);
+    }
+
+    [Fact]
+    public async Task TheServiceSaysWhatHasToBeTyped()
+    {
+        // The phrase comes from the service so that the words a customer is shown and the words the
+        // service expects cannot drift apart.
+        var ct = TestContext.Current.CancellationToken;
+        var controller = Controller(await OpenAsync(ct));
+
+        var discard = Assert.IsType<ConfirmationIssued>(
+            await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 1, Action = "discard_session" }, ct));
+        var erase = Assert.IsType<ConfirmationIssued>(
+            await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 2, Action = "erase_everything" }, ct));
+
+        Assert.Equal("DISCARD", discard.Phrase);
+        Assert.Equal("DELETE EVERYTHING", erase.Phrase);
+        Assert.NotEqual(discard.Token, erase.Token);
+    }
+
+    [Fact]
+    public async Task AConfirmationForSomethingNobodyDefinedIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var controller = Controller(await OpenAsync(ct));
+
+        Assert.Null(await controller.ReplyToAsync(
+            new RequestConfirmationCommand { RequestId = 1, Action = "erase_everything_please" },
+            ct));
+    }
+
+    private static async Task<string> TokenAsync(CaptureController controller, string action, CancellationToken ct)
+    {
+        var issued = await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 99, Action = action }, ct);
+        return Assert.IsType<ConfirmationIssued>(issued).Token;
     }
 
     public async ValueTask DisposeAsync()

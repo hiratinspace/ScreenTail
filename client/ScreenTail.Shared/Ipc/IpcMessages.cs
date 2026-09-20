@@ -19,6 +19,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(GetDiagnosticsCommand), "get_diagnostics")]
 [JsonDerivedType(typeof(ListSessionsCommand), "list_sessions")]
 [JsonDerivedType(typeof(EraseAllLocalDataCommand), "erase_all_local_data")]
+[JsonDerivedType(typeof(RequestConfirmationCommand), "request_confirmation")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -49,7 +50,19 @@ public sealed record ResumeCommand : IpcCommand;
 
 public sealed record StopCommand : IpcCommand;
 
-public sealed record DiscardCommand : IpcCommand;
+/// <summary>
+/// Throws away the session being recorded, and everything captured in it.
+///
+/// <see cref="Confirmation"/> is a token the service issued a moment ago for this action, and without it
+/// the service refuses. The spec has asked for a typed confirmation before an irreversible delete since
+/// it was written; until 2026-09-20 the tray menu threw a session away on a single click, one item below
+/// "Stop and draft" (Spec §3, 2026-09-19 review).
+/// </summary>
+public sealed record DiscardCommand : IpcCommand
+{
+    [JsonPropertyName("confirmation")]
+    public string? Confirmation { get; init; }
+}
 
 public sealed record MarkMomentCommand : IpcCommand;
 
@@ -88,7 +101,40 @@ public sealed record ListSessionsCommand : IpcCommand
 /// the pipe called it, so "delete everything" was a promise the product could not keep. ST-081 builds the
 /// Settings screen that asks for confirmation; this is the command behind the button.
 /// </summary>
-public sealed record EraseAllLocalDataCommand : IpcCommand;
+public sealed record EraseAllLocalDataCommand : IpcCommand
+{
+    /// <summary>A token the service issued for this action, moments ago. Without it, nothing is deleted.</summary>
+    [JsonPropertyName("confirmation")]
+    public string? Confirmation { get; init; }
+}
+
+/// <summary>
+/// Asks for a token to confirm something irreversible with (ST-085). Answered by a
+/// <see cref="ConfirmationIssued"/>.
+///
+/// The second round trip is the defence. A confirmation the UI is trusted to have shown is one a process
+/// that is not the UI does not have to show, and the pipe only proves the peer is the same user.
+/// </summary>
+public sealed record RequestConfirmationCommand : IpcCommand
+{
+    /// <summary><c>discard_session</c> or <c>erase_everything</c>. A token is good for one of them.</summary>
+    [JsonPropertyName("action")]
+    public required string Action { get; init; }
+}
+
+/// <param name="Token">Carry it back on the destructive command. Good once, for that action, for 30 s.</param>
+/// <param name="Phrase">
+/// What the technician has to type to mean it. Spec §3: a typed confirmation, not a button — the point
+/// is that agreeing takes an act rather than a reflex.
+/// </param>
+public sealed record ConfirmationIssued : IpcEvent
+{
+    [JsonPropertyName("token")]
+    public required string Token { get; init; }
+
+    [JsonPropertyName("phrase")]
+    public required string Phrase { get; init; }
+}
 
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
@@ -99,6 +145,7 @@ public sealed record EraseAllLocalDataCommand : IpcCommand;
 [JsonDerivedType(typeof(CapabilitiesReported), "capabilities")]
 [JsonDerivedType(typeof(DiagnosticsReported), "diagnostics")]
 [JsonDerivedType(typeof(SessionsListed), "sessions")]
+[JsonDerivedType(typeof(ConfirmationIssued), "confirmation")]
 public abstract record IpcEvent
 {
     /// <summary>
