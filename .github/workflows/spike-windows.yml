@@ -7,12 +7,16 @@ name: spike-windows
 #            variable HW_RUNNER=true once the runner is online.
 # RDP (AC2) and a confirming human typing run still need a person: spike/run-spike.ps1.
 
+# Run by hand, not by every pull request (2026-09-20 review).
+#
+# The ST-001 spike is finished and its answer is in the ADR. What kept running was the evidence job: in
+# the five days to 2026-09-20 every one of its thirteen runs came from a `scripts/windows/**` change and
+# none from `spike/**`, and each one put a 401-second synthetic-load step in front of the single laptop.
+# That laptop runs one job at a time, so a one-line script edit was taking the hardware gate's place in
+# the queue and turning a 220-second pull request into a 630-second one.
+#
+# It still runs on demand, which is what a spike is for.
 on:
-  pull_request:
-    paths:
-      - 'spike/**'
-      - 'scripts/windows/**'
-      - '.github/workflows/spike-windows.yml'
   workflow_dispatch:
 
 # Read-only, said here rather than inherited from a repository default somebody can change.
