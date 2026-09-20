@@ -77,9 +77,15 @@ public sealed class Outbox(
     {
         // Resolution first. An uncertain item blocks nothing, but leaving it while newer work goes past
         // means the one thing a person has to look at is also the one thing nothing looks at.
-        if (Confirm is not null && await store.TakeUncertainAsync(ct).ConfigureAwait(false) is { } uncertain)
+        //
+        // "Blocks nothing" was not true: a Confirm that could not answer returned here, so one PSA that
+        // would not answer a lookup stopped the whole queue for good (2026-09-19 review). Falling
+        // through is what makes the comment true.
+        if (Confirm is not null
+            && await store.TakeUncertainAsync(ct).ConfigureAwait(false) is { } uncertain
+            && await ResolveAsync(uncertain, ct).ConfigureAwait(false))
         {
-            return await ResolveAsync(uncertain, ct).ConfigureAwait(false);
+            return true;
         }
 
         var item = await store.TakeDueAsync(_time.GetUtcNow(), ct).ConfigureAwait(false);
@@ -114,13 +120,35 @@ public sealed class Outbox(
         {
             outcome = await send(item, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or TimeoutException or HttpRequestException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Being asked to stop, not a failure. The item is left exactly as it was for the next run.
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or TimeoutException or HttpRequestException
+            or OperationCanceledException)
         {
             // The transport threw rather than answering. Whether it reached the far end is exactly what
             // Unknown is for: a thrown timeout is not evidence that nothing happened.
-            outcome = ex is TimeoutException
-                ? SendOutcome.Unknown("The request was sent and no answer came back.")
-                : SendOutcome.Retry("The request could not be sent.");
+            //
+            // OperationCanceledException is in that list because HttpClient's own timeout throws
+            // TaskCanceledException, not TimeoutException. It used to fall straight out of here, the
+            // host's loop read it as "we are shutting down" and ended for the life of the service, and
+            // the item was left Pending with its attempt count untouched — so the next run sent it
+            // again. A duplicate publish is exactly what this class exists to prevent (2026-09-19
+            // review). The clause above is what keeps a real shutdown distinguishable.
+            outcome = ex is IOException or HttpRequestException
+                ? SendOutcome.Retry("The request could not be sent.")
+                : SendOutcome.Unknown("The request was sent and no answer came back.");
+        }
+#pragma warning disable CA1031 // Anything else is this item's problem, and must not become the queue's.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            // A payload the sender cannot make sense of, a destination the egress policy refuses, a bug.
+            // None of them get better by waiting, and letting it out of here stopped every other item
+            // behind it too. The type, never the message: an exception can quote a payload (INV-10).
+            outcome = SendOutcome.Failed($"This could not be sent ({ex.GetType().Name}).");
         }
 
         var state = outcome.State;
@@ -152,11 +180,19 @@ public sealed class Outbox(
         {
             remoteId = await Confirm!(item, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or TimeoutException or HttpRequestException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // A lookup that will not answer must not stop the rest of the queue.
+        catch (Exception)
+#pragma warning restore CA1031
         {
             // Could not establish it either way. Staying uncertain is the honest outcome, and the item is
             // still counted for the technician.
-            return true;
+            //
+            // False, not true: this did not do the work, so the caller goes on to the due item behind it.
+            return false;
         }
 
         await store.UpdateAsync(
