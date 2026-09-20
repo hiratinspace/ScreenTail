@@ -35,35 +35,14 @@ public static class MeEndpoint
 
         group.MapGet("/me", async (ClaimsPrincipal caller, ScreenTailContext db, TimeProvider time, CancellationToken ct) =>
         {
-            if (!TryRead(caller, out var tenantId, out var userId, out var deviceId))
-            {
-                // A token that passed signature checks and still does not say who it is for. Nothing to
-                // look up, and nothing worth explaining to whoever sent it.
-                return Results.Unauthorized();
-            }
-
-            var device = await db.Devices
-                .AsNoTracking()
-                .Include(d => d.User)
-                .SingleOrDefaultAsync(d => d.Id == deviceId && d.TenantId == tenantId && d.UserId == userId, ct)
-                .ConfigureAwait(false);
-
-            // Revoked is checked here rather than only at activation: a token stays valid for its whole
-            // lifetime, and a technician who leaves must stop working before it expires.
-            if (device is null || device.RevokedAt is not null || device.User is null || device.User.DisabledAt is not null)
+            // One implementation of "may this caller still act", shared with every other endpoint
+            // under /v1. It used to live only here, which is how a revoked device went on drafting.
+            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
             {
                 return Results.Unauthorized();
             }
 
-            var tenant = await db.Tenants
-                .AsNoTracking()
-                .SingleOrDefaultAsync(t => t.Id == tenantId && t.DisabledAt == null, ct)
-                .ConfigureAwait(false);
-
-            if (tenant is null)
-            {
-                return Results.Unauthorized();
-            }
+            var device = who.Device;
 
             // Recorded on a read because it is the one request every client makes: it gives the seat list
             // a "last seen" without the client having to send a heartbeat of its own.
@@ -73,23 +52,13 @@ public static class MeEndpoint
                 .ConfigureAwait(false);
 
             return Results.Ok(new MeResponse(
-                new TenantInfo(tenant.Id, tenant.Name, tenant.Seats),
-                new UserInfo(device.User.Id, device.User.Email, device.User.DisplayName),
+                new TenantInfo(who.Tenant.Id, who.Tenant.Name, who.Tenant.Seats),
+                new UserInfo(who.User.Id, who.User.Email, who.User.DisplayName),
                 new DeviceInfo(device.Id, device.Name, device.ActivatedAt)));
         })
         .WithName("GetMe")
         .WithSummary("The tenant, technician and device this token belongs to.");
 
         return group;
-    }
-
-    private static bool TryRead(ClaimsPrincipal caller, out Guid tenantId, out Guid userId, out Guid deviceId)
-    {
-        tenantId = default;
-        userId = default;
-        deviceId = default;
-        return Guid.TryParse(caller.FindFirstValue(ScreenTailClaims.TenantId), out tenantId)
-            && Guid.TryParse(caller.FindFirstValue(ScreenTailClaims.UserId), out userId)
-            && Guid.TryParse(caller.FindFirstValue(ScreenTailClaims.DeviceId), out deviceId);
     }
 }

@@ -194,6 +194,40 @@ public sealed class SummarizationServiceTests
     private static SummarizationService Service(FakeLlm primary, FakeLlm? fallback = null, FakeLedger? ledger = null) =>
         new(primary, fallback, ledger ?? new FakeLedger(), new SummarizationOptions { ApiKey = "test-key", DailyCostCapUsd = 10m });
 
+    [Fact]
+    public async Task ACallThatCouldNotBeRecordedIsStillACallThatWasPaidFor()
+    {
+        // 2026-09-19 review. The ledger write is the last thing that happens, so anything that threw
+        // after the model answered lost the cost: a billed draft, no row, and a daily cap that never
+        // moved. A client that hangs up mid-request did it with the request's own cancellation token.
+        //
+        // The money is gone whatever happened next, so the row is written with a token nobody can cancel.
+        var provider = new FakeLlm { Reply = Good() };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+        using var hungUp = new CancellationTokenSource();
+
+        ledger.OnRecord = () => hungUp.Cancel();
+        var result = await service.DraftAsync(Tenant, Bundle(), hungUp.Token);
+
+        Assert.Equal(0.04m, ledger.Recorded);
+        Assert.True(result.Ok);
+    }
+
+    [Fact]
+    public async Task ADraftThatCannotBeReadIsStillACallThatWasPaidFor()
+    {
+        // The model answered, and was paid, and what it said could not be used. The cap has to see it.
+        var provider = new FakeLlm { Reply = "not json at all" };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Equal(0.08m, ledger.Recorded);
+    }
+
     private static SummarizeBundle Bundle() => new()
     {
         SessionId = "s1",
@@ -254,11 +288,19 @@ public sealed class SummarizationServiceTests
 
         public decimal Recorded { get; private set; }
 
+        /// <summary>Lets a test make the world change at the moment the row is written.</summary>
+        public Action? OnRecord { get; set; }
+
         public Task<decimal> SpentTodayAsync(Guid tenantId, CancellationToken ct = default) =>
             Task.FromResult(tenantId == Tenant ? SpentToday : SpentByOthers);
 
         public Task RecordAsync(Guid tenantId, string sessionId, string provider, decimal costUsd, CancellationToken ct = default)
         {
+            OnRecord?.Invoke();
+
+            // A real ledger writes to the database with the token it is handed. If that token is the
+            // request's, a client that hung up takes the row with it.
+            ct.ThrowIfCancellationRequested();
             Recorded += costUsd;
             return Task.CompletedTask;
         }
