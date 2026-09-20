@@ -127,15 +127,88 @@ public sealed class NarrationRecorderTests
         Assert.Equal("and that fixed it", Assert.Single(kept).Text);
     }
 
+    [Fact]
+    public async Task NothingSaidWhileCaptureIsOffIsEverTranscribed()
+    {
+        // 2026-09-19 review. The microphone is opened when the service starts and listens for the life
+        // of it, so everything a technician says between sessions — and while paused for a password
+        // field — went through Whisper, and whether it was stored came down to whether the segment
+        // happened to close before capture came back.
+        //
+        // Nothing is even transcribed now. Audio heard while capture is off is dropped where it arrives,
+        // so there is no window in which a password read aloud during a pause becomes a segment looking
+        // for a home (INV-6, INV-9).
+        var recogniser = new FakeRecogniser("something said while paused");
+        var kept = new List<TranscriptSegment>();
+        var recorder = Recorder(
+            new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
+            recogniser,
+            kept,
+            recording: () => false);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(kept);
+        Assert.Equal(0, recogniser.Asked);
+    }
+
+    [Fact]
+    public async Task ASentenceStartedBeforeAPauseIsNotFinishedAfterIt()
+    {
+        // The half that made it a leak rather than waste: a segment opened while recording, the
+        // technician paused mid-sentence over a password field, and the segment closed after the resume
+        // and was appended. The gate is emptied at the boundary, so what was being said is dropped with
+        // the rest rather than waiting to be finished.
+        var recogniser = new FakeRecogniser("the password is");
+        var kept = new List<TranscriptSegment>();
+        var recording = true;
+        var recorder = Recorder(
+            new FakeMicrophone(Silence(20), Speech(40)),
+            recogniser,
+            kept,
+            recording: () =>
+            {
+                // Recording for the silence, paused from the first frame of speech onwards.
+                var was = recording;
+                recording = false;
+                return was;
+            });
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(kept);
+    }
+
+    [Fact]
+    public async Task WhatIsSaidDuringASessionIsStillKept()
+    {
+        // The control. A recorder that drops everything passes both tests above.
+        var kept = new List<TranscriptSegment>();
+        var recorder = Recorder(
+            new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
+            new FakeRecogniser("restarting the spooler"),
+            kept,
+            recording: () => true);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
+    }
+
     private static NarrationRecorder Recorder(
         FakeMicrophone microphone,
         FakeRecogniser recogniser,
-        List<TranscriptSegment> kept) =>
-        new(microphone, recogniser, (segment, _) =>
-        {
-            kept.Add(segment);
-            return Task.FromResult(true);
-        });
+        List<TranscriptSegment> kept,
+        Func<bool>? recording = null) =>
+        new(
+            microphone,
+            recogniser,
+            (segment, _) =>
+            {
+                kept.Add(segment);
+                return Task.FromResult(true);
+            },
+            recording ?? (() => true));
 
     /// <summary>Frames of digital silence, at the gate's frame length.</summary>
     private static short[][] Silence(int frames) => Frames(frames, _ => 0);

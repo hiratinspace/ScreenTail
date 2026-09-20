@@ -275,7 +275,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var narration = new NarrationRecorder(
             microphone,
             whisper,
-            (segment, ct) => machine.TryAppendTranscriptAsync(segment, ct));
+            (segment, ct) => machine.TryAppendTranscriptAsync(segment, ct),
+
+            // The microphone stays open for the life of the service, so this is what keeps what it hears
+            // out of everything that is not a session (INV-6, INV-9).
+            recording: () => machine.State == SessionState.Recording);
         LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
 
         var preparing = Task.Run(

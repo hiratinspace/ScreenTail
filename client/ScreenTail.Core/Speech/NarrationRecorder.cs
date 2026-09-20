@@ -41,6 +41,7 @@ public sealed class NarrationRecorder
     private readonly IMicrophone _microphone;
     private readonly ISpeechRecogniser _recogniser;
     private readonly AppendTranscript _append;
+    private readonly Func<bool> _recording;
     private readonly NarrationOptions _options;
     private readonly VoiceActivity _voice = new();
     private readonly SpeechGate _gate;
@@ -50,13 +51,28 @@ public sealed class NarrationRecorder
     private long _written;
     private int _filled;
 
+    /// <param name="recording">
+    /// Whether the session is recording right now.
+    ///
+    /// Asked of every chunk as it arrives, rather than of every segment as it is written. The microphone
+    /// is opened when the service starts and listens for the life of it, so without this everything said
+    /// between sessions — and while capture was suppressed for a password field — went through Whisper,
+    /// and whether it was stored came down to whether the segment happened to close before capture came
+    /// back. A password read aloud during a pause, finished after the resume, was stored (2026-09-19
+    /// review).
+    ///
+    /// It defaults to "always", which is what the tests of the pipeline itself want and what nothing
+    /// that ships should use.
+    /// </param>
     public NarrationRecorder(
         IMicrophone microphone,
         ISpeechRecogniser recogniser,
         AppendTranscript append,
+        Func<bool>? recording = null,
         NarrationOptions? options = null,
         SpeechGateOptions? gate = null)
     {
+        _recording = recording ?? (() => true);
         _microphone = microphone ?? throw new ArgumentNullException(nameof(microphone));
         _recogniser = recogniser ?? throw new ArgumentNullException(nameof(recogniser));
         _append = append ?? throw new ArgumentNullException(nameof(append));
@@ -98,6 +114,14 @@ public sealed class NarrationRecorder
         {
             await foreach (var chunk in _microphone.ListenAsync(ct).ConfigureAwait(false))
             {
+                if (!_recording())
+                {
+                    // Dropped where it arrives. Not transcribed, not buffered, not held as a segment
+                    // waiting for capture to come back and give it somewhere to go (INV-6).
+                    Discard();
+                    continue;
+                }
+
                 await OfferAsync(chunk, ct).ConfigureAwait(false);
             }
 
@@ -119,6 +143,21 @@ public sealed class NarrationRecorder
         {
             Listening = false;
         }
+    }
+
+    /// <summary>
+    /// Forgets whatever was being said.
+    ///
+    /// The gate as well as the buffer: a sentence that began while recording must not be finished after
+    /// a pause. Capture coming back starts a new sentence, which is the honest reading — nobody can say
+    /// what was said in between, and this is the mechanism whose whole job is not to guess.
+    /// </summary>
+    private void Discard()
+    {
+        _ = _gate.Flush();
+        _filled = 0;
+        _written = 0;
+        Array.Clear(_ring);
     }
 
     /// <summary>Accepts however much audio arrived and judges it a frame at a time.</summary>
