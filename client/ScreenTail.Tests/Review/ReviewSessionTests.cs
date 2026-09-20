@@ -106,6 +106,9 @@ public sealed class ReviewSessionTests : IAsyncDisposable
     /// <summary>Never touched: the constructor must refuse before it can reach a store at all.</summary>
     private sealed class UnusedStore : ISessionStore
     {
+        public Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task CreateSessionAsync(NewSession session, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default) => throw new NotSupportedException();

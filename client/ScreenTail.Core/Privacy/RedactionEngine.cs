@@ -106,20 +106,56 @@ public sealed class RedactionEngine
         var text = builder.ToString();
         var (matches, complete) = Resolve(text);
         var regions = new List<MaskedRegion>();
+        var widened = new List<PatternMatch>(matches.Count);
         foreach (var match in matches)
         {
             // Every word the match touches is masked whole: a partly painted number is still readable.
-            var touched = spans.Where(s => s.Start < match.End && match.Start < s.End).Select(s => s.Word).ToList();
-            if (touched.Count > 0)
+            var touched = spans.Where(s => s.Start < match.End && match.Start < s.End).ToList();
+            if (touched.Count == 0)
             {
-                regions.Add(Cover(touched, match.Kind));
+                continue;
             }
+
+            regions.Add(Cover([.. touched.Select(s => s.Word)], match.Kind));
+
+            // And the stored text loses the same words the picture did.
+            //
+            // It used to lose only the matched span, so a value the pattern stopped short of kept its
+            // tail: "P@ss.word1!" is one OCR word, the password rule's value ends at the full stop, and
+            // ".word1!" stayed in ocr_text — painted out of the frame and sent to the model in writing
+            // (2026-09-19 review). Picture and text are two views of one decision and must agree.
+            widened.Add(match with { Start = touched[0].Start, Length = touched[^1].End - touched[0].Start });
         }
 
         // The same matches that placed the boxes write the stored text. Resolving twice gave two answers
         // that were identical by construction and cost the pattern library a second full pass over every
         // frame — on the path ADR-0001 measured worst at 2012 ms against a 700 ms budget.
-        return new FrameRedaction(Replace(text, matches), regions, Count(matches), complete);
+        return new FrameRedaction(Replace(text, Merge(widened)), regions, Count(matches), complete);
+    }
+
+    /// <summary>
+    /// Joins matches that widening has made touch or overlap.
+    ///
+    /// <see cref="Replace"/> walks a cursor forward and would write the text between two overlapping
+    /// replacements backwards, or throw. Two secrets in adjacent words become one marker, which reads
+    /// no worse and hides no less.
+    /// </summary>
+    private static List<PatternMatch> Merge(List<PatternMatch> matches)
+    {
+        var merged = new List<PatternMatch>(matches.Count);
+        foreach (var match in matches)
+        {
+            if (merged.Count > 0 && match.Start <= merged[^1].End)
+            {
+                var previous = merged[^1];
+                merged[^1] = previous with { Length = Math.Max(previous.End, match.End) - previous.Start };
+                continue;
+            }
+
+            merged.Add(match);
+        }
+
+        return merged;
     }
 
     /// <summary>Sorted, non-overlapping matches: earliest first, and the longest wins a tie.</summary>

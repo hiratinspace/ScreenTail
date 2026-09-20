@@ -229,6 +229,9 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
                 ? throw new IOException("There is no space left on the device.")
                 : inner.DiscardPendingFrameAsync(id, ct);
 
+        public Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default) =>
+            inner.GetFrameImageSizesAsync(sessionId, ct);
+
         public Task<int> CountAllPendingFramesAsync(CancellationToken ct = default) => inner.CountAllPendingFramesAsync(ct);
 
         public Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default) => inner.CountPendingFramesAsync(sessionId, ct);

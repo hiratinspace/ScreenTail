@@ -954,6 +954,22 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         };
     }
 
+    public Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT id, length(image) FROM frames WHERE session_id = @session AND redaction_pending = 0",
+            async reader =>
+            {
+                var sizes = new Dictionary<string, long>(StringComparer.Ordinal);
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    sizes[reader.GetString(0)] = reader.IsDBNull(1) ? 0 : reader.GetInt64(1);
+                }
+
+                return (IReadOnlyDictionary<string, long>)sizes;
+            },
+            ct,
+            ("@session", sessionId));
+
     private async Task<List<Frame>> ReadFramesAsync(string sessionId, CancellationToken ct)
     {
         await using var command = Command(

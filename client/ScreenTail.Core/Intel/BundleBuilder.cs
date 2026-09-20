@@ -116,10 +116,25 @@ public sealed record SessionBundle
 /// </summary>
 public static class BundleBuilder
 {
-    public static SessionBundle Build(Session session, BundleOptions? options = null)
+    /// <param name="imageBytes">
+    /// How many bytes each frame's stored image actually weighs, by frame id.
+    ///
+    /// Passed in because a <see cref="Frame"/> carries a path, not a picture: <c>Image</c> is the string
+    /// "frames/abc123.jpg", so the byte budget was measuring about twenty-three characters per frame and
+    /// could never be reached (2026-09-19 review). The store knows the real length; nothing else does.
+    ///
+    /// A frame with no entry counts as nothing, which is what a frame with no stored image weighs.
+    /// </param>
+    public static SessionBundle Build(
+        Session session,
+        IReadOnlyDictionary<string, long> imageBytes,
+        BundleOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(imageBytes);
         var budget = options ?? new BundleOptions();
+
+        long Weigh(Frame frame) => imageBytes.TryGetValue(frame.Id, out var length) ? length : 0;
 
         var blocked = SuppressedIntervals(session.Events);
         var eligible = session.Frames
@@ -134,13 +149,13 @@ public static class BundleBuilder
             .ThenBy(frame => frame.Id, StringComparer.Ordinal)
             .ToList();
 
-        var chosen = Select(eligible, session.Transcript, budget);
+        var chosen = Select(eligible, session.Transcript, budget, Weigh);
 
         // Alignment runs against what survived, not against everything: a sentence pointing at a frame
         // that was dropped is a dangling reference, and the note prompt rejects the whole draft over one.
         var alignment = TimelineAligner.Align(session.Transcript, chosen);
 
-        var bytes = chosen.Sum(frame => (long)frame.Image.Length)
+        var bytes = chosen.Sum(Weigh)
             + alignment.Segments.Sum(segment => (long)segment.Text.Length)
             + chosen.Sum(frame => (long)(frame.OcrText?.Length ?? 0));
 
@@ -176,9 +191,13 @@ public static class BundleBuilder
     /// end of a session is represented as well as the beginning. The second spends whatever is left on
     /// the best of the rest. Both stop at the byte budget.
     /// </summary>
-    private static List<Frame> Select(List<Frame> eligible, IReadOnlyList<TranscriptSegment> transcript, BundleOptions budget)
+    private static List<Frame> Select(
+        List<Frame> eligible,
+        IReadOnlyList<TranscriptSegment> transcript,
+        BundleOptions budget,
+        Func<Frame, long> weigh)
     {
-        if (eligible.Count <= budget.MaxFrames && eligible.Sum(f => (long)f.Image.Length) <= budget.MaxBytes)
+        if (eligible.Count <= budget.MaxFrames && eligible.Sum(weigh) <= budget.MaxBytes)
         {
             return eligible;
         }
@@ -189,13 +208,13 @@ public static class BundleBuilder
 
         bool TryTake(Frame frame)
         {
-            if (chosen.Count >= budget.MaxFrames || bytes + frame.Image.Length > budget.MaxBytes)
+            if (chosen.Count >= budget.MaxFrames || bytes + weigh(frame) > budget.MaxBytes)
             {
                 return false;
             }
 
             chosen.Add(frame);
-            bytes += frame.Image.Length;
+            bytes += weigh(frame);
             return true;
         }
 
