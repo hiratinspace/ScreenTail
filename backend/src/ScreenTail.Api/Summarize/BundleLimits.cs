@@ -43,6 +43,25 @@ public static partial class BundleLimits
     /// <summary>The redaction worker's text for one frame. A dense screen of text is a few thousand.</summary>
     public const int MaxOcrChars = 100_000;
 
+    /// <summary>
+    /// Every character of OCR and speech in the bundle, added up.
+    ///
+    /// The per-item limits never met each other: twenty-five frames of a hundred thousand characters
+    /// each is two and a half million, and four thousand segments of ten thousand is forty million —
+    /// each item legal, the request absurd, and bounded only by Kestrel's 16 MB (2026-09-20 review).
+    ///
+    /// The number comes from the longest session anybody has described rather than from the budget:
+    /// three hours of a technician talking almost continuously is around 2,700 Whisper segments of a
+    /// sentence each, and twenty-five dense screens of OCR adds a hundred thousand more — call it
+    /// 400,000, and leave half again on top so that an unusual session is drafted rather than refused.
+    ///
+    /// Six hundred thousand characters is roughly 150,000 tokens, or about $0.11 of input once the
+    /// images are paid for. That is a little over <see cref="SummarizationOptions.MaxSessionCostUsd"/>,
+    /// and said plainly rather than tuned away: the reservation can be overshot by one bundle's text,
+    /// which is a rounding error, where before it could be overshot fifty times over.
+    /// </summary>
+    public const int MaxTotalTextChars = 600_000;
+
     /// <summary><see cref="Data.DraftCost.SessionId"/>'s column width. Longer is billed and then refused by Postgres.</summary>
     public const int MaxSessionIdLength = 64;
 
@@ -99,7 +118,32 @@ public static partial class BundleLimits
             return $"A session may carry at most {MaxTranscriptSegments} transcript segments.";
         }
 
-        return Frames(bundle) ?? Transcript(bundle);
+        return Frames(bundle) ?? Transcript(bundle) ?? Text(bundle);
+    }
+
+    /// <summary>
+    /// What the whole bundle would cost to read, in characters.
+    ///
+    /// Last, so that a bundle which is wrong in a nameable way is told which way rather than told it is
+    /// large. Counted here rather than inside the two loops because it is the sum that matters, and a
+    /// sum belongs where both halves can be seen.
+    /// </summary>
+    private static string? Text(SummarizeBundle bundle)
+    {
+        var chars = 0L;
+        foreach (var frame in bundle.Frames)
+        {
+            chars += frame.OcrText?.Length ?? 0;
+        }
+
+        foreach (var segment in bundle.Transcript)
+        {
+            chars += segment.Text?.Length ?? 0;
+        }
+
+        return chars > MaxTotalTextChars
+            ? "That session carries more text than a session's budget can read."
+            : null;
     }
 
     private static string? Frames(SummarizeBundle bundle)

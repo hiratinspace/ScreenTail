@@ -130,6 +130,15 @@ public sealed class SummarizationOptions
     /// <summary>How long one draft may take before it is abandoned and queued (AC1 budgets 30 s p95).</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// The most the model may write in one answer.
+    ///
+    /// A note with its steps, its follow-ups and its titles measures a few hundred tokens; eight
+    /// thousand is room for a session nobody has had yet, and a wall against the completion that never
+    /// stops. Output costs five times input, so this is the one number that bounds the worst case.
+    /// </summary>
+    public int MaxOutputTokens { get; set; } = 8_192;
+
     /// <summary>Whether this deployment can draft at all.</summary>
     public bool Configured => !string.IsNullOrWhiteSpace(ApiKey);
 }

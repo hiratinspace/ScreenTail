@@ -170,6 +170,13 @@ public sealed class SummarizationService(
                 cost = model.CostUsd;
                 outcome = Interpret(model.Json, bundle);
             }
+            else if (failure!.MayHaveBeenBilled)
+            {
+                // We stopped waiting; the model did not stop working. Settled at the estimate because
+                // that is the honest guess, and because a cap that ignores the calls it never saw the
+                // end of is a cap a slow afternoon walks straight through (2026-09-20 review).
+                cost = options.MaxSessionCostUsd;
+            }
 
             if (model is not null && outcome.Draft is null)
             {
@@ -202,7 +209,8 @@ public sealed class SummarizationService(
 
         if (model is null)
         {
-            // Nobody answered, so nobody billed us: the reservation was settled at nothing above.
+            // Nobody answered. The reservation was settled above: at nothing when the request never
+            // left, at the estimate when it did and we gave up waiting.
             return new SummarizeResult(
                 failure!.Kind == ProviderErrorKind.Unavailable ? SummarizeStatus.Unavailable : SummarizeStatus.Invalid,
                 Reason: failure.ToString());

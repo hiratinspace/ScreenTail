@@ -46,6 +46,19 @@ public sealed record ProviderError(ProviderErrorKind Kind, string What, string T
     /// </summary>
     public bool Retryable => Kind == ProviderErrorKind.Unavailable;
 
+    /// <summary>
+    /// Whether the provider may have done the work and billed for it anyway.
+    ///
+    /// A refused connection and an expired deadline are both <see cref="ProviderErrorKind.Unavailable"/>
+    /// and are not the same fact about money. Nothing was sent in the first; in the second a request was
+    /// sent, the model very likely ran it, and hanging up does not un-bill it. The ledger settled both at
+    /// nothing, so the daily cap was blind to the requests that cost the most (2026-09-20 review).
+    ///
+    /// False by default: a provider that says nothing about this is assumed not to have charged, which
+    /// keeps an outage from spending a tenant's day.
+    /// </summary>
+    public bool MayHaveBeenBilled { get; init; }
+
     /// <summary>Spec §4's pattern: <c>&lt;What happened&gt;. &lt;What to do&gt;.</c></summary>
     public override string ToString() => $"{What} {Todo}";
 }

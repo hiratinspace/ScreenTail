@@ -229,6 +229,48 @@ public sealed class SummarizationServiceTests
     }
 
     [Fact]
+    public async Task AModelWeStoppedWaitingForIsAssumedToHaveBeenBilled()
+    {
+        // 2026-09-20 review. A timeout was settled at nothing, on the reasoning that nobody answered so
+        // nobody billed us. That is true of a refused connection and false of a sixty-second deadline:
+        // the model was sent a request and very likely ran it, and a provider that bills for work it did
+        // does not care that we hung up. Settling those at zero makes the daily cap blind to exactly the
+        // requests that cost the most.
+        var provider = new FakeLlm
+        {
+            Failure = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.")
+            {
+                MayHaveBeenBilled = true,
+            },
+        };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task AProviderNobodyCouldReachStillCostsNothing()
+    {
+        // The other half, and the reason the flag exists rather than a blanket rule: a provider having a
+        // bad afternoon must not spend a tenant's whole day. Nothing was sent, so nothing is owed.
+        var provider = new FakeLlm
+        {
+            Failure = new ProviderError(ProviderErrorKind.Unavailable, "No answer.", "Try again."),
+        };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        _ = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0m, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
+    }
+
+    [Fact]
     public async Task AProviderThatThrowsGivesTheBudgetBack()
     {
         // 2026-09-20 review. The first call to the model sat outside the try that settles the

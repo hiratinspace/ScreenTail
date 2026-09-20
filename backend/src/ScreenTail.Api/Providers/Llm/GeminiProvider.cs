@@ -72,9 +72,23 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
         {
             response = await http.SendAsync(request, ct).ConfigureAwait(false);
         }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Our own deadline, not the caller's. The request went out and the model was probably
+            // running when we stopped waiting, so this says it may have been billed; the ledger settles
+            // it at the estimate rather than at nothing (2026-09-20 review).
+            return ProviderResult.Failure<LlmDraft>(new ProviderError(
+                ProviderErrorKind.Unavailable,
+                "The drafting model did not answer in time.",
+                "The session is queued and will be drafted when it responds.")
+            {
+                MayHaveBeenBilled = true,
+            });
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            // Unreachable or too slow. Retryable, and the only kind that earns a fallback.
+            // Unreachable. Nothing was sent, so nothing is owed. Retryable, and the only kind that
+            // earns a fallback.
             return ProviderResult.Failure<LlmDraft>(new ProviderError(
                 ProviderErrorKind.Unavailable,
                 "The drafting model did not answer.",
@@ -299,6 +313,12 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
             // Low, not zero. This is a report of what happened, and there is nothing to be creative
             // about; zero is not offered as meaningfully different and costs a re-roll of nothing.
             ["temperature"] = 0.2,
+
+            // Output is billed at five times input, and nothing bounded it. A note is a few hundred
+            // tokens; a model having a bad day can spend more on one runaway completion than the whole
+            // session was reserved for. The ceiling is generous enough that a truncated note means
+            // something went wrong rather than that the session was long (2026-09-20 review).
+            ["maxOutputTokens"] = options.MaxOutputTokens,
         };
 
         // Omitted when blank, so an operator can hand the choice back to the provider without a release.
