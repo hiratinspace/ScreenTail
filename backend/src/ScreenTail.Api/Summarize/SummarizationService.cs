@@ -151,29 +151,32 @@ public sealed class SummarizationService(
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(options.Timeout);
 
-        var (model, usedFallback, failure) = await ChooseAsync(bundle, deadline.Token).ConfigureAwait(false);
-        if (model is null)
-        {
-            // Nobody answered, so nobody billed us. Give the budget back.
-            await ledger.SettleAsync(reservation, 0m, CancellationToken.None).ConfigureAwait(false);
-            return new SummarizeResult(
-                failure!.Kind == ProviderErrorKind.Unavailable ? SummarizeStatus.Unavailable : SummarizeStatus.Invalid,
-                Reason: failure.ToString());
-        }
-
-        var provider = usedFallback ? fallback! : primary;
-        var cost = model.CostUsd;
+        // Zero until a model has answered, and settled in the finally whatever happens before then. The
+        // first call used to sit above the try: a provider that threw rather than returning a failure
+        // left the reservation claimed for the rest of the day, and a hundred of those is a tenant's
+        // whole budget spent on nothing (2026-09-20 review).
+        var cost = 0m;
         var repaired = false;
-        (DraftJson? Draft, string Reason) outcome;
+        var usedFallback = false;
+        LlmDraft? model;
+        ProviderError? failure;
+        (DraftJson? Draft, string Reason) outcome = (null, string.Empty);
 
         try
         {
-            outcome = Interpret(model.Json, bundle);
-            if (outcome.Draft is null)
+            (model, usedFallback, failure) = await ChooseAsync(bundle, deadline.Token).ConfigureAwait(false);
+            if (model is not null)
+            {
+                cost = model.CostUsd;
+                outcome = Interpret(model.Json, bundle);
+            }
+
+            if (model is not null && outcome.Draft is null)
             {
                 // Told what it got wrong rather than simply asked again: asking again usually produces the
                 // same answer, and this call is not free.
-                var second = await provider.DraftAsync(bundle, outcome.Reason, deadline.Token).ConfigureAwait(false);
+                var again = usedFallback ? fallback! : primary;
+                var second = await again.DraftAsync(bundle, outcome.Reason, deadline.Token).ConfigureAwait(false);
                 if (second.Ok)
                 {
                     cost += second.Value!.CostUsd;
@@ -197,6 +200,15 @@ public sealed class SummarizationService(
             await ledger.SettleAsync(reservation, cost, CancellationToken.None).ConfigureAwait(false);
         }
 
+        if (model is null)
+        {
+            // Nobody answered, so nobody billed us: the reservation was settled at nothing above.
+            return new SummarizeResult(
+                failure!.Kind == ProviderErrorKind.Unavailable ? SummarizeStatus.Unavailable : SummarizeStatus.Invalid,
+                Reason: failure.ToString());
+        }
+
+        var provider = usedFallback ? fallback! : primary;
         return outcome.Draft is null
             ? new SummarizeResult(SummarizeStatus.Invalid, Reason: outcome.Reason, CostUsd: cost, Provider: provider.Name, UsedFallback: usedFallback)
             : new SummarizeResult(SummarizeStatus.Ok, outcome.Draft, null, cost, provider.Name, usedFallback, repaired);

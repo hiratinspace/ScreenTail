@@ -50,14 +50,21 @@ builder.Services.AddSingleton(summarization);
 builder.Services.AddScoped<ICostLedger, CostLedger>();
 
 var prompt = PromptLibrary.Note();
-builder.Services.AddHttpClient<GeminiProvider>(client =>
+builder.Services.AddHttpClient(nameof(GeminiProvider), client =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
     client.Timeout = summarization.Timeout;
 });
 
+// The client is asked for by name. Handing this to ActivatorUtilities looked the same and was not: it
+// resolves a plain HttpClient from the container, which is the unnamed one — no base address, so the
+// provider's relative URL threw before anything was sent, and the default timeout rather than ours.
+// Drafting could not have worked on any deployment (2026-09-20 review).
 builder.Services.AddScoped<SummarizationService>(services => new SummarizationService(
-    ActivatorUtilities.CreateInstance<GeminiProvider>(services, summarization, prompt),
+    new GeminiProvider(
+        services.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiProvider)),
+        summarization,
+        prompt),
     fallback: null,
     services.GetRequiredService<ICostLedger>(),
     summarization));
