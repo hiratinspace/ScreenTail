@@ -42,10 +42,21 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
 /// credentials under the data directory. Downloaded models stay; they hold no user data. The store must
 /// be closed first: on Windows an open database file cannot be deleted.
 /// </summary>
+/// <param name="Deleted">What went, in the order it went. The key is first on purpose.</param>
+/// <param name="Complete">
+/// False when something could not be removed. The erasure is still owed, and the marker stays.
+/// </param>
+public sealed record ErasureResult(IReadOnlyList<string> Deleted, bool Complete);
+
 public static class LocalDataEraser
 {
     /// <summary>
     /// Everything "delete everything" has to remove (INV-12).
+    ///
+    /// <b>The key is first.</b> The store is encrypted, so removing the key makes all of it unreadable
+    /// in one step — which is the most that can be promised when the step after it might fail. The
+    /// database used to be first, so a database held open by antivirus left a readable store and a key
+    /// beside it, and the technician had been told it was gone.
     ///
     /// The two with -journal and .tmp are not hypothetical: SQLite falls back to a rollback journal
     /// wherever WAL cannot be enabled, which is any redirected or network profile, and the token's
@@ -54,39 +65,120 @@ public static class LocalDataEraser
     /// </summary>
     public static readonly string[] DataFiles =
     [
+        "store.key",
         "store.db",
         "store.db-wal",
         "store.db-shm",
         "store.db-journal",
-        "store.key",
         "ipc.token",
         "ipc.token.tmp",
     ];
 
     public const string TokensDirectory = "tokens";
 
-    /// <returns>The paths that were deleted.</returns>
-    public static IReadOnlyList<string> Erase(string dataDirectory)
+    /// <summary>
+    /// Says that an erasure has been asked for, before anybody is told it happened.
+    ///
+    /// The command used to answer the UI, and then the service stopped, and only then did anything get
+    /// deleted — in a finally, after every other shutdown step. A process that exited first, or a file
+    /// it could not remove, left the store intact and no record anywhere that erasure was owed. The
+    /// next start opened it and carried on (2026-09-19 review).
+    /// </summary>
+    public const string PendingMarker = "erase-everything.pending";
+
+    public static void MarkPending(string dataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        Directory.CreateDirectory(dataDirectory);
+
+        // Contents are deliberately nothing: its existence is the whole message, and a file in a
+        // directory that is about to be deleted is no place for anything about a session (INV-10).
+        File.WriteAllBytes(Path.Combine(dataDirectory, PendingMarker), []);
+    }
+
+    public static bool IsPending(string dataDirectory) =>
+        File.Exists(Path.Combine(dataDirectory, PendingMarker));
+
+    /// <summary>
+    /// Finishes an erasure that was asked for and did not happen. Called before the store is opened.
+    /// </summary>
+    /// <returns>Null when none was owed, so a caller can tell "nothing to do" from "done".</returns>
+    public static ErasureResult? EraseIfPending(string dataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        return IsPending(dataDirectory) ? Erase(dataDirectory) : null;
+    }
+
+    /// <summary>
+    /// Removes everything, and keeps going when one thing will not go.
+    ///
+    /// Aborting on the first failure left everything after it on disk, and the list began with the
+    /// database. A file held open by antivirus or a backup agent is the ordinary case, not a rare one.
+    /// </summary>
+    public static ErasureResult Erase(string dataDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         var deleted = new List<string>();
+        var complete = true;
+
         foreach (var name in DataFiles)
         {
             var path = Path.Combine(dataDirectory, name);
-            if (File.Exists(path))
+            if (!File.Exists(path))
             {
-                File.Delete(path);
+                continue;
+            }
+
+            if (TryDelete(() => File.Delete(path)))
+            {
                 deleted.Add(path);
+            }
+            else
+            {
+                complete = false;
             }
         }
 
         var tokens = Path.Combine(dataDirectory, TokensDirectory);
         if (Directory.Exists(tokens))
         {
-            Directory.Delete(tokens, recursive: true);
-            deleted.Add(tokens);
+            if (TryDelete(() => Directory.Delete(tokens, recursive: true)))
+            {
+                deleted.Add(tokens);
+            }
+            else
+            {
+                complete = false;
+            }
         }
 
-        return deleted;
+        // Last, and only when there is nothing left to owe. While it is there, the next start finishes
+        // the job rather than opening what survived.
+        if (complete && IsPending(dataDirectory))
+        {
+            var marker = Path.Combine(dataDirectory, PendingMarker);
+            if (TryDelete(() => File.Delete(marker)))
+            {
+                deleted.Add(marker);
+            }
+        }
+
+        return new ErasureResult(deleted, complete);
+    }
+
+    private static bool TryDelete(Action delete)
+    {
+        try
+        {
+            delete();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Held open, or not ours to remove. Counted rather than thrown: the caller's job is to keep
+            // going and to leave the erasure owed.
+            return false;
+        }
     }
 }
+

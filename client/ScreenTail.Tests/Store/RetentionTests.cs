@@ -131,8 +131,9 @@ public sealed class RetentionTests : IAsyncDisposable
         Assert.False(File.Exists(Path.Combine(_dir, "ipc.token")));
         Assert.False(Directory.Exists(Path.Combine(_dir, "tokens")));
         Assert.True(File.Exists(Path.Combine(_dir, "models", "ggml-base.bin")), "models are not user data and stay");
-        Assert.Contains(Path.Combine(_dir, "store.db"), deleted);
-        Assert.Contains(Path.Combine(_dir, "tokens"), deleted);
+        Assert.Contains(Path.Combine(_dir, "store.db"), deleted.Deleted);
+        Assert.Contains(Path.Combine(_dir, "tokens"), deleted.Deleted);
+        Assert.True(deleted.Complete);
     }
 
     public async ValueTask DisposeAsync()
