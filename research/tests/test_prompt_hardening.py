@@ -140,3 +140,24 @@ def test_an_ordinary_draft_still_passes():
     session = session_with_draft()
 
     assert check_draft(session["draft"], session) == []
+
+
+def shared_cases() -> list[dict]:
+    """The cases both implementations of the post-conditions have to agree on.
+
+    The C# validator reads the same file. A comment saying two things agree is not a mechanism, and both
+    of these drifted: on 2026-09-19 a review found curly quotes, "reset to", bare key shapes and four
+    download tools passing the C# one and caught by this one.
+    """
+    path = ROOT / "prompts" / "hardening-cases.json"
+    return json.loads(path.read_text(encoding="utf-8"))["cases"]
+
+
+@pytest.mark.parametrize("case", shared_cases(), ids=lambda c: c["text"][:48])
+def test_the_shared_cases_are_judged_the_way_they_say(case: dict):
+    errors = errors_with(result=case["text"])
+    refused = bool(errors)
+
+    assert refused == case["refuse"], (
+        f"{'expected a refusal' if case['refuse'] else 'expected this to pass'}: {case['why']}"
+    )

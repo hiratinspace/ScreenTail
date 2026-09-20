@@ -38,9 +38,14 @@ CARD_CANDIDATE = re.compile(r"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b")
 
 # The C# pattern library masks these on the frame; this is the backstop for a model putting one back, or
 # for one that survived a redaction miss upstream and was read out of ocr_text.
+# The connective run is what took a while to get right. "the password was reset to Winter2026" is how a
+# technician actually writes it, and an alternation of whole phrases only caught the phrasings somebody
+# thought of: "was" matched, the value became "reset", and the credential after it went into the note.
+# Up to three linking words, then whatever follows.
 CREDENTIAL = re.compile(
     r"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b"
-    r"\s*(?:is|was|to|set\s+to|reset\s+to|:|=)\s*(?P<value>[^\s,.;!?]{3,})",
+    r"(?:\s+(?:is|was|to|set|reset|changed|now|will|be)){0,3}"
+    r"\s*[:=#]?\s*(?P<value>[^\s,.;!?]{3,})",
     re.IGNORECASE,
 )
 
