@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using ScreenTail.Core.Hud;
 using ScreenTail.Core.Shell;
 
 namespace ScreenTail.UI.Hud;
@@ -42,6 +43,10 @@ public partial class HudWindow : Window
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = saved.HudX;
             Top = saved.HudY;
+
+            // ...but only if that place still exists. Checked on load rather than here, because the
+            // pill has no width until then and the question is about where its middle lands.
+            Loaded += (_, _) => DockIfNowhere();
         }
         else
         {
@@ -91,6 +96,35 @@ public partial class HudWindow : Window
     /// if this is false the technician is sharing their screen with our HUD on it.
     /// </summary>
     public bool ExcludedFromCapture { get; private set; }
+
+    /// <summary>
+    /// Brings the pill back where it can be seen, if the screen it was on has gone (INV-4).
+    ///
+    /// A technician who docks the pill on a second monitor and later unplugs it used to get a pill drawn
+    /// into empty coordinate space: no indicator anywhere, while the capture service went on treating an
+    /// attached UI as proof that something on screen said so (2026-09-20 review).
+    ///
+    /// The saved position is deliberately left alone. Plug the monitor back in and the pill goes back to
+    /// where it was put, which is what somebody who arranged it that way would expect; overwriting it
+    /// here would quietly lose that arrangement the first time a cable came out.
+    /// </summary>
+    private void DockIfNowhere()
+    {
+        // The bounding box of every monitor rather than the monitors themselves, which WPF does not
+        // offer without dragging in WinForms. It catches the cases that happen — a monitor unplugged, a
+        // coordinate nobody could have dragged to — and misses only a point in the notch of an L-shaped
+        // arrangement, which draws a pill that is at worst on the wrong screen rather than on none.
+        var virtualScreen = new ScreenArea(
+            SystemParameters.VirtualScreenLeft,
+            SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth,
+            SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight);
+
+        if (!HudPlacement.IsOnScreen(Left, Top, ActualWidth, ActualHeight, [virtualScreen]))
+        {
+            DockTopRight();
+        }
+    }
 
     private void DockTopRight()
     {
