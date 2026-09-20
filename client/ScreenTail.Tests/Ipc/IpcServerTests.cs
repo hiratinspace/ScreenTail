@@ -237,6 +237,54 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task VerifyingTheRealUiDoesNotMakeItLookSilent()
+    {
+        // 2026-09-19 review, and the half of weaknesses P1-6 that was still open. An entry left the
+        // eviction table only after the *whole* handshake — which includes verifying the peer's
+        // Authenticode signature, two WinVerifyTrust calls that take real time on a cold file.
+        //
+        // So the genuine UI counted as "silent" during its own verification, and a same-user process
+        // opening connections in a loop could evict it. The table exists to stop exactly that lockout,
+        // and it was the thing causing it.
+        var slow = new SlowVerifier(TimeSpan.FromMilliseconds(400));
+        await StartServerAsync(slow);
+        var ct = TestContext.Current.CancellationToken;
+
+        var squatters = new List<NamedPipeClientStream>();
+        try
+        {
+            var connecting = ConnectAsync();
+
+            // While the UI is inside the verifier, twenty peers connect and say nothing. Under the old
+            // rule these filled the table and pushed the UI's own entry out of it.
+            await slow.Reached.Task.WaitAsync(Soon, ct);
+            for (var i = 0; i < 20; i++)
+            {
+                var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                try
+                {
+                    await pipe.ConnectAsync(200, ct);
+                    squatters.Add(pipe);
+                }
+                catch (TimeoutException)
+                {
+                    await pipe.DisposeAsync();
+                }
+            }
+
+            await using var ui = await connecting;
+            Assert.Equal(CaptureStates.Idle, ui.State.State);
+        }
+        finally
+        {
+            foreach (var pipe in squatters)
+            {
+                await pipe.DisposeAsync();
+            }
+        }
+    }
+
+    [Fact]
     public async Task ServerShutdownTellsClients()
     {
         await StartServerAsync();
@@ -430,6 +478,23 @@ public sealed class IpcServerTests : IAsyncDisposable
 
             Received.Add(command);
             return Task.FromResult<IpcEvent?>(Answer);
+        }
+    }
+
+    /// <summary>
+    /// Accepts, slowly, and says when it was reached.
+    ///
+    /// Stands in for WinVerifyTrust on a cold file, which is where the real UI spends its handshake.
+    /// </summary>
+    private sealed class SlowVerifier(TimeSpan takes) : IClientVerifier
+    {
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask<string?> VerifyAsync(PipeStream connection, CancellationToken ct = default)
+        {
+            Reached.TrySetResult();
+            await Task.Delay(takes, ct);
+            return null;
         }
     }
 

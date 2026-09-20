@@ -91,16 +91,25 @@ public sealed class IpcServer : IAsyncDisposable
     public async Task BroadcastAsync(IpcEvent ipcEvent, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(ipcEvent);
-        foreach (var client in _clients.Values)
+
+        // All at once, and with a deadline each. One at a time meant a single client that had stopped
+        // reading held up every state change to every other window — and the pipe has no output buffer,
+        // so "stopped reading" blocks the write rather than filling a queue (2026-09-19 review).
+        await Task.WhenAll(_clients.Values.Select(client => TellAsync(client, ipcEvent, ct))).ConfigureAwait(false);
+    }
+
+    private static async Task TellAsync(Connection client, IpcEvent ipcEvent, CancellationToken ct)
+    {
+        using var telling = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        telling.CancelAfter(BroadcastTimeout);
+        try
         {
-            try
-            {
-                await client.SendAsync(ipcEvent, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-            {
-                // The connection loop notices the broken pipe and removes the client.
-            }
+            await client.SendAsync(ipcEvent, telling.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
+        {
+            // Broken, gone, or not reading. Its own loop notices and removes it; a state change nobody
+            // could receive is not a reason to hold up the ones who could.
         }
     }
 
@@ -212,6 +221,17 @@ public sealed class IpcServer : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// How long the service will spend telling a peer why it was refused.
+    ///
+    /// Short: the message is a courtesy, and a peer that will not read it is exactly the peer this
+    /// deadline exists for.
+    /// </summary>
+    private static readonly TimeSpan RejectionTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long one client may take to accept a state change before it is left behind.</summary>
+    private static readonly TimeSpan BroadcastTimeout = TimeSpan.FromSeconds(5);
+
     private async Task HandleConnectionAsync(NamedPipeServerStream pipe, long id, Handshake handshake)
     {
         var connection = new Connection(pipe);
@@ -225,7 +245,14 @@ public sealed class IpcServer : IAsyncDisposable
             string? reason;
             try
             {
-                reason = await HandshakeAsync(connection, handshake.Token).ConfigureAwait(false);
+                reason = await HandshakeAsync(
+                    connection,
+                    () =>
+                    {
+                        _ = _handshakes.TryRemove(id, out _);
+                        counted = false;
+                    },
+                    handshake.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!_stopping.IsCancellationRequested)
             {
@@ -235,13 +262,23 @@ public sealed class IpcServer : IAsyncDisposable
 
             if (reason is not null)
             {
-                await connection.SendAsync(new Rejected { Reason = reason }, _stopping.Token).ConfigureAwait(false);
+                // Bounded, because the pipe has no output buffer: the write does not return until the
+                // peer reads it. A peer that never reads used to hold that pipe instance until the
+                // service stopped, and 255 of them locked the UI out for good (2026-09-19 review).
+                using var saying = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+                saying.CancelAfter(RejectionTimeout);
+                try
+                {
+                    await connection.SendAsync(new Rejected { Reason = reason }, saying.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!_stopping.IsCancellationRequested)
+                {
+                    // It would not listen to why. The audit row below is the record either way.
+                }
+
                 await AuditRejectionAsync(reason).ConfigureAwait(false);
                 return;
             }
-
-            _ = _handshakes.TryRemove(id, out _);
-            counted = false;
 
             _clients[connection.Id] = connection;
             await ServeAsync(connection, _stopping.Token).ConfigureAwait(false);
@@ -297,7 +334,16 @@ public sealed class IpcServer : IAsyncDisposable
         await _audit.RecordAsync("ipc_rejected_" + reason, count: since, ct: _stopping.Token).ConfigureAwait(false);
     }
 
-    private async Task<string?> HandshakeAsync(Connection connection, CancellationToken ct)
+    /// <param name="spoke">
+    /// Called the moment a hello has been read, so the eviction table stops counting this connection as
+    /// silent.
+    ///
+    /// It used to be called after the whole handshake, which includes verifying the peer's Authenticode
+    /// signature — two WinVerifyTrust calls that take real time on a cold file. So the genuine UI was
+    /// "silent" during its own verification and could be evicted by a peer opening connections in a
+    /// loop, which is the lockout this table exists to prevent (2026-09-19 review).
+    /// </param>
+    private async Task<string?> HandshakeAsync(Connection connection, Action spoke, CancellationToken ct)
     {
         IpcCommand? first;
         try
@@ -313,6 +359,9 @@ public sealed class IpcServer : IAsyncDisposable
         {
             return RejectReasons.Protocol;
         }
+
+        // Said something, whatever it turns out to be worth. Everything below can take its time.
+        spoke();
 
         if (hello.ContractVersion != IpcContract.Version)
         {
