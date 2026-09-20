@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ScreenTail.Api.Auth;
+using ScreenTail.Api.Data;
 using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Endpoints;
@@ -21,6 +22,14 @@ public sealed record SummarizeResponse(string Status, string? Reason = null, Dra
 /// </summary>
 public static class SummarizeEndpoint
 {
+    /// <summary>
+    /// The largest request the endpoint will read.
+    ///
+    /// The client's byte budget is 4 MB of images, which is about 5.6 MB once base64 has expanded it.
+    /// Sixteen leaves room for the JSON around it and refuses anything that is not a session.
+    /// </summary>
+    private const long MaxRequestBytes = 16 * 1024 * 1024;
+
     public static RouteGroupBuilder MapSummarize(this RouteGroupBuilder group)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -28,20 +37,28 @@ public static class SummarizeEndpoint
         group.MapPost("/sessions/summarize", async (
             SummarizeBundle bundle,
             ClaimsPrincipal caller,
+            ScreenTailContext db,
             SummarizationService summarizer,
             CancellationToken ct) =>
         {
-            if (bundle is null || string.IsNullOrWhiteSpace(bundle.SessionId))
+            // Everything the bundle could be wrong about, before a model call is paid for. Two of the
+            // 2026-09-19 review's findings were requests that were accepted, billed, and only then found
+            // to be unstorable — a billed draft with no ledger row, and a daily cap that never moved.
+            if (BundleLimits.Check(bundle) is { } problem)
             {
-                return Results.BadRequest(new SummarizeResponse("rejected", "A session id is required."));
+                return Results.BadRequest(new SummarizeResponse("rejected", problem));
             }
 
-            if (!Guid.TryParse(caller.FindFirstValue(ScreenTailClaims.TenantId), out var tenantId))
+            // A valid signature is not permission. The device may have been revoked, the technician
+            // disabled or the tenant switched off since this token was issued, and until the review this
+            // endpoint asked none of that: a revoked laptop went on spending the tenant's budget here
+            // while /v1/me already refused it.
+            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
             {
                 return Results.Unauthorized();
             }
 
-            var result = await summarizer.DraftAsync(tenantId, bundle, ct).ConfigureAwait(false);
+            var result = await summarizer.DraftAsync(who.TenantId, bundle, ct).ConfigureAwait(false);
 
             return result.Status switch
             {
@@ -69,6 +86,9 @@ public static class SummarizeEndpoint
                     statusCode: StatusCodes.Status422UnprocessableEntity),
             };
         })
+        // Nothing a client sends is worth more than this, and the default is 30 MB of memory held several
+        // times over while it is parsed. BundleLimits then applies the real ceilings to the shape.
+        .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(MaxRequestBytes))
         .WithName("Summarize")
         .WithSummary("Draft a note from one session's bundle. Frames are held in memory for this request only (INV-7).");
 

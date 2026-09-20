@@ -137,7 +137,7 @@ exchanges that for short-lived access tokens. Tokens are pinned to HS256 — a t
 algorithm is a token that can name `none` — with issuer, audience, lifetime and signature all validated
 and no clock skew allowed.
 
-Revocation is checked on every request rather than at activation: a token stays valid for its whole
+Revocation is checked on every request under `/v1` by one shared check, `CallerCheck`: a revoked device, a disabled technician or a disabled tenant is refused, whatever its token still says. That sentence was aspirational until 2026-09-19 — the check existed only on `/v1/me`, so a revoked laptop went on drafting, and spending, until its token expired rather than at activation: a token stays valid for its whole
 lifetime, so a technician who leaves has to stop working before it expires, not when it does.
 
 A refusal never says which check failed. An error that explains itself is an error that helps whoever is

@@ -129,33 +129,40 @@ public sealed class SummarizationService(
 
         var provider = usedFallback ? fallback! : primary;
         var cost = model.CostUsd;
-        var outcome = Interpret(model.Json, bundle);
-
         var repaired = false;
-        if (outcome.Draft is null)
+        (DraftJson? Draft, string Reason) outcome;
+
+        try
         {
-            // Told what it got wrong rather than simply asked again: asking again usually produces the
-            // same answer, and this call is not free.
-            var second = await provider.DraftAsync(bundle, outcome.Reason, deadline.Token).ConfigureAwait(false);
-            if (second.Ok)
+            outcome = Interpret(model.Json, bundle);
+            if (outcome.Draft is null)
             {
-                cost += second.Value!.CostUsd;
-                var retried = Interpret(second.Value.Json, bundle);
-                if (retried.Draft is not null)
+                // Told what it got wrong rather than simply asked again: asking again usually produces the
+                // same answer, and this call is not free.
+                var second = await provider.DraftAsync(bundle, outcome.Reason, deadline.Token).ConfigureAwait(false);
+                if (second.Ok)
                 {
-                    outcome = retried;
-                    repaired = true;
-                }
-                else
-                {
-                    outcome = retried;
+                    cost += second.Value!.CostUsd;
+                    outcome = Interpret(second.Value.Json, bundle);
+                    repaired = outcome.Draft is not null;
                 }
             }
         }
-
-        // Recorded whatever the outcome: a rejected draft cost real money, and a cap that only counts
-        // successes is a cap a broken model can walk straight through.
-        await ledger.RecordAsync(tenantId, bundle.SessionId, provider.Name, cost, ct).ConfigureAwait(false);
+        finally
+        {
+            // Recorded whatever the outcome, and whatever went wrong getting there.
+            //
+            // A rejected draft cost real money, and a cap that only counts successes is a cap a broken
+            // model walks straight through. The 2026-09-19 review found the harder half: this was the
+            // last statement in the method, so anything that threw after the model answered lost the
+            // cost entirely — a billed draft, no row, and a daily cap that never moved.
+            //
+            // CancellationToken.None, not the request's. The money is gone whether or not the technician
+            // is still waiting for the answer, and a client that hangs up mid-request was cancelling the
+            // write that records what they spent.
+            await ledger.RecordAsync(tenantId, bundle.SessionId, provider.Name, cost, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
 
         return outcome.Draft is null
             ? new SummarizeResult(SummarizeStatus.Invalid, Reason: outcome.Reason, CostUsd: cost, Provider: provider.Name, UsedFallback: usedFallback)
