@@ -13,6 +13,16 @@ public sealed record BundleFrame(
     /// <summary>The image, base64, as the client sent it. Held for one request and never written (INV-7).</summary>
     [JsonPropertyName("image")]
     public string? Image { get; init; }
+
+    /// <summary>
+    /// What kind of image <see cref="Image"/> is.
+    ///
+    /// The Windows client encodes JPEG, so that is the default and it never has to say. Anything else
+    /// does, because the provider cannot tell from base64 and a model handed a PNG labelled as a JPEG
+    /// refuses the whole request — which costs the note, not the picture.
+    /// </summary>
+    [JsonPropertyName("media_type")]
+    public string MediaType { get; init; } = "image/jpeg";
 }
 
 public sealed record BundleSegment(

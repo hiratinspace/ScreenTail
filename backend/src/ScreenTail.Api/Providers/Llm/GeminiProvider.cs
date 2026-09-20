@@ -13,23 +13,20 @@ namespace ScreenTail.Api.Providers.Llm;
 /// natively, and the scope document budgets under ten cents a session. Nothing in
 /// <see cref="SummarizationService"/> knows it is running: swapping it costs this one class.
 ///
+/// <b>Which Flash is a setting, not a constant.</b> This class speaks the family's wire format; the
+/// version comes from <see cref="SummarizationOptions.Model"/>, because Google retires model names on a
+/// schedule and the first build of this one was already asking for a name that had gone.
+///
 /// <b>The key is a header, never a query string.</b> Gemini's own documentation offers both, and a key in
 /// a URL is a key in every proxy log, every error report and every trace between here and there.
 /// </summary>
 public sealed class GeminiProvider(HttpClient http, SummarizationOptions options, string prompt) : ILlmProvider
 {
     /// <summary>
-    /// Roughly what Flash charges, in US dollars per million tokens, as of 2026-09.
-    ///
-    /// An estimate, and labelled as one: it is used for a cap rather than for an invoice, and being
-    /// slightly wrong costs a tenant a few sessions either way rather than money. The provider's own
-    /// usage figures are what it is applied to.
+    /// Which model answered. The configured name rather than the family, because "gemini-flash" in a
+    /// cost row cannot tell you which of six models with that word in the name ran up the bill.
     /// </summary>
-    private const decimal InputCostPerMillion = 0.075m;
-
-    private const decimal OutputCostPerMillion = 0.30m;
-
-    public string Name => "gemini-flash";
+    public string Name => options.Model;
 
     public async Task<ProviderResult<LlmDraft>> DraftAsync(
         SummarizeBundle bundle,
@@ -40,7 +37,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
 
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            "v1beta/models/gemini-2.0-flash:generateContent")
+            $"v1beta/models/{options.Model}:generateContent")
         {
             Content = new StringContent(Body(bundle, repair), Encoding.UTF8, "application/json"),
         };
@@ -65,13 +62,12 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
 
         using (response)
         {
-            if (!response.IsSuccessStatusCode)
-            {
-                return ProviderResult.Failure<LlmDraft>(Failure(response.StatusCode));
-            }
-
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            return Read(body);
+
+            return response.IsSuccessStatusCode
+                ? Read(body)
+                : ProviderResult.Failure<LlmDraft>(
+                    Failure(response.StatusCode, options.Model) with { RetryAfter = RetryAfter(body) });
         }
     }
 
@@ -81,8 +77,16 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     /// Only 5xx and 429 are worth a second provider. A 401 means the key is wrong, and spending money
     /// somewhere else does not make it right.
     /// </summary>
-    private static ProviderError Failure(HttpStatusCode status) => status switch
+    private static ProviderError Failure(HttpStatusCode status, string model) => status switch
     {
+        // A retired model. Google announces these months ahead and answers with a 404 naming the
+        // replacement, so whoever reads this can end the outage with one setting rather than waiting for
+        // a release. The first build of this provider asked for gemini-2.0-flash and found out this way.
+        HttpStatusCode.NotFound => new ProviderError(
+            ProviderErrorKind.Invalid,
+            $"The drafting model \"{model}\" is not available to this deployment.",
+            "Set Summarization__Model to a model the provider still serves."),
+
         HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new ProviderError(
             ProviderErrorKind.Unauthenticated,
             "The drafting model rejected this deployment's API key.",
@@ -105,7 +109,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     };
 
     /// <summary>Pulls the text and the usage out of Gemini's envelope.</summary>
-    private static ProviderResult<LlmDraft> Read(string body)
+    private ProviderResult<LlmDraft> Read(string body)
     {
         try
         {
@@ -130,8 +134,14 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
             if (root.TryGetProperty("usageMetadata", out var usage))
             {
                 cost = Cost(
-                    usage.TryGetProperty("promptTokenCount", out var input) ? input.GetInt32() : 0,
-                    usage.TryGetProperty("candidatesTokenCount", out var output) ? output.GetInt32() : 0);
+                    Tokens(usage, "promptTokenCount"),
+
+                    // Thinking is billed at the output rate and is *not* part of the answer's own count:
+                    // the provider documents totalTokenCount as prompt plus thoughts plus candidates,
+                    // three separate addends. A one-word question on 2026-09-19 was charged 92 thinking
+                    // tokens against a single token of answer, so counting only the answer under-reports
+                    // by most of the bill — and the daily cap reading it would be a cap on nothing.
+                    Tokens(usage, "candidatesTokenCount") + Tokens(usage, "thoughtsTokenCount"));
             }
 
             return ProviderResult.Success(new LlmDraft(text, cost));
@@ -145,8 +155,75 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
         }
     }
 
-    internal static decimal Cost(int promptTokens, int completionTokens) =>
-        ((promptTokens * InputCostPerMillion) + (completionTokens * OutputCostPerMillion)) / 1_000_000m;
+    /// <summary>
+    /// When the provider said to come back, if it did.
+    ///
+    /// Google puts it in a <c>google.rpc.RetryInfo</c> among the error details and sends no
+    /// <c>Retry-After</c> header, so the body is the only place it exists. Worth reading: a rate limit
+    /// answered with our own guess is either a retry too early, which is what caused it, or a session
+    /// sitting in the outbox long after the window reopened.
+    /// </summary>
+    private static TimeSpan? RetryAfter(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("error", out var error)
+                || !error.TryGetProperty("details", out var details)
+                || details.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var detail in details.EnumerateArray())
+            {
+                if (detail.TryGetProperty("@type", out var type)
+                    && type.GetString()?.EndsWith("google.rpc.RetryInfo", StringComparison.Ordinal) == true
+                    && detail.TryGetProperty("retryDelay", out var delay))
+                {
+                    return Duration(delay.GetString());
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // An error body we cannot read is still an error. The caller has a usable failure already.
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A protobuf duration: seconds, a decimal point and a trailing "s" — <c>26s</c>, <c>26.656292589s</c>.
+    /// Parsed whole, because rounding "0.5s" down to nothing produces a retry with no delay, which is
+    /// the request that earned the rate limit in the first place.
+    /// </summary>
+    private static TimeSpan? Duration(string? value)
+    {
+        if (value is null || !value.EndsWith('s'))
+        {
+            return null;
+        }
+
+        return double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+            && seconds >= 0
+                ? TimeSpan.FromSeconds(seconds)
+                : null;
+    }
+
+    private static int Tokens(JsonElement usage, string name) =>
+        usage.TryGetProperty(name, out var value) && value.TryGetInt32(out var count) ? count : 0;
+
+    /// <summary>
+    /// What the call cost, at this deployment's configured rates.
+    ///
+    /// An estimate applied to the provider's own token counts, and used for a cap rather than for an
+    /// invoice. Being slightly wrong costs a tenant a few sessions either way; being wrong by the whole
+    /// thinking budget, as this was, costs money nobody budgeted for.
+    /// </summary>
+    private decimal Cost(int promptTokens, int completionTokens) =>
+        ((promptTokens * options.InputCostPerMillionUsd)
+            + (completionTokens * options.OutputCostPerMillionUsd)) / 1_000_000m;
 
     /// <summary>
     /// The request body: the prompt, the session, and the images.
@@ -188,23 +265,31 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
 
         foreach (var frame in bundle.Frames.Where(frame => !string.IsNullOrEmpty(frame.Image)))
         {
-            parts.Add(new { inline_data = new { mime_type = "image/jpeg", data = frame.Image } });
+            parts.Add(new { inline_data = new { mime_type = frame.MediaType, data = frame.Image } });
+        }
+
+        var generation = new Dictionary<string, object>
+        {
+            // Asked for as JSON rather than parsed out of prose. It does not remove the need for the
+            // post-conditions — a schema-valid draft can still cite a frame that does not exist — but it
+            // removes the whole class of failure where the answer is a paragraph.
+            ["responseMimeType"] = "application/json",
+
+            // Low, not zero. This is a report of what happened, and there is nothing to be creative
+            // about; zero is not offered as meaningfully different and costs a re-roll of nothing.
+            ["temperature"] = 0.2,
+        };
+
+        // Omitted when blank, so an operator can hand the choice back to the provider without a release.
+        if (!string.IsNullOrWhiteSpace(options.MediaResolution))
+        {
+            generation["mediaResolution"] = options.MediaResolution;
         }
 
         return JsonSerializer.Serialize(new
         {
             contents = new[] { new { role = "user", parts } },
-            generationConfig = new
-            {
-                // Asked for as JSON rather than parsed out of prose. It does not remove the need for the
-                // post-conditions — a schema-valid draft can still cite a frame that does not exist —
-                // but it removes the whole class of failure where the answer is a paragraph.
-                responseMimeType = "application/json",
-
-                // Low, not zero. This is a report of what happened, and there is nothing to be creative
-                // about; zero is not offered as meaningfully different and costs a re-roll of nothing.
-                temperature = 0.2,
-            },
+            generationConfig = generation,
         });
     }
 }
