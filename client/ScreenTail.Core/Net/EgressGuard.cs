@@ -49,9 +49,16 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
     public static readonly HttpRequestOptionsKey<EgressPurpose> PurposeKey = new("ScreenTail.EgressPurpose");
 
     /// <summary>How many requests have been refused. Shown in the diagnostics panel; counts only.</summary>
-    public long Blocked { get; private set; }
+    public long Blocked => Interlocked.Read(ref _blocked);
 
-    public long Allowed { get; private set; }
+    public long Allowed => Interlocked.Read(ref _allowed);
+
+    // Incremented from whatever thread is sending, which on a machine with a session running and a
+    // model downloading is more than one. `count++` on a long is a read, an add and a write, so two
+    // threads racing lose a count; a diagnostics panel that under-reports egress is worse than one
+    // that reports nothing (2026-09-20 review).
+    private long _allowed;
+    private long _blocked;
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -61,7 +68,7 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
 
         if (!request.Options.TryGetValue(PurposeKey, out var purpose))
         {
-            Blocked++;
+            _ = Interlocked.Increment(ref _blocked);
             throw new EgressBlockedException(
                 EgressPurpose.Backend,
                 destination.Host,
@@ -71,11 +78,11 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
         var decision = policy.Decide(purpose, destination);
         if (!decision.Allowed)
         {
-            Blocked++;
+            _ = Interlocked.Increment(ref _blocked);
             throw new EgressBlockedException(purpose, destination.Host, decision.Reason);
         }
 
-        Allowed++;
+        _ = Interlocked.Increment(ref _allowed);
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         return await FollowAsync(request, response, purpose, cancellationToken).ConfigureAwait(false);
     }
@@ -99,7 +106,7 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
             if (hop == MaxHops)
             {
                 response.Dispose();
-                Blocked++;
+                _ = Interlocked.Increment(ref _blocked);
                 throw new EgressBlockedException(purpose, from.Host, $"It was redirected more than {MaxHops} times.");
             }
 
@@ -109,22 +116,38 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
             if (!decision.Allowed)
             {
                 response.Dispose();
-                Blocked++;
+                _ = Interlocked.Increment(ref _blocked);
                 throw new EgressBlockedException(purpose, next.Host, decision.Reason);
+            }
+
+            // 307 and 308 exist to say "same method, same body, new address", and a request with a body
+            // has only wrong answers here: re-posting it to a second host is the thing this class
+            // prevents, and sending a bodiless GET instead means a published note quietly becomes a
+            // fetch, with somebody's 200 reading as "sent" (2026-09-20 review).
+            //
+            // So it is handed back unfollowed. The caller asked to publish and learns that the address
+            // moved, which is a thing a person can act on.
+            if (KeepsItsMethod(response) && request.Method != HttpMethod.Get)
+            {
+                return response;
             }
 
             response.Dispose();
 
-            // A redirected request is a GET: 302 on a POST is defined as one, and re-sending a bundle to
+            // Every other redirect is a GET: 302 on a POST is defined as one, and re-sending a bundle to
             // a second host is the thing being prevented.
             using var hopRequest = EgressRequest.For(HttpMethod.Get, next, purpose);
-            Allowed++;
+            _ = Interlocked.Increment(ref _allowed);
             response = await base.SendAsync(hopRequest, ct).ConfigureAwait(false);
             from = next;
         }
 
         return response;
     }
+
+    /// <summary>The two redirects that forbid changing the method.</summary>
+    private static bool KeepsItsMethod(HttpResponseMessage response) => response.StatusCode is
+        HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;
 
     private static bool IsRedirect(HttpResponseMessage response) => response.StatusCode is
         HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther

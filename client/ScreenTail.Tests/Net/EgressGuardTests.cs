@@ -268,6 +268,49 @@ public sealed class EgressGuardTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Fact]
+    public async Task APostThatIsRedirectedIsNotQuietlyTurnedIntoAGet()
+    {
+        // 2026-09-20 review. Every redirect was followed as a bodiless GET, which is right for a 302 and
+        // wrong for a 307 or a 308: those two exist precisely to say "same method, same body, new
+        // address". A published note that met one became a GET to the new URL, and a 200 from whatever
+        // answers a GET there reads as "sent" — the note is gone and the ticket never got it.
+        //
+        // Re-posting the body to the new host is the other wrong answer and is the thing this class
+        // exists to prevent. So it is handed back: the caller sees the redirect and decides.
+        var far = new RedirectingHandler(new Uri("https://acme.connectwise.example/v4/moved"))
+        {
+            Status = HttpStatusCode.PermanentRedirect,
+        };
+        using var client = Client(Tenant(localOnly: true), far);
+
+        using var response = await client.SendAsync(
+            EgressRequest.For(HttpMethod.Post, Psa, EgressPurpose.Publish),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.PermanentRedirect, response.StatusCode);
+        Assert.Equal(1, far.Requests);
+    }
+
+    [Fact]
+    public async Task AGetThatIsRedirectedWithA307IsStillFollowed()
+    {
+        // The method is what decides, not the status. A GET carries no body, so the hop changes nothing
+        // and the model download still works.
+        var far = new RedirectingHandler(new Uri("https://models.example/cdn/ggml-small.bin"))
+        {
+            Status = HttpStatusCode.TemporaryRedirect,
+        };
+        using var client = Client(Tenant(localOnly: true), far);
+
+        using var response = await client.SendAsync(
+            EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, far.Requests);
+    }
+
     private static HttpClient Client(EgressSettings settings, HttpMessageHandler far) =>
         new(new EgressGuard(new EgressPolicy(settings), far));
 
@@ -279,6 +322,9 @@ public sealed class EgressGuardTests
         /// <summary>Redirect every time, for the loop case.</summary>
         public bool Always { get; init; }
 
+        /// <summary>Which kind of redirect. 307 and 308 keep the method; the others do not.</summary>
+        public HttpStatusCode Status { get; init; } = HttpStatusCode.Found;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
@@ -287,7 +333,7 @@ public sealed class EgressGuardTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
             }
 
-            var response = new HttpResponseMessage(HttpStatusCode.Found);
+            var response = new HttpResponseMessage(Status);
             response.Headers.Location = to;
             return Task.FromResult(response);
         }
