@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -51,18 +50,13 @@ public sealed class WindowsServerVerifier : IServerVerifier
             return ValueTask.FromResult<string?>("server_pid_unknown");
         }
 
-        string? serverExecutable;
-        try
-        {
-            using var process = Process.GetProcessById((int)pid);
-            serverExecutable = process.MainModule?.FileName;
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-            return ValueTask.FromResult<string?>("server_process_unreadable");
-        }
-
-        return ValueTask.FromResult(serverExecutable is null ? "server_path_unknown" : Verify(serverExecutable));
+        // Asked of the kernel, and held open while the answer is used. Process.MainModule reads the
+        // target's own loader data, which a same-user process can rewrite to name the real signed
+        // executable — so the check would go and verify a genuine file on disk while talking to an
+        // impostor. And a process id is reused the moment its process exits, so the handle is what makes
+        // the file we verify and the peer we are talking to the same thing (2026-09-19 review).
+        using var image = ProcessImage.Of(pid);
+        return ValueTask.FromResult(image is null ? "server_process_unreadable" : Verify(image.Path));
     }
 
     /// <summary>The rule itself, separated from the pipe so it can be tested with plain paths.</summary>

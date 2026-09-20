@@ -35,6 +35,14 @@ A connection must pass three checks before its first command is accepted; failin
 
 The token does not defend against another process running as the same user reading the file; the executable check does. The token exists so that the *channel* is authenticated per service run and so that a bug that skipped the executable check would still not accept arbitrary connections.
 
+**How far the executable check actually goes (corrected 2026-09-20).** This document used to say it defends against same-user processes, full stop. It does not, and the review of 2026-09-19 said so; what it does is narrower and worth stating exactly.
+
+- It asks the kernel which file the peer was started from, and holds the process open while it checks. It used to read that path out of the peer's own loader data, which a same-user process can rewrite to name our real signed executable — so the check would verify a genuine file on disk while talking to an impostor.
+- It cannot tell whether a genuine executable is running genuine code. .NET loads another assembly into a signed process when `DOTNET_STARTUP_HOOKS` or the profiler variables ask it to, so an attacker needs no forged binary: launch our real UI with a hook set and it passes for the same reason the real one does. Both processes now refuse to start when those variables are present, unless the build is unsigned — which is how a profiler is attached during development.
+- **It still does not cover a DLL planted beside a signed executable.** Only the launcher is signed; the managed assemblies beside it are not, so a copy of our signed `.exe` next to somebody else's `.dll` passes. Closing that needs single-file publishing and signing, which is packaging, and belongs with ST-112.
+
+The honest summary is that the check raises the cost of impersonation and does not make it impossible, and that the remaining gap is a packaging decision rather than a protocol one.
+
 ### Reattach
 
 The service keeps all session state. A client that disconnects for any reason is forgotten; a client that connects gets the current state in `hello_ack`. The UI reconnects with backoff (100 ms, doubling to 2 s) and shows "Capture service not running — Start" (Spec, ST-070) when it can't. ST-004's requirement is a reattach within 2 s; the transport achieves it in milliseconds.

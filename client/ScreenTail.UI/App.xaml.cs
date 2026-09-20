@@ -20,6 +20,19 @@ public partial class App : Application, IDisposable
     {
         base.OnStartup(e);
 
+        // Before a window, a tray icon or a pipe. The service verifies the file this process started
+        // from, and .NET will load somebody else's code into a genuine signed process if the environment
+        // asks — so an attacker needs no forged binary, only our real one launched with a startup hook
+        // set. The process being hijacked is ours, so it is ours to refuse (ST-012, 2026-09-19 review).
+        //
+        // A development build says so and carries on: this is how a profiler is attached.
+        if (Core.Ipc.RunningHonestly.WhyNotToStart(Platform.Ipc.Signing.IsDevelopmentBuild) is { } refusal)
+        {
+            _ = MessageBox.Show(refusal, "ScreenTail", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(4);
+            return;
+        }
+
         // Dark by default (Scope §6.2); ST-070 persists the user's choice. High contrast always wins —
         // Apply substitutes it, so every caller gets that rather than only this one, and FollowSystem
         // keeps it true if Windows switches while the app is running.

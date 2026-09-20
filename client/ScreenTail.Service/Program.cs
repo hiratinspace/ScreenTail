@@ -1,11 +1,31 @@
 using System.Security.Principal;
 using System.Text.Json;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Ipc;
+using ScreenTail.Platform.Ipc;
 using ScreenTail.Core.Speech;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Host;
 using ScreenTail.Service.Speech;
+
+// Before anything else, because everything after it would already be running alongside whatever was
+// loaded. The peer check verifies the file a process started from, and .NET will happily load somebody
+// else's code into a genuine signed process if the environment asks — so an attacker needs no forged
+// binary, only our real one launched with a startup hook set (ST-012, 2026-09-19 review).
+//
+// Signed builds refuse. A development build says so and carries on, because these variables are how a
+// profiler is attached and a rule that makes debugging impossible is one somebody deletes.
+if (RunningHonestly.WhyNotToStart(Signing.IsDevelopmentBuild) is { } refusal)
+{
+    Console.Error.WriteLine(refusal);
+    return 4;
+}
+
+foreach (var requested in RunningHonestly.ForeignCodeRequested())
+{
+    Console.Error.WriteLine($"Warning: {requested} is set, so this process may be running code that is not ScreenTail's.");
+}
 
 // One capture service per user (ADR-0003). A second copy exits quietly instead of fighting over the pipe.
 var userIdentity = OperatingSystem.IsWindows()
