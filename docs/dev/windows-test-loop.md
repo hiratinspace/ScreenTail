@@ -80,6 +80,14 @@ When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs
 
 ### Security
 
-- A self-hosted runner executes whatever the repository's workflows tell it to. That's acceptable here because the repo is private, only its owner can open PRs, and the laptop has nothing else on it. **Never attach this runner to a public repo.**
+- A self-hosted runner executes whatever the repository's workflows tell it to, inside a signed-in desktop session. This line used to read "never attach this runner to a public repo", written when the repository was private. **The repository is public now** — hosted runner minutes are free for public repositories and are not for private ones — and for several days the rule was simply broken: any stranger's pull request could have built and run its code on this laptop behind one "Approve and run" click. Found in the 2026-09-19 review; no fork existed and every run was the owner's.
+- What keeps strangers' code off the laptop is **three repository settings, not anything in a workflow file.** A pull request runs its own copy of the workflows, so a guard written in one can be deleted by the pull request it is guarding against, and a stranger can add a new workflow that targets the laptop's label. The settings live where a pull request cannot reach:
+  - *Settings → General → Pull requests:* only collaborators may open them (`pull_request_creation_policy = collaborators_only`). This is the one that matters. The repository is public to read and closed to contribute.
+  - *Settings → Actions → General → Fork pull request workflows:* require approval for **all** outside contributors, not only first-time ones. If the first setting is ever loosened, nothing from a fork runs without a click.
+  - *Settings → Actions → General → Actions permissions:* GitHub-owned actions only. Actions run on the laptop too.
+- **Before loosening any of those, take the runner offline or set `HW_RUNNER=false`.** Accepting outside contributions and having this laptop attached are not compatible, and the second lock in the workflows — laptop jobs skip pull requests from forks — is there for the day somebody forgets, not as a substitute.
+- Never click "Approve and run" on a pull request you have not read. Approval is the last barrier, and what it approves is code execution on a machine in your house.
+- The remaining risk is a compromised dependency running during a build on the laptop. That was equally true when the repository was private.
 - Autologon stores the account password as an LSA secret. Use a local account that isn't used anywhere else.
-- CI screenshots the laptop's desktop. Keep personal data off it.
+- **Keep the laptop signed out of everything**, the browser above all. It should hold nothing worth stealing. The review found Chrome on it signed in to GitHub as the owner, which would have turned code execution on the laptop into the owner's GitHub account.
+- CI captures the laptop's desktop, and artifacts on a public repository can be downloaded by anyone signed in to GitHub. The laptop jobs delete every image before uploading and keep what is left for seven days; the verdicts are text. One artifact uploaded before this showed the owner's browser, and all of the laptop's earlier artifacts were deleted on 2026-09-19.
