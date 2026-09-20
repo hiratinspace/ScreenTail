@@ -100,6 +100,12 @@ public sealed class NarrationRecorder
     /// <summary>Segments written to the session.</summary>
     public long Kept { get; private set; }
 
+    /// <summary>How many times listening ended in an exception. A number the diagnostics panel can show.</summary>
+    public long Failures { get; private set; }
+
+    /// <summary>Told when listening failed, so the host can log it. The type only, never the message.</summary>
+    public event Action<Exception>? Failed;
+
     /// <summary>Listens until cancelled or until the microphone stops. Returns without throwing on either.</summary>
     public async Task RunAsync(CancellationToken ct = default)
     {
@@ -138,6 +144,21 @@ public sealed class NarrationRecorder
             {
                 await TranscribeAsync(last, ct).ConfigureAwait(false);
             }
+        }
+#pragma warning disable CA1031 // Losing narration must not be a reason to lose the session.
+        catch (Exception failure)
+#pragma warning restore CA1031
+        {
+            // AC2 again, for the failures that are not the microphone's. Until 2026-09-20 a store write
+            // that threw ended this loop for the life of the service, and the one that threw was
+            // ordinary: transcript ids restart at t-0001 on every service start, so the first thing said
+            // after a restart collided with an earlier session's row. Narration stopped silently and
+            // every later session was recorded without a word (2026-09-19 review).
+            //
+            // The type and a count, never the message: a store error can quote what it was asked to
+            // write, and what it was asked to write is what a technician said (INV-10).
+            Failures++;
+            Failed?.Invoke(failure);
         }
         finally
         {

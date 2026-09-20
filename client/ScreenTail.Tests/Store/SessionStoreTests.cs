@@ -189,6 +189,44 @@ public sealed class SessionStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheSameTranscriptIdInTwoSessionsIsTwoSegments()
+    {
+        // 2026-09-19 review. Transcript ids are "t-0001" upwards, counted from when the capture service
+        // started, and the id was a table-wide primary key. So the first thing a technician said after
+        // any service restart collided with a row from an earlier session that retention had not yet
+        // removed. The insert failed, the exception left the narration loop — which caught only
+        // cancellation — and narration stopped silently for the life of the service.
+        //
+        // Every session after the first restart was recorded without a word of what was said.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("yesterday"));
+        await store.CreateSessionAsync(Session("today"));
+
+        await store.AppendTranscriptAsync("yesterday", Spoken("t-0001", "the spooler was stopped"));
+        await store.AppendTranscriptAsync("today", Spoken("t-0001", "the printer is offline again"));
+
+        Assert.Equal(
+            "the spooler was stopped",
+            Assert.Single((await store.LoadSessionAsync("yesterday"))!.Transcript).Text);
+        Assert.Equal(
+            "the printer is offline again",
+            Assert.Single((await store.LoadSessionAsync("today"))!.Transcript).Text);
+    }
+
+    [Fact]
+    public async Task TheSameTranscriptIdTwiceInOneSessionIsStillRefused()
+    {
+        // The half the composite key must keep: within a session an id names one segment, because the
+        // drafting prompt cites them and a citation has to mean something.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.AppendTranscriptAsync("s1", Spoken("t-0001", "first"));
+
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => store.AppendTranscriptAsync("s1", Spoken("t-0001", "second")));
+    }
+
+    [Fact]
     public async Task MigrationsApplyOnce()
     {
         var latest = SqliteSessionStore.LatestSchemaVersion;
@@ -200,6 +238,15 @@ public sealed class SessionStoreTests : IAsyncDisposable
         var second = await OpenAsync();
         Assert.Equal(latest, await second.GetSchemaVersionAsync());
     }
+
+    private static TranscriptSegment Spoken(string id, string text) => new()
+    {
+        Id = id,
+        TsMs = 1_000,
+        EndMs = 2_000,
+        Speaker = Speaker.Tech,
+        Text = text,
+    };
 
     [Fact]
     public async Task FrameWritesKeepUpWithCapture()
