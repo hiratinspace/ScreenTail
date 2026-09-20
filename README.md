@@ -25,8 +25,19 @@ On Windows you can build, test and run everything. On macOS or Linux you can bui
 2. `git clone https://github.com/hiratinspace/ScreenTail.git` and `cd ScreenTail`.
 3. `dotnet build client/ScreenTail.sln`
 4. `dotnet test client/ScreenTail.sln`
-5. Windows only: `dotnet run --project client/ScreenTail.Service` starts the capture service host.
-6. Windows only: `dotnet run --project client/ScreenTail.UI` opens the shell window.
+5. Windows only, to run it: `powershell -ExecutionPolicy Bypass -File scripts\windows\run-local.ps1`.
+
+   It publishes the capture service and the UI into one directory and starts both. **That directory is
+   not a convenience.** ADR-0003's handshake asks who is on the other end of the pipe; a release answers
+   with an Authenticode signature, and an unsigned development build has none, so the rule falls back to
+   requiring the peer's executable to sit beside ours. Running each project on its own with `dotnet run`
+   puts them in separate `bin` folders and fails that check in both directions, leaving a tray icon stuck
+   on "service unavailable" for a reason recorded nowhere a person would look.
+
+   The UI starts in the notification area rather than opening a window: the tray icon and the recording
+   pill are the whole interface until there is a draft to review. Press **Ctrl+Alt+R** to start a session
+   from the window in front, or bring a remote-support tool to the foreground and detection starts one.
+   Ctrl+Alt+P pauses and resumes, Ctrl+Alt+S stops and drafts, Ctrl+Alt+M marks a moment.
 
 ### Backend
 

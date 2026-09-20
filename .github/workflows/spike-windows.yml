@@ -51,7 +51,8 @@ jobs:
           $failed = $false
           $scripts = 'run-spike.ps1', 'ci-checks.ps1',
                      '..\scripts\windows\setup-test-laptop.ps1',
-                     '..\scripts\windows\check-skips.ps1'
+                     '..\scripts\windows\check-skips.ps1',
+                     '..\scripts\windows\run-local.ps1'
           foreach ($file in $scripts) {
             $path = (Resolve-Path $file).Path
             $errors = $null
