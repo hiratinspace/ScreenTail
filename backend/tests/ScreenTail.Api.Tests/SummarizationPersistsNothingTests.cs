@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
+using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Tests;
 
@@ -32,12 +33,12 @@ public sealed class SummarizationPersistsNothingTests(ApiFixture api) : IClassFi
 
         using var response = await client.PostAsJsonAsync(
             new Uri("/v1/sessions/summarize", UriKind.Relative),
-            new SummarizeRequest("s-1", Frames: 22, TranscriptSegments: 40, EstimatedTokens: 31_000),
+            Bundle("s-1"),
             TestContext.Current.CancellationToken);
 
         var after = await CountEverythingAsync();
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Equal(before, after);
     }
 
@@ -54,7 +55,7 @@ public sealed class SummarizationPersistsNothingTests(ApiFixture api) : IClassFi
         {
             using var response = await client.PostAsJsonAsync(
                 new Uri("/v1/sessions/summarize", UriKind.Relative),
-                new SummarizeRequest($"s-{i}", 22, 40, 31_000),
+                Bundle($"s-{i}"),
                 TestContext.Current.CancellationToken);
         }
 
@@ -68,7 +69,7 @@ public sealed class SummarizationPersistsNothingTests(ApiFixture api) : IClassFi
 
         using var response = await client.PostAsJsonAsync(
             new Uri("/v1/sessions/summarize", UriKind.Relative),
-            new SummarizeRequest("s-1", 1, 1, 1),
+            Bundle("s-1"),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -82,7 +83,7 @@ public sealed class SummarizationPersistsNothingTests(ApiFixture api) : IClassFi
 
         using var response = await client.PostAsJsonAsync(
             new Uri("/v1/sessions/summarize", UriKind.Relative),
-            new SummarizeRequest("  ", 1, 1, 1),
+            Bundle("  "),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -99,10 +100,20 @@ public sealed class SummarizationPersistsNothingTests(ApiFixture api) : IClassFi
             await db.Integrations.CountAsync(),
             await db.Policies.CountAsync(),
             await db.SessionMetrics.CountAsync(),
+            await db.DraftCosts.CountAsync(),
         };
 
         return string.Join(",", counts);
     });
+
+    /// <summary>A session as the client sends it. Nothing in it may reach a table.</summary>
+    private static SummarizeBundle Bundle(string sessionId) => new()
+    {
+        SessionId = sessionId,
+        DurationMs = 12 * 60 * 1000,
+        Frames = [new BundleFrame("f1", 1_000, "Services Print Spooler Stopped") { Image = "aW1hZ2U=" }],
+        Transcript = [new BundleSegment("t1", 1_200, "clearing the queue now")],
+    };
 
     private HttpClient Client(string token)
     {

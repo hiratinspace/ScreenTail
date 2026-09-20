@@ -1121,7 +1121,20 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Open. Needs a model provider, an API key and a spend cap (owner).
+- **Status:** **Done 2026-09-19 (#68), and measured against the real model.** Gemini Flash. Provider abstraction, fallback on an outage only, one repair retry with the reasons, per-tenant daily cost cap checked before the call, and C# post-conditions that refuse an invented frame reference, an unspoken quotation, a leaked credential or a note that reads as an instruction. 85 backend tests.
+
+  The owner's key arrived on 2026-09-19 and the first live call found four defects no stub could have caught, each now covered by a test that fails when its fix is removed:
+
+  1. **The model name was a constant, and Google had retired it.** `gemini-2.0-flash` answered 404 to every draft. The name is now `Summarization__Model`, defaulting to `gemini-3.6-flash`, and a 404 says which setting to change instead of "this is a bug in ScreenTail".
+  2. **Thinking tokens were not being counted.** Gemini 3.x reasons before it answers, bills that at the output rate, and reports it separately from the answer's own tokens. A one-word question was charged 92 thinking tokens against 1 token of answer, so the daily cost cap was reading a fraction of the real spend.
+  3. **The token rates were a retired model's.** $0.075/$0.30 per million against an actual $0.75/$3.75 — out by a factor of ten, in the direction that makes a cap useless. Rates are now settings, dated in the README, with the scheduled 2027-01-01 doubling noted.
+  4. **Every picture was labelled JPEG** because the Windows client encodes JPEG. The frame now says what it is.
+
+  **AC1 and AC4 are now measured**, on the heaviest bundle a client may send (25 frames, `BundleOptions.MaxFrames`): **12.2 s and $0.0167** end to end through the service. That took a fifth defect to reach — at the provider's default media resolution the same bundle took **39.9 s**, missing the thirty-second budget outright. Sending pictures at `MEDIA_RESOLUTION_LOW` costs a seventh as much and is defensible because the redaction worker's OCR travels beside every frame; the picture is for layout, not for reading.
+
+  `LiveDraftingBudgetTests` is the measurement, kept and re-runnable with `SCREENTAIL_LIVE_LLM=1`, skipped otherwise. **Sample size is thin:** the owner's key is free tier, capped at 20 requests a day for this model, so the budget figures rest on single-digit successful runs rather than a real percentile. Re-run it on a billed key before the pilot.
+
+  Two things the live run also showed, neither a ScreenTail defect: `gemini-3.6-flash` answered 503 "experiencing high demand" to roughly a third of calls, which is exactly what ST-064's outbox exists to absorb; and the free tier rate-limits at 5 requests a minute.
 
 **Description:**
 `POST /v1/sessions/summarize` behind a provider interface (Gemini Flash default; OpenAI/Anthropic swappable) with fallback provider, schema validation + one repair retry, per-tenant daily cost cap; frames in memory only (INV-7).
@@ -1131,10 +1144,10 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - ⛓️ **Blocked By:** ST-008, ST-060, ST-061
 
 **Acceptance Criteria:**
-- [ ] Valid bundle → schema-valid draft within 30 s p95
-- [ ] Primary 5xx/timeout → fallback used and logged
-- [ ] Cap exceeded → `cost_cap_reached`; client produces local text-only draft
-- [ ] Cost stored per request; golden average ≤ $0.10; memory profiler shows frames released
+- [x] Valid bundle → schema-valid draft within 30 s p95 — 12.2 s on the heaviest bundle, 6.5–7.8 s on the everyday one. Thin sample; see Status.
+- [x] Primary 5xx/timeout → fallback used and logged
+- [x] Cap exceeded → `cost_cap_reached`; client produces local text-only draft
+- [x] Cost stored per request; golden average ≤ $0.10; memory profiler shows frames released — $0.0167 heaviest, $0.0092–$0.0104 everyday. Frames released is asserted structurally rather than by profiler: the service has no field able to hold a bundle.
 
 **Agent brief**
 - Read: INV-7; Spec §6 "Cost cap reached" toast
@@ -1148,6 +1161,8 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Priority:** High
 - **Estimate:** 3
 - **Status:** **Done 2026-09-18 (#65).** Durable queue in the encrypted store, backoff to an hour, and an `uncertain` state for an attempt whose outcome nobody knows — nothing retries those, and they leave only by asking the provider. 19 tests, and removing the retention deletes fails two of them. The sender is a stub until ST-063 supplies a provider; the queue is real from today, so a draft owed while offline survives a restart.
+
+  **Follow-up left deliberately (2026-09-19):** the Gemini provider now reads Google's own retry hint out of a rate-limit body, where it is the only place the number exists — Google sends no `Retry-After` header. `ProviderError.RetryAfter` carries it and nothing reads it yet. Carrying it to the client means a field on `SummarizeResult`, a `Retry-After` header on the endpoint's 503, and this queue preferring it over its own backoff. That belongs here rather than in ST-063, because this is the only thing that would consume it, and it needs an endpoint test — which needs the LLM provider to be substitutable in DI, since the suite is now forbidden from configuring a real one.
 
 **Description:**
 Local outbox with idempotency keys; retry with backoff; "Draft pending — offline" state.

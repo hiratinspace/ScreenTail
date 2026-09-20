@@ -4,7 +4,19 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>ScreenTail.Api</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Lets `dotnet user-secrets` hold the provider key and the signing key during development. They
+         live in the user profile, outside the repository, so there is no file here to commit by mistake
+         and no environment variable to remember to export each morning. The host reads them only in the
+         Development environment, so nothing about a deployment changes (ST-063). -->
+    <UserSecretsId>screentail-api</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ST-063: the prompt ships with the service, so a deployment cannot drift from the version its
+         post-conditions were written against. -->
+    <EmbeddedResource Include="..\..\..\research\prompts\note_v1.md" LogicalName="ScreenTail.Api.Prompts.note_v1.md" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />

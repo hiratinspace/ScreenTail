@@ -8,6 +8,7 @@ COPY Directory.Build.props global.json .editorconfig ./
 COPY backend/Directory.Build.props backend/Directory.Packages.props backend/
 COPY backend/src/ScreenTail.Api/ScreenTail.Api.csproj backend/src/ScreenTail.Api/
 RUN dotnet restore backend/src/ScreenTail.Api/ScreenTail.Api.csproj
+COPY research/prompts/note_v1.md research/prompts/
 COPY backend/src/ backend/src/
 RUN dotnet publish backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release -o /app --no-restore
 
