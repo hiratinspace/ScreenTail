@@ -245,6 +245,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // click still screenshots the same password prompt. INV-6 is about capture stopping, not about an
         // event being raised.
         var sensitive = new SensitiveContextGuard(machine);
+        sensitive.Failed += failure => LogGuardFailed(logger, "sensitive-context", failure.GetType().Name);
         redaction.SensitiveContextSeen += sensitive.Seen;
         var guarding = sensitive.RunAsync(stoppingToken);
 
@@ -254,6 +255,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         await using var focus = new WindowsFocusWatcher();
         using var focusedField = new WindowsFocusedFieldProbe();
         using var password = new PasswordFieldGuard(machine, focusedField);
+        password.Failed += failure => LogGuardFailed(logger, "password-field", failure.GetType().Name);
         focus.FocusMoved += password.FocusMoved;
         await focus.StartAsync(stoppingToken).ConfigureAwait(false);
         LogFocusMode(logger, focus.UsingHook ? "event hook" : "polling");
@@ -350,6 +352,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Hotkey {Hotkey} is unavailable: {Reason} Suggested instead: {Suggestion}")]
     private static partial void LogHotkeyConflict(ILogger logger, string hotkey, string reason, string suggestion);
+
+    // The type and never the message: a store error can quote what it was asked to write (INV-10).
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The {Guard} guard hit {Error} and carried on")]
+    private static partial void LogGuardFailed(ILogger logger, string guard, string error);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Password-field detection using {Mode}")]
     private static partial void LogFocusMode(ILogger logger, string mode);

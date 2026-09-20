@@ -62,6 +62,7 @@ public sealed class PasswordFieldGuard(
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly PasswordFieldOptions _options = options ?? new PasswordFieldOptions();
     private readonly SemaphoreSlim _focusMoved = new(0);
+    private long _failures;
 
     /// <summary>True while this guard is holding capture suppressed.</summary>
     public bool Holding { get; private set; }
@@ -97,6 +98,16 @@ public sealed class PasswordFieldGuard(
             return Holding;
         }
 
+        // Re-derived from the session rather than trusted, because Holding is only this guard's belief.
+        // Focus a password field, pause and resume: the session is Recording again over the same field,
+        // and a guard that believed it was already holding did nothing until focus moved. The same goes
+        // for a new session begun over a field that still has focus, and for the other guard lifting a
+        // suppression the two of them share. SensitiveContextGuard learned this first.
+        if (Holding && machine.State is not SessionState.Suppressed)
+        {
+            Holding = false;
+        }
+
         var wanted = focused == FocusedField.Password;
         if (wanted == Holding)
         {
@@ -126,20 +137,25 @@ public sealed class PasswordFieldGuard(
         return Holding;
     }
 
-    public async Task RunAsync(CancellationToken ct)
-    {
-        try
+    /// <summary>How many passes ended in an exception. A rising count means the guard is struggling, not gone.</summary>
+    public long Failures => Interlocked.Read(ref _failures);
+
+    /// <summary>Told when a pass fails, so the host can log it. The type only, never the message (INV-10).</summary>
+    public event Action<Exception>? Failed;
+
+    public Task RunAsync(CancellationToken ct) => ResilientLoop.RunAsync(
+        next: async token =>
         {
-            while (!ct.IsCancellationRequested)
-            {
-                _ = await _focusMoved.WaitAsync(_options.PollEvery, ct).ConfigureAwait(false);
-                _ = await TickAsync(ct).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
+            _ = await _focusMoved.WaitAsync(_options.PollEvery, token).ConfigureAwait(false);
+            return true;
+        },
+        step: TickAsync,
+        onFailure: failure =>
         {
-        }
-    }
+            _ = Interlocked.Increment(ref _failures);
+            Failed?.Invoke(failure);
+        },
+        ct);
 
     public void Dispose() => _focusMoved.Dispose();
 
