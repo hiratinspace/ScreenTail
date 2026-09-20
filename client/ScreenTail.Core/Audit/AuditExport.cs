@@ -118,7 +118,9 @@ public static class AuditExport
                     var seen = suppressions.GetValueOrDefault(reason, new AuditInterval(0, 0));
                     suppressions[reason] = new AuditInterval(seen.Times + 1, seen.TotalMs + (row.Count ?? 0));
                     break;
-                case AuditTypes.FrameRedacted when row.Detail is { } kind:
+                // Seen or heard, a masked card number is a masked card number in the totals. The rows
+                // themselves keep the two apart for anyone who wants to know which.
+                case AuditTypes.FrameRedacted or AuditTypes.TranscriptRedacted when row.Detail is { } kind:
                     redactions[kind] = redactions.GetValueOrDefault(kind) + (row.Count ?? 0);
                     break;
                 case AuditTypes.BundleSent when row.Detail is { } host:
