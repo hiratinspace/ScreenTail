@@ -96,4 +96,47 @@ public sealed class PatternLibraryGapTests
         Assert.True(result.Complete);
         Assert.DoesNotContain("4532", result.Text, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("4111 1111 1111 1111 123", "[CARD] 123")] // a CVV
+    [InlineData("4111 1111 1111 1111 90210", "[CARD] 90210")] // a zip code
+    [InlineData("Order 12345 4111 1111 1111 1111", "Order 12345 [CARD]")] // a number in front
+    [InlineData("exp 0927 4111 1111 1111 1111 123", "exp 0927 [CARD] 123")] // both sides, as a payment form reads
+    [InlineData("5500-0000-0000-0004 737", "[CARD] 737")]
+    [InlineData("3782 822463 10005 1234", "[CARD] 1234")] // American Express groups 4-6-5
+    public void ACardNumberIsStillACardNumberWithAnotherNumberBesideIt(string text, string expected)
+    {
+        // Found in the 2026-09-19 review, and the ordinary case rather than a contrived one. OCR joins a
+        // page's words with single spaces, so whatever number sits beside the card on a payment form —
+        // the CVV, the expiry, the zip code, an order number — arrived in the same run of digit groups.
+        // The pattern took the whole run as one candidate, the checksum failed on the whole run, and
+        // nothing looked inside it. The card was stored, shown in Review and sent to the summarizer with
+        // its CVV next to it.
+        Assert.Equal(expected, Engine.ScrubText(text).Text);
+    }
+
+    [Fact]
+    public void ACardNumberInsideALongRowOfNumbersDoesNotSurvive()
+    {
+        // A table row. Which neighbours get masked with it is not the point and is allowed to vary;
+        // that no digit of the card is left is the point.
+        var scrubbed = Engine.ScrubText("1001 2002 3003 4111 1111 1111 1111 4004 5005").Text;
+
+        Assert.DoesNotContain("4111", scrubbed, StringComparison.Ordinal);
+        Assert.DoesNotContain("1111", scrubbed, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Invoice 1001 2002 3003 4004 5005 6006")] // 1001 2002 3003 4004 passes the checksum by chance
+    [InlineData("Asset 100 200 300 400 500")]
+    [InlineData("4111 1111 1111 1112 123")] // one digit off a real card, beside a CVV
+    public void LookingInsideARunDoesNotStartMaskingTablesOfOrdinaryNumbers(string text)
+    {
+        // The price of looking inside a run is that one window in ten passes the checksum by accident.
+        // Windows are therefore only considered when they begin with a digit a payment card can begin
+        // with (2 to 6: Mastercard, American Express, Visa, Discover), which the first case here does
+        // not. Without that, a technician's screenshot of any spreadsheet comes back full of holes, and
+        // a redactor that cries wolf is one that gets switched off.
+        Assert.Equal(text, Engine.ScrubText(text).Text);
+    }
 }
