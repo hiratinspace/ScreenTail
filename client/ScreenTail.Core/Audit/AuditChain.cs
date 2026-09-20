@@ -73,11 +73,23 @@ public sealed record AuditRecord(
 /// unattested, and calling them broken would make every store that predates schema 4 look tampered with.
 /// </param>
 /// <param name="BrokenAt">The id of the first row that does not follow, or null when none does.</param>
-public sealed record AuditVerification(bool Intact, int Checked, int Unchained, long? BrokenAt)
+/// <param name="Missing">
+/// How many rows the log says it should have and does not. Non-zero means it was cut short from the end,
+/// which the chain by itself cannot see: what is left is a shorter chain that verifies perfectly.
+/// </param>
+public sealed record AuditVerification(bool Intact, int Checked, int Unchained, long? BrokenAt, long Missing = 0)
 {
-    public string Describe() => Intact
-        ? Unchained == 0
+    public string Describe()
+    {
+        if (!Intact)
+        {
+            return Missing > 0
+                ? $"The audit log does not verify: {Missing} row(s) are missing from the end."
+                : $"The audit log does not verify: row {BrokenAt} does not follow the row before it.";
+        }
+
+        return Unchained == 0
             ? $"All {Checked} audit rows verify."
-            : $"{Checked} audit rows verify; {Unchained} earlier rows predate the hash chain and are not covered."
-        : $"The audit log does not verify: row {BrokenAt} does not follow the row before it.";
+            : $"{Checked} audit rows verify; {Unchained} earlier rows predate the hash chain and are not covered.";
+    }
 }
