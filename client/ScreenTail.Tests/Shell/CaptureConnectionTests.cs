@@ -103,6 +103,80 @@ public sealed class CaptureConnectionTests
     }
 
     [Fact]
+    public async Task BuiltTheWayTheApplicationBuildsItItStillRetries()
+    {
+        // The test that was missing. Every other case here hands the connection a retry schedule, so
+        // none of them noticed that the application handed it nothing — and that "nothing" meant
+        // "never", not "the default" as the parameter's own documentation claimed. A UI that started a
+        // moment before the service gave up after one attempt and showed a grey tray icon until someone
+        // restarted it, while the service went on starting sessions by itself (INV-4; 2026-09-19 review).
+        //
+        // Two arguments, exactly as LiveShell passes them.
+        var shell = new ShellState();
+        var attempts = 0;
+        await using var connection = new CaptureConnection(
+            shell,
+            _ =>
+            {
+                attempts++;
+                return attempts < 2
+                    ? throw new TimeoutException("nothing is listening yet")
+                    : Task.FromResult<ICaptureChannel>(new FakeChannel(Recording));
+            });
+
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+        Assert.Equal(ServiceConnection.Connected, shell.Snapshot.Connection);
+    }
+
+    [Fact]
+    public async Task AServiceThatRestartedIsReadItsNewTokenRatherThanGivenUpOn()
+    {
+        // The token is rotated on every service start and the UI reads it from a file just before it
+        // opens the pipe. Read the file, wait for the pipe, and a service that came up in between has
+        // already replaced the token: the refusal is "bad_token", and it is a race rather than an
+        // answer. Trying again re-reads the file. Bounded, because a token that is wrong three times
+        // running is not a race any more.
+        var shell = new ShellState();
+        var attempts = 0;
+        await using var connection = Connect(
+            shell,
+            () =>
+            {
+                attempts++;
+                return attempts < 2
+                    ? throw new IpcRejectedException(RejectReasons.BadToken)
+                    : new FakeChannel(Recording);
+            });
+
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+        Assert.Equal(ServiceConnection.Connected, shell.Snapshot.Connection);
+        Assert.Null(connection.LastRefusal);
+    }
+
+    [Fact]
+    public async Task ATokenThatKeepsBeingWrongStopsBeingRetried()
+    {
+        var shell = new ShellState();
+        var attempts = 0;
+        await using var connection = Connect(
+            shell,
+            () =>
+            {
+                attempts++;
+                throw new IpcRejectedException(RejectReasons.BadToken);
+            });
+
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+        await WaitFor(() => connection.LastRefusal is not null);
+
+        Assert.Equal(CaptureConnection.StaleTokenAttempts, attempts);
+    }
+
+    [Fact]
     public async Task ARefusedHandshakeIsNotRetriedIntoTheGround()
     {
         // Being told "you are not who you say you are" is not a transient failure, and hammering the
@@ -233,7 +307,7 @@ public sealed class CaptureConnectionTests
         new(
             shell,
             _ => Task.FromResult(open()),
-            retryAfter: reconnect ? _ => TimeSpan.FromMilliseconds(5) : null);
+            retryAfter: reconnect ? _ => TimeSpan.FromMilliseconds(5) : CaptureConnection.Never);
 
     private static async Task WaitFor(Func<bool> condition)
     {

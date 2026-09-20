@@ -25,7 +25,7 @@ public sealed class CaptureConnection : IAsyncDisposable
 {
     private readonly ShellState _shell;
     private readonly Func<CancellationToken, Task<ICaptureChannel>> _open;
-    private readonly Func<int, TimeSpan>? _retryAfter;
+    private readonly Func<int, TimeSpan> _retryAfter;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _swapping = new(1, 1);
     private ICaptureChannel? _channel;
@@ -33,8 +33,13 @@ public sealed class CaptureConnection : IAsyncDisposable
 
     /// <param name="open">Opens one connection, or throws. <see cref="IpcClient.ConnectAsync"/> in production.</param>
     /// <param name="retryAfter">
-    /// How long to wait before attempt <c>n</c>. Null never retries, which is what a test wants and
-    /// nothing in production does. Defaults to <see cref="RetryAfter"/>.
+    /// How long to wait before attempt <c>n</c>. Left out, it is <see cref="RetryAfter"/>. Giving up
+    /// after one attempt has to be asked for by name, with <see cref="Never"/>.
+    ///
+    /// It used to be the other way round. Null meant "never", this comment said it meant "the default",
+    /// and the application passed nothing — so the UI tried once, stopped, and sat on a grey tray icon
+    /// until someone restarted it, while the service went on starting sessions by itself. Every test
+    /// passed a schedule of its own, so none of them was running the wiring that shipped.
     /// </param>
     public CaptureConnection(
         ShellState shell,
@@ -43,8 +48,24 @@ public sealed class CaptureConnection : IAsyncDisposable
     {
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         _open = open ?? throw new ArgumentNullException(nameof(open));
-        _retryAfter = retryAfter;
+        _retryAfter = retryAfter ?? RetryAfter;
     }
+
+    /// <summary>
+    /// Try once and stop. For a test that wants to look at the first failure; nothing that ships should
+    /// want this, which is why it cannot be arrived at by leaving an argument out.
+    /// </summary>
+    public static Func<int, TimeSpan> Never { get; } = _ => Timeout.InfiniteTimeSpan;
+
+    /// <summary>
+    /// How many times running a rejected token is treated as a race rather than as an answer.
+    ///
+    /// The service makes a new token every time it starts, and the UI reads it from a file just before
+    /// it opens the pipe. Read the file, wait for the pipe, and a service that came up in between has
+    /// already replaced it. Trying again reads the file again. Three, because a token that is wrong three
+    /// times running is not a race any more, and every refusal writes an audit row.
+    /// </summary>
+    public const int StaleTokenAttempts = 3;
 
     /// <summary>
     /// Why the service refused us, when it did. Null while things are merely not working yet.
@@ -153,6 +174,7 @@ public sealed class CaptureConnection : IAsyncDisposable
     private async Task RunAsync(CancellationToken ct)
     {
         var attempt = 0;
+        var staleTokens = 0;
         while (!ct.IsCancellationRequested)
         {
             attempt++;
@@ -163,10 +185,18 @@ public sealed class CaptureConnection : IAsyncDisposable
                 var channel = await _open(ct).ConfigureAwait(false);
                 await AttachAsync(channel, dropped).ConfigureAwait(false);
                 connected = true;
+                staleTokens = 0;
             }
             catch (OperationCanceledException)
             {
                 return;
+            }
+            catch (IpcRejectedException stale) when (
+                stale.Reason == RejectReasons.BadToken && ++staleTokens < StaleTokenAttempts)
+            {
+                // A service that restarted between our reading the token and its pipe opening. Going
+                // round again reads the new one; see StaleTokenAttempts for why this is bounded.
+                _shell.Lost();
             }
             catch (Exception ex) when (ex is IpcRejectedException or IpcUntrustedServerException)
             {
@@ -203,7 +233,7 @@ public sealed class CaptureConnection : IAsyncDisposable
 
                 // Said only after the channel is gone, so nothing can report connected in between.
                 _shell.Lost();
-                if (_retryAfter is null)
+                if (ReferenceEquals(_retryAfter, Never))
                 {
                     return;
                 }
@@ -214,7 +244,7 @@ public sealed class CaptureConnection : IAsyncDisposable
                 continue;
             }
 
-            if (_retryAfter is null)
+            if (ReferenceEquals(_retryAfter, Never))
             {
                 return;
             }

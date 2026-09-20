@@ -30,7 +30,23 @@ public sealed record ShellSnapshot(
     ServiceConnection Connection,
     CaptureStateSnapshot? Capture,
     ShellView View,
-    string? Banner);
+    string? Banner)
+{
+    /// <summary>
+    /// What capture is doing <i>now</i>, or null when nobody is answering.
+    ///
+    /// <see cref="Capture"/> is the past tense: the last thing the service said, kept across a dropped
+    /// pipe so the UI can say "it was recording, and may still be". Reading it as the present is the
+    /// mistake this property exists to make hard. Idle, then a lost pipe, then a session the service
+    /// starts by itself: every indicator that read <see cref="Capture"/> went on saying "Not recording",
+    /// and a pill the technician had hidden stayed hidden through a live session (INV-4; found in the
+    /// 2026-09-19 review, and the unfinished half of weaknesses P0-3).
+    ///
+    /// <b>Anything that tells a technician whether they are being recorded reads this one.</b> Null
+    /// already means "unknown, and may still be recording" to every one of them.
+    /// </summary>
+    public CaptureStateSnapshot? KnownCapture => Connection == ServiceConnection.Connected ? Capture : null;
+}
 
 /// <summary>
 /// What every view in the UI reads from (ST-070).

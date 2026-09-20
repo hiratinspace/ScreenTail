@@ -95,7 +95,7 @@ public sealed partial class ShellViewModel : ObservableObject
             return "Connecting to the capture service…";
         }
 
-        if (snapshot.Capture is not { } capture)
+        if (snapshot.KnownCapture is not { } capture)
         {
             return "Not connected to the capture service";
         }

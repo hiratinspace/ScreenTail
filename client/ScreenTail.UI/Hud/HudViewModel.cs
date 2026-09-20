@@ -109,7 +109,7 @@ public sealed partial class HudViewModel : ObservableObject
 
     private void Refresh()
     {
-        Snapshot = HudState.For(_shell.Capture, Capabilities, Online, _hiddenForThisSession);
+        Snapshot = HudState.For(_shell.Snapshot.KnownCapture, Capabilities, Online, _hiddenForThisSession);
         OnPropertyChanged(nameof(StateText));
         OnPropertyChanged(nameof(StateGlyph));
         OnPropertyChanged(nameof(StateTooltip));
