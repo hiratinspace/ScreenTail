@@ -255,6 +255,114 @@ public sealed class OutboxTests
         Assert.Equal(0, waiting.Publishes);
     }
 
+    [Fact]
+    public async Task ASendThatTimesOutIsUncertainRatherThanSilence()
+    {
+        // 2026-09-19 review. An HttpClient timeout throws TaskCanceledException, which the filter did not
+        // catch: it left DrainAsync, the host's loop caught it as cancellation, and the loop ended for
+        // the life of the service. The item stayed Pending with its attempt count untouched, so the next
+        // run sent it again — the duplicate publish this whole class exists to prevent.
+        var store = new FakeOutboxStore();
+        var outbox = Build(store, (_, _) => throw new TaskCanceledException("the request timed out"));
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.PublishNote));
+
+        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(OutboxState.Uncertain, store.Items[0].State);
+        Assert.Equal(1, store.Items[0].Attempts);
+    }
+
+    [Fact]
+    public async Task BeingAskedToStopIsNotATimeout()
+    {
+        // The same exception type means two different things, and only the token says which. A drain
+        // cancelled at shutdown must leave the item exactly as it was, not mark it uncertain forever.
+        var store = new FakeOutboxStore();
+        using var stopping = new CancellationTokenSource();
+        var outbox = Build(store, (_, ct) =>
+        {
+            stopping.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(SendOutcome.Done("never"));
+        });
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.PublishNote));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => outbox.DrainAsync(stopping.Token));
+
+        Assert.Equal(OutboxState.Pending, store.Items[0].State);
+        Assert.Equal(0, store.Items[0].Attempts);
+    }
+
+    [Fact]
+    public async Task AnItemThatCannotBeBuiltIsFailedRatherThanRetriedForEver()
+    {
+        // A payload the sender cannot make sense of, or an egress policy that refuses the destination.
+        // Neither gets better by waiting, and the old code let the exception out of the loop, which
+        // stopped every other item behind it too.
+        var store = new FakeOutboxStore();
+        var outbox = Build(store, (_, _) => throw new InvalidOperationException("this payload is not publishable"));
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.PublishNote));
+
+        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(OutboxState.Failed, store.Items[0].State);
+        Assert.NotNull(store.Items[0].LastError);
+    }
+
+    [Fact]
+    public async Task OnePoisonItemDoesNotStopTheWorkBehindIt()
+    {
+        var store = new FakeOutboxStore();
+        var network = new FakeNetwork();
+        var outbox = Build(store, (item, ct) => item.SessionId == "poison"
+            ? throw new InvalidOperationException("not publishable")
+            : network.SendAsync(item, ct));
+
+        await outbox.EnqueueAsync(Work("poison", OutboxKind.PublishNote));
+        await outbox.EnqueueAsync(Work("s2", OutboxKind.PublishNote));
+
+        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(OutboxState.Failed, store.Items[0].State);
+        Assert.Equal(OutboxState.Done, store.Items[1].State);
+    }
+
+    [Fact]
+    public async Task AnUncertainItemNobodyCanResolveDoesNotStarveTheQueue()
+    {
+        // The class comment says an uncertain item "blocks nothing". It blocked everything: resolution
+        // ran first on every drain, and a Confirm that threw returned before the due work was ever
+        // looked at. One PSA that will not answer a lookup, and the queue stops for good.
+        var store = new FakeOutboxStore();
+        var network = new FakeNetwork();
+        var outbox = Build(store, network.SendAsync, _ => throw new HttpRequestException("the lookup is down"));
+
+        await outbox.EnqueueAsync(Work("stuck", OutboxKind.PublishNote));
+        await outbox.EnqueueAsync(Work("s2", OutboxKind.PublishNote));
+        store.Items[0] = store.Items[0] with { State = OutboxState.Uncertain };
+
+        // One drain. A resolution that could not answer did not do the work, so the same drain goes on
+        // to the item behind it rather than reporting a job well done and leaving the queue where it was.
+        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(OutboxState.Uncertain, store.Items[0].State);
+        Assert.Equal(OutboxState.Done, store.Items[1].State);
+
+        // And with nothing left but the stuck item, the drain says there is nothing to do rather than
+        // spinning on it.
+        Assert.False(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+    }
+
+    private static Core.Outbox.Outbox Build(
+        FakeOutboxStore store,
+        Func<OutboxItem, CancellationToken, Task<SendOutcome>> send,
+        Func<OutboxItem, string?>? confirm = null) =>
+        new(store, send, new ManualTime(At))
+        {
+            Confirm = confirm is null ? null : (item, _) => Task.FromResult(confirm(item)),
+        };
+
     private static NewOutboxItem Work(string sessionId, OutboxKind kind) =>
         new(sessionId, kind, $"{kind}:{sessionId}", "{}");
 
