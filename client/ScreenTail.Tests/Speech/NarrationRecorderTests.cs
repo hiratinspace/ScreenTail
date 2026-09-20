@@ -195,6 +195,36 @@ public sealed class NarrationRecorderTests
         Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
     }
 
+    [Fact]
+    public async Task AStoreThatRefusesASegmentDoesNotEndNarration()
+    {
+        // The loop caught cancellation and nothing else, so one failed write stopped narration for the
+        // life of the service — and the failure that actually happened was an id collision on the first
+        // segment after a restart, which is to say: every session after a restart.
+        var kept = new List<TranscriptSegment>();
+        var refusals = 0;
+        var recorder = new NarrationRecorder(
+            new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
+            new FakeRecogniser("restarting the spooler"),
+            (segment, _) =>
+            {
+                refusals++;
+                return refusals == 1
+                    ? throw new InvalidOperationException("UNIQUE constraint failed: transcript.id")
+                    : Task.FromResult(Add(kept, segment));
+            });
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, recorder.Failures);
+    }
+
+    private static bool Add(List<TranscriptSegment> kept, TranscriptSegment segment)
+    {
+        kept.Add(segment);
+        return true;
+    }
+
     private static NarrationRecorder Recorder(
         FakeMicrophone microphone,
         FakeRecogniser recogniser,
