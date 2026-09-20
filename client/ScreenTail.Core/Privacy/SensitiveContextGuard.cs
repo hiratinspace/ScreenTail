@@ -24,6 +24,7 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly TimeSpan _tick = tick ?? TimeSpan.FromMilliseconds(250);
     private readonly Lock _gate = new();
+    private long _failures;
     private DateTimeOffset _until;
 
     /// <summary>True while this guard is holding capture suppressed.</summary>
@@ -98,18 +99,23 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
         return Holding;
     }
 
+    /// <summary>How many passes ended in an exception. A rising count means the guard is struggling, not gone.</summary>
+    public long Failures => Interlocked.Read(ref _failures);
+
+    /// <summary>Told when a pass fails, so the host can log it. The type only, never the message (INV-10).</summary>
+    public event Action<Exception>? Failed;
+
     public async Task RunAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(_tick, _time);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+        await ResilientLoop.RunAsync(
+            next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
+            step: TickAsync,
+            onFailure: failure =>
             {
-                _ = await TickAsync(ct).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+                _ = Interlocked.Increment(ref _failures);
+                Failed?.Invoke(failure);
+            },
+            ct).ConfigureAwait(false);
     }
 }

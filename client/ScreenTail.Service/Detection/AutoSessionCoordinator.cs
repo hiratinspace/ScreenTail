@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Threading.Channels;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
 
@@ -77,16 +78,21 @@ internal sealed partial class AutoSessionCoordinator(
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
         var ticking = TickAsync(timer, ct);
 
-        try
-        {
-            await foreach (var window in _windows.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        // One window that cannot be handled costs that window. If this loop ends, the last scope decision
+        // stays in force for every window that follows — and if that decision was "remote tool", typing
+        // anywhere is recorded from then on. It used to end on the first exception of any kind.
+        var windows = _windows.Reader;
+        await ResilientLoop.RunAsync(
+            next: async token => await windows.WaitToReadAsync(token).ConfigureAwait(false),
+            step: async token =>
             {
-                await HandleAsync(window, ct).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+                while (windows.TryRead(out var window))
+                {
+                    await HandleAsync(window, token).ConfigureAwait(false);
+                }
+            },
+            onFailure: failure => LogLoopFailed(logger, "scope", failure.GetType().Name),
+            ct).ConfigureAwait(false);
 
         await ticking.ConfigureAwait(false);
     }
@@ -137,22 +143,25 @@ internal sealed partial class AutoSessionCoordinator(
 
     private async Task TickAsync(PeriodicTimer timer, CancellationToken ct)
     {
-        try
-        {
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+        // A session nobody is attending has to be able to stop even after one attempt to stop it failed.
+        await ResilientLoop.RunAsync(
+            next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
+            step: async token =>
             {
                 if (trigger.Tick() is { Stop: true } stopped
                     && machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed)
                 {
                     LogAutoStop(logger, stopped.Reason);
-                    await machine.StopAsync(ct).ConfigureAwait(false);
+                    await machine.StopAsync(token).ConfigureAwait(false);
                 }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+            },
+            onFailure: failure => LogLoopFailed(logger, "auto-stop", failure.GetType().Name),
+            ct).ConfigureAwait(false);
     }
+
+    // The type and never the message: a store error can quote what it was asked to write (INV-10).
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The {Loop} loop hit {Error} and carried on")]
+    private static partial void LogLoopFailed(ILogger logger, string loop, string error);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Session started automatically: {Tool} took focus")]
     private static partial void LogAutoStart(ILogger logger, string tool);

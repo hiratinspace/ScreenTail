@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -38,9 +39,12 @@ internal sealed partial class SceneSampleLoop(
     {
         using var timer = new PeriodicTimer(_sampler.Options.SampleEvery);
         var recording = false;
-        try
-        {
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+
+        // One sample that cannot be taken or stored costs that sample. This loop used to end on the first
+        // exception of any kind, and a session then went on with clicks and no scene frames at all.
+        await ResilientLoop.RunAsync(
+            next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
+            step: async token =>
             {
                 if (machine.State != SessionState.Recording)
                 {
@@ -53,17 +57,19 @@ internal sealed partial class SceneSampleLoop(
                         recording = false;
                     }
 
-                    continue;
+                    return;
                 }
 
                 recording = true;
-                await SampleAsync(ct).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+                await SampleAsync(token).ConfigureAwait(false);
+            },
+            onFailure: failure => LogSampleFailed(logger, failure.GetType().Name),
+            ct).ConfigureAwait(false);
     }
+
+    // The type and never the message: a store error can quote what it was asked to write (INV-10).
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A scene sample hit {Error}; sampling carries on")]
+    private static partial void LogSampleFailed(ILogger logger, string error);
 
     private async Task SampleAsync(CancellationToken ct)
     {
