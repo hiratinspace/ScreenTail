@@ -88,7 +88,14 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             (item, _) => Task.FromResult(SendOutcome.Retry("No summarization provider is configured yet.")),
             TimeProvider.System);
         var drafter = new BundlingDrafter(store, logger, outbox);
-        await using var machine = new SessionMachine(store, sources, drafter);
+        // One engine for what is seen and what is said. Two would drift the day a tenant's own patterns
+        // are loaded into one of them, and speech would go on being checked against the defaults.
+        var redactionEngine = new RedactionEngine();
+        await using var machine = new SessionMachine(
+            store,
+            sources,
+            drafter,
+            options: new SessionMachineOptions { Scrubber = redactionEngine });
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {
@@ -231,7 +238,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // pending frame or to clear the flag, so INV-1 rests on it.
         var recogniser = new WindowsOcrRecogniser();
         LogOcr(logger, recogniser.Available, recogniser.Language ?? "none");
-        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), new RedactionEngine());
+        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine);
         redaction.BacklogChanged += machine.ReportPendingRedactions;
 
         // Without this the login heuristic fires into nothing: the frame is marked sensitive and the next

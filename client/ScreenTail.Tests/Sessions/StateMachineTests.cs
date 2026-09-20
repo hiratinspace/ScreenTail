@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -41,6 +42,80 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.Equal("v14", stored.PolicyVersion);
         var transition = Assert.IsType<CaptureStateEvent>(Assert.Single(stored.Events));
         Assert.Equal(Shared.Schema.CaptureState.Recording, transition.State);
+    }
+
+    [Theory]
+    [InlineData("the card is 4111 1111 1111 1111 and the code is 123", "4111")]
+    [InlineData("her social is 123-45-6789", "123-45-6789")]
+    [InlineData("the password is Winter2026!", "Winter2026")]
+    public async Task WhatIsSaidAloudIsScrubbedBeforeItIsStored(string spoken, string secret)
+    {
+        // Found in the 2026-09-19 review. RedactionEngine.ScrubText was written for exactly this, was
+        // tested, and had no caller: every transcript segment went into the store as spoken, and from
+        // there into the bundle and to the summarizer. The schema's own description of this field says
+        // "already scrubbed". A technician reading a card number back to a customer is one of the most
+        // ordinary things said on a support call.
+        //
+        // Asserted against the real encrypted store rather than a fake, because "what is on disk" is
+        // the claim.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+
+        Assert.True(await machine.TryAppendTranscriptAsync(Said("t-1", machine.NowMs, spoken)));
+
+        var stored = (await _store!.LoadSessionAsync(machine.SessionId!))!;
+        var segment = Assert.Single(stored.Transcript);
+        Assert.DoesNotContain(secret, segment.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AMaskedWordLeavesACountBehindAndNothingElse()
+    {
+        // The audit log says that something was masked and what kind of thing it was. It must never be
+        // a second copy of what was said (INV-10).
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+
+        Assert.True(await machine.TryAppendTranscriptAsync(Said("t-1", machine.NowMs, "her social is 123-45-6789")));
+
+        var rows = await _store!.GetAuditRecordsAsync();
+        var row = Assert.Single(rows, r => r.Type == AuditTypes.TranscriptRedacted);
+        Assert.Equal(1, row.Count);
+        Assert.Equal("Ssn", row.Detail, ignoreCase: true);
+        Assert.DoesNotContain(rows, r => r.Detail?.Contains("123", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task WhatWasNotASecretIsStoredAsItWasSaid()
+    {
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+
+        Assert.True(await machine.TryAppendTranscriptAsync(Said("t-1", machine.NowMs, "restarting the print spooler now")));
+
+        var stored = (await _store!.LoadSessionAsync(machine.SessionId!))!;
+        Assert.Equal("restarting the print spooler now", Assert.Single(stored.Transcript).Text);
+    }
+
+    [Fact]
+    public async Task ASegmentThatCouldNotBeFullyCheckedIsDroppedRatherThanStored()
+    {
+        // ScrubResult.Complete is false when a detector timed out, and its own contract says the caller
+        // must discard. The same rule ADR-0004 applies to frames: not-checked is not the same as clean.
+        var giveUp = new RedactionEngine(
+            policy: null,
+            find: (_, _, onIncomplete) =>
+            {
+                onIncomplete();
+                return [];
+            });
+        var machine = await MachineAsync(scrubber: giveUp);
+        await machine.StartAsync(ScreenConnect);
+
+        Assert.False(await machine.TryAppendTranscriptAsync(Said("t-1", machine.NowMs, "the password is Winter2026!")));
+
+        var stored = (await _store!.LoadSessionAsync(machine.SessionId!))!;
+        Assert.Empty(stored.Transcript);
     }
 
     [Fact]
@@ -291,19 +366,33 @@ public sealed class StateMachineTests : IAsyncDisposable
 
     private async Task<SqliteSessionStore> OpenStoreAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
-    private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null, TimeProvider? time = null)
+    private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null, TimeProvider? time = null, RedactionEngine? scrubber = null)
     {
         var store = await OpenStoreAsync();
-        _machine = new SessionMachine(store, _sources, _drafter, time: time, options: new SessionMachineOptions
-        {
-            RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
-            RedactionPoll = TimeSpan.FromMilliseconds(20),
-        });
+
+        // Scrubber is only set when a test asks for one: left alone, the machine has to scrub by itself,
+        // which is the behaviour under test.
+        var options = scrubber is null
+            ? new SessionMachineOptions
+            {
+                RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
+                RedactionPoll = TimeSpan.FromMilliseconds(20),
+            }
+            : new SessionMachineOptions
+            {
+                RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
+                RedactionPoll = TimeSpan.FromMilliseconds(20),
+                Scrubber = scrubber,
+            };
+        _machine = new SessionMachine(store, _sources, _drafter, time: time, options: options);
         _machine.StateChanged += s => _observed.Add(s);
         return _machine;
     }
 
     private static StagedFrame Frame(string id, long tsMs) => new(id, tsMs, FrameTrigger.Click, 100, 100, null, new byte[] { 0xAA });
+
+    private static TranscriptSegment Said(string id, long tsMs, string text) =>
+        new() { Id = id, TsMs = tsMs, EndMs = tsMs + 100, Speaker = Speaker.Tech, Text = text };
 
     private static TranscriptSegment Segment(string id, long tsMs) => new() { Id = id, TsMs = tsMs, EndMs = tsMs + 100, Speaker = Speaker.Tech, Text = "hi" };
 

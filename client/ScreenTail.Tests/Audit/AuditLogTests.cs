@@ -171,8 +171,13 @@ public sealed class AuditLogTests : IAsyncDisposable
 
         Assert.DoesNotContain("hunter2", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("hunter2", csv, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
+        // The sentence, not the word. Since speech is scrubbed (2026-09-19) the export legitimately says
+        // that one thing of kind "Password" was masked, which is a category and is the point of an audit
+        // log. What must never appear is anything that was actually said.
+        Assert.DoesNotContain("her password is", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("the customer said", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(Secret, csv, StringComparison.Ordinal);
+        Assert.Contains(AuditTypes.TranscriptRedacted, json, StringComparison.Ordinal);
 
         // And it is a real export, not an empty one that passes by having nothing in it.
         Assert.Contains(AuditTypes.FrameCaptured, json, StringComparison.Ordinal);

@@ -11,6 +11,16 @@ public sealed class SessionMachineOptions
     public TimeSpan RedactionGrace { get; init; } = TimeSpan.FromSeconds(20);
 
     public TimeSpan RedactionPoll { get; init; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// What scrubs speech before it is stored. There is always one: the default is the built-in patterns,
+    /// and the host replaces it with the engine carrying the tenant's own.
+    ///
+    /// Not nullable, deliberately. The engine had a method for exactly this from the start, tested and
+    /// called by nothing, because the thing that needed it could be built without it. A scrubber that
+    /// has to be remembered is one that gets forgotten.
+    /// </summary>
+    public Privacy.RedactionEngine Scrubber { get; init; } = new();
 }
 
 /// <summary>
@@ -291,7 +301,36 @@ public sealed class SessionMachine : IAsyncDisposable
             return false;
         }
 
-        await _store.AppendTranscriptAsync(session.Id, segment, ct).ConfigureAwait(false);
+        // Scrubbed here because this is the one door: every spoken segment that reaches the store comes
+        // through this method, exactly as every frame comes through TryStageFrameAsync. Doing it in the
+        // speech pipeline instead would leave the next caller free to forget.
+        //
+        // Until 2026-09-19 nothing scrubbed speech at all. ScrubText existed, was tested, and had no
+        // caller, so a card number read back to a customer went into the store as spoken, and from there
+        // into the bundle and to the summarizer — under a schema field described as "already scrubbed".
+        var scrubbed = _options.Scrubber.ScrubText(segment.Text);
+        if (!scrubbed.Complete)
+        {
+            // A detector gave up partway. Not-checked is not clean (ADR-0004 says the same of frames), and
+            // a sentence missing from the note costs less than a password in it.
+            return false;
+        }
+
+        await _store.AppendTranscriptAsync(
+            session.Id,
+            scrubbed.Changed ? segment with { Text = scrubbed.Text } : segment,
+            ct).ConfigureAwait(false);
+
+        // What kind and how many, never what was said (INV-10).
+        if (scrubbed.Changed && _store is IAuditLog audit)
+        {
+            foreach (var (kind, count) in scrubbed.Counts)
+            {
+                await audit.RecordAsync(
+                    AuditTypes.TranscriptRedacted, session.Id, count, AuditDetail.Of(kind), ct).ConfigureAwait(false);
+            }
+        }
+
         return true;
     }
 

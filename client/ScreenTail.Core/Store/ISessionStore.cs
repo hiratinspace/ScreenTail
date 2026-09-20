@@ -205,6 +205,13 @@ public static class AuditTypes
     /// <summary>A frame was masked and made readable. <c>detail</c> is the mask kind, <c>count</c> how many.</summary>
     public const string FrameRedacted = "frame_redacted";
 
+    /// <summary>
+    /// Something said aloud was masked before it was stored. <c>detail</c> is the mask kind, <c>count</c>
+    /// how many. Its own type rather than <see cref="FrameRedacted"/>: a customer reading their audit
+    /// export should be able to tell a card number on a screen from one read over the phone.
+    /// </summary>
+    public const string TranscriptRedacted = "transcript_redacted";
+
     /// <summary>Capture stopped for a reason that was not the technician. <c>detail</c> is the reason, <c>count</c> the milliseconds.</summary>
     public const string CaptureSuppressed = "capture_suppressed";
 
