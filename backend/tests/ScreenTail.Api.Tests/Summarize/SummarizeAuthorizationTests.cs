@@ -95,6 +95,26 @@ public sealed class SummarizeAuthorizationTests(ApiFixture api) : IClassFixture<
         Assert.Equal(HttpStatusCode.BadRequest, await DraftAsync(token, new string('x', 65)));
     }
 
+    [Fact]
+    public async Task ARevokedDeviceIsTurnedAwayBeforeItIsToldAnythingAboutTheRules()
+    {
+        // 2026-09-20 review. The bundle was checked first, so a revoked laptop -- or anyone holding a
+        // token from one -- could send deliberately malformed bundles and read the limits back out of
+        // the 400s: the frame ceiling, the identifier rule, which media types are accepted, how much
+        // text is too much. Each answer is small; together they are a map of the endpoint, handed to
+        // the one caller already established as not allowed to be here.
+        //
+        // Who you are is the first question. What you sent is only interesting once the answer is "a
+        // device that may draft".
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        var token = api.Issuer.ForDevice(tenantId, userId, deviceId).Token;
+        _ = await api.UseAsync(db => db.Devices
+            .Where(d => d.Id == deviceId)
+            .ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await DraftAsync(token, sessionId: "not a valid identifier!"));
+    }
+
     private async Task<HttpStatusCode> DraftAsync(string token, string sessionId = "s-1")
     {
         using var client = api.CreateClient();
