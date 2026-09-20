@@ -36,6 +36,20 @@ public interface ICostLedger
 {
     Task<decimal> SpentTodayAsync(Guid tenantId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Claims <paramref name="estimateUsd"/> of today's budget before a call is made, or returns null
+    /// when the tenant cannot afford it.
+    ///
+    /// The cap used to be read, and then acted on a model call later, so everything that started in
+    /// between passed a check nobody had yet moved. A reservation is a row, which is how the next
+    /// request to look can see it.
+    /// </summary>
+    Task<Guid?> ReserveAsync(Guid tenantId, string sessionId, string provider, decimal estimateUsd, CancellationToken ct = default);
+
+    /// <summary>Replaces a reservation with what the call actually cost. Zero releases it.</summary>
+    Task SettleAsync(Guid reservationId, decimal costUsd, CancellationToken ct = default);
+
+    /// <summary>Records a cost with no reservation behind it. For backfills and tests, not the draft path.</summary>
     Task RecordAsync(Guid tenantId, string sessionId, string provider, decimal costUsd, CancellationToken ct = default);
 }
 
@@ -106,22 +120,42 @@ public sealed class SummarizationService(
                 Reason: "No summarization provider is configured on this deployment.");
         }
 
-        // First, before anything is spent. A tenant past its budget is told so and drafts on the device
-        // (Spec §6's "Cloud drafting paused for today").
-        var spent = await ledger.SpentTodayAsync(tenantId, ct).ConfigureAwait(false);
-        if (spent >= options.DailyCostCapUsd)
+        // Claimed before anything is spent, and claimed as a row so the next request to look can see it.
+        // Reading the total and writing the cost a model call apart is how five hundred simultaneous
+        // requests all passed a ten-dollar cap (2026-09-19 review).
+        //
+        // A tenant past its budget is told so and drafts on the device (Spec §6's "Cloud drafting paused
+        // for today").
+        var reservation = await ledger
+            .ReserveAsync(tenantId, bundle.SessionId, primary.Name, options.MaxSessionCostUsd, ct)
+            .ConfigureAwait(false);
+
+        if (reservation is null)
         {
             return new SummarizeResult(
                 SummarizeStatus.CostCapReached,
                 Reason: "This tenant has reached its drafting budget for today.");
         }
 
+        return await DraftWithinBudgetAsync(reservation.Value, bundle, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The call itself, with the budget already claimed.
+    ///
+    /// Its own method so that every way out settles the reservation. An outage costs nothing and must
+    /// give the budget back, or one bad afternoon at the provider spends a tenant's whole day.
+    /// </summary>
+    private async Task<SummarizeResult> DraftWithinBudgetAsync(Guid reservation, SummarizeBundle bundle, CancellationToken ct)
+    {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(options.Timeout);
 
         var (model, usedFallback, failure) = await ChooseAsync(bundle, deadline.Token).ConfigureAwait(false);
         if (model is null)
         {
+            // Nobody answered, so nobody billed us. Give the budget back.
+            await ledger.SettleAsync(reservation, 0m, CancellationToken.None).ConfigureAwait(false);
             return new SummarizeResult(
                 failure!.Kind == ProviderErrorKind.Unavailable ? SummarizeStatus.Unavailable : SummarizeStatus.Invalid,
                 Reason: failure.ToString());
@@ -160,8 +194,7 @@ public sealed class SummarizationService(
             // CancellationToken.None, not the request's. The money is gone whether or not the technician
             // is still waiting for the answer, and a client that hangs up mid-request was cancelling the
             // write that records what they spent.
-            await ledger.RecordAsync(tenantId, bundle.SessionId, provider.Name, cost, CancellationToken.None)
-                .ConfigureAwait(false);
+            await ledger.SettleAsync(reservation, cost, CancellationToken.None).ConfigureAwait(false);
         }
 
         return outcome.Draft is null

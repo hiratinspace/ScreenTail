@@ -93,6 +93,20 @@ public sealed class SummarizationOptions
     /// </summary>
     public decimal DailyCostCapUsd { get; set; } = 10m;
 
+    /// <summary>
+    /// The most one session may be assumed to cost while its draft is in flight, in US dollars.
+    ///
+    /// The cap used to be check-then-act: what a tenant had spent was read, and what this call cost was
+    /// written, a model call apart. Everything that started in between passed a check nobody had yet
+    /// moved, so a device opening five hundred requests at once ran up five hundred drafts against a cap
+    /// of ten dollars (2026-09-19 review).
+    ///
+    /// So this much is reserved before the call and settled to the real figure afterwards. The scope
+    /// document's per-session ceiling, which the measured worst case (25 frames, $0.0167) sits well
+    /// under. Being generous here only means a busy tenant stops one session early.
+    /// </summary>
+    public decimal MaxSessionCostUsd { get; set; } = 0.10m;
+
     /// <summary>How long one draft may take before it is abandoned and queued (AC1 budgets 30 s p95).</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(60);
 

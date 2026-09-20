@@ -291,8 +291,23 @@ public sealed class SummarizationServiceTests
         /// <summary>Lets a test make the world change at the moment the row is written.</summary>
         public Action? OnRecord { get; set; }
 
+        /// <summary>
+        /// The cap this fake enforces when a reservation is asked for. The deployment's own default, so
+        /// a test that sets SpentToday against it reads the way it did when the service held the cap.
+        /// </summary>
+        public decimal Cap { get; set; } = new SummarizationOptions().DailyCostCapUsd;
+
         public Task<decimal> SpentTodayAsync(Guid tenantId, CancellationToken ct = default) =>
             Task.FromResult(tenantId == Tenant ? SpentToday : SpentByOthers);
+
+        public Task<Guid?> ReserveAsync(Guid tenantId, string sessionId, string provider, decimal estimateUsd, CancellationToken ct = default)
+        {
+            var spent = tenantId == Tenant ? SpentToday : SpentByOthers;
+            return Task.FromResult<Guid?>(spent >= Cap ? null : Guid.NewGuid());
+        }
+
+        public Task SettleAsync(Guid reservationId, decimal costUsd, CancellationToken ct = default) =>
+            RecordAsync(Tenant, "settled", "fake", costUsd, ct);
 
         public Task RecordAsync(Guid tenantId, string sessionId, string provider, decimal costUsd, CancellationToken ct = default)
         {
