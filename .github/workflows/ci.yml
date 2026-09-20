@@ -10,8 +10,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A pull request supersedes itself: the older run of the same branch is testing a tree nobody will
+# merge. A push to main does not. Status checks here are not strict, so the main run is the only place
+# the merged tree is ever built as a whole, and a squash merge that lands while the previous one is
+# still going used to cancel it -- twelve times in the five days to 2026-09-20. The run that replaced
+# it only diffs from its own `before`, so whole areas the cancelled run covered were never built at all
+# (PR #86's client change is the example: cancelled at 4 s, successor ran Backend only).
+#
+# Keyed by sha on main, so main runs queue instead of killing each other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -33,6 +41,7 @@ jobs:
       schema: ${{ steps.areas.outputs.schema }}
       design: ${{ steps.areas.outputs.design }}
       hardware: ${{ steps.areas.outputs.hardware }}
+      scripts: ${{ steps.areas.outputs.scripts }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -75,6 +84,10 @@ jobs:
             # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
             # for evidence that is never coming.
             only '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
+            # The Windows scripts, which are parse-checked below. This used to ride on
+            # spike-windows.yml, which now runs only by hand, so without this line a change to
+            # check-skips.ps1 would be checked by nothing at all (2026-09-20 review).
+            only '^(scripts/windows/|\.github/workflows/ci\.yml)' scripts
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -116,9 +129,16 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
+      # Both hosted images already ship a .NET 10 SDK, and global.json rolls forward to it, so
+      # setup-dotnet was downloading and extracting 300 MB to arrive where the runner already was: 35 s
+      # on every Windows job and about 10 s on this one, on the critical path of every pull request
+      # (2026-09-20 review).
+      #
+      # `dotnet --version` is the guard rather than a comment: it resolves global.json and fails loudly
+      # if the image ever ships without an SDK that satisfies it, which is the day to put the download
+      # back rather than a day to debug a build error.
+      - name: The runner already has an SDK that satisfies global.json
+        run: dotnet --version
       - name: Restore
         run: dotnet restore ScreenTail.sln
       - name: Format and analyzers
@@ -274,9 +294,16 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
+      # Both hosted images already ship a .NET 10 SDK, and global.json rolls forward to it, so
+      # setup-dotnet was downloading and extracting 300 MB to arrive where the runner already was: 35 s
+      # on every Windows job and about 10 s on this one, on the critical path of every pull request
+      # (2026-09-20 review).
+      #
+      # `dotnet --version` is the guard rather than a comment: it resolves global.json and fails loudly
+      # if the image ever ships without an SDK that satisfies it, which is the day to put the download
+      # back rather than a day to debug a build error.
+      - name: The runner already has an SDK that satisfies global.json
+        run: dotnet --version
       - name: Restore
         run: dotnet restore ScreenTail.Backend.sln
       - name: Format and analyzers
@@ -408,6 +435,40 @@ jobs:
       - name: Review hi-fi still passes AA contrast
         working-directory: docs/ux/review-hifi
         run: python3 contrast.py
+
+  scripts:
+    name: Windows scripts parse
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      # Windows PowerShell 5.1, which is what the laptop's setup script runs under, and which is not the
+      # same parser as pwsh 7. It lived in spike-windows.yml until that became a manual workflow; a
+      # script nobody parses is a script that fails three time zones away (ST-018, 2026-09-20 review).
+      - name: Parse-check scripts (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem -Path scripts\windows -Filter *.ps1 -Recurse) {
+            $path = $file.FullName
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
+            foreach ($e in $errors) { Write-Host "::error file=$($file.Name)::$e"; $failed = $true }
+
+            # 5.1 reads a BOM-less .ps1 as ANSI, so one non-ASCII character corrupts everything after it
+            # and the parser fails somewhere unrelated. Cheaper to forbid the character than to debug the
+            # error it produces on a machine three time zones away.
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $high = @($bytes | Where-Object { $_ -gt 127 })
+            if ($high.Count -gt 0) {
+              Write-Host "::error file=$($file.Name)::$($high.Count) non-ASCII byte(s). Windows PowerShell 5.1 reads this file as ANSI and will mis-parse it. Use plain ASCII."
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
 
   workflows:
     name: Workflows are well-formed
@@ -591,7 +652,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, backend, web, research, schema, design, commits, workflows, hardware-gate]
+    needs: [changes, client, backend, web, research, schema, design, scripts, commits, workflows, hardware-gate]
     runs-on: ubuntu-latest
     steps:
       - env:
