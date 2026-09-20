@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace ScreenTail.Api.Data;
 
@@ -31,10 +32,56 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<DraftCost> DraftCosts => Set<DraftCost>();
 
+    /// <summary>
+    /// Makes <see cref="DateTimeOffset"/> columns comparable on SQLite, which the tests run on.
+    ///
+    /// SQLite has no date type and EF cannot translate a comparison between two of these, so
+    /// <c>WHERE at >= @since</c> throws at query time rather than at compile time. Postgres has
+    /// <c>timestamptz</c> and is unaffected — which is exactly why nobody noticed. The daily cost cap is
+    /// built on such a comparison, its only test used a fake ledger, and CI's Postgres step applies
+    /// migrations without running a query. So the one query in this service that decides whether money
+    /// may be spent had never been executed anywhere, and it did not work (2026-09-19 review).
+    ///
+    /// Stored as UTC ticks, which sort in the same order as the instants they stand for. Everything here
+    /// is written as UTC, so the offset that round-tripping drops was always zero.
+    ///
+    /// The provider is named rather than asked, so this project does not take a dependency on the SQLite
+    /// one to describe a test's storage.
+    /// </summary>
+    private void StoreTimesComparablyOnSqlite(ModelBuilder modelBuilder)
+    {
+        if (!string.Equals(Database.ProviderName, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var ticks = new ValueConverter<DateTimeOffset, long>(
+            at => at.UtcTicks,
+            ticks => new DateTimeOffset(ticks, TimeSpan.Zero));
+
+        var nullableTicks = new ValueConverter<DateTimeOffset?, long?>(
+            at => at == null ? null : at.Value.UtcTicks,
+            ticks => ticks == null ? null : new DateTimeOffset(ticks.Value, TimeSpan.Zero));
+
+        foreach (var property in modelBuilder.Model.GetEntityTypes().SelectMany(entity => entity.GetProperties()))
+        {
+            if (property.ClrType == typeof(DateTimeOffset))
+            {
+                property.SetValueConverter(ticks);
+            }
+            else if (property.ClrType == typeof(DateTimeOffset?))
+            {
+                property.SetValueConverter(nullableTicks);
+            }
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
         base.OnModelCreating(modelBuilder);
+
+        StoreTimesComparablyOnSqlite(modelBuilder);
 
         modelBuilder.Entity<Tenant>(tenant =>
         {

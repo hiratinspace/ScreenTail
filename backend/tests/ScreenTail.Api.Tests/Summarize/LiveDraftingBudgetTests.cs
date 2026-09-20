@@ -342,6 +342,11 @@ public sealed class LiveDraftingBudgetTests
     {
         public Task<decimal> SpentTodayAsync(Guid tenantId, CancellationToken ct = default) => Task.FromResult(0m);
 
+        public Task<Guid?> ReserveAsync(Guid tenantId, string sessionId, string provider, decimal estimateUsd, CancellationToken ct = default) =>
+            Task.FromResult<Guid?>(Guid.NewGuid());
+
+        public Task SettleAsync(Guid reservationId, decimal costUsd, CancellationToken ct = default) => Task.CompletedTask;
+
         public Task RecordAsync(Guid tenantId, string sessionId, string provider, decimal costUsd, CancellationToken ct = default) =>
             Task.CompletedTask;
     }
