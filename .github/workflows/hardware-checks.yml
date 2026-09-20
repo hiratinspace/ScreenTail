@@ -37,6 +37,10 @@ on:
       - '.github/workflows/hardware-checks.yml'
   workflow_dispatch:
 
+# Read-only, said here rather than inherited from a repository default somebody can change.
+permissions:
+  contents: read
+
 concurrency:
   group: hardware-checks-${{ github.ref }}
   cancel-in-progress: true
@@ -48,7 +52,15 @@ env:
 jobs:
   capabilities:
     name: Spare laptop - capabilities and real-window tests
-    if: vars.HW_RUNNER == 'true'
+    # Never for a pull request from a fork. This line is the second lock, not the first: a pull request
+    # runs its own copy of this file, so a stranger could delete it. What actually keeps strangers' code
+    # off the laptop is a repository setting they cannot touch - only collaborators may open pull
+    # requests, and every outside contributor's run needs approval. This catches the day someone
+    # loosens that setting without thinking about what is attached to the other end.
+    if: >-
+      vars.HW_RUNNER == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, Windows, screentail-win]
     timeout-minutes: 15
     defaults:
@@ -62,6 +74,10 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The laptop's work directory outlives the job. A token left in .git/config there is a token
+          # the next job can read.
+          persist-credentials: false
 
       # The laptop already has the SDKs (scripts/windows/setup-test-laptop.ps1). setup-dotnet would try to
       # install into C:\Program Files\dotnet, which the non-admin runner account cannot write to.
@@ -173,6 +189,20 @@ jobs:
           }
           Write-Host 'A test window could take the foreground.'
 
+      # The laptop is a real desktop and this repository is public. A capture taken here is a picture of
+      # whatever was on the screen - a browser tab, a notification - and an artifact on a public
+      # repository can be downloaded by anyone signed in to GitHub. One already showed the owner's
+      # browser. The verdicts are text and are what the evidence is; the pictures stay on the machine.
+      - name: Keep pictures of the desktop off a public repository
+        if: always()
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'capabilities'
+          if (Test-Path $dir) {
+            $images = @(Get-ChildItem $dir -Recurse -File -Include *.jpg, *.jpeg, *.png, *.bmp)
+            $images | Remove-Item -Force
+            Write-Host "Removed $($images.Count) image(s) before upload."
+          }
+
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@v7
@@ -180,13 +210,22 @@ jobs:
           name: capability-report
           path: ${{ runner.temp }}/capabilities
           if-no-files-found: warn
+          retention-days: 7
 
   # Separate job on purpose. This one drives the keyboard and mouse with SendInput, so it takes the laptop
   # over for about a minute: keystrokes go to a window the test owns and focuses, but the machine is not
   # usable meanwhile. The capabilities job above stays safe to run on a machine in use.
   input:
     name: Spare laptop - input injection (takes over the keyboard)
-    if: vars.HW_RUNNER == 'true'
+    # Never for a pull request from a fork. This line is the second lock, not the first: a pull request
+    # runs its own copy of this file, so a stranger could delete it. What actually keeps strangers' code
+    # off the laptop is a repository setting they cannot touch - only collaborators may open pull
+    # requests, and every outside contributor's run needs approval. This catches the day someone
+    # loosens that setting without thinking about what is attached to the other end.
+    if: >-
+      vars.HW_RUNNER == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     needs: capabilities
     runs-on: [self-hosted, Windows, screentail-win]
     timeout-minutes: 15
@@ -198,6 +237,10 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The laptop's work directory outlives the job. A token left in .git/config there is a token
+          # the next job can read.
+          persist-credentials: false
 
       - name: Use the preinstalled .NET SDK
         run: |
@@ -252,6 +295,20 @@ jobs:
           }
           Write-Host 'A test window could take the foreground.'
 
+      # The laptop is a real desktop and this repository is public. A capture taken here is a picture of
+      # whatever was on the screen - a browser tab, a notification - and an artifact on a public
+      # repository can be downloaded by anyone signed in to GitHub. One already showed the owner's
+      # browser. The verdicts are text and are what the evidence is; the pictures stay on the machine.
+      - name: Keep pictures of the desktop off a public repository
+        if: always()
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'measurements'
+          if (Test-Path $dir) {
+            $images = @(Get-ChildItem $dir -Recurse -File -Include *.jpg, *.jpeg, *.png, *.bmp)
+            $images | Remove-Item -Force
+            Write-Host "Removed $($images.Count) image(s) before upload."
+          }
+
       - name: Upload measurements
         if: always()
         uses: actions/upload-artifact@v7
@@ -259,3 +316,4 @@ jobs:
           name: input-measurements
           path: ${{ runner.temp }}/measurements
           if-no-files-found: warn
+          retention-days: 7
