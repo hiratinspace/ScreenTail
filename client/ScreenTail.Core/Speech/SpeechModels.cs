@@ -18,6 +18,25 @@ public static class SpeechModels
     private const string Base = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
     /// <summary>
+    /// The hosts a model may be fetched from, for the egress allowlist (INV-8).
+    ///
+    /// Here rather than in a configuration file, because it is a fact about <see cref="Base"/> and about
+    /// where that redirects: the published URL answers 302 to the publisher's content host, and both
+    /// hops go through the guard. Until 2026-09-20 nothing populated this list at all, so every model
+    /// request was refused and the download silently never happened — which means narration has never
+    /// worked outside the tests (2026-09-19 review).
+    ///
+    /// Exact host names, matching the rest of the allowlist, so a subdomain somebody else can register
+    /// is not a model host.
+    /// </summary>
+    public static IReadOnlySet<string> Hosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "huggingface.co",
+        "cdn-lfs.huggingface.co",
+        "cdn-lfs-us-1.huggingface.co",
+    };
+
+    /// <summary>
     /// The default (AC1's "default model"). About 150 MB, and the smallest that holds its accuracy on a
     /// technician talking over a fan while their own machine is busy doing the capture.
     /// </summary>

@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace ScreenTail.Core.Net;
 
 /// <summary>A request the egress policy refused. Carries no URL path and no payload (INV-10).</summary>
@@ -27,8 +29,22 @@ public sealed class EgressBlockedException(EgressPurpose purpose, string host, s
 /// job and lands with it; the counters are here so the diagnostics panel has something to show meanwhile.
 /// </summary>
 public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner = null)
-    : DelegatingHandler(inner ?? new HttpClientHandler())
+    : DelegatingHandler(inner ?? NonRedirecting())
 {
+    /// <summary>
+    /// How many hops a request may make before it is refused.
+    ///
+    /// Redirects are followed here rather than underneath, because a handler that follows them itself
+    /// puts every hop after the first outside the allowlist: the guard decided on the URL it was handed,
+    /// and an allowed host answering 302 could send a session's bundle anywhere, counted as allowed
+    /// (2026-09-19 review). Refusing them outright was the other option and would mean narration never
+    /// works, since the published model URL redirects to a content host.
+    ///
+    /// Four, because the real case is one hop and a chain longer than this is somebody's misconfiguration
+    /// or somebody's trick.
+    /// </summary>
+    private const int MaxHops = 4;
+
     /// <summary>Where a caller declares what a request is for. Without it the request does not go out.</summary>
     public static readonly HttpRequestOptionsKey<EgressPurpose> PurposeKey = new("ScreenTail.EgressPurpose");
 
@@ -60,8 +76,66 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
         }
 
         Allowed++;
-        return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return await FollowAsync(request, response, purpose, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Follows a redirect only where the policy would have allowed the request in the first place.
+    ///
+    /// The purpose travels with it. A hop that arrived with none would be refused for saying nothing
+    /// about itself, which reads as a bug in the guard rather than as the policy decision it is.
+    /// </summary>
+    private async Task<HttpResponseMessage> FollowAsync(
+        HttpRequestMessage request,
+        HttpResponseMessage response,
+        EgressPurpose purpose,
+        CancellationToken ct)
+    {
+        var from = request.RequestUri!;
+
+        for (var hop = 0; IsRedirect(response) && response.Headers.Location is not null; hop++)
+        {
+            if (hop == MaxHops)
+            {
+                response.Dispose();
+                Blocked++;
+                throw new EgressBlockedException(purpose, from.Host, $"It was redirected more than {MaxHops} times.");
+            }
+
+            // Relative locations are legal and are common on the hop that matters.
+            var next = new Uri(from, response.Headers.Location);
+            var decision = policy.Decide(purpose, next);
+            if (!decision.Allowed)
+            {
+                response.Dispose();
+                Blocked++;
+                throw new EgressBlockedException(purpose, next.Host, decision.Reason);
+            }
+
+            response.Dispose();
+
+            // A redirected request is a GET: 302 on a POST is defined as one, and re-sending a bundle to
+            // a second host is the thing being prevented.
+            using var hopRequest = EgressRequest.For(HttpMethod.Get, next, purpose);
+            Allowed++;
+            response = await base.SendAsync(hopRequest, ct).ConfigureAwait(false);
+            from = next;
+        }
+
+        return response;
+    }
+
+    private static bool IsRedirect(HttpResponseMessage response) => response.StatusCode is
+        HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther
+        or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;
+
+    /// <summary>
+    /// The handler underneath must not follow redirects on its own, or every hop after the first is
+    /// outside the allowlist. Only used when no inner handler was supplied; a caller that brings its own
+    /// is a test, and its own handler does not redirect behind our back.
+    /// </summary>
+    private static HttpClientHandler NonRedirecting() => new() { AllowAutoRedirect = false };
 }
 
 /// <summary>Attaches a purpose to a request, so it is one call rather than four lines at every caller.</summary>

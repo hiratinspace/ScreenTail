@@ -111,11 +111,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-046: every HTTP request the client makes is built through this, so INV-8 is enforced by the
         // composition root rather than by convention. Nothing in the service makes one yet; the guard is
         // installed now so that the first thing that does cannot accidentally be the exception.
-        var egress = new EgressGuard(new EgressPolicy());
+        // One policy for the guard and for what diagnostics reports about it. Two meant the panel read
+        // local-only off a throwaway object and told a customer "local-only: no" whatever the guard was
+        // actually doing (2026-09-19 review).
+        //
+        // The model hosts are named here because the transcriber cannot fetch its model otherwise: the
+        // list was empty, every request was refused, and narration silently never worked.
+        var egressPolicy = new EgressPolicy(new EgressSettings { ModelHosts = SpeechModels.Hosts });
+        var egress = new EgressGuard(egressPolicy);
 
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
-        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, null, null, null);
+        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, null, null, null);
         var controller = new CaptureController(
             machine,
             new WindowsCapabilityProbe(),
@@ -294,6 +301,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         diagnostics = () => Diagnostics(
             version,
             egress,
+            egressPolicy,
             coordinator.CurrentScope?.Reason,
             redaction.Progress,
             capture.DroppedOutOfScope,
@@ -419,6 +427,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     private static DiagnosticsReported Diagnostics(
         string version,
         EgressGuard egress,
+        EgressPolicy egressPolicy,
         string? scope,
         RedactionProgress? redaction,
         long? keystrokesDropped,
@@ -434,7 +443,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0),
             KeystrokesDropped = keystrokesDropped ?? 0,
             EgressBlocked = egress.Blocked,
-            LocalOnly = new EgressPolicy().Settings.LocalOnly,
+            LocalOnly = egressPolicy.Settings.LocalOnly,
             PolicyVersion = "local", // ST-047 replaces this with the tenant's policy version.
             CpuPercent = 0,
             WorkingSetBytes = self.WorkingSet64,

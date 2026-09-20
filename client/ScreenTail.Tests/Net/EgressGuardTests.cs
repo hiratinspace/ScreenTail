@@ -208,8 +208,90 @@ public sealed class EgressGuardTests
         Assert.Null(new EgressPolicy(Tenant()).Badge);
     }
 
+    [Fact]
+    public async Task ARedirectToSomewhereElseIsRefusedLikeAnyOtherDestination()
+    {
+        // 2026-09-19 review. The guard decided on the URL it was handed, and the handler beneath it
+        // followed redirects on its own — so the allowlist covered the first hop and nothing after it.
+        // An allowed host answering 302 could send a session's bundle anywhere, and the counters would
+        // record it as allowed.
+        var far = new RedirectingHandler(new Uri("https://somewhere.else.example/collect"));
+        using var client = Client(Tenant(), far);
+
+        var blocked = await Assert.ThrowsAsync<EgressBlockedException>(
+            () => client.SendAsync(EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload), TestContext.Current.CancellationToken));
+
+        Assert.Equal("somewhere.else.example", blocked.Host);
+        Assert.Equal(1, far.Requests);
+    }
+
+    [Fact]
+    public async Task ARedirectWithinTheAllowlistIsFollowed()
+    {
+        // The model download needs this: the published URL redirects to a content host. Refusing every
+        // redirect would be simpler and would mean narration never works.
+        var far = new RedirectingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
+        using var client = Client(Tenant(), far);
+
+        using var response = await client.SendAsync(
+            EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, far.Requests);
+    }
+
+    [Fact]
+    public async Task ARedirectLoopStopsRatherThanSpinning()
+    {
+        var far = new RedirectingHandler(Models) { Always = true };
+        using var client = Client(Tenant(), far);
+
+        var blocked = await Assert.ThrowsAsync<EgressBlockedException>(
+            () => client.SendAsync(EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload), TestContext.Current.CancellationToken));
+
+        Assert.Contains("redirect", blocked.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ARedirectKeepsThePurposeItStartedWith()
+    {
+        // Otherwise the second hop arrives with no purpose and is refused for the wrong reason, which
+        // reads as a bug in the guard rather than as a policy decision.
+        var far = new RedirectingHandler(new Uri("https://acme.hudu.example/real"));
+        using var client = Client(Tenant(localOnly: true), far);
+
+        using var response = await client.SendAsync(
+            EgressRequest.For(HttpMethod.Get, Psa, EgressPurpose.Publish),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     private static HttpClient Client(EgressSettings settings, HttpMessageHandler far) =>
         new(new EgressGuard(new EgressPolicy(settings), far));
+
+    /// <summary>Answers the first request with a redirect, and the next with a 200.</summary>
+    private sealed class RedirectingHandler(Uri to) : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        /// <summary>Redirect every time, for the loop case.</summary>
+        public bool Always { get; init; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests++;
+            if (Requests > 1 && !Always)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.Found);
+            response.Headers.Location = to;
+            return Task.FromResult(response);
+        }
+    }
 
     /// <summary>Stands in for the network. Counting requests is how "zero egress" is actually checked.</summary>
     private sealed class CountingHandler : HttpMessageHandler
