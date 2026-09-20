@@ -121,7 +121,16 @@ public static class HudState
 
             CaptureStates.Finalizing => new HudSegment(HudTone.Paused, "⋯", "Finishing up"),
 
-            _ => new HudSegment(HudTone.Idle, "○", "Not recording"),
+            CaptureStates.Idle => new HudSegment(HudTone.Idle, "○", "Not recording"),
+
+            // A state this build has never heard of: a service newer than this UI. KnownIdle already
+            // says why guessing "idle" is least defensible here, and this is the same reasoning applied
+            // to the words on the pill rather than to whether it is shown (2026-09-19 review).
+            _ => new HudSegment(
+                HudTone.Idle,
+                "?",
+                "Capture state unknown",
+                "This ScreenTail is older than the capture service. It may be recording."),
         };
     }
 

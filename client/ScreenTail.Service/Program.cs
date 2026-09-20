@@ -27,6 +27,55 @@ foreach (var requested in RunningHonestly.ForeignCodeRequested())
     Console.Error.WriteLine($"Warning: {requested} is set, so this process may be running code that is not ScreenTail's.");
 }
 
+// The two utility modes first, because neither is the service and neither should be stopped by one, or
+// stop one. `--transcribe` on a ten-minute recording used to hold the single-instance mutex for as long
+// as it ran, so the real service could not start while somebody was measuring word error rate
+// (2026-09-19 review).
+//
+// Both of them need Windows, and both exit rather than returning.
+if (args.Contains("--capabilities", StringComparer.Ordinal) || Array.IndexOf(args, "--transcribe") >= 0)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("The capture service runs on Windows only.");
+        return 2;
+    }
+
+    // Per-monitor DPI awareness before either mode touches a window or a screen (ST-025).
+    Dpi.MakePerMonitorAware();
+
+    // `--capabilities` answers "what will this machine actually let ScreenTail do?" and exits. Onboarding
+    // (ST-083) and the diagnostics panel call the same probe over IPC; this is how CI asks it of real hardware.
+    if (args.Contains("--capabilities", StringComparer.Ordinal))
+    {
+        var report = new WindowsCapabilityProbe().Probe();
+        Console.WriteLine(JsonSerializer.Serialize(report.ToWire(), new JsonSerializerOptions { WriteIndented = true }));
+        return report.CanCapture ? 0 : 1;
+    }
+
+    // `--transcribe <file.wav>` runs a recording through the real speech pipeline and prints what it heard.
+    // ST-027's word-error-rate criterion is measured with it: the transcript goes to research/eval/wer.py
+    // against the reference text beside the recording.
+    //
+    // It exists because the criterion cannot be a unit test. It needs ten minutes of real human narration —
+    // research/fixtures/audio/README.md says why a synthesised recording would measure the wrong thing — and
+    // a test that skipped until somebody recorded one would be a skipped test on the one machine whose
+    // answers count (ST-018).
+    if (Array.IndexOf(args, "--transcribe") is var flag and >= 0)
+    {
+        if (flag + 1 >= args.Length)
+        {
+            Console.Error.WriteLine("Usage: --transcribe <recording.wav> [--model tiny.en|base.en|small.en]");
+            return 2;
+        }
+
+        return await Transcribe.RunAsync(args[flag + 1], ModelFrom(args)).ConfigureAwait(false);
+    }
+
+    // Neither mode returned, which means neither was actually asked for.
+    return 2;
+}
+
 // One capture service per user (ADR-0003). A second copy exits quietly instead of fighting over the pipe.
 var userIdentity = OperatingSystem.IsWindows()
     ? WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName
@@ -47,34 +96,6 @@ if (!OperatingSystem.IsWindows())
 // rectangles on a scaled display — a 3840-wide window on a 150% monitor reports 2560 — and every screenshot
 // would be captured from the wrong rectangle and stored at the wrong size (ST-025).
 Dpi.MakePerMonitorAware();
-
-// `--capabilities` answers "what will this machine actually let ScreenTail do?" and exits. Onboarding
-// (ST-083) and the diagnostics panel call the same probe over IPC; this is how CI asks it of real hardware.
-if (args.Contains("--capabilities", StringComparer.Ordinal))
-{
-    var report = new WindowsCapabilityProbe().Probe();
-    Console.WriteLine(JsonSerializer.Serialize(report.ToWire(), new JsonSerializerOptions { WriteIndented = true }));
-    return report.CanCapture ? 0 : 1;
-}
-
-// `--transcribe <file.wav>` runs a recording through the real speech pipeline and prints what it heard.
-// ST-027's word-error-rate criterion is measured with it: the transcript goes to research/eval/wer.py
-// against the reference text beside the recording.
-//
-// It exists because the criterion cannot be a unit test. It needs ten minutes of real human narration —
-// research/fixtures/audio/README.md says why a synthesised recording would measure the wrong thing — and
-// a test that skipped until somebody recorded one would be a skipped test on the one machine whose
-// answers count (ST-018).
-if (Array.IndexOf(args, "--transcribe") is var flag and >= 0)
-{
-    if (flag + 1 >= args.Length)
-    {
-        Console.Error.WriteLine("Usage: --transcribe <recording.wav> [--model tiny.en|base.en|small.en]");
-        return 2;
-    }
-
-    return await Transcribe.RunAsync(args[flag + 1], ModelFrom(args)).ConfigureAwait(false);
-}
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<CaptureHost>();
