@@ -22,4 +22,12 @@
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Authenticode's internals are what the verifier's rules turn on, and the difference between
+         "unsigned" and "signed and unacceptable" can only be checked against real files on a real
+         Windows machine. -->
+    <InternalsVisibleTo Include="ScreenTail.Tests.Windows" />
+  </ItemGroup>
+
 </Project>
