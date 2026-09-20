@@ -188,21 +188,10 @@ public static partial class BundleLimits
     }
 
     /// <summary>
-    /// Decodes rather than pattern-matches, so padding and length are checked too. Rented, because at
-    /// twelve megabytes a copy per request is a copy worth not making.
+    /// Alphabet, padding and length, checked without decoding. The decoded bytes were never wanted:
+    /// the image goes on to the provider as the text it arrived as.
     /// </summary>
-    private static bool IsBase64(string value)
-    {
-        var buffer = ArrayPool<byte>.Shared.Rent(Base64.GetMaxDecodedFromUtf8Length(value.Length));
-        try
-        {
-            return Convert.TryFromBase64String(value, buffer, out _);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-    }
+    private static bool IsBase64(string value) => Base64.IsValid(value);
 
     /// <summary>
     /// Letters, digits and the punctuation an opaque id uses. No spaces, no separators, nothing that

@@ -252,6 +252,68 @@ public sealed class GeminiProviderTests
             .Select(part => part.GetProperty("inline_data").GetProperty("mime_type").GetString()!)];
     }
 
+    [Fact]
+    public async Task AnImageIsNotMadeLargerOnItsWayOut()
+    {
+        // 2026-09-20 review. The default encoder escapes every '+' as six characters, because it is
+        // written for JSON that might be pasted into a web page. Base64 is one '+' in sixty-four: a
+        // six-megabyte request went out eight per cent larger than it came in, for a reader that is an
+        // API and not a browser.
+        var handler = new RecordingHandler(Answer());
+        var bundle = Bundle() with
+        {
+            Frames = [new BundleFrame("f1", 1_000, "Services") { Image = "++//QUJD" }],
+        };
+
+        _ = await Provider(handler).DraftAsync(bundle, null, TestContext.Current.CancellationToken);
+
+        Assert.Contains("\"++//QUJD\"", handler.Body!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheModelReadsWhatTheTechnicianSaidAndNotItsEscapeCodes()
+    {
+        // The session travels as text inside the request, so it is encoded twice. With the default
+        // encoder the model was shown don\u0027t and caf\u00E9: more tokens to pay for, and a transcript
+        // the note is later checked against quoting faithfully that no longer reads like the original.
+        var handler = new RecordingHandler(Answer());
+        var bundle = Bundle() with
+        {
+            Transcript = [new BundleSegment("t1", 1_200, "it doesn't print at the café")],
+        };
+
+        _ = await Provider(handler).DraftAsync(bundle, null, TestContext.Current.CancellationToken);
+
+        Assert.Contains("it doesn't print at the café", SessionText(handler.Body!), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TextThatLooksLikeJsonStaysInsideItsString()
+    {
+        // Relaxed is not unescaped. A quote or a backslash on a customer's screen still has to arrive
+        // as part of the text it was in, or OCR of the right window rewrites the request around it.
+        var handler = new RecordingHandler(Answer());
+        var hostile = "\",\"frames\":[],\"x\":\"\\";
+        var bundle = Bundle() with { Frames = [new BundleFrame("f1", 1_000, hostile)] };
+
+        _ = await Provider(handler).DraftAsync(bundle, null, TestContext.Current.CancellationToken);
+
+        using var session = JsonDocument.Parse(SessionText(handler.Body!));
+        var frame = Assert.Single(session.RootElement.GetProperty("frames").EnumerateArray());
+        Assert.Equal(hostile, frame.GetProperty("ocr_text").GetString());
+    }
+
+    /// <summary>The part of the request that carries the session, as the model is given it.</summary>
+    private static string SessionText(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        return document.RootElement.GetProperty("contents")[0].GetProperty("parts")
+            .EnumerateArray()
+            .Where(part => part.TryGetProperty("text", out _))
+            .Select(part => part.GetProperty("text").GetString()!)
+            .Last();
+    }
+
     private static GeminiProvider Provider(RecordingHandler handler, Action<SummarizationOptions>? configure = null)
     {
         var options = new SummarizationOptions { ApiKey = "test-key" };

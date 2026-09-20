@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using ScreenTail.Api.Summarize;
 
@@ -28,6 +30,22 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     /// </summary>
     public string Name => options.Model;
 
+    /// <summary>
+    /// How this class writes JSON: escaping what JSON requires and nothing more.
+    ///
+    /// The default encoder also escapes everything that could matter inside a web page — '+', the
+    /// apostrophe, every accented letter. None of this is ever put in a page. It is posted to an API, and
+    /// the cost of the caution was real: base64 is one '+' in sixty-four, so every image went out eight
+    /// per cent larger, and the model was shown don\u0027t where the technician said don't.
+    ///
+    /// Quotes, backslashes and control characters are still escaped, which is what keeps text from a
+    /// customer's screen inside the string it arrived in. The name says "unsafe" about HTML, not JSON.
+    /// </summary>
+    private static readonly JsonSerializerOptions Wire = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     public async Task<ProviderResult<LlmDraft>> DraftAsync(
         SummarizeBundle bundle,
         string? repair,
@@ -39,7 +57,10 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
             HttpMethod.Post,
             $"v1beta/models/{options.Model}:generateContent")
         {
-            Content = new StringContent(Body(bundle, repair), Encoding.UTF8, "application/json"),
+            Content = new ByteArrayContent(Body(bundle, repair))
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" } },
+            },
         };
 
         // Header rather than query string: a key in a URL is a key in every proxy log between here and
@@ -232,7 +253,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     /// after downscaling, and an upload would mean a customer's screenshot sitting in someone else's
     /// object store with its own retention.
     /// </summary>
-    private string Body(SummarizeBundle bundle, string? repair)
+    private byte[] Body(SummarizeBundle bundle, string? repair)
     {
         var parts = new List<object> { new { text = prompt } };
 
@@ -260,7 +281,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
                     : null,
                 frames = bundle.Frames.Select(frame => new { id = frame.Id, ts_ms = frame.TsMs, ocr_text = frame.OcrText }),
                 transcript = bundle.Transcript.Select(segment => new { id = segment.Id, ts_ms = segment.TsMs, text = segment.Text }),
-            }),
+            }, Wire),
         });
 
         foreach (var frame in bundle.Frames.Where(frame => !string.IsNullOrEmpty(frame.Image)))
@@ -286,10 +307,14 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
             generation["mediaResolution"] = options.MediaResolution;
         }
 
-        return JsonSerializer.Serialize(new
-        {
-            contents = new[] { new { role = "user", parts } },
-            generationConfig = generation,
-        });
+        // Straight to the bytes that are sent. Building a string first and encoding it afterwards held
+        // the images three times over — about forty megabytes of allocation for a six-megabyte request.
+        return JsonSerializer.SerializeToUtf8Bytes(
+            new
+            {
+                contents = new[] { new { role = "user", parts } },
+                generationConfig = generation,
+            },
+            Wire);
     }
 }
