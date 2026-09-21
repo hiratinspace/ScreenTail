@@ -227,6 +227,79 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
         Assert.Single(session.Events.OfType<CaptureStateEvent>(), e => e.State == CaptureState.Suppressed);
     }
 
+    [Fact]
+    public async Task AnIdleServiceDoesNotAskWindowsWhatHasFocus()
+    {
+        // 2026-09-20 efficiency review. Read() is a cross-process UI Automation call -- ADR-0001 measured
+        // it at p95 9.5-21 ms and as much as 106 ms in the worst case -- and the tick made it before
+        // looking at the session at all, once a second, all day, on a machine that spends most of its
+        // day not recording anything. On its own that is about one to two per cent of a core against
+        // ST-031's one per cent idle budget.
+        //
+        // There is nothing to suppress when no session is running, so there is nothing to ask about.
+        _harness = await MachineHarness.StartAsync();
+        var probe = new FakeProbe { Focused = FocusedField.Password };
+        using var guard = new PasswordFieldGuard(_harness.Machine, probe);
+
+        _ = await guard.TickAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, probe.Reads);
+        Assert.False(guard.Holding);
+    }
+
+    [Fact]
+    public async Task ARecordingSessionIsStillAsked()
+    {
+        // The other half: the saving must come out of the idle day, not out of the guard.
+        var machine = await RecordingAsync();
+        var probe = new FakeProbe { Focused = FocusedField.Password };
+        using var guard = new PasswordFieldGuard(machine, probe);
+
+        _ = await guard.TickAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, probe.Reads);
+        Assert.True(guard.Holding);
+    }
+
+    [Fact]
+    public async Task AFieldAlreadyFocusedWhenTheSessionStartsIsNoticedWithoutWaiting()
+    {
+        // The window the early return could have opened. A session that begins over a password field
+        // must not wait for the next poll, so the loop is woken by the state change itself.
+        //
+        // The poll is set far out of reach on purpose: at its usual one second this test would pass
+        // whether or not anything woke the loop, and would be evidence of nothing.
+        _harness = await MachineHarness.StartAsync();
+        var probe = new FakeProbe { Focused = FocusedField.Password };
+        using var guard = new PasswordFieldGuard(
+            _harness.Machine,
+            probe,
+            options: new PasswordFieldOptions { PollEvery = TimeSpan.FromMinutes(5) });
+        var ct = TestContext.Current.CancellationToken;
+        var running = guard.RunAsync(ct);
+
+        Assert.True(await _harness.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+
+        var suppressed = await WaitFor(() => _harness.Machine.State == SessionState.Suppressed);
+        Assert.True(suppressed, "A session that started over a focused password field was not suppressed.");
+    }
+
+    /// <summary>Waits for a condition the running loop is expected to bring about, or gives up.</summary>
+    private static async Task<bool> WaitFor(Func<bool> done)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (done())
+            {
+                return true;
+            }
+
+            await Task.Delay(20);
+        }
+
+        return false;
+    }
+
     private async Task<SessionMachine> RecordingAsync()
     {
         _harness = await MachineHarness.StartAsync();
@@ -254,6 +327,13 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
 
         public bool Throw { get; set; }
 
-        public FocusedField Read() => Throw ? throw new InvalidOperationException("automation is unavailable") : Focused;
+        /// <summary>How many times the platform was actually asked. The probe is the expensive part.</summary>
+        public int Reads { get; private set; }
+
+        public FocusedField Read()
+        {
+            Reads++;
+            return Throw ? throw new InvalidOperationException("automation is unavailable") : Focused;
+        }
     }
 }
