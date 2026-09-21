@@ -26,6 +26,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     private static readonly DateTimeOffset At = new(2026, 9, 16, 9, 0, 0, TimeSpan.Zero);
     private readonly string _path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
     private SqliteSessionStore? _store;
+    private SessionMachine? _machine;
 
     [Fact]
     public async Task APendingFrameIsNotCountedOnTheHistoryScreen()
@@ -129,6 +130,69 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task DeleteEverythingStillWorksAfterASessionHasBeenDrafted()
+    {
+        // 2026-09-20 review, and a fix of mine that went one step too far. Erase was refused unless the
+        // machine was Idle, to keep it from destroying work mid-recording -- but the machine does not
+        // return to Idle after a session. It rests in draft_ready or draft_failed until something
+        // discards or the service restarts, and with today's stub sender every session ends in
+        // draft_failed.
+        //
+        // So the first session a technician ever records takes "delete everything" away from them until
+        // they restart the service. That is INV-12 unreachable in normal use, by a guard meant to
+        // protect it.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var erased = false;
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine, erase: _ =>
+        {
+            erased = true;
+            return Task.FromResult(true);
+        });
+
+        Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, ct: ct));
+        Assert.True(await machine.StopAsync(ct));
+        Assert.Equal(SessionState.DraftFailed, machine.State);
+
+        var token = await TokenAsync(controller, "erase_everything", ct);
+        var result = await controller.HandleAsync(
+            new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token },
+            Window,
+            ct);
+
+        Assert.True(result.Ok);
+        Assert.True(erased);
+    }
+
+    [Fact]
+    public async Task DeleteEverythingIsStillRefusedWhileASessionIsRunning()
+    {
+        // The half worth keeping: erasing mid-recording destroys work the technician is in the middle of
+        // and leaves them nothing to look at. Stopping first is one click and makes it a decision.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var erased = false;
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine, erase: _ =>
+        {
+            erased = true;
+            return Task.FromResult(true);
+        });
+
+        Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, ct: ct));
+
+        var token = await TokenAsync(controller, "erase_everything", ct);
+        var result = await controller.HandleAsync(
+            new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token },
+            Window,
+            ct);
+
+        Assert.False(result.Ok);
+        Assert.False(erased);
+    }
+
+    [Fact]
     public async Task ATokenIsGoodForOneEraseAndNoMore()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -205,6 +269,11 @@ public sealed class CaptureControllerTests : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_machine is not null)
+        {
+            await _machine.DisposeAsync();
+        }
+
         if (_store is not null)
         {
             await _store.DisposeAsync();
@@ -225,13 +294,18 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     private static CaptureController Controller(
         SqliteSessionStore store,
         Func<DiagnosticsReported>? diagnostics = null,
-        Func<CancellationToken, Task<bool>>? erase = null) =>
+        Func<CancellationToken, Task<bool>>? erase = null,
+        SessionMachine? machine = null) =>
         new(
-            new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter()),
+            machine ?? new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter()),
             new AlwaysCapableProbe(),
             store,
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)));
+
+    /// <summary>A machine the test can drive as well as hand to the controller.</summary>
+    private SessionMachine Machine(SqliteSessionStore store) =>
+        _machine ??= new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
 
     private async Task<SqliteSessionStore> OpenAsync(CancellationToken ct) =>
         _store ??= await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)), ct: ct);
