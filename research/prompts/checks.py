@@ -56,10 +56,47 @@ CREDENTIAL_CUE = re.compile(
 # Words that join a cue to the credential, or that somebody says while remembering one. Skipped rather
 # than treated as the value.
 CONNECTIVES = {
-    "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
-    "uh", "um", "er", "ah", "like", "just", "actually", "currently", "still",
-    "the", "a", "an", "on", "for", "of", "at", "in", "my", "your", "our", "their", "his", "her",
-    "its", "new", "old", "that", "this", "it",
+    "is",
+    "was",
+    "to",
+    "set",
+    "reset",
+    "changed",
+    "change",
+    "now",
+    "will",
+    "be",
+    "equals",
+    "are",
+    "uh",
+    "um",
+    "er",
+    "ah",
+    "like",
+    "just",
+    "actually",
+    "currently",
+    "still",
+    "the",
+    "a",
+    "an",
+    "on",
+    "for",
+    "of",
+    "at",
+    "in",
+    "my",
+    "your",
+    "our",
+    "their",
+    "his",
+    "her",
+    "its",
+    "new",
+    "old",
+    "that",
+    "this",
+    "it",
 }
 
 # How far past the cue to look, and how the text is cut into words. A full stop ends the sentence and
@@ -87,7 +124,6 @@ DIRECTIVE = re.compile(
     r"|\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
     re.IGNORECASE,
 )
-
 
 
 def next_word(text, start):
