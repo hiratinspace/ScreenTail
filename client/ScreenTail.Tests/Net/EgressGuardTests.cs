@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using ScreenTail.Core.Net;
 
 namespace ScreenTail.Tests.Net;
@@ -215,7 +216,7 @@ public sealed class EgressGuardTests
         // followed redirects on its own — so the allowlist covered the first hop and nothing after it.
         // An allowed host answering 302 could send a session's bundle anywhere, and the counters would
         // record it as allowed.
-        var far = new RedirectingHandler(new Uri("https://somewhere.else.example/collect"));
+        var far = new RecordingHandler(new Uri("https://somewhere.else.example/collect"));
         using var client = Client(Tenant(), far);
 
         var blocked = await Assert.ThrowsAsync<EgressBlockedException>(
@@ -230,7 +231,7 @@ public sealed class EgressGuardTests
     {
         // The model download needs this: the published URL redirects to a content host. Refusing every
         // redirect would be simpler and would mean narration never works.
-        var far = new RedirectingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
+        var far = new RecordingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
         using var client = Client(Tenant(), far);
 
         using var response = await client.SendAsync(
@@ -244,7 +245,7 @@ public sealed class EgressGuardTests
     [Fact]
     public async Task ARedirectLoopStopsRatherThanSpinning()
     {
-        var far = new RedirectingHandler(Models) { Always = true };
+        var far = new RecordingHandler(Models) { Always = true };
         using var client = Client(Tenant(), far);
 
         var blocked = await Assert.ThrowsAsync<EgressBlockedException>(
@@ -258,7 +259,7 @@ public sealed class EgressGuardTests
     {
         // Otherwise the second hop arrives with no purpose and is refused for the wrong reason, which
         // reads as a bug in the guard rather than as a policy decision.
-        var far = new RedirectingHandler(new Uri("https://acme.hudu.example/real"));
+        var far = new RecordingHandler(new Uri("https://acme.hudu.example/real"));
         using var client = Client(Tenant(localOnly: true), far);
 
         using var response = await client.SendAsync(
@@ -278,7 +279,7 @@ public sealed class EgressGuardTests
         //
         // Re-posting the body to the new host is the other wrong answer and is the thing this class
         // exists to prevent. So it is handed back: the caller sees the redirect and decides.
-        var far = new RedirectingHandler(new Uri("https://acme.connectwise.example/v4/moved"))
+        var far = new RecordingHandler(new Uri("https://acme.connectwise.example/v4/moved"))
         {
             Status = HttpStatusCode.PermanentRedirect,
         };
@@ -297,7 +298,7 @@ public sealed class EgressGuardTests
     {
         // The method is what decides, not the status. A GET carries no body, so the hop changes nothing
         // and the model download still works.
-        var far = new RedirectingHandler(new Uri("https://models.example/cdn/ggml-small.bin"))
+        var far = new RecordingHandler(new Uri("https://models.example/cdn/ggml-small.bin"))
         {
             Status = HttpStatusCode.TemporaryRedirect,
         };
@@ -311,13 +312,56 @@ public sealed class EgressGuardTests
         Assert.Equal(2, far.Requests);
     }
 
+    [Fact]
+    public async Task AResumedDownloadIsStillResumedAfterARedirect()
+    {
+        // 2026-09-20 review. The model host answers 302 to a CDN, and the hop was built as a bare GET, so
+        // the Range header asking for the second half of a 150 MB file was dropped. The CDN answered 200
+        // with the whole thing, ModelDownload saw that its resume had been ignored and started again
+        // from zero -- so a download interrupted at 90% restarted at 0% every time, forever, on a
+        // connection bad enough to have interrupted it once.
+        var far = new RecordingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
+        using var client = Client(Tenant(localOnly: true), far);
+
+        using var request = EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload);
+        request.Headers.Range = new RangeHeaderValue(1_000, null);
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1_000, far.LastRange?.Ranges.Single().From);
+    }
+
+    [Fact]
+    public async Task ARedirectStillCarriesNothingThatIdentifiesUs()
+    {
+        // The other half, and the reason only one header is copied by name. A redirect is a stranger's
+        // instruction to talk to a second host, and handing that host whatever credential was on the
+        // first request is how an allowlisted hop becomes a credential leak.
+        var far = new RecordingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
+        using var client = Client(Tenant(localOnly: true), far);
+
+        using var request = EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "a-device-token");
+        request.Headers.Add("Cookie", "session=secret");
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Null(far.LastAuthorization);
+        Assert.False(far.LastHadCookie);
+    }
+
     private static HttpClient Client(EgressSettings settings, HttpMessageHandler far) =>
         new(new EgressGuard(new EgressPolicy(settings), far));
 
     /// <summary>Answers the first request with a redirect, and the next with a 200.</summary>
-    private sealed class RedirectingHandler(Uri to) : HttpMessageHandler
+    private sealed class RecordingHandler(Uri to) : HttpMessageHandler
     {
         public int Requests { get; private set; }
+
+        /// <summary>What the most recent request asked for, so a test can read what survived the hop.</summary>
+        public RangeHeaderValue? LastRange { get; private set; }
+
+        public AuthenticationHeaderValue? LastAuthorization { get; private set; }
+
+        public bool LastHadCookie { get; private set; }
 
         /// <summary>Redirect every time, for the loop case.</summary>
         public bool Always { get; init; }
@@ -328,6 +372,9 @@ public sealed class EgressGuardTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
+            LastRange = request.Headers.Range;
+            LastAuthorization = request.Headers.Authorization;
+            LastHadCookie = request.Headers.Contains("Cookie");
             if (Requests > 1 && !Always)
             {
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
