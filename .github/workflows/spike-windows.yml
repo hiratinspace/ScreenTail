@@ -84,12 +84,42 @@ jobs:
         continue-on-error: true
         run: ./ci-checks.ps1 -Evidence (Join-Path $env:RUNNER_TEMP 'st-001-evidence') -RunMode smoke
 
-      - name: Upload evidence
+      # The same allowlist the laptop job uses. This runner's desktop is a fresh VM with nothing
+      # private on it, so the risk is small - but "small" is a reason to keep the rule in one shape
+      # everywhere rather than to have two rules, one of which is the careful one.
+      - name: Only text leaves this machine
+        id: outbox
         if: always()
+        shell: powershell
+        run: |
+          $src = Join-Path $env:RUNNER_TEMP 'st-001-evidence'
+          $out = Join-Path $env:RUNNER_TEMP 'st-001-evidence-outbox'
+          Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+          $null = New-Item -ItemType Directory -Path $out -Force
+          if (Test-Path $src) {
+            # What the evidence actually is: verdicts, measurements and the machine facts beside them.
+            $allowed = '.md', '.txt', '.json', '.trx', '.csv'
+            $kept = 0
+            foreach ($file in Get-ChildItem $src -Recurse -File) {
+              if ($allowed -contains $file.Extension.ToLowerInvariant()) {
+                $relative = $file.FullName.Substring($src.Length).TrimStart('\')
+                $destination = Join-Path $out $relative
+                $null = New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force
+                Copy-Item -LiteralPath $file.FullName -Destination $destination
+                $kept++
+              } else {
+                Write-Host "Left behind: $($file.Name)"
+              }
+            }
+            Write-Host "Prepared $kept file(s) for upload."
+          }
+
+      - name: Upload evidence
+        if: always() && steps.outbox.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: st-001-evidence-hosted
-          path: ${{ runner.temp }}/st-001-evidence
+          path: ${{ runner.temp }}/st-001-evidence-outbox
           if-no-files-found: warn
 
   laptop:
@@ -141,21 +171,45 @@ jobs:
       # whatever was on the screen - a browser tab, a notification - and an artifact on a public
       # repository can be downloaded by anyone signed in to GitHub. One already showed the owner's
       # browser. The verdicts are text and are what the evidence is; the pictures stay on the machine.
-      - name: Keep pictures of the desktop off a public repository
+      #
+      # An allowlist, copied into a clean directory, rather than deleting the images out of the one that
+      # gets uploaded. Deleting was the rule stated the wrong way round: it had to name every extension a
+      # picture might have, and one file held open by a test or by antivirus made Remove-Item throw -
+      # which under GitHub's 'stop' preference abandoned the rest of the step while the upload, being
+      # `if: always()`, published the directory anyway. Now nothing reaches the upload unless it was
+      # copied there by name (2026-09-20 review).
+      - name: Only text leaves this machine
+        id: outbox
         if: always()
+        shell: powershell
         run: |
-          $dir = Join-Path $env:RUNNER_TEMP 'st-001-evidence'
-          if (Test-Path $dir) {
-            $images = @(Get-ChildItem $dir -Recurse -File -Include *.jpg, *.jpeg, *.png, *.bmp)
-            $images | Remove-Item -Force
-            Write-Host "Removed $($images.Count) image(s) before upload."
+          $src = Join-Path $env:RUNNER_TEMP 'st-001-evidence'
+          $out = Join-Path $env:RUNNER_TEMP 'st-001-evidence-outbox'
+          Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+          $null = New-Item -ItemType Directory -Path $out -Force
+          if (Test-Path $src) {
+            # What the evidence actually is: verdicts, measurements and the machine facts beside them.
+            $allowed = '.md', '.txt', '.json', '.trx', '.csv'
+            $kept = 0
+            foreach ($file in Get-ChildItem $src -Recurse -File) {
+              if ($allowed -contains $file.Extension.ToLowerInvariant()) {
+                $relative = $file.FullName.Substring($src.Length).TrimStart('\')
+                $destination = Join-Path $out $relative
+                $null = New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force
+                Copy-Item -LiteralPath $file.FullName -Destination $destination
+                $kept++
+              } else {
+                Write-Host "Left behind: $($file.Name)"
+              }
+            }
+            Write-Host "Prepared $kept file(s) for upload."
           }
 
       - name: Upload evidence
-        if: always()
+        if: always() && steps.outbox.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: st-001-evidence-laptop
-          path: ${{ runner.temp }}/st-001-evidence
+          path: ${{ runner.temp }}/st-001-evidence-outbox
           if-no-files-found: warn
           retention-days: 7
