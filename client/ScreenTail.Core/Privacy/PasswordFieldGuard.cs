@@ -1,4 +1,5 @@
 using ScreenTail.Core.Audit;
+using ScreenTail.Shared.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
 
@@ -91,6 +92,20 @@ public sealed class PasswordFieldGuard(
     /// </summary>
     public async Task<bool> TickAsync(CancellationToken ct = default)
     {
+        // Nothing to hold, so nothing to ask about.
+        //
+        // Read() is a cross-process UI Automation call -- ADR-0001 measured p95 9.5-21 ms and a worst
+        // case above 100 ms -- and this made it before looking at the session at all, once a second, all
+        // day, on a machine that spends most of its day not recording. That is one to two per cent of a
+        // core against ST-031's one per cent idle budget, spent deciding nothing (2026-09-20 review).
+        //
+        // Suppressed as well as Recording: a hold has to be able to end.
+        if (machine.State is not (SessionState.Recording or SessionState.Suppressed))
+        {
+            Holding = false;
+            return false;
+        }
+
         var focused = Read();
         if (focused == FocusedField.Unknown)
         {
@@ -143,21 +158,46 @@ public sealed class PasswordFieldGuard(
     /// <summary>Told when a pass fails, so the host can log it. The type only, never the message (INV-10).</summary>
     public event Action<Exception>? Failed;
 
-    public Task RunAsync(CancellationToken ct) => ResilientLoop.RunAsync(
-        next: async token =>
+    public Task RunAsync(CancellationToken ct)
+    {
+        // A session beginning is as good a reason to look as focus moving.
+        //
+        // TickAsync now does nothing unless a session is running, which would otherwise leave a session
+        // that starts over an already-focused password field waiting up to a poll before anything
+        // noticed. Waking on the transition closes that: the state change is the event, and the field
+        // has not moved.
+        machine.StateChanged += WakeOnStateChange;
+        try
         {
-            _ = await _focusMoved.WaitAsync(_options.PollEvery, token).ConfigureAwait(false);
-            return true;
-        },
-        step: TickAsync,
-        onFailure: failure =>
+            return ResilientLoop.RunAsync(
+                next: async token =>
+                {
+                    _ = await _focusMoved.WaitAsync(_options.PollEvery, token).ConfigureAwait(false);
+                    return true;
+                },
+                step: TickAsync,
+                onFailure: failure =>
+                {
+                    _ = Interlocked.Increment(ref _failures);
+                    Failed?.Invoke(failure);
+                },
+                ct);
+        }
+        finally
         {
-            _ = Interlocked.Increment(ref _failures);
-            Failed?.Invoke(failure);
-        },
-        ct);
+            _stopWaking = () => machine.StateChanged -= WakeOnStateChange;
+        }
+    }
 
-    public void Dispose() => _focusMoved.Dispose();
+    private void WakeOnStateChange(CaptureStateSnapshot snapshot) => FocusMoved();
+
+    private Action? _stopWaking;
+
+    public void Dispose()
+    {
+        _stopWaking?.Invoke();
+        _focusMoved.Dispose();
+    }
 
     /// <summary>A probe that throws is a probe that did not answer, not a field that is safe to capture.</summary>
     private FocusedField Read()
