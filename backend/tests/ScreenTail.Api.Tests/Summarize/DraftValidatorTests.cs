@@ -25,6 +25,31 @@ public sealed class DraftValidatorTests
     }
 
     [Fact]
+    public void WhatTheModelInventedIsQuotedBackShortAndOnOneLine()
+    {
+        // 2026-09-20 review. Every reason interpolated a model-chosen string -- a frame id, a segment
+        // id, a confidence word -- and those reasons travel back to the client and into the stored
+        // draft-failed reason. The model reads OCR of a customer's screen, so a screen can suggest what
+        // it writes: a "frame id" of a thousand characters with newlines in it forges log lines and
+        // pushes screen content somewhere it was never meant to be (INV-10).
+        //
+        // It still has to be recognisable, or the reason stops telling a technician which citation was
+        // wrong. Short, one line, and only the characters an id could really have.
+        var forged = "f1\nERROR real-looking log line\r\n" + new string('x', 500);
+        var draft = Draft() with
+        {
+            Steps = [Step("Restarted the spooler.", frames: [forged], transcript: ["t1"])],
+        };
+
+        var reason = Assert.Single(DraftValidator.Check(draft, Bundle()), r => r.Contains("frame", StringComparison.Ordinal));
+
+        Assert.DoesNotContain('\n', reason);
+        Assert.DoesNotContain('\r', reason);
+        Assert.True(reason.Length < 200, $"A reason of {reason.Length} characters is not a sentence.");
+        Assert.Contains("f1", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AStepCitingAFrameThatIsNotInTheSessionIsRefused()
     {
         // The model invented a frame id, which means the step it supports was invented too. Review shows
