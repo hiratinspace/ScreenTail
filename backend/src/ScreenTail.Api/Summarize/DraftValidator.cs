@@ -62,19 +62,39 @@ public static class DraftValidator
     private static readonly Regex LongDigits = new(@"\b(?:\d[ -]?){13,19}\b", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     /// <summary>
-    /// A credential introduced by a cue word.
+    /// A credential's cue word, and only that.
     ///
-    /// The connective run is what took getting right. "The password was reset to Winter2026" is how a
-    /// technician actually writes it, and an alternation of whole phrases only caught the phrasings
-    /// somebody had thought of: "was" matched, the value became "reset", and the credential after it
-    /// went into the note. Up to three linking words, then whatever follows.
+    /// Where the credential sits after the cue is a question about how somebody writes or speaks, and a
+    /// single expression answered it by assuming the two are adjacent. Four of the seven phrasings the
+    /// client's scrubber had just been fixed for still passed here untouched: "the password is, uh,
+    /// Winter2026" matched nothing at all, because the connective run consumed " is" and the value could
+    /// not then begin on a comma (2026-09-21).
+    ///
+    /// <see cref="CarriesACredential"/> walks from here. The same walk is in
+    /// <c>research/prompts/checks.py</c>, and <c>hardening-cases.json</c> is what keeps the two honest.
     /// </summary>
-    private static readonly Regex Credential = new(
-        @"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b"
-        + @"(?:\s+(?:is|was|to|set|reset|changed|now|will|be)){0,3}"
-        + @"\s*[:=#]?\s*(?<value>[^\s,.;!?]{3,})",
+    private static readonly Regex CredentialCue = new(
+        @"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// Words that join a cue to the credential, or that somebody says while remembering one.
+    ///
+    /// Skipped rather than read as the value. Mirrors the client's own list, because a rule that masks
+    /// on the device and a rule that refuses on the server disagreeing is how a credential reaches a
+    /// customer's ticket.
+    /// </summary>
+    private static readonly HashSet<string> Connectives = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
+        "uh", "um", "er", "ah", "like", "just", "actually", "currently", "still",
+        "the", "a", "an", "on", "for", "of", "at", "in", "my", "your", "our", "their", "his", "her",
+        "its", "new", "old", "that", "this", "it",
+    };
+
+    /// <summary>How far past a cue to look before giving up on finding a credential.</summary>
+    private const int MaxSteps = 6;
 
     /// <summary>
     /// What separates a credential from a sentence about one.
@@ -299,9 +319,9 @@ public static class DraftValidator
             return true;
         }
 
-        foreach (Match match in Credential.Matches(text))
+        foreach (Match cue in CredentialCue.Matches(text))
         {
-            if (SecretShaped.IsMatch(match.Groups["value"].Value))
+            if (CredentialAfter(text, cue.Index + cue.Length))
             {
                 return true;
             }
@@ -309,6 +329,97 @@ public static class DraftValidator
 
         return false;
     }
+
+    /// <summary>
+    /// Whether a credential follows a cue, looking past the words that join the two.
+    ///
+    /// The first word that is not a joining word decides. If it looks like a secret, it is one. If it is
+    /// an ordinary word with a joining word behind it, the cue was still naming what the credential is
+    /// for — "the password on the router is Winter2026" — and the walk goes on. A credential written as
+    /// two words is judged on the pair, because neither half of "Winter 2026" looks like a secret alone.
+    /// </summary>
+    private static bool CredentialAfter(string text, int start)
+    {
+        var at = start;
+        for (var step = 0; step < MaxSteps; step++)
+        {
+            if (NextWord(text, at) is not { } word)
+            {
+                return false;
+            }
+
+            var value = text.Substring(word.Start, word.Length);
+            if (Connectives.Contains(value))
+            {
+                at = word.Start + word.Length;
+                continue;
+            }
+
+            // The redaction engine's own marker. Finding one means the rules upstream worked.
+            if (value.StartsWith('['))
+            {
+                return false;
+            }
+
+            if (SecretShaped.IsMatch(value))
+            {
+                return true;
+            }
+
+            if (NextWord(text, word.Start + word.Length) is { } following)
+            {
+                var next = text.Substring(following.Start, following.Length);
+                if (SecretShaped.IsMatch(value + next))
+                {
+                    return true;
+                }
+
+                if (Connectives.Contains(next))
+                {
+                    at = word.Start + word.Length;
+                    continue;
+                }
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The next word, or null at the end of the sentence. A full stop ends any claim that what follows
+    /// is the credential.
+    /// </summary>
+    private static (int Start, int Length)? NextWord(string text, int from)
+    {
+        var i = from;
+        while (i < text.Length && !IsWordChar(text[i]))
+        {
+            if (text[i] is '.' or ';' or '!' or '?')
+            {
+                return null;
+            }
+
+            i++;
+        }
+
+        if (i >= text.Length)
+        {
+            return null;
+        }
+
+        var begin = i;
+        while (i < text.Length && IsWordChar(text[i]))
+        {
+            i++;
+        }
+
+        return (begin, i - begin);
+    }
+
+    private static bool IsWordChar(char c) =>
+        !char.IsWhiteSpace(c) && c is not (',' or '.' or ';' or '!' or '?' or ':' or '=' or '"' or '\'');
 
     private static bool Luhn(string text)
     {
