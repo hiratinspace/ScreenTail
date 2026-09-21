@@ -109,7 +109,11 @@ internal sealed partial class AutoSessionCoordinator(
         await ticking.ConfigureAwait(false);
     }
 
-    private async Task HandleAsync(ForegroundWindowInfo window, CancellationToken ct)
+    /// <summary>
+    /// One foreground change. Internal rather than private so the scope decision it leaves behind can be
+    /// asserted directly; the class is already internal to this assembly and its tests.
+    /// </summary>
+    internal async Task HandleAsync(ForegroundWindowInfo window, CancellationToken ct)
     {
         var decision = policy.Decide(window);
         var triggered = trigger.Observe(window);
