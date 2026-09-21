@@ -109,7 +109,11 @@ internal sealed partial class AutoSessionCoordinator(
         await ticking.ConfigureAwait(false);
     }
 
-    private async Task HandleAsync(ForegroundWindowInfo window, CancellationToken ct)
+    /// <summary>
+    /// One foreground change. Internal rather than private so the scope decision it leaves behind can be
+    /// asserted directly; the class is already internal to this assembly and its tests.
+    /// </summary>
+    internal async Task HandleAsync(ForegroundWindowInfo window, CancellationToken ct)
     {
         var decision = policy.Decide(window);
         var triggered = trigger.Observe(window);
@@ -132,11 +136,24 @@ internal sealed partial class AutoSessionCoordinator(
             await machine.StopAsync(ct).ConfigureAwait(false);
         }
 
+        // What is current, and what is worth writing down, are two different questions.
+        //
+        // This decision carries the window handle the screenshot capturer expects a frame to belong to,
+        // and it used to be kept only when the scope or the tool id changed. Two windows of one remote
+        // tool change neither — which is what a second customer session looks like — so the old handle
+        // stayed, CaptureForegroundWindow(expected:) found the foreground window was not the one it had
+        // been told to expect, and returned nothing. No error and no interval on the timeline: the
+        // frames were simply missing from the half of the session that happened in the second window
+        // (2026-09-21).
+        var worthRecording = _lastReported?.Scope != decision.Scope || _lastReported?.ToolId != decision.ToolId;
+        _lastReported = decision;
+
         // The timeline records where the technician went and whether it was in scope, even when no frame is
         // taken — that is what makes "clicks logged, no frames" visible in Review rather than a silent gap.
-        if (_lastReported?.Scope != decision.Scope || _lastReported?.ToolId != decision.ToolId)
+        // Still only on a real change: an entry per window switch would be noise in the one place a
+        // technician goes to find out what happened.
+        if (worthRecording)
         {
-            _lastReported = decision;
             if (logger.IsEnabled(LogLevel.Debug))
             {
                 // Both values are computed into locals first: the analyzer objects to work done in a logging
