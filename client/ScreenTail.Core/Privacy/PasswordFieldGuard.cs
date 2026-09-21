@@ -1,6 +1,6 @@
 using ScreenTail.Core.Audit;
-using ScreenTail.Shared.Ipc;
 using ScreenTail.Core.Sessions;
+using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Core.Privacy;
