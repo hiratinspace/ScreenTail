@@ -96,8 +96,15 @@ internal sealed class CaptureController(
             // Not while a session is running. Erasing mid-recording destroys work the technician is in
             // the middle of and gives them nothing to look at afterwards; stopping first is one click and
             // makes the decision a decision (2026-09-19 review).
+            //
+            // "Running", not "Idle". The machine does not return to Idle after a session -- it rests in
+            // draft_ready or draft_failed until something discards or the service restarts, and with
+            // today's stub sender every session ends in draft_failed. So the Idle test took INV-12's
+            // "delete everything" away from a technician the moment they recorded anything at all, which
+            // is a guard that destroyed the thing it was guarding (2026-09-20 review).
             EraseAllLocalDataCommand erase =>
-                machine.State == SessionState.Idle
+                machine.State is not (SessionState.Recording or SessionState.Paused
+                    or SessionState.Suppressed or SessionState.Finalizing)
                 && _confirmations.Spend(erase.Confirmation, DestructiveAction.EraseEverything, caller)
                 && await eraseAll(ct).ConfigureAwait(false),
             _ => false,
