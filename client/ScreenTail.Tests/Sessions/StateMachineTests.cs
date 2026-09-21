@@ -251,6 +251,50 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RecoveryDoesNotWaitForARedactionWorkerThatIsNotRunningYet()
+    {
+        // 2026-09-20 efficiency review. Finalizing waits up to the redaction grace -- twenty seconds in
+        // production -- for pending frames to be redacted before purging what is left. During recovery
+        // there is nothing to wait for: CaptureHost recovers before it starts the worker, so the backlog
+        // cannot drain, and the wait ends by expiring. Twenty seconds of polling the store every 250 ms,
+        // per orphaned session, before the service will serve its first request.
+        //
+        // The frames are purged either way -- an unredacted frame does not survive a crash (INV-1) --
+        // so the wait bought nothing at all.
+        //
+        // A clock that never moves is how this is asserted: with the wait in place the loop can never
+        // finish, so today's code hangs and the timeout is the failure.
+        var store = await OpenStoreAsync();
+        await store.CreateSessionAsync(new NewSession("orphan", DateTimeOffset.UtcNow, ScreenConnect, false, null));
+        await store.SetSessionStateAsync("orphan", CaptureStates.Recording, null);
+        await store.StageFrameAsync("orphan", Frame("straggler", 6_000));
+
+        var frozen = new ManualTime(new DateTimeOffset(2026, 9, 21, 9, 0, 0, TimeSpan.Zero));
+        var machine = await MachineAsync(grace: TimeSpan.FromSeconds(20), time: frozen);
+
+        var recovered = await machine.RecoverAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, recovered);
+        Assert.Equal(0, await store.CountPendingFramesAsync("orphan"));
+    }
+
+    [Fact]
+    public async Task StoppingASessionStillWaitsForTheFramesBeingRedacted()
+    {
+        // The half that must not change. A technician pressing stop has a worker running behind them,
+        // and the grace is what lets the last frames finish rather than being thrown away.
+        var machine = await MachineAsync(grace: TimeSpan.FromMilliseconds(200));
+        var ct = TestContext.Current.CancellationToken;
+        Assert.True(await machine.StartAsync(ScreenConnect, ct: ct));
+        Assert.True(await machine.TryStageFrameAsync(Frame("pending", 1_000), ct));
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Assert.True(await machine.StopAsync(ct));
+
+        Assert.True(clock.ElapsedMilliseconds >= 150, $"Stop waited {clock.ElapsedMilliseconds} ms, so the grace is not being honoured.");
+    }
+
+    [Fact]
     public async Task RecoverWithNothingToRecoverIsIdle()
     {
         var machine = await MachineAsync();
