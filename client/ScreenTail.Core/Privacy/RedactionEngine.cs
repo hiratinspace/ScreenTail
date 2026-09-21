@@ -158,7 +158,19 @@ public sealed class RedactionEngine
         return merged;
     }
 
-    /// <summary>Sorted, non-overlapping matches: earliest first, and the longest wins a tie.</summary>
+    /// <summary>
+    /// Sorted, non-overlapping matches: earliest first, and the longest wins a tie.
+    ///
+    /// <b>Overlaps are merged, not dropped.</b> This kept a running end and skipped any match beginning
+    /// before it — the whole match, including the part that reached past. Where two rules overlap, the
+    /// tail of the second stayed in the text with nothing over it: the card and SSN detectors can both
+    /// claim parts of one run of digits, and on a transcript there is no widening to whole words
+    /// afterwards to cover the gap (2026-09-20 review).
+    ///
+    /// The union takes the first match's kind and marker. Two rules disagreeing about what a span is
+    /// matters far less than a span nobody masked, and the alternative — a second marker butted against
+    /// the first — would label a fragment rather than a thing.
+    /// </summary>
     private (List<PatternMatch> Matches, bool Complete) Resolve(string text)
     {
         var complete = true;
@@ -168,13 +180,19 @@ public sealed class RedactionEngine
             .ToList();
 
         var resolved = new List<PatternMatch>(found.Count);
-        var end = 0;
         foreach (var match in found)
         {
-            if (match.Start >= end)
+            if (resolved.Count == 0 || match.Start >= resolved[^1].End)
             {
                 resolved.Add(match);
-                end = match.End;
+                continue;
+            }
+
+            // Overlapping. Grow the one already kept to cover both, unless it already does.
+            var previous = resolved[^1];
+            if (match.End > previous.End)
+            {
+                resolved[^1] = previous with { Length = match.End - previous.Start };
             }
         }
 
