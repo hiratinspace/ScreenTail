@@ -233,4 +233,46 @@ public sealed class PatternLibraryGapTests
 
         return words;
     }
+
+    [Fact]
+    public void TwoRulesOverlappingLeaveNothingShowing()
+    {
+        // 2026-09-20 review. Resolve sorted the matches and kept a running end, dropping any match that
+        // began before it -- whole, including the part that reached past it. So where two rules overlap,
+        // the tail of the second stayed in the text with nothing masking it.
+        //
+        // Two tenant patterns are the clearest way to show it, but the shape is not contrived: the card
+        // and SSN detectors can both claim parts of a run of digits, and on a transcript there is no
+        // widening to whole words afterwards to repair the gap.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["ABCD", "CDEF"] });
+
+        var scrubbed = engine.ScrubText("xx ABCDEF yy").Text;
+
+        Assert.DoesNotContain("EF", scrubbed, StringComparison.Ordinal);
+        Assert.StartsWith("xx ", scrubbed, StringComparison.Ordinal);
+        Assert.EndsWith(" yy", scrubbed, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARuleInsideAnotherDoesNotSplitTheMask()
+    {
+        // The containment case, which was already right and must stay so: the shorter match is inside
+        // the longer one and adds nothing.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["ABCDEF", "CD"] });
+
+        var scrubbed = engine.ScrubText("xx ABCDEF yy").Text;
+
+        Assert.Equal(1, scrubbed.Split("[").Length - 1);
+    }
+
+    [Fact]
+    public void RulesThatDoNotTouchAreMaskedSeparately()
+    {
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["ABC", "XYZ"] });
+
+        var scrubbed = engine.ScrubText("one ABC two XYZ three").Text;
+
+        Assert.Equal(2, scrubbed.Split("[").Length - 1);
+        Assert.Contains("two", scrubbed, StringComparison.Ordinal);
+    }
 }
