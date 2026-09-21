@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Core.Speech;
@@ -51,6 +52,19 @@ public sealed class NarrationRecorder : IDisposable
 
     /// <summary>Raised when a session starts or ends, so the loop need not poll to find out.</summary>
     private readonly SemaphoreSlim _wanted = new(0);
+
+    /// <summary>
+    /// Segments cut from the ring and waiting for the model, in the order they were spoken.
+    ///
+    /// Small on purpose. Each entry holds a copy of the audio it was cut from, which is a piece of a
+    /// customer's support call sitting in memory, and a deep queue would mean the model falling minutes
+    /// behind the conversation rather than seconds. Four is a handful of sentences.
+    ///
+    /// One reader, so segments reach the assembler in the order they were said.
+    /// </summary>
+    private readonly Channel<(SpeechSegment Segment, ReadOnlyMemory<short> Audio)> _pending =
+        Channel.CreateBounded<(SpeechSegment, ReadOnlyMemory<short>)>(
+            new BoundedChannelOptions(4) { SingleReader = true, SingleWriter = true });
     private readonly ISpeechRecogniser _recogniser;
     private readonly AppendTranscript _append;
     private readonly Func<bool> _recording;
@@ -142,6 +156,8 @@ public sealed class NarrationRecorder : IDisposable
             return;
         }
 
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var draining = DrainAsync(stopping.Token);
         try
         {
             while (!ct.IsCancellationRequested)
@@ -175,14 +191,14 @@ public sealed class NarrationRecorder : IDisposable
             // which is the half of a session a note most needs.
             if (_gate.Flush() is { } last)
             {
-                await TranscribeAsync(last, ct).ConfigureAwait(false);
+                await QueueAsync(last, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
         {
             if (_gate.Flush() is { } last && !ct.IsCancellationRequested)
             {
-                await TranscribeAsync(last, ct).ConfigureAwait(false);
+                await QueueAsync(last, ct).ConfigureAwait(false);
             }
         }
 #pragma warning disable CA1031 // Losing narration must not be a reason to lose the session.
@@ -203,6 +219,20 @@ public sealed class NarrationRecorder : IDisposable
         finally
         {
             Listening = false;
+
+            // Nothing more will be queued, so the drain can finish what it has. A segment already cut
+            // from the ring is a thing the technician said, and dropping it because the service is
+            // stopping would lose the end of the session -- usually the outcome, which is the half a
+            // note most needs.
+            _pending.Writer.TryComplete();
+            try
+            {
+                await draining.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancelled rather than drained. The caller is shutting down.
+            }
         }
     }
 
@@ -236,7 +266,7 @@ public sealed class NarrationRecorder : IDisposable
             // The microphone itself stopped. Whatever was being said is still worth keeping.
             if (_gate.Flush() is { } last)
             {
-                await TranscribeAsync(last, ct).ConfigureAwait(false);
+                await QueueAsync(last, ct).ConfigureAwait(false);
             }
 
             return false;
@@ -283,7 +313,7 @@ public sealed class NarrationRecorder : IDisposable
             _filled = 0;
             if (_gate.Offer(_voice.Offer(_frame)) is { } segment)
             {
-                await TranscribeAsync(segment, ct).ConfigureAwait(false);
+                await QueueAsync(segment, ct).ConfigureAwait(false);
             }
         }
     }
@@ -296,24 +326,58 @@ public sealed class NarrationRecorder : IDisposable
         Append(samples);
     }
 
-    private async Task TranscribeAsync(SpeechSegment segment, CancellationToken ct)
+    /// <summary>
+    /// Cuts a finished segment out of the ring and hands it to the transcriber.
+    ///
+    /// The cut happens here, on the microphone's thread, while the audio is certainly still in the ring.
+    /// The model runs elsewhere. It used to run here: whisper.cpp takes between 2.6 and 10.8 seconds for
+    /// a segment (ADR-0001), and for all of that the loop consuming audio was not consuming audio — so
+    /// the sentence after the one being transcribed aged out of the ring and was lost, which the old
+    /// comment on this method admitted in as many words (2026-09-20 review).
+    /// </summary>
+    private ValueTask QueueAsync(SpeechSegment segment, CancellationToken ct)
     {
         Heard++;
         if (!_recogniser.Ready)
         {
             MissedWaitingForModel++;
-            return;
+            return ValueTask.CompletedTask;
         }
 
         var audio = Extract(segment);
         if (audio.IsEmpty)
         {
-            // The segment aged out of the ring while something else was being transcribed. Counted as a
-            // miss rather than sent as whatever happens to be in the buffer now.
             MissedWaitingForModel++;
-            return;
+            return ValueTask.CompletedTask;
         }
 
+        // Bounded, and waits rather than dropping: the queue only fills when the model is slower than
+        // the technician is talkative, and an unbounded one would hold a support call in memory. Waiting
+        // here costs what the old code cost, and only once the buffer is already full.
+        return _pending.Writer.WriteAsync((segment, audio), ct);
+    }
+
+    /// <summary>Transcribes queued segments one at a time, in the order they were spoken.</summary>
+    private async Task DrainAsync(CancellationToken ct)
+    {
+        await foreach (var (segment, audio) in _pending.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        {
+            try
+            {
+                await TranscribeAsync(segment, audio, ct).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // One segment must not end narration; RunAsync's catch is the same rule.
+            catch (Exception failure) when (failure is not OperationCanceledException)
+#pragma warning restore CA1031
+            {
+                Failures++;
+                Failed?.Invoke(failure);
+            }
+        }
+    }
+
+    private async Task TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct)
+    {
         var heard = await _recogniser.TranscribeAsync(segment, audio, ct).ConfigureAwait(false);
         if (heard is null)
         {
