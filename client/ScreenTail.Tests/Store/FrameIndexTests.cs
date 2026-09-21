@@ -49,6 +49,28 @@ public sealed class FrameIndexTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task OneSessionsAuditRowsAreFoundThroughTheIndex()
+    {
+        // The audit log is the one table nothing ever prunes, so a full scan of it is the one that gets
+        // slower for ever. `(@session IS NULL OR session_id = @session)` made SQLite scan whichever
+        // argument it was given, because it cannot reach audit_by_session through that OR.
+        var plan = await PlanAsync("SELECT id, at FROM audit_log WHERE session_id = 's1' ORDER BY id");
+
+        Assert.Contains("audit_by_session", plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AskingForEveryAuditRowStillReadsThemAll()
+    {
+        // The export and verification want the whole chain, and a scan is the right plan for that. This
+        // is here so that "split the query in two" cannot quietly become "filter by a session nobody
+        // asked about".
+        var plan = await PlanAsync("SELECT id, at FROM audit_log ORDER BY id");
+
+        Assert.DoesNotContain("audit_by_session", plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ThePendingIndexHoldsOnlyPendingFrames()
     {
         // Partial, so it cannot be chosen for "redaction_pending = 0" however the statistics fall, and

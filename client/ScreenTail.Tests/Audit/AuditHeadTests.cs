@@ -74,6 +74,26 @@ public sealed class AuditHeadTests : IAsyncDisposable
         Assert.Equal(records.Count, verdict.Checked + verdict.Unchained);
     }
 
+    [Fact]
+    public async Task AskingForOneSessionsRowsGetsThatSessionsRows()
+    {
+        // The audit reads are two statements now rather than one with an OR, so that SQLite can reach
+        // audit_by_session. Splitting a query in two is exactly the change that can quietly filter by
+        // the wrong thing, and this is the claim that would catch it.
+        var store = await OpenAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await store.RecordAsync(AuditTypes.FrameRedacted, "mine", 1, ct: ct);
+        await store.RecordAsync(AuditTypes.FrameRedacted, "theirs", 1, ct: ct);
+        await store.RecordAsync(AuditTypes.FrameRedacted, "mine", 1, ct: ct);
+
+        var mine = await store.GetAuditAsync("mine", ct);
+        var everything = await store.GetAuditAsync(ct: ct);
+
+        Assert.Equal(2, mine.Count);
+        Assert.All(mine, row => Assert.Equal("mine", row.SessionId));
+        Assert.Equal(3, everything.Count);
+    }
+
     private async Task<SqliteSessionStore> OpenAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
     private sealed class FixedKey(byte[] key) : IStoreKeyProvider
