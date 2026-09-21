@@ -669,8 +669,22 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@session", sessionId));
 
     /// <summary>Every audit row with its chain links, for the export and for verification (ST-045).</summary>
-    public Task<IReadOnlyList<AuditRecord>> GetAuditRecordsAsync(string? sessionId = null, CancellationToken ct = default) =>
-        QueryAsync<IReadOnlyList<AuditRecord>>(
+    public async Task<IReadOnlyList<AuditRecord>> GetAuditRecordsAsync(string? sessionId = null, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await ReadAuditRecordsHoldingGateAsync(sessionId, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>The rows, for a caller already holding the gate. See <see cref="VerifyAuditAsync"/>.</summary>
+    private Task<IReadOnlyList<AuditRecord>> ReadAuditRecordsHoldingGateAsync(string? sessionId, CancellationToken ct) =>
+        QueryInTransactionAsync<IReadOnlyList<AuditRecord>>(
             "SELECT id, at, session_id, type, count, detail, prev_hash, hash FROM audit_log "
             + "WHERE (@session IS NULL OR session_id = @session) ORDER BY id",
             async reader =>
@@ -703,7 +717,26 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// </summary>
     public async Task<AuditVerification> VerifyAuditAsync(CancellationToken ct = default)
     {
-        var records = await GetAuditRecordsAsync(ct: ct).ConfigureAwait(false);
+        // Both reads under one hold of the gate. They used to be two: the rows were read, the gate was
+        // let go, and the head was read after — so an append landing in that gap made the head describe
+        // one more row than the reader had seen, which this method reports as rows deleted from the end.
+        // Tampering, on a log nobody had touched, and the store audits every staged frame, so a
+        // verification during recording was racing a writer running several times a second (2026-09-20
+        // review). A verification that cries wolf is one people stop reading.
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await VerifyHoldingGateAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<AuditVerification> VerifyHoldingGateAsync(CancellationToken ct)
+    {
+        var records = await ReadAuditRecordsHoldingGateAsync(null, ct).ConfigureAwait(false);
         string? previous = null;
         var checked_ = 0;
         var unchained = 0;
@@ -729,7 +762,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         // The chain is intact as far as it goes. Whether it goes far enough is a separate question, and
         // the one the chain alone cannot answer: rows deleted from the end leave a shorter chain that
         // verifies perfectly.
-        var head = await ReadAuditHeadAsync(ct).ConfigureAwait(false);
+        var head = await ReadAuditHeadHoldingGateAsync(ct).ConfigureAwait(false);
         if (head is { } end)
         {
             var have = checked_ + unchained;
@@ -750,13 +783,13 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     }
 
     /// <summary>Where the log says it should end, or null on a store older than schema 7.</summary>
-    private async Task<(long Rows, string Hash)?> ReadAuditHeadAsync(CancellationToken ct) =>
-        await QueryAsync(
+    private Task<(long Rows, string Hash)?> ReadAuditHeadHoldingGateAsync(CancellationToken ct) =>
+        QueryInTransactionAsync(
             "SELECT rows, hash FROM audit_head WHERE id = 1",
             async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
                 ? ((long Rows, string Hash)?)(reader.GetInt64(0), reader.GetString(1))
                 : null,
-            ct).ConfigureAwait(false);
+            ct);
 
     public async Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
     {
@@ -1214,6 +1247,47 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
         var at = _time.GetUtcNow();
         var hash = AuditChain.Hash(previous, at, sessionId, type, count, detail);
+
+        // The row and the head are one write or neither.
+        //
+        // They were two separate commits, so anything in between — a crash, a shutdown cancelling the
+        // token, and IpcServer hands this its stopping token — left the head describing one row more
+        // than the log held. Verification reports that as rows deleted from the end: tampering, on a log
+        // nobody had touched, repaired invisibly by the next append (2026-09-20 review).
+        //
+        // A savepoint rather than a transaction, because most callers are already inside one and
+        // SQLite refuses to nest those. Outside a transaction a savepoint opens one; inside, it nests.
+        // Either way both statements land together or neither does.
+        _ = await ExecuteAsync(_connection, "SAVEPOINT audit_append", ct).ConfigureAwait(false);
+        int written;
+        try
+        {
+            written = await AppendHoldingGateAsync(sessionId, type, count, detail, previous, at, hash, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            _ = await ExecuteAsync(_connection, "ROLLBACK TO audit_append", ct).ConfigureAwait(false);
+            _ = await ExecuteAsync(_connection, "RELEASE audit_append", CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
+        // CancellationToken.None: the two statements are already written, and cancelling the release
+        // would leave the savepoint open on a connection every later write shares.
+        _ = await ExecuteAsync(_connection, "RELEASE audit_append", CancellationToken.None).ConfigureAwait(false);
+        return written;
+    }
+
+    /// <summary>The two statements the savepoint above makes atomic.</summary>
+    private async Task<int> AppendHoldingGateAsync(
+        string? sessionId,
+        string type,
+        long? count,
+        string? detail,
+        string? previous,
+        DateTimeOffset at,
+        string hash,
+        CancellationToken ct)
+    {
         var written = await ExecuteAsync(
             _connection,
             "INSERT INTO audit_log (at, session_id, type, count, detail, prev_hash, hash) "
