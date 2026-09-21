@@ -141,6 +141,42 @@ public sealed class SessionHistoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheListReadsOnlyAsManyRowsAsItWasAskedFor()
+    {
+        // 2026-09-20 efficiency review. The query had no LIMIT and the caller applied .Take() after every
+        // row had been read, parsed and turned into a summary -- including a JSON deserialise per row.
+        // With retention at a week that is every session the machine has ever recorded, to show ten.
+        var store = await OpenAsync();
+        for (var i = 0; i < 40; i++)
+        {
+            await store.CreateSessionAsync(new NewSession($"s{i:D2}", DateTimeOffset.UnixEpoch.AddMinutes(i), Rdp, false, null));
+        }
+
+        var rows = await store.ListSessionsAsync(limit: 5);
+
+        Assert.Equal(5, rows.Count);
+        Assert.Equal("s39", rows[0].Id);
+    }
+
+    [Fact]
+    public async Task ATitleSurvivesADraftWhoseOtherFieldsAreNonsense()
+    {
+        // The title was read by deserialising the whole note into DraftNote, so one field of the wrong
+        // shape threw and the row lost its title -- a history that says "Draft" where the technician
+        // wrote a name. Reading the one value out of the JSON in SQL cannot be thrown off by the rest,
+        // and does not pull every step's text out of the database to show one line.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(new NewSession("s1", DateTimeOffset.UnixEpoch, Rdp, false, null));
+        await store.SetSessionStateAsync("s1", "draft_ready", null);
+        await SetDraftJsonAsync(store, "s1", """{"suggested_title":"Printer offline","steps":"not-an-array"}""");
+
+        var reopened = await OpenAsync();
+        var row = Assert.Single(await reopened.ListSessionsAsync());
+
+        Assert.Equal("Printer offline", row.Title);
+    }
+
+    [Fact]
     public async Task TheListCarriesNoContentBeyondTheTechniciansOwnTitle()
     {
         // INV-10, and this list is rendered beside a customer. The only free text is the note's suggested
@@ -167,6 +203,40 @@ public sealed class SessionHistoryTests : IAsyncDisposable
         foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
         {
             File.Delete(_path + suffix);
+        }
+    }
+
+    private static readonly RemoteTool Rdp = new() { Kind = RemoteToolKind.Rdp };
+
+    /// <summary>
+    /// Writes the draft column directly, because SaveDraftAsync takes a DraftNote and the shape under
+    /// test is one DraftNote cannot hold. The store is closed first: its connection is the only writer.
+    /// </summary>
+    private async Task SetDraftJsonAsync(SqliteSessionStore store, string sessionId, string json)
+    {
+        await store.DisposeAsync();
+        _ = _stores.Remove(store);
+
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+            {
+                DataSource = _path,
+                Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,
+                Pooling = false,
+            }.ConnectionString))
+        {
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await using (var key = connection.CreateCommand())
+            {
+                key.CommandText = $"PRAGMA key = \"x'{Convert.ToHexString(_key.GetKey())}'\";";
+                _ = await key.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            }
+
+            await using var write = connection.CreateCommand();
+            write.CommandText = "UPDATE sessions SET draft_json = @json WHERE id = @id";
+            _ = write.Parameters.AddWithValue("@json", json);
+            _ = write.Parameters.AddWithValue("@id", sessionId);
+            _ = await write.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
     }
 

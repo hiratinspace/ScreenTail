@@ -600,35 +600,34 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
     }
 
-    public Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(CancellationToken ct = default) =>
+    /// <param name="limit">
+    /// How many rows to read. The History screen shows a page at a time, and this used to read every
+    /// session the machine had ever recorded -- parsing each one's draft JSON on the way -- so that the
+    /// caller could take the first ten. With retention at a week that is the whole store, under the
+    /// gate, to fill one screen (2026-09-20 review).
+    /// </param>
+    public Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default) =>
         QueryAsync<IReadOnlyList<SessionSummary>>(
             """
             SELECT s.id, s.started_at, s.duration_ms, s.remote_tool_kind, s.state, s.partial_capture,
-                   s.frames_purged_unredacted, s.raw_purged_at, s.draft_json,
+                   s.frames_purged_unredacted, s.raw_purged_at,
+                   json_extract(s.draft_json, '$.suggested_title'),
                    (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0)
             FROM sessions s
             ORDER BY s.started_at DESC
+            LIMIT @limit
             """,
             async reader =>
             {
                 var rows = new List<SessionSummary>();
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
-                    // Only the title is read out of the draft. Deserialising the whole note to show one
-                    // line would pull every step's text into a list rendered beside a customer.
-                    string? title = null;
-                    if (!reader.IsDBNull(8))
-                    {
-                        try
-                        {
-                            title = JsonSerializer.Deserialize<DraftNote>(reader.GetString(8), SessionJson.Options)?.SuggestedTitle;
-                        }
-                        catch (JsonException)
-                        {
-                            // A draft that will not parse is a row without a title, not a history that
-                            // refuses to open.
-                        }
-                    }
+                    // Only the title is read out of the draft, and it is read by the database rather
+                    // than by deserialising the note. Turning the whole thing into a DraftNote pulled
+                    // every step's text out to show one line, and one field of an unexpected shape threw
+                    // and left the row with no title at all — a history saying "Draft" where the
+                    // technician had written a name.
+                    var title = reader.IsDBNull(8) ? null : reader.GetString(8);
 
                     rows.Add(new SessionSummary(
                         reader.GetString(0),
@@ -645,7 +644,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
                 return rows;
             },
-            ct);
+            ct,
+            ("@limit", limit));
 
     public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) =>
         QueryAsync<IReadOnlyList<AuditEntry>>(
