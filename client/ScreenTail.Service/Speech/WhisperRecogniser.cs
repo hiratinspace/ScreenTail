@@ -21,6 +21,22 @@ namespace ScreenTail.Service.Speech;
 [SupportedOSPlatform("windows")]
 public sealed class WhisperRecogniser : ISpeechRecogniser
 {
+    /// <summary>
+    /// How many threads whisper.cpp may use.
+    ///
+    /// Unset, it takes every hardware thread the machine has — eight on the reference laptop, which is
+    /// the whole processor. ADR-0001 measured base.en that way at 49-62% of the CPU, against ST-031's
+    /// 15% for all of ScreenTail, on a machine whose real job is the remote-desktop session the
+    /// technician is running. Two threads is roughly a quarter of that, which lands near the budget
+    /// once voice-activity detection has already cut the work down to the parts where somebody is
+    /// actually speaking (2026-09-20 review).
+    ///
+    /// Not zero-cost: a segment takes longer to transcribe. It is transcribed after the fact either way,
+    /// and a technician waiting a moment longer for a note is better than a technician whose screen
+    /// share stutters.
+    /// </summary>
+    private const int Threads = 2;
+
     private readonly SpeechModel _model;
     private readonly string _path;
     private readonly ModelDownload _download;
@@ -94,7 +110,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
             Downloading = null;
             _factory = WhisperFactory.FromPath(_path);
-            _processor = _factory.CreateBuilder().WithLanguage("en").Build();
+            _processor = _factory.CreateBuilder().WithLanguage("en").WithThreads(Threads).Build();
             Unavailable = null;
             return true;
         }
