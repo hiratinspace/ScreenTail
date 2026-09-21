@@ -33,6 +33,177 @@ internal static partial class PatternLibrary
         "and", "or", "but", "so", "then", "when", "which", "what", "who", "why", "how", "if", "for", "to",
     };
 
+
+    /// <summary>
+    /// Words that join a password cue to the password, or that a person says while thinking.
+    ///
+    /// Skipped rather than masked. The old rule masked the token immediately after the cue, which is
+    /// almost never the secret: "the password is, uh, Winter2026" masked "is", "the password on the
+    /// router is Winter2026" masked "on", and "the password was reset to Spring2027" masked "reset" and
+    /// then dropped it for being an ordinary word. Each of those wrote an audit row saying a redaction
+    /// had happened (2026-09-20 review).
+    /// </summary>
+    private static readonly HashSet<string> Connectives = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
+        "uh", "um", "er", "ah", "like", "just", "actually", "currently", "still",
+        "the", "a", "an", "on", "for", "of", "at", "in", "my", "your", "our", "their", "his", "her",
+        "its", "new", "old",
+    };
+
+    /// <summary>How many joining words to walk past before giving up on finding a secret.</summary>
+    private const int MaxConnectives = 4;
+
+    /// <summary>
+    /// How many words of the secret to mask once one is found.
+    ///
+    /// More than one because a spoken password is often more than one word — "Winter 2026" was masked as
+    /// "Winter", which leaves the year in the transcript and the audit log claiming otherwise. Bounded,
+    /// because the rest of the sentence is a technician's own account of what they did and masking it
+    /// teaches them to turn the rule off.
+    /// </summary>
+    private const int MaxSecretWords = 4;
+
+    /// <summary>
+    /// Where the secret is after a password cue, or null when the sentence was about a password rather
+    /// than containing one.
+    ///
+    /// Three things have to be true at once, which is why this is not a regular expression any more.
+    /// Joining words are walked past ("was reset to Spring2027"), so are the noises people make while
+    /// remembering one ("is, uh, Winter2026"). Words that end a sentence about passwords — "incorrect",
+    /// "expired", "blank" — stop it dead, because masking those is what makes a technician turn the rule
+    /// off. And a password said as two words ("Winter 2026") has to be masked as two, or the year stays
+    /// in the transcript with an audit row claiming otherwise (2026-09-20 review).
+    /// </summary>
+    private static (int Start, int Length)? SecretAfter(string text, int from)
+    {
+        var at = from;
+        for (var steps = 0; steps <= MaxConnectives; steps++)
+        {
+            var word = NextWord(text, at);
+            if (word is null)
+            {
+                return null;
+            }
+
+            var (start, length) = word.Value;
+            var value = text.Substring(start, length);
+            if (Connectives.Contains(value))
+            {
+                at = start + length;
+                continue;
+            }
+
+            // A sentence about a password, not a password.
+            if (NotSecrets.Contains(value))
+            {
+                return null;
+            }
+
+            // An ordinary word with a joining word behind it is still part of the run-up: "the password
+            // on the router is Winter2026" reaches "router" here, and the secret is two words further
+            // on. A word that looks like a secret is taken as one immediately, so "the PIN to 4821 for
+            // her" does not walk past 4821 and mask "her".
+            if (!LooksLikeSecret(value) && NextWord(text, start + length) is { } following
+                && Connectives.Contains(text.Substring(following.Start, following.Length)))
+            {
+                at = start + length;
+                continue;
+            }
+
+            return (start, SecretEnd(text, start + length) - start);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// How far the secret runs past its first word.
+    ///
+    /// Only over things that look like secrets themselves, which is what keeps "Winter 2026" together
+    /// and "4821 for her" apart. The rest of the sentence is the technician's own account of what they
+    /// did, and masking it is how a privacy feature becomes one that gets switched off.
+    /// </summary>
+    private static int SecretEnd(string text, int after)
+    {
+        var end = after;
+        for (var words = 1; words < MaxSecretWords; words++)
+        {
+            if (NextWord(text, end) is not { } next)
+            {
+                break;
+            }
+
+            var value = text.Substring(next.Start, next.Length);
+            if (!LooksLikeSecret(value) || Connectives.Contains(value) || NotSecrets.Contains(value))
+            {
+                break;
+            }
+
+            end = next.Start + next.Length;
+        }
+
+        return end;
+    }
+
+    /// <summary>
+    /// Whether a word looks like a credential rather than like English.
+    ///
+    /// A digit in it, a capital letter somewhere other than the front, a symbol, or simply being longer
+    /// than anybody's vocabulary. Deliberately loose: the cost of a false yes is one masked word in a
+    /// transcript, and the cost of a false no is a password in a customer's ticket.
+    /// </summary>
+    private static bool LooksLikeSecret(string value)
+    {
+        if (value.Length >= 12)
+        {
+            return true;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (char.IsDigit(c) || !char.IsLetter(c) || (i > 0 && char.IsUpper(c)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The next run of word characters, skipping whitespace and the punctuation between words.</summary>
+    private static (int Start, int Length)? NextWord(string text, int from)
+    {
+        var i = from;
+        while (i < text.Length && !IsWordChar(text[i]))
+        {
+            // A full stop ends the sentence, and with it any claim that what follows is the password.
+            if (text[i] is '.' or ';' or '!' or '?')
+            {
+                return null;
+            }
+
+            i++;
+        }
+
+        if (i >= text.Length)
+        {
+            return null;
+        }
+
+        var start = i;
+        while (i < text.Length && IsWordChar(text[i]))
+        {
+            i++;
+        }
+
+        return (start, i - start);
+    }
+
+    /// <summary>What counts as part of a word. Punctuation inside a password counts; separators do not.</summary>
+    private static bool IsWordChar(char c) => !char.IsWhiteSpace(c) && c is not (',' or '.' or ';' or '!' or '?' or ':' or '=' or '"' or '\'');
+
     /// <param name="complete">
     /// Set to false when a detector could not finish. The caller must treat the text as unscanned rather
     /// than clean: a frame we failed to search is not a frame we may store (INV-1).
@@ -68,13 +239,12 @@ internal static partial class PatternLibrary
 
         if (policy.Passwords)
         {
-            foreach (Match m in Safely(PasswordPair().Matches(text), onIncomplete))
+            foreach (Match m in Safely(PasswordCue().Matches(text), onIncomplete))
             {
-                // Keep the cue ("the password is") and mask only the value, so Review still reads sensibly.
-                var value = m.Groups["value"];
-                if (value.Success && !NotSecrets.Contains(value.Value) && !value.Value.All(char.IsPunctuation))
+                // Keep the cue ("the password is") and mask what follows it, so Review still reads sensibly.
+                if (SecretAfter(text, m.Index + m.Length) is { Length: > 0 } secret)
                 {
-                    yield return new PatternMatch(MaskKind.Password, value.Index, value.Length, "[REDACTED]");
+                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]");
                 }
             }
         }
@@ -321,12 +491,13 @@ internal static partial class PatternLibrary
         BuiltInTimeoutMs)]
     private static partial Regex ApiKey();
 
-    // "password is Winter2026", "pwd: hunter2", "passphrase = abc". The value is masked, the cue stays.
+    // "password", "pwd", "passphrase". Only the cue: where the secret sits after it is a question about
+    // how somebody speaks, and a regex answered it by assuming the very next token (2026-09-20 review).
     [GeneratedRegex(
-        @"\b(?:password|passphrase|passwd|pwd|pass\s?code|pin(?:\s?number)?)\b[\s:=]*(?:is|was|to|equals|set\s+to)?[\s:=]*(?<value>[^\s,.;!?]{2,})",
+        @"\b(?:password|passphrase|passwd|pwd|pass\s?code|pin(?:\s?number)?)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         BuiltInTimeoutMs)]
-    private static partial Regex PasswordPair();
+    private static partial Regex PasswordCue();
 
     [GeneratedRegex(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
     private static partial Regex Email();
