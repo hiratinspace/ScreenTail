@@ -130,7 +130,7 @@ public sealed class PasswordFieldGuard(
             // Whether or not this moves the session — the technician may have paused meanwhile, which
             // leaves Unsuppress a no-op — the hold is over. Capture resumes with the next click, because
             // everything the hooks saw during the hold was dropped as it was drained.
-            _ = await machine.UnsuppressAsync(ct).ConfigureAwait(false);
+            _ = await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct).ConfigureAwait(false);
             Holding = false;
         }
 

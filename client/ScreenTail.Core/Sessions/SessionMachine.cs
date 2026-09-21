@@ -37,6 +37,16 @@ public sealed class SessionMachine : IAsyncDisposable
     private readonly TimeProvider _time;
     private readonly SessionMachineOptions _options;
     private readonly SemaphoreSlim _transitions = new(1, 1);
+
+    /// <summary>
+    /// Which guards are currently holding capture down, by their reason (INV-6).
+    ///
+    /// A set rather than a flag because three guards share one suppressed state and each has to be able
+    /// to let go of its own hold without letting go of anybody else's. Only ever touched inside
+    /// <see cref="_transitions"/>, so it needs no lock of its own. Emptied when a session ends: a hold
+    /// left behind would suppress the next session, which nobody suppressed, for ever.
+    /// </summary>
+    private readonly HashSet<CaptureStateReason> _holds = [];
     private readonly Lock _stateLock = new();
     private SessionState _state = SessionState.Idle;
     private ActiveSession? _session;
@@ -131,6 +141,7 @@ public sealed class SessionMachine : IAsyncDisposable
             var session = new ActiveSession(Guid.NewGuid().ToString("D"), _time.GetTimestamp(), ToolKind(tool.Kind));
             await _store.CreateSessionAsync(new NewSession(session.Id, _time.GetUtcNow(), tool, localOnly, policyVersion), ct).ConfigureAwait(false);
             _session = session;
+            _holds.Clear();
             await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
             await _sources.StartAsync(this, ct).ConfigureAwait(false);
             return true;
@@ -144,16 +155,79 @@ public sealed class SessionMachine : IAsyncDisposable
     public Task<bool> PauseAsync(CancellationToken ct = default) =>
         TransitionIfAsync(s => s is SessionState.Recording or SessionState.Suppressed, SessionState.Paused, CaptureStateReason.User, ct);
 
+    /// <summary>
+    /// The technician un-pauses. Back to suppressed, not to recording, if a guard is still holding.
+    ///
+    /// Suppressed → Paused → Recording was a way round every guard, reachable from the pipe, and the
+    /// hotkey path already refused it (2026-09-20 review).
+    /// </summary>
     public Task<bool> ResumeAsync(CancellationToken ct = default) =>
-        TransitionIfAsync(s => s is SessionState.Paused, SessionState.Recording, CaptureStateReason.User, ct);
+        TransitionIfAsync(
+            s => s is SessionState.Paused,
+            _holds.Count > 0 ? SessionState.Suppressed : SessionState.Recording,
+            _holds.Count > 0 ? _holds.First() : CaptureStateReason.User,
+            ct);
 
-    /// <summary>Automatic pause: password field, excluded app, elevated window, sensitive context (INV-6).</summary>
-    public Task<bool> SuppressAsync(CaptureStateReason reason, CancellationToken ct = default) =>
-        TransitionIfAsync(s => s is SessionState.Recording, SessionState.Suppressed, reason, ct);
+    /// <summary>
+    /// Automatic pause: password field, excluded app, elevated window, sensitive context (INV-6).
+    ///
+    /// <b>A hold, not a flag.</b> Three guards watch three different conditions and all of them suppress
+    /// this one session, so the question "is anything still true?" has to be asked of a set rather than
+    /// of the state name. Suppressing while already suppressed used to answer false, which left the
+    /// second guard believing it held nothing (2026-09-20 review).
+    ///
+    /// Returns true when this reason is now held, whether or not it was this call that stopped capture.
+    /// </summary>
+    public async Task<bool> SuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
+    {
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_session is null || State is not (SessionState.Recording or SessionState.Suppressed))
+            {
+                return false;
+            }
 
-    /// <summary>The suppressing condition went away; capture resumes on its own.</summary>
-    public Task<bool> UnsuppressAsync(CancellationToken ct = default) =>
-        TransitionIfAsync(s => s is SessionState.Suppressed, SessionState.Recording, CaptureStateReason.User, ct);
+            _ = _holds.Add(reason);
+            if (State is SessionState.Recording)
+            {
+                await TransitionAsync(SessionState.Suppressed, reason, ct).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
+    /// <summary>
+    /// This guard's condition went away. Capture resumes when the last one has.
+    ///
+    /// Unconditional before, which is the finding: the first guard to see its own condition end resumed
+    /// capture for every other guard too, including one whose condition was still true and whose next
+    /// poll was up to a second away. A login screen's window expiring while the technician was still
+    /// typing in the password field is the ordinary way to reach that.
+    /// </summary>
+    public async Task<bool> UnsuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
+    {
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_session is null || !_holds.Remove(reason) || State is not SessionState.Suppressed || _holds.Count > 0)
+            {
+                return false;
+            }
+
+            await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
 
     /// <summary>
     /// Stop and draft: finalizing → waits up to the grace period for pending redactions → purges stragglers
@@ -169,6 +243,7 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
+            _holds.Clear();
             await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
             await _sources.StopAsync(ct).ConfigureAwait(false);
             await FinalizeAndDraftAsync(_session.Id, _session.ActiveMs(_time, SessionState.Finalizing), _session.Partial, ct).ConfigureAwait(false);
@@ -198,6 +273,7 @@ public sealed class SessionMachine : IAsyncDisposable
 
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
             _session = null;
+            _holds.Clear();
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.Idle, null);
             return true;

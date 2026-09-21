@@ -40,7 +40,7 @@ public sealed class InputBoundaryTests
 
         Assert.True(await harness.Machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
         await Drain(recorder, Keys(14, from: 1_000), ct);
-        Assert.True(await harness.Machine.UnsuppressAsync(ct));
+        Assert.True(await harness.Machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
         await Drain(recorder, [Click(at: 9_000)], ct);
 
         var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;

@@ -159,7 +159,15 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
 
         Assert.True(await machine.PauseAsync(ct));
         Assert.True(await machine.ResumeAsync(ct));
-        Assert.Equal(SessionState.Recording, machine.State);
+
+        // Straight back to suppressed, without waiting for the guard's next tick.
+        //
+        // This line used to assert Recording, and it was asserting the gap rather than the fix: the
+        // 2026-09-19 change made the guard notice on its next poll, which left the password field
+        // capturable for up to a second in between. The session now keeps a hold per guard, so resuming
+        // cannot walk past one whose condition is still true, and the gap never opens (2026-09-20
+        // review).
+        Assert.Equal(SessionState.Suppressed, machine.State);
 
         await guard.TickAsync(ct);
 

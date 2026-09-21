@@ -137,7 +137,7 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.False(await machine.TryStageFrameAsync(Frame("f-suppressed", machine.NowMs)));
         Assert.False(await machine.TryAppendTranscriptAsync(Segment("t-suppressed", machine.NowMs)));
 
-        Assert.True(await machine.UnsuppressAsync());
+        Assert.True(await machine.UnsuppressAsync(CaptureStateReason.PasswordField));
         Assert.True(await machine.TryStageFrameAsync(Frame("f-ok", machine.NowMs)));
 
         // INV-6: nothing from the paused or suppressed intervals reached the store, but the intervals themselves are on the timeline.
@@ -292,7 +292,7 @@ public sealed class StateMachineTests : IAsyncDisposable
         await machine.StartAsync(ScreenConnect);
         Assert.False(await machine.StartAsync(ScreenConnect));
         Assert.False(await machine.ResumeAsync());
-        Assert.False(await machine.UnsuppressAsync());
+        Assert.False(await machine.UnsuppressAsync(CaptureStateReason.PasswordField));
         Assert.Equal(SessionState.Recording, machine.State);
     }
 

@@ -97,7 +97,7 @@ public sealed class IndicatorGuard(
         }
         else
         {
-            _ = await machine.UnsuppressAsync(ct).ConfigureAwait(false);
+            _ = await machine.UnsuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
             Holding = false;
         }
 
