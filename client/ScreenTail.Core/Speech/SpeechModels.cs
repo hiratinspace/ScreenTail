@@ -28,10 +28,24 @@ public static class SpeechModels
     ///
     /// Exact host names, matching the rest of the allowlist, so a subdomain somebody else can register
     /// is not a model host.
+    ///
+    /// <b>The list named the wrong CDN.</b> The two <c>cdn-lfs</c> names were right when they were
+    /// written and the publisher has since moved these files: every URL now answers
+    /// <c>302 → us.aws.cdn.hf.co</c>, verified by hand on 2026-09-20. So the second hop — the one
+    /// carrying the file — was refused, and because <c>EgressBlockedException</c> was missing from the
+    /// catch in <c>WhisperRecogniser.PrepareAsync</c> the refusal faulted a background task nobody
+    /// awaited. No log line, no narration, and no sign of either. The old names stay because they are
+    /// still the publisher's and may still serve other files; being on this list is not what makes a
+    /// download happen.
+    ///
+    /// <b>That host is region-specific</b>, which the "us." says out loud, and this is the known cost of
+    /// keeping the rule exact: a machine in another region will be refused. It will now be refused
+    /// loudly, in a log line naming the host to add, which is the part that was actually broken.
     /// </summary>
     public static IReadOnlySet<string> Hosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "huggingface.co",
+        "us.aws.cdn.hf.co",
         "cdn-lfs.huggingface.co",
         "cdn-lfs-us-1.huggingface.co",
     };

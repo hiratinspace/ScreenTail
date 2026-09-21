@@ -309,12 +309,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
         LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
 
+        // Nothing awaits this task, so anything it throws goes unobserved until shutdown. That is how an
+        // egress refusal became a service with no narration and no explanation: PrepareAsync did not
+        // catch it, this said nothing, and the fault sat in a task nobody was looking at. PrepareAsync
+        // catches it now and answers with a reason; this is the line that prints the reason
+        // (2026-09-20 review).
         var preparing = Task.Run(
             async () =>
             {
                 if (microphone.DeviceName is not null && !await whisper.PrepareAsync(stoppingToken).ConfigureAwait(false))
                 {
-                    LogNoModel(logger, whisper.ModelName);
+                    LogNoModel(logger, whisper.ModelName, whisper.Unavailable ?? "no reason given");
                 }
             },
             stoppingToken);
@@ -438,8 +443,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
     private static partial void LogMicrophone(ILogger logger, string device, string model);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Speech model {Model} could not be prepared; this session has no narration")]
-    private static partial void LogNoModel(ILogger logger, string model);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Speech model {Model} could not be prepared ({Reason}); sessions will have no narration")]
+    private static partial void LogNoModel(ILogger logger, string model, string reason);
 
     /// <summary>
     /// What the diagnostics panel shows, assembled from the things only this process can see.

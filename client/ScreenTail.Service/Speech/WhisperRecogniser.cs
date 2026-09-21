@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using ScreenTail.Core.Net;
 using ScreenTail.Core.Speech;
 using Whisper.net;
 
@@ -54,6 +55,18 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     public DownloadProgress? Downloading { get; private set; }
 
     /// <summary>
+    /// Why there is no model, once something has tried to get one. Null while it is still working or
+    /// once it has succeeded.
+    ///
+    /// A sentence for the log, never content: what reaches here is a host name the guard refused or the
+    /// name of an exception, both of which are facts about this machine rather than about a customer's
+    /// screen (INV-10). It exists because "no narration" was previously indistinguishable from "nobody
+    /// spoke" — the one failure that actually happens, an egress refusal, threw past the catch below and
+    /// faulted a task nobody awaited (2026-09-20 review).
+    /// </summary>
+    public string? Unavailable { get; private set; }
+
+    /// <summary>
     /// Fetches the model if it is not already on disk and loads it. Safe to call again; returns false
     /// when the model could not be had, which is a session without narration rather than a failure.
     /// </summary>
@@ -75,17 +88,33 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
             var progress = new Progress<DownloadProgress>(p => Downloading = p);
             if (!await _download.EnsureAsync(_model, _path, progress, ct).ConfigureAwait(false))
             {
+                Unavailable = "the model could not be downloaded";
                 return false;
             }
 
             Downloading = null;
             _factory = WhisperFactory.FromPath(_path);
             _processor = _factory.CreateBuilder().WithLanguage("en").Build();
+            Unavailable = null;
             return true;
+        }
+        catch (EgressBlockedException blocked)
+        {
+            // The one failure that actually happened, and the one this catch did not name. The model
+            // host answers 302 to a CDN that was not on the allowlist, so the hop was refused — and an
+            // EgressBlockedException thrown from here faulted the un-awaited task in CaptureHost that
+            // called this, which is how narration came to fail without a single line anywhere saying so
+            // (2026-09-20 review).
+            //
+            // Its message names the host and nothing else, which is exactly what somebody fixing the
+            // allowlist needs.
+            Unavailable = blocked.Message;
+            return false;
         }
         catch (Exception ex) when (ex is IOException or ModelIntegrityException or HttpRequestException or InvalidOperationException)
         {
             // No model, so no narration. Everything else about the session carries on.
+            Unavailable = ex.GetType().Name;
             return false;
         }
         finally
