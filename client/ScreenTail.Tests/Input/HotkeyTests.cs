@@ -152,6 +152,25 @@ public sealed class HotkeyTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ADiscardChordDoesNotThrowTheSessionAway()
+    {
+        // The binding has no default chord because discarding is irreversible and Spec §3 wants a typed
+        // confirmation -- but the router performed it anyway, so the rule lived in the absence of a
+        // default rather than in the code. The moment bindings become editable (ST-047) that is one
+        // mistyped chord and a session gone, with no confirmation anywhere in the path (2026-09-20
+        // review).
+        //
+        // A chord cannot carry a confirmation, so this route cannot be the one that discards.
+        var machine = await RecordingAsync();
+        var router = new HotkeyRouter(machine);
+
+        var acted = await router.InvokeAsync(HotkeyAction.DiscardSession, TestContext.Current.CancellationToken);
+
+        Assert.False(acted);
+        Assert.Equal(SessionState.Recording, machine.State);
+    }
+
+    [Fact]
     public async Task ThePauseChordPausesWithinTwoHundredMilliseconds()
     {
         // AC1. The HUD pill itself says "press Ctrl+Alt+P to resume", so the technician is looking straight

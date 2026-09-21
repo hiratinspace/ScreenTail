@@ -22,7 +22,12 @@ public interface IIpcCommandHandler
     /// <summary>What Windows allows right now (ST-021). Re-checked on request: permissions change mid-day.</summary>
     CapabilitiesReported CurrentCapabilities { get; }
 
-    Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default);
+    /// <param name="caller">
+    /// Which connection sent this. Destructive commands carry a confirmation token, and a token that is
+    /// not tied to the conversation it came from is a bearer token any authenticated client can spend —
+    /// which is the whole of the second round trip, gone (2026-09-20 review).
+    /// </param>
+    Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default);
 
     /// <summary>
     /// The reply an asking command wants, or null when the command is an instruction rather than a
@@ -33,7 +38,7 @@ public interface IIpcCommandHandler
     /// saying the question was understood. Keeping them apart is what stops <see cref="IpcServer"/>
     /// growing a case per reply type.
     /// </summary>
-    Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default) => Task.FromResult<IpcEvent?>(null);
+    Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default) => Task.FromResult<IpcEvent?>(null);
 }
 
 /// <summary>

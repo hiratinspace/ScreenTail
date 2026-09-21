@@ -463,13 +463,13 @@ public sealed class IpcServerTests : IAsyncDisposable
         /// <summary>What a question is answered with, when a test sets one.</summary>
         public IpcEvent? Answer { get; set; }
 
-        public Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default)
+        public Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
         {
             Received.Add(command);
             return Task.FromResult(new CommandResult { RequestId = command.RequestId, Ok = true });
         }
 
-        public Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+        public Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
         {
             if (Answer is null || command is not ListSessionsCommand)
             {
