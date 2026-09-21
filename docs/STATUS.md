@@ -59,7 +59,8 @@ not do is listed in §6.
   reads the bytes back to prove it.
 - Redaction finds SSNs, Luhn-valid cards, credential shapes, spoken passwords in the transcript and
   tenant patterns; overlapping regions are merged before masking.
-- **Speech works.** The microphone opens with the session; Whisper `base.en` runs on two threads;
+- **Speech works.** The microphone opens with the session; Whisper `base.en` runs on two threads and
+  is loaded when the first session wants it, not held all day from service start;
   the model download is hash-checked and cannot fill the disk; a voice-activity gate and a
   hallucination filter sit in front of the transcript; transcription runs off the microphone loop.
 - **The drafting path is wired end to end.** Bundle → outbox → sender → `POST v1/sessions/summarize`
@@ -141,9 +142,6 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
   native code); the SQLite `cache_size` pragma (needs a laptop measurement, not reasoning);
   `run-local.ps1` deleting its output directory without asking (the directory is documented as
   disposable).
-- **One commit from the speech stack is on a branch and not on `main`**: loading the Whisper model when
-  the first session wants it rather than at service start (`st-027-the-model-loads-when-it-is-needed`).
-  It missed a pull request when the stack was rebased.
 - **ST-006's frames are drawn, not captured.** Fine for UI and pattern work, useless for judging OCR.
 - **ST-016's focus rings** were confirmed by code and CI render, not by tabbing through the app.
 

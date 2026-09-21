@@ -351,9 +351,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             // the rest of the day (2026-09-20 review).
             recording: () => machine.State == SessionState.Recording);
 
-        // The transition is the signal. Without it the recorder would find out on its next look, and a
-        // session would begin with its first word already gone.
-        machine.StateChanged += _ => narration.Nudge();
+        // The transition is the signal, for two things. The recorder would otherwise find out on its
+        // next look and a session would begin with its first word already gone; and the model is not
+        // loaded until there is a session to load it for.
+        var firstSession = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        machine.StateChanged += state =>
+        {
+            narration.Nudge();
+            if (state.State == CaptureStates.Recording)
+            {
+                _ = firstSession.TrySetResult();
+            }
+        };
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
         LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
 
@@ -362,9 +371,29 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // catch it, this said nothing, and the fault sat in a task nobody was looking at. PrepareAsync
         // catches it now and answers with a reason; this is the line that prints the reason
         // (2026-09-20 review).
+        //
+        // Loaded when a session wants it, not when the service starts.
+        //
+        // ADR-0001 measured the model at 505 MB resident, which is most of ST-031's 600 MB for the whole
+        // of ScreenTail — held all day on a machine that may record nothing at all that day. Waiting for
+        // the first session costs that session the moment the model takes to load, which on a machine
+        // that has already downloaded it is under a second and which AC3 already covers: audio heard
+        // before the model is ready is dropped and counted, never queued (2026-09-20 review).
         var preparing = Task.Run(
             async () =>
             {
+                try
+                {
+                    await firstSession.Task.WaitAsync(stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // The service stopped without ever recording anything, which on a quiet day is the
+                    // ordinary outcome and the whole point of waiting. Returning rather than faulting,
+                    // because this task is one of the set awaited at shutdown.
+                    return;
+                }
+
                 if (microphone.DeviceName is not null && !await whisper.PrepareAsync(stoppingToken).ConfigureAwait(false))
                 {
                     LogNoModel(logger, whisper.ModelName, whisper.Unavailable ?? "no reason given");
