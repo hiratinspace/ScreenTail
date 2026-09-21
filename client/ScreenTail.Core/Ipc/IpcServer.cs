@@ -414,14 +414,14 @@ public sealed class IpcServer : IAsyncDisposable
                 default:
                     // A question is answered with its own event first and a result after, so a client
                     // that only understands results still learns the command was accepted.
-                    if (await _handler.ReplyToAsync(command, ct).ConfigureAwait(false) is { } reply)
+                    if (await _handler.ReplyToAsync(command, connection.Id, ct).ConfigureAwait(false) is { } reply)
                     {
                         await connection.SendAsync(reply with { RequestId = command.RequestId }, ct).ConfigureAwait(false);
                         result = new CommandResult { RequestId = command.RequestId, Ok = true };
                     }
                     else
                     {
-                        result = await _handler.HandleAsync(command, ct).ConfigureAwait(false);
+                        result = await _handler.HandleAsync(command, connection.Id, ct).ConfigureAwait(false);
                     }
 
                     break;

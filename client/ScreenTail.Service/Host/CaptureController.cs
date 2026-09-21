@@ -47,32 +47,32 @@ internal sealed class CaptureController(
     /// the wording the service expects cannot drift apart. Spec §3 asks for a typed confirmation because
     /// agreeing should take an act rather than a reflex.
     /// </summary>
-    private ConfirmationIssued? Confirm(RequestConfirmationCommand request) => request.Action switch
+    private ConfirmationIssued? Confirm(RequestConfirmationCommand request, Guid caller) => request.Action switch
     {
-        "discard_session" => Issued(DestructiveAction.DiscardSession, "DISCARD"),
-        "erase_everything" => Issued(DestructiveAction.EraseEverything, "DELETE EVERYTHING"),
+        "discard_session" => Issued(DestructiveAction.DiscardSession, "DISCARD", caller),
+        "erase_everything" => Issued(DestructiveAction.EraseEverything, "DELETE EVERYTHING", caller),
 
         // An action nobody defined. Answering null is a refusal the caller can see, and inventing a
         // token for it would be a token for something the service cannot name.
         _ => null,
     };
 
-    private ConfirmationIssued Issued(DestructiveAction action, string phrase) =>
-        new() { Token = _confirmations.Issue(action), Phrase = phrase };
+    private ConfirmationIssued Issued(DestructiveAction action, string phrase, Guid caller) =>
+        new() { Token = _confirmations.Issue(action, caller), Phrase = phrase };
 
-    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         return command switch
         {
             GetDiagnosticsCommand => diagnostics(),
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
-            RequestConfirmationCommand request => Confirm(request),
+            RequestConfirmationCommand request => Confirm(request, caller),
             _ => null,
         };
     }
 
-    public async Task<CommandResult> HandleAsync(IpcCommand command, CancellationToken ct = default)
+    public async Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         var accepted = command switch
@@ -85,7 +85,10 @@ internal sealed class CaptureController(
 
             // Confirmed first, and spent whether or not the machine accepts it: a token that survived a
             // refused discard would authorise the next one, which is the second round trip gone.
-            DiscardCommand discard => _confirmations.Spend(discard.Confirmation, DestructiveAction.DiscardSession)
+            //
+            // Spent by the connection that asked for it. Without that the token was a bearer token and
+            // any authenticated client could spend one the technician had just been handed.
+            DiscardCommand discard => _confirmations.Spend(discard.Confirmation, DestructiveAction.DiscardSession, caller)
                 && await machine.DiscardAsync(ct).ConfigureAwait(false),
 
             MarkMomentCommand => await machine.MarkMomentAsync(ct).ConfigureAwait(false),
@@ -95,7 +98,7 @@ internal sealed class CaptureController(
             // makes the decision a decision (2026-09-19 review).
             EraseAllLocalDataCommand erase =>
                 machine.State == SessionState.Idle
-                && _confirmations.Spend(erase.Confirmation, DestructiveAction.EraseEverything)
+                && _confirmations.Spend(erase.Confirmation, DestructiveAction.EraseEverything, caller)
                 && await eraseAll(ct).ConfigureAwait(false),
             _ => false,
         };

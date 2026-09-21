@@ -29,7 +29,15 @@ public sealed class HotkeyRouter(SessionMachine machine, Func<CancellationToken,
         // Bypasses nothing and needs to bypass nothing: the marker path never went through the click
         // debouncer, so "regardless of debounce" is a property of the design rather than a special case.
         HotkeyAction.MarkMoment => await machine.MarkMomentAsync(ct).ConfigureAwait(false),
-        HotkeyAction.DiscardSession => await machine.DiscardAsync(ct).ConfigureAwait(false),
+        // Not from a chord. Discarding is irreversible and Spec §3 asks for a typed confirmation, which
+        // a keystroke cannot carry: the service issues a token and the command has to bring it back, and
+        // there is nowhere in a chord to put one.
+        //
+        // The binding has no default, and until now that absence was the whole of the rule -- this line
+        // performed the discard, so the day bindings become editable (ST-047) would have been the day a
+        // mistyped chord threw a session away with no confirmation in the path (2026-09-20 review).
+        // Refused here, where it is a property of the code rather than of a settings file.
+        HotkeyAction.DiscardSession => false,
         _ => false,
     };
 

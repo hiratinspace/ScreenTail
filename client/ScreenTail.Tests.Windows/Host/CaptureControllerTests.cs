@@ -20,6 +20,9 @@ namespace ScreenTail.Tests.Windows.Host;
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class CaptureControllerTests : IAsyncDisposable
 {
+    /// <summary>The connection every call in these tests comes from. Tokens are bound to it.</summary>
+    private static readonly Guid Window = Guid.NewGuid();
+
     private static readonly DateTimeOffset At = new(2026, 9, 16, 9, 0, 0, TimeSpan.Zero);
     private readonly string _path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
     private SqliteSessionStore? _store;
@@ -75,7 +78,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             ServiceVersion = "0.1.0",
         });
 
-        var reply = await controller.ReplyToAsync(new GetDiagnosticsCommand { RequestId = 1 }, ct);
+        var reply = await controller.ReplyToAsync(new GetDiagnosticsCommand { RequestId = 1 }, Window, ct);
 
         var diagnostics = Assert.IsType<DiagnosticsReported>(reply);
         Assert.Equal("Capturing — ScreenConnect", diagnostics.Scope);
@@ -98,6 +101,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
 
         var result = await controller.HandleAsync(
             new EraseAllLocalDataCommand { RequestId = 1, Confirmation = await TokenAsync(controller, "erase_everything", ct) },
+            Window,
             ct);
 
         Assert.True(result.Ok);
@@ -118,7 +122,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             return Task.FromResult(true);
         });
 
-        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1 }, ct);
+        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1 }, Window, ct);
 
         Assert.False(result.Ok);
         Assert.False(asked);
@@ -137,8 +141,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         });
 
         var token = await TokenAsync(controller, "erase_everything", ct);
-        _ = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token }, ct);
-        var again = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 2, Confirmation = token }, ct);
+        _ = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token }, Window, ct);
+        var again = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 2, Confirmation = token }, Window, ct);
 
         Assert.False(again.Ok);
         Assert.Equal(1, erased);
@@ -157,7 +161,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         });
 
         var token = await TokenAsync(controller, "discard_session", ct);
-        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token }, ct);
+        var result = await controller.HandleAsync(new EraseAllLocalDataCommand { RequestId = 1, Confirmation = token }, Window, ct);
 
         Assert.False(result.Ok);
         Assert.False(asked);
@@ -172,9 +176,9 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         var controller = Controller(await OpenAsync(ct));
 
         var discard = Assert.IsType<ConfirmationIssued>(
-            await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 1, Action = "discard_session" }, ct));
+            await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 1, Action = "discard_session" }, Window, ct));
         var erase = Assert.IsType<ConfirmationIssued>(
-            await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 2, Action = "erase_everything" }, ct));
+            await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 2, Action = "erase_everything" }, Window, ct));
 
         Assert.Equal("DISCARD", discard.Phrase);
         Assert.Equal("DELETE EVERYTHING", erase.Phrase);
@@ -189,12 +193,13 @@ public sealed class CaptureControllerTests : IAsyncDisposable
 
         Assert.Null(await controller.ReplyToAsync(
             new RequestConfirmationCommand { RequestId = 1, Action = "erase_everything_please" },
+            Window,
             ct));
     }
 
     private static async Task<string> TokenAsync(CaptureController controller, string action, CancellationToken ct)
     {
-        var issued = await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 99, Action = action }, ct);
+        var issued = await controller.ReplyToAsync(new RequestConfirmationCommand { RequestId = 99, Action = action }, Window, ct);
         return Assert.IsType<ConfirmationIssued>(issued).Token;
     }
 
@@ -213,7 +218,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
 
     private static async Task<SessionsListed> ListAsync(SqliteSessionStore store, CancellationToken ct)
     {
-        var reply = await Controller(store).ReplyToAsync(new ListSessionsCommand { RequestId = 1 }, ct);
+        var reply = await Controller(store).ReplyToAsync(new ListSessionsCommand { RequestId = 1 }, Window, ct);
         return Assert.IsType<SessionsListed>(reply);
     }
 
