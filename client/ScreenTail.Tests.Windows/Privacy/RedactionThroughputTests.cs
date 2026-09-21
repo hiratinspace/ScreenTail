@@ -25,7 +25,16 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
     /// <summary>The criterion's number, and the same budget ADR-0001 weighed Tesseract's 1.19 s against.</summary>
     private const double BudgetMs = 700;
 
-    private const int Frames = 200;
+    /// <summary>
+    /// How many frames to push through.
+    ///
+    /// Two hundred is the criterion's number and is what the laptop measures. A hosted runner's timings
+    /// do not count and are skipped a few lines below the measurement -- but the twenty-five seconds of
+    /// OCR and encoding were spent first, on the critical path of every client pull request, to produce
+    /// a number nothing would read. Forty is enough to drain a queue and watch the backlog reporter,
+    /// which is the part of this test that is asserted on both machines (2026-09-20 review).
+    /// </summary>
+    private static int Frames => PerformanceCounts ? 200 : 40;
 
     /// <summary>
     /// How long the backlog reporter is watched for on its own, after the queue has drained. Fixed on

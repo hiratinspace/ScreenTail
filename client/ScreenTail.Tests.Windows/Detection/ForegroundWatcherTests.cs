@@ -175,7 +175,13 @@ public sealed class ForegroundWatcherTests
         // 0.52% — which is what this reported, twice, while the true figure was somewhere between zero and
         // one tick. Over twenty seconds a single tick is 0.08%, so the budget is now measuring the watcher
         // rather than the clock's resolution.
-        var window = TimeSpan.FromSeconds(20);
+        // Twenty seconds on the laptop, where the answer is enforced; a second on a hosted runner, where
+        // it is skipped four lines below. The long window exists to beat Windows' 15.625 ms accounting
+        // quantum, which only matters when the number is going to be believed -- and the twenty seconds
+        // were being spent on the critical path of every client pull request to produce a figure nothing
+        // would read (2026-09-20 review). What survives on both is the check above that the watcher
+        // started and its pump thread can be found.
+        var window = PerformanceCounts ? TimeSpan.FromSeconds(20) : TimeSpan.FromSeconds(1);
         var before = PumpThreadTime(watcher.PumpThreadId);
         Assert.SkipWhen(before is null, "Could not find the watcher's pump thread.");
         var start = Stopwatch.GetTimestamp();
