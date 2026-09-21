@@ -311,7 +311,15 @@ public sealed class SessionMachine : IAsyncDisposable
                 // The recovered timeline continues from its last known moment, so the finalizing event stays in order.
                 _session = new ActiveSession(id, _time.GetTimestamp(), null, lastMs) { Partial = true };
                 await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
-                await FinalizeAndDraftAsync(id, lastMs, partial: true, ct).ConfigureAwait(false);
+                // No grace. Finalizing normally waits for the redaction worker to finish what it is
+                // holding, and at recovery there is no worker: CaptureHost recovers before it starts
+                // one, so the backlog cannot drain and the wait ends only by expiring -- twenty seconds
+                // of polling the store, per orphaned session, before the service serves anything.
+                //
+                // Nothing is lost by not waiting. These frames are purged either way, because an
+                // unredacted frame does not survive a crash (INV-1); the wait was buying a chance for
+                // work that nobody was doing (2026-09-20 review).
+                await FinalizeAndDraftAsync(id, lastMs, partial: true, ct, grace: TimeSpan.Zero).ConfigureAwait(false);
             }
 
             if (orphans.Count == 0)
@@ -475,11 +483,22 @@ public sealed class SessionMachine : IAsyncDisposable
         SetState(next, null);
     }
 
-    private async Task FinalizeAndDraftAsync(string sessionId, long durationMs, bool partial, CancellationToken ct)
+    /// <param name="grace">
+    /// How long to let the redaction worker finish what it is holding. Defaults to the configured grace;
+    /// recovery passes zero, because there is no worker running then.
+    /// </param>
+    private async Task FinalizeAndDraftAsync(
+        string sessionId,
+        long durationMs,
+        bool partial,
+        CancellationToken ct,
+        TimeSpan? grace = null)
     {
+        var waitFor = grace ?? _options.RedactionGrace;
         var deadline = _time.GetTimestamp();
-        while (await _store.CountPendingFramesAsync(sessionId, ct).ConfigureAwait(false) > 0
-               && _time.GetElapsedTime(deadline) < _options.RedactionGrace)
+        while (waitFor > TimeSpan.Zero
+               && await _store.CountPendingFramesAsync(sessionId, ct).ConfigureAwait(false) > 0
+               && _time.GetElapsedTime(deadline) < waitFor)
         {
             await Task.Delay(_options.RedactionPoll, _time, ct).ConfigureAwait(false);
         }
