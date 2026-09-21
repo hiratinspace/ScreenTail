@@ -146,7 +146,14 @@ public sealed class NarrationRecorderTests
             kept,
             recording: () => false);
 
-        await recorder.RunAsync(TestContext.Current.CancellationToken);
+        // Driven by a token rather than by the audio running out. The recorder waits for a session now
+        // instead of returning when the microphone has nothing left, because in a service that is what
+        // "between sessions" is (2026-09-21).
+        using var stop = new CancellationTokenSource();
+        var running = recorder.RunAsync(stop.Token);
+        await Task.Delay(150);
+        await stop.CancelAsync();
+        await running;
 
         Assert.Empty(kept);
         Assert.Equal(0, recogniser.Asked);
@@ -174,9 +181,64 @@ public sealed class NarrationRecorderTests
                 return was;
             });
 
-        await recorder.RunAsync(TestContext.Current.CancellationToken);
+        using var stop = new CancellationTokenSource();
+        var running = recorder.RunAsync(stop.Token);
+        await Task.Delay(150);
+        await stop.CancelAsync();
+        await running;
 
         Assert.Empty(kept);
+    }
+
+    [Fact]
+    public async Task TheMicrophoneIsNotOpenedWhileNothingIsBeingRecorded()
+    {
+        // 2026-09-20 efficiency review, and the cost that is not measured in cycles: the device was
+        // opened for the life of the service, so Windows lit the microphone-in-use indicator all day on
+        // a machine that records for a fraction of it. A technician turning their screen round to a
+        // customer was showing them a lit microphone.
+        //
+        // The audio was already dropped when no session was running (INV-9). What was missing was not
+        // asking for it.
+        var microphone = new FakeMicrophone(Silence(20), Speech(40));
+        var recorder = Recorder(microphone, new FakeRecogniser("x"), [], recording: () => false);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await Task.Delay(150);
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(0, microphone.Opens);
+        Assert.False(recorder.Listening);
+    }
+
+    [Fact]
+    public async Task TheMicrophoneOpensWhenASessionStarts()
+    {
+        // The other half: closing it must not be the same as never opening it.
+        var microphone = new FakeMicrophone(Silence(20), Speech(40), Silence(40));
+        var kept = new List<TranscriptSegment>();
+        var recording = false;
+        var recorder = Recorder(microphone, new FakeRecogniser("restarting the spooler"), kept, recording: () => recording);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await Task.Delay(100);
+        Assert.Equal(0, microphone.Opens);
+
+        recording = true;
+        recorder.Nudge();
+        for (var i = 0; i < 100 && kept.Count == 0; i++)
+        {
+            await Task.Delay(20);
+        }
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(1, microphone.Opens);
+        Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
     }
 
     [Fact]
@@ -275,6 +337,14 @@ public sealed class NarrationRecorderTests
     {
         private readonly List<short[]> _frames = [.. runs.SelectMany(run => run)];
 
+        /// <summary>
+        /// How many times the device was actually opened.
+        ///
+        /// Windows lights the microphone-in-use indicator for as long as it is, so this is not a
+        /// performance counter: it is what a customer sees over the technician's shoulder.
+        /// </summary>
+        public int Opens { get; private set; }
+
         public static FakeMicrophone None { get; } = new() { Present = false };
 
         public bool Present { get; private init; } = true;
@@ -290,6 +360,7 @@ public sealed class NarrationRecorderTests
                 yield break;
             }
 
+            Opens++;
             foreach (var frame in _frames)
             {
                 ct.ThrowIfCancellationRequested();
