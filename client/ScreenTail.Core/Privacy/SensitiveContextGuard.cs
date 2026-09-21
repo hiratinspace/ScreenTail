@@ -92,7 +92,7 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
         {
             // Whether or not this moved the session — the technician may have paused it meanwhile, which
             // leaves Unsuppress a no-op — the hold is over.
-            _ = await machine.UnsuppressAsync(ct).ConfigureAwait(false);
+            _ = await machine.UnsuppressAsync(CaptureStateReason.SensitiveContext, ct).ConfigureAwait(false);
             Holding = false;
         }
 

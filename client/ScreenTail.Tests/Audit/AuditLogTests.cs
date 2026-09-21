@@ -201,7 +201,7 @@ public sealed class AuditLogTests : IAsyncDisposable
         Assert.True(await machine.TryStageFrameAsync(Frame("f2"), TestContext.Current.CancellationToken));
 
         Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField));
-        Assert.True(await machine.UnsuppressAsync());
+        Assert.True(await machine.UnsuppressAsync(CaptureStateReason.PasswordField));
 
         await harness.Store.RecordAsync(AuditTypes.FrameRedacted, machine.SessionId, 2, nameof(MaskKind.Card));
         await harness.Store.RecordAsync(AuditTypes.FramesPurgedUnredacted, machine.SessionId, 1);
