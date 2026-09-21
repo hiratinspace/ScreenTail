@@ -18,6 +18,31 @@ public sealed class RetentionOptions
 /// </param>
 public sealed class RetentionJob(ISessionStore store, TimeProvider time, RetentionOptions options, Func<string?>? activeSessionId = null)
 {
+    /// <summary>
+    /// How much of the file has to be free before rebuilding it is worth the freeze.
+    ///
+    /// A third. SQLite reuses freed pages, so a store that has just purged a week of sessions is not a
+    /// store that needs rebuilding -- the next session's frames go into the same space. Below this the
+    /// file is doing its own housekeeping and the only thing a VACUUM buys is a smaller number in
+    /// Explorer.
+    /// </summary>
+    public const double WorthReclaiming = 0.3;
+
+    /// <summary>
+    /// Whether to rebuild the file.
+    ///
+    /// VACUUM rewrites every page of an encrypted database -- decrypt, re-encrypt, write -- with the
+    /// store's single gate held for all of it: 28.5 seconds over 750 MB on a fast SSD, and it wants free
+    /// disk space about equal to the database. It ran after any retention pass that purged anything, and
+    /// sessions age out through the working day, so that was a half-minute freeze in the middle of a
+    /// technician's afternoon to reclaim pages that were about to be reused (2026-09-20 review).
+    ///
+    /// Not while recording, whatever the numbers say. Holding the gate that long stalls the drain loop,
+    /// frame staging and every IPC read behind them; the space can wait and the session cannot.
+    /// </summary>
+    public static bool ShouldVacuum(int purged, double freeFraction, bool recording) =>
+        purged > 0 && !recording && freeFraction >= WorthReclaiming;
+
     /// <returns>How many sessions were purged in this run.</returns>
     public async Task<int> RunAsync(CancellationToken ct = default)
     {
@@ -28,7 +53,10 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
             await store.PurgeRawDataAsync(sessionId, ct).ConfigureAwait(false);
         }
 
-        if (expired.Count > 0)
+        if (ShouldVacuum(
+            expired.Count,
+            await store.FreeSpaceFractionAsync(ct).ConfigureAwait(false),
+            recording: activeSessionId?.Invoke() is not null))
         {
             await store.VacuumAsync(ct).ConfigureAwait(false);
         }

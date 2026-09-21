@@ -529,6 +529,25 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
     }
 
+    /// <summary>
+    /// How much of the file is free pages, between 0 and 1.
+    ///
+    /// SQLite keeps the space a delete frees on a freelist and reuses it, so a store that has purged a
+    /// week of sessions is not a store that has to be rebuilt -- the next session's frames go into the
+    /// same pages. This is what tells the two apart (2026-09-20 review).
+    /// </summary>
+    public async Task<double> FreeSpaceFractionAsync(CancellationToken ct = default)
+    {
+        var pages = await ScalarAsync<long>("PRAGMA page_count", ct).ConfigureAwait(false);
+        if (pages <= 0)
+        {
+            return 0;
+        }
+
+        var free = await ScalarAsync<long>("PRAGMA freelist_count", ct).ConfigureAwait(false);
+        return (double)free / pages;
+    }
+
     public async Task VacuumAsync(CancellationToken ct = default)
     {
         // In WAL mode VACUUM writes the rebuilt file into the log; only a truncating checkpoint returns the space.
@@ -647,9 +666,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             },
             ct);
 
+    /// <summary>
+    /// The audit log's rows, for one session or for all of them.
+    ///
+    /// Two statements rather than one with <c>(@session IS NULL OR session_id = @session)</c>. SQLite
+    /// cannot use <c>audit_by_session</c> through that OR — it planned a full scan of the log whichever
+    /// argument it was given — and the audit log is the one table nothing ever prunes, so it is the one
+    /// place a scan gets slower for ever (2026-09-20 review, confirmed with EXPLAIN QUERY PLAN).
+    /// </summary>
     public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) =>
         QueryAsync<IReadOnlyList<AuditEntry>>(
-            "SELECT id, at, session_id, type, count FROM audit_log WHERE (@session IS NULL OR session_id = @session) ORDER BY id",
+            "SELECT id, at, session_id, type, count FROM audit_log "
+            + (sessionId is null ? "ORDER BY id" : "WHERE session_id = @session ORDER BY id"),
             async reader =>
             {
                 var entries = new List<AuditEntry>();
@@ -686,7 +714,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     private Task<IReadOnlyList<AuditRecord>> ReadAuditRecordsHoldingGateAsync(string? sessionId, CancellationToken ct) =>
         QueryInTransactionAsync<IReadOnlyList<AuditRecord>>(
             "SELECT id, at, session_id, type, count, detail, prev_hash, hash FROM audit_log "
-            + "WHERE (@session IS NULL OR session_id = @session) ORDER BY id",
+            + (sessionId is null ? "ORDER BY id" : "WHERE session_id = @session ORDER BY id"),
             async reader =>
             {
                 var records = new List<AuditRecord>();

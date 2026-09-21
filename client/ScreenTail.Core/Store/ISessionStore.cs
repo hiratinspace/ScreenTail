@@ -121,6 +121,9 @@ public interface ISessionStore : IAsyncDisposable
     Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
+    /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>
+    Task<double> FreeSpaceFractionAsync(CancellationToken ct = default);
+
     Task VacuumAsync(CancellationToken ct = default);
 
     /// <summary>
