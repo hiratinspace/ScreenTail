@@ -298,7 +298,16 @@ jobs:
           if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
           $dll = $dll.Trim()
           if (-not (Test-Path $dll)) { throw "No test binary at '$dll'. Was it built?" }
-          dotnet $dll -result-trx (Join-Path $out 'input.trx')
+          # Only the tests that need the keyboard.
+          #
+          # This job ran the whole assembly, which the capabilities job above had just finished running
+          # on the same machine -- about fifty seconds of the laptop's time, and the laptop runs one job
+          # at a time, so it is fifty seconds in front of the hardware gate of every pull request that
+          # touches the capture path (2026-09-20 review).
+          #
+          # The four input-injection tests are the only ones that need SCREENTAIL_ALLOW_INPUT_INJECTION,
+          # and the skip gate below still expects none of them to skip.
+          dotnet $dll -class '*InputHookTests' -result-trx (Join-Path $out 'input.trx')
           exit $LASTEXITCODE
 
       # TypingAPasswordRecordsOnlyHowManyKeys is INV-2's only end-to-end proof and it runs here. Without

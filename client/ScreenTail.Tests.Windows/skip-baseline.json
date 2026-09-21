@@ -27,7 +27,7 @@
     },
     "laptop-input": {
       "maxSkipped": 0,
-      "why": "SCREENTRAIL, input-injection job. Measured on 2026-09-16."
+      "why": "SCREENTRAIL, input-injection job. Filtered to InputHookTests from 2026-09-21: the rest of the assembly had just been run by the capabilities job on the same machine, and the laptop runs one job at a time. Measured on 2026-09-16."
     }
   }
 }
