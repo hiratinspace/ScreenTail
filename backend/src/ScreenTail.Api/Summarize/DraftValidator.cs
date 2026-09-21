@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ScreenTail.Api.Summarize;
@@ -111,6 +112,43 @@ public static class DraftValidator
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
+    /// <summary>How much of a model-chosen string is worth repeating. Enough to recognise a citation.</summary>
+    private const int EchoedLength = 48;
+
+    /// <summary>
+    /// A model-chosen string, made safe to put in a sentence.
+    ///
+    /// Every reason below quotes something the model wrote, and those reasons go back to the client and
+    /// into the stored draft-failed reason. The model reads OCR of a customer's screen, so a screen can
+    /// suggest what it writes: a "frame id" carrying newlines forges log lines, and one carrying a
+    /// thousand characters pushes screen content into places INV-10 keeps it out of. Neither needs an
+    /// attacker — a model having a bad day writes long nonsense on its own.
+    ///
+    /// Kept recognisable rather than removed, because a reason that will not say which citation was
+    /// wrong does not help the technician reading it.
+    /// </summary>
+    private static string Echoed(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "";
+        }
+
+        var safe = new StringBuilder(Math.Min(value.Length, EchoedLength));
+        foreach (var c in value)
+        {
+            if (safe.Length == EchoedLength)
+            {
+                return safe.Append('…').ToString();
+            }
+
+            // Printable, and nothing that ends a line or closes the quotation it sits inside.
+            _ = safe.Append(char.IsControl(c) || c == '\'' ? '.' : c);
+        }
+
+        return safe.ToString();
+    }
+
     /// <returns>Why this draft may not be shown. Empty means it is fine to store.</returns>
     public static IReadOnlyList<string> Check(DraftJson draft, SummarizeBundle bundle)
     {
@@ -138,22 +176,22 @@ public static class DraftValidator
                 {
                     // Review renders frame references as chips a technician clicks. A dangling one is a
                     // broken promise of evidence, and usually means the step was invented with it.
-                    reasons.Add($"{where} cites frame '{frameId}', which is not in this session.");
+                    reasons.Add($"{where} cites frame '{Echoed(frameId)}', which is not in this session.");
                 }
                 else if (frame.Excluded)
                 {
-                    reasons.Add($"{where} cites frame '{frameId}', which the technician removed.");
+                    reasons.Add($"{where} cites frame '{Echoed(frameId)}', which the technician removed.");
                 }
             }
 
             foreach (var segmentId in step.TranscriptRefs.Where(id => !segments.ContainsKey(id)))
             {
-                reasons.Add($"{where} cites transcript segment '{segmentId}', which does not exist.");
+                reasons.Add($"{where} cites transcript segment '{Echoed(segmentId)}', which does not exist.");
             }
 
             if (step.TranscriptRefs.Count == 0 && !string.Equals(step.Confidence, "low", StringComparison.OrdinalIgnoreCase))
             {
-                reasons.Add($"{where} has no transcript evidence, so its confidence cannot be '{step.Confidence}'.");
+                reasons.Add($"{where} has no transcript evidence, so its confidence cannot be '{Echoed(step.Confidence)}'.");
             }
 
             reasons.AddRange(CheckText(where, step.Text, spoken));
