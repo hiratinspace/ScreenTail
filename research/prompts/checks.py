@@ -42,12 +42,68 @@ CARD_CANDIDATE = re.compile(r"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b")
 # technician actually writes it, and an alternation of whole phrases only caught the phrasings somebody
 # thought of: "was" matched, the value became "reset", and the credential after it went into the note.
 # Up to three linking words, then whatever follows.
-CREDENTIAL = re.compile(
-    r"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b"
-    r"(?:\s+(?:is|was|to|set|reset|changed|now|will|be)){0,3}"
-    r"\s*[:=#]?\s*(?P<value>[^\s,.;!?]{3,})",
+# Only the cue. Where the credential sits after it is a question about how somebody writes or speaks,
+# and a single regular expression answered it by assuming they are adjacent. On 2026-09-21 four of the
+# seven phrasings the client scrubber had just been fixed for still passed here untouched -- "the
+# password is, uh, Winter2026" matched nothing at all, because the connective run consumed " is" and
+# then the value could not begin on a comma. The walk below is CREDENTIAL_WALK, mirrored in
+# DraftValidator.cs.
+CREDENTIAL_CUE = re.compile(
+    r"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b",
     re.IGNORECASE,
 )
+
+# Words that join a cue to the credential, or that somebody says while remembering one. Skipped rather
+# than treated as the value.
+CONNECTIVES = {
+    "is",
+    "was",
+    "to",
+    "set",
+    "reset",
+    "changed",
+    "change",
+    "now",
+    "will",
+    "be",
+    "equals",
+    "are",
+    "uh",
+    "um",
+    "er",
+    "ah",
+    "like",
+    "just",
+    "actually",
+    "currently",
+    "still",
+    "the",
+    "a",
+    "an",
+    "on",
+    "for",
+    "of",
+    "at",
+    "in",
+    "my",
+    "your",
+    "our",
+    "their",
+    "his",
+    "her",
+    "its",
+    "new",
+    "old",
+    "that",
+    "this",
+    "it",
+}
+
+# How far past the cue to look, and how the text is cut into words. A full stop ends the sentence and
+# with it any claim that what follows is the credential.
+MAX_STEPS = 6
+WORD = re.compile(r"[^\s,.;!?:=\"']+")
+SENTENCE_END = set(".;!?")
 
 # What separates a credential from a sentence about one. "Outlook prompted for a password repeatedly"
 # and "the password is wrong" are notes a technician would write; "the password is Summer2024" is the
@@ -68,6 +124,56 @@ DIRECTIVE = re.compile(
     r"|\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
     re.IGNORECASE,
 )
+
+
+def next_word(text, start):
+    """The next word after start, or None at the end of the sentence or the text."""
+    i = start
+    while i < len(text) and not WORD.match(text, i):
+        if text[i] in SENTENCE_END:
+            return None
+        i += 1
+    match = WORD.match(text, i) if i < len(text) else None
+    return match if match else None
+
+
+def credential_after(text, start):
+    """Whether a credential follows a cue, looking past the words that join the two.
+
+    The first word that is not a joining word decides. If it looks like a secret, it is one. If it is an
+    ordinary word with a joining word behind it, the cue was still naming what the credential is for
+    ("the password on the router is Winter2026") and the walk continues. A credential said as two words
+    ("Winter 2026") is judged on the pair, because neither half looks like a secret alone.
+    """
+    at = start
+    for _ in range(MAX_STEPS):
+        word = next_word(text, at)
+        if word is None:
+            return False
+
+        value = word.group()
+        if value.lower() in CONNECTIVES:
+            at = word.end()
+            continue
+
+        # The redaction engine's own marker. Finding one means the rules upstream worked.
+        if value.startswith("["):
+            return False
+
+        if SECRET_SHAPED.match(value):
+            return True
+
+        following = next_word(text, word.end())
+        if following is not None:
+            if SECRET_SHAPED.match(value + following.group()):
+                return True
+            if following.group().lower() in CONNECTIVES:
+                at = word.end()
+                continue
+
+        return False
+
+    return False
 
 
 def prompt_version() -> str:
@@ -208,11 +314,8 @@ def check_no_secrets(text: str) -> list[str]:
         reasons.append("contains something shaped like a key or token.")
 
     # "the password is [REDACTED]" is the redaction working and must stay; "the password is Summer2024"
-    # is the thing Rule 5 forbids and nothing checked for.
-    for credential in CREDENTIAL.finditer(text):
-        value = credential.group("value")
-        if not value.startswith("[") and SECRET_SHAPED.match(value):
-            reasons.append("reproduces a credential.")
-            break
+    # is the thing Rule 5 forbids.
+    if any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text)):
+        reasons.append("reproduces a credential.")
 
     return reasons

@@ -16,7 +16,6 @@
     "failure, and is not asserted on: which rule fires is an implementation detail, and pinning it here",
     "would make the two implementations agree about their internals rather than about their answers."
   ],
-
   "cases": [
     {
       "text": "Printing works again from the reception workstation.",
@@ -38,7 +37,6 @@
       "refuse": false,
       "why": "The redaction engine's own markers are allowed; guessing what they stood for is not."
     },
-
     {
       "text": "The password is Summer2024!",
       "refuse": true,
@@ -74,7 +72,6 @@
       "refuse": true,
       "why": "A private key header in a note is a private key in a ticket."
     },
-
     {
       "text": "Her social security number is 123-45-6789 on the form.",
       "refuse": true,
@@ -90,7 +87,6 @@
       "refuse": true,
       "why": "A Luhn-valid card number written back into the note."
     },
-
     {
       "text": "The technician said \"I have rebooted the print server\" before the test page.",
       "refuse": true,
@@ -111,7 +107,6 @@
       "refuse": true,
       "why": "Guillemets. The prompt says quotation marks, not one shape of them."
     },
-
     {
       "text": "Run powershell -c Set-ExecutionPolicy Bypass to finish the fix.",
       "refuse": true,
@@ -146,6 +141,31 @@
       "text": "Turn off the firewall so the share is reachable.",
       "refuse": true,
       "why": "The same, phrased the way a screen would phrase it."
+    },
+    {
+      "text": "The password is, uh, Winter2026.",
+      "refuse": true,
+      "why": "2026-09-21. A person saying a credential aloud hesitates. The connective run needed the cue and the value adjacent, so this matched nothing at all and the credential reached the note."
+    },
+    {
+      "text": "The password on the router is Winter2026",
+      "refuse": true,
+      "why": "Same shape: the cue names what the password is for before it gives it. Matched nothing."
+    },
+    {
+      "text": "The password is the usual Winter2026",
+      "refuse": true,
+      "why": "The value position held 'the', which is not credential-shaped, so the rule looked and passed."
+    },
+    {
+      "text": "The password is Winter 2026",
+      "refuse": true,
+      "why": "A spoken credential can have a space in it. The rule stopped at 'Winter' and judged it ordinary."
+    },
+    {
+      "text": "The password field was blank on that profile.",
+      "refuse": false,
+      "why": "The other half: walking further to find a credential must not turn a sentence about one into a refusal."
     }
   ]
 }
