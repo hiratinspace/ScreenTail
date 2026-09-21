@@ -113,11 +113,12 @@ internal sealed class CaptureController(
 
     private async Task<SessionsListed> ListAsync(ListSessionsCommand command, CancellationToken ct)
     {
-        var sessions = await store.ListSessionsAsync(ct).ConfigureAwait(false);
+        // The limit reaches the query rather than being applied to everything it read.
+        var limit = Math.Clamp(command.Limit, 1, 1000);
+        var sessions = await store.ListSessionsAsync(limit, ct).ConfigureAwait(false);
         return new SessionsListed
         {
             Sessions = [.. sessions
-                .Take(Math.Clamp(command.Limit, 1, 1000))
                 .Select(s => new SessionRow
                 {
                     Id = s.Id,

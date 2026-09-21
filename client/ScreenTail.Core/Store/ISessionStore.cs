@@ -142,7 +142,8 @@ public interface ISessionStore : IAsyncDisposable
     /// and <see cref="LoadSessionAsync"/> reads every frame, event and transcript segment of a session to
     /// build one. Two hundred of those is the whole store.
     /// </summary>
-    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(CancellationToken ct = default);
+    /// <param name="limit">How many rows to read. The caller shows a page; the store should not read the store.</param>
+    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default);
 
     Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default);
 
