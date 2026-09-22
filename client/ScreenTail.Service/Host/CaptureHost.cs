@@ -86,16 +86,53 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // The sources need the capturer and the scope coordinator, which are built further down; the
         // machine has to exist before either, so it gets a holder that is filled in once they do.
         var sources = new DeferredCaptureSources();
-        // ST-060: the bundle is assembled for real when a session ends, and the only missing step is a
-        // provider to send it to. Building it from today means the selection rules run against real
-        // sessions on real hardware before there is anything at stake in them.
-        // ST-064: work that has to reach the network, kept until it does. The sender is not wired yet —
-        // ST-063 supplies the provider — so nothing leaves the machine; what exists now is the queue, so
-        // that a draft owed while offline is still owed after a restart rather than lost at finalize.
+
+        // Where this deployment's backend is, and what this device calls itself.
+        //
+        // Environment variables, and deliberately not a settings system. ST-047 and ST-081 own settings
+        // and an enrolment flow owns the token (ST-010 has no issuing endpoint yet, so this one is
+        // issued by hand). What this is for is making the path real today: without a backend address
+        // nothing can be sent, and inventing a configuration format here would be inventing the thing
+        // two other tickets are going to replace.
+        //
+        // Unset is the ordinary case and not an error. The queue keeps the work, Review says the session
+        // could not be drafted, and the screenshots and transcript are still there (Spec §5 S3).
+        var backend = Uri.TryCreate(Environment.GetEnvironmentVariable("SCREENTAIL_BACKEND"), UriKind.Absolute, out var url)
+            ? url
+            : null;
+
+        // ST-046: every HTTP request the client makes is built through this, so INV-8 is enforced by the
+        // composition root rather than by convention. One policy for the guard and for what diagnostics
+        // reports about it -- two meant the panel read local-only off a throwaway object and told a
+        // customer "local-only: no" whatever the guard was actually doing (2026-09-19 review).
+        //
+        // The model hosts are named because the transcriber cannot fetch its model otherwise. The
+        // backend host is named from the address that was configured, so the allowlist is what an
+        // operator asked for rather than whatever a server later claims to be.
+        var egressPolicy = new EgressPolicy(new EgressSettings
+        {
+            ModelHosts = SpeechModels.Hosts,
+            BackendHosts = backend is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backend.Host },
+        });
+        var egress = new EgressGuard(egressPolicy);
+
+        // ST-060 built the bundle, ST-063 built the endpoint, ST-064 built the queue, and between them
+        // sat a stub that returned "no summarization provider is configured yet" -- so no session has
+        // ever produced a note. This is that step.
+        //
+        // With no backend configured the queue behaves exactly as it did: the work is kept, and the
+        // reason a technician sees names the thing that is missing.
+        var draftHttp = new HttpClient(egress) { BaseAddress = backend };
+        var sender = new DraftSender(draftHttp, store, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
         var outbox = new Core.Outbox.Outbox(
             store,
-            (item, _) => Task.FromResult(SendOutcome.Retry("No summarization provider is configured yet.")),
+            (item, ct) => backend is null
+                ? Task.FromResult(SendOutcome.Retry(BundlingDrafter.NoProviderReason))
+                : sender.SendAsync(item, ct),
             TimeProvider.System);
+
         var drafter = new BundlingDrafter(store, logger, outbox);
         // One engine for what is seen and what is said. Two would drift the day a tenant's own patterns
         // are loaded into one of them, and speech would go on being checked against the defaults.
@@ -116,18 +153,6 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         var verifier = new WindowsClientVerifier(serviceExecutable);
         var pipeName = WindowsPipeFactory.PipeNameForCurrentUser();
-
-        // ST-046: every HTTP request the client makes is built through this, so INV-8 is enforced by the
-        // composition root rather than by convention. Nothing in the service makes one yet; the guard is
-        // installed now so that the first thing that does cannot accidentally be the exception.
-        // One policy for the guard and for what diagnostics reports about it. Two meant the panel read
-        // local-only off a throwaway object and told a customer "local-only: no" whatever the guard was
-        // actually doing (2026-09-19 review).
-        //
-        // The model hosts are named here because the transcriber cannot fetch its model otherwise: the
-        // list was empty, every request was refused, and narration silently never worked.
-        var egressPolicy = new EgressPolicy(new EgressSettings { ModelHosts = SpeechModels.Hosts });
-        var egress = new EgressGuard(egressPolicy);
 
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
