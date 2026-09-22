@@ -151,6 +151,69 @@ public sealed class DraftSenderTests : IAsyncDisposable
         Assert.Equal(0, handler.Requests);
     }
 
+    [Fact]
+    public async Task TheClientWritesTheContractTheBackendReads()
+    {
+        // The backend must not depend on a Windows-only client, so what binds the two is JSON and the
+        // field names are the contract. This one drifted before anything could notice it: while the
+        // sender was a stub the shape had never been posted anywhere, and `image` meant a path on this
+        // side and base64 bytes on the other.
+        //
+        // shared/contracts/summarize-request.v1.json is the fixture both ends read. The backend's
+        // WireContractTests posts it to the real endpoint; this asserts the client writes it.
+        var store = await SessionAsync();
+        var handler = new RecordingHandler(Answer(HttpStatusCode.OK, Ok()));
+
+        _ = await Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        var contract = Contract();
+        var sent = Sent(handler);
+        Assert.Equal(Shape(contract), Shape(sent));
+    }
+
+    /// <summary>
+    /// The field names and nesting, as a sorted list of paths. Values are deliberately left out: the
+    /// fixture describes a different session than the one this test records, and what has to agree is
+    /// the shape rather than the contents.
+    /// </summary>
+    private static List<string> Shape(JsonElement element, string path = "")
+    {
+        var paths = new List<string>();
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    paths.AddRange(Shape(property.Value, $"{path}.{property.Name}"));
+                }
+
+                break;
+
+            // One entry per array, from its first item: a contract is about what an element looks like,
+            // not how many there are.
+            case JsonValueKind.Array:
+                var first = element.EnumerateArray().FirstOrDefault();
+                paths.AddRange(first.ValueKind == JsonValueKind.Undefined ? [$"{path}[]"] : Shape(first, $"{path}[]"));
+                break;
+
+            default:
+                paths.Add(path);
+                break;
+        }
+
+        paths.Sort(StringComparer.Ordinal);
+        return paths;
+    }
+
+    /// <summary>The request out of the shared contract fixture.</summary>
+    private static JsonElement Contract()
+    {
+        using var stream = typeof(DraftSenderTests).Assembly.GetManifestResourceStream("ScreenTail.Tests.summarize-request.v1.json")
+            ?? throw new InvalidOperationException("The shared contract fixture is not embedded in this assembly.");
+        using var document = JsonDocument.Parse(stream);
+        return JsonDocument.Parse(document.RootElement.GetProperty("request").GetRawText()).RootElement;
+    }
+
     /// <summary>The request body, parsed. What the backend would have received.</summary>
     private static JsonElement Sent(RecordingHandler handler) =>
         JsonDocument.Parse(handler.Body ?? throw new InvalidOperationException("nothing was sent")).RootElement;

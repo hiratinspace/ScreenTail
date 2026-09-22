@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "One session on the wire, exactly as the client posts it to POST /v1/sessions/summarize.",
+    "",
+    "Read by both ends of the request, and by neither's production code. The client's DraftSender",
+    "writes this shape; the backend's SummarizeBundle reads it. Nothing else binds them: the backend",
+    "must not depend on a Windows-only client, so the field names ARE the contract, and a contract",
+    "that lives only in two comments is a contract that drifts.",
+    "",
+    "It drifted before anyone could notice, because until 2026-09-22 nothing had ever sent a bundle.",
+    "The client's own SessionBundle carries `image` as a PATH -- frames/f-0002.jpg -- because that is",
+    "what a session looks like on disk, and the backend has always wanted base64 bytes under the same",
+    "name. Two readings of one field name, and no test could see it while the sender was a stub.",
+    "",
+    "Change this file only when both sides change with it. ClientWritesTheContract (client) and",
+    "TheContractIsWhatThisEndpointAccepts (backend) are the pair that notice.",
+    "",
+    "The image is eight bytes of JPEG header rather than a real screenshot: what is under test is the",
+    "shape of the request, and a fixture nobody can read is a fixture nobody can check."
+  ],
+  "request": {
+    "session_id": "s-0001",
+    "duration_ms": 1260000,
+    "partial_capture": false,
+    "frames_purged_unredacted": 0,
+    "ocr_partial": false,
+    "frames": [
+      {
+        "id": "f-0001",
+        "ts_ms": 42000,
+        "ocr_text": "Services  Print Spooler  Stopped  Automatic",
+        "image": "/9j/4AAQSkZJRg=="
+      },
+      {
+        "id": "f-0002",
+        "ts_ms": 311000,
+        "ocr_text": "Print Spooler Properties  Service status: Running",
+        "image": "/9j/4AAQSkZJRg=="
+      }
+    ],
+    "transcript": [
+      {
+        "id": "t-0001",
+        "ts_ms": 41000,
+        "text": "the spooler service is stopped, so nothing is going to print"
+      },
+      {
+        "id": "t-0002",
+        "ts_ms": 309000,
+        "text": "started it again and set it to automatic so it comes back after a reboot"
+      }
+    ]
+  }
+}
