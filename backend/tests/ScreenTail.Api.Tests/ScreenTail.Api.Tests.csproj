@@ -25,5 +25,6 @@
          research harness reads the same file from its own tests; embedding it means this suite does not
          depend on where the repository is checked out, and a case added on either side fails both. -->
     <EmbeddedResource Include="..\..\..\research\prompts\hardening-cases.json" LogicalName="ScreenTail.Api.Tests.hardening-cases.json" />
+    <EmbeddedResource Include="..\..\..\shared\contracts\summarize-request.v1.json" LogicalName="ScreenTail.Api.Tests.summarize-request.v1.json" />
   </ItemGroup>
 </Project>
