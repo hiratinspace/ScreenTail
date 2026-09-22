@@ -83,9 +83,22 @@ public static class SpeechModels
     public static IReadOnlyList<SpeechModel> All { get; } = [TinyEnglish, BaseEnglish, SmallEnglish];
 
     /// <summary>
-    /// Which model suits this machine. ST-031 budgets 15% of the CPU for all of ScreenTail, and
-    /// transcription is the hungriest thing in it, so a four-core laptop that is also taking screenshots
-    /// and running OCR gets the base model and an eight-core desktop gets the better one.
+    /// Which model this machine gets.
+    ///
+    /// <b>Always <see cref="BaseEnglish"/>, and the argument is ignored.</b> It used to be
+    /// <c>processors >= 8 ? small.en : base.en</c>, asked with <see cref="Environment.ProcessorCount"/>,
+    /// which counts logical processors — so the reference laptop, four cores with hyper-threading,
+    /// reported eight and has been running the larger model all along.
+    ///
+    /// Cores were the wrong question. ADR-0001 measured base.en on that laptop at 505 MB resident
+    /// against ST-031's 600 MB for the whole of ScreenTail; 148 MB of that is the weights, so everything
+    /// else comes to about 357 MB. small.en's 488 MB puts the total near 845 MB on any machine at all.
+    /// A model does not fit into memory it does not fit into because there are more cores to run it on
+    /// (2026-09-20 review).
+    ///
+    /// The parameter stays so that callers do not have to change and so that this reads as a decision
+    /// rather than a constant. <see cref="SmallEnglish"/> is still published and still better on product
+    /// names; choosing it is something an operator does on purpose, knowing the cost (ST-047).
     /// </summary>
-    public static SpeechModel For(int processors) => processors >= 8 ? SmallEnglish : BaseEnglish;
+    public static SpeechModel For(int processors) => BaseEnglish;
 }
