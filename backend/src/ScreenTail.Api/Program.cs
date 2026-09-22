@@ -84,6 +84,28 @@ builder.Services.AddRequestTimeouts(timeouts =>
 
 var app = builder.Build();
 
+// ST-010 has no enrolment flow yet, so a client has nothing to put in an Authorization header and the
+// drafting path can be tested but not run. This prints a token for one seeded device and exits without
+// ever listening, and DevEnrolment refuses outright unless this is Development -- starting the
+// production container with the flag still on a command line is an accident somebody will have.
+//
+// Delete this with ST-010.
+if (args.Contains("--enrol-dev-device", StringComparer.Ordinal))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var enrolled = await DevEnrolment.EnrolAsync(
+        scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
+        scope.ServiceProvider.GetRequiredService<TokenIssuer>(),
+        app.Environment.IsDevelopment());
+
+    Console.WriteLine($"tenant  {enrolled.TenantId}");
+    Console.WriteLine($"device  {enrolled.DeviceId}");
+    Console.WriteLine($"expires {enrolled.ExpiresAt:u}");
+    Console.WriteLine();
+    Console.WriteLine($"SCREENTAIL_DEVICE_TOKEN={enrolled.Token}");
+    return;
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
