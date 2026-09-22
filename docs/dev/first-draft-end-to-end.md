@@ -27,14 +27,25 @@ rate) and not for proving the loop.
 
 ## 1. Start the backend
 
+**The Gemini key is already saved** in user secrets as `Summarization:ApiKey`, and Development reads
+those automatically. Check without printing it:
+
 ```bash
 cd backend
+dotnet user-secrets list --project src/ScreenTail.Api
+```
+
+If it is there, do not set it again. What is *not* saved is the database and the signing key:
+
+```bash
 export ConnectionStrings__Postgres='Host=localhost;Database=screentail;Username=postgres;Password=postgres'
 export Jwt__Issuer=screentail-dev Jwt__Audience=screentail-api
 export Jwt__SigningKey='a-development-signing-key-at-least-32-chars'
-export Summarization__ApiKey='<your Gemini key>'
 dotnet run --project src/ScreenTail.Api
 ```
+
+Those two could live in user secrets as well, which is the better home for them — the environment
+variables above are what makes the first run possible without deciding that.
 
 The signing key has no default and the service refuses to start without one, deliberately: a development
 default becomes a production key the first time somebody forgets.
