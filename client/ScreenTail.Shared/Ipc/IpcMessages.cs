@@ -20,6 +20,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(ListSessionsCommand), "list_sessions")]
 [JsonDerivedType(typeof(EraseAllLocalDataCommand), "erase_all_local_data")]
 [JsonDerivedType(typeof(RequestConfirmationCommand), "request_confirmation")]
+[JsonDerivedType(typeof(IndicatorShowingCommand), "indicator_showing")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -62,6 +63,32 @@ public sealed record DiscardCommand : IpcCommand
 {
     [JsonPropertyName("confirmation")]
     public string? Confirmation { get; init; }
+}
+
+/// <summary>
+/// The UI saying it is showing the recording indicator, and where (INV-4).
+///
+/// Sent while it is true and not once at startup, because the interesting failure is a UI that stops
+/// painting without closing: the socket stays open and the pill goes stale. The service expires a
+/// report it has not heard repeated.
+///
+/// The rectangle is the pill's own, in virtual-screen coordinates. It is there so the claim is a
+/// specific one a person could check against a screenshot rather than a bare assertion, and because the
+/// UI has to compute it anyway to know whether the pill is on a screen at all.
+/// </summary>
+public sealed record IndicatorShowingCommand : IpcCommand
+{
+    [JsonPropertyName("x")]
+    public required double X { get; init; }
+
+    [JsonPropertyName("y")]
+    public required double Y { get; init; }
+
+    [JsonPropertyName("width")]
+    public required double Width { get; init; }
+
+    [JsonPropertyName("height")]
+    public required double Height { get; init; }
 }
 
 public sealed record MarkMomentCommand : IpcCommand;

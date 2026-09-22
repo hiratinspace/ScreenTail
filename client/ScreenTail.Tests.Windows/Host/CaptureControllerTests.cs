@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Host;
@@ -301,7 +302,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             new AlwaysCapableProbe(),
             store,
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
-            erase ?? (_ => Task.FromResult(false)));
+            erase ?? (_ => Task.FromResult(false)),
+            new IndicatorReports());
 
     /// <summary>A machine the test can drive as well as hand to the controller.</summary>
     private SessionMachine Machine(SqliteSessionStore store) =>
