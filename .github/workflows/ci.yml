@@ -478,6 +478,71 @@ jobs:
       - uses: actions/checkout@v7
       # A duplicate key is valid YAML — the last one silently wins — but GitHub rejects the file, and a
       # bad merge resolution produces exactly that. This says which key and which line, before the push.
+      # The gate in this file and the triggers in hardware-checks.yml have to describe the same set of
+      # paths, and a comment saying so is not a mechanism. When this file says a change needs hardware
+      # evidence and that workflow does not run, the gate waits thirty-five minutes for a run that was
+      # never going to start and then fails -- on a pull request with nothing wrong with it.
+      #
+      # Checked by example rather than by comparing a regex with a glob list, because the two notations
+      # do not compare and the examples are what a person would check by hand anyway.
+      - name: The hardware gate and the hardware workflow agree
+        run: |
+          python3 - <<'EOF'
+          import re, sys, yaml, fnmatch
+
+          ci = pathlib_read = open('.github/workflows/ci.yml').read()
+          match = re.search(r"only '(\^\([^']+\))' hardware", ci)
+          if not match:
+              sys.exit("Could not find the hardware only() filter in ci.yml.")
+          gate = re.compile(match.group(1))
+
+          hardware = yaml.safe_load(open('.github/workflows/hardware-checks.yml'))
+          globs = hardware[True]['pull_request']['paths']
+
+          def triggers(path):
+              return any(fnmatch.fnmatch(path, glob) for glob in globs)
+
+          # One real file per area the laptop is meant to see, and a few it is not.
+          needs_laptop = [
+              'client/ScreenTail.Core/Capture/PendingFrames.cs',
+              'client/ScreenTail.Core/Privacy/RedactionWorker.cs',
+              'client/ScreenTail.Core/Input/HookLifetime.cs',
+              'client/ScreenTail.Core/Store/SqliteSessionStore.cs',
+              'client/ScreenTail.Core/Ipc/IndicatorReports.cs',
+              'client/ScreenTail.Core/Sessions/SessionMachine.cs',
+              'client/ScreenTail.Core/Speech/SpeechModels.cs',
+              'client/ScreenTail.Core/Detection/ScopePolicy.cs',
+              'client/ScreenTail.Core/Capabilities/Probe.cs',
+              'client/ScreenTail.Service/Capture/ClickCaptureLoop.cs',
+              'client/ScreenTail.Platform/Ipc/ProcessImage.cs',
+              'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
+              'scripts/windows/run-local.ps1',
+          ]
+          does_not = [
+              'client/ScreenTail.UI/Shell/LiveShell.cs',
+              'client/ScreenTail.Core/Net/DraftSender.cs',
+              'client/ScreenTail.Core/Intel/BundleBuilder.cs',
+              'backend/src/ScreenTail.Api/Program.cs',
+              'docs/README.md',
+          ]
+
+          bad = []
+          for path in needs_laptop:
+              flagged, runs = bool(gate.match(path)), triggers(path)
+              if not flagged:
+                  bad.append(f"{path}: ci.yml would not ask for hardware evidence.")
+              elif not runs:
+                  bad.append(f"{path}: ci.yml asks for evidence but hardware-checks.yml does not run -- the gate would wait for a run that never starts.")
+
+          for path in does_not:
+              if gate.match(path):
+                  bad.append(f"{path}: ci.yml asks for hardware evidence it does not need.")
+
+          for line in bad:
+              print(f"::error file=.github/workflows/ci.yml::{line}")
+          sys.exit(1 if bad else 0)
+          EOF
+
       - name: No duplicate keys, every job has steps
         run: |
           python3 - <<'EOF'
