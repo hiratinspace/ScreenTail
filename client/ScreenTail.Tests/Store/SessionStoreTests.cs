@@ -470,6 +470,49 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
     private static byte[] Bytes(byte value, int count) => Enumerable.Repeat(value, count).ToArray();
 
+    [Fact]
+    public async Task ARedactedFrameArrivesAsOneRowThatWasNeverPending()
+    {
+        // ADR-0006. A frame used to be inserted unredacted and updated in place once the worker had
+        // read it, which is why `redaction_pending` existed as a state on disk at all. It waits in
+        // memory now, so the only write is this one — and a row that was never pending is a row no
+        // window could ever have been open on.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+
+        await store.SaveRedactedFrameAsync(
+            "s1",
+            new StagedFrame("f1", 1_000, FrameTrigger.Click, 1920, 1080, new Point { X = 10, Y = 20 }, new byte[] { 0x01 }),
+            new RedactionOutcome(new byte[] { 0xBB }, "Services", [], SensitiveContext: false, At));
+
+        Assert.Equal(0, await store.CountPendingFramesAsync("s1"));
+        var session = (await store.LoadSessionAsync("s1"))!;
+        var frame = Assert.Single(session.Frames);
+        Assert.Equal("f1", frame.Id);
+        Assert.False(frame.RedactionPending);
+        Assert.Equal("Services", frame.OcrText);
+        Assert.Equal(1920, frame.Width);
+        Assert.Equal(10, frame.Cursor?.X);
+    }
+
+    [Fact]
+    public async Task TheImageStoredIsTheRedactedOneAndNotWhatWasCaptured()
+    {
+        // The claim the whole change is for. The staged bytes are handed in so the row can carry the
+        // frame's own shape; they must not be what lands in the column.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        var captured = new byte[] { 0xCA, 0xFE };
+        var redacted = new byte[] { 0xBE, 0xEF };
+
+        await store.SaveRedactedFrameAsync(
+            "s1",
+            new StagedFrame("f1", 1_000, FrameTrigger.Click, 100, 100, null, captured),
+            new RedactionOutcome(redacted, "text", [], SensitiveContext: false, At));
+
+        Assert.Equal(redacted, await store.GetRedactedFrameImageAsync("f1"));
+    }
+
     private sealed class FixedKeyProvider(byte[] key) : IStoreKeyProvider
     {
         public byte[] GetKey() => (byte[])key.Clone();

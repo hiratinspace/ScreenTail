@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using ScreenTail.Core.Capture;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -50,7 +51,7 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         await StageAsync(store, "s1", "f2");
         await StageAsync(store, "s1", "f3");
         var worker = new RedactionWorker(
-            new RefusesOneWrite(store, "f2"), Reads(), new PassThroughMasker(), new RedactionEngine());
+            new RefusesOneWrite(store, "f2"), Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
 
         using var stopping = new CancellationTokenSource();
         var running = worker.RunAsync(stopping.Token);
@@ -66,7 +67,9 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         // and a backlog count that never reached zero.
         Assert.Equal(2, worker.Progress.Frames);
         Assert.Equal(1, worker.Progress.Failed);
-        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        // Nothing is left owed: the failed frame was let go of rather than retried for ever, and there
+        // was never a row to leave behind (ADR-0006).
+        Assert.Equal(0, _pending.Depth);
     }
 
     [Fact]
@@ -85,7 +88,7 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         await StageAsync(store, "s1", "f1");
         await StageAsync(store, "s1", "f2");
         var worker = new RedactionWorker(
-            new RefusesOneWrite(store, "f1"), Reads(), new PassThroughMasker(), new RedactionEngine());
+            new RefusesOneWrite(store, "f1"), Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
 
         using var stopping = new CancellationTokenSource();
         var running = worker.RunAsync(stopping.Token);
@@ -93,23 +96,33 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         await stopping.CancelAsync();
         await running;
 
-        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        // Nothing is left owed: the failed frame was let go of rather than retried for ever, and there
+        // was never a row to leave behind (ADR-0006).
+        Assert.Equal(0, _pending.Depth);
         Assert.Equal(1, worker.Progress.Failed);
         Assert.Equal(1, worker.Progress.Frames);
     }
 
     [Fact]
-    public async Task AFrameThatCannotEvenBeDiscardedIsNotRetriedForEver()
+    public async Task AFrameThatCannotEvenBeCountedIsStillLetGoOf()
     {
-        // The other half. If the store refuses the discard as well — a full disk refuses both — there is
-        // nowhere to record the decision, so the worker has to remember it. That memory is bounded, and
-        // the frame is tried again once the bound pushes it out, which is the right way round: a
-        // temporary failure recovers, and a permanent one costs a bounded amount of work.
+        // The other half, and its answer changed with ADR-0006. A full disk refuses both the write and
+        // the record of the loss, so there is nowhere to say what happened to the frame.
+        //
+        // It used to stay pending, and finalize purged it later. There is no row now, so there is
+        // nothing to leave behind: the frame is let go of, because a worker that retried it would
+        // retry it for ever on a disk that is not going to empty itself.
+        //
+        // <b>What is lost is the count.</b> `frames_purged_unredacted` under-reports on a store that
+        // refuses everything, so a session recorded against a full disk can have a hole the draft does
+        // not know to hedge about. The worker's own Failed count is where that shows instead, and it
+        // reaches the diagnostics panel. Said plainly rather than left for somebody to find: it is the
+        // price of not remembering a frame for ever, and a full disk is a session in trouble anyway.
         var store = await OpenAsync();
         await StageAsync(store, "s1", "f1");
         await StageAsync(store, "s1", "f2");
         var worker = new RedactionWorker(
-            new RefusesOneWrite(store, "f1", alsoDiscard: true), Reads(), new PassThroughMasker(), new RedactionEngine());
+            new RefusesOneWrite(store, "f1", alsoDiscard: true), Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
 
         using var stopping = new CancellationTokenSource();
         var running = worker.RunAsync(stopping.Token);
@@ -117,10 +130,10 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         await stopping.CancelAsync();
         await running;
 
-        // The good frame still went through, and the bad one is still pending for finalize to purge.
+        // The good frame still went through, the bad one was counted as a failure, and nothing is owed.
         Assert.Equal(1, worker.Progress.Frames);
         Assert.True(worker.Progress.Failed >= 1);
-        Assert.Equal(1, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, _pending.Depth);
     }
 
     [Fact]
@@ -165,19 +178,23 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
     private async Task<SqliteSessionStore> OpenAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
-    private static RedactionWorker Worker(ISessionStore store) =>
-        new(store, Reads(), new PassThroughMasker(), new RedactionEngine());
+    /// <summary>A captured frame waiting to be read. Deep, so the depth is not what these tests measure.</summary>
+    private readonly PendingFrames _pending = new(depth: 1000);
+
+    private RedactionWorker Worker(ISessionStore store) =>
+        new(store, Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
 
     private static FixedText Reads() => new();
 
-    private static async Task StageAsync(SqliteSessionStore store, string sessionId, string frameId)
+    private async Task StageAsync(SqliteSessionStore store, string sessionId, string frameId)
     {
         if (await store.LoadSessionAsync(sessionId) is null)
         {
             await store.CreateSessionAsync(new NewSession(sessionId, At, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
         }
 
-        await store.StageFrameAsync(sessionId, new StagedFrame(frameId, 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1, 2, 3 }));
+        // Into the queue, not the store: an unredacted frame does not reach disk (ADR-0006).
+        Assert.True(_pending.TryEnqueue(sessionId, new StagedFrame(frameId, 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1, 2, 3 })));
     }
 
     public async ValueTask DisposeAsync()
@@ -213,6 +230,24 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
     /// </summary>
     private sealed class RefusesOneWrite(SqliteSessionStore inner, string frameId, bool alsoDiscard = false) : ISessionStore
     {
+        /// <summary>
+        /// Refuses to record the loss as well, when <c>alsoDiscard</c> is set: what a full disk does,
+        /// where there is nowhere at all to write down what was decided about the frame.
+        /// </summary>
+        public Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default) =>
+            alsoDiscard
+                ? throw new InvalidOperationException("The store is full.")
+                : inner.RecordPurgedFramesAsync(sessionId, count, ct);
+
+        /// <summary>
+        /// The write that now happens for every frame (ADR-0006). It used to be an update over a staged
+        /// row, and refusing that was how this test reproduced the failure; the refusal moves with it.
+        /// </summary>
+        public Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) =>
+            string.Equals(frame.Id, frameId, StringComparison.Ordinal)
+                ? throw new InvalidOperationException($"Frame '{frame.Id}' could not be written.")
+                : inner.SaveRedactedFrameAsync(sessionId, frame, outcome, ct);
+
         public Task MarkFrameRedactedAsync(string id, RedactionOutcome outcome, CancellationToken ct = default) =>
             id == frameId
                 ? throw new InvalidOperationException($"Frame '{id}' is not pending redaction.")

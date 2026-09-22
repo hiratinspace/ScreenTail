@@ -46,7 +46,7 @@ public sealed class ScopeRecordingTests
         Assert.Empty(stored.Events.OfType<TypingBurstEvent>());
         Assert.Empty(stored.Events.OfType<ShortcutEvent>());
         Assert.Empty(stored.Events.OfType<EnterEvent>());
-        Assert.Equal(0, await harness.Store.CountPendingFramesAsync(harness.Machine.SessionId!, ct));
+        Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
         Assert.Equal(0, capturer.Captures);
         Assert.Equal(3, recorder.DroppedOutOfScope);
     }
@@ -68,7 +68,7 @@ public sealed class ScopeRecordingTests
         var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
         Assert.Single(stored.Events.OfType<ClickEvent>());
         Assert.Empty(stored.Events.OfType<TypingBurstEvent>());
-        Assert.Equal(0, await harness.Store.CountPendingFramesAsync(harness.Machine.SessionId!, ct));
+        Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
         Assert.Equal(0, capturer.Captures);
     }
 
@@ -88,7 +88,7 @@ public sealed class ScopeRecordingTests
         var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
         Assert.Single(stored.Events.OfType<ClickEvent>());
         Assert.Empty(stored.Events.OfType<TypingBurstEvent>());
-        Assert.Equal(0, await harness.Store.CountPendingFramesAsync(harness.Machine.SessionId!, ct));
+        Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
         Assert.Equal(0, capturer.Captures);
     }
 
@@ -112,7 +112,8 @@ public sealed class ScopeRecordingTests
         Assert.Single(stored.Events.OfType<TypingBurstEvent>());
         Assert.Single(stored.Events.OfType<ShortcutEvent>());
         Assert.Single(stored.Events.OfType<EnterEvent>());
-        Assert.Equal(1, await harness.Store.CountPendingFramesAsync(harness.Machine.SessionId!, ct));
+        // The picture was taken and accepted; it waits in memory to be read (ADR-0006).
+        Assert.Equal(1, harness.Pending.DepthFor(harness.Machine.SessionId!));
         Assert.Equal(1, capturer.Captures);
         Assert.Equal(0, recorder.DroppedOutOfScope);
         Assert.Equal(99, capturer.Expected);
@@ -135,7 +136,7 @@ public sealed class ScopeRecordingTests
 
         var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
         Assert.Empty(stored.Events.OfType<ClickEvent>());
-        Assert.Equal(0, await harness.Store.CountPendingFramesAsync(harness.Machine.SessionId!, ct));
+        Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
         Assert.Equal(0, capturer.Captures);
     }
 

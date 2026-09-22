@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using ScreenTail.Core.Capture;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -200,12 +201,15 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         await StageAsync(store, "s1", "f2");
         await StageAsync(store, "s2", "f3");
 
-        Assert.Equal(3, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        // The backlog is what is waiting to be read, across every session. It was a query over the
+        // frames table; it is the queue's own depth now, which is the same number for nothing
+        // (ADR-0006).
+        Assert.Equal(3, _pending.Depth);
 
         var worker = Worker(store, Reads(new OcrWord("hello", 0, 0, 40, 20)));
         await worker.ProcessOneAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(2, _pending.Depth);
     }
 
     [Fact]
@@ -279,20 +283,54 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task NothingUnredactedIsEverInTheStore()
+    {
+        // ADR-0006's own claim, checked at the only two moments it could be false: after the frame was
+        // captured, and after it was written. There is no third moment — the bytes are held in memory in
+        // between, and the store learns about the frame once, already masked.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+
+        // Captured and waiting: the store has never heard of it.
+        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        Assert.Empty((await store.LoadSessionAsync("s1"))!.Frames);
+
+        Assert.True(await Worker(store, Reads(new OcrWord("Services", 0, 0, 40, 20)))
+            .ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        // Written, and what was written is the masker's output rather than what was captured. The fake
+        // masker appends a byte, so the two are told apart by their length.
+        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        var frame = Assert.Single((await store.LoadSessionAsync("s1"))!.Frames);
+        Assert.False(frame.RedactionPending);
+        Assert.Equal(5, (await store.GetRedactedFrameImageAsync("f1"))!.Length);
+    }
+
     private async Task<SqliteSessionStore> OpenAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
-    private static async Task StageAsync(SqliteSessionStore store, string sessionId, string frameId)
+    /// <summary>
+    /// A captured frame waiting to be read.
+    ///
+    /// Deep on purpose: what these tests are about is what the worker does with a frame, and the
+    /// production depth of four would make a test that captures five fail for a reason it is not
+    /// asking about. PendingFramesTests owns the depth (ADR-0006).
+    /// </summary>
+    private readonly PendingFrames _pending = new(depth: 1000);
+
+    private async Task StageAsync(SqliteSessionStore store, string sessionId, string frameId)
     {
         if (await store.LoadSessionAsync(sessionId) is null)
         {
             await store.CreateSessionAsync(new NewSession(sessionId, At, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
         }
 
-        await store.StageFrameAsync(sessionId, new StagedFrame(frameId, 1_000, FrameTrigger.Click, 800, 600, null, new byte[] { 1, 2, 3, 4 }));
+        // Into the queue, not the store: an unredacted frame does not reach disk (ADR-0006).
+        Assert.True(_pending.TryEnqueue(sessionId, new StagedFrame(frameId, 1_000, FrameTrigger.Click, 800, 600, null, new byte[] { 1, 2, 3, 4 })));
     }
 
-    private static RedactionWorker Worker(SqliteSessionStore store, IFrameTextRecogniser recogniser, IFrameMasker? masker = null) =>
-        new(store, recogniser, masker ?? new FakeMasker(), new RedactionEngine());
+    private RedactionWorker Worker(SqliteSessionStore store, IFrameTextRecogniser recogniser, IFrameMasker? masker = null) =>
+        new(store, recogniser, masker ?? new FakeMasker(), new RedactionEngine(), _pending);
 
     private static FakeRecogniser Reads(params OcrWord[] words) => new() { Words = words, Confidence = 0.95 };
 

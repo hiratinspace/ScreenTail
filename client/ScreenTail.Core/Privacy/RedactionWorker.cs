@@ -76,6 +76,7 @@ public sealed class RedactionWorker(
     IFrameTextRecogniser recogniser,
     IFrameMasker masker,
     RedactionEngine engine,
+    Capture.PendingFrames pending,
     RedactionOptions? options = null,
     TimeProvider? time = null)
 {
@@ -135,33 +136,14 @@ public sealed class RedactionWorker(
     /// <summary>Processes one frame if any is waiting. Returns false when the queue is empty.</summary>
     public async Task<bool> ProcessOneAsync(CancellationToken ct = default)
     {
-        HashSet<string> busy;
-        lock (_counters)
-        {
-            busy = [.. _inFlight, .. _givenUp];
-        }
-
-        var frame = await store.TakeNextPendingFrameAsync(busy, ct).ConfigureAwait(false);
-        if (frame is null)
+        if (!pending.TryTake(out var queued))
         {
             return false;
         }
 
-        // Claimed before any await that could let the other worker in. A frame stays redaction_pending
-        // until its redaction finishes, so the query cannot tell "waiting" from "being worked on": without
-        // this both workers take the same row, both run OCR on it, and the slower one's write finds
-        // nothing to update and throws.
-        lock (_counters)
-        {
-            if (!_inFlight.Add(frame.Id))
-            {
-                return false;
-            }
-        }
-
         try
         {
-            await RedactAsync(frame, ct).ConfigureAwait(false);
+            await RedactAsync(queued, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -180,14 +162,15 @@ public sealed class RedactionWorker(
                 _failed++;
             }
 
-            await ForgetAsync(frame, ct).ConfigureAwait(false);
+            // Nothing to discard from the store: the frame never reached it (ADR-0006), so letting go
+            // of it is the whole of the discard. What matters is counted -- a frame was captured and
+            // never made it into the session, and the bundle says so.
         }
         finally
         {
-            lock (_counters)
-            {
-                _inFlight.Remove(frame.Id);
-            }
+            // However it ended. A frame left in flight would hold finalize open for the whole redaction
+            // grace and then be dropped anyway.
+            pending.Done(queued);
         }
 
         return true;
@@ -242,8 +225,9 @@ public sealed class RedactionWorker(
         }
     }
 
-    private async Task RedactAsync(PendingFrame frame, CancellationToken ct)
+    private async Task RedactAsync(Capture.QueuedFrame queued, CancellationToken ct)
     {
+        var frame = queued.Frame;
         var started = Stopwatch.GetTimestamp();
         RecognisedText text;
         try
@@ -252,8 +236,9 @@ public sealed class RedactionWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The recogniser failed, so nothing about this frame is known. It cannot be stored.
-            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
+            // The recogniser failed, so nothing about this frame is known. It cannot be stored -- and
+            // it never was, so not writing it is the whole of the discard (ADR-0006).
+            await DiscardAsync(queued.SessionId, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
@@ -265,7 +250,7 @@ public sealed class RedactionWorker(
         // a screenshot of a wallpaper is worth less than the chance that the frame was a terminal.
         if (text.IsEmpty)
         {
-            await DiscardAsync(frame, unread: true, ct).ConfigureAwait(false);
+            await DiscardAsync(queued.SessionId, unread: true, ct).ConfigureAwait(false);
             return;
         }
 
@@ -273,7 +258,7 @@ public sealed class RedactionWorker(
         // out is where a secret is most likely to survive, so it goes rather than being stored unchecked.
         if (text.MeanConfidence < _options.MinimumConfidence)
         {
-            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
+            await DiscardAsync(queued.SessionId, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
@@ -281,7 +266,7 @@ public sealed class RedactionWorker(
         if (!redaction.Complete)
         {
             // A pattern ran out of its budget, so parts of this text were never searched (ST-042).
-            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
+            await DiscardAsync(queued.SessionId, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
@@ -300,12 +285,15 @@ public sealed class RedactionWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await DiscardAsync(frame, unread: false, ct).ConfigureAwait(false);
+            await DiscardAsync(queued.SessionId, unread: false, ct).ConfigureAwait(false);
             return;
         }
 
-        await store.MarkFrameRedactedAsync(
-            frame.Id,
+        // The only write. A frame reaches the store already read and already masked, so a row here was
+        // never pending and no window was ever open on it (ADR-0006).
+        await store.SaveRedactedFrameAsync(
+            queued.SessionId,
+            frame,
             new RedactionOutcome(masked.Image, redaction.Text, regions, sensitive, _time.GetUtcNow()),
             ct).ConfigureAwait(false);
 
@@ -316,7 +304,7 @@ public sealed class RedactionWorker(
             foreach (var (kind, count) in redaction.Counts)
             {
                 await audit.RecordAsync(
-                    AuditTypes.FrameRedacted, frame.SessionId, count, AuditDetail.Of(kind), ct).ConfigureAwait(false);
+                    AuditTypes.FrameRedacted, queued.SessionId, count, AuditDetail.Of(kind), ct).ConfigureAwait(false);
             }
         }
 
@@ -364,9 +352,18 @@ public sealed class RedactionWorker(
         }
     }
 
-    private async Task DiscardAsync(PendingFrame frame, bool unread, CancellationToken ct)
+    /// <summary>
+    /// A frame that cannot be stored, which is now simply a frame that is not written (ADR-0006).
+    ///
+    /// There is no row to delete: the frame never reached the store. What still has to happen is the
+    /// audit row, because <c>frames_purged_unredacted</c> is what tells the bundle the session has a
+    /// hole in it and lets the draft hedge rather than claim to have seen everything. The store used to
+    /// write that as a side effect of deleting the row; it is written here, where the deciding is done.
+    /// </summary>
+    private async Task DiscardAsync(string sessionId, bool unread, CancellationToken ct)
     {
-        await store.DiscardPendingFrameAsync(frame.Id, ct).ConfigureAwait(false);
+        await store.RecordPurgedFramesAsync(sessionId, 1, ct).ConfigureAwait(false);
+
         lock (_counters)
         {
             if (unread)
@@ -410,7 +407,9 @@ public sealed class RedactionWorker(
         {
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
-                BacklogChanged?.Invoke(await store.CountAllPendingFramesAsync(ct).ConfigureAwait(false));
+                // The queue, not a query. It is the same number and it costs nothing to read, where the
+                // query walked the frames table every second of every session (ADR-0006).
+                BacklogChanged?.Invoke(pending.Depth);
             }
         }
         catch (OperationCanceledException)

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.Versioning;
+using ScreenTail.Core.Capture;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Privacy;
@@ -65,21 +66,23 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
 
         // Frames a technician would actually produce: a settings dialog that changes a little each time, so
         // no cache anywhere in the stack can answer twice with the same work.
+        // Deep enough to hold the whole burst: the criterion is a per-frame median, and a queue that
+        // refused frames would be measuring the depth rather than the redaction (ADR-0006).
+        var pending = new PendingFrames(depth: Frames);
         for (var i = 0; i < Frames; i++)
         {
-            await store.StageFrameAsync(
+            Assert.True(pending.TryEnqueue(
                 "s1",
-                new StagedFrame($"f{i:D3}", 1_000 + i, FrameTrigger.Click, 1920, 1080, null, RenderFrame(i)),
-                ct);
+                new StagedFrame($"f{i:D3}", 1_000 + i, FrameTrigger.Click, 1920, 1080, null, RenderFrame(i))));
         }
 
-        Assert.Equal(Frames, await store.CountAllPendingFramesAsync(ct));
+        Assert.Equal(Frames, pending.Depth);
 
         // Concurrency 0 so RunAsync starts the backlog reporter and no worker threads. The criterion is a
         // per-frame median, and two threads pulling from the same queue would turn every sample into a
         // number about contention. The loop below is the only thing taking frames.
         var worker = new RedactionWorker(
-            store, recogniser, new WindowsFrameMasker(), new RedactionEngine(),
+            store, recogniser, new WindowsFrameMasker(), new RedactionEngine(), pending,
             new RedactionOptions { Concurrency = 0 });
         var backlog = new List<int>();
         worker.BacklogChanged += depth =>

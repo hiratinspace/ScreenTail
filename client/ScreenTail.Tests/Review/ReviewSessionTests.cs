@@ -121,6 +121,10 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();

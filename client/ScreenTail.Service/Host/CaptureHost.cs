@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Input;
@@ -137,11 +138,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // One engine for what is seen and what is said. Two would drift the day a tenant's own patterns
         // are loaded into one of them, and speech would go on being checked against the defaults.
         var redactionEngine = new RedactionEngine();
+
+        // Where a captured frame waits to be read (ADR-0006). One queue, shared by the thing that fills
+        // it and the worker that drains it, so an unredacted frame never reaches disk.
+        var pending = new PendingFrames();
         await using var machine = new SessionMachine(
             store,
             sources,
             drafter,
-            options: new SessionMachineOptions { Scrubber = redactionEngine });
+            options: new SessionMachineOptions { Scrubber = redactionEngine, Pending = pending });
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {
@@ -288,7 +293,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // pending frame or to clear the flag, so INV-1 rests on it.
         var recogniser = new WindowsOcrRecogniser();
         LogOcr(logger, recogniser.Available, recogniser.Language ?? "none");
-        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine);
+        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine, pending);
         redaction.BacklogChanged += machine.ReportPendingRedactions;
 
         // Without this the login heuristic fires into nothing: the frame is marked sensitive and the next

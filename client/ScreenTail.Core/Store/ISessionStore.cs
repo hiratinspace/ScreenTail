@@ -31,6 +31,18 @@ public interface ISessionStore : IAsyncDisposable
 
     /// <summary>Replaces the staged image with the redacted one and clears <c>redaction_pending</c>.</summary>
     /// <exception cref="InvalidOperationException">The frame doesn't exist or was already redacted.</exception>
+    /// <summary>
+    /// Writes a frame that has already been read and masked (ADR-0006). The only frame insert the
+    /// running service makes; <paramref name="frame"/>'s own image is not written.
+    /// </summary>
+    Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default);
+
+    /// <summary>
+    /// Counts a frame that was captured and never stored (ADR-0006). No row to delete; the session's
+    /// purge count and the audit row are what the bundle reads.
+    /// </summary>
+    Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default);
+
     Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default);
 
     Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default);
