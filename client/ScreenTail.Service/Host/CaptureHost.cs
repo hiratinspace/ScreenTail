@@ -162,6 +162,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
         Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, null, null, null);
+        // What the UI reports about the pill being on screen, and what the indicator guard reads. A
+        // connection is not a pill (2026-09-20 review).
+        var indicators = new IndicatorReports();
         var controller = new CaptureController(
             machine,
             new WindowsCapabilityProbe(),
@@ -176,7 +179,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 _eraseOnShutdown = true;
                 lifetime.StopApplication();
                 return Task.FromResult(true);
-            });
+            },
+            indicators);
         await using var server = new IpcServer(
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
@@ -232,7 +236,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var policy = new ScopePolicy(registry, new ScopeOptions { Exclusions = exclusions });
         // INV-4, at the one place a session can begin on its own. The tray icon and the pill live in the
         // UI process, so a service recording with nothing attached is a recording nobody was told about.
-        var indicator = new IndicatorGuard(machine, () => server.ConnectedClients);
+        var indicator = new IndicatorGuard(machine, () => indicators.Showing);
         indicator.Failed += failure => LogGuardFailed(logger, "indicator", failure.GetType().Name);
 
         var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), () => indicator.Indicated, logger);

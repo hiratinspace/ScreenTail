@@ -10,6 +10,9 @@ namespace ScreenTail.Tests.Privacy;
 /// INV-4 where it is actually decided: capture stops when nothing on screen says it is happening
 /// (2026-09-19 review).
 ///
+/// The guard asks whether anything reports that it is showing the indicator. It used to ask how many
+/// clients were connected, which is not the same question: a connection is not a pill (2026-09-20).
+///
 /// The tray icon and the pill live in the UI process, and the service records without them. It starts
 /// sessions by itself when a remote tool takes the foreground, it owns the global hotkeys, and nothing
 /// anywhere asked whether a UI was attached. A UI that crashed, was quit from its own menu, or was never
@@ -30,10 +33,10 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
     {
         var clock = new ManualTime(At);
         var machine = await RecordingAsync();
-        var uis = 1;
-        var guard = new IndicatorGuard(machine, () => uis, clock);
+        var showing = true;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
 
-        uis = 0;
+        showing = false;
         await GraceOutAsync(guard, clock, TestContext.Current.CancellationToken);
 
         Assert.Equal(SessionState.Suppressed, machine.State);
@@ -47,11 +50,11 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         // mechanism here: the invariant holds the moment this takes effect, with no second rule to keep.
         var clock = new ManualTime(At);
         var machine = await RecordingAsync();
-        var uis = 1;
-        var guard = new IndicatorGuard(machine, () => uis, clock);
+        var showing = true;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
         var ct = TestContext.Current.CancellationToken;
 
-        uis = 0;
+        showing = false;
         await GraceOutAsync(guard, clock, ct);
 
         Assert.False(await machine.TryStageFrameAsync(Frame("f-invisible"), ct));
@@ -68,15 +71,15 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         // The technician's UI crashed and came back. One job, not two notes.
         var clock = new ManualTime(At);
         var machine = await RecordingAsync();
-        var uis = 1;
-        var guard = new IndicatorGuard(machine, () => uis, clock);
+        var showing = true;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
         var ct = TestContext.Current.CancellationToken;
 
-        uis = 0;
+        showing = false;
         await GraceOutAsync(guard, clock, ct);
         Assert.Equal(SessionState.Suppressed, machine.State);
 
-        uis = 1;
+        showing = true;
         await guard.TickAsync(ct);
 
         Assert.Equal(SessionState.Recording, machine.State);
@@ -90,14 +93,14 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         // timeline with intervals that mean nothing and cut a session nobody interrupted.
         var clock = new ManualTime(At);
         var machine = await RecordingAsync();
-        var uis = 1;
-        var guard = new IndicatorGuard(machine, () => uis, clock);
+        var showing = true;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
         var ct = TestContext.Current.CancellationToken;
 
-        uis = 0;
+        showing = false;
         clock.Advance(TimeSpan.FromSeconds(1));
         await guard.TickAsync(ct);
-        uis = 1;
+        showing = true;
         await guard.TickAsync(ct);
 
         Assert.Equal(SessionState.Recording, machine.State);
@@ -111,11 +114,11 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         // window was closed" is an answer. A silent gap is not.
         var clock = new ManualTime(At);
         var machine = await RecordingAsync();
-        var uis = 1;
-        var guard = new IndicatorGuard(machine, () => uis, clock);
+        var showing = true;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
         var ct = TestContext.Current.CancellationToken;
 
-        uis = 0;
+        showing = false;
         await GraceOutAsync(guard, clock, ct);
 
         var stored = (await _harness!.Store.LoadSessionAsync(machine.SessionId!, ct))!;
@@ -131,8 +134,8 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
     {
         var machine = await RecordingAsync();
 
-        Assert.True(new IndicatorGuard(machine, () => 1).Indicated);
-        Assert.False(new IndicatorGuard(machine, () => 0).Indicated);
+        Assert.True(new IndicatorGuard(machine, () => true).Indicated);
+        Assert.False(new IndicatorGuard(machine, () => false).Indicated);
     }
 
     [Fact]
@@ -142,14 +145,14 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         // suppressed state, so it has to be re-derived or this one resumes something it never held.
         var clock = new ManualTime(At);
         var machine = await RecordingAsync();
-        var uis = 0;
-        var guard = new IndicatorGuard(machine, () => uis, clock);
+        var showing = false;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
         var ct = TestContext.Current.CancellationToken;
 
         await GraceOutAsync(guard, clock, ct);
         Assert.True(await machine.PauseAsync(ct));
 
-        uis = 1;
+        showing = true;
         await guard.TickAsync(ct);
 
         Assert.Equal(SessionState.Paused, machine.State);

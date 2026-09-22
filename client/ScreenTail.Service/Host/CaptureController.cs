@@ -26,12 +26,17 @@ namespace ScreenTail.Service.Host;
 /// Starts "delete everything" (INV-12). Returns once the service has agreed to shut down and erase, which
 /// is why the pipe drops immediately afterwards: the store it was serving is about to be deleted.
 /// </param>
+/// <param name="indicators">
+/// What the service knows about whether anything on screen says capture is happening (INV-4). The UI
+/// reports it here; <c>IndicatorGuard</c> reads it.
+/// </param>
 internal sealed class CaptureController(
     SessionMachine machine,
     ICapabilityProbe capabilities,
     ISessionStore store,
     Func<DiagnosticsReported> diagnostics,
-    Func<CancellationToken, Task<bool>> eraseAll) : IIpcCommandHandler
+    Func<CancellationToken, Task<bool>> eraseAll,
+    IndicatorReports indicators) : IIpcCommandHandler
 {
     public CaptureStateSnapshot CurrentState => machine.Snapshot;
 
@@ -56,6 +61,13 @@ internal sealed class CaptureController(
         // token for it would be a token for something the service cannot name.
         _ => null,
     };
+
+    /// <summary>Records that this window says it is showing the indicator. Always accepted.</summary>
+    private bool Report(Guid caller)
+    {
+        indicators.Report(caller);
+        return true;
+    }
 
     private ConfirmationIssued Issued(DestructiveAction action, string phrase, Guid caller) =>
         new() { Token = _confirmations.Issue(action, caller), Phrase = phrase };
@@ -92,6 +104,10 @@ internal sealed class CaptureController(
                 && await machine.DiscardAsync(ct).ConfigureAwait(false),
 
             MarkMomentCommand => await machine.MarkMomentAsync(ct).ConfigureAwait(false),
+
+            // The UI saying the pill is on screen. Accepted from whichever connection sent it and
+            // expiring on its own, so a UI that stops painting stops counting (INV-4).
+            IndicatorShowingCommand => Report(caller),
 
             // Not while a session is running. Erasing mid-recording destroys work the technician is in
             // the middle of and gives them nothing to look at afterwards; stopping first is one click and

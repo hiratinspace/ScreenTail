@@ -23,7 +23,7 @@ namespace ScreenTail.Core.Privacy;
 /// </summary>
 public sealed class IndicatorGuard(
     SessionMachine machine,
-    Func<int> attachedUis,
+    Func<bool> showing,
     TimeProvider? time = null,
     IndicatorOptions? options = null)
 {
@@ -50,8 +50,17 @@ public sealed class IndicatorGuard(
     /// Asked before a session is started as well as during one, because a session that should never have
     /// begun is worse than one that is suppressed a moment later: the technician sees nothing either way,
     /// and the first has a start time in the timeline that nobody witnessed.
+    ///
+    /// <b>This used to count connections.</b> A connection is not a pill: the window could be on a
+    /// monitor that had since been unplugged, the tray icon could be in the overflow flyout, and the UI
+    /// could have frozen while still holding the socket — and all three read as indicated. It is a
+    /// report now, repeated while it is true and expiring when it stops (2026-09-20 review).
+    ///
+    /// The service cannot verify the report, and a process that would lie about it could just as well
+    /// connect and say nothing, which is what used to be enough. This catches the accidents, not a
+    /// hostile client.
     /// </summary>
-    public bool Indicated => attachedUis() > 0;
+    public bool Indicated => showing();
 
     /// <summary>
     /// One pass: bring the session into line with whether anything is showing the indicator.
