@@ -303,9 +303,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             whisper,
             (segment, ct) => machine.TryAppendTranscriptAsync(segment, ct),
 
-            // The microphone stays open for the life of the service, so this is what keeps what it hears
-            // out of everything that is not a session (INV-6, INV-9).
+            // The microphone is opened only while this is true, and what it hears while it is not is
+            // dropped where it arrives (INV-6, INV-9). Both: the drop is the invariant, and not opening
+            // the device is what keeps Windows' microphone-in-use indicator off a customer's screen for
+            // the rest of the day (2026-09-20 review).
             recording: () => machine.State == SessionState.Recording);
+
+        // The transition is the signal. Without it the recorder would find out on its next look, and a
+        // session would begin with its first word already gone.
+        machine.StateChanged += _ => narration.Nudge();
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
         LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
 

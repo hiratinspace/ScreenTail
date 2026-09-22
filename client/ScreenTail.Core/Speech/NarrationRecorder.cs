@@ -17,6 +17,15 @@ public sealed record NarrationOptions
     /// more, because this is a customer's support call sitting in memory.
     /// </summary>
     public TimeSpan Buffer { get; init; } = TimeSpan.FromSeconds(25);
+
+    /// <summary>
+    /// How long to wait between looking for a session when none is running.
+    ///
+    /// A fallback, not the mechanism: the host nudges the recorder when the capture state changes, and
+    /// this only decides how long a missed nudge costs. Half a second is short enough that the worst
+    /// case is the opening word of a session and long enough that an idle service is doing nothing.
+    /// </summary>
+    public TimeSpan Idle { get; init; } = TimeSpan.FromMilliseconds(500);
 }
 
 /// <summary>
@@ -36,9 +45,12 @@ public sealed record NarrationOptions
 /// and is overwritten continuously. The session keeps the words, never the recording — there is no
 /// retention rule to get right because there is nothing to retain.
 /// </summary>
-public sealed class NarrationRecorder
+public sealed class NarrationRecorder : IDisposable
 {
     private readonly IMicrophone _microphone;
+
+    /// <summary>Raised when a session starts or ends, so the loop need not poll to find out.</summary>
+    private readonly SemaphoreSlim _wanted = new(0);
     private readonly ISpeechRecogniser _recogniser;
     private readonly AppendTranscript _append;
     private readonly Func<bool> _recording;
@@ -106,6 +118,21 @@ public sealed class NarrationRecorder
     /// <summary>Told when listening failed, so the host can log it. The type only, never the message.</summary>
     public event Action<Exception>? Failed;
 
+    /// <summary>
+    /// A session started or ended, so there is a reason to look again.
+    ///
+    /// Called from the host when the capture state changes. It only wakes the loop: deciding what to do
+    /// about it is <see cref="RunAsync"/>'s job, and opening an audio device has no business happening
+    /// on whatever thread announced a transition.
+    /// </summary>
+    public void Nudge()
+    {
+        if (_wanted.CurrentCount == 0)
+        {
+            _ = _wanted.Release();
+        }
+    }
+
     /// <summary>Listens until cancelled or until the microphone stops. Returns without throwing on either.</summary>
     public async Task RunAsync(CancellationToken ct = default)
     {
@@ -115,20 +142,33 @@ public sealed class NarrationRecorder
             return;
         }
 
-        Listening = true;
         try
         {
-            await foreach (var chunk in _microphone.ListenAsync(ct).ConfigureAwait(false))
+            while (!ct.IsCancellationRequested)
             {
                 if (!_recording())
                 {
-                    // Dropped where it arrives. Not transcribed, not buffered, not held as a segment
-                    // waiting for capture to come back and give it somewhere to go (INV-6).
-                    Discard();
+                    // Nothing to hear, so the device is not held open.
+                    //
+                    // It used to be opened for the life of the service and the audio thrown away when no
+                    // session was running. That kept INV-9, and it left Windows' microphone-in-use
+                    // indicator lit all day on a machine that records for a fraction of it — which is
+                    // what a customer sees when the technician turns their screen round (2026-09-20
+                    // review).
+                    //
+                    // The wait has a timeout as well as a nudge: a missed signal should cost a moment,
+                    // not the session's narration.
+                    _ = await _wanted.WaitAsync(_options.Idle, ct).ConfigureAwait(false);
                     continue;
                 }
 
-                await OfferAsync(chunk, ct).ConfigureAwait(false);
+                if (!await ListenWhileRecordingAsync(ct).ConfigureAwait(false))
+                {
+                    // The microphone itself stopped -- unplugged, or revoked. That ended narration for
+                    // the life of the service before this change and still does; retrying a device that
+                    // has gone is a loop, not a recovery.
+                    return;
+                }
             }
 
             // A session stopped mid-sentence still keeps what was being said. It is usually the outcome,
@@ -159,6 +199,47 @@ public sealed class NarrationRecorder
             // write, and what it was asked to write is what a technician said (INV-10).
             Failures++;
             Failed?.Invoke(failure);
+        }
+        finally
+        {
+            Listening = false;
+        }
+    }
+
+    /// <summary>
+    /// Holds the microphone open for one session's worth of listening.
+    ///
+    /// Returns when the session ends, so the enumerator is disposed and the device closed with it. The
+    /// gate is emptied on the way out for the same reason a pause empties it: a sentence begun while
+    /// recording must not be finished after it.
+    /// </summary>
+    /// <returns>
+    /// True when the session ended and there may be another; false when the microphone itself stopped,
+    /// which is the end of narration rather than the end of a session.
+    /// </returns>
+    private async Task<bool> ListenWhileRecordingAsync(CancellationToken ct)
+    {
+        Listening = true;
+        try
+        {
+            await foreach (var chunk in _microphone.ListenAsync(ct).ConfigureAwait(false))
+            {
+                if (!_recording())
+                {
+                    Discard();
+                    return true;
+                }
+
+                await OfferAsync(chunk, ct).ConfigureAwait(false);
+            }
+
+            // The microphone itself stopped. Whatever was being said is still worth keeping.
+            if (_gate.Flush() is { } last)
+            {
+                await TranscribeAsync(last, ct).ConfigureAwait(false);
+            }
+
+            return false;
         }
         finally
         {
@@ -286,4 +367,7 @@ public sealed class NarrationRecorder
 
         return audio;
     }
+
+    /// <summary>Releases the signal the loop waits on. The microphone belongs to whoever built it.</summary>
+    public void Dispose() => _wanted.Dispose();
 }
