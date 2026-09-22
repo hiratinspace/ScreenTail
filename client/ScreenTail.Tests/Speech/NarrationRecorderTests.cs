@@ -281,6 +281,36 @@ public sealed class NarrationRecorderTests
         Assert.Equal(1, recorder.Failures);
     }
 
+    [Fact]
+    public async Task TheMicrophoneKeepsBeingReadWhileAModelIsStillThinking()
+    {
+        // 2026-09-20 efficiency review. Transcription was awaited inside the loop that consumes audio,
+        // and whisper.cpp takes between 2.6 and 10.8 seconds for a segment (ADR-0001). So the microphone
+        // was not read for as long as the model was busy, and the recorder's own comment admitted the
+        // consequence: "the segment aged out of the ring while something else was being transcribed".
+        // A technician who kept talking lost the sentence after the one being transcribed.
+        var microphone = new FakeMicrophone(Silence(20), Speech(40), Silence(40));
+        var recogniser = new FakeRecogniser("restarting the spooler") { Blocked = new TaskCompletionSource() };
+        var kept = new List<TranscriptSegment>();
+        var recorder = Recorder(microphone, recogniser, kept, recording: () => true);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+
+        // Every frame read while the model has answered nothing at all.
+        for (var i = 0; i < 200 && microphone.Yielded < 100; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(100, microphone.Yielded);
+
+        recogniser.Blocked.SetResult();
+        await running;
+
+        Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
+    }
+
     private static bool Add(List<TranscriptSegment> kept, TranscriptSegment segment)
     {
         kept.Add(segment);
@@ -345,6 +375,9 @@ public sealed class NarrationRecorderTests
         /// </summary>
         public int Opens { get; private set; }
 
+        /// <summary>How many frames the recorder has taken. The microphone's own progress, not the model's.</summary>
+        public int Yielded { get; private set; }
+
         public static FakeMicrophone None { get; } = new() { Present = false };
 
         public bool Present { get; private init; } = true;
@@ -364,6 +397,7 @@ public sealed class NarrationRecorderTests
             foreach (var frame in _frames)
             {
                 ct.ThrowIfCancellationRequested();
+                Yielded++;
                 yield return frame;
                 await Task.Yield();
             }
@@ -374,17 +408,25 @@ public sealed class NarrationRecorderTests
 
     private sealed class FakeRecogniser(string text) : ISpeechRecogniser
     {
+        /// <summary>Held until a test lets go, standing in for a model that takes seconds to answer.</summary>
+        public TaskCompletionSource? Blocked { get; set; }
+
         public bool Ready { get; set; } = true;
 
         public int Asked { get; private set; }
 
         public List<(SpeechSegment Segment, int Samples)> Handed { get; } = [];
 
-        public Task<Transcribed?> TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct = default)
+        public async Task<Transcribed?> TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct = default)
         {
             Asked++;
             Handed.Add((segment, audio.Length));
-            return Task.FromResult<Transcribed?>(new Transcribed(segment, text, 0.9));
+            if (Blocked is { } held)
+            {
+                await held.Task.WaitAsync(ct).ConfigureAwait(false);
+            }
+
+            return new Transcribed(segment, text, 0.9);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
