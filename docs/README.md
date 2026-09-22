@@ -24,6 +24,7 @@ to trust it and where to change it.
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
 | `ipc-contract.md` | The service–UI pipe contract, versioned |
 | `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box |
+| `dev/first-draft-end-to-end.md` | Getting one real session to produce one real note: the M1 runbook |
 
 ## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`)
 
