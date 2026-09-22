@@ -156,6 +156,51 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@image", frame.Image.ToArray()));
     }
 
+    /// <summary>
+    /// Writes a frame that has already been read and masked (ADR-0006).
+    ///
+    /// The only insert the running service makes. A frame used to arrive unredacted and be updated in
+    /// place once the worker had read it, which is why <c>redaction_pending</c> was ever a state on
+    /// disk; it waits in memory now, so a row written here was never pending and no window could have
+    /// been open on it.
+    ///
+    /// <paramref name="frame"/> is what was captured and carries the row's shape — when, how big, what
+    /// triggered it. Its image is deliberately not written: <paramref name="outcome"/> holds the only
+    /// picture allowed on disk.
+    /// </summary>
+    public Task SaveRedactedFrameAsync(
+        string sessionId,
+        StagedFrame frame,
+        RedactionOutcome outcome,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentNullException.ThrowIfNull(frame);
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        return RunAsync(
+            """
+            INSERT INTO frames (id, session_id, ts_ms, trigger, width, height, cursor_x, cursor_y,
+                                redaction_pending, image, ocr_text, masked_regions_json, sensitive_context, redacted_at)
+            VALUES (@id, @session, @ts, @trigger, @w, @h, @cx, @cy,
+                    0, @image, @ocr, @regions, @sensitive, @at)
+            """,
+            ct,
+            ("@id", frame.Id),
+            ("@session", sessionId),
+            ("@ts", frame.TsMs),
+            ("@trigger", EnumName(frame.Trigger)),
+            ("@w", frame.Width),
+            ("@h", frame.Height),
+            ("@cx", frame.Cursor?.X),
+            ("@cy", frame.Cursor?.Y),
+            ("@image", outcome.RedactedImage.ToArray()),
+            ("@ocr", outcome.OcrText),
+            ("@regions", JsonSerializer.Serialize(outcome.MaskedRegions, SessionJson.Options)),
+            ("@sensitive", outcome.SensitiveContext ? 1 : 0),
+            ("@at", Iso(outcome.RedactedAt)));
+    }
+
     public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) =>
         TakeNextPendingFrameAsync(null, ct);
 
@@ -213,6 +258,46 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
     public Task<int> CountAllPendingFramesAsync(CancellationToken ct = default) =>
         ScalarAsync<int>("SELECT COUNT(*) FROM frames WHERE redaction_pending = 1", ct);
+
+    /// <summary>
+    /// Counts a frame that was captured and never stored (ADR-0006, ADR-0004).
+    ///
+    /// There is no row to delete: the frame waited in memory and the worker decided it could not be
+    /// stored, so nothing was ever written. What still has to happen is the counting, because
+    /// <c>frames_purged_unredacted</c> reaches the bundle and is what lets the draft say the session has
+    /// a hole in it rather than claim to have seen all of it.
+    ///
+    /// The counter and the audit row together, in one transaction, for the same reason the two halves of
+    /// an audit append are: a count without its row, or a row without its count, is a session that
+    /// disagrees with itself.
+    /// </summary>
+    public async Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        if (count <= 0)
+        {
+            return;
+        }
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            _ = await ExecuteAsync(
+                _connection,
+                "UPDATE sessions SET frames_purged_unredacted = frames_purged_unredacted + @count, updated_at = @now WHERE id = @session",
+                ct,
+                ("@count", count),
+                ("@now", Iso(_time.GetUtcNow())),
+                ("@session", sessionId)).ConfigureAwait(false);
+            _ = await AuditAsync(sessionId, AuditTypes.FramesPurgedUnredacted, count, ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     public async Task DiscardPendingFrameAsync(string frameId, CancellationToken ct = default)
     {

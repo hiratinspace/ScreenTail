@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using ScreenTail.Core.Capture;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
@@ -142,7 +143,9 @@ public sealed class StateMachineTests : IAsyncDisposable
 
         // INV-6: nothing from the paused or suppressed intervals reached the store, but the intervals themselves are on the timeline.
         var stored = (await _store!.LoadSessionAsync(machine.SessionId!))!;
-        Assert.Equal(1, await _store.CountPendingFramesAsync(machine.SessionId!));
+        // One frame was accepted and is waiting to be read. It waits in memory, so the store has
+        // nothing to say about it (ADR-0006).
+        Assert.Equal(1, _pending.DepthFor(machine.SessionId!));
         Assert.Empty(stored.Transcript);
         Assert.Single(stored.Events.OfType<ClickEvent>());
         Assert.Equal(
@@ -160,7 +163,13 @@ public sealed class StateMachineTests : IAsyncDisposable
         var redactor = Task.Run(async () =>
         {
             await Task.Delay(150);
-            await _store!.MarkFrameRedactedAsync("f1", new RedactionOutcome(new byte[] { 1 }, "ok", [], false, DateTimeOffset.UtcNow));
+
+            // What the worker does: take from the queue, and write a frame that is already redacted.
+            // Nothing was ever staged, so there is nothing to update (ADR-0006).
+            Assert.True(_pending.TryTake(out var queued));
+            await _store!.SaveRedactedFrameAsync(
+                queued.SessionId, queued.Frame, new RedactionOutcome(new byte[] { 1 }, "ok", [], false, DateTimeOffset.UtcNow));
+            _pending.Done(queued);
         });
 
         Assert.True(await machine.StopAsync());
@@ -410,6 +419,9 @@ public sealed class StateMachineTests : IAsyncDisposable
 
     private async Task<SqliteSessionStore> OpenStoreAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
+    /// <summary>Where a captured frame waits to be read (ADR-0006). The store no longer holds one.</summary>
+    private readonly PendingFrames _pending = new(depth: 1000);
+
     private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null, TimeProvider? time = null, RedactionEngine? scrubber = null)
     {
         var store = await OpenStoreAsync();
@@ -421,12 +433,14 @@ public sealed class StateMachineTests : IAsyncDisposable
             {
                 RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
                 RedactionPoll = TimeSpan.FromMilliseconds(20),
+                Pending = _pending,
             }
             : new SessionMachineOptions
             {
                 RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
                 RedactionPoll = TimeSpan.FromMilliseconds(20),
                 Scrubber = scrubber,
+                Pending = _pending,
             };
         _machine = new SessionMachine(store, _sources, _drafter, time: time, options: options);
         _machine.StateChanged += s => _observed.Add(s);

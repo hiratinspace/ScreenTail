@@ -21,6 +21,16 @@ public sealed class SessionMachineOptions
     /// has to be remembered is one that gets forgotten.
     /// </summary>
     public Privacy.RedactionEngine Scrubber { get; init; } = new();
+
+    /// <summary>
+    /// Where a captured frame waits to be read (ADR-0006).
+    ///
+    /// It used to wait in the store with <c>redaction_pending = 1</c>, which was a window nothing needed
+    /// to be open: recovery purges such a frame rather than resuming it, so the store was buying a
+    /// buffer rather than durability. This is that buffer, in memory, and the bytes never reach disk
+    /// unredacted.
+    /// </summary>
+    public Capture.PendingFrames Pending { get; init; } = new();
 }
 
 /// <summary>
@@ -271,6 +281,9 @@ public sealed class SessionMachine : IAsyncDisposable
                 await _sources.StopAsync(ct).ConfigureAwait(false);
             }
 
+            // Whatever is still queued for it goes too. Nobody has read those frames, so nobody can say
+            // what is on them, and ADR-0004 is clear about such a frame.
+            _options.Pending.Forget(_session.Id);
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
             _session = null;
             _holds.Clear();
@@ -364,10 +377,17 @@ public sealed class SessionMachine : IAsyncDisposable
             return false;
         }
 
-        await _store.StageFrameAsync(session.Id, frame, ct).ConfigureAwait(false);
+        // Into memory, not onto disk (ADR-0006). A full queue means redaction is losing, and the frame
+        // is refused rather than queued for ever or written somewhere it would wait unredacted: the
+        // count reaches the bundle, where it makes the draft hedge instead of claiming to have seen a
+        // session it only partly saw.
+        if (!_options.Pending.TryEnqueue(session.Id, frame))
+        {
+            return false;
+        }
 
-        // ST-045: every frame that reaches the store passes through here, so this is the one place that
-        // can promise the count is complete. What triggered it is a label, not content (INV-10).
+        // ST-045: every frame that is accepted passes through here, so this is the one place that can
+        // promise the count is complete. What triggered it is a label, not content (INV-10).
         if (_store is IAuditLog audit)
         {
             await audit.RecordAsync(
@@ -496,13 +516,25 @@ public sealed class SessionMachine : IAsyncDisposable
     {
         var waitFor = grace ?? _options.RedactionGrace;
         var deadline = _time.GetTimestamp();
+
+        // The queue, not the store: a frame that has not been redacted has not been written, so the
+        // store cannot say whether one is still owed (ADR-0006). Both states count -- waiting to be
+        // read, and read but not yet written.
         while (waitFor > TimeSpan.Zero
-               && await _store.CountPendingFramesAsync(sessionId, ct).ConfigureAwait(false) > 0
+               && _options.Pending.DepthFor(sessionId) > 0
                && _time.GetElapsedTime(deadline) < waitFor)
         {
             await Task.Delay(_options.RedactionPoll, _time, ct).ConfigureAwait(false);
         }
 
+        // Whatever is still queued when the grace runs out. The frames were captured and never read, so
+        // they cannot be stored (ADR-0004) -- and there is no row to delete, so what is left to do is
+        // count the loss where the bundle will find it (ADR-0006).
+        var stragglers = _options.Pending.Forget(sessionId);
+        await _store.RecordPurgedFramesAsync(sessionId, stragglers, ct).ConfigureAwait(false);
+
+        // Still called: a store written by an older build may hold pending rows, and recovery is the
+        // path that meets them.
         await _store.PurgePendingFramesAsync(sessionId, ct).ConfigureAwait(false);
         await _store.FinalizeSessionAsync(sessionId, new FinalizeInfo(durationMs, partial), ct).ConfigureAwait(false);
 

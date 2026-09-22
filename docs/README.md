@@ -17,7 +17,7 @@ to trust it and where to change it.
 | File | Read it for |
 |---|---|
 | `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch |
-| `adr/000N-*.md` | Architecture decisions. 0001-0005 are Accepted; 0006 is Proposed. `adr/evidence/` holds the measurements they rest on |
+| `adr/000N-*.md` | Architecture decisions. All six are Accepted. `adr/evidence/` holds the measurements they rest on |
 | `review/weaknesses.md` | Ranked findings from the 2026-09-15 adversarial review, and which ticket fixes each |
 | `security/threat-model.md`, `data-flow.md`, `questionnaire.md` | The privacy pack (ST-114). Unbuilt items are marked ⚠; the pack has not yet had a security-lead review |
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |

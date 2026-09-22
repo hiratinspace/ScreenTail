@@ -1,6 +1,6 @@
 # ADR-0006: Where an unredacted frame waits
 
-- **Status:** Proposed 2026-09-22 (ST-041, ST-025).
+- **Status:** Accepted 2026-09-22 (ST-041, ST-025).
 - **Invariant:** INV-1.
 - **Supersedes:** nothing. ADR-0004 decides what happens to a frame nobody could read; this decides where
   a frame waits to be read.

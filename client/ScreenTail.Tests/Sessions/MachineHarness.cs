@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using ScreenTail.Core.Capture;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 
@@ -13,12 +14,21 @@ internal sealed class MachineHarness : IAsyncDisposable
 {
     private readonly string _path;
 
-    private MachineHarness(string path, SqliteSessionStore store, SessionMachine machine)
+    private MachineHarness(string path, SqliteSessionStore store, SessionMachine machine, PendingFrames pending)
     {
         _path = path;
         Store = store;
         Machine = machine;
+        Pending = pending;
     }
+
+    /// <summary>
+    /// Where a captured frame waits to be read (ADR-0006).
+    ///
+    /// The store used to hold it with <c>redaction_pending = 1</c>, so a test asking "was this frame
+    /// accepted?" asked the store. It asks this now.
+    /// </summary>
+    public PendingFrames Pending { get; }
 
     public SqliteSessionStore Store { get; }
 
@@ -30,13 +40,22 @@ internal sealed class MachineHarness : IAsyncDisposable
     {
         var path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
         var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
+
+        // Deep, so a test that captures a handful of frames is not measuring the production depth of
+        // four; PendingFramesTests owns that number.
+        var pending = new PendingFrames(depth: 1000);
         var machine = new SessionMachine(
             store,
             new NoCaptureSources(),
             new UnavailableDrafter(),
             time: time,
-            options: new SessionMachineOptions { RedactionGrace = TimeSpan.FromMilliseconds(100), RedactionPoll = TimeSpan.FromMilliseconds(20) });
-        return new MachineHarness(path, store, machine);
+            options: new SessionMachineOptions
+            {
+                RedactionGrace = TimeSpan.FromMilliseconds(100),
+                RedactionPoll = TimeSpan.FromMilliseconds(20),
+                Pending = pending,
+            });
+        return new MachineHarness(path, store, machine, pending);
     }
 
     public async ValueTask DisposeAsync()

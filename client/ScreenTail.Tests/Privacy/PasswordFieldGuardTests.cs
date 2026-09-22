@@ -33,7 +33,7 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
 
         // Counted rather than read back: LoadSessionAsync returns redacted frames only, so a staged frame
         // would not appear there whether or not it was written (INV-1). This asks the store directly.
-        Assert.Equal(0, await _harness!.Store.CountPendingFramesAsync(machine.SessionId!, TestContext.Current.CancellationToken));
+        Assert.Equal(0, _harness!.Pending.DepthFor(machine.SessionId!));
         var session = (await _harness.Store.LoadSessionAsync(machine.SessionId!))!;
         Assert.DoesNotContain(session.Events, e => e is TypingBurstEvent or ClickEvent);
         Assert.Equal(SessionState.Suppressed, machine.State);
@@ -58,10 +58,12 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
         Assert.True(await machine.TryRecordEventAsync(Click(), TestContext.Current.CancellationToken));
         Assert.True(await machine.TryStageFrameAsync(Frame("kept"), TestContext.Current.CancellationToken));
 
-        // One frame staged, not two: the one offered during the hold never reached the store.
-        Assert.Equal(1, await _harness!.Store.CountPendingFramesAsync(machine.SessionId!, TestContext.Current.CancellationToken));
-        var pending = await _harness.Store.TakeNextPendingFrameAsync(TestContext.Current.CancellationToken);
-        Assert.Equal("kept", pending!.Id);
+        // One frame accepted, not two: the one offered during the hold was refused outright, so it
+        // never reached the queue either -- and a frame waits in memory now rather than in the store
+        // (ADR-0006).
+        Assert.Equal(1, _harness!.Pending.DepthFor(machine.SessionId!));
+        Assert.True(_harness.Pending.TryTake(out var queued));
+        Assert.Equal("kept", queued.Frame.Id);
     }
 
     [Fact]
