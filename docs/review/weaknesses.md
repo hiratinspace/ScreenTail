@@ -4,10 +4,15 @@
 reviews (security, invariant enforcement, performance, test quality), every headline claim re-verified by
 hand against the code before being written down here.
 
-**Status, 2026-09-15:** **ST-048 (#57) fixes P0-1, P0-3, P0-4, P0-5 and P2-1.** Each of those sections now opens
-with what was done. **ST-018 (#58) fixes P1-4. ST-085 (#59) fixes P0-2, P1-1, P1-2 and P1-6.** The rest of P1 and the
-scheduled P2s are ST-049. Nothing here is closed by being ticketed — only the five
-marked **Fixed** are.
+**Status, 2026-09-22 — closed.** Thirteen of the fourteen P0 and P1 findings are fixed, and each of
+those sections opens with what was done. **ST-048 (#57)** fixed P0-1, P0-3, P0-4, P0-5 and P2-1.
+**ST-018 (#58)** fixed P1-4. **ST-085 (#59)** fixed P0-2, P1-1, P1-2 and P1-6. **#85** fixed P1-5: the
+audit chain carries a head anchor (schema 7), so a log cut from the back no longer verifies. **#128**
+(ADR-0006) fixed P1-3 — `NothingUnredactedIsEverInTheStore` reads the stored bytes back — and P1-9, which
+went with the pending-frame query it lived in. **P1-8**'s three overclaims were corrected in
+`docs/security/threat-model.md` on 2026-09-22. **P1-7 is open** and belongs to ST-049, as do the
+remaining P2 and P3 items. The sections below are left as written on 2026-09-15 so the code comments
+that cite them still point at the right words; read each section's opening note before its body.
 
 ## How this is ranked
 

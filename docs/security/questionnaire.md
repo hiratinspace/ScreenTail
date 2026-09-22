@@ -7,7 +7,9 @@ rather than take our word for it.
 "does", because a questionnaire that overstates a shipped control is the one document that will be held
 against you later. Do not delete the marks before the tickets close.
 
-Status as of this document: the Windows client is built; publishing and the hosted backend are not.
+Status as of 2026-09-22: the Windows client is built and its UI is connected to the capture service; the
+backend is built and runs locally. Publishing, hosting, enrolment, tenant policy and the Settings screen
+are not built. This pack has not had a security-lead review (7.4).
 
 ---
 
@@ -36,21 +38,19 @@ continuously.
 By default, the remote-support tool plus an allowlist of admin tools. Capturing all windows is opt-in and
 warns that other customers' data may be on screen. *(INV-5)*
 
-**1.7 ⚠ Can capture be running without the user knowing?**
-**Today, yes — there is no capture indicator in the shipping build.** This answer previously claimed a
-tray icon; that was wrong, and no tray icon exists in the codebase at all.
+**1.7 Can capture be running without the user knowing?**
+No. A recording pill is on screen whenever capture is anything but idle, it cannot be dismissed
+mid-session, and a tray icon shows the same state. The UI reports the pill to the service every two
+seconds with its position, and the service treats a pill it has not heard from in six seconds as absent,
+so a UI that has stopped painting does not count as an indicator. **While no indicator is reported, the
+service suppresses capture** after a short grace for UI restarts: no frame, no typing count, no
+transcript is written, and the interval is in the audit log. *(INV-4. Between 2026-09-15 and
+2026-09-16 this answer was "yes": the indicator existed and nothing showed it. Closed by ST-085; the
+active report was added 2026-09-22.)*
 
-The on-screen indicator is built, is designed so it cannot be dismissed mid-session, and has tests and
-rendered screenshots — but the UI process does not connect to the capture service, so nothing shows it.
-`TrayPresence` computes what a tray icon would display and nothing renders one.
-
-**Do not deploy to a customer-facing pilot until this is closed.** INV-4 is the invariant that makes the
-product's premise defensible, and it is currently unenforced. *(INV-4; tracked as the top item in the
-weakness review.)*
-
-**1.8 ⚠ Is the indicator visible to the customer during screen sharing?**
-The indicator sets `WDA_EXCLUDEFROMCAPTURE`, so a screen-share viewer would not see it. Moot until 1.7
-is closed: there is no indicator on screen to exclude.
+**1.8 Is the indicator visible to the customer during screen sharing?**
+No. The indicator sets `WDA_EXCLUDEFROMCAPTURE`, verified on the hosted runner and on the laptop
+(ADR-0001 AC3), so a screen-share viewer does not see it while the technician does.
 
 **1.9 What happens when a password field has focus?**
 Capture stops. No screenshot and no typing event is recorded for that interval — the data is dropped, not
@@ -71,11 +71,14 @@ An encrypted SQLite database (SQLCipher) in the technician's own user profile.
 Windows DPAPI, scoped to that user account.
 
 **2.3 Can a screenshot be read before it is redacted?**
-No. Frames are written with `redaction_pending` set and only the redaction worker can read one back. Every
-other path filters on redacted frames. *(INV-1)*
+No. A captured frame waits in memory and is written to the store only after redaction (ADR-0006); every
+read path also filters on the pending flag, as a second line. A test reads the stored bytes back to
+prove nothing unredacted is ever there. *(INV-1)*
 
 **2.4 What if redaction fails on a frame?**
-The frame is deleted. An unreadable frame retained is an unredacted frame.
+The frame is deleted and counted. The same happens to a frame captured while the redaction queue is full.
+The count reaches the drafted note, which then says it did not see everything rather than pretending it
+did. An unreadable frame retained is an unredacted frame.
 
 **2.5 What is redacted?**
 Card numbers (Luhn-checked), national ID numbers, API keys and tokens, private key blocks, password
@@ -88,8 +91,10 @@ Locally, always. OCR uses the Windows on-device engine.
 Default 7 days, configurable 1–30. Screenshots, transcript and timeline are deleted on that clock; the
 drafted note survives. *(INV-12)*
 
-**2.8 Is there a delete-everything option?**
-Yes, in Settings, behind a typed confirmation. It removes tokens as well as data.
+**2.8 ⚠ Is there a delete-everything option?**
+The service accepts the command only with a typed confirmation it issued moments before, and it removes
+tokens as well as data. The Settings screen that offers it is not built (ST-081), so today nothing in the
+UI reaches it.
 
 **2.9 Is deleted data recoverable?**
 No. Deletion is a hard delete followed by a vacuum. A blurred region is flattened to solid colour and the
@@ -108,20 +113,26 @@ Only a redacted bundle sent to produce the draft note, and only what the technic
 **3.2 Can the product publish automatically?**
 No. There is no automatic publishing path. *(INV-3)*
 
-**3.3 Is there a mode where nothing leaves the device?**
-Yes. Local-only mode drafts on the device. It is enforced by an HTTP allowlist that defaults closed and
-takes the destination's purpose from the calling code rather than inferring it from the URL. *(INV-8)*
+**3.3 ⚠ Is there a mode where nothing leaves the device?**
+Yes: with no backend configured, nothing leaves the device. Every HTTP call the service makes goes
+through an allowlist that defaults closed, refuses anything that is not HTTPS, and takes the
+destination's purpose from the calling code rather than inferring it from the URL. *(INV-8)* A session
+in that mode keeps its screenshots and transcript and says the note could not be drafted; on-device
+drafting is not built.
 
 **3.4 ⚠ Can an administrator lock local-only mode on?**
 Designed to, via tenant policy enforced client-side rather than merely displayed. *(INV-11; ST-047 not yet
 implemented.)*
 
 **3.5 ⚠ Does the backend store screenshots?**
-Designed not to: frames are held in memory for one request and never written to storage, and the
-backend's tests assert its storage does not grow. *(INV-7; the backend is not yet deployed — ST-007.)*
+No. There is no table that could hold a frame, a transcript or a note; a bundle is held in memory for one
+request and let go, and the backend's tests count every row in every table before and after a draft.
+*(INV-7. The backend is built and runs locally; it is not yet deployed — ST-007.)*
 
-**3.6 ⚠ What is the hosted model provider?**
-Not yet selected. *(ST-063.)*
+**3.6 What is the hosted model provider?**
+Google Gemini Flash, via the Generative Language API, US region. One request per session, with frames
+sent at low resolution and a per-tenant daily spending cap checked before the call. Anthropic and OpenAI
+are swappable behind the same interface. *(ST-063.)*
 
 **3.7 Do logs contain customer data?**
 No. Logs and metrics have no content-carrying fields — no window titles, OCR text, transcript, note text,
@@ -132,10 +143,9 @@ them out. *(INV-10)*
 No telemetry is sent: there is no metrics system in the client. The Settings screen that would list the
 fields does not exist either.
 
-**3.9 ⚠ Is the diagnostics panel trustworthy?**
-**Not yet.** It renders a hard-coded sample — including `Local-only: true` and `Egress blocked: 0` — because
-nothing populates it from live state. It must not be shown to a customer as evidence until it is wired to
-the running service.
+**3.9 Is the diagnostics panel trustworthy?**
+Yes. It is filled from the service's own counters and policy over the pipe; the UI holds no value of its
+own to show, and `Local-only` is read from the same object the egress guard enforces with. *(ST-085.)*
 
 ---
 
@@ -147,18 +157,18 @@ component listens on a TCP port — asserted by a test that fails the build if a
 client source.
 
 **4.2 How is that channel authenticated?**
-Three checks: a per-user ACL on the pipe, a per-run token that is never written to disk, and verification
-that the connecting executable is Authenticode-signed by our publisher.
+Three checks: a per-user ACL on the pipe, a per-run token left in one file only that user can read, and
+verification that the connecting executable is Authenticode-signed by our publisher.
 
 **4.3 Is the signature actually verified, or just present?**
 Verified with `WinVerifyTrust`, which hashes the file and walks the chain. An earlier implementation
 compared the certificate thumbprint, which a modified binary can satisfy by copying the certificate blob;
 that was replaced and there is a test that tampers with a signed binary and asserts refusal.
 
-**4.4 ⚠ Does the UI verify the service, or only the other way round?**
-The service verifies the client today. The reverse check is built — the UI's connect call **requires** a
-server verifier rather than defaulting to none, so it cannot be omitted by accident — but the UI does not
-yet connect to the service at all, so nothing exercises it in a shipping build.
+**4.4 Does the UI verify the service, or only the other way round?**
+Both. The UI's connect call **requires** a server verifier rather than defaulting to none, and passes one
+that checks the pipe server's executable before the token is written. An unsigned development build
+falls back to the same-directory rule on both sides. *(ST-012; wired in ST-085.)*
 
 **4.5 Are debug or diagnostic endpoints present in release builds?**
 No. There is no build-conditional code in the client at all, asserted by test — release and debug contain

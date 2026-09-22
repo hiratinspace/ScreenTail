@@ -5,7 +5,8 @@ is. Written in plain language on purpose: a data-flow document nobody outside en
 document that gets forwarded and never checked.
 
 Everything here is enforced in code and named against the invariant that enforces it. Where something is
-not yet built, it says so.
+not yet built, it says so. **Revised 2026-09-22** against `main` at #132; not yet reviewed by a security
+lead.
 
 ---
 
@@ -65,13 +66,14 @@ while the technician is sharing their screen (INV-4). It cannot be dismissed mid
 out of screen-share and recording software so the customer's view never shows it. There is no
 silent-capture mode.
 
-> **Status — read this before relying on the paragraph above.** The pill is built and tested, but the
-> shipping application does not show it: the UI process does not yet connect to the capture service. There
-> is **no tray icon** either — a component computes what one would display, and nothing renders it.
->
-> **So there is currently no capture indicator at all.** An earlier version of this document said the tray
-> icon shipped. That was wrong. Until the UI is connected, INV-4 is unenforced and ScreenTail should not
-> be run against a real customer session.
+> **Status, 2026-09-22.** The UI is connected to the capture service (ST-085): the pill and a tray icon
+> show live state. The UI tells the service every two seconds that the pill is on screen and where, and
+> the service treats a pill it has not heard from in six seconds as absent — so a UI that has stopped
+> painting without closing does not count as an indicator. **While no indicator is reported, the service
+> suppresses capture** after a short grace for UI restarts, and writes the interval to the audit log; a
+> UI that crashed, was quit, or was never started cannot leave the service recording. Between 2026-09-15 and 2026-09-16 this
+> document said, correctly, that there was no indicator in the shipping build; an earlier version had
+> claimed one that did not exist.
 
 ---
 
@@ -80,10 +82,13 @@ silent-capture mode.
 The store is an **encrypted SQLite database** (SQLCipher) with a key held in Windows DPAPI under the
 technician's own account.
 
-Screenshots arrive in it **unreadable**. A frame is written with `redaction_pending` set, and the only
-component that can read one back is the redaction worker. Every other path — the review screen, the
-bundle builder, export — filters on frames that have been redacted (INV-1). A frame that cannot be
-redacted is **deleted, not kept**: an unreadable frame retained is an unredacted frame.
+**A screenshot never reaches the store unredacted.** A captured frame waits in a small in-memory queue,
+the redaction worker takes it from there, and only the redacted, downscaled result is written
+(ADR-0006). Every read path — the review screen, the bundle builder, export — still filters on frames
+that have been redacted (INV-1), as a second line and for stores an older build wrote. A frame that
+cannot be redacted, or that arrives when the queue is full, is **deleted and counted, not kept**: an
+unreadable frame retained is an unredacted frame, and the count reaches the draft so it hedges rather
+than claims to have seen everything.
 
 Redaction runs on the device. It reads the text on each screenshot with the local OCR engine and masks
 what matches — card numbers, national insurance and social security numbers, API keys and tokens,
@@ -91,7 +96,9 @@ password fields — and then, and only then, the frame becomes readable to the r
 
 **Raw data has a deadline.** Screenshots, transcript and timeline are deleted after a retention period
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).
-"Delete everything" is available in Settings and removes tokens as well as data.
+"Delete everything" exists as a command the service accepts only with a typed confirmation it issued
+moments before, and it removes tokens as well as data; the Settings screen that offers it is not built
+yet (ST-081).
 
 ---
 
@@ -114,8 +121,8 @@ company or ticket names. The record the diagnostics panel is built from has nowh
 which is a stronger guarantee than filtering them out. There is no metrics system yet, so "metrics" in
 the invariant table describes an intent rather than a shipped component.
 
-*(Status: the diagnostics panel currently renders a hard-coded sample rather than live state, so it is not
-yet something to show a customer as evidence.)*
+The diagnostics panel is filled from the service's own counters and policy over the pipe (ST-085); the UI
+holds no value of its own to show, so the panel cannot say one thing while the service does another.
 
 ---
 
@@ -154,13 +161,18 @@ The full threat model, with mitigations mapped to tickets, is in [threat-model.m
 This document describes what is enforced today. These are named here rather than implied:
 
 - **Publishing** (ST-077, ST-078) is not implemented. Nothing reaches a PSA yet.
-- **The hosted backend** (ST-007 onward) is not deployed. INV-7's assertion exists in the backend's tests;
-  there is no running service.
+- **The hosted backend** is built and runs locally on Postgres; it is not deployed (ST-007). INV-7 is
+  asserted by its tests, which count every row in every table before and after a draft.
+- **Enrolment** (ST-010) is not built. A Development-only flag issues a device token until it is.
 - **Tenant policy sync** (ST-047) is not implemented, so "a tenant can lock local-only mode" describes the
   designed behaviour, not a shipped one.
-- **The egress allowlist** (INV-8) is written and tested but **not installed on anything**. No component in
-  the client makes HTTP calls today, so nothing escapes — but the mechanism that would stop it is not in
-  the path. Treat INV-8 as designed, not enforced.
-- **"Delete everything"** is implemented in the store and unreachable: there is no Settings screen and no
-  IPC command that calls it.
-- **There is no audio capture at all**, so INV-9 is currently true by absence rather than by enforcement.
+- **The egress allowlist** (INV-8) **is in the path now**: every HTTP client the service builds goes
+  through it, it refuses anything that is not HTTPS, and the list holds only the speech-model host and
+  the backend address an operator configured. The UI process makes no HTTP calls.
+- **"Delete everything"** is a command the service accepts behind a typed confirmation; nothing in the
+  UI reaches it until the Settings screen exists (ST-081).
+- **Audio capture is built** (ST-027). The service opens the technician's default microphone while a
+  session is recording and nothing else; there is no code path for system or remote audio, so INV-9 is
+  enforced by there being no other source to open.
+- **On-device drafting is not built.** With no backend configured, nothing leaves the device and the
+  session keeps its screenshots and transcript with a note that says it could not be drafted.

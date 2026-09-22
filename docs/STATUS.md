@@ -1,6 +1,6 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-18
+**Snapshot taken:** 2026-09-22
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -8,201 +8,184 @@
 
 ## 1. Where things stand
 
-**`main` is green and has the whole capture path on it.** A click or a scene change becomes a frame, the
-frame is staged encrypted and unreadable, the redaction worker reads it, masks what it finds and only then
-shrinks it for storage. Hotkeys drive the session. Nothing is drafted yet.
+**Everything between a real session and a real note is built, merged and green. None of it has run end
+to end yet.** Capture, redaction, speech, the bundle, the outbox, the sender, the backend endpoint and the
+model call each have tests; the whole chain has never been exercised with a real session, a real backend
+and a real key at the same time. That first run is **M1**, and `docs/dev/first-draft-end-to-end.md` is
+the step list for it. Nothing else on this page is waiting on anything but that.
 
-> **Read `docs/review/weaknesses.md` before pointing this at a customer session.** A review on 2026-09-15
-> found five ship-blockers, two of them invariant breaches: a frame the OCR engine reads nothing from is
-> stored *as redacted* with nothing masked (INV-1), and there is no capture indicator at all in the
-> running application (INV-4). Neither is a policy error — the decision classes are right — but the
-> enforcement points are weaker than the policy objects throughout.
+**Of 85 tickets, 42 are Done, 4 are Partial and 39 are Open.** Phases A and B of the ordered plan
+(backlog Part C) are complete apart from the two that need the owner: ST-030 (golden sessions; needs a
+ScreenConnect trial and a second machine) and ST-062 (the eval harness, which runs on ST-030's sessions).
+The four Partial tickets each say what they wait for: ST-027 (the WER number needs a human recording),
+ST-042 (the recall gate needs ST-030's labelled frames), ST-085 (done on the Mac side and green on the
+laptop; the ticket's own Windows walk-through has not been done by a person), ST-114 (the security-lead
+review).
 
-**Thirty-five of 85 tickets are done or substantially done** (four were added on 2026-09-15: ST-018, ST-048, ST-049, ST-085 — see backlog Part D): ST-001 (spike), ST-002 (repo/CI), ST-003 (schema),
-ST-004 (service + IPC), ST-005 (store), ST-006 (fixtures), ST-012 (threat model + client hardening),
-ST-014 (wireframes), ST-015 (Review hi-fi), ST-016 (design system), ST-020 (state machine), ST-021
-(capability checks), ST-022 (foreground detection), ST-023 (scope policy), ST-024 (input hooks), ST-025
-(screenshot on click), ST-026 (scene sampling), ST-029 (hotkeys), ST-040 (password-field suppression),
-ST-041 (OCR and redaction worker), ST-042 (redaction engine, partial), ST-043 (exclusions), ST-044
-(retention), ST-045 (audit log), ST-046 (egress guard), ST-061 (note prompt), ST-066 (time entry),
-ST-070 (shell), ST-071 (tray and diagnostics), ST-072 (recording HUD), ST-074 (note editor), ST-075
-(screenshot strip), ST-079 (session history), ST-114 (privacy pack, partial), ST-027 (speech, partial).
-
-**In flight:** ST-060 (#62), the session bundle. **Phase A is done**; Phase B is four tickets in, with the draft itself waiting on a model provider.
-
-**Two tickets are partial and say so:** ST-027 has its gating, model download and transcript assembly but
-no audio capture and no WER number; ST-114 has its three documents but no security-lead review.
+**Two reviews have been worked through since the last snapshot.** The 2026-09-15 adversarial review
+(`docs/review/weaknesses.md`) is closed: thirteen of fourteen findings fixed, one (P1-7) tracked under
+ST-049. The 2026-09-20 efficiency and security review shipped as PRs #96–#132; what it deliberately did
+not do is listed in §6.
 
 ## 2. What exists
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub repo (private) | https://github.com/hiratinspace/ScreenTail | `main` plus whatever is in flight |
-| Build plan | `Build Plan/` | Spec at **v0.4.3** — ST-014's six decisions, the contrast fixes and ST-074's three S3 wording changes are all in the amendments table |
-| Client | `client/` | `.Shared` (schema + IPC), `.Core` (store, sessions, privacy, capture, input, audit), `.Service`, `.UI`. **721 tests** on macOS, plus a Windows-only suite |
-| Backend / web | `backend/`, `web/` | Skeletons with CI gates; nothing built on them yet |
-| Research | `research/` | Fixtures, note prompt, output contract. **100 tests** |
-| Windows test loop | Hosted Windows VM + spare laptop (`SCREENTRAIL`) | Both run on every PR touching capture. The laptop produces the numbers; the hosted runner's don't count |
-| Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion |
+| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #132, no open pull requests |
+| Build plan | `Build Plan/` | Spec at **v0.4.3**. Backlog Part C is the ordered plan, Part D the amendments |
+| Client | `client/` | `.Shared` (schema + IPC), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`. **1,095 tests** on macOS, plus the Windows-only suite |
+| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, the summarize endpoint, the Gemini provider, the cost ledger. **181 tests.** Runs locally on Postgres; not deployed (ST-007) |
+| Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the WER script. **130 tests** |
+| Shared contracts | `shared/` | The session schema, the design tokens, and the summarize-request wire contract both sides test against |
+| Windows test loop | Hosted Windows VM + spare laptop `SCREENTRAIL` | Both run on every PR that touches capture. The laptop's two jobs were green on the last PR that needed them (2026-09-22) |
+| Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion. The repository is public; three GitHub settings keep strangers' code off the laptop (`docs/dev/windows-test-loop.md` § Security) |
 
 ## 3. What the code does today
 
-- Capture service starts per user, serves an authenticated named pipe (user ACL + verified client
-  executable + per-run token), recovers sessions a crash left behind, and runs retention hourly.
-- The session state machine owns the lifecycle. Capture sources can only write while recording, so pause
-  and *user* suppression are enforced by construction (INV-6). **The scope half is not:** the excluded-app
-  and out-of-scope drops live in `ClickCaptureLoop`, which no test covers — delete them and the suite
-  stays green. See weaknesses P0-4.
-- The store is SQLCipher-encrypted. A frame enters redaction-pending and nothing but the redaction worker
-  can read it back; INV-1's **read** path is thorough — every read filters the flag. **The write path is
-  not:** a frame the OCR engine returns nothing for skips the discard and is stored with the flag cleared
-  and nothing masked. See weaknesses P0-1.
-- The redaction engine finds SSNs, Luhn-valid cards, credential shapes, password cues and tenant
-  patterns, and maps matches back to OCR word boxes. A scan that can't finish says so, so the caller
-  purges the frame instead of storing one nobody checked.
-- Screenshots are staged at the size they were captured, never downscaled first: the worker has to read
-  the text before it masks it, and 1600 px was measured illegible below 200% scaling (ADR-0001 finding 2a).
-- The screen is sampled once a second and a frame kept only when it has actually changed, so the error
-  dialog a technician reads without clicking is still captured, and the desktop they stare at for a minute
-  is not photographed sixty times.
-- Capture stops while a password field has focus (UI Automation) and for ten seconds after the OCR text
-  looks like a sign-in screen. Both write an interval to the audit log.
-- The audit log is hash-chained: editing, deleting or reordering a row breaks it from there on. Its export
-  carries counts, states and hosts, never content.
-- Retention removes raw data after the tenant's window (INV-12). **"Delete everything" is implemented and
-  unreachable** — there is no Settings screen and no IPC command that calls it.
-- The note prompt is versioned with a strict output schema and post-conditions that reject invented
-  steps, fake quotations, dangling frame references and leaked secrets.
-- Design tokens generate WPF dictionaries and web CSS from one source; the component gallery renders in
-  CI on Windows in dark, light and high contrast.
+- The capture service starts per user, serves an authenticated named pipe (user ACL, verified client
+  executable, per-run token in a file only that user can read), recovers what a crash left behind, and
+  runs retention hourly with a vacuum only when a third of the file is free.
+- **The UI is connected** (ST-085). A tray icon and the recording pill show live state; diagnostics and
+  history come from the service, not from anything the UI believes; discard and erase need a typed
+  confirmation the service issued moments before. The UI tells the service every two seconds that the
+  pill is on screen and where; the service treats a pill it has not heard from in six seconds as absent
+  and suppresses capture until one is back (INV-4).
+- The session state machine owns the lifecycle. Sources can only write while recording (INV-6). The
+  input hooks are installed while a session exists and removed when it ends (#129).
+- **A captured frame never touches the disk unredacted.** It waits in a bounded in-memory queue (depth
+  4), the redaction worker takes it from there, and only the redacted, downscaled result is stored
+  (ADR-0006). A frame the OCR engine cannot read, or that arrives when the queue is full, is dropped and
+  counted, and the count reaches the draft so it hedges (ADR-0004). `NothingUnredactedIsEverInTheStore`
+  reads the bytes back to prove it.
+- Redaction finds SSNs, Luhn-valid cards, credential shapes, spoken passwords in the transcript and
+  tenant patterns; overlapping regions are merged before masking.
+- **Speech works.** The microphone opens with the session; Whisper `base.en` runs on two threads;
+  the model download is hash-checked and cannot fill the disk; a voice-activity gate and a
+  hallucination filter sit in front of the transcript; transcription runs off the microphone loop.
+- **The drafting path is wired end to end.** Bundle → outbox → sender → `POST v1/sessions/summarize`
+  with a device token → Gemini Flash → validator (invented frames, fake quotations, credentials,
+  instruction-shaped text) → note in the store. One model call per session; the daily cap is checked
+  before the call.
+- Every HTTP call the service makes goes through the egress allowlist at the composition root. Anything
+  that is not HTTPS, or not the model host or the configured backend host, is refused (INV-8).
+- The audit log is hash-chained with a head anchor (#85), so truncation from either end is detected.
+- Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
+  dark, light and high contrast.
 
-**Capture works; speech, drafting and the UI do not.** A session started by a remote tool taking focus
-records clicks and typing counts, photographs clicks and scene changes, reads every frame with the OS OCR
-engine, masks what the pattern library finds, and stops capturing when it sees a password field or a
-sign-in screen. What it cannot do yet: hear anything (ST-027), write a note (ST-060/063), or publish
-(ST-077/078).
-
-**The UI process is not an application yet.** It has no project reference to the service, never opens the
-pipe, and every window it renders is fed hard-coded sample data. Review, the HUD, history, the tray and
-the diagnostics panel are all built, tested and rendered in CI — and reachable only through the
-`--gallery` / `--note` / `--hud` screenshot harnesses. Wiring the UI to the service is the single
-highest-leverage piece of work left, and it is not currently a ticket.
+**Not built:** publishing (ST-077, ST-078), enrolment (ST-010 — a Development-only flag issues a device
+token until then), settings and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting
+(ST-007), on-device drafting.
 
 ## 4. Decisions already made
+
 - **.NET 10 LTS** (support for 8 ends November 2026).
 - **OCR on the full-size frame**; only the display/upload copy is shrunk (ADR-0001 finding 2a).
-- **Spec v0.4.1 (Q1–Q6):** HUD always visible during screen-share; Internal note type default; tray discard stops capture before confirming; Publish disabled after a failed draft; elevated-window wording; bulk discard confirms by count.
-- **Spec v0.4.2:** `text.muted` and light `accent.primary` adjusted, `text.on-accent` added, and state colours are indicators, never body-size text — the CI contrast test found 10 pairs under 4.5:1.
-- **A draft reports unrounded active minutes**; the client applies the tenant's billing rounding. Rounding in both places would round twice.
-- **Spec v0.4.3:** three S3 wording changes from ST-015/ST-074 — the disabled-Publish reason moves out of
-  a tooltip, the offline no-draft message stops telling you to retry something that cannot succeed, and
-  the save indicator gains "Not saved — retrying". **Accepted 2026-09-15 with v0.4.2** (backlog Part D, D-6).
-- **2026-09-15, three sequencing decisions** (backlog Part D, D-1 to D-3): ST-060 waits for ST-042's engine, not its
-  recall gate; the backend runs on Docker Postgres locally so ST-008 no longer waits for a cloud account; the
-  usability round (ST-017) gates the pilot, not the publish panel. Each keeps every invariant; each removes an
-  owner purchase from the M1 path.
-- **ADR-0001** (.NET stack), **ADR-0002** (platform-neutral `ScreenTail.Core`), **ADR-0003** (per-user
-  process, not a Windows Service; three-check pipe handshake). All three **Accepted 2026-09-12**, status lines
-  corrected 2026-09-15.
+- **Spec v0.4.1 (Q1–Q6):** HUD always visible during screen-share; Internal note type default; tray
+  discard stops capture before confirming; Publish disabled after a failed draft; elevated-window
+  wording; bulk discard confirms by count.
+- **Spec v0.4.2:** `text.muted` and light `accent.primary` adjusted, `text.on-accent` added, and state
+  colours are indicators, never body-size text.
+- **Spec v0.4.3:** three S3 wording changes from ST-015/ST-074. Accepted 2026-09-15 (Part D, D-6).
+- **A draft reports unrounded active minutes**; the client applies the tenant's billing rounding.
+- **2026-09-15 sequencing** (Part D, D-1 to D-3): ST-060 waited for ST-042's engine, not its recall
+  gate; the backend runs on Docker Postgres locally; the usability round gates the pilot, not the
+  publish panel.
+- **Model provider: Gemini Flash** (`gemini-3.6-flash`, low media resolution), chosen and measured
+  2026-09-19. Anthropic and OpenAI stay swappable behind the same interface.
+- **2026-09-22, four decisions from the efficiency review:** US only for now (no regional model
+  endpoint); Whisper `base.en` on every machine, two threads; the microphone follows the session, not
+  the recording state; Gemini billing is the owner's to enable and gates *measurement*, not M1.
+- **Six ADRs, all Accepted:** 0001 (.NET stack), 0002 (platform-neutral Core), 0003 (per-user process,
+  three-check pipe handshake), 0004 (a frame nobody read is not stored), 0005 (Windows adapters shared by
+  both processes), 0006 (an unredacted frame waits in memory, accepted 2026-09-22).
+- **The repository is public on purpose** — hosted Windows minutes are free for public repositories.
+  Three repository settings, not workflow files, are what keep a stranger's pull request off the laptop.
 
 ## 5. Open items for the owner
-- [x] ~~Turn on the `main` ruleset.~~ **Done 2026-09-12.** `main` now requires a pull request and a
-      green `ci-ok`, and refuses force-pushes and deletion. Nobody is on the bypass list, so this
-      applies to you too: work on a branch, open a PR, let CI finish. Squash merging is still
-      permitted by the ruleset — avoid it, since it discards the per-commit `Refs: ST-###` footers.
-- [x] ~~Decide on the P0 findings.~~ **Ticketed 2026-09-15 as ST-048** (P0) and ST-049 (P1), ST-018 (skip gate),
-      ST-085 (wire the UI). They are Phase A and B1 of the ordered plan; nothing runs against a customer
-      screen before ST-048 merges.
-- [x] ~~Veto or accept spec amendments v0.4.2 and v0.4.3.~~ **Accepted 2026-09-15** (Part D, D-6).
-- [ ] **Choose the model provider and supply an API key and a monthly cap.** ST-063 (B7) has no workaround
-      for this; the backlog's default is Gemini Flash with Anthropic and OpenAI swappable behind the same
-      interface, so the choice can change later without code.
-- [ ] **Record the ten-minute narration** for ST-027's WER criterion. `research/fixtures/audio/README.md`
-      says exactly what it needs, why a synthesised recording would measure the wrong thing, and now the
-      one command that scores it. **The rest of the speech pipeline is built** as of 2026-09-16, so this
-      is the only thing between ScreenTail and a measured transcript. It also unblocks ST-028, ST-030,
-      ST-080 and ST-123.
-- [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). Until then answer 7.4 says it is
-      unreviewed, and it must not be represented otherwise.
-- [x] ~~`SCREENTRAIL` is switched off and `HW_RUNNER` is `false`.~~ **Back on 2026-09-16**, `HW_RUNNER`
-      set to `true`, and the full Windows suite runs on it: 47 tests, 0 failed, 4 skipped in the
-      capabilities job and 0 in the input job. Its return exposed three things ST-018 fixed: the runner
-      account's PowerShell execution policy blocked every step, a non-ASCII character made Windows
-      PowerShell mis-parse a script, and `dotnet test` rejects the report option the skip gate needs.
-- [x] ~~Flip the three ADRs to Accepted.~~ Done 2026-09-15.
-- [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions (B9) and ST-001 AC2.
-- [ ] **Hosting decision**, or leave the backend on Docker Postgres until Phase D (Part D, D-2).
-- [ ] **ST-110 pilot-MSP baseline measurement** — formally Phase D, but it gates the pilot's success
-      metric, so the earlier the interviews start the better the before/after number.
-- [ ] **Answer the market scan's question** (`docs/product/2026-09-15-market-scan-and-ideas.md` §6) — faster
-      notes, compounding knowledge, or proof for disputes — ideally in the ST-110 interviews. It orders Phase E.
-      Nothing from the scan becomes a ticket before M1.
+
+- [ ] **Run M1.** `docs/dev/first-draft-end-to-end.md`, top to bottom, on the laptop. Everything runs
+      there, including the backend, because the client refuses a backend that is not HTTPS and the only
+      certificate the laptop trusts without ceremony is its own.
+- [x] ~~Choose the model provider and supply a key.~~ Gemini Flash. The key is in user secrets **on the
+      Mac**; user secrets are per machine, so the laptop needs its own copy (the runbook says where).
+- [ ] **Enable billing on the Gemini key.** The free tier (20 requests a day) is enough for M1 and not
+      for the two measurements ST-063 still owes: the thinking-token budget and the repair rate.
+- [ ] **Record the ten-minute narration** for ST-027's WER number. `research/fixtures/audio/README.md`
+      says what it needs and the one command that scores it.
+- [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). The three documents were brought
+      into line with the code on 2026-09-22; they are still unreviewed and say so.
+- [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions and ST-001 AC2.
+- [ ] **Hosting decision** (Phase D). Docker Postgres on a laptop is fine until then.
+- [ ] **ST-110 pilot-MSP baseline interviews**, and the market scan's §6 question in the same
+      conversations.
 - [ ] Two technician sessions on the Review wireframe (ST-014's remaining criterion).
-- [ ] RDP opacity check for ST-001 AC2 (5 minutes with a second Windows machine).
 
 ## 6. Known gaps, deliberately left
-- **ST-042** has no corpus recall gate: it needs ST-030's staged captures. The engine and its unit tests
-  are in; the ≥ 98% recall / ≤ 2% false-positive criterion is untested.
-- **OCR is a best-effort input to redaction, not a guarantee.** Windows.Media.Ocr reads a 1080p dialog in
-  31–64 ms and got 18 of 18 labels, but it will not read a long run of one ambiguous glyph — the canonical
-  `4111 1111 1111 1111` test card comes back as nothing at all. Real card numbers are not sixteen repeated
-  ones, so it does not change the design, but INV-1 cannot rest on the engine reading everything. See
-  ADR-0001 finding 9.
-- **A 4K frame exceeds ST-025's budget and nothing fails.** Measured on the laptop: 13.9 ms fixed +
-  35.6 ms/MP, so a 4K frame is about **309 ms against a 120 ms budget**. The test asserts a 1.37 MP window
-  (62 ms, passes) and only *records* the 4K extrapolation. Windows.Graphics.Capture is the fix when it
-  matters. See weaknesses P2-2.
-- **Redaction's tail is three times its budget.** 200 frames at 1920×1080: median 185 ms, p95 243 ms —
-  comfortably inside 700 ms — but worst case **2012 ms**. A large part of that is the pattern library
-  running twice per frame (weaknesses P2-1, ~10 lines to fix).
-- **The foreground watcher's CPU number is measured on an idle desktop**, which is not the condition
-  ST-031 budgets for. It also subscribes to roughly twenty WinEvent types rather than two (P0-5).
-- **ST-006's frames are drawn, not captured.** Good enough for UI and pattern work, useless for judging
-  OCR quality. `research/fixtures/README.md` says so where someone will see it.
-- **ST-014** still needs the two technician sessions before its Q1/Q2 decisions are confirmed.
+
+- **ST-042 has no corpus recall gate**: it needs ST-030's staged captures.
+- **OCR is a best-effort input to redaction, not a guarantee.** It will not read a long run of one
+  ambiguous glyph. INV-1 cannot rest on the engine reading everything (ADR-0001 finding 9).
+- **A 4K frame exceeds ST-025's budget and nothing fails**: about 309 ms against 120 ms, measured on the
+  laptop. Windows.Graphics.Capture is the fix when it matters.
+- **Each frame is decoded twice** — once to read it, once to paint on it. Passing the bitmap between
+  them would hold about 33 MB a frame instead of 1.5 MB; a memory trade that was kept out of ADR-0006 on
+  purpose and is its own decision when somebody wants it.
+- **The full-disk case under-reports `frames_purged_unredacted`**: when the store refuses both the write
+  and the record of the loss, the frame is let go rather than remembered, and the draft does not know to
+  hedge. Named in the test; accepted as the price of not holding a frame for ever on a disk that will
+  not empty.
+- **P1-7** (the store key survives as strings — `docs/review/weaknesses.md`) is open under ST-049.
+- **Not done from the 2026-09-20 review, with reasons:** the hardware workflow as a reusable workflow
+  (a laptop that is off would hang the run for a day instead of failing in 35 minutes; revisit if the
+  repository goes private); a model hash cache (weakens the one check between a corrupt download and
+  native code); the SQLite `cache_size` pragma (needs a laptop measurement, not reasoning);
+  `run-local.ps1` deleting its output directory without asking (the directory is documented as
+  disposable).
+- **One commit from the speech stack is on a branch and not on `main`**: loading the Whisper model when
+  the first session wants it rather than at service start (`st-027-the-model-loads-when-it-is-needed`).
+  It missed a pull request when the stack was rebased.
+- **ST-006's frames are drawn, not captured.** Fine for UI and pattern work, useless for judging OCR.
 - **ST-016's focus rings** were confirmed by code and CI render, not by tabbing through the app.
 
 ## 7. Next steps
 
-**The plan is backlog Part C** — five phases in dependency order, replacing the sprint plan. The short form:
-
-| Phase | Exit | Tickets, in order |
+| When | What | Who |
 |---|---|---|
-| **A — safe to run** | Two invariant breaches closed; Windows evidence cannot vanish green | ST-048, ST-018 |
-| **B — close the loop** | **M1:** a real Review shows a real draft from a real session; eval reports edit rate | ST-085, ST-027 (mic), ST-028, ST-060, ST-008 (local), ST-090, ST-063, ST-064 + ST-073, ST-030, ST-062, ST-076 |
-| **C — publish** | **M2:** note, time entry and Hudu article from one review, behind a click | ST-009, ST-091 + ST-092, ST-077, ST-078, ST-093 + ST-094, ST-095–097, ST-049, ST-042 (recall gate) |
-| **D — pilot-ready** | **M3:** signed installer, onboarding, policy, reviewed docs; pilot begins | ST-007 … ST-116 (list in Part C) |
-| **E — v1.1+** | — | ST-120–123, then the market-scan ideas |
+| **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
+| Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
+| Then, no owner input needed | **ST-049** (the P1 hardening, P1-7 included), **ST-009** (credential vault), **ST-078** (publish panel), **ST-093/094** shape against a fake PSA | Agent |
+| Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
+| In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
+| Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |
 
-**Why this order.** After 35 tickets the product has never drafted a note from a real session. Everything in
-Phase B is the thinnest thread from capture to draft; nothing is added ahead of it. Phase A comes first
-because ST-048's findings mean the capture path cannot be pointed at a customer yet, and ST-018 is what
-makes any Windows evidence for the fix count.
-
-**Nothing in Phases A or B waits on the owner** except three inputs, listed in Part C's last table: the
-laptop for hardware evidence, the model-provider key for ST-063, and the narration recording for ST-027's
-WER number. ST-030 additionally needs a ScreenConnect trial and a second machine.
+**Why this order.** The product has never drafted a note from a real session. M1 is the one thing that
+tells us whether the next month goes into publishing or into fixing what the first note got wrong, and
+it is a half-hour of the owner's time. Phase C starts with the tickets that need no account so the
+publish path exists by the time the ConnectWise and Hudu credentials do.
 
 ### Needs a decision or an account
-ST-063 needs a model provider (no workaround). ST-007 needs a cloud account and a hosting decision, now
-deferred to Phase D. ST-017, ST-110, ST-111 and ST-114's review need technicians, a pilot MSP, a lawyer
-and a security lead.
+
+ST-091/092 needs a ConnectWise API member (a sandbox works until the pilot). ST-095 needs a Hudu key.
+ST-007 needs a cloud account and a hosting decision. ST-017, ST-110, ST-111 and ST-114's review need
+technicians, a pilot MSP, a lawyer and a security lead.
 
 ## 8. Handy commands
 
 | Want to… | Do |
 |---|---|
 | Run client tests | `dotnet test client/ScreenTail.sln` |
+| Run backend tests | `dotnet test backend/ScreenTail.Backend.sln` (SQLite; never calls a model) |
 | Run research tests | `cd research && pytest` |
+| Run the product on the laptop | `powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-local.ps1` |
+| Get the first real note | `docs/dev/first-draft-end-to-end.md` |
+| See which secrets the backend has, without retyping them | `dotnet user-secrets list --project backend/src/ScreenTail.Api` (prints values — mind the shoulder) |
 | Render the component gallery | on Windows: `dotnet run --project client/ScreenTail.UI -- --gallery` |
-| Render the note pane | on Windows: `dotnet run --project client/ScreenTail.UI -- --note --screenshot <dir>` |
-| Render the HUD variants | on Windows: `dotnet run --project client/ScreenTail.UI -- --hud --screenshot <dir>` |
-| Read the ranked weaknesses | `docs/review/weaknesses.md` — P0 section first |
+| Render the note pane or the HUD | on Windows: `dotnet run --project client/ScreenTail.UI -- --note --screenshot <dir>` / `-- --hud --screenshot <dir>` |
+| Read the closed weakness review | `docs/review/weaknesses.md` — the status block at the top says what is left |
 | See the market and the idea list | `docs/product/2026-09-15-market-scan-and-ideas.md` — §2.4 for the wedge, §4 for ideas |
 | Look at a fixture session | `research/fixtures/handcrafted/<name>/session.json` + its `frames/` |
-| Regenerate fixtures (macOS only) | `cd research && python fixtures/tools/render_fixtures.py` |
 | Regenerate schema or token outputs | `npm run codegen` in `shared/schema` or `shared/design` |
 | Open the wireframes | `open docs/ux/wireframes/index.html` |
-| Trigger a laptop spike run | `gh workflow run spike-windows.yml --ref main` |
-| See what the laptop measured | `gh run download <run-id>` then read `measurements.txt` |
+| Trigger a laptop spike run by hand | `gh workflow run spike-windows.yml --ref main` |
+| See what the laptop measured | `gh run download <run-id>` then read the text files; images are never uploaded |
 | Check the audit log verifies | `store.VerifyAuditAsync()` — the export says so too |

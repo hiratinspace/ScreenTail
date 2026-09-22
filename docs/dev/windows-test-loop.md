@@ -31,7 +31,7 @@ Both of these cost a failed run before the real work started, so jobs that run o
 
 - **It isn't an administrator,** so `actions/setup-dotnet` fails: it installs into `C:\Program Files\dotnet`, which the runner account can't write to. The laptop job uses the SDKs that `setup-test-laptop.ps1` installed and fails with a clear message if they're missing.
 - **It has no PowerShell 7.** Hosted runners do, so `shell: pwsh` works there. Every laptop step runs through `powershell -ExecutionPolicy Bypass`, because the runner account's execution policy is Restricted by default and the runner invokes each step as a script file — without the flag every step dies with `UnauthorizedAccess` before running a line. `setup-test-laptop.ps1` sets the policy too, so neither depends on the other.
-- **Its PowerShell reads a BOM-less `.ps1` as ANSI.** One non-ASCII character corrupts everything after it and the parser then fails somewhere unrelated, complaining about an unterminated string eighty lines away. The scripts are ASCII, and `spike-windows.yml` parse-checks them and refuses a non-ASCII byte.
+- **Its PowerShell reads a BOM-less `.ps1` as ANSI.** One non-ASCII character corrupts everything after it and the parser then fails somewhere unrelated, complaining about an unterminated string eighty lines away. The scripts are ASCII, and the `Windows scripts parse` job in `ci.yml` parse-checks them with Windows PowerShell 5.1 and refuses a non-ASCII byte.
 - Windows PowerShell 5.1 writes a byte-order mark with `Out-File -Encoding utf8`, which corrupts `GITHUB_PATH`. Append to GitHub's files with `[System.IO.File]::AppendAllText` instead.
 
 ## The skip gate (ST-018)
