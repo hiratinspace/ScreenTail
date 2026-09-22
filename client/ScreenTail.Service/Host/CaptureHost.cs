@@ -242,11 +242,19 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         LogForegroundMode(logger, foreground.UsingHook ? "event hook" : "polling");
         var coordinating = coordinator.RunAsync(stoppingToken);
 
-        // ST-024: hooks run for the life of the service; the state machine decides whether what they see is
-        // recorded (INV-6). Draining on a timer keeps the callbacks free of everything but a buffer write.
+        // ST-024: hooks are installed while there is a session and not otherwise (ST-031). A WH_MOUSE_LL
+        // hook makes every mouse move on the machine switch into this process, and the machine records
+        // for a fraction of the day -- so for the rest of it that was a context switch per movement into
+        // a process about to throw the answer away, paid as input latency in whatever the technician was
+        // actually using (2026-09-20 review).
+        //
+        // Draining on a timer keeps the callbacks free of everything but a buffer write, as before, and
+        // the state machine still decides whether what they see is recorded (INV-6).
         await using var hooks = new WindowsInputHooks();
-        await hooks.StartAsync(stoppingToken).ConfigureAwait(false);
-        LogHooks(logger, hooks.Installed);
+        using var hookLifetime = new HookLifetime(machine, hooks.StartAsync, hooks.StopAsync);
+        hookLifetime.Failed += failure => LogGuardFailed(logger, "input-hooks", failure.GetType().Name);
+        hookLifetime.Changed += installed => LogHooks(logger, installed);
+        hookLifetime.Follow(stoppingToken);
 
         // ST-025: clicks become events always, and screenshots only where scope allows.
         using var capturer = new ScreenshotCapturer();
