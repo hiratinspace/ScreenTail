@@ -1837,7 +1837,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done against recorded shapes 2026-09-25 (#148).** The `kb_article` destination of `POST /v1/sessions/publish`: the ticket's company mapped to a Hudu company (ST-097), the article created as a draft under it with the note as escaped HTML, the ticket named at the foot and each included screenshot uploaded against the article (AC1, AC3's fallback); `kb_candidate: false` keeps the pane's toggle off with the reason (AC2, ST-078). The real check with a Hudu key is the owner's (`docs/integrations/hudu.md`).
 
 **Description:**
 Note → draft article scoped to mapped company/central KB; images inline if supported else link to ticket attachments.
@@ -1862,7 +1862,7 @@ Note → draft article scoped to mapped company/central KB; images inline if sup
 - **Epic/Feature:** INTEG
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). **Owed:** the prompt in the client (AC2) and the Settings screen (AC3, ST-081); both read the same endpoints.
 
 **Description:**
 Per-tenant mapping auto-matched by name with confidence, user-correctable in Settings.
