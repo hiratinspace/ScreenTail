@@ -28,8 +28,7 @@ public sealed class SessionRecorder(
     SessionMachine machine,
     IScreenshotCapturer capturer,
     Func<ScopeDecision?> currentScope,
-    ClickDebouncer? debouncer = null,
-    int maxEdge = Downscale.MaxEdge)
+    ClickDebouncer? debouncer = null)
 {
     private readonly ClickDebouncer _debouncer = debouncer ?? new ClickDebouncer();
     private readonly InputSignalReader _reader = new();
@@ -188,7 +187,7 @@ public sealed class SessionRecorder(
             return;
         }
 
-        var frame = capturer.CaptureForegroundWindow(maxEdge, scope.Window);
+        var frame = capturer.CaptureForegroundWindow(scope.Window);
         if (frame is null)
         {
             FrameMissed?.Invoke(click.TsMs);

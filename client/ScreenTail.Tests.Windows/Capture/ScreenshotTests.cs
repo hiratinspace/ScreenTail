@@ -62,8 +62,8 @@ public sealed class ScreenshotTests
         Hardware.RequireScreenCapture();
         using var capturer = new ScreenshotCapturer();
 
-        var small = MeasureAt(capturer, 420, 220, Downscale.MaxEdge);
-        var large = MeasureAt(capturer, 0, 0, Downscale.MaxEdge);
+        var small = MeasureAt(capturer, 420, 220);
+        var large = MeasureAt(capturer, 0, 0);
         Assert.SkipWhen(small is null || large is null, "Could not take the foreground.");
 
         var smallMp = small!.SourceWidth * (double)small.SourceHeight / 1_000_000;
@@ -91,7 +91,7 @@ public sealed class ScreenshotTests
         (large.TotalMilliseconds - small.TotalMilliseconds) / (largeMp - smallMp);
 
     /// <summary>Captures one window of the requested size, or the whole screen when given zero.</summary>
-    private static CapturedFrame? MeasureAt(ScreenshotCapturer capturer, int width, int height, int maxEdge)
+    private static CapturedFrame? MeasureAt(ScreenshotCapturer capturer, int width, int height)
     {
         using var window = DesktopWindow.Create($"ScreenTail timing {width}x{height}");
         if (!window.TakeForeground())
@@ -117,8 +117,8 @@ public sealed class ScreenshotTests
 
         // Warm first: the first capture at a new size allocates the bitmap, and that belongs to start-up
         // rather than to every click.
-        capturer.CaptureForegroundWindow(maxEdge);
-        var frames = Enumerable.Range(0, 10).Select(_ => capturer.CaptureForegroundWindow(maxEdge)).Where(f => f is not null).ToList();
+        capturer.CaptureForegroundWindow();
+        var frames = Enumerable.Range(0, 10).Select(_ => capturer.CaptureForegroundWindow()).Where(f => f is not null).ToList();
         return frames.Count == 0 ? null : frames.MaxBy(f => f!.Timing.Total);
     }
 

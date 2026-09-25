@@ -4,15 +4,15 @@
 reviews (security, invariant enforcement, performance, test quality), every headline claim re-verified by
 hand against the code before being written down here.
 
-**Status, 2026-09-22 — closed.** Thirteen of the fourteen P0 and P1 findings are fixed, and each of
-those sections opens with what was done. **ST-048 (#57)** fixed P0-1, P0-3, P0-4, P0-5 and P2-1.
-**ST-018 (#58)** fixed P1-4. **ST-085 (#59)** fixed P0-2, P1-1, P1-2 and P1-6. **#85** fixed P1-5: the
-audit chain carries a head anchor (schema 7), so a log cut from the back no longer verifies. **#128**
-(ADR-0006) fixed P1-3 — `NothingUnredactedIsEverInTheStore` reads the stored bytes back — and P1-9, which
-went with the pending-frame query it lived in. **P1-8**'s three overclaims were corrected in
-`docs/security/threat-model.md` on 2026-09-22. **P1-7 is open** and belongs to ST-049, as do the
-remaining P2 and P3 items. The sections below are left as written on 2026-09-15 so the code comments
-that cite them still point at the right words; read each section's opening note before its body.
+**Status, 2026-09-24 — closed.** Every P0 and P1 finding is fixed and each section opens with what
+was done: **ST-048 (#57)** P0-1, P0-3, P0-4, P0-5, P2-1; **ST-018 (#58)** P1-4; **ST-085 (#59)** P0-2, P1-1,
+P1-2, P1-6; **#85** P1-5 (the audit chain has a head anchor, schema 7); **#128** (ADR-0006) P1-3
+(`NothingUnredactedIsEverInTheStore` reads the bytes back) and P1-9 (gone with the pending-frame query);
+**P1-8** corrected in `docs/security/threat-model.md` on 2026-09-22; **ST-049 (#135)** P1-7 (the key
+reaches SQLCipher as bytes). The P2 table below carries a status per row and the P3 section a dated
+note; two P2 items wait for the Review pane to exist in the live shell, and ST-049 stays Partial until
+they land. The sections are otherwise left as written on 2026-09-15 so the code comments that cite them
+still point at the right words; read each section's opening note before its body.
 
 ## How this is ranked
 
@@ -353,22 +353,36 @@ service's life while frames keep being staged raw.**
 | # | Finding | Where | Cost |
 |---|---|---|---|
 | P2-1 | ~~**The pattern library runs twice per frame.**~~ **Fixed in ST-048 (#57):** `RedactFrame` resolves once and the stored text is written from the same matches that placed the mask boxes. `PatternEngineTests` counts the passes and asserts one. The throughput test's cadence assertion, which shrank to nothing as redaction got faster, now measures over a fixed four-second window. | `RedactionEngine.cs` | Was a straight 2× on a path measured at 2012 ms worst case against a 700 ms budget. **The new median is not yet measured — it needs the laptop.** |
-| P2-2 | **4K frame staging is 2.5× over budget and unasserted.** The test asserts a 1.37 MP window (62 ms, passes); the 4K extrapolation of **309 ms against 120 ms** is recorded and never asserted. | `ScreenshotTests.cs:78-93` | Every frame on a 4K monitor blows the budget; nothing fails. |
-| P2-3 | **The filmstrip decodes ~230 MB to draw 40 thumbnails.** `byte[]` binding decodes at native size (no `DecodePixelWidth`), the panel is a bare non-virtualizing `WrapPanel`, and every frame is loaded up front with no eviction. | `FilmstripView.xaml:22`, `Components.xaml:416`, `FilmstripViewModel.cs:135` | ~5.76 MB per 160×90 thumbnail. 150 frames ≈ 860 MB and an OOM. Plus 200-600 ms of UI-thread jank. |
-| P2-4 | **Hourly `VACUUM` of the whole encrypted store, on the connection capture writes through.** | `RetentionJob.cs:31-34`, `SqliteSessionStore.cs:521` | Multi-GB rebuild, every page decrypted and re-encrypted, with capture blocked behind `_gate`. Fires mid-working-day on a 7-day retention. |
-| P2-5 | **Each frame is decoded twice and its bytes copied four times.** `ToArray()` on parameters that are already `byte[]`. | `WindowsOcrRecogniser.cs:61,65`, `WindowsFrameMasker.cs:32,33,86` | ~80 MB transient per 4K frame × 2 concurrent. Explains much of the gap between 185 ms median and 2012 ms tail. |
-| P2-6 | **Audit log: N+1 writes, an index-defeating filter, unbounded growth.** `WHERE (@session IS NULL OR session_id = @session)` cannot use the index; nothing ever deletes an audit row. | `SqliteSessionStore.cs:641,663` | Full scan of the lifetime log to read one session. Largest table in the store over time. |
-| P2-7 | **Capabilities fully re-probed per IPC request** — including installing and removing a **global low-level mouse hook**. | `CaptureController.cs:15`, `WindowsCapabilityProbe.cs:161` | Latent: becomes periodic global-hook churn the moment anything polls it. |
-| P2-8 | **No backpressure on frame staging.** Frames are staged at native resolution (4K ≈ 3-6 MB each); the only bound is disk. | `SessionMachine.cs:265` | At the redaction tail, two workers manage ~1 frame/s against ~2.5/s of clicking. Backlog is multi-megabyte rows. |
-| P2-9 | **`FrameBlurrer` re-encodes a JPEG frame as PNG, synchronously, on the UI thread.** | `FrameBlurrer.cs:48` | 5-15× blob growth per blurred frame, and the stored name `frames/{id}.jpg` becomes a lie. ~100-200 ms frozen UI. |
-| P2-10 | **Filmstrip image loading is a serial N+1** against the store, each taking `_gate`. | `FilmstripViewModel.cs:135` | 40 round trips serialized against live capture writes. |
-| P2-11 | **Missing index, and the budget test that guards it seeds one frame per session.** `ListSessionsAsync`'s correlated count has no `(session_id, redaction_pending)` index. | `SqliteSessionStore.cs:597`, `SessionHistoryTests.cs:114` | The 200-session/500 ms test does 200 lookups instead of ~30,000 — it cannot fail for the reason it exists. |
-| P2-12 | **Deleted frames leave recoverable ciphertext.** No `PRAGMA secure_delete`, no vacuum on discard. | `SqliteSessionStore.cs:291,489` | `ISessionStore` says "deletes for good"; freed pages keep the old blobs until reused. Matters in the T4 laptop-theft case. |
-| P2-13 | **A same-user process can permanently prevent the service starting** by squatting the deterministic `Local\` mutex name; the service exits code 3 silently. | `SingleInstance.cs:16` | Capture never runs, nothing says why. |
+| P2-2 | *Scheduled: Windows.Graphics.Capture when a 4K pilot machine exists; `docs/STATUS.md` §6 names it until then.* **4K frame staging is 2.5× over budget and unasserted.** The test asserts a 1.37 MP window (62 ms, passes); the 4K extrapolation of **309 ms against 120 ms** is recorded and never asserted. | `ScreenshotTests.cs:78-93` | Every frame on a 4K monitor blows the budget; nothing fails. |
+| P2-3 | *Scheduled with the Review pane's wiring into the live shell (ST-085 remainder): the filmstrip is rendered only by the screenshot harness today, and memory work on a pane nobody can open is work done twice.* **The filmstrip decodes ~230 MB to draw 40 thumbnails.** `byte[]` binding decodes at native size (no `DecodePixelWidth`), the panel is a bare non-virtualizing `WrapPanel`, and every frame is loaded up front with no eviction. | `FilmstripView.xaml:22`, `Components.xaml:416`, `FilmstripViewModel.cs:135` | ~5.76 MB per 160×90 thumbnail. 150 frames ≈ 860 MB and an OOM. Plus 200-600 ms of UI-thread jank. |
+| P2-4 | **Fixed in #120 and ST-049 (#136):** a third of the file free, nobody recording, and at most once a day. **Hourly `VACUUM` of the whole encrypted store, on the connection capture writes through.** | `RetentionJob.cs:31-34`, `SqliteSessionStore.cs:521` | Multi-GB rebuild, every page decrypted and re-encrypted, with capture blocked behind `_gate`. Fires mid-working-day on a 7-day retention. |
+| P2-5 | *Scheduled with the single-decode decision ADR-0006 deferred: same files, same memory trade, one decision.* **Each frame is decoded twice and its bytes copied four times.** `ToArray()` on parameters that are already `byte[]`. | `WindowsOcrRecogniser.cs:61,65`, `WindowsFrameMasker.cs:32,33,86` | ~80 MB transient per 4K frame × 2 concurrent. Explains much of the gap between 185 ms median and 2012 ms tail. |
+| P2-6 | **Fixed in #120:** two statements, one per shape, each on its index. Growth is bounded by retention's window in practice and is not yet trimmed; scheduled with ST-081's settings. **Audit log: N+1 writes, an index-defeating filter, unbounded growth.** `WHERE (@session IS NULL OR session_id = @session)` cannot use the index; nothing ever deletes an audit row. | `SqliteSessionStore.cs:641,663` | Full scan of the lifetime log to read one session. Largest table in the store over time. |
+| P2-7 | *Open, and latent as stated: nothing in the live UI asks `get_capabilities` yet. Scheduled for the HUD's Fix button (ST-072 follow-up), as a five-second cache in `CaptureController`.* **Capabilities fully re-probed per IPC request** — including installing and removing a **global low-level mouse hook**. | `CaptureController.cs:15`, `WindowsCapabilityProbe.cs:161` | Latent: becomes periodic global-hook churn the moment anything polls it. |
+| P2-8 | **Fixed by ADR-0006 (#128):** a bounded in-memory queue of four; a frame that finds it full is dropped and counted. **No backpressure on frame staging.** Frames are staged at native resolution (4K ≈ 3-6 MB each); the only bound is disk. | `SessionMachine.cs:265` | At the redaction tail, two workers manage ~1 frame/s against ~2.5/s of clicking. Backlog is multi-megabyte rows. |
+| P2-9 | *Scheduled with the Review pane's wiring, for the same reason as P2-3; the blur cannot be reached in the live shell today.* **`FrameBlurrer` re-encodes a JPEG frame as PNG, synchronously, on the UI thread.** | `FrameBlurrer.cs:48` | 5-15× blob growth per blurred frame, and the stored name `frames/{id}.jpg` becomes a lie. ~100-200 ms frozen UI. |
+| P2-10 | *Scheduled with P2-3.* **Filmstrip image loading is a serial N+1** against the store, each taking `_gate`. | `FilmstripViewModel.cs:135` | 40 round trips serialized against live capture writes. |
+| P2-11 | **Fixed:** the index in #109 (schema 8); the budget test seeds 25 frames per session as of ST-049's closing PR, so it does the lookups it exists to time. **Missing index, and the budget test that guards it seeds one frame per session.** `ListSessionsAsync`'s correlated count has no `(session_id, redaction_pending)` index. | `SqliteSessionStore.cs:597`, `SessionHistoryTests.cs:114` | The 200-session/500 ms test does 200 lookups instead of ~30,000 — it cannot fail for the reason it exists. |
+| P2-12 | **Closed in ST-049 (#136), and the finding was wrong:** SQLCipher builds with `secure_delete` on. It is now set explicitly at open and pinned by a test. **Deleted frames leave recoverable ciphertext.** No `PRAGMA secure_delete`, no vacuum on discard. | `SqliteSessionStore.cs:291,489` | `ISessionStore` says "deletes for good"; freed pages keep the old blobs until reused. Matters in the T4 laptop-theft case. |
+| P2-13 | **Half fixed in ST-049's closing PR:** the second copy says on stderr why it is exiting and with what code. The squat itself is a same-user process, which the threat model places inside the trust boundary; a random name would defeat single-instance. **A same-user process can permanently prevent the service starting** by squatting the deterministic `Local\` mutex name; the service exits code 3 silently. | `SingleInstance.cs:16` | Capture never runs, nothing says why. |
 
 ---
 
 # P3 — correct when convenient
+
+**Status, 2026-09-24 (ST-049 closing PR).** Gone since this was written: the six `Assert.True(true)` in
+`ModelDownloadTests`; the throughput test that disarmed itself (a fixed four-second window, ST-048); the
+distinct-colours gate's `SaveExpecting` fix is on the HUD and the note pane. Fixed in the closing PR:
+`ContrastTests` now refuses a `minimum` below 4.5:1, so lowering the token cannot pass a failing colour;
+the history budget test seeds 25 frames per session; `CaptureForegroundWindow` loses the `maxEdge` it
+never used, so no caller can believe it downscales. Still open, each with a home: the four private
+`ManualTime` copies (fold into `Tests/ManualTime.cs` when each file is next touched — the shared one
+overrides `GetTimestamp`, which two of the copies do not); `SpeechGateTests`' hysteresis band (with
+ST-027's WER work, when the recording exists); the 2 KB blank-capture floor and the single-pixel OCR
+check (Windows tests; with ST-030's real captures); the handle-leak tolerance (`growth < 50` over 50
+captures is a leak of one handle per capture — tighten to `< 5` on the laptop with ST-030). The
+"dead on arrival" namespaces all have callers now except the Review views, which are the point of the
+ST-085 remainder.
 
 **Vacuous or weak tests** (full list in the review transcript; the ones with teeth removed):
 `IpcFramingTests.cs:47` (oversize refusal — the same exception is thrown by the next guard),

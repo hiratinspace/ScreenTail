@@ -83,6 +83,10 @@ var userIdentity = OperatingSystem.IsWindows()
 using var instance = SingleInstance.TryAcquire(userIdentity);
 if (instance is null)
 {
+    // Said, not silent. Exit code 3 with nothing on stderr read as a crash, and a same-user process
+    // holding the mutex name — the ordinary case is the last run's service still up, the rare one is
+    // something squatting it — was indistinguishable from a bug (weaknesses P2-13).
+    Console.Error.WriteLine("Another ScreenTail capture service is already running for this user, or something is holding its name. Exiting with code 3.");
     return 3;
 }
 

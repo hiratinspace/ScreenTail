@@ -38,7 +38,10 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private int _bitmapHeight;
     private bool _disposed;
 
-    public CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge, nint expected = 0)
+    // No size argument: the frame is captured at the window's own size and the downscale belongs to
+    // the redaction worker, after the text has been read (ADR-0001 finding 2a). A parameter here that
+    // did nothing had four callers believing it did (weaknesses P3).
+    public CapturedFrame? CaptureForegroundWindow(nint expected = 0)
     {
         var window = GetForegroundWindow();
         if (window == IntPtr.Zero || !GetWindowRect(window, out var rect))
