@@ -306,9 +306,23 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
             new PublishCommands(store, new NoBackend()),
+            new ScreenTail.Core.Net.DeviceCommands(new ScreenTail.Core.Net.DeviceSession(new System.Net.Http.HttpClient(), new NoCredentials())),
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)),
             new IndicatorReports());
+
+    private sealed class NoCredentials : ScreenTail.Core.Net.IDeviceCredentials
+    {
+        public ScreenTail.Core.Net.DeviceCredential? Load() => null;
+
+        public void Save(ScreenTail.Core.Net.DeviceCredential credential)
+        {
+        }
+
+        public void Clear()
+        {
+        }
+    }
 
     /// <summary>No backend to publish to; these tests are about the machine, not the pipe's questions.</summary>
     private sealed class NoBackend : ScreenTail.Core.Net.IPsaGateway

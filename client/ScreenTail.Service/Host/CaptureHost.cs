@@ -134,8 +134,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // With no backend configured the queue behaves exactly as it did: the work is kept, and the
         // reason a technician sees names the thing that is missing.
         var draftHttp = new HttpClient(egress) { BaseAddress = backend };
-        var sender = new DraftSender(draftHttp, store, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
-        var psa = new PsaGateway(draftHttp, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
+
+        // ST-010: the device's standing with the backend. Activated once with an invite's code (the
+        // refresh token under DPAPI), then an access token an hour at a time; the environment's token
+        // is the fallback the M1 runbook uses until the client's onboarding exists.
+        var device = new DeviceSession(
+            draftHttp,
+            new DpapiDeviceCredentials(DpapiDeviceCredentials.DefaultPath),
+            () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"),
+            TimeProvider.System);
+        _ = Task.Run(() => device.RunAsync(stoppingToken), stoppingToken);
+        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken);
+        var psa = new PsaGateway(draftHttp, () => device.CurrentToken);
         var outbox = new Core.Outbox.Outbox(
             store,
             (item, ct) => backend is null
@@ -180,6 +190,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
             new PublishCommands(store, psa),
+            new DeviceCommands(device),
             () => diagnostics(),
             _ =>
             {
