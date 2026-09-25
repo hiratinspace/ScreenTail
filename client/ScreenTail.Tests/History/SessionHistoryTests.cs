@@ -127,8 +127,15 @@ public sealed class SessionHistoryTests : IAsyncDisposable
                 new RemoteTool { Kind = RemoteToolKind.Screenconnect },
                 LocalOnly: false,
                 PolicyVersion: "v14"));
-            await store.StageFrameAsync(id, new StagedFrame($"f{i}", 1000, FrameTrigger.Click, 1600, 900, null, new byte[] { 0xAA }));
-            await store.MarkFrameRedactedAsync($"f{i}", new RedactionOutcome(new byte[] { 0xBB }, null, [], SensitiveContext: false, DateTimeOffset.UnixEpoch));
+
+            // Twenty-five frames each, not one: with one frame a session the correlated count did 200
+            // lookups instead of the thousands the index exists for, and the budget could not fail for
+            // the reason it was written (weaknesses P2-11).
+            for (var f = 0; f < 25; f++)
+            {
+                await store.StageFrameAsync(id, new StagedFrame($"f{i}-{f}", 1000 + f, FrameTrigger.Click, 1600, 900, null, new byte[] { 0xAA }));
+                await store.MarkFrameRedactedAsync($"f{i}-{f}", new RedactionOutcome(new byte[] { 0xBB }, null, [], SensitiveContext: false, DateTimeOffset.UnixEpoch));
+            }
         }
 
         var clock = Stopwatch.StartNew();
@@ -136,7 +143,7 @@ public sealed class SessionHistoryTests : IAsyncDisposable
         clock.Stop();
 
         Assert.Equal(200, rows.Count);
-        Assert.All(rows, row => Assert.Equal(1, row.Frames));
+        Assert.All(rows, row => Assert.Equal(25, row.Frames));
         Assert.True(clock.ElapsedMilliseconds < 500, $"listing 200 sessions took {clock.ElapsedMilliseconds} ms");
     }
 

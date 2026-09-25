@@ -44,6 +44,10 @@ public class ContrastTests
     {
         var minimum = Tokens.RootElement.GetProperty("contrast").GetProperty("minimum").GetDouble();
 
+        // The floor comes from the artifact under test, so a token file that lowered it to 2.0 would pass
+        // every failing colour. WCAG AA for body text is 4.5:1 and that is not the token's to change.
+        Assert.True(minimum >= 4.5, $"contrast.minimum is {minimum}; WCAG AA body text needs 4.5:1");
+
         var ratio = ContrastRatio(Hex(theme, text), Hex(theme, background));
 
         Assert.True(ratio >= minimum, $"{theme}: {text} on {background} is {ratio:0.00}:1, below {minimum}:1");

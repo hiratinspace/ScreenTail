@@ -178,7 +178,7 @@ public sealed class ScopeRecordingTests
 
         public nint Expected { get; private set; }
 
-        public CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge, nint expected = 0)
+        public CapturedFrame? CaptureForegroundWindow(nint expected = 0)
         {
             Captures++;
             Expected = expected;

@@ -47,7 +47,7 @@ public interface IScreenshotCapturer
     /// decision made about a different window. Zero means "whatever is in front", for callers with no
     /// decision to honour.
     /// </param>
-    CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge, nint expected = 0);
+    CapturedFrame? CaptureForegroundWindow(nint expected = 0);
 
     /// <summary>
     /// Reduces the window in front to the small grid the scene sampler compares (ST-026), or null when

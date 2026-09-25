@@ -12,7 +12,15 @@
 to end yet.** Capture, redaction, speech, the bundle, the outbox, the sender, the backend endpoint and the
 model call each have tests; the whole chain has never been exercised with a real session, a real backend
 and a real key at the same time. That first run is **M1**, and `docs/dev/first-draft-end-to-end.md` is
-the step list for it. Nothing else on this page is waiting on anything but that.
+the step list for it.
+
+**One thing stands between the run and the judgement, and it is ours, not the owner's.** Found
+2026-09-24: the live shell window has no Review, History or Settings pane. Its content area shows the
+pane's *name*. The note editor, filmstrip and history views exist and are rendered in CI, but only by the
+screenshot harness from a fixture file; no message on the pipe can carry a session or a note to the UI.
+So after M1's session drafts, the technician sees the status badge say "Draft ready" and a tray
+notification with the title, and cannot read the note. Wiring Review over the pipe is the next piece of
+agent work and is §7's first row.
 
 **Of 85 tickets, 42 are Done, 4 are Partial and 39 are Open.** Phases A and B of the ordered plan
 (backlog Part C) are complete apart from the two that need the owner: ST-030 (golden sessions; needs a
@@ -45,9 +53,10 @@ not do is listed in §6.
 - The capture service starts per user, serves an authenticated named pipe (user ACL, verified client
   executable, per-run token in a file only that user can read), recovers what a crash left behind, and
   runs retention hourly with a vacuum only when a third of the file is free.
-- **The UI is connected** (ST-085). A tray icon and the recording pill show live state; diagnostics and
-  history come from the service, not from anything the UI believes; discard and erase need a typed
-  confirmation the service issued moments before. The UI tells the service every two seconds that the
+- **The UI is connected** (ST-085) — as far as it goes. A tray icon and the recording pill show live
+  state; the diagnostics window is filled by the service; discard and erase need a typed confirmation the
+  service issued moments before. The shell window itself has a navigation bar and a status badge and
+  **no panes**: Review, History and Settings are names, not screens, in the live build. The UI tells the service every two seconds that the
   pill is on screen and where; the service treats a pill it has not heard from in six seconds as absent
   and suppresses capture until one is back (INV-4).
 - The session state machine owns the lifecycle. Sources can only write while recording (INV-6). The
@@ -104,9 +113,10 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 
 ## 5. Open items for the owner
 
-- [ ] **Run M1.** `docs/dev/first-draft-end-to-end.md`, top to bottom, on the laptop. Everything runs
-      there, including the backend, because the client refuses a backend that is not HTTPS and the only
-      certificate the laptop trusts without ceremony is its own.
+- [ ] **Run M1** once the Review pane is wired (§7, first row) — before that the run proves the
+      pipeline but the note cannot be read. `docs/dev/first-draft-end-to-end.md`, top to bottom, on the
+      laptop. Everything runs there, including the backend, because the client refuses a backend that is
+      not HTTPS and the only certificate the laptop trusts without ceremony is its own.
 - [x] ~~Choose the model provider and supply a key.~~ Gemini Flash. The key is in user secrets **on the
       Mac**; user secrets are per machine, so the laptop needs its own copy (the runbook says where).
 - [ ] **Enable billing on the Gemini key.** The free tier (20 requests a day) is enough for M1 and not
@@ -135,7 +145,8 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
   and the record of the loss, the frame is let go rather than remembered, and the draft does not know to
   hedge. Named in the test; accepted as the price of not holding a frame for ever on a disk that will
   not empty.
-- **P1-7** (the store key survives as strings — `docs/review/weaknesses.md`) is open under ST-049.
+- **The Review pane is not in the live shell** (above). ST-049's two filmstrip items (P2-3 memory,
+  P2-9 blur encoding) wait for it, so the ticket is Partial.
 - **Not done from the 2026-09-20 review, with reasons:** the hardware workflow as a reusable workflow
   (a laptop that is off would hang the run for a day instead of failing in 35 minutes; revisit if the
   repository goes private); a model hash cache (weakens the one check between a corrupt download and
@@ -149,16 +160,17 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 
 | When | What | Who |
 |---|---|---|
-| **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
+| **Now** | **Review over the pipe** (ST-085 remainder): a `get_session` message carrying the redacted session and its draft, `get_frame` for one image at a time, and the note editor, filmstrip and timeline views hosted in the shell's Review area; include, delete and blur become pipe commands. Then P2-3 and P2-9 close on a pane that exists | Agent |
+| Then | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | **ST-049** (the P1 hardening, P1-7 included), **ST-009** (credential vault), **ST-078** (publish panel), **ST-093/094** shape against a fake PSA | Agent |
+| Then, no owner input needed | **ST-009** (credential vault), **ST-078** (publish panel), **ST-093/094** shape against a fake PSA | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |
 
 **Why this order.** The product has never drafted a note from a real session. M1 is the one thing that
 tells us whether the next month goes into publishing or into fixing what the first note got wrong, and
-it is a half-hour of the owner's time. Phase C starts with the tickets that need no account so the
+it is a half-hour of the owner's time — once there is a screen to read the note on. Phase C starts with the tickets that need no account so the
 publish path exists by the time the ConnectWise and Hudu credentials do.
 
 ### Needs a decision or an account

@@ -183,7 +183,10 @@ Then press **Ctrl+Alt+S** to stop and draft.
 A note arrives through the outbox rather than immediately: the session finalises, the work is queued, and
 the queue drains in the background. Give it a few seconds.
 
-**In the UI:** the session moves to *Draft ready* in History, and Review shows the note.
+**In the UI:** the status badge in the shell window changes to *Draft ready* and a tray notification
+names the draft. **That is all the UI can show today.** The shell's Review and History areas are not
+wired (found 2026-09-24; `docs/STATUS.md` §1), so the note itself cannot be read until they are. Until
+then this run proves the pipeline; the judgement in step 10 waits for the pane.
 
 **In the service window**, the interesting lines are the bundle report (counts and sizes only — nothing
 that was on the screen) and whatever the outbox says about sending.

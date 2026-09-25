@@ -151,7 +151,7 @@ public sealed class InputBoundaryTests
 
     private sealed class NoPictures : IScreenshotCapturer
     {
-        public CapturedFrame? CaptureForegroundWindow(int maxEdge = Downscale.MaxEdge, nint expected = 0) => null;
+        public CapturedFrame? CaptureForegroundWindow(nint expected = 0) => null;
 
         public byte[]? CaptureSceneGrid(nint expected = 0) => null;
     }
