@@ -105,6 +105,15 @@ public partial class FilmstripView : UserControl
         BlurMode.IsChecked = false;
     }
 
+    /// <summary>A selection made from outside — a transcript line, a frame chip — is scrolled into view.</summary>
+    private void OnStripSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Strip.SelectedItem is { } selected)
+        {
+            Strip.ScrollIntoView(selected);
+        }
+    }
+
     private void OnStripDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (Model is { } model && Strip.SelectedItem is FrameItem frame)

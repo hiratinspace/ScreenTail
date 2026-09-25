@@ -1418,7 +1418,7 @@ Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Done on the Mac side 2026-09-18 (#67).** The model in Core: markers for every kind Spec §5 S3 lists, wall-clock transcript lines, click-to-frame from ST-028's alignment, and a panel state that persists. 16 tests. **The WPF view is not built** — the Review window's three panes are ST-074/ST-075 and the bottom panel needs to be laid out with them; the model is what ST-078 and the evidence-link idea depend on, and it is done. AC3's screenshot needs a Windows session.
+- **Status:** **Done on the Mac side 2026-09-18 (#67).** The model in Core: markers for every kind Spec §5 S3 lists, wall-clock transcript lines, click-to-frame from ST-028's alignment, and a panel state that persists. 16 tests. **The view followed on 2026-09-25:** the row below the three panes, 40 px collapsed and 220 px open, the track drawn from the model's fractions (dots, squares, a flag, bands, ticks), the monospace transcript, `Alt+T` with the choice saved in the shell's preferences (AC3), and a line's click selecting its frame in the filmstrip (AC1) — which also made a note's frame chips reach the filmstrip for the first time. Redacted speech is `[REDACTED]` as the transcript carries it (AC2). Five view-model tests run on the Windows job; the harness renders `shell-review-timeline-*`. Not yet seen on a real screen.
 
 **Description:**
 Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace transcript with click-to-jump.

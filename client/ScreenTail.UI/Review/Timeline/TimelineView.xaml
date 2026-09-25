@@ -1,0 +1,74 @@
+<UserControl x:Class="ScreenTail.UI.Review.Timeline.TimelineView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Timeline and transcript">
+    <!-- Spec §5 S3: 40 px of scrubber collapsed, 220 px with the transcript open. The track is drawn in
+         code-behind from the markers' fractions, because a Canvas wants pixels and the model has none. -->
+    <Border Style="{StaticResource Timeline}" Height="{Binding Height}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="38" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0"
+                        Style="{StaticResource Button.Ghost}"
+                        VerticalAlignment="Center"
+                        Content="{Binding ToggleLabel}"
+                        Command="{Binding ToggleCommand}"
+                        AutomationProperties.Name="Toggle the timeline and transcript panel"
+                        AutomationProperties.HelpText="Alt+T" />
+                <TextBlock Grid.Column="1"
+                           Margin="4,0,12,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource Text.Muted}"
+                           FontSize="{DynamicResource Size.xs}"
+                           Text="Alt+T" />
+
+                <!-- Dots are clicks, squares are frames, a flag is a marked moment, bands are gaps. -->
+                <Canvas Grid.Column="2"
+                        x:Name="Track"
+                        Height="18"
+                        VerticalAlignment="Center"
+                        ClipToBounds="True"
+                        AutomationProperties.Name="Timeline: clicks, frames, narration, suppression and scope" />
+
+                <TextBlock Grid.Column="3"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource Text.Muted}"
+                           FontSize="{DynamicResource Size.xs}"
+                           Text="{Binding Summary}" />
+            </Grid>
+
+            <!-- The transcript: monospace, wall-clock stamped, one line per thing said. Selecting a line
+                 highlights its frame in the filmstrip; a line with no frame highlights nothing. -->
+            <ListBox Grid.Row="1"
+                     Margin="0,0,0,6"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     ItemsSource="{Binding Lines}"
+                     SelectedItem="{Binding SelectedLine}"
+                     Visibility="{Binding TranscriptVisibility}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     AutomationProperties.Name="Transcript">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Style="{StaticResource Text.Mono}"
+                                   FontSize="{DynamicResource Size.sm}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding Display}" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Border>
+</UserControl>

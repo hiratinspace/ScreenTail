@@ -19,8 +19,10 @@ shell window's content area showed the pane's *name*; the note editor and filmst
 the screenshot harness, and no message on the pipe could carry a session to the UI. Now a draft that
 becomes ready opens in Review over the pipe — the note, the screenshots, include, delete and blur — and
 History lists sessions and opens one on a double-click. **Not yet seen on a real screen:** CI renders
-both panes over the fixture in three themes; the first live run is M1. Settings is still a sentence
-(ST-081) and the timeline row (ST-076) has a model and no view.
+the panes over the fixture in three themes; the first live run is M1. The timeline row (ST-076) sits
+below the three panes since 2026-09-25: a transcript line or a note's frame chip selects its frame in
+the filmstrip, `Alt+T` opens the transcript and the choice is remembered. Settings is still a sentence
+(ST-081).
 
 **Of 85 tickets, 42 are Done, 4 are Partial and 39 are Open.** Phases A and B of the ordered plan
 (backlog Part C) are complete apart from the two that need the owner: ST-030 (golden sessions; needs a
@@ -165,7 +167,7 @@ and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007),
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. Next: the timeline view (ST-076) or the Settings pane (ST-081) | Agent |
+| Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. The timeline view (ST-076) is in. Next: the Settings pane (ST-081) | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |
