@@ -1,0 +1,25 @@
+<UserControl x:Class="ScreenTail.UI.Review.ReviewPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:review="clr-namespace:ScreenTail.UI.Review"
+             AutomationProperties.Name="Review">
+    <!-- Spec §5 S3: the note pane at the width the harness has always rendered it, the filmstrip taking
+         the rest. The timeline row (ST-076) is not built; when it is, it goes below both. -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="460" MinWidth="360" />
+            <ColumnDefinition Width="6" />
+            <ColumnDefinition Width="*" MinWidth="360" />
+        </Grid.ColumnDefinitions>
+
+        <review:NoteEditorView Grid.Column="0" DataContext="{Binding Note}" />
+
+        <GridSplitter Grid.Column="1"
+                      Width="6"
+                      HorizontalAlignment="Stretch"
+                      Background="{DynamicResource Brush.border.subtle}"
+                      AutomationProperties.Name="Resize the note pane" />
+
+        <review:FilmstripView Grid.Column="2" DataContext="{Binding Strip}" />
+    </Grid>
+</UserControl>

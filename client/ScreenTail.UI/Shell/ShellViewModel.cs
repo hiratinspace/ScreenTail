@@ -18,16 +18,33 @@ namespace ScreenTail.UI.Shell;
 /// </summary>
 public sealed partial class ShellViewModel : ObservableObject
 {
+    private const string NothingToReview = "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.";
+    private const string SettingsLater = "Settings arrive with ST-081.";
+
     private readonly ShellState _state;
+    private readonly Func<string, CancellationToken, Task<object?>>? _loadReview;
+    private readonly Func<object>? _history;
+    private object? _historyPane;
+    private string? _reviewShown;
 
     public ShellViewModel()
         : this(new ShellState())
     {
     }
 
-    public ShellViewModel(ShellState state)
+    /// <param name="loadReview">
+    /// Builds the Review pane for a session id, over the pipe — or returns null when the service would
+    /// not hand it over. Injected because this view model must not know about the pipe.
+    /// </param>
+    /// <param name="history">Builds the History pane, once.</param>
+    public ShellViewModel(
+        ShellState state,
+        Func<string, CancellationToken, Task<object?>>? loadReview = null,
+        Func<object>? history = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
+        _loadReview = loadReview;
+        _history = history;
         _state.Changed += snapshot =>
         {
             // The store raises on whatever thread the IPC client is reading on; WPF bindings are the
@@ -53,8 +70,13 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility BannerVisibility { get; set; } = Visibility.Collapsed;
 
+    /// <summary>
+    /// What the content area shows: a <see cref="Review.ReviewViewModel"/>, a
+    /// <see cref="History.HistoryViewModel"/>, or a sentence saying why neither. The window picks a
+    /// template by type.
+    /// </summary>
     [ObservableProperty]
-    public partial string CurrentView { get; set; } = nameof(ShellView.Review);
+    public partial object? Content { get; set; } = NothingToReview;
 
     [RelayCommand]
     private void Navigate(string? view)
@@ -79,8 +101,59 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         Banner = snapshot.Banner ?? string.Empty;
         BannerVisibility = snapshot.Banner is null ? Visibility.Collapsed : Visibility.Visible;
-        CurrentView = snapshot.View.ToString();
         Status = Describe(snapshot);
+        Show(snapshot);
+    }
+
+    private void Show(ShellSnapshot snapshot)
+    {
+        switch (snapshot.View)
+        {
+            case ShellView.Review when snapshot.Reviewing is null:
+                _reviewShown = null;
+                Content = NothingToReview;
+                break;
+            case ShellView.Review when snapshot.Reviewing != _reviewShown:
+                _ = LoadReviewAsync(snapshot.Reviewing);
+                break;
+            case ShellView.History:
+                _historyPane ??= _history?.Invoke();
+                Content = _historyPane ?? "History arrives when the capture service answers.";
+                if (_historyPane is History.HistoryViewModel list)
+                {
+                    _ = list.RefreshAsync();
+                }
+
+                break;
+            case ShellView.Settings:
+                Content = SettingsLater;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Asks for the session and shows the pane when it arrives. The id is remembered as shown before
+    /// the await, so a second snapshot for the same session while it loads does not ask twice; a snapshot
+    /// for a different session wins, because the last thing asked for is the thing to show.
+    /// </summary>
+    private async Task LoadReviewAsync(string sessionId)
+    {
+        _reviewShown = sessionId;
+        Content = "Asking the capture service for the session…";
+        var pane = _loadReview is null ? null : await _loadReview(sessionId, CancellationToken.None).ConfigureAwait(true);
+        if (_reviewShown != sessionId)
+        {
+            return;
+        }
+
+        if (pane is null)
+        {
+            _reviewShown = null;
+            Content = "The capture service could not hand over that session. Open it again from History.";
+            return;
+        }
+
+        Content = pane;
     }
 
     /// <summary>

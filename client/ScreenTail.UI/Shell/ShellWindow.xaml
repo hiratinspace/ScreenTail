@@ -1,12 +1,32 @@
 <Window x:Class="ScreenTail.UI.Shell.ShellWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+        xmlns:review="clr-namespace:ScreenTail.UI.Review"
+        xmlns:history="clr-namespace:ScreenTail.UI.History"
         Title="ScreenTail"
         Width="1280"
         Height="800"
         MinWidth="1024"
         MinHeight="680"
         Style="{StaticResource Window.Base}">
+    <Window.Resources>
+        <!-- The content area shows whatever the view model hands it, by type: a pane, or a sentence
+             saying why there is none. Until 2026-09-25 it showed the pane's name. -->
+        <DataTemplate DataType="{x:Type review:ReviewViewModel}">
+            <review:ReviewPane />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type history:HistoryViewModel}">
+            <history:HistoryPane />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type sys:String}">
+            <TextBlock Style="{StaticResource Text.Body}"
+                       Foreground="{DynamicResource Brush.text.secondary}"
+                       TextWrapping="Wrap"
+                       Text="{Binding}"
+                       AutomationProperties.LiveSetting="Polite" />
+        </DataTemplate>
+    </Window.Resources>
     <Grid Background="{DynamicResource Brush.bg.base}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -74,6 +94,6 @@
             </Grid>
         </Border>
 
-        <ContentControl Grid.Row="2" Margin="16" Content="{Binding CurrentView}" />
+        <ContentControl Grid.Row="2" Margin="16" Content="{Binding Content}" />
     </Grid>
 </Window>
