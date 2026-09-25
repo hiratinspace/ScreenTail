@@ -98,6 +98,34 @@ public sealed class RetentionTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheFileIsRebuiltAtMostOnceADay()
+    {
+        // Three sessions that expire on three different retention passes. The first pass frees half the
+        // file and rebuilds it; the second, two hours later, frees half of what is left and must not,
+        // because a rebuild decrypts and re-encrypts every page with the store's gate held (P2-4). The
+        // third, a day after the first, may.
+        var store = await OpenAsync();
+        await FinishedSessionAsync(store, "a", frames: 40);
+        _time.Now = T0 + TimeSpan.FromHours(2);
+        await FinishedSessionAsync(store, "b", frames: 20);
+        _time.Now = T0 + TimeSpan.FromHours(26);
+        await FinishedSessionAsync(store, "c", frames: 20);
+        var job = new RetentionJob(store, _time, new RetentionOptions());
+
+        _time.Now = T0 + TimeSpan.FromDays(7) + TimeSpan.FromHours(1);
+        Assert.Equal(1, await job.RunAsync());
+        Assert.True(await store.FreeSpaceFractionAsync() < 0.05, "the first pass rebuilds the file");
+
+        _time.Now = T0 + TimeSpan.FromDays(7) + TimeSpan.FromHours(3);
+        Assert.Equal(1, await job.RunAsync());
+        Assert.True(await store.FreeSpaceFractionAsync() >= RetentionJob.WorthReclaiming, "two hours later the freed pages are left for the next session");
+
+        _time.Now = T0 + TimeSpan.FromDays(8) + TimeSpan.FromHours(3);
+        Assert.Equal(1, await job.RunAsync());
+        Assert.True(await store.FreeSpaceFractionAsync() < 0.05, "a day on, the file is rebuilt again");
+    }
+
+    [Fact]
     public async Task RunningTwiceIsIdempotent()
     {
         var store = await OpenAsync();

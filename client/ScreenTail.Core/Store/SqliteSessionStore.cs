@@ -65,7 +65,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         {
             await connection.OpenAsync(ct).ConfigureAwait(false);
             await KeyAsync(connection, key, ct).ConfigureAwait(false);
-            await ExecuteAsync(connection, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;", ct).ConfigureAwait(false);
+            // secure_delete: a deleted row's pages are overwritten, not left on the freelist with their
+            // contents intact until something reuses them. SQLCipher builds with it on; it is said here
+            // so that a provider swap or a stray pragma cannot quietly take it away, because INV-12's
+            // promise is that the data is gone, not that it is hard to read for whoever holds the key
+            // later (P2-12). The retention pass pays for it, not the capture path.
+            await ExecuteAsync(connection, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;", ct).ConfigureAwait(false);
             await MigrateAsync(connection, time, ct).ConfigureAwait(false);
         }
         catch
@@ -632,6 +637,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         var free = await ScalarAsync<long>("PRAGMA freelist_count", ct).ConfigureAwait(false);
         return (double)free / pages;
     }
+
+    /// <summary>Whether this connection overwrites what it deletes (P2-12). For the test that checks it.</summary>
+    internal async Task<bool> SecureDeleteIsOnAsync(CancellationToken ct = default) =>
+        await ScalarAsync<long>("PRAGMA secure_delete", ct).ConfigureAwait(false) == 1;
 
     public async Task VacuumAsync(CancellationToken ct = default)
     {
