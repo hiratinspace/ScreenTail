@@ -84,7 +84,7 @@ not do is listed in §6.
   dark, light and high contrast.
 
 **Not built:** the Settings side of company mappings (ST-081),
-enrolment (ST-010 — a Development-only flag issues a device token until then), settings
+enrolment on the client (ST-010 — the backend now activates a device from an invite code and counts seats; the client still reads a token from the environment, minted by a Development-only flag), settings
 and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
 ## 4. Decisions already made
