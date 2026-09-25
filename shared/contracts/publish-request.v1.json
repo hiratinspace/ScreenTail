@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "One publish on the wire, exactly as the client posts it to POST /v1/sessions/publish (ST-093, ST-094).",
+    "",
+    "Read by both ends and by neither's production code, like summarize-request.v1.json: the client's",
+    "sender writes this shape, the backend's PublishBundle reads it, and the field names ARE the contract.",
+    "TheContractIsWhatPublishAccepts (backend) and ClientWritesThePublishContract (client) notice drift.",
+    "",
+    "The note is the session.v1 draft as edited in Review. The frames are the included ones only, in strip",
+    "order, each as base64 bytes -- already redacted on the device (INV-1) and held by the backend for this",
+    "request only (INV-7). The image here is eight bytes of JPEG header: the shape is under test, not a",
+    "picture. Destinations name what to publish; the response answers each one separately so a retry",
+    "can send only what failed."
+  ],
+  "request": {
+    "session_id": "s-0001",
+    "ticket_id": "48213",
+    "note_type": "internal",
+    "minutes": 30,
+    "started_at": "2026-09-24T14:02:00Z",
+    "billable": true,
+    "reviewer": "A Technician",
+    "footer": true,
+    "destinations": ["ticket_note", "time_entry"],
+    "note": {
+      "problem": "Printer offline in reception.",
+      "steps": [
+        { "text": "Checked the spooler service; it was stopped.", "confidence": "high", "frame_refs": ["f-0002"], "transcript_refs": [] },
+        { "text": "Restarted the spooler and set it to automatic.", "confidence": "high", "frame_refs": [], "transcript_refs": ["t-0003"] }
+      ],
+      "result": "Printing works again.",
+      "follow_ups": ["Check the driver on the second printer."],
+      "suggested_title": "Printer offline — Acme Dental",
+      "suggested_time_minutes": 23,
+      "kb_candidate": false,
+      "kb_reason": "Not a KB candidate: one-off fix",
+      "source": "cloud",
+      "prompt_version": "note_v1"
+    },
+    "frames": [
+      { "id": "f-0002", "media_type": "image/jpeg", "image": "/9j/4AAQSkZJRg==" }
+    ]
+  },
+  "response": {
+    "results": [
+      { "destination": "ticket_note", "ok": true, "id": "90001", "link": null, "error": null, "kind": null, "retryable": false },
+      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "ConnectWise says this API member may not do that. Ask your ConnectWise administrator for the permission.", "kind": "forbidden", "retryable": false }
+    ]
+  }
+}
