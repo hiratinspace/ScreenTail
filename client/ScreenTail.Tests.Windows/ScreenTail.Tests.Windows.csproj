@@ -26,7 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Drawing.Common" />
+    <!-- System.Drawing.Common comes with the Windows Desktop framework now that UseWPF is on; an explicit
+         package reference is a restore error (NU1510) on Windows. -->
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Service\ScreenTail.Service.csproj" />
     <ProjectReference Include="..\ScreenTail.UI\ScreenTail.UI.csproj" />
