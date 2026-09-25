@@ -245,6 +245,7 @@ _ = v1.MapPsa();
 _ = v1.MapPublish();
 _ = v1.MapCompanyMappings();
 _ = v1.MapPolicy();
+_ = v1.MapMetrics();
 
 await app.RunAsync();
 

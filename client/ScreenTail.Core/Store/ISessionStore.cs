@@ -93,7 +93,11 @@ public interface ISessionStore : IAsyncDisposable
     /// <exception cref="InvalidOperationException">The frame is gone, or still pending redaction.</exception>
     Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default);
 
+    /// <summary>The draft as edited. The first save is also kept as the original, for the edit ratio (ST-098).</summary>
     Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
+
+    /// <summary>The draft as it was first written, or null when nothing has been drafted or it was purged.</summary>
+    Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default);
 
     Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default);
 

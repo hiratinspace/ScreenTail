@@ -289,6 +289,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) => inner.SaveDraftAsync(sessionId, draft, ct);
 
+        public Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default) => inner.LoadOriginalDraftAsync(sessionId, ct);
+
         public Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default) => inner.FinalizeSessionAsync(sessionId, info, ct);
 
         public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateAsync(sessionId, state, reason, ct);

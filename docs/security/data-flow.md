@@ -118,8 +118,10 @@ For drafting, the note can be produced two ways:
 
 **Logs contain no content** (INV-10). Not window titles, not OCR text, not transcript, not note text, not
 company or ticket names. The record the diagnostics panel is built from has nowhere to put any of those,
-which is a stronger guarantee than filtering them out. There is no metrics system yet, so "metrics" in
-the invariant table describes an intent rather than a shipped component.
+which is a stronger guarantee than filtering them out. The metrics system (ST-098) is built the same
+way: `shared/contracts/session-metric.v1.json` is the whole field list — the session id, counts, times,
+the edit ratio and whether it was published — and a test on each side fails if the type ever grows a
+string field other than the id. Nothing is sent unless telemetry is on.
 
 Since ST-011 (2026-09-25) that guarantee has a belt as well as a brace. Every process — service, UI,
 backend — writes through one scrubbing log sink and no other: a value logged under a content-carrying

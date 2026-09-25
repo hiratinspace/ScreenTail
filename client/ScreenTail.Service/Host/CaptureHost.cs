@@ -154,12 +154,36 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var psa = new PsaGateway(draftHttp, () => device.CurrentToken);
         var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(DataDirectory, "policy.json")), TimeProvider.System);
         _policySync = policySync;
+
+        // ST-098: metrics ride the same queue, so an offline afternoon queues them rather than losing
+        // them. Telemetry is off unless SCREENTAIL_TELEMETRY says otherwise; ST-081's toggle replaces the
+        // variable. A drafted session reports once the draft lands; a published one reports again.
+        var metricsSender = new MetricsSender(draftHttp, () => device.CurrentToken);
+        MetricsReporter? metrics = null;
         var outbox = new Core.Outbox.Outbox(
             store,
-            (item, ct) => backend is null
-                ? Task.FromResult(SendOutcome.Retry(BundlingDrafter.NoProviderReason))
-                : sender.SendAsync(item, ct),
+            async (item, ct) =>
+            {
+                if (backend is null)
+                {
+                    return SendOutcome.Retry(BundlingDrafter.NoProviderReason);
+                }
+
+                if (item.Kind == OutboxKind.Metric)
+                {
+                    return await metricsSender.SendAsync(item, ct).ConfigureAwait(false);
+                }
+
+                var outcome = await sender.SendAsync(item, ct).ConfigureAwait(false);
+                if (item.Kind == OutboxKind.Draft && outcome.State == OutboxState.Done && metrics is not null)
+                {
+                    await metrics.ReportAsync(item.SessionId, published: false, ct).ConfigureAwait(false);
+                }
+
+                return outcome;
+            },
             TimeProvider.System);
+        metrics = new MetricsReporter(store, outbox, () => Environment.GetEnvironmentVariable("SCREENTAIL_TELEMETRY") is "1" or "true" or "True");
 
         var drafter = new BundlingDrafter(store, logger, outbox);
         // One engine for what is seen and what is said. Two would drift the day a tenant's own patterns
@@ -197,7 +221,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new WindowsCapabilityProbe(),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
-            new PublishCommands(store, psa),
+            new PublishCommands(store, psa, metrics),
             new DeviceCommands(device),
             () => diagnostics(),
             _ =>
