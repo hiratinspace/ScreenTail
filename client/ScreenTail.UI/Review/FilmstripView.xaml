@@ -199,7 +199,7 @@
                                   Checked="OnBlurModeChanged"
                                   Unchecked="OnBlurModeChanged">
                         <ToggleButton.Style>
-                            <Style TargetType="ToggleButton" BasedOn="{StaticResource Pill.Control}">
+                            <Style TargetType="ToggleButton" BasedOn="{StaticResource Pill.Toggle}">
                                 <Style.Triggers>
                                     <Trigger Property="IsChecked" Value="True">
                                         <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
