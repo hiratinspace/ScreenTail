@@ -36,6 +36,59 @@ public sealed class ShellStateTests
     }
 
     [Fact]
+    public void ADraftThatBecomesReadyIsTheOneToReview()
+    {
+        // The Review pane needs a session id before it can ask the service for anything, and the moment
+        // a technician wants one is the moment the draft is ready. Nothing else in the UI has to notice.
+        var state = new ShellState();
+        state.Connected(Recording("s1"));
+        Assert.Null(state.Snapshot.Reviewing);
+
+        state.Observe(new CaptureStateSnapshot { State = CaptureStates.DraftReady, SessionId = "s1", DraftsReady = 1 });
+
+        Assert.Equal("s1", state.Snapshot.Reviewing);
+    }
+
+    [Fact]
+    public void AFailedDraftIsStillASessionToReview()
+    {
+        // Spec §5 S3: the pane says the draft failed and keeps the screenshots and transcript. That is a
+        // session to open, not one to hide.
+        var state = new ShellState();
+
+        state.Observe(new CaptureStateSnapshot { State = CaptureStates.DraftFailed, SessionId = "s2", DraftFailureReason = "offline" });
+
+        Assert.Equal("s2", state.Snapshot.Reviewing);
+    }
+
+    [Fact]
+    public void OpeningASessionFromHistoryShowsItInReview()
+    {
+        // One call does both, because a History row that changed the id without switching the view would
+        // leave the technician looking at the list wondering whether anything happened.
+        var state = new ShellState();
+        state.Navigate(ShellView.History);
+
+        state.OpenSession("old-one");
+
+        Assert.Equal("old-one", state.Snapshot.Reviewing);
+        Assert.Equal(ShellView.Review, state.Snapshot.View);
+    }
+
+    [Fact]
+    public void ANewerDraftReplacesAnOlderChoice()
+    {
+        // The notification says "Draft ready" and opens the window; it must open on that draft, not on
+        // whatever the technician was looking at an hour ago.
+        var state = new ShellState();
+        state.OpenSession("old-one");
+
+        state.Observe(new CaptureStateSnapshot { State = CaptureStates.DraftReady, SessionId = "s3", DraftsReady = 1 });
+
+        Assert.Equal("s3", state.Snapshot.Reviewing);
+    }
+
+    [Fact]
     public void TheServiceGoingAwayShowsTheBanner()
     {
         // ST-070's second criterion. A UI that quietly keeps showing the last state is how a technician

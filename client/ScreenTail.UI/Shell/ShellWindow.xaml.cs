@@ -1,6 +1,9 @@
 using System.IO;
 using System.Windows;
 using ScreenTail.Core.Shell;
+using ScreenTail.Shared.Ipc;
+using ScreenTail.UI.History;
+using ScreenTail.UI.Review;
 using ScreenTail.UI.Theme;
 using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
@@ -22,11 +25,16 @@ public partial class ShellWindow : Window
     /// said. Keeping them apart is the point: a screenshot harness that shares a code path with the real
     /// window is one edit away from shipping the sample.
     /// </summary>
-    public ShellWindow(ShellState state)
+    public ShellWindow(
+        ShellState state,
+        Func<string, CancellationToken, Task<object?>> loadReview,
+        Func<object> history)
     {
         ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(loadReview);
+        ArgumentNullException.ThrowIfNull(history);
         InitializeComponent();
-        DataContext = new ShellViewModel(state);
+        DataContext = new ShellViewModel(state, loadReview, history);
     }
 
     public ShellWindow(string? screenshotDirectory)
@@ -45,12 +53,26 @@ public partial class ShellWindow : Window
             ElapsedMs = 12 * 60 * 1000,
         });
 
-        DataContext = new ShellViewModel(state);
+        // The panes over the fixture, so the shell renders with something in its content area and a
+        // binding that breaks in ReviewPane or HistoryPane fails this harness rather than the technician.
+        var fixture = SessionFixture.Load();
+        var frames = new FixtureFrames(SessionFixture.Directory());
+        DataContext = new ShellViewModel(
+            state,
+            loadReview: (_, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames)),
+            history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())));
         if (_screenshotDirectory is not null)
         {
             ContentRendered += async (_, _) => await CaptureAsync(state);
         }
     }
+
+    private static IReadOnlyList<SessionRow> SampleRows() =>
+    [
+        new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1 },
+        new() { Id = "s-2", StartedAt = new DateTimeOffset(2026, 9, 15, 14, 20, 0, TimeSpan.Zero), DurationMs = 3_720_000, Status = "published", Tool = "rdp", Frames = 25, FramesPurged = 0 },
+        new() { Id = "s-3", StartedAt = new DateTimeOffset(2026, 9, 15, 11, 5, 0, TimeSpan.Zero), DurationMs = 8_000, Status = "discarded", Tool = "screenconnect", Frames = 0, FramesPurged = 0 },
+    ];
 
     private async Task CaptureAsync(ShellState state)
     {
@@ -60,7 +82,9 @@ public partial class ShellWindow : Window
         foreach (var (name, arrange) in new (string, Action)[]
         {
             ("recording", () => { }),
-            ("service-down", state.Lost),
+            ("review", () => state.OpenSession("preview")),
+            ("history", () => state.Navigate(ShellView.History)),
+            ("service-down", () => { state.Navigate(ShellView.Review); state.Lost(); }),
         })
         {
             arrange();

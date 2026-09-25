@@ -26,11 +26,16 @@ public enum ServiceConnection
 }
 
 /// <param name="Banner">What to show across the top, or null when there is nothing wrong.</param>
+/// <param name="Reviewing">
+/// The session the Review pane shows, or null when there is nothing to review yet. Set by a draft
+/// becoming ready or failing, and by the technician opening a row in History.
+/// </param>
 public sealed record ShellSnapshot(
     ServiceConnection Connection,
     CaptureStateSnapshot? Capture,
     ShellView View,
-    string? Banner)
+    string? Banner,
+    string? Reviewing = null)
 {
     /// <summary>
     /// What capture is doing <i>now</i>, or null when nobody is answering.
@@ -69,6 +74,7 @@ public sealed class ShellState
     private ServiceConnection _connection = ServiceConnection.Connecting;
     private CaptureStateSnapshot? _capture;
     private ShellView _view = ShellView.Review;
+    private string? _reviewing;
 
     /// <summary>Raised after every change, with everything a view needs. Handlers must not block.</summary>
     public event Action<ShellSnapshot>? Changed;
@@ -106,6 +112,7 @@ public sealed class ShellState
         {
             _connection = ServiceConnection.Connected;
             _capture = state;
+            NoticeDraft(state);
         });
     }
 
@@ -118,7 +125,34 @@ public sealed class ShellState
             // service is the authority. Reconnecting on evidence beats waiting for a retry timer.
             _connection = ServiceConnection.Connected;
             _capture = state;
+            NoticeDraft(state);
         });
+    }
+
+    /// <summary>
+    /// A History row opened. One call does both the id and the view, because changing the id without
+    /// switching would leave the technician looking at the list wondering whether anything happened.
+    /// </summary>
+    public void OpenSession(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        Set(() =>
+        {
+            _reviewing = sessionId;
+            _view = ShellView.Review;
+        });
+    }
+
+    /// <summary>
+    /// A draft that is ready, or failed, is the session to review — over whatever was open before. The
+    /// notification says "Draft ready" and opens the window, and it has to open on that draft.
+    /// </summary>
+    private void NoticeDraft(CaptureStateSnapshot state)
+    {
+        if (state.SessionId is { } id && state.State is CaptureStates.DraftReady or CaptureStates.DraftFailed)
+        {
+            _reviewing = id;
+        }
     }
 
     /// <summary>The pipe dropped, or the service never answered. What it last said is kept.</summary>
@@ -140,7 +174,7 @@ public sealed class ShellState
         Changed?.Invoke(snapshot);
     }
 
-    private ShellSnapshot Build() => new(_connection, _capture, _view, BannerFor(_connection));
+    private ShellSnapshot Build() => new(_connection, _capture, _view, BannerFor(_connection), _reviewing);
 
     /// <summary>
     /// Spec §5 S1's wording, and no banner at all when nothing is wrong: a bar that is always there is a

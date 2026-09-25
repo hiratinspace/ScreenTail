@@ -339,6 +339,49 @@
         <Setter Property="Padding" Value="10,0" />
     </Style>
 
+    <!-- The same pill for a ToggleButton. A style cannot be based on one for another target type, and
+         the filmstrip's blur toggle was based on Pill.Control: it parsed only when the pane was never
+         rendered, and threw the first time the shell hosted it (2026-09-25). Same setters, same
+         template; the checked look is the caller's, because what "on" means is theirs. -->
+    <Style x:Key="Pill.Toggle" TargetType="ToggleButton">
+        <Setter Property="Height" Value="{DynamicResource Layout.hud-control}" />
+        <Setter Property="MinWidth" Value="{DynamicResource Layout.hud-control}" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
+        <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
+        <Setter Property="FontWeight" Value="{DynamicResource Weight.medium}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource Radius.control}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          RecognizesAccessKey="True" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.border.subtle}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- Table: 32 px rows, sticky header (DataGrid keeps headers in view by itself) -->
     <Style x:Key="Table" TargetType="DataGrid">
         <Setter Property="Background" Value="{DynamicResource Brush.bg.surface}" />
