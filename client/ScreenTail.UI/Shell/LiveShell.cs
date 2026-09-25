@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.Principal;
@@ -6,9 +7,12 @@ using ScreenTail.Core.Hud;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Notifications;
+using ScreenTail.Core.Review;
 using ScreenTail.Core.Shell;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Shared.Ipc;
+using ScreenTail.UI.History;
+using ScreenTail.UI.Review;
 using ScreenTail.UI.Tray;
 
 namespace ScreenTail.UI.Shell;
@@ -130,7 +134,7 @@ public sealed class LiveShell : IAsyncDisposable
             return;
         }
 
-        _window ??= new ShellWindow(_state);
+        _window ??= new ShellWindow(_state, LoadReviewAsync, () => new HistoryViewModel(_state, ListSessionsAsync));
         _window.Closed += (_, _) => _window = null;
         _window.Show();
         _ = _window.Activate();
@@ -173,6 +177,42 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void Send(Func<int, IpcCommand> build) =>
         _ = _connection.SendAsync(build, CancellationToken.None);
+
+    /// <summary>
+    /// The Review pane for one session, everything over the pipe (ST-085 remainder). Null when the
+    /// service would not hand the session over, which the shell shows as a sentence rather than a crash.
+    ///
+    /// The note's save goes back the same way, and a save the service refused is thrown so the editor
+    /// shows "Not saved — retrying" (Spec v0.4.3) instead of a tick over a note that never landed.
+    /// </summary>
+    private async Task<object?> LoadReviewAsync(string sessionId, CancellationToken ct)
+    {
+        var frames = new PipeReviewFrames(_connection);
+        var session = await frames.LoadSessionAsync(sessionId, ct).ConfigureAwait(true);
+        if (session is null)
+        {
+            return null;
+        }
+
+        return new ReviewViewModel(
+            session,
+            frames,
+            write: async (draft, c) =>
+            {
+                if (!await frames.SaveDraftAsync(sessionId, draft, c).ConfigureAwait(false))
+                {
+                    throw new IOException("The capture service did not save the note.");
+                }
+            },
+            confirm: _ => ConfirmWindow.Asks(
+                _window,
+                "Discard this session?",
+                "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
+                TypedConfirmation.DiscardWord));
+    }
+
+    private async Task<IReadOnlyList<SessionRow>?> ListSessionsAsync(CancellationToken ct) =>
+        (await _connection.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct).ConfigureAwait(true))?.Sessions;
 
     /// <summary>
     /// Asks the service for a confirmation token, asks the technician to type the word, and sends both.

@@ -14,13 +14,13 @@ model call each have tests; the whole chain has never been exercised with a real
 and a real key at the same time. That first run is **M1**, and `docs/dev/first-draft-end-to-end.md` is
 the step list for it.
 
-**One thing stands between the run and the judgement, and it is ours, not the owner's.** Found
-2026-09-24: the live shell window has no Review, History or Settings pane. Its content area shows the
-pane's *name*. The note editor, filmstrip and history views exist and are rendered in CI, but only by the
-screenshot harness from a fixture file; no message on the pipe can carry a session or a note to the UI.
-So after M1's session drafts, the technician sees the status badge say "Draft ready" and a tray
-notification with the title, and cannot read the note. Wiring Review over the pipe is the next piece of
-agent work and is §7's first row.
+**The Review and History panes are in the live shell as of 2026-09-25** (#138, #139). Until then the
+shell window's content area showed the pane's *name*; the note editor and filmstrip were rendered only by
+the screenshot harness, and no message on the pipe could carry a session to the UI. Now a draft that
+becomes ready opens in Review over the pipe — the note, the screenshots, include, delete and blur — and
+History lists sessions and opens one on a double-click. **Not yet seen on a real screen:** CI renders
+both panes over the fixture in three themes; the first live run is M1. Settings is still a sentence
+(ST-081) and the timeline row (ST-076) has a model and no view.
 
 **Of 85 tickets, 42 are Done, 4 are Partial and 39 are Open.** Phases A and B of the ordered plan
 (backlog Part C) are complete apart from the two that need the owner: ST-030 (golden sessions; needs a
@@ -53,10 +53,11 @@ not do is listed in §6.
 - The capture service starts per user, serves an authenticated named pipe (user ACL, verified client
   executable, per-run token in a file only that user can read), recovers what a crash left behind, and
   runs retention hourly with a vacuum only when a third of the file is free.
-- **The UI is connected** (ST-085) — as far as it goes. A tray icon and the recording pill show live
-  state; the diagnostics window is filled by the service; discard and erase need a typed confirmation the
-  service issued moments before. The shell window itself has a navigation bar and a status badge and
-  **no panes**: Review, History and Settings are names, not screens, in the live build. The UI tells the service every two seconds that the
+- **The UI is connected** (ST-085). A tray icon and the recording pill show live state; the diagnostics
+  window is filled by the service; discard and erase need a typed confirmation the service issued moments
+  before. **Review and History are real panes** fed over the pipe: `get_session`, `get_frame`, the three
+  frame edits and `save_draft` (#138); the shell shows the draft that just became ready and opens any
+  session from History (#139). Settings is a sentence until ST-081. The UI tells the service every two seconds that the
   pill is on screen and where; the service treats a pill it has not heard from in six seconds as absent
   and suppresses capture until one is back (INV-4).
 - The session state machine owns the lifecycle. Sources can only write while recording (INV-6). The
@@ -113,10 +114,10 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 
 ## 5. Open items for the owner
 
-- [ ] **Run M1** once the Review pane is wired (§7, first row) — before that the run proves the
-      pipeline but the note cannot be read. `docs/dev/first-draft-end-to-end.md`, top to bottom, on the
-      laptop. Everything runs there, including the backend, because the client refuses a backend that is
-      not HTTPS and the only certificate the laptop trusts without ceremony is its own.
+- [ ] **Run M1.** `docs/dev/first-draft-end-to-end.md`, top to bottom, on the laptop. Everything runs
+      there, including the backend, because the client refuses a backend that is not HTTPS and the only
+      certificate the laptop trusts without ceremony is its own. The Review pane is wired as of #139, so
+      the note can be read and judged.
 - [x] ~~Choose the model provider and supply a key.~~ Gemini Flash. The key is in user secrets **on the
       Mac**; user secrets are per machine, so the laptop needs its own copy (the runbook says where).
 - [ ] **Enable billing on the Gemini key.** The free tier (20 requests a day) is enough for M1 and not
@@ -145,8 +146,10 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
   and the record of the loss, the frame is let go rather than remembered, and the draft does not know to
   hedge. Named in the test; accepted as the price of not holding a frame for ever on a disk that will
   not empty.
-- **The Review pane is not in the live shell** (above). ST-049's two filmstrip items (P2-3 memory,
-  P2-9 blur encoding) wait for it, so the ticket is Partial.
+- **The filmstrip decodes thumbnails at full size** (weaknesses P2-3): fine for a session of a few
+  frames, 150 frames would cost hundreds of megabytes. ST-049's last open item, now that the pane exists.
+- **The Review pane has not been seen on a real screen.** CI renders it over the fixture; the first live
+  session is M1's.
 - **Not done from the 2026-09-20 review, with reasons:** the hardware workflow as a reusable workflow
   (a laptop that is off would hang the run for a day instead of failing in 35 minutes; revisit if the
   repository goes private); a model hash cache (weakens the one check between a corrupt download and
@@ -160,8 +163,7 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 
 | When | What | Who |
 |---|---|---|
-| **Now** | **Review over the pipe** (ST-085 remainder): a `get_session` message carrying the redacted session and its draft, `get_frame` for one image at a time, and the note editor, filmstrip and timeline views hosted in the shell's Review area; include, delete and blur become pipe commands. Then P2-3 and P2-9 close on a pane that exists | Agent |
-| Then | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
+| **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
 | Then, no owner input needed | **ST-009** (credential vault), **ST-078** (publish panel), **ST-093/094** shape against a fake PSA | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
@@ -170,7 +172,7 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 
 **Why this order.** The product has never drafted a note from a real session. M1 is the one thing that
 tells us whether the next month goes into publishing or into fixing what the first note got wrong, and
-it is a half-hour of the owner's time — once there is a screen to read the note on. Phase C starts with the tickets that need no account so the
+it is a half-hour of the owner's time. There is a screen to read the note on now. Phase C starts with the tickets that need no account so the
 publish path exists by the time the ConnectWise and Hudu credentials do.
 
 ### Needs a decision or an account
