@@ -9,6 +9,7 @@ using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Privacy;
+using ScreenTail.Core.Review;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
@@ -169,6 +170,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             machine,
             new WindowsCapabilityProbe(),
             store,
+            new ReviewCommands(store, new WindowsFrameMasker()),
             () => diagnostics(),
             _ =>
             {

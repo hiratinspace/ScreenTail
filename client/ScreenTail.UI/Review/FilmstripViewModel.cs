@@ -81,18 +81,17 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     private readonly FrameBlur? _blur;
     private readonly UndoWindow<FrameItem> _deletes;
 
-    /// <param name="blur">Flattens a rectangle of a PNG. Injected because it needs WIC, and because the
-    /// tests have no business encoding images to find out whether the ordering is right.</param>
+    /// <param name="frames">Where the images come from and where the edits go. In the running
+    /// application that is the service, over the pipe; the harness passes nothing and shows no images.</param>
     public FilmstripViewModel(
         Session session,
         IReviewFrames? frames = null,
-        Func<byte[], MaskedRegion, byte[]>? blur = null,
         TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _strip = new Filmstrip(session);
         _frames = frames;
-        _blur = frames is not null && blur is not null ? new FrameBlur(frames, blur) : null;
+        _blur = frames is not null ? new FrameBlur(frames) : null;
 
         _deletes = new UndoWindow<FrameItem>(
             commit: Committed,

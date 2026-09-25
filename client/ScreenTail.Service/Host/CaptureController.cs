@@ -1,6 +1,7 @@
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.History;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Review;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -34,6 +35,7 @@ internal sealed class CaptureController(
     SessionMachine machine,
     ICapabilityProbe capabilities,
     ISessionStore store,
+    ReviewCommands review,
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators) : IIpcCommandHandler
@@ -80,13 +82,23 @@ internal sealed class CaptureController(
             GetDiagnosticsCommand => diagnostics(),
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
             RequestConfirmationCommand request => Confirm(request, caller),
-            _ => null,
+
+            // Review's questions: the session, a frame, a blur (ST-085 remainder).
+            _ => await review.ReplyToAsync(command, ct).ConfigureAwait(false),
         };
     }
 
     public async Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // Review's edits, and its reasons when a question had no answer. Chained first because these are
+        // about a stored session, not the machine's state, and the message below would be wrong for them.
+        if (await review.HandleAsync(command, ct).ConfigureAwait(false) is { } reviewed)
+        {
+            return reviewed;
+        }
+
         var accepted = command switch
         {
             // Manual start (Ctrl+Alt+R, tray). ST-023's detector starts sessions with the real tool.

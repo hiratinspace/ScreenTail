@@ -2,9 +2,11 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Review;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Host;
+using ScreenTail.Service.Privacy;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
 
@@ -301,6 +303,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             machine ?? new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter()),
             new AlwaysCapableProbe(),
             store,
+            new ReviewCommands(store, new WindowsFrameMasker()),
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)),
             new IndicatorReports());

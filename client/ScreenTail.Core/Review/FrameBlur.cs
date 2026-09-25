@@ -6,23 +6,23 @@ namespace ScreenTail.Core.Review;
 /// Applying a blur, in the order that makes it safe (ST-075).
 ///
 /// In Core rather than in the view model because the ordering <em>is</em> the guarantee, and a rule that
-/// can only be checked on Windows is a rule that is checked when someone remembers. The flattening itself
-/// is injected: it needs WIC, and a test has no business encoding a PNG to find out whether the steps
-/// happen in the right sequence.
+/// can only be checked on Windows is a rule that is checked when someone remembers. The painting is the
+/// frames implementation's: in the running application that is the service, over the pipe, with the
+/// same masker redaction uses — the pane used to flatten in WPF and hand the bytes back, which re-encoded
+/// a JPEG as PNG on the UI thread and made the stored name a lie (weaknesses P2-9).
 /// </summary>
-public sealed class FrameBlur(IReviewFrames frames, Func<byte[], MaskedRegion, byte[]> flatten)
+public sealed class FrameBlur(IReviewFrames frames)
 {
     private readonly IReviewFrames _frames = frames ?? throw new ArgumentNullException(nameof(frames));
-    private readonly Func<byte[], MaskedRegion, byte[]> _flatten = flatten ?? throw new ArgumentNullException(nameof(flatten));
 
     /// <summary>
     /// Flattens the rectangle and writes it, returning the region recorded — or null when there was
     /// nothing to do.
     ///
     /// The store is written before this returns, so the caller cannot show a covered password over an
-    /// uncovered one on disk. The same <see cref="MaskedRegion"/> instance is both flattened and recorded:
-    /// if those two could differ, <c>masked_regions</c> would be a false statement about a picture nobody
-    /// can check any more, because the original is gone.
+    /// uncovered one on disk. The one <see cref="MaskedRegion"/> computed here is what is painted and what
+    /// is recorded: if those two could differ, <c>masked_regions</c> would be a false statement about a
+    /// picture nobody can check any more, because the original is gone.
     /// </summary>
     /// <param name="image">The frame's current bytes. Null when the thumbnail never loaded.</param>
     public async Task<BlurredFrame?> ApplyAsync(
@@ -43,8 +43,12 @@ public sealed class FrameBlur(IReviewFrames frames, Func<byte[], MaskedRegion, b
         }
 
         var region = BlurRegion.From(drawn, displayed, new Size(frame.Width, frame.Height));
-        var flattened = _flatten(image, region);
-        await _frames.BlurAsync(frame.Id, flattened, region, ct).ConfigureAwait(false);
+        var flattened = await _frames.BlurAsync(frame.Id, region, ct).ConfigureAwait(false);
+        if (flattened is null)
+        {
+            // Gone between the load and the blur. Nothing was painted and nothing is claimed.
+            return null;
+        }
 
         return new BlurredFrame(
             frame with { MaskedRegions = [.. frame.MaskedRegions, region] },

@@ -10,7 +10,6 @@ public sealed class FrameBlurTests
     private static readonly Rect Drawn = Rect.Between(100, 50, 260, 98);
 
     private readonly RecordingFrames _frames = new();
-    private readonly List<MaskedRegion> _flattened = [];
 
     [Fact]
     public async Task TheRectangleFlattenedIsTheRectangleRecorded()
@@ -21,9 +20,9 @@ public sealed class FrameBlurTests
         var result = await Blur().ApplyAsync(Frame(), [0xAA], Drawn, Displayed);
 
         Assert.NotNull(result);
-        var flattenedIn = Assert.Single(_flattened);
-        Assert.Same(flattenedIn, _frames.LastRegion);
-        Assert.Same(flattenedIn, result.Region);
+        Assert.NotNull(_frames.LastRegion);
+        Assert.Same(_frames.LastRegion, result.Region);
+        Assert.Equal(MaskKind.UserBlur, result.Region.Kind);
     }
 
     [Fact]
@@ -35,7 +34,7 @@ public sealed class FrameBlurTests
         // until the write has happened.
         var writes = new TaskCompletionSource();
         var frames = new RecordingFrames { Gate = writes.Task };
-        var blur = new FrameBlur(frames, Flatten);
+        var blur = new FrameBlur(frames);
 
         var applying = blur.ApplyAsync(Frame(), [0xAA], Drawn, Displayed);
 
@@ -66,7 +65,6 @@ public sealed class FrameBlurTests
         // a real frame with a rectangle drawn over nothing.
         Assert.Null(await Blur().ApplyAsync(Frame(), image: null, Drawn, Displayed));
 
-        Assert.Empty(_flattened);
         Assert.Null(_frames.LastRegion);
     }
 
@@ -77,17 +75,11 @@ public sealed class FrameBlurTests
         // technician knew they needed.
         Assert.Null(await Blur().ApplyAsync(Frame(), [0xAA], new Rect(10, 10, 2, 2), Displayed));
 
-        Assert.Empty(_flattened);
+        Assert.Null(_frames.LastRegion);
         Assert.Null(_frames.LastRegion);
     }
 
-    private FrameBlur Blur() => new(_frames, Flatten);
-
-    private byte[] Flatten(byte[] image, MaskedRegion region)
-    {
-        _flattened.Add(region);
-        return [0xCC, (byte)_flattened.Count];
-    }
+    private FrameBlur Blur() => new(_frames);
 
     private static Frame Frame() => new()
     {
@@ -118,7 +110,7 @@ public sealed class FrameBlurTests
 
         public Task<bool> DeleteAsync(string frameId, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public async Task BlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default)
+        public async Task<byte[]?> BlurAsync(string frameId, MaskedRegion region, CancellationToken ct = default)
         {
             if (Gate is { } gate)
             {
@@ -126,7 +118,8 @@ public sealed class FrameBlurTests
             }
 
             LastRegion = region;
-            LastImage = image.ToArray();
+            LastImage = [0xCC, 0xCC];
+            return LastImage;
         }
     }
 }
