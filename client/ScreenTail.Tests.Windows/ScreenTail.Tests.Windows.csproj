@@ -8,6 +8,9 @@
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <!-- The Review pane's view models live in the UI project and need WPF's imaging to decode a
+         thumbnail; the one test that measures what the filmstrip holds in memory needs both. -->
+    <UseWPF>true</UseWPF>
     <RootNamespace>ScreenTail.Tests.Windows</RootNamespace>
   </PropertyGroup>
 
@@ -17,11 +20,15 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <!-- UseWPF drops System.IO from the implicit usings (Path would be ambiguous with WPF's Shapes.Path
+         in XAML-heavy code); these tests are not that, and they read files. -->
+    <Using Include="System.IO" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Drawing.Common" />
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Service\ScreenTail.Service.csproj" />
+    <ProjectReference Include="..\ScreenTail.UI\ScreenTail.UI.csproj" />
   </ItemGroup>
 </Project>

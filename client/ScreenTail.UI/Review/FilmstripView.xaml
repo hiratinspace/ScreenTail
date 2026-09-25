@@ -19,7 +19,7 @@
                         BorderBrush="{DynamicResource Brush.border.strong}"
                         Background="{DynamicResource Brush.bg.raised}"
                         ClipToBounds="True">
-                    <Image Source="{Binding Image}" Stretch="UniformToFill" />
+                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
                     <Border.Style>
                         <Style TargetType="Border">
                             <Style.Triggers>

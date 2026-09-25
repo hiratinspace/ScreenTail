@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Review;
@@ -22,6 +23,11 @@ public sealed partial class FrameItem : StripItem
     [ObservableProperty]
     private FrameCell _cell;
 
+    /// <summary>What the strip draws: the frame decoded at thumbnail size, never the full picture (P2-3).</summary>
+    [ObservableProperty]
+    private ImageSource? _thumbnail;
+
+    /// <summary>The full image, held only while the frame is enlarged. Null the rest of the time.</summary>
     [ObservableProperty]
     private byte[]? _image;
 
@@ -123,7 +129,12 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
     public bool IsEnlarged => Enlarged is not null;
 
-    /// <summary>Fills in the thumbnails. Called once the pane is up, so the first paint is not blocked on IO.</summary>
+    /// <summary>
+    /// Fills in the thumbnails. Called once the pane is up, so the first paint is not blocked on IO.
+    ///
+    /// The bytes are decoded small and let go: a 150-frame session is a few tens of megabytes of
+    /// thumbnails, not hundreds of megabytes of screenshots nobody is looking at (P2-3).
+    /// </summary>
     public async Task LoadImagesAsync(CancellationToken ct = default)
     {
         if (_frames is null)
@@ -133,7 +144,10 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
         foreach (var item in Items.OfType<FrameItem>())
         {
-            item.Image = await _frames.ImageAsync(item.Cell.Frame, ct).ConfigureAwait(true);
+            if (await _frames.ImageAsync(item.Cell.Frame, ct).ConfigureAwait(true) is { } bytes)
+            {
+                item.Thumbnail = Thumbnails.Decode(bytes);
+            }
         }
     }
 
@@ -213,10 +227,21 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>`Enter`. `Esc` closes it, and `T` toggles the OCR text over it.</summary>
+    /// <summary>
+    /// `Enter`. `Esc` closes it, and `T` toggles the OCR text over it.
+    ///
+    /// The full image is fetched here and only here, one frame at a time, and dropped when the view
+    /// closes. It is also what a blur is checked against: a frame that never loaded cannot be blurred,
+    /// because the technician cannot have seen what they were covering.
+    /// </summary>
     [RelayCommand]
-    private void Enlarge(FrameItem? item)
+    private async Task EnlargeAsync(FrameItem? item)
     {
+        if (item is not null && item.Image is null && _frames is not null)
+        {
+            item.Image = await _frames.ImageAsync(item.Cell.Frame).ConfigureAwait(true);
+        }
+
         Enlarged = item;
         ShowOcrText = false;
         OnPropertyChanged(nameof(IsEnlarged));
@@ -225,6 +250,11 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void CloseEnlarged()
     {
+        if (Enlarged is { } item)
+        {
+            item.Image = null;
+        }
+
         Enlarged = null;
         OnPropertyChanged(nameof(IsEnlarged));
     }
@@ -246,6 +276,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
         }
 
         item.Image = blurred.Image;
+        item.Thumbnail = Thumbnails.Decode(blurred.Image);
         item.Refresh(item.Cell with { Frame = blurred.Frame });
         _strip.Replace(blurred.Frame);
     }
