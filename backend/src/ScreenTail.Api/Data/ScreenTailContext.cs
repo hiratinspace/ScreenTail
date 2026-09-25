@@ -28,6 +28,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<CompanyMapping> CompanyMappings => Set<CompanyMapping>();
 
+    public DbSet<Invite> Invites => Set<Invite>();
+
     public DbSet<Policy> Policies => Set<Policy>();
 
     public DbSet<SessionMetric> SessionMetrics => Set<SessionMetric>();
@@ -119,6 +121,16 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
             integration.ToTable("integrations");
             integration.HasKey(i => i.Id);
             integration.HasIndex(i => new { i.TenantId, i.Provider }).IsUnique();
+        });
+
+        modelBuilder.Entity<Invite>(invite =>
+        {
+            invite.ToTable("invites");
+            invite.HasKey(i => i.Id);
+            invite.HasIndex(i => i.TenantId);
+
+            // The lookup activation makes. Unique for the same reason a device token's hash is.
+            invite.HasIndex(i => i.CodeHash).IsUnique();
         });
 
         modelBuilder.Entity<CompanyMapping>(mapping =>

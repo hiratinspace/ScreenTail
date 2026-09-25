@@ -96,6 +96,34 @@ public sealed class Device
 /// written by an exact match at publish or by a person, and read before every knowledge-base article.
 /// A name, an id and a word about how it was decided; nothing from any session.
 /// </summary>
+/// <summary>
+/// An invite (ST-010): a code an admin hands a technician, good for 72 hours and one device. The code is
+/// kept as a hash, like a device token; the row remembers who it was for and which device took it.
+/// </summary>
+public sealed class Invite
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    [MaxLength(320)]
+    public required string Email { get; set; }
+
+    [MaxLength(200)]
+    public required string DisplayName { get; set; }
+
+    [MaxLength(64)]
+    public required string CodeHash { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    public DateTimeOffset? AcceptedAt { get; set; }
+
+    public Guid? DeviceId { get; set; }
+}
+
 public sealed class CompanyMapping
 {
     public Guid Id { get; set; }

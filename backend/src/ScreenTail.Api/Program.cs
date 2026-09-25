@@ -9,6 +9,7 @@ using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
+using ScreenTail.Api.Tenancy;
 using ScreenTail.Api.Vault;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -118,12 +119,51 @@ builder.Services.AddRequestTimeouts(timeouts =>
 
 var app = builder.Build();
 
-// ST-010 has no enrolment flow yet, so a client has nothing to put in an Authorization header and the
-// drafting path can be tested but not run. This prints a token for one seeded device and exits without
-// ever listening, and DevEnrolment refuses outright unless this is Development -- starting the
-// production container with the flag still on a command line is an accident somebody will have.
-//
-// Delete this with ST-010.
+// ST-010: the operator's side of tenancy, until there is a web admin (ST-099) and a mail provider.
+// `--invite` issues a code for a tenant (or a new one) and prints it once; `--offboard-tenant` deletes
+// every row of a tenant. Both exit without listening.
+if (Array.IndexOf(args, "--invite") is var inviteAt and >= 0)
+{
+    // --invite <tenant-id | new:Name:seats> <email> [display name]
+    var target = args.ElementAtOrDefault(inviteAt + 1) ?? throw new InvalidOperationException("--invite <tenant-id | new:Name:seats> <email> [display name]");
+    var email = args.ElementAtOrDefault(inviteAt + 2) ?? throw new InvalidOperationException("--invite needs the technician's email after the tenant.");
+    var displayName = args.ElementAtOrDefault(inviteAt + 3) ?? email;
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<ScreenTailContext>();
+    var time = scope.ServiceProvider.GetRequiredService<TimeProvider>();
+    Guid tenantId;
+    if (target.StartsWith("new:", StringComparison.Ordinal))
+    {
+        var parts = target.Split(':', 3);
+        var tenant = new Tenant { Id = Guid.NewGuid(), Name = parts.ElementAtOrDefault(1) is { Length: > 0 } n ? n : "New tenant", Seats = int.TryParse(parts.ElementAtOrDefault(2), out var seats) ? seats : 5, CreatedAt = time.GetUtcNow() };
+        db.Tenants.Add(tenant);
+        _ = await db.SaveChangesAsync();
+        tenantId = tenant.Id;
+        Console.WriteLine($"tenant  {tenant.Id}  {tenant.Name}  {tenant.Seats} seats");
+    }
+    else
+    {
+        tenantId = Guid.Parse(target);
+    }
+
+    var issued = await Invites.CreateAsync(db, tenantId, email, displayName, time);
+    Console.WriteLine($"invite  {issued.Id}  for {email}  expires {issued.ExpiresAt:u}");
+    Console.WriteLine();
+    Console.WriteLine($"code    {issued.Code}");
+    return;
+}
+
+if (Array.IndexOf(args, "--offboard-tenant") is var offboardAt and >= 0)
+{
+    var tenantId = Guid.Parse(args.ElementAtOrDefault(offboardAt + 1) ?? throw new InvalidOperationException("--offboard-tenant <tenant-id>"));
+    await using var scope = app.Services.CreateAsyncScope();
+    var gone = await Offboarding.DeleteTenantAsync(scope.ServiceProvider.GetRequiredService<ScreenTailContext>(), tenantId);
+    Console.WriteLine($"offboarded {gone.TenantId}: {gone.Rows} row(s) deleted across every table");
+    return;
+}
+
+// A development shortcut from before ST-010 had an activation flow: one seeded device, its access token
+// printed. Kept because the M1 runbook uses it; DevEnrolment refuses outright unless this is Development.
 if (args.Contains("--enrol-dev-device", StringComparer.Ordinal))
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -174,6 +214,9 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi("/swagger/v1/swagger.json");
 }
+
+// The two calls a device makes before it has a token (ST-010). Anonymous, and outside the group below.
+_ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 
 var v1 = app.MapGroup("/v1").RequireAuthorization();
 _ = v1.MapMe();

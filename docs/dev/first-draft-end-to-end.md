@@ -228,3 +228,19 @@ If it does, that is M1, and the next thing is the eval corpus rather than more p
 - **Publishing** (ST-077, ST-078). The note stays in the store. There is nowhere to send it yet.
 
 Each of those is a ticket rather than an oversight, and this document should shrink as they land.
+
+## Enrolling the real way (ST-010, 2026-09-25)
+
+`--enrol-dev-device` still works in Development. The production path is an invite:
+
+```bash
+dotnet run --project backend/src/ScreenTail.Api -- --invite "new:Acme IT:5" t.ortiz@acme.example "T. Ortiz"
+# prints the tenant id and, once, a code like  KX7PM-4R2WQ  (72 hours, one device)
+curl -X POST "$BACKEND/v1/devices/activate" -H "Content-Type: application/json" \
+  -d '{"code":"KX7PM-4R2WQ","deviceName":"TECH-LAPTOP"}'
+# → tenantName, deviceId, refreshToken (keep it), accessToken (an hour), expiresAt
+curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d '{"refreshToken":"…"}'
+```
+
+The client does not do this itself yet; until it does, put the access token in `SCREENTAIL_DEVICE_TOKEN`
+as before. `--offboard-tenant <id>` deletes every row of a tenant.

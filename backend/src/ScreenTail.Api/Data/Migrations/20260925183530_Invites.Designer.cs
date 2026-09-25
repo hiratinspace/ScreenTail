@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ScreenTail.Api.Data;
@@ -11,9 +12,11 @@ using ScreenTail.Api.Data;
 namespace ScreenTail.Api.Data.Migrations
 {
     [DbContext(typeof(ScreenTailContext))]
-    partial class ScreenTailContextModelSnapshot : ModelSnapshot
+    [Migration("20260925183530_Invites")]
+    partial class Invites
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
