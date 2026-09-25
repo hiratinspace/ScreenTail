@@ -1226,9 +1226,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
     private static async Task KeyAsync(SqliteConnection connection, byte[] key, CancellationToken ct)
     {
-        // A raw key ("x'...'") skips SQLCipher's passphrase KDF; the key already has full entropy.
-        var hex = Convert.ToHexString(key);
-        await ExecuteAsync(connection, $"PRAGMA key = \"x'{hex}'\";", ct).ConfigureAwait(false);
+        // As bytes, never as a statement: a string holding the key lives until the collector gets to it,
+        // which is the one copy the clearing below cannot reach (P1-7).
+        StoreKey.Apply(connection, key);
         try
         {
             // The first real read fails with "file is not a database" when the key is wrong.

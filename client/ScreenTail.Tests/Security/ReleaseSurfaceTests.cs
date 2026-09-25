@@ -178,25 +178,5 @@ public sealed class ReleaseSurfaceTests
         throw new FileNotFoundException($"No project file for {project}.");
     }
 
-    private static IReadOnlyList<string> SourceFiles(string project)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var candidate = Path.Combine(directory.FullName, "client", project);
-            if (Directory.Exists(candidate))
-            {
-                return
-                [
-                    .. Directory.EnumerateFiles(candidate, "*.cs", SearchOption.AllDirectories)
-                        .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-                        .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)),
-                ];
-            }
-
-            directory = directory.Parent;
-        }
-
-        return [];
-    }
+    private static IReadOnlyList<string> SourceFiles(string project) => ClientSources.Of(project);
 }
