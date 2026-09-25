@@ -1,0 +1,203 @@
+<UserControl x:Class="ScreenTail.UI.Settings.Integrations.IntegrationsPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ScreenTail.UI.Settings.Integrations"
+             AutomationProperties.Name="Integrations">
+    <UserControl.Resources>
+        <!-- One card per provider (Spec §5 S7). Secrets are masked once saved; Change reveals the
+             fields. A PasswordBox that goes out of view is cleared in code-behind, so a private key
+             does not sit in a collapsed control for the afternoon. -->
+        <DataTemplate x:Key="Card" DataType="{x:Type local:IntegrationCardViewModel}">
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                        <ContentControl Margin="10,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource Badge.Published}"
+                                        Content="Connected"
+                                        Visibility="{Binding ConnectedBadgeVisibility}" />
+                    </StackPanel>
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" />
+
+                    <!-- Saved: the site in full, the secret as its last four, and Change. -->
+                    <Grid Margin="0,10,0,0" Visibility="{Binding SummaryVisibility}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Style="{StaticResource Text.Muted}" Text="Site" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Muted}" Text="Credential" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding SiteUrl}" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Mono}" Text="{Binding SecretHint}" />
+                        </StackPanel>
+                        <Button Grid.Column="2"
+                                VerticalAlignment="Top"
+                                Style="{StaticResource Button.Secondary}"
+                                Content="Change"
+                                Command="{Binding ChangeCommand}" />
+                    </Grid>
+
+                    <!-- Nothing saved, or Change pressed: the fields. -->
+                    <StackPanel Margin="0,10,0,0" Visibility="{Binding FieldsVisibility}">
+                        <TextBlock Style="{StaticResource Text.Muted}" Text="Site" />
+                        <TextBox Margin="0,4,0,0"
+                                 Style="{StaticResource Input.Default}"
+                                 Text="{Binding SiteUrl, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Site address"
+                                 AutomationProperties.HelpText="{Binding SitePlaceholder}" />
+
+                        <StackPanel Visibility="{Binding ConnectWiseVisibility}">
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Company ID" />
+                            <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding CompanyId, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Company ID" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Public key" />
+                            <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding PublicKey, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Public key" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Private key" />
+                            <PasswordBox Margin="0,4,0,0"
+                                         Tag="private"
+                                         PasswordChanged="OnSecretChanged"
+                                         IsVisibleChanged="OnSecretBoxVisibility"
+                                         AutomationProperties.Name="Private key" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Style="{StaticResource Text.Muted}"
+                                       FontSize="{DynamicResource Size.xs}"
+                                       TextWrapping="Wrap"
+                                       Text="From System → Members → API Members → API Keys. The client ID ConnectWise issues to ScreenTail is set on the backend, not here." />
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding HuduVisibility}">
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="API key" />
+                            <PasswordBox Margin="0,4,0,0"
+                                         Tag="api"
+                                         PasswordChanged="OnSecretChanged"
+                                         IsVisibleChanged="OnSecretBoxVisibility"
+                                         AutomationProperties.Name="API key" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Style="{StaticResource Text.Muted}"
+                                       FontSize="{DynamicResource Size.xs}"
+                                       TextWrapping="Wrap"
+                                       Text="From Hudu → Admin → API Keys. It needs to read companies and create articles and uploads; nothing more." />
+                        </StackPanel>
+
+                        <TextBlock Margin="0,8,0,0"
+                                   Style="{StaticResource Text.Error}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding Problem}"
+                                   Visibility="{Binding ProblemVisibility}"
+                                   AutomationProperties.LiveSetting="Polite" />
+
+                        <Button Margin="0,10,0,0"
+                                HorizontalAlignment="Left"
+                                Style="{StaticResource Button.Primary}"
+                                Content="Save"
+                                Command="{Binding SaveCommand}"
+                                IsEnabled="{Binding CanSave}" />
+                    </StackPanel>
+
+                    <!-- Test connection, and the last answer in words either way (Spec §4). -->
+                    <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
+                        <Button Style="{StaticResource Button.Secondary}"
+                                Content="Test connection"
+                                Command="{Binding CheckCommand}"
+                                IsEnabled="{Binding Connected}" />
+                        <Button Margin="8,0,0,0"
+                                Style="{StaticResource Button.Ghost}"
+                                Content="Remove"
+                                Command="{Binding RemoveCommand}"
+                                Visibility="{Binding ConnectedBadgeVisibility}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,6,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
+                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CheckMark}" />
+                        <TextBlock Margin="6,0,0,0"
+                                   Style="{StaticResource Text.Body}"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="520"
+                                   Text="{Binding CheckResult}"
+                                   AutomationProperties.LiveSetting="Polite" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+            <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" AutomationProperties.LiveSetting="Polite" />
+            </Border>
+
+            <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource Card}" />
+            <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource Card}" />
+
+            <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
+                 filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
+            <Border Style="{StaticResource Card}" Visibility="{Binding MappingsVisibility}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
+                    <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
+                    <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding Mappings}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" Text="{Binding PsaCompany}" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" Text="{Binding DocCompanyName}" VerticalAlignment="Center" />
+                                    <ContentControl Grid.Column="2" Style="{StaticResource Badge}" Content="{Binding ConfidenceLabel}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="3"
+                                            Margin="8,0,0,0"
+                                            Style="{StaticResource Button.Ghost}"
+                                            Content="Forget"
+                                            Command="{Binding DataContext.UnmapCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Border Margin="0,10,0,10" Height="1" Background="{DynamicResource Brush.border.subtle}" />
+                    <TextBlock Style="{StaticResource Text.Muted}" Text="Map a company by hand" />
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 Style="{StaticResource Input.Default}"
+                                 Text="{Binding NewPsaCompany, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Company name in the PSA"
+                                 AutomationProperties.HelpText="Exactly as ConnectWise names it" />
+                        <ComboBox Grid.Column="1"
+                                  Margin="8,0,0,0"
+                                  ItemsSource="{Binding Companies}"
+                                  SelectedItem="{Binding NewDocCompany}"
+                                  DisplayMemberPath="Name"
+                                  AutomationProperties.Name="Company in Hudu" />
+                        <Button Grid.Column="2"
+                                Margin="8,0,0,0"
+                                Style="{StaticResource Button.Secondary}"
+                                Content="Map"
+                                Command="{Binding AddMappingCommand}"
+                                IsEnabled="{Binding CanAddMapping}" />
+                    </Grid>
+                    <TextBlock Margin="0,6,0,0"
+                               Style="{StaticResource Text.Error}"
+                               TextWrapping="Wrap"
+                               Text="{Binding MappingProblem}"
+                               Visibility="{Binding MappingProblemVisibility}"
+                               AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

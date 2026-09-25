@@ -1,0 +1,23 @@
+<UserControl x:Class="ScreenTail.UI.Settings.SettingsPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
+             AutomationProperties.Name="Settings">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Style="{StaticResource Text.ScreenTitle}" Text="Settings" />
+
+        <!-- The sections Spec §5 lists, in its order; the two that are not built say which ticket brings them. -->
+        <StackPanel Grid.Row="1" Margin="0,8,0,16">
+            <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding CaptureLater}" />
+            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding PrivacyLater}" />
+        </StackPanel>
+
+        <integrations:IntegrationsPane Grid.Row="2" DataContext="{Binding Integrations}" />
+    </Grid>
+</UserControl>

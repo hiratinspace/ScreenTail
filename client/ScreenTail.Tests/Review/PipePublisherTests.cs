@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Review.Publish;
+using ScreenTail.Core.Settings;
 using ScreenTail.Core.Shell;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -75,6 +76,54 @@ public sealed class PipePublisherTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheSettingsScreensCallsGoOverTheSamePipe()
+    {
+        // ST-082: PipeIntegrations is the Settings screen's gateway, over the connection the publish
+        // pane already uses; the service answers both from the same commands class.
+        _ = await PublisherAsync();
+        var settings = new PipeIntegrations(_connection!);
+        _backend.Details = [new IntegrationDetailRow("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "Hudu rejected the API key. Update it in Settings → Integrations.")];
+        _backend.Companies = [new CompanyChoiceRow("7", "Acme Dental")];
+
+        var rows = await settings.ListAsync(TestContext.Current.CancellationToken);
+        var stored = await settings.StoreAsync("hudu", "https://acme.huducloud.com", "new-key", TestContext.Current.CancellationToken);
+        var check = await settings.CheckAsync("hudu", TestContext.Current.CancellationToken);
+        var mappings = await settings.MappingsAsync(TestContext.Current.CancellationToken);
+        var unmapped = await settings.UnmapAsync("Acme Dental", TestContext.Current.CancellationToken);
+        var removed = await settings.RemoveAsync("hudu", TestContext.Current.CancellationToken);
+
+        var row = Assert.Single(rows!);
+        Assert.Equal("hudu", row.Provider);
+        Assert.StartsWith("Hudu rejected", row.LastError, StringComparison.Ordinal);
+        Assert.Null(stored);
+        Assert.Equal(("hudu", "https://acme.huducloud.com", "new-key"), _backend.Stored);
+        Assert.True(check.Ok);
+        Assert.Equal("Connected to https://acme.huducloud.com.", check.Message);
+        Assert.Equal("Acme Dental", Assert.Single(mappings!.Companies).Name);
+        Assert.Null(unmapped);
+        Assert.Equal("Acme Dental", _backend.Unmapped);
+        Assert.Null(removed);
+        Assert.Equal("hudu", _backend.Removed);
+    }
+
+    [Fact]
+    public async Task AServiceThatRefusesASettingsCallSaysWhy()
+    {
+        _ = await PublisherAsync();
+        var settings = new PipeIntegrations(_connection!);
+        _backend.Refusal = "This deployment has no vault master key, so credentials cannot be stored.";
+
+        var stored = await settings.StoreAsync("hudu", "https://acme.huducloud.com", "new-key", TestContext.Current.CancellationToken);
+        var check = await settings.CheckAsync("hudu", TestContext.Current.CancellationToken);
+        var rows = await settings.ListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(_backend.Refusal, stored);
+        Assert.False(check.Ok);
+        Assert.Equal(_backend.Refusal, check.Message);
+        Assert.Null(rows);
+    }
+
+    [Fact]
     public async Task SearchAndIntegrationsArriveAsThePaneWantsThem()
     {
         var publisher = await PublisherAsync();
@@ -139,6 +188,43 @@ public sealed class PipePublisherTests : IAsyncDisposable
         public PublishWire? Received { get; private set; }
 
         public IReadOnlyList<CompanyChoiceRow> Companies { get; set; } = [];
+
+        public IReadOnlyList<IntegrationDetailRow> Details { get; set; } = [];
+
+        public (string Provider, string SiteUrl, string Secret)? Stored { get; private set; }
+
+        public string? Removed { get; private set; }
+
+        public string? Unmapped { get; private set; }
+
+        public Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IReadOnlyList<IntegrationDetailRow>>(r) : GatewayAnswer.Of(Details));
+
+        public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
+        {
+            if (Refusal is { } r)
+            {
+                return Task.FromResult(GatewayAnswer.Refused<bool>(r));
+            }
+
+            Stored = (provider, siteUrl, secret);
+            return Task.FromResult(GatewayAnswer.Of(true));
+        }
+
+        public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default)
+        {
+            Removed = provider;
+            return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+        }
+
+        public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IntegrationCheckRow>(r) : GatewayAnswer.Of(new IntegrationCheckRow(true, $"Connected to {Details.FirstOrDefault(d => d.Provider == provider)?.SiteUrl}.")));
+
+        public Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default)
+        {
+            Unmapped = psaCompany;
+            return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+        }
 
         public (string Psa, string Doc)? Mapped { get; private set; }
 
