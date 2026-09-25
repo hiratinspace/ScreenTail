@@ -5,6 +5,7 @@ using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 using ScreenTail.Api.Providers.ConnectWise;
+using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
 using ScreenTail.Api.Vault;
@@ -85,6 +86,14 @@ var connectWise = builder.Configuration.GetSection(ConnectWiseOptions.Section).G
 builder.Services.AddSingleton(connectWise);
 builder.Services.AddHttpClient(nameof(ConnectWiseProvider), client => client.Timeout = TimeSpan.FromSeconds(30));
 builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
+
+// ST-095. The documentation platform, the same way: per tenant from the vault, never as one provider
+// for everybody. The company cache is the deployment's, keyed by tenant, ten minutes.
+var hudu = builder.Configuration.GetSection(HuduOptions.Section).Get<HuduOptions>() ?? new HuduOptions();
+builder.Services.AddSingleton(hudu);
+builder.Services.AddSingleton<HuduCompanyCache>();
+builder.Services.AddHttpClient(nameof(HuduProvider), client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();
 
 builder.Services.AddAuthorization();
 builder.Services.AddOpenApi();
