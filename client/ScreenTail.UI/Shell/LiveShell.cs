@@ -8,6 +8,7 @@ using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Notifications;
 using ScreenTail.Core.Review;
+using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Shell;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Shared.Ipc;
@@ -194,6 +195,12 @@ public sealed class LiveShell : IAsyncDisposable
             return null;
         }
 
+        // The publish pane's three delegates, over the pipe. What the tenant has connected is asked
+        // now, once, so the pane opens saying "Connect a PSA to publish" or ready, not guessing.
+        var publisher = new PipePublisher(_connection);
+        var integrations = await publisher.IntegrationsAsync(ct).ConfigureAwait(true);
+        var publish = new PublishPanel(session, integrations, publisher.SearchAsync, publisher.PublishAsync);
+
         return new ReviewViewModel(
             session,
             frames,
@@ -208,7 +215,8 @@ public sealed class LiveShell : IAsyncDisposable
                 _window,
                 "Discard this session?",
                 "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
-                TypedConfirmation.DiscardWord));
+                TypedConfirmation.DiscardWord),
+            publish: publish);
     }
 
     private async Task<IReadOnlyList<SessionRow>?> ListSessionsAsync(CancellationToken ct) =>

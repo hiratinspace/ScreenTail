@@ -36,6 +36,9 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `request_confirmation` | `action` (`discard_session` or `erase_everything`) | Ask for a one-use token before something irreversible (ST-085). Answered by `confirmation` |
 | `erase_all_local_data` | `confirmation` | Delete everything and stop (INV-12). Refused without a token issued for `erase_everything`. The pipe drops straight after: the store it was serving is being deleted |
 | `indicator_showing` | `x`, `y`, `width`, `height` | The UI saying the recording pill is on screen, and where (INV-4). Sent every two seconds while it is true; the service forgets a report it has not heard repeated within six seconds |
+| `get_integrations` | — | What the tenant has connected, from the backend. Answered by `integrations` |
+| `search_tickets` | `query` | The ticket picker's search: three characters or a number. Answered by `tickets` |
+| `publish_session` | `session_id`, `ticket_id`, `note_type`, `minutes`, `billable`, `destinations[]`, `note`, `frame_ids[]` | Publish (INV-3). The service reads the frames' bytes from the store and asks the backend. Answered by `published` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
 | `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note |
@@ -57,6 +60,9 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `confirmation` | `token`, `phrase` | Answers `request_confirmation` |
 | `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft |
 | `frame` | `frame_id`, `image` | Answers `get_frame` and `blur_frame`: one image, base64 |
+| `integrations` | `integrations[]` (`provider`, `site_url`, `secret` as last four) | Answers `get_integrations` |
+| `tickets` | `tickets[]` (`id`, `summary`, `company`, `status`) | Answers `search_tickets` |
+| `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed |
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
@@ -188,6 +194,26 @@ as PNG on the UI thread and made the stored name a lie (weaknesses P2-9).
 
 None of this bumps the version: an older client never sends these and never sees their replies.
 
+### Publishing: `get_integrations`, `search_tickets`, `publish_session`
+
+ST-093 (2026-09-25). The UI never talks to the backend and never learns which PSA the tenant runs: it
+asks the service, which holds the device token and the egress guard, and the service asks the backend,
+which holds the tenant's credential in its vault. The backend's per-destination answer comes back as it
+is. A refusal — no PSA connected, a revoked device, a backend that did not answer — arrives as a failed
+`result` carrying the backend's own words, which the pane shows beside the button.
+
+```json
+{ "type": "publish_session", "request_id": 21, "session_id": "s1", "ticket_id": "48213", "note_type": "internal",
+  "minutes": 30, "billable": true, "destinations": ["ticket_note", "time_entry"], "note": { … }, "frame_ids": ["f1", "f3"] }
+{ "type": "published", "request_id": 21, "results": [
+  { "destination": "ticket_note", "ok": true, "id": "90001", "link": null, "error": null, "kind": null, "retryable": false },
+  { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "ConnectWise says this API member may not do that. Ask your ConnectWise administrator for the permission.", "kind": "forbidden", "retryable": false } ] }
+```
+
+The frames are named, not sent: the service reads each one's bytes from the store, and only a redacted
+frame has any (INV-1). These three go out under the egress guard's user-initiated purpose, which
+local-only mode does not stop (INV-8): the technician pressed Publish and knows where it is going.
+
 ## Authentication
 
 Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
@@ -216,3 +242,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-20 | `request_confirmation` / `confirmation`; `confirmation` on `discard` and `erase_all_local_data` (#86) | 2 |
 | 2026-09-22 | `indicator_showing`; the oldest-silent handshake rule (#130) | 2 |
 | 2026-09-25 | `get_session` / `session`, `get_frame` / `frame`, `set_frame_included`, `delete_frame`, `blur_frame`, `save_draft` (ST-085 remainder) | 2 |
+| 2026-09-25 | `get_integrations` / `integrations`, `search_tickets` / `tickets`, `publish_session` / `published` (ST-093) | 2 |

@@ -6,7 +6,8 @@
     "sender writes this shape, the backend's PublishBundle reads it, and the field names ARE the contract.",
     "TheContractIsWhatPublishAccepts (backend) and ClientWritesThePublishContract (client) notice drift.",
     "",
-    "The note is the session.v1 draft as edited in Review. The frames are the included ones only, in strip",
+    "The note is the session.v1 draft as edited in Review: a step carries `confirmed` when the technician",
+    "checked it and `transcript_refs` when it quotes the transcript, and omits both otherwise. The frames are the included ones only, in strip",
     "order, each as base64 bytes -- already redacted on the device (INV-1) and held by the backend for this",
     "request only (INV-7). The image here is eight bytes of JPEG header: the shape is under test, not a",
     "picture. Destinations name what to publish; the response answers each one separately so a retry",
@@ -25,7 +26,7 @@
     "note": {
       "problem": "Printer offline in reception.",
       "steps": [
-        { "text": "Checked the spooler service; it was stopped.", "confidence": "high", "frame_refs": ["f-0002"], "transcript_refs": [] },
+        { "text": "Checked the spooler service; it was stopped.", "confidence": "high", "confirmed": true, "frame_refs": ["f-0002"], "transcript_refs": ["t-0003"] },
         { "text": "Restarted the spooler and set it to automatic.", "confidence": "high", "frame_refs": [], "transcript_refs": ["t-0003"] }
       ],
       "result": "Printing works again.",

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Review;
+using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Host;
@@ -304,9 +305,23 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             new AlwaysCapableProbe(),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
+            new PublishCommands(store, new NoBackend()),
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)),
             new IndicatorReports());
+
+    /// <summary>No backend to publish to; these tests are about the machine, not the pipe's questions.</summary>
+    private sealed class NoBackend : ScreenTail.Core.Net.IPsaGateway
+    {
+        public Task<ScreenTail.Core.Net.GatewayAnswer<IReadOnlyList<IntegrationInfo>>> IntegrationsAsync(CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<IReadOnlyList<IntegrationInfo>>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<IReadOnlyList<TicketRow>>> SearchTicketsAsync(string query, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<IReadOnlyList<TicketRow>>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(ScreenTail.Core.Net.PublishWire bundle, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>("No backend."));
+    }
 
     /// <summary>A machine the test can drive as well as hand to the controller.</summary>
     private SessionMachine Machine(SqliteSessionStore store) =>

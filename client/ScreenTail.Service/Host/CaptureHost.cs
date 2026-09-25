@@ -10,6 +10,7 @@ using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Review;
+using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
@@ -117,6 +118,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             BackendHosts = backend is null
                 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backend.Host },
+
+            // Publishing goes to the backend too -- the PSA's credentials live there, never here -- and
+            // under the user-initiated purpose, which local-only mode does not stop (INV-8).
+            PublishHosts = backend is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backend.Host },
         });
         var egress = new EgressGuard(egressPolicy);
 
@@ -128,6 +135,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // reason a technician sees names the thing that is missing.
         var draftHttp = new HttpClient(egress) { BaseAddress = backend };
         var sender = new DraftSender(draftHttp, store, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
+        var psa = new PsaGateway(draftHttp, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
         var outbox = new Core.Outbox.Outbox(
             store,
             (item, ct) => backend is null
@@ -171,6 +179,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new WindowsCapabilityProbe(),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
+            new PublishCommands(store, psa),
             () => diagnostics(),
             _ =>
             {
