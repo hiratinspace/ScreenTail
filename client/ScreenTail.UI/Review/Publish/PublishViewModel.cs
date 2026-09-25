@@ -31,6 +31,7 @@ public sealed partial class PublishViewModel : ObservableObject
     private readonly PublishPanel _panel;
     private readonly Func<DraftNote> _note;
     private readonly Func<IReadOnlyList<string>> _frames;
+    private bool _choicesAsked;
 
     /// <param name="note">The note as it is now, edited; asked for at the moment of publishing.</param>
     /// <param name="frames">The included frames, in strip order, at the moment of publishing.</param>
@@ -45,6 +46,27 @@ public sealed partial class PublishViewModel : ObservableObject
     public ObservableCollection<TicketMatch> Matches { get; } = [];
 
     public ObservableCollection<ResultRow> Results { get; } = [];
+
+    /// <summary>The documentation platform's companies, for the mapping prompt (ST-097). Filled when the prompt shows.</summary>
+    public ObservableCollection<CompanyChoice> Companies { get; } = [];
+
+    [ObservableProperty]
+    public partial CompanyChoice? SelectedCompany { get; set; }
+
+    [ObservableProperty]
+    public partial string MappingPrompt { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string MappingError { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool CanMap { get; set; }
+
+    [ObservableProperty]
+    public partial Visibility MappingVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial Visibility MappingErrorVisibility { get; set; } = Visibility.Collapsed;
 
     [ObservableProperty]
     public partial string Query { get; set; } = string.Empty;
@@ -148,6 +170,32 @@ public sealed partial class PublishViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>
+    /// The prompt's answer (ST-097 AC2): the chosen company is remembered by the backend and the article
+    /// is sent again, on its own. A refusal leaves the prompt up with a line saying so, because the
+    /// article is still not published and the technician should not have to guess whether it is.
+    /// </summary>
+    [RelayCommand]
+    private async Task MapAndPublishAsync()
+    {
+        if (SelectedCompany is not { } choice || !_panel.NeedsMapping)
+        {
+            return;
+        }
+
+        CanMap = false;
+        MappingError = string.Empty;
+        MappingErrorVisibility = Visibility.Collapsed;
+        var mapped = await _panel.MapAndRetryAsync(choice.Id, _note(), _frames()).ConfigureAwait(true);
+        if (!mapped)
+        {
+            MappingError = "The backend did not take the mapping. Try again, or map it in Settings → Integrations.";
+            MappingErrorVisibility = Visibility.Visible;
+        }
+
+        Refresh();
+    }
+
     /// <summary>"Open in ConnectWise". Only ever a link the provider handed back, and only https.</summary>
     [RelayCommand]
     private static void OpenLink(Uri? link)
@@ -159,6 +207,8 @@ public sealed partial class PublishViewModel : ObservableObject
     }
 
     partial void OnQueryChanged(string value) => _ = SearchAsync(value);
+
+    partial void OnSelectedCompanyChanged(CompanyChoice? value) => CanMap = value is not null && _panel.NeedsMapping && !_panel.IsPublishing;
 
     partial void OnSelectedMatchChanged(TicketMatch? value)
     {
@@ -249,12 +299,50 @@ public sealed partial class PublishViewModel : ObservableObject
         FormVisibility = showResults ? Visibility.Collapsed : Visibility.Visible;
         ResultsVisibility = showResults ? Visibility.Visible : Visibility.Collapsed;
         PublishedVisibility = _panel.Published ? Visibility.Visible : Visibility.Collapsed;
-        RetryVisibility = _panel.PartiallyPublished ? Visibility.Visible : Visibility.Collapsed;
+
+        // While the article waits on a mapping, the prompt is the retry: Retry alone would fail the same way.
+        var needsMapping = _panel.NeedsMapping;
+        RetryVisibility = _panel.PartiallyPublished && !needsMapping ? Visibility.Visible : Visibility.Collapsed;
+        MappingVisibility = needsMapping ? Visibility.Visible : Visibility.Collapsed;
+        MappingPrompt = needsMapping
+            ? $"\u201c{_panel.CompanyToMap}\u201d is not mapped to a company in the documentation platform yet. Choose the one it is and the article goes there. The choice is remembered."
+            : string.Empty;
+        if (needsMapping && !_choicesAsked)
+        {
+            _choicesAsked = true;
+            _ = LoadChoicesAsync();
+        }
+        else if (!needsMapping && _choicesAsked)
+        {
+            _choicesAsked = false;
+            Companies.Clear();
+            SelectedCompany = null;
+            MappingError = string.Empty;
+            MappingErrorVisibility = Visibility.Collapsed;
+        }
+
+        CanMap = needsMapping && SelectedCompany is not null && !_panel.IsPublishing;
         Summary = _panel.Summary ?? Summary;
         Results.Clear();
         foreach (var result in _panel.Results)
         {
             Results.Add(new ResultRow(Label(result.Destination), result.Ok, result.Link, result.Error));
+        }
+    }
+
+    private async Task LoadChoicesAsync()
+    {
+        var choices = await _panel.CompanyChoicesAsync().ConfigureAwait(true);
+        Companies.Clear();
+        foreach (var choice in choices.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            Companies.Add(choice);
+        }
+
+        if (Companies.Count == 0)
+        {
+            MappingError = "The documentation platform listed no companies to choose from.";
+            MappingErrorVisibility = Visibility.Visible;
         }
     }
 

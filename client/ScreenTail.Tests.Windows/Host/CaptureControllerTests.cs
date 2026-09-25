@@ -321,6 +321,12 @@ public sealed class CaptureControllerTests : IAsyncDisposable
 
         public Task<ScreenTail.Core.Net.GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(ScreenTail.Core.Net.PublishWire bundle, CancellationToken ct = default) =>
             Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<ScreenTail.Core.Net.CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<ScreenTail.Core.Net.CompanyMappingsAnswer>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<bool>("No backend."));
     }
 
     /// <summary>A machine the test can drive as well as hand to the controller.</summary>

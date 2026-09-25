@@ -37,7 +37,27 @@ public sealed record PublishRequest(
 
 /// <param name="Link">Where it landed, for "Open in ConnectWise". Null when it did not.</param>
 /// <param name="Error">The provider's own words, for the partial-publish line. Never content of the note.</param>
-public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Link = null, string? Error = null);
+/// <param name="Kind">The backend's name for the failure, when it gave one. <c>needs_mapping</c> is the one the pane acts on (ST-097).</param>
+public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Link = null, string? Error = null, string? Kind = null)
+{
+    public const string NeedsMapping = "needs_mapping";
+}
+
+/// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
+public sealed record CompanyChoice(string Id, string Name);
+
+/// <summary>
+/// The mapping prompt's two calls (ST-097 AC2): the platform's companies to choose from, and the answer,
+/// which the backend remembers so the next article for that company is filed without asking.
+/// </summary>
+public sealed class CompanyMapping(
+    Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> companies,
+    Func<string, string, CancellationToken, Task<bool>> map)
+{
+    public Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> Companies { get; } = companies ?? throw new ArgumentNullException(nameof(companies));
+
+    public Func<string, string, CancellationToken, Task<bool>> Map { get; } = map ?? throw new ArgumentNullException(nameof(map));
+}
 
 /// <summary>
 /// The right pane's rules (ST-078, Spec §5 S3): whether publishing is allowed and why not, what the time
@@ -60,19 +80,22 @@ public sealed class PublishPanel
     private readonly Func<PublishRequest, CancellationToken, Task<IReadOnlyList<DestinationResult>>> _publish;
     private readonly TimeEntryOptions _rounding;
     private readonly bool _offline;
+    private readonly CompanyMapping? _mapping;
     private readonly Dictionary<Destination, DestinationResult> _results = [];
 
     /// <param name="integrations">The tenant's connected providers, by name. Empty means nothing can be published.</param>
     /// <param name="search">The PSA's ticket search (ST-092).</param>
     /// <param name="publish">Sends the chosen destinations and says how each one went (ST-093, ST-094, ST-096).</param>
     /// <param name="rounding">The tenant's billing rounding; the draft reports unrounded minutes and this side rounds (STATUS §4).</param>
+    /// <param name="mapping">The company-mapping prompt's calls (ST-097). Without them a <c>needs_mapping</c> failure is shown as the words it came with.</param>
     public PublishPanel(
         Session session,
         IReadOnlyList<string> integrations,
         Func<string, CancellationToken, Task<IReadOnlyList<TicketMatch>>> search,
         Func<PublishRequest, CancellationToken, Task<IReadOnlyList<DestinationResult>>> publish,
         TimeEntryOptions? rounding = null,
-        bool offline = false)
+        bool offline = false,
+        CompanyMapping? mapping = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         ArgumentNullException.ThrowIfNull(integrations);
@@ -80,6 +103,7 @@ public sealed class PublishPanel
         _publish = publish ?? throw new ArgumentNullException(nameof(publish));
         _rounding = rounding ?? new TimeEntryOptions();
         _offline = offline;
+        _mapping = mapping;
         Integrations = integrations;
 
         var draft = session.Draft;
@@ -139,6 +163,20 @@ public sealed class PublishPanel
     public bool PartiallyPublished => _results.Values.Any(r => r.Ok) && _results.Values.Any(r => !r.Ok);
 
     public IReadOnlyList<Destination> Failed => [.. _results.Values.Where(r => !r.Ok).Select(r => r.Destination).Order()];
+
+    /// <summary>
+    /// The article did not go because the backend has no mapping for the ticket's company, and this pane
+    /// can offer one (ST-097 AC2: unmatched → prompt once at publish). A ticket with no company at all is
+    /// the same kind of failure with nothing to map, and stays a line in the results.
+    /// </summary>
+    public bool NeedsMapping =>
+        _mapping is not null
+        && CompanyToMap is not null
+        && _results.TryGetValue(Destination.KbArticle, out var article)
+        && article is { Ok: false, Kind: DestinationResult.NeedsMapping };
+
+    /// <summary>The PSA's name for the company, which is what the backend keys the mapping by.</summary>
+    public string? CompanyToMap => Ticket?.Company is { Length: > 0 } company ? company : null;
 
     /// <summary>
     /// Why Publish is disabled, or null when it is not. The wording is Spec §5 S3's and §6's, kept in one
@@ -246,6 +284,32 @@ public sealed class PublishPanel
         }
 
         return SendAsync(failed, note, frameIds, ct);
+    }
+
+    /// <summary>The platform's companies, for the prompt. Empty when there is no prompt to fill.</summary>
+    public Task<IReadOnlyList<CompanyChoice>> CompanyChoicesAsync(CancellationToken ct = default) =>
+        _mapping is null ? Task.FromResult<IReadOnlyList<CompanyChoice>>([]) : _mapping.Companies(ct);
+
+    /// <summary>
+    /// The prompt's answer: remember that the ticket's company is this platform company, then send the
+    /// article again — only the article; whatever landed stays landed. Returns whether the backend took
+    /// the mapping; when it did not, the prompt stays up with the results as they were.
+    /// </summary>
+    public async Task<bool> MapAndRetryAsync(string docCompanyId, DraftNote note, IReadOnlyList<string> frameIds, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(docCompanyId);
+        if (_mapping is null || CompanyToMap is not { } company)
+        {
+            return false;
+        }
+
+        if (!await _mapping.Map(company, docCompanyId, ct).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        _ = await RetryAsync(note, frameIds, ct).ConfigureAwait(false);
+        return true;
     }
 
     private async Task<IReadOnlyList<DestinationResult>> SendAsync(IReadOnlySet<Destination> destinations, DraftNote note, IReadOnlyList<string> frameIds, CancellationToken ct)

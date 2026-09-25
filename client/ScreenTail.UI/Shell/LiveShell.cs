@@ -195,11 +195,17 @@ public sealed class LiveShell : IAsyncDisposable
             return null;
         }
 
-        // The publish pane's three delegates, over the pipe. What the tenant has connected is asked
-        // now, once, so the pane opens saying "Connect a PSA to publish" or ready, not guessing.
+        // The publish pane's delegates, over the pipe. What the tenant has connected is asked now, once,
+        // so the pane opens saying "Connect a PSA to publish" or ready, not guessing. The mapping prompt's
+        // two calls (ST-097) ride the same connection.
         var publisher = new PipePublisher(_connection);
         var integrations = await publisher.IntegrationsAsync(ct).ConfigureAwait(true);
-        var publish = new PublishPanel(session, integrations, publisher.SearchAsync, publisher.PublishAsync);
+        var publish = new PublishPanel(
+            session,
+            integrations,
+            publisher.SearchAsync,
+            publisher.PublishAsync,
+            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync));
 
         // ST-077: the ticket number the coordinator read off the window when the session started. The
         // PSA is asked for it by id so the pane can show its summary and company beside the Suggested

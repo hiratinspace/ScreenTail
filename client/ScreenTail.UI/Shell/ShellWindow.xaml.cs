@@ -70,8 +70,9 @@ public partial class ShellWindow : Window
 
     /// <summary>
     /// The publish pane in each state Spec §5 S3 draws, keyed by the session id the harness opens:
-    /// a chosen ticket with a PSA connected, no PSA at all, everything published, and a time entry that
-    /// failed with Retry offered. Fakes complete synchronously, so the state is there by the render.
+    /// a chosen ticket with a PSA connected, no PSA at all, everything published, a time entry that
+    /// failed with Retry offered, and an article waiting on the company mapping (ST-097). Fakes complete
+    /// synchronously, so the state is there by the render.
     /// </summary>
     private static PublishPanel SamplePublish(Shared.Schema.Session fixture, string variant)
     {
@@ -99,6 +100,25 @@ public partial class ShellWindow : Window
                 {
                     var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: true)));
                     panel.Suggest(ticket);
+                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    return panel;
+                }
+
+            case "preview-needs-mapping":
+                {
+                    IReadOnlyList<DestinationResult> Unmapped(PublishRequest request) =>
+                        [.. request.Destinations.Select(d => d == Destination.KbArticle
+                            ? new DestinationResult(d, false, null, "\"Acme Dental\" is not mapped to a company in the documentation platform. Choose one below, or map it in Settings → Integrations.", DestinationResult.NeedsMapping)
+                            : new DestinationResult(d, true, new Uri("https://na.myconnectwise.net/v4_6_release/services/system_io/Service/fv_sr100_request.rails?service_recid=48213")))];
+                    IReadOnlyList<CompanyChoice> Companies() => [new("7", "Acme Dental Group"), new("9", "Bright Smiles"), new("12", "Northwind Clinic")];
+                    var panel = new PublishPanel(
+                        fixture,
+                        connected,
+                        (q, _) => Task.FromResult(Search(q)),
+                        (r, _) => Task.FromResult(Unmapped(r)),
+                        mapping: new CompanyMapping(_ => Task.FromResult(Companies()), (_, _, _) => Task.FromResult(true)));
+                    panel.Suggest(ticket);
+                    panel.KbArticle = true;
                     panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
                     return panel;
                 }
@@ -131,6 +151,7 @@ public partial class ShellWindow : Window
             ("review-no-psa", () => state.OpenSession("preview-no-psa")),
             ("review-published", () => state.OpenSession("preview-published")),
             ("review-partial", () => state.OpenSession("preview-partial")),
+            ("review-needs-mapping", () => state.OpenSession("preview-needs-mapping")),
             ("history", () => state.Navigate(ShellView.History)),
             ("service-down", () => { state.Navigate(ShellView.Review); state.Lost(); }),
         })

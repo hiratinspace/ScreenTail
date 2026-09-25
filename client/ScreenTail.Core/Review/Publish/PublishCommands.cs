@@ -45,21 +45,36 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway)
             case PublishSessionCommand publish:
                 return await PublishAsync(publish, ct).ConfigureAwait(false);
 
+            case GetCompanyMappingsCommand:
+                {
+                    var answer = await _gateway.CompanyMappingsAsync(ct).ConfigureAwait(false);
+                    return answer.Ok
+                        ? new CompanyMappingsListed { RequestId = command.RequestId, Companies = answer.Value!.Companies, Mappings = answer.Value.Mappings }
+                        : Refuse(command, answer.Refusal!);
+                }
+
             default:
                 return null;
         }
     }
 
-    public Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
+    public async Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
-        if (command is not (GetIntegrationsCommand or SearchTicketsCommand or PublishSessionCommand))
+        if (command is MapCompanyCommand map)
         {
-            return Task.FromResult<CommandResult?>(null);
+            // The one command here that is an action rather than a question: its result is the answer.
+            var answer = await _gateway.MapCompanyAsync(map.PsaCompany, map.DocCompanyId, ct).ConfigureAwait(false);
+            return new CommandResult { RequestId = command.RequestId, Ok = answer.Ok, Error = answer.Refusal };
+        }
+
+        if (command is not (GetIntegrationsCommand or SearchTicketsCommand or PublishSessionCommand or GetCompanyMappingsCommand))
+        {
+            return null;
         }
 
         var reason = _refusals.TryRemove(command.RequestId, out var kept) ? kept : "The backend refused.";
-        return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = reason });
+        return new CommandResult { RequestId = command.RequestId, Ok = false, Error = reason };
     }
 
     private async Task<IpcEvent?> PublishAsync(PublishSessionCommand publish, CancellationToken ct)

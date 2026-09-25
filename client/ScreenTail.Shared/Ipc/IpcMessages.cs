@@ -30,6 +30,8 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(GetIntegrationsCommand), "get_integrations")]
 [JsonDerivedType(typeof(SearchTicketsCommand), "search_tickets")]
 [JsonDerivedType(typeof(PublishSessionCommand), "publish_session")]
+[JsonDerivedType(typeof(GetCompanyMappingsCommand), "get_company_mappings")]
+[JsonDerivedType(typeof(MapCompanyCommand), "map_company")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -364,6 +366,44 @@ public sealed record SessionPublished : IpcEvent
     public required IReadOnlyList<PublishOutcomeRow> Results { get; init; }
 }
 
+// ---- The company mapping (ST-097; 2026-09-25) ---------------------------------------------------------
+//
+// A knowledge-base article is filed under the ticket's company in the documentation platform. When the
+// backend has no mapping for the PSA's name of it, the publish answers `needs_mapping` and the pane asks
+// once, at publish, which of the platform's companies it is. The answer is remembered by the backend.
+
+/// <summary>The documentation platform's companies and what is mapped so far. Answered by a <see cref="CompanyMappingsListed"/>.</summary>
+public sealed record GetCompanyMappingsCommand : IpcCommand;
+
+public sealed record CompanyChoiceRow(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("name")] string Name);
+
+public sealed record CompanyMappingRow(
+    [property: JsonPropertyName("psa_company")] string PsaCompany,
+    [property: JsonPropertyName("doc_company_id")] string DocCompanyId,
+    [property: JsonPropertyName("doc_company_name")] string DocCompanyName,
+    [property: JsonPropertyName("confidence")] string Confidence);
+
+public sealed record CompanyMappingsListed : IpcEvent
+{
+    [JsonPropertyName("companies")]
+    public required IReadOnlyList<CompanyChoiceRow> Companies { get; init; }
+
+    [JsonPropertyName("mappings")]
+    public required IReadOnlyList<CompanyMappingRow> Mappings { get; init; }
+}
+
+/// <summary>The technician's answer to the prompt: this PSA company is that platform company. Answered by a <c>result</c>.</summary>
+public sealed record MapCompanyCommand : IpcCommand
+{
+    [JsonPropertyName("psa_company")]
+    public required string PsaCompany { get; init; }
+
+    [JsonPropertyName("doc_company_id")]
+    public required string DocCompanyId { get; init; }
+}
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
@@ -379,6 +419,7 @@ public sealed record SessionPublished : IpcEvent
 [JsonDerivedType(typeof(IntegrationsListed), "integrations")]
 [JsonDerivedType(typeof(TicketsFound), "tickets")]
 [JsonDerivedType(typeof(SessionPublished), "published")]
+[JsonDerivedType(typeof(CompanyMappingsListed), "company_mappings")]
 public abstract record IpcEvent
 {
     /// <summary>

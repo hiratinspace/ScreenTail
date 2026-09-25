@@ -39,6 +39,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `get_integrations` | — | What the tenant has connected, from the backend. Answered by `integrations` |
 | `search_tickets` | `query` | The ticket picker's search: three characters or a number. Answered by `tickets` |
 | `publish_session` | `session_id`, `ticket_id`, `ticket_company?`, `note_type`, `minutes`, `billable`, `destinations[]`, `note`, `frame_ids[]` | Publish (INV-3). The service reads the frames' bytes from the store and asks the backend; the company is the PSA's name for the ticket's, for the knowledge-base mapping. Answered by `published` |
+| `get_company_mappings` | — | The documentation platform's companies and what this tenant has mapped (ST-097). Answered by `company_mappings` |
+| `map_company` | `psa_company`, `doc_company_id` | The mapping prompt's answer: this PSA company is that platform company. The backend remembers it. Answered by a `result` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
 | `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note |
@@ -62,7 +64,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `frame` | `frame_id`, `image` | Answers `get_frame` and `blur_frame`: one image, base64 |
 | `integrations` | `integrations[]` (`provider`, `site_url`, `secret` as last four) | Answers `get_integrations` |
 | `tickets` | `tickets[]` (`id`, `summary`, `company`, `status`) | Answers `search_tickets` |
-| `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed |
+| `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed. `kind: needs_mapping` on `kb_article` is the one the pane acts on (below) |
+| `company_mappings` | `companies[]` (`id`, `name`), `mappings[]` (`psa_company`, `doc_company_id`, `doc_company_name`, `confidence`) | Answers `get_company_mappings` |
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
@@ -214,6 +217,25 @@ The frames are named, not sent: the service reads each one's bytes from the stor
 frame has any (INV-1). These three go out under the egress guard's user-initiated purpose, which
 local-only mode does not stop (INV-8): the technician pressed Publish and knows where it is going.
 
+### The company mapping: `get_company_mappings`, `map_company`
+
+ST-097 (2026-09-25). A knowledge-base article is filed under the ticket's company in the documentation
+platform, and the backend keys that by the PSA's name for the company. When it has no mapping, the
+`kb_article` result comes back `ok: false, kind: "needs_mapping"` with the backend's sentence, and the
+pane asks once, at publish: it lists the platform's companies with `get_company_mappings`, sends the
+choice with `map_company`, and publishes the article again on its own. Whatever landed stays landed.
+Both calls are the service asking `GET` and `PUT /v1/integrations/hudu/companies` on the pane's behalf,
+under the same purpose as the publish.
+
+```json
+{ "type": "get_company_mappings", "request_id": 22 }
+{ "type": "company_mappings", "request_id": 22,
+  "companies": [ { "id": "7", "name": "Acme Dental Group" }, { "id": "9", "name": "Bright Smiles" } ],
+  "mappings": [ { "psa_company": "Bright Smiles", "doc_company_id": "9", "doc_company_name": "Bright Smiles", "confidence": "exact" } ] }
+{ "type": "map_company", "request_id": 23, "psa_company": "Acme Dental", "doc_company_id": "7" }
+{ "type": "result", "request_id": 23, "ok": true }
+```
+
 ## Authentication
 
 Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
@@ -244,3 +266,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-25 | `get_session` / `session`, `get_frame` / `frame`, `set_frame_included`, `delete_frame`, `blur_frame`, `save_draft` (ST-085 remainder) | 2 |
 | 2026-09-25 | `get_integrations` / `integrations`, `search_tickets` / `tickets`, `publish_session` / `published` (ST-093) | 2 |
 | 2026-09-25 | `session` may carry `suggested_ticket` (schema session.v1; ST-077): digits read off the window at start, never the title | 2 |
+| 2026-09-25 | `get_company_mappings` / `company_mappings`, `map_company` (ST-097 client half) | 2 |
