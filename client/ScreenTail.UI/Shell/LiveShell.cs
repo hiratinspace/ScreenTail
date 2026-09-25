@@ -9,11 +9,14 @@ using ScreenTail.Core.Net;
 using ScreenTail.Core.Notifications;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Review.Publish;
+using ScreenTail.Core.Settings;
 using ScreenTail.Core.Shell;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
+using ScreenTail.UI.Settings;
+using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Tray;
 
 namespace ScreenTail.UI.Shell;
@@ -135,7 +138,11 @@ public sealed class LiveShell : IAsyncDisposable
             return;
         }
 
-        _window ??= new ShellWindow(_state, LoadReviewAsync, () => new HistoryViewModel(_state, ListSessionsAsync));
+        _window ??= new ShellWindow(
+            _state,
+            LoadReviewAsync,
+            () => new HistoryViewModel(_state, ListSessionsAsync),
+            () => new SettingsViewModel(new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
         _window.Closed += (_, _) => _window = null;
         _window.Show();
         _ = _window.Activate();

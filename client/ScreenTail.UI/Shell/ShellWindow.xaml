@@ -4,6 +4,7 @@
         xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         xmlns:review="clr-namespace:ScreenTail.UI.Review"
         xmlns:history="clr-namespace:ScreenTail.UI.History"
+        xmlns:settings="clr-namespace:ScreenTail.UI.Settings"
         Title="ScreenTail"
         Width="1280"
         Height="800"
@@ -18,6 +19,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type history:HistoryViewModel}">
             <history:HistoryPane />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type settings:SettingsViewModel}">
+            <settings:SettingsPane />
         </DataTemplate>
         <DataTemplate DataType="{x:Type sys:String}">
             <TextBlock Style="{StaticResource Text.Body}"

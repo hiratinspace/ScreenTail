@@ -32,6 +32,11 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(PublishSessionCommand), "publish_session")]
 [JsonDerivedType(typeof(GetCompanyMappingsCommand), "get_company_mappings")]
 [JsonDerivedType(typeof(MapCompanyCommand), "map_company")]
+[JsonDerivedType(typeof(ListIntegrationsCommand), "list_integrations")]
+[JsonDerivedType(typeof(StoreIntegrationCommand), "store_integration")]
+[JsonDerivedType(typeof(RemoveIntegrationCommand), "remove_integration")]
+[JsonDerivedType(typeof(CheckIntegrationCommand), "check_integration")]
+[JsonDerivedType(typeof(UnmapCompanyCommand), "unmap_company")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -404,6 +409,73 @@ public sealed record MapCompanyCommand : IpcCommand
     public required string DocCompanyId { get; init; }
 }
 
+// ---- Settings → Integrations (ST-082; 2026-09-25) --------------------------------------------------------
+//
+// The Settings screen manages the tenant's credentials through the service, which asks the backend's
+// vault. A secret crosses this pipe once, on its way in, and is never read back: the list carries its
+// last four characters and nothing more.
+
+/// <summary>The integrations with everything the card shows. Answered by an <see cref="IntegrationDetailsListed"/>.</summary>
+public sealed record ListIntegrationsCommand : IpcCommand;
+
+/// <param name="Secret">The last four characters behind bullets. Never more.</param>
+public sealed record IntegrationDetailRow(
+    [property: JsonPropertyName("provider")] string Provider,
+    [property: JsonPropertyName("site_url")] string SiteUrl,
+    [property: JsonPropertyName("secret")] string Secret,
+    [property: JsonPropertyName("connected_at")] DateTimeOffset? ConnectedAt,
+    [property: JsonPropertyName("last_checked_at")] DateTimeOffset? LastCheckedAt,
+    [property: JsonPropertyName("last_error")] string? LastError);
+
+public sealed record IntegrationDetailsListed : IpcEvent
+{
+    [JsonPropertyName("integrations")]
+    public required IReadOnlyList<IntegrationDetailRow> Integrations { get; init; }
+}
+
+/// <summary>Stores or replaces a credential. The one message a secret ever travels in. Answered by a <c>result</c>.</summary>
+public sealed record StoreIntegrationCommand : IpcCommand
+{
+    [JsonPropertyName("provider")]
+    public required string Provider { get; init; }
+
+    [JsonPropertyName("site_url")]
+    public required string SiteUrl { get; init; }
+
+    [JsonPropertyName("secret")]
+    public required string Secret { get; init; }
+}
+
+/// <summary>Forgets a credential. Answered by a <c>result</c>.</summary>
+public sealed record RemoveIntegrationCommand : IpcCommand
+{
+    [JsonPropertyName("provider")]
+    public required string Provider { get; init; }
+}
+
+/// <summary>"Test connection". Answered by an <see cref="IntegrationChecked"/> either way; a refusal (no backend) is a failed <c>result</c>.</summary>
+public sealed record CheckIntegrationCommand : IpcCommand
+{
+    [JsonPropertyName("provider")]
+    public required string Provider { get; init; }
+}
+
+public sealed record IntegrationChecked : IpcEvent
+{
+    [JsonPropertyName("ok")]
+    public required bool Ok { get; init; }
+
+    [JsonPropertyName("message")]
+    public required string Message { get; init; }
+}
+
+/// <summary>Forgets a company mapping. Answered by a <c>result</c>.</summary>
+public sealed record UnmapCompanyCommand : IpcCommand
+{
+    [JsonPropertyName("psa_company")]
+    public required string PsaCompany { get; init; }
+}
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
@@ -420,6 +492,8 @@ public sealed record MapCompanyCommand : IpcCommand
 [JsonDerivedType(typeof(TicketsFound), "tickets")]
 [JsonDerivedType(typeof(SessionPublished), "published")]
 [JsonDerivedType(typeof(CompanyMappingsListed), "company_mappings")]
+[JsonDerivedType(typeof(IntegrationDetailsListed), "integration_details")]
+[JsonDerivedType(typeof(IntegrationChecked), "integration_checked")]
 public abstract record IpcEvent
 {
     /// <summary>

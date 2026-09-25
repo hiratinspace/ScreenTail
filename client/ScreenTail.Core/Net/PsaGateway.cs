@@ -72,7 +72,10 @@ public sealed record PublishWire
 /// <summary><c>GET /v1/integrations/hudu/companies</c>: the documentation platform's companies, and this tenant's mappings so far (ST-097).</summary>
 public sealed record CompanyMappingsAnswer(IReadOnlyList<CompanyChoiceRow> Companies, IReadOnlyList<CompanyMappingRow> Mappings);
 
-/// <summary>The service's way to the backend for publishing (ST-093). The UI never has one.</summary>
+/// <summary><c>POST /v1/integrations/{provider}/check</c>'s answer: in words either way (ST-082).</summary>
+public sealed record IntegrationCheckRow(bool Ok, string Message);
+
+/// <summary>The service's way to the backend for publishing (ST-093) and for Settings → Integrations (ST-082). The UI never has one.</summary>
 public interface IPsaGateway
 {
     Task<GatewayAnswer<IReadOnlyList<IntegrationInfo>>> IntegrationsAsync(CancellationToken ct = default);
@@ -85,6 +88,17 @@ public interface IPsaGateway
 
     /// <summary>Maps the PSA's company name to a platform company, by hand; the backend remembers it (ST-097 AC2).</summary>
     Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default);
+
+    /// <summary>The same list as <see cref="IntegrationsAsync"/>, with when each was checked and what went wrong.</summary>
+    Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default);
+
+    Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default);
+
+    Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default);
+
+    Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default);
+
+    Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -139,6 +153,41 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
                 request.Content = JsonContent.Create(new MapCompanyBody(psaCompany, docCompanyId), options: Json);
                 return request;
             },
+            (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
+            ct);
+
+    public Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default) =>
+        AskAsync<IntegrationsAnswer, IReadOnlyList<IntegrationDetailRow>>(
+            () => EgressRequest.For(HttpMethod.Get, new Uri("v1/integrations", UriKind.Relative), EgressPurpose.Publish),
+            answer => [.. answer.Integrations.Select(i => new IntegrationDetailRow(i.Provider, i.SiteUrl ?? string.Empty, i.Secret ?? string.Empty, i.ConnectedAt, i.LastCheckedAt, i.LastError))],
+            ct);
+
+    public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
+        SendAsync(
+            () =>
+            {
+                var request = EgressRequest.For(HttpMethod.Put, new Uri("v1/integrations/" + Uri.EscapeDataString(provider ?? string.Empty), UriKind.Relative), EgressPurpose.Publish);
+                request.Content = JsonContent.Create(new StoreIntegrationBody(siteUrl, secret), options: Json);
+                return request;
+            },
+            (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
+            ct);
+
+    public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default) =>
+        SendAsync(
+            () => EgressRequest.For(HttpMethod.Delete, new Uri("v1/integrations/" + Uri.EscapeDataString(provider ?? string.Empty), UriKind.Relative), EgressPurpose.Publish),
+            (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
+            ct);
+
+    public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
+        AskAsync<CheckAnswer, IntegrationCheckRow>(
+            () => EgressRequest.For(HttpMethod.Post, new Uri("v1/integrations/" + Uri.EscapeDataString(provider ?? string.Empty) + "/check", UriKind.Relative), EgressPurpose.Publish),
+            answer => new IntegrationCheckRow(answer.Ok, answer.Message ?? string.Empty),
+            ct);
+
+    public Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default) =>
+        SendAsync(
+            () => EgressRequest.For(HttpMethod.Delete, new Uri("v1/integrations/hudu/companies/" + Uri.EscapeDataString(psaCompany ?? string.Empty), UriKind.Relative), EgressPurpose.Publish),
             (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
             ct);
 
@@ -233,7 +282,11 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
 
     private sealed record IntegrationsAnswer(IReadOnlyList<IntegrationRowAnswer> Integrations);
 
-    private sealed record IntegrationRowAnswer(string Provider, string? SiteUrl, string? Secret);
+    private sealed record IntegrationRowAnswer(string Provider, string? SiteUrl, string? Secret, DateTimeOffset? ConnectedAt = null, DateTimeOffset? LastCheckedAt = null, string? LastError = null);
+
+    private sealed record StoreIntegrationBody(string SiteUrl, string Secret);
+
+    private sealed record CheckAnswer(bool Ok, string? Message);
 
     private sealed record TicketsAnswer(IReadOnlyList<TicketRowAnswer> Tickets);
 
