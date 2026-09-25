@@ -244,3 +244,6 @@ curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d 
 
 The client does not do this itself yet; until it does, put the access token in `SCREENTAIL_DEVICE_TOKEN`
 as before. `--offboard-tenant <id>` deletes every row of a tenant.
+
+The tenant's policy (ST-047): `--set-policy <tenant-id> retention=3 local-only=true locked=true` writes
+a new versioned row; devices apply it within the hour, and the diagnostics panel shows the version.

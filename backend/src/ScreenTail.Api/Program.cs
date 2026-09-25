@@ -153,6 +153,25 @@ if (Array.IndexOf(args, "--invite") is var inviteAt and >= 0)
     return;
 }
 
+// ST-047: --set-policy <tenant-id> [retention=<days>] [local-only=true|false] [locked=true|false] [all-windows=true|false]
+// A new policy row each time; devices pick it up within the hour.
+if (Array.IndexOf(args, "--set-policy") is var policyAt and >= 0)
+{
+    var tenantId = Guid.Parse(args.ElementAtOrDefault(policyAt + 1) ?? throw new InvalidOperationException("--set-policy <tenant-id> [retention=7] [local-only=false] [locked=false] [all-windows=false]"));
+    var settings = args.Skip(policyAt + 2).TakeWhile(a => a.Contains('=', StringComparison.Ordinal)).Select(a => a.Split('=', 2)).ToDictionary(kv => kv[0].ToLowerInvariant(), kv => kv[1], StringComparer.Ordinal);
+    await using var scope = app.Services.CreateAsyncScope();
+    var set = await Policies.SetAsync(
+        scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
+        tenantId,
+        settings.TryGetValue("retention", out var r) && int.TryParse(r, out var days) ? days : 7,
+        settings.TryGetValue("local-only", out var lo) && bool.Parse(lo),
+        settings.TryGetValue("locked", out var lk) && bool.Parse(lk),
+        settings.TryGetValue("all-windows", out var aw) && bool.Parse(aw),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>());
+    Console.WriteLine($"policy  {set.Version}  retention {set.RetentionDays} d  local-only {set.LocalOnly} (locked {set.LocalOnlyLocked})  all-windows {set.CaptureAllWindows}");
+    return;
+}
+
 if (Array.IndexOf(args, "--offboard-tenant") is var offboardAt and >= 0)
 {
     var tenantId = Guid.Parse(args.ElementAtOrDefault(offboardAt + 1) ?? throw new InvalidOperationException("--offboard-tenant <tenant-id>"));
@@ -225,6 +244,7 @@ _ = v1.MapIntegrations();
 _ = v1.MapPsa();
 _ = v1.MapPublish();
 _ = v1.MapCompanyMappings();
+_ = v1.MapPolicy();
 
 await app.RunAsync();
 

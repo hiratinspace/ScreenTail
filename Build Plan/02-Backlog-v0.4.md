@@ -959,7 +959,7 @@ Global/admin-enforceable setting routing summarization on-device and blocking al
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done 2026-09-25, for the fields the model has.** `GET /v1/policy` answers a device with its tenant's latest policy row — retention days, local-only and whether it is locked, capture scope — or the defaults; the operator sets one with `--set-policy <tenant-id> retention=3 local-only=true locked=true all-windows=false` (a new versioned row each time; the web admin is ST-099). The service fetches at start and hourly under its own egress purpose, allowed in local-only mode so the policy that turns local-only on can turn it off; the last synced copy (`policy.json`) stands when the backend does not answer (AC2). Applied in place: the egress guard (locked local-only overrides the technician's own, AC1's "field locked" through `CanChangeLocally`), the retention job, the scope policy; every session starts with the policy's version, which the session and the diagnostics carry (AC3). **Not in the model yet:** exclusions, redaction patterns and telemetry as policy fields; the Settings screen showing "Set by your admin" waits for ST-081.
 
 **Description:**
 Backend policy (retention, Local-only enforce, exclusions, patterns, scope, telemetry) fetched at start and hourly; enforced fields read-only with "Set by your admin" (INV-11).

@@ -87,7 +87,7 @@ not do is listed in §6.
 
 **Not built:** the Settings side of company mappings (ST-081),
 enrolment on the client (ST-010 — the backend now activates a device from an invite code and counts seats; the client still reads a token from the environment, minted by a Development-only flag), settings
-and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007), on-device drafting.
+and policy in Settings (ST-081; the sync itself is in, ST-047), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
 ## 4. Decisions already made
 

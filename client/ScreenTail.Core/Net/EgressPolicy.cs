@@ -15,6 +15,9 @@ public enum EgressPurpose
     /// </summary>
     Publish,
 
+    /// <summary>The tenant's policy, fetched at start and hourly (ST-047). Allowed in local-only mode: it carries no content, and it is how local-only is lifted.</summary>
+    Policy,
+
     /// <summary>Fetching a speech model (ST-027). Not customer data, but still egress, so still decided here.</summary>
     ModelDownload,
 }
@@ -64,9 +67,15 @@ public sealed record EgressSettings
 /// </summary>
 public sealed class EgressPolicy(EgressSettings? settings = null)
 {
-    private readonly EgressSettings _settings = settings ?? new EgressSettings();
+    private EgressSettings _settings = settings ?? new EgressSettings();
 
     public EgressSettings Settings => _settings;
+
+    /// <summary>
+    /// The tenant's policy arriving (ST-047): local-only on or off, and whether the admin locked it. The
+    /// hosts are the deployment's and do not change here.
+    /// </summary>
+    public void Apply(bool localOnly, bool enforced) => _settings = _settings with { LocalOnly = localOnly, PolicyEnforced = enforced };
 
     /// <summary>
     /// True when the technician may change local-only mode. False when the tenant's admin set it (INV-11):
@@ -100,7 +109,7 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
         var allowed = purpose switch
         {
             EgressPurpose.Publish => _settings.PublishHosts,
-            EgressPurpose.Summarisation or EgressPurpose.Backend => _settings.BackendHosts,
+            EgressPurpose.Summarisation or EgressPurpose.Backend or EgressPurpose.Policy => _settings.BackendHosts,
             EgressPurpose.ModelDownload => _settings.ModelHosts,
             _ => null,
         };

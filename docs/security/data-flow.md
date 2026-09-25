@@ -134,6 +134,12 @@ exception types and frames — never the message, which is where a path or a tit
 `%LOCALAPPDATA%\ScreenTail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
 opt-in nothing is written.
 
+**The tenant's policy is the one thing fetched in local-only mode** (ST-047). It is a handful of
+settings — retention days, local-only and whether the admin locked it, capture scope — with no content,
+fetched from the configured backend host under its own egress purpose, at start and hourly. It has to
+be, because the policy that turns local-only on is the only thing that can turn it off. The last copy
+that arrived is kept on disk and applies when the backend does not answer.
+
 The diagnostics panel is filled from the service's own counters and policy over the pipe (ST-085); the UI
 holds no value of its own to show, so the panel cannot say one thing while the service does another.
 

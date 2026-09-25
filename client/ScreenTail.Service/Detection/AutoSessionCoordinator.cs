@@ -31,7 +31,8 @@ internal sealed partial class AutoSessionCoordinator(
     SessionTrigger trigger,
     Func<bool> indicated,
     ILogger logger,
-    Func<string?>? clipboard = null)
+    Func<string?>? clipboard = null,
+    Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null)
 {
     private readonly Channel<ForegroundWindowInfo> _windows = Channel.CreateBounded<ForegroundWindowInfo>(
         new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
@@ -69,7 +70,7 @@ internal sealed partial class AutoSessionCoordinator(
         }
 
         var tool = new RemoteTool { Kind = _lastReported?.Tool ?? RemoteToolKind.Other };
-        var started = await machine.StartAsync(tool, suggestedTicket: Hint(_lastWindow), ct: ct).ConfigureAwait(false);
+        var started = await StartUnderPolicyAsync(tool, Hint(_lastWindow), ct).ConfigureAwait(false);
         if (started)
         {
             LogManualStart(logger, _lastReported?.ToolId ?? "unknown");
@@ -117,6 +118,16 @@ internal sealed partial class AutoSessionCoordinator(
     /// first, the clipboard only if the title says nothing, and the clipboard read here and only here —
     /// once per start, never kept (AC3). Digits come out; nothing else does (INV-10).
     /// </summary>
+    /// <summary>
+    /// Every session starts under the tenant's policy as it stands now (ST-047): local-only as the admin
+    /// or the technician set it, and the policy's version written into the session for its audit log.
+    /// </summary>
+    private Task<bool> StartUnderPolicyAsync(RemoteTool tool, string? suggestedTicket, CancellationToken ct)
+    {
+        var (localOnly, policyVersion) = sessionPolicy?.Invoke() ?? (false, null);
+        return machine.StartAsync(tool, localOnly, policyVersion, suggestedTicket, ct);
+    }
+
     private string? Hint(ForegroundWindowInfo? window) =>
         TicketHint.From(window?.Title, window?.BrowserTabTitle, null)
             ?? (clipboard is null ? null : TicketHint.From(null, null, clipboard()));
@@ -138,7 +149,7 @@ internal sealed partial class AutoSessionCoordinator(
             {
                 LogNoIndicator(logger);
             }
-            else if (await machine.StartAsync(tool, suggestedTicket: Hint(window), ct: ct).ConfigureAwait(false))
+            else if (await StartUnderPolicyAsync(tool, Hint(window), ct).ConfigureAwait(false))
             {
                 LogAutoStart(logger, triggered.ToolId ?? "unknown");
             }
