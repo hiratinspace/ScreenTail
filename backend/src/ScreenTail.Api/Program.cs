@@ -163,6 +163,7 @@ _ = v1.MapMe();
 _ = v1.MapSummarize();
 _ = v1.MapIntegrations();
 _ = v1.MapPsa();
+_ = v1.MapPublish();
 
 await app.RunAsync();
 

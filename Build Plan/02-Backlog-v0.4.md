@@ -1762,7 +1762,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Server half done 2026-09-25 (#145).** `POST /v1/sessions/publish` renders the note as the editor lays it out (Problem, numbered Steps with "(screenshot n)" by place among the ones sent, Result, Follow-ups), leaves `[REDACTED]` alone, adds the configurable "Drafted with ScreenTail, reviewed by …" footer, posts the note with the internal/discussion flag and each included frame as a document on the ticket, and answers every destination on its own so a retry sends only what failed. INV-7 asserted: a publish leaves every table as it was. `shared/contracts/publish-request.v1.json` is the wire shape. **Owed:** the client's path — a pipe message, the service's HTTP call through the egress guard, the publish pane's delegates — and the sandbox check with ST-091.
 
 **Description:**
 `POST /service/tickets/{id}/notes` + document uploads of selected redacted frames; idempotent via outbox key; configurable footer.
@@ -1787,7 +1787,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Server half done 2026-09-25 (#145)** with ST-093: minutes become a start and an end on the ticket with the note as description and the billing choice; the time entry is its own destination in the publish response, so a failed entry is retried without a second note (AC3, tested). Per-member attribution (AC2) is the API member the tenant's key belongs to; a per-technician member arrives with ST-010's identities. Client path owed with ST-093.
 
 **Description:**
 `POST /time/entries` with reviewed duration, work type, member; optional per-tech members; attribution limitation documented.

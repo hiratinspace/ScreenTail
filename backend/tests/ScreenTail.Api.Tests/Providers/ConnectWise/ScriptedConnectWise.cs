@@ -24,6 +24,9 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     /// <summary>Every request fails with this status while set. The contract's <c>Break</c>.</summary>
     public HttpStatusCode? Failing { get; set; }
 
+    /// <summary>One route fails with this status while set: the partial publish, where the note lands and the time entry does not.</summary>
+    public (string PathSuffix, HttpStatusCode Status)? FailingRoute { get; set; }
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -50,6 +53,11 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
         var path = request.RequestUri!.AbsolutePath;
         var query = request.RequestUri.Query;
+        if (FailingRoute is { } route && path.EndsWith(route.PathSuffix, StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { code = "Forced", message = "The script said no" }, options: Json) };
+        }
+
         return (request.Method.Method, path) switch
         {
             ("GET", var p) when p.EndsWith("/system/info", StringComparison.Ordinal) =>
