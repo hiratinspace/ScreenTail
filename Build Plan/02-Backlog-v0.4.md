@@ -1013,7 +1013,7 @@ The review found that the decision classes are right and the places that apply t
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** **Partial, 2026-09-24.** P1-3, P1-5, P1-8, P1-9 were closed by earlier PRs (#128, #85, docs, #128); P1-7 by #135 (the key reaches SQLCipher as bytes); P2-4 and P2-12 by #136 (rebuild at most daily; `secure_delete` was already on and is now pinned); the closing PR gives every remaining P2 and P3 item a fix or a dated line in `docs/review/weaknesses.md`. **P2-3 and P2-9 wait** for the Review pane to exist in the live shell (ST-085's remainder): the filmstrip is rendered only by the screenshot harness today.
+- **Status:** **Done 2026-09-25.** P1-3, P1-5, P1-8, P1-9 were closed by earlier PRs (#128, #85, docs, #128); P1-7 by #135 (the key reaches SQLCipher as bytes); P2-4 and P2-12 by #136 (rebuild at most daily; `secure_delete` was already on and is now pinned); #137 gave every remaining P2 and P3 item a fix or a dated line in `docs/review/weaknesses.md`; P2-9 closed with #138 (the service paints the blur, `FrameBlurrer` deleted); P2-3 with the thumbnail PR (decode at 320 px, full image only while enlarged, 150 frames measured under 150 MB on Windows). The AC's process-memory scan for the key is the one item not done as written; the source scan in `StoreKeyTests` is its enforceable form.
 
 **Description:**
 The P1 findings that are not resolved by wiring the UI (ST-085 closes P1-1, P1-2 and P1-6), plus the P2 items with the best cost-to-fix ratio.

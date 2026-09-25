@@ -146,8 +146,6 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
   and the record of the loss, the frame is let go rather than remembered, and the draft does not know to
   hedge. Named in the test; accepted as the price of not holding a frame for ever on a disk that will
   not empty.
-- **The filmstrip decodes thumbnails at full size** (weaknesses P2-3): fine for a session of a few
-  frames, 150 frames would cost hundreds of megabytes. ST-049's last open item, now that the pane exists.
 - **The Review pane has not been seen on a real screen.** CI renders it over the fixture; the first live
   session is M1's.
 - **Not done from the 2026-09-20 review, with reasons:** the hardware workflow as a reusable workflow
