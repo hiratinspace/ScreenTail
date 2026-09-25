@@ -234,7 +234,9 @@ public sealed class LiveShell : IAsyncDisposable
                 "Discard this session?",
                 "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
                 TypedConfirmation.DiscardWord),
-            publish: publish);
+            publish: publish,
+            timelineExpanded: _preferences.Load().TimelineExpanded,
+            timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }));
     }
 
     private async Task<IReadOnlyList<SessionRow>?> ListSessionsAsync(CancellationToken ct) =>

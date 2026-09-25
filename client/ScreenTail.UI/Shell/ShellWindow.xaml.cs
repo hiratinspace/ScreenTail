@@ -60,7 +60,7 @@ public partial class ShellWindow : Window
         var frames = new FixtureFrames(SessionFixture.Directory());
         DataContext = new ShellViewModel(
             state,
-            loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames, publish: SamplePublish(fixture, id))),
+            loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames, publish: SamplePublish(fixture, id), timelineExpanded: id == "preview-timeline")),
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())));
         if (_screenshotDirectory is not null)
         {
@@ -152,6 +152,7 @@ public partial class ShellWindow : Window
             ("review-published", () => state.OpenSession("preview-published")),
             ("review-partial", () => state.OpenSession("preview-partial")),
             ("review-needs-mapping", () => state.OpenSession("preview-needs-mapping")),
+            ("review-timeline", () => state.OpenSession("preview-timeline")),
             ("history", () => state.Navigate(ShellView.History)),
             ("service-down", () => { state.Navigate(ShellView.Review); state.Lost(); }),
         })
