@@ -27,6 +27,9 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(DeleteFrameCommand), "delete_frame")]
 [JsonDerivedType(typeof(BlurFrameCommand), "blur_frame")]
 [JsonDerivedType(typeof(SaveDraftCommand), "save_draft")]
+[JsonDerivedType(typeof(GetIntegrationsCommand), "get_integrations")]
+[JsonDerivedType(typeof(SearchTicketsCommand), "search_tickets")]
+[JsonDerivedType(typeof(PublishSessionCommand), "publish_session")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -267,6 +270,96 @@ public sealed record SaveDraftCommand : IpcCommand
     public required Schema.DraftNote Draft { get; init; }
 }
 
+// ---- Publishing over the pipe (ST-078, ST-093, ST-094; 2026-09-25) ------------------------------------
+//
+// The UI never talks to the backend and never learns which PSA the tenant runs. It asks the service,
+// which holds the device token and the egress guard, and the service asks the backend. Every answer is
+// the backend's answer passed through; a refusal arrives as a failed result with the backend's words.
+
+/// <summary>What the tenant has connected. Answered by an <see cref="IntegrationsListed"/>.</summary>
+public sealed record GetIntegrationsCommand : IpcCommand;
+
+/// <param name="Secret">The last four characters behind bullets, as the backend shows them. Never more.</param>
+public sealed record IntegrationInfo(
+    [property: JsonPropertyName("provider")] string Provider,
+    [property: JsonPropertyName("site_url")] string SiteUrl,
+    [property: JsonPropertyName("secret")] string Secret);
+
+public sealed record IntegrationsListed : IpcEvent
+{
+    [JsonPropertyName("integrations")]
+    public required IReadOnlyList<IntegrationInfo> Integrations { get; init; }
+}
+
+/// <summary>The ticket picker's search: three characters or a number. Answered by a <see cref="TicketsFound"/>.</summary>
+public sealed record SearchTicketsCommand : IpcCommand
+{
+    [JsonPropertyName("query")]
+    public required string Query { get; init; }
+}
+
+public sealed record TicketRow(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("company")] string Company,
+    [property: JsonPropertyName("status")] string? Status = null);
+
+public sealed record TicketsFound : IpcEvent
+{
+    [JsonPropertyName("tickets")]
+    public required IReadOnlyList<TicketRow> Tickets { get; init; }
+}
+
+/// <summary>
+/// Publish (INV-3: only ever because the technician pressed it). The note as edited, which frames go,
+/// and where. The service reads the frames' bytes from the store; the UI never holds them for this.
+/// Answered by a <see cref="SessionPublished"/> with each destination on its own.
+/// </summary>
+public sealed record PublishSessionCommand : IpcCommand
+{
+    [JsonPropertyName("session_id")]
+    public required string SessionId { get; init; }
+
+    [JsonPropertyName("ticket_id")]
+    public required string TicketId { get; init; }
+
+    /// <summary><c>internal</c> or <c>discussion</c>.</summary>
+    [JsonPropertyName("note_type")]
+    public required string NoteType { get; init; }
+
+    [JsonPropertyName("minutes")]
+    public required int Minutes { get; init; }
+
+    [JsonPropertyName("billable")]
+    public bool Billable { get; init; } = true;
+
+    /// <summary><c>ticket_note</c>, <c>time_entry</c>, <c>kb_article</c>.</summary>
+    [JsonPropertyName("destinations")]
+    public required IReadOnlyList<string> Destinations { get; init; }
+
+    [JsonPropertyName("note")]
+    public required Schema.DraftNote Note { get; init; }
+
+    /// <summary>The included frames, in strip order. Only redacted frames have bytes to send (INV-1).</summary>
+    [JsonPropertyName("frame_ids")]
+    public required IReadOnlyList<string> FrameIds { get; init; }
+}
+
+public sealed record PublishOutcomeRow(
+    [property: JsonPropertyName("destination")] string Destination,
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("id")] string? Id = null,
+    [property: JsonPropertyName("link")] string? Link = null,
+    [property: JsonPropertyName("error")] string? Error = null,
+    [property: JsonPropertyName("kind")] string? Kind = null,
+    [property: JsonPropertyName("retryable")] bool Retryable = false);
+
+public sealed record SessionPublished : IpcEvent
+{
+    [JsonPropertyName("results")]
+    public required IReadOnlyList<PublishOutcomeRow> Results { get; init; }
+}
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
@@ -279,6 +372,9 @@ public sealed record SaveDraftCommand : IpcCommand
 [JsonDerivedType(typeof(ConfirmationIssued), "confirmation")]
 [JsonDerivedType(typeof(SessionLoaded), "session")]
 [JsonDerivedType(typeof(FrameLoaded), "frame")]
+[JsonDerivedType(typeof(IntegrationsListed), "integrations")]
+[JsonDerivedType(typeof(TicketsFound), "tickets")]
+[JsonDerivedType(typeof(SessionPublished), "published")]
 public abstract record IpcEvent
 {
     /// <summary>

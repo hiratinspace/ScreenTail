@@ -38,7 +38,10 @@ public static class PublishEndpoint
                 return Results.Json(new { error = "no_psa", message = "Connect a PSA to publish." }, statusCode: StatusCodes.Status501NotImplemented);
             }
 
-            return Results.Ok(await Publisher.PublishAsync(psa, bundle, ct).ConfigureAwait(false));
+            // The footer names whoever reviewed it. The client does not know the technician's display
+            // name and should not have to: the token says who they are.
+            var reviewed = bundle with { Reviewer = string.IsNullOrWhiteSpace(bundle.Reviewer) ? who.User.DisplayName : bundle.Reviewer };
+            return Results.Ok(await Publisher.PublishAsync(psa, reviewed, ct).ConfigureAwait(false));
         })
         .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(MaxRequestBytes))
         .WithName("Publish")

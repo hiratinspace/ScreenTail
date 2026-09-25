@@ -83,9 +83,9 @@ not do is listed in §6.
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast.
 
-**Not built:** publishing (ST-077, ST-078), enrolment (ST-010 — a Development-only flag issues a device
-token until then), settings and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting
-(ST-007), on-device drafting.
+**Not built:** the knowledge-base half of publishing (ST-095–097), ticket inference from the window
+title (ST-077), enrolment (ST-010 — a Development-only flag issues a device token until then), settings
+and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
 ## 4. Decisions already made
 
@@ -163,7 +163,7 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | **The client's path to the backend** for ticket search and publishing: pipe messages, the service's HTTP calls through the egress guard, the publish pane's delegates. The server halves of ST-093/094 are done, as are ST-009, ST-078 and ST-091/092 (against recorded shapes) | Agent |
+| Then, no owner input needed | **ST-095–097** Hudu client, KB publish and company mapping against recorded shapes (needs a Hudu key for the real check); ST-077 ticket inference from the window title. Publishing end to end is built: ST-009, ST-078, ST-091/092, ST-093/094 | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |

@@ -2,6 +2,7 @@ using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.History;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Review;
+using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -36,6 +37,7 @@ internal sealed class CaptureController(
     ICapabilityProbe capabilities,
     ISessionStore store,
     ReviewCommands review,
+    PublishCommands publishing,
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators) : IIpcCommandHandler
@@ -83,8 +85,10 @@ internal sealed class CaptureController(
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
             RequestConfirmationCommand request => Confirm(request, caller),
 
-            // Review's questions: the session, a frame, a blur (ST-085 remainder).
-            _ => await review.ReplyToAsync(command, ct).ConfigureAwait(false),
+            // Review's questions: the session, a frame, a blur (ST-085 remainder); and publishing's
+            // (ST-093): what is connected, a ticket search, the publish itself.
+            _ => await review.ReplyToAsync(command, ct).ConfigureAwait(false)
+                ?? await publishing.ReplyToAsync(command, ct).ConfigureAwait(false),
         };
     }
 
@@ -97,6 +101,11 @@ internal sealed class CaptureController(
         if (await review.HandleAsync(command, ct).ConfigureAwait(false) is { } reviewed)
         {
             return reviewed;
+        }
+
+        if (await publishing.HandleAsync(command, ct).ConfigureAwait(false) is { } refused)
+        {
+            return refused;
         }
 
         var accepted = command switch
