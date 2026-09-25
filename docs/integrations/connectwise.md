@@ -10,6 +10,7 @@ it against a sandbox before a pilot.
 | Check the credential | `GET /system/info` | Settings → Integrations, to show a state rather than "unknown until you publish" |
 | Search tickets | `GET /service/tickets/{id}` for a number, then `GET /service/tickets?conditions=summary contains '…' and closedFlag = false&orderBy=dateEntered desc&pageSize=25&page=1` | The Review screen's ticket picker, three characters or a number |
 | Recent tickets | `GET /service/tickets?conditions=closedFlag = false&orderBy=_info/lastUpdated desc&pageSize=10&page=1` | The picker on focus, before anything is typed (Spec §5 S3). The API member is the tenant's, so this is the tenant's recent activity, not the technician's |
+| Test connection | `GET /system/info` | Settings → Integrations, and `POST /v1/integrations/connectwise/check`; the row records when and what went wrong |
 | Add a note | `POST /service/tickets/{id}/notes` with `internalAnalysisFlag` for Internal and `detailDescriptionFlag` for Discussion | Publish |
 | Attach screenshots | `POST /system/documents` with `recordType=Ticket`, one per included frame, after the note | Publish |
 | Log time | `POST /time/entries` with `chargeToType=ServiceTicket`, a start and an end, `billableOption` | Publish |
@@ -31,7 +32,8 @@ it refused and nothing else from the response (`backend/src/ScreenTail.Api/Provi
 4. **The site**: the base URL the tenant signs in to, for example `https://na.myconnectwise.net` or
    `https://eu.myconnectwise.net`, or an on-premises host. ScreenTail appends `/v4_6_release/apis/3.0/`.
 
-Stored once, over the device's authenticated connection to the backend, and never returned:
+Stored once, from Settings → Integrations (the card takes the three parts and joins them) or by hand
+over the device's authenticated connection to the backend, and never returned:
 
 ```bash
 curl -X PUT "$BACKEND/v1/integrations/connectwise" \

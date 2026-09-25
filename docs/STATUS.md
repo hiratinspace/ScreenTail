@@ -19,8 +19,10 @@ shell window's content area showed the pane's *name*; the note editor and filmst
 the screenshot harness, and no message on the pipe could carry a session to the UI. Now a draft that
 becomes ready opens in Review over the pipe — the note, the screenshots, include, delete and blur — and
 History lists sessions and opens one on a double-click. **Not yet seen on a real screen:** CI renders
-both panes over the fixture in three themes; the first live run is M1. Settings is still a sentence
-(ST-081) and the timeline row (ST-076) has a model and no view.
+both panes over the fixture in three themes; the first live run is M1. Settings has its Integrations
+section (ST-082): a card per provider, Test connection, secrets masked after save, the company mapping
+table; Capture and Privacy & Redaction (ST-080, ST-081) are still sentences. The timeline row (ST-076)
+has a model and no view.
 
 **Of 85 tickets, 42 are Done, 4 are Partial and 39 are Open.** Phases A and B of the ordered plan
 (backlog Part C) are complete apart from the two that need the owner: ST-030 (golden sessions; needs a
@@ -85,7 +87,7 @@ not do is listed in §6.
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast.
 
-**Not built:** the Settings side of company mappings (ST-081),
+**Not built:** Settings → Capture and → Privacy & Redaction (ST-080, ST-081),
 enrolment (ST-010 — a Development-only flag issues a device token until then), settings
 and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
@@ -165,7 +167,7 @@ and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007),
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. Next: the timeline view (ST-076) or the Settings pane (ST-081) | Agent |
+| Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. Settings → Integrations (ST-082) is in. Next: the timeline view (ST-076); then Privacy & Redaction (ST-081), which needs ST-047's policy sync first | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |
