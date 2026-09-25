@@ -1,4 +1,5 @@
 using System.Windows;
+using ScreenTail.Shared.Logging;
 using ScreenTail.UI.Gallery;
 using ScreenTail.UI.Shell;
 using ScreenTail.UI.Theme;
@@ -19,6 +20,18 @@ public partial class App : Application, IDisposable
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // ST-011: a crash leaves a stack-only report in the local queue when the technician opted in,
+        // and otherwise nothing. Neither handler marks the exception handled: the process still dies,
+        // as it should, but it says where.
+        DispatcherUnhandledException += (_, args) => Report(args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception crash)
+            {
+                Report(crash);
+            }
+        };
 
         // Before a window, a tray icon or a pipe. The service verifies the file this process started
         // from, and .NET will load somebody else's code into a genuine signed process if the environment
@@ -110,6 +123,14 @@ public partial class App : Application, IDisposable
         MainWindow = window;
         window.Show();
     }
+
+    private static void Report(Exception crash) =>
+        _ = CrashReport.Write(
+            CrashReport.DefaultDirectory,
+            crash,
+            "ScreenTail.UI",
+            typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0",
+            CrashReport.Enabled(name => Environment.GetEnvironmentVariable(name)));
 
     protected override void OnExit(ExitEventArgs e)
     {

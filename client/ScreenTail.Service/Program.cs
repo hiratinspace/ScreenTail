@@ -8,6 +8,7 @@ using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Host;
 using ScreenTail.Service.Speech;
+using ScreenTail.Shared.Logging;
 
 // Before anything else, because everything after it would already be running alongside whatever was
 // loaded. The peer check verifies the file a process started from, and .NET will happily load somebody
@@ -101,10 +102,24 @@ if (!OperatingSystem.IsWindows())
 // would be captured from the wrong rectangle and stored at the wrong size (ST-025).
 Dpi.MakePerMonitorAware();
 
+// ST-011: one log sink, scrubbed, at the level the environment asks for (Information by default); and a
+// crash leaves a stack-only report in the local queue when the technician opted in, otherwise nothing.
+AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+{
+    if (e.ExceptionObject is Exception crash)
+    {
+        _ = CrashReport.Write(CrashReport.DefaultDirectory, crash, "ScreenTail.Service", ServiceVersion(), CrashReport.Enabled(name => Environment.GetEnvironmentVariable(name)));
+    }
+};
+
 var builder = Host.CreateApplicationBuilder(args);
+_ = builder.Logging.ClearProviders();
+_ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(Console.Error, LogLevels.Parse(Environment.GetEnvironmentVariable(LogLevels.Variable))));
 builder.Services.AddHostedService<CaptureHost>();
 await builder.Build().RunAsync().ConfigureAwait(false);
 return 0;
+
+static string ServiceVersion() => typeof(CaptureHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
 
 static SpeechModel ModelFrom(string[] args)

@@ -121,6 +121,19 @@ company or ticket names. The record the diagnostics panel is built from has nowh
 which is a stronger guarantee than filtering them out. There is no metrics system yet, so "metrics" in
 the invariant table describes an intent rather than a shipped component.
 
+Since ST-011 (2026-09-25) that guarantee has a belt as well as a brace. Every process — service, UI,
+backend — writes through one scrubbing log sink and no other: a value logged under a content-carrying
+key (`Title`, `Text`, `Transcript`, `Note`, `Company`, `Ticket`, a secret) is written as `[redacted]`,
+and every line and every exception passes through a path and address scrubber (`[path]`, `[email]`)
+before it is written. A test scans every log template in the client for a placeholder that would carry
+content. The level is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend)
+and Information unless said otherwise.
+
+**A crash leaves a stack trace and nothing else.** With `SCREENTAIL_CRASH_REPORTS=1` a crash writes the
+exception types and frames — never the message, which is where a path or a title ends up — to
+`%LOCALAPPDATA%\ScreenTail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
+opt-in nothing is written.
+
 The diagnostics panel is filled from the service's own counters and policy over the pipe (ST-085); the UI
 holds no value of its own to show, so the panel cannot say one thing while the service does another.
 

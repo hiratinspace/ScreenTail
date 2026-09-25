@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
+using ScreenTail.Api.Logging;
 using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Providers.Llm;
@@ -11,6 +12,13 @@ using ScreenTail.Api.Summarize;
 using ScreenTail.Api.Vault;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ST-011: one log sink, scrubbed (INV-10), in place of the framework's providers. The level comes from
+// the usual Logging:LogLevel:Default setting and is Information unless said otherwise.
+_ = builder.Logging.ClearProviders();
+_ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(
+    Console.Error,
+    Enum.TryParse<LogLevel>(builder.Configuration["Logging:LogLevel:Default"], ignoreCase: true, out var minimum) && minimum != LogLevel.None ? minimum : LogLevel.Information));
 
 // ST-008. The signing key has no default and the service refuses to start without one: a development
 // default becomes a production key the first time somebody forgets to set it, and the failure is silent.
