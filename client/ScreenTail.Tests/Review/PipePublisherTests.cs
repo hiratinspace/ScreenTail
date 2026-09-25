@@ -42,6 +42,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         Assert.False(time.Ok);
         Assert.Equal("ConnectWise says no.", time.Error);
         Assert.Equal(["f1"], _backend.Received!.Frames.Select(f => f.Id));
+        Assert.Equal("Acme Dental", _backend.Received.Company);
     }
 
     [Fact]

@@ -124,7 +124,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     }
 
     [Fact]
-    public async Task AKnowledgeBaseDestinationSaysItIsNotHereYet()
+    public async Task AKnowledgeBaseDestinationWithNoPlatformSaysSo()
     {
         var cw = new ScriptedConnectWise();
         using var host = Host(cw);
@@ -136,7 +136,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         var kb = Assert.Single(published!.Results);
         Assert.False(kb.Ok);
         Assert.Equal("not_configured", kb.Kind);
-        Assert.Contains("ST-095", kb.Error, StringComparison.Ordinal);
+        Assert.Contains("documentation platform", kb.Error, StringComparison.Ordinal);
     }
 
     [Fact]

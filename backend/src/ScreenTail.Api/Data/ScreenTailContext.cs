@@ -26,6 +26,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<Integration> Integrations => Set<Integration>();
 
+    public DbSet<CompanyMapping> CompanyMappings => Set<CompanyMapping>();
+
     public DbSet<Policy> Policies => Set<Policy>();
 
     public DbSet<SessionMetric> SessionMetrics => Set<SessionMetric>();
@@ -117,6 +119,16 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
             integration.ToTable("integrations");
             integration.HasKey(i => i.Id);
             integration.HasIndex(i => new { i.TenantId, i.Provider }).IsUnique();
+        });
+
+        modelBuilder.Entity<CompanyMapping>(mapping =>
+        {
+            mapping.ToTable("company_mappings");
+            mapping.HasKey(m => m.Id);
+
+            // One answer per PSA name per tenant: the lookup before every article, and the row a person
+            // edits in Settings.
+            mapping.HasIndex(m => new { m.TenantId, m.PsaCompany }).IsUnique();
         });
 
         modelBuilder.Entity<Policy>(policy =>

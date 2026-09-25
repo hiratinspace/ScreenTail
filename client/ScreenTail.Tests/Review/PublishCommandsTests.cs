@@ -32,6 +32,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         Assert.Equal(["f2", "f1"], sent.Frames.Select(f => f.Id));
         Assert.Equal(Convert.ToBase64String(Bytes("f2")), sent.Frames[0].Image);
         Assert.Equal("48213", sent.TicketId);
+        Assert.Equal("Acme Dental", sent.Company);
         Assert.Equal(DateTimeOffset.UnixEpoch, sent.StartedAt);
         Assert.Null(sent.Reviewer);
     }
@@ -93,6 +94,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         RequestId = 7,
         SessionId = "s1",
         TicketId = "48213",
+        TicketCompany = "Acme Dental",
         NoteType = "internal",
         Minutes = 30,
         Destinations = ["ticket_note", "time_entry"],

@@ -118,6 +118,7 @@ public sealed class PsaGatewayTests
     {
         SessionId = "s-0001",
         TicketId = "48213",
+        Company = "Acme Dental",
         NoteType = "internal",
         Minutes = 30,
         StartedAt = new DateTimeOffset(2026, 9, 24, 14, 2, 0, TimeSpan.Zero),

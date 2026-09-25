@@ -91,6 +91,33 @@ public sealed class Device
 /// a tenant has connected and whether it is working, so that a database dump is not a set of keys to a
 /// customer's ConnectWise.
 /// </summary>
+/// <summary>
+/// A PSA company mapped to a documentation-platform company (ST-097). One row per tenant per PSA name;
+/// written by an exact match at publish or by a person, and read before every knowledge-base article.
+/// A name, an id and a word about how it was decided; nothing from any session.
+/// </summary>
+public sealed class CompanyMapping
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    [MaxLength(200)]
+    public required string PsaCompany { get; set; }
+
+    [MaxLength(64)]
+    public required string DocCompanyId { get; set; }
+
+    [MaxLength(200)]
+    public required string DocCompanyName { get; set; }
+
+    /// <summary><c>exact</c> or <c>manual</c>. A likely match is never written without a person.</summary>
+    [MaxLength(16)]
+    public required string Confidence { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public sealed class Integration
 {
     public Guid Id { get; set; }
