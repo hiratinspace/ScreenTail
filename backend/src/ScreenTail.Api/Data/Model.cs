@@ -101,8 +101,28 @@ public sealed class Integration
     public required string Provider { get; set; }
 
     /// <summary>Opaque reference into the vault (ST-009). Never the secret.</summary>
-    [MaxLength(200)]
-    public string? SecretRef { get; set; }
+    /// <summary>Where the provider lives for this tenant. Not a secret.</summary>
+    [MaxLength(500)]
+    public string? SiteUrl { get; set; }
+
+    /// <summary>The credential's last four characters, in the clear, so a list never has to open a row.</summary>
+    [MaxLength(4)]
+    public string? SecretHint { get; set; }
+
+    // The envelope (ST-009, Vault.Envelope): the secret under a per-row data key, the data key under
+    // the master key named by KeyId. Every column is safe to read; none opens without the master key.
+    public byte[]? SecretCiphertext { get; set; }
+
+    public byte[]? SecretNonce { get; set; }
+
+    public byte[]? DataKeyWrapped { get; set; }
+
+    public byte[]? DataKeyNonce { get; set; }
+
+    [MaxLength(16)]
+    public string? KeyId { get; set; }
+
+    public DateTimeOffset? RotatedAt { get; set; }
 
     public DateTimeOffset? ConnectedAt { get; set; }
 

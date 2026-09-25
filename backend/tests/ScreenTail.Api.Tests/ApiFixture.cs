@@ -21,9 +21,12 @@ namespace ScreenTail.Api.Tests;
 /// The signing key here is a test key and exists only in this file. The service has no default one and
 /// refuses to start without it, which is the behaviour <c>StartupRefusesAWeakSigningKey</c> asserts.
 /// </summary>
-public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
+public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string SigningKey = "test-signing-key-that-is-long-enough-32+";
+
+    /// <summary>The vault's master key for this host, or null for a host with none (ST-009).</summary>
+    protected virtual string? VaultMasterKey { get; } = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
 
@@ -94,6 +97,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // Pinned to empty so the suite behaves the same on a developer machine as in CI.
         builder.UseSetting("Summarization:ApiKey", string.Empty);
         builder.UseSetting("Summarization:FallbackApiKey", string.Empty);
+        builder.UseSetting("Vault:MasterKey", VaultMasterKey ?? string.Empty);
 
         builder.ConfigureServices(services =>
         {

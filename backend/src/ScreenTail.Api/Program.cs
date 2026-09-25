@@ -6,6 +6,7 @@ using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
+using ScreenTail.Api.Vault;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,6 +70,13 @@ builder.Services.AddScoped<SummarizationService>(services => new SummarizationSe
     services.GetRequiredService<ICostLedger>(),
     summarization));
 
+// ST-009. The vault's master key has no default either: without one the service starts, lists what it
+// has, and refuses to store a credential with a reason. A development default would protect every
+// tenant's PSA key with a string in the repository.
+var vault = builder.Configuration.GetSection(VaultOptions.Section).Get<VaultOptions>() ?? new VaultOptions();
+builder.Services.AddSingleton(vault);
+builder.Services.AddScoped<IIntegrationVault, IntegrationVault>();
+
 builder.Services.AddAuthorization();
 builder.Services.AddOpenApi();
 
@@ -106,6 +114,19 @@ if (args.Contains("--enrol-dev-device", StringComparer.Ordinal))
     return;
 }
 
+// ST-009. Rewraps every credential still under Vault:PreviousMasterKey and exits without listening.
+// docs/security/key-rotation.md says when to run it and what to do after.
+if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var rotated = await KeyRotation.RotateAsync(
+        scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
+        scope.ServiceProvider.GetRequiredService<VaultOptions>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>());
+    Console.WriteLine($"rotated {rotated} credential(s) to master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    return;
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
@@ -131,6 +152,7 @@ if (app.Environment.IsDevelopment())
 var v1 = app.MapGroup("/v1").RequireAuthorization();
 _ = v1.MapMe();
 _ = v1.MapSummarize();
+_ = v1.MapIntegrations();
 
 await app.RunAsync();
 

@@ -220,7 +220,7 @@ ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integra
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done 2026-09-25.** Envelope encryption with AES-GCM at both layers: a per-row data key seals the secret, the deployment's master key (`Vault:MasterKey`, configuration standing where a KMS key will stand once there is a cloud) seals the data key. `PUT`/`GET`/`DELETE /v1/integrations[/{provider}]`; the list shows the last four characters and nothing over HTTP ever returns a credential; provider workers read through `IIntegrationVault`. Rotation is a rewrap (`--rotate-vault-keys`), documented in `docs/security/key-rotation.md` and exercised by `KeyRotationTests`. Without a master key the service starts and refuses to store with `501 not_configured`. Any device of the tenant may manage credentials until ST-010 brings roles.
 
 **Description:**
 Envelope encryption (KMS key + per-record data key) for PSA/doc credentials; readable only by provider workers; masked in API responses.
