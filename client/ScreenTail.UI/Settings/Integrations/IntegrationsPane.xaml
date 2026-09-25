@@ -7,7 +7,7 @@
         <!-- One card per provider (Spec §5 S7). Secrets are masked once saved; Change reveals the
              fields. A PasswordBox that goes out of view is cleared in code-behind, so a private key
              does not sit in a collapsed control for the afternoon. -->
-        <DataTemplate x:Key="Card" DataType="{x:Type local:IntegrationCardViewModel}">
+        <DataTemplate x:Key="IntegrationCardTemplate" DataType="{x:Type local:IntegrationCardViewModel}">
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
@@ -130,8 +130,8 @@
                 <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" AutomationProperties.LiveSetting="Polite" />
             </Border>
 
-            <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource Card}" />
-            <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource Card}" />
+            <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" />
+            <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" />
 
             <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
                  filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
