@@ -68,6 +68,24 @@ public sealed class ConnectWiseProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task RecentTicketsAreOpenOnesLastTouchedFirstTenAtATime()
+    {
+        // ST-092's default, for the picker on focus: no condition on the summary, the tenant's open
+        // tickets in the order they were last updated, and a short page — this is a glance, not a search.
+        var result = await Provider().RecentTicketsAsync(TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(_api.Requests);
+        var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+        Assert.EndsWith("/service/tickets", request.RequestUri.AbsolutePath, StringComparison.Ordinal);
+        Assert.DoesNotContain("summary contains", query, StringComparison.Ordinal);
+        Assert.Contains("closedFlag = false", query, StringComparison.Ordinal);
+        Assert.Contains("orderBy=_info/lastUpdated desc", query, StringComparison.Ordinal);
+        Assert.Contains("pageSize=10", query, StringComparison.Ordinal);
+        Assert.True(result.Ok);
+        Assert.Equal(["48213", "48190"], result.Value!.Select(t => t.Id));
+    }
+
+    [Fact]
     public async Task ANumberIsLookedUpAsAnIdFirst()
     {
         // ST-092: numeric → exact id first. A technician who typed 48213 is not asking for tickets whose

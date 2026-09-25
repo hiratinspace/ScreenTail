@@ -61,6 +61,11 @@ public sealed class FakePsaProvider : IPsaProvider
         return Task.FromResult(ProviderResult.Success(found));
     }
 
+    public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) =>
+        Task.FromResult(Fail is { } error
+            ? ProviderResult.Failure<IReadOnlyList<TicketRef>>(error)
+            : ProviderResult.Success<IReadOnlyList<TicketRef>>([.. _tickets.Take(10)]));
+
     public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(note);

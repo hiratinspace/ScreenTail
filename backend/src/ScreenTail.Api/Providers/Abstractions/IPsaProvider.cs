@@ -46,6 +46,12 @@ public interface IPsaProvider
     /// <param name="query">What the technician typed. Three characters or more (Spec §5 S3).</param>
     Task<ProviderResult<IReadOnlyList<TicketRef>>> SearchTicketsAsync(string query, CancellationToken ct = default);
 
+    /// <summary>
+    /// The picker's list before anything is typed (Spec §5 S3): the tenant's open tickets most recently
+    /// touched, ten at most. A glance, not a search — it is asked on every focus.
+    /// </summary>
+    Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default);
+
     /// <summary>Publishes the note. INV-3: only ever called because a technician pressed Publish.</summary>
     Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default);
 

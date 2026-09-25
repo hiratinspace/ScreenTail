@@ -9,6 +9,7 @@ it against a sandbox before a pilot.
 |---|---|---|
 | Check the credential | `GET /system/info` | Settings → Integrations, to show a state rather than "unknown until you publish" |
 | Search tickets | `GET /service/tickets/{id}` for a number, then `GET /service/tickets?conditions=summary contains '…' and closedFlag = false&orderBy=dateEntered desc&pageSize=25&page=1` | The Review screen's ticket picker, three characters or a number |
+| Recent tickets | `GET /service/tickets?conditions=closedFlag = false&orderBy=_info/lastUpdated desc&pageSize=10&page=1` | The picker on focus, before anything is typed (Spec §5 S3). The API member is the tenant's, so this is the tenant's recent activity, not the technician's |
 | Add a note | `POST /service/tickets/{id}/notes` with `internalAnalysisFlag` for Internal and `detailDescriptionFlag` for Discussion | Publish |
 | Attach screenshots | `POST /system/documents` with `recordType=Ticket`, one per included frame, after the note | Publish |
 | Log time | `POST /time/entries` with `chargeToType=ServiceTicket`, a start and an end, `billableOption` | Publish |
