@@ -244,3 +244,6 @@ curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d 
 
 The client does not do this itself yet; until it does, put the access token in `SCREENTAIL_DEVICE_TOKEN`
 as before. `--offboard-tenant <id>` deletes every row of a tenant.
+
+Usage telemetry (ST-098) is off unless `SCREENTAIL_TELEMETRY=1` is set for the service; the fields it
+sends are listed in `shared/contracts/session-metric.v1.json` and nothing else ever is.

@@ -1887,7 +1887,7 @@ Per-tenant mapping auto-matched by name with confidence, user-correctable in Set
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** Open.
+- **Status:** **Done 2026-09-25.** `shared/contracts/session-metric.v1.json` is the field list — the session id, counts and times, the edit ratio, published — with no string but the id, checked by reflection on both sides (AC1, INV-10). The service queues one metric when a draft lands and again when a publish lands, through the outbox so an offline afternoon queues it, and only when telemetry is on (`SCREENTAIL_TELEMETRY=1` until ST-081's toggle; off means nothing is queued, AC2). The edit ratio is the share of the draft's steps changed, added or removed between the draft as first written (`original_draft_json`, store migration 0010) and as published. `POST /v1/metrics/sessions` replaces the row on a retry; the Postgres view `weekly_tenant_metrics` gives sessions, published sessions, edit rate, session minutes and minutes saved per tenant per ISO week (AC3), with "five minutes per published note" as the working assumption named in the migration until ST-110 measures it.
 
 **Description:**
 Anonymized per-session metrics to `session_metrics`; respects telemetry off; offline queue.
