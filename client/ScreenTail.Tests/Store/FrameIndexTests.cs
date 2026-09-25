@@ -119,9 +119,7 @@ public sealed class FrameIndexTests : IAsyncDisposable
         }.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
 
-        await using var key = connection.CreateCommand();
-        key.CommandText = $"PRAGMA key = \"x'{Convert.ToHexString(_key.GetKey())}'\";";
-        await key.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        StoreKey.Apply(connection, _key.GetKey());
         return connection;
     }
 
