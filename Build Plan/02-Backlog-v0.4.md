@@ -1712,7 +1712,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** Open.
+- **Status:** **Done against recorded shapes 2026-09-25; the sandbox check is owed.** `ConnectWiseProvider` speaks Basic `companyId+publicKey:privateKey` with the vendor `clientId` header, backs off a 429 or an outage with exponential jitter three attempts at most, never retries a wrong key, and turns every refusal into a kind and two sentences carrying ConnectWise's own words. Built per tenant from the vault by `IPsaProviderFactory`, never registered as a bare `IPsaProvider`. Passes `PsaProviderContract`; 20 tests of its own. AC1 and AC3's sandbox half wait for a ConnectWise sandbox (owner); `docs/integrations/connectwise.md` says what to run.
 
 **Description:**
 `IPsaProvider` for ConnectWise PSA REST: Basic auth `companyId+publicKey:privateKey`, `clientId` header, region base URL, backoff, error mapping.
@@ -1733,7 +1733,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 ---
 
 ---
-### **ST-092 · ConnectWise ticket search**
+### **ST-092 · ConnectWise ticket search** — **Done against recorded shapes 2026-09-25** with ST-091: a number is looked up as an id first and keyword matches follow; a word searches open tickets' summaries newest first, 25 a page; `GET /v1/psa/tickets?q=` is the client's route, answering `501 no_psa` without a credential and `502 psa_<kind>` with the provider's words. The one-second figure is the sandbox's to show.
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2

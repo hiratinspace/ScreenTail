@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
+using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
 using ScreenTail.Api.Vault;
@@ -76,6 +77,14 @@ builder.Services.AddScoped<SummarizationService>(services => new SummarizationSe
 var vault = builder.Configuration.GetSection(VaultOptions.Section).Get<VaultOptions>() ?? new VaultOptions();
 builder.Services.AddSingleton(vault);
 builder.Services.AddScoped<IIntegrationVault, IntegrationVault>();
+
+// ST-091. The PSA is built per tenant from the vault, never resolved as one provider for everybody:
+// a provider without a tenant's credential would be a fake by definition. The named client carries the
+// timeout; the factory gives each one the tenant's own base address.
+var connectWise = builder.Configuration.GetSection(ConnectWiseOptions.Section).Get<ConnectWiseOptions>() ?? new ConnectWiseOptions();
+builder.Services.AddSingleton(connectWise);
+builder.Services.AddHttpClient(nameof(ConnectWiseProvider), client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 
 builder.Services.AddAuthorization();
 builder.Services.AddOpenApi();
@@ -153,6 +162,7 @@ var v1 = app.MapGroup("/v1").RequireAuthorization();
 _ = v1.MapMe();
 _ = v1.MapSummarize();
 _ = v1.MapIntegrations();
+_ = v1.MapPsa();
 
 await app.RunAsync();
 
