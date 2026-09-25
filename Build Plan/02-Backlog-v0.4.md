@@ -1570,7 +1570,7 @@ Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns wi
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Built 2026-09-25, not yet seen on a real screen.** A card per provider: ConnectWise takes the company ID and the two keys and joins them the way its Basic auth wants (the clientId is the deployment's, and the card says so); Hudu takes the site and key. Secrets are masked as their last four once saved and Change reveals the fields (AC3); Test connection is `POST /v1/integrations/{provider}/check`, answered in words either way and recorded on the row (AC2 through the provider's own message when the clientId is missing). The company mapping table lists what the backend decided with its confidence, forgets a row, and maps one by hand. **Not built:** the member and company shown after a ConnectWise check (AC1 wants them; `system/info` does not carry them — the sandbox check decides which call does), the optional per-technician API member (the vault holds one credential per tenant), default note type and time rounding as settings.
 
 **Description:**
 Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech member, company mapping editor.
