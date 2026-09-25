@@ -101,6 +101,20 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     }
 
     /// <summary>
+    /// ST-092's default: open tickets in the order ConnectWise last touched them. The API member is the
+    /// tenant's, not the technician's, so "recently touched by me" is not a question this credential can
+    /// ask; the tenant's recent activity is the nearest true answer.
+    /// </summary>
+    public async Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default)
+    {
+        var route = $"service/tickets?conditions={Uri.EscapeDataString("closedFlag = false")}&orderBy={Uri.EscapeDataString("_info/lastUpdated desc")}&pageSize={_options.RecentCount}&page=1&fields={Uri.EscapeDataString("id,summary,company/name,status/name")}";
+        var page = await SendAsync(() => Get(route), ct).ConfigureAwait(false);
+        return page.Ok
+            ? ProviderResult.Success<IReadOnlyList<TicketRef>>([.. page.Value!.EnumerateArray().Select(Ticket).Take(_options.RecentCount)])
+            : ProviderResult.Failure<IReadOnlyList<TicketRef>>(page.Error!);
+    }
+
+    /// <summary>
     /// The note, then its attachments as documents on the ticket. An attachment that fails after the
     /// note landed is reported with the note's id in the message, because a retry that posts the note
     /// again is the duplicate ST-094 forbids; ST-093 owns attaching to a note that already exists.

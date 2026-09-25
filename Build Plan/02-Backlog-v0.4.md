@@ -1733,7 +1733,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 ---
 
 ---
-### **ST-092 · ConnectWise ticket search** — **Done against recorded shapes 2026-09-25** with ST-091: a number is looked up as an id first and keyword matches follow; a word searches open tickets' summaries newest first, 25 a page; `GET /v1/psa/tickets?q=` is the client's route, answering `501 no_psa` without a credential and `502 psa_<kind>` with the provider's words. The one-second figure is the sandbox's to show.
+### **ST-092 · ConnectWise ticket search** — **Done against recorded shapes 2026-09-25** with ST-091 (the default, the recent tickets on focus, followed the same day: open tickets by `_info/lastUpdated`, ten of them, for `GET /v1/psa/tickets` with no query; the API member is the tenant's, so the list is the tenant's recent activity, not the technician's): a number is looked up as an id first and keyword matches follow; a word searches open tickets' summaries newest first, 25 a page; `GET /v1/psa/tickets?q=` is the client's route, answering `501 no_psa` without a credential and `502 psa_<kind>` with the provider's words. The one-second figure is the sandbox's to show.
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2

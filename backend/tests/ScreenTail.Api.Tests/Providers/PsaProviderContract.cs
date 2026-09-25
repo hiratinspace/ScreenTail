@@ -90,6 +90,17 @@ public abstract class PsaProviderContract
     }
 
     [Fact]
+    public async Task RecentTicketsAreAListWithCompaniesAndNeverMoreThanTen()
+    {
+        // Spec §5 S3: the picker shows recent tickets on focus, before anything is typed.
+        var result = await Provider.RecentTicketsAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.InRange(result.Value!.Count, 1, 10);
+        Assert.All(result.Value, t => Assert.False(string.IsNullOrEmpty(t.Company)));
+    }
+
+    [Fact]
     public async Task ASearchThatMatchesNothingIsAnEmptyListAndNotAnError()
     {
         // "No such ticket" is an answer. Making it an error would put a red banner in front of a

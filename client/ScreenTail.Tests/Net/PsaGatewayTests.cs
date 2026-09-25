@@ -59,6 +59,18 @@ public sealed class PsaGatewayTests
     }
 
     [Fact]
+    public async Task AnEmptyQueryIsAskedTooBecauseItMeansTheRecentTickets()
+    {
+        using var handler = new RecordingHandler(Json(new { tickets = new[] { new { id = "48213", summary = "Printer offline", company = "Acme Dental", status = "New" } } }));
+
+        var answer = await Gateway(handler).SearchTicketsAsync(string.Empty, TestContext.Current.CancellationToken);
+
+        Assert.True(answer.Ok);
+        Assert.Equal("48213", Assert.Single(answer.Value!).Id);
+        Assert.Equal("?q=", handler.Asked!.Query);
+    }
+
+    [Fact]
     public async Task IntegrationsComeBackAsProvidersWithTheirHints()
     {
         using var handler = new RecordingHandler(Json(new { integrations = new[] { new { provider = "connectwise", siteUrl = "https://na.myconnectwise.net", secret = "••••1234", connectedAt = "2026-09-25T00:00:00Z", lastCheckedAt = (string?)null, lastError = (string?)null } } }));

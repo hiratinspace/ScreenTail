@@ -123,6 +123,24 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task NoQueryAtAllListsRecentTickets()
+    {
+        // The picker on focus (Spec §5 S3): nothing typed is not too short, it is a different question.
+        var cw = new ScriptedConnectWise();
+        using var host = HostWith(cw);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+
+        using var response = await client.GetAsync(new Uri("/v1/psa/tickets", UriKind.Relative), TestContext.Current.CancellationToken);
+        var found = await response.Content.ReadFromJsonAsync<TicketSearchResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["48213", "48190"], found!.Tickets.Select(t => t.Id));
+        Assert.Contains("_info/lastUpdated", Uri.UnescapeDataString(Assert.Single(cw.Requests).RequestUri!.Query), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TooShortAQueryIsRefusedBeforeAnyProviderIsAsked()
     {
         var cw = new ScriptedConnectWise();

@@ -84,7 +84,7 @@ public sealed class PublishPanel
     private readonly Dictionary<Destination, DestinationResult> _results = [];
 
     /// <param name="integrations">The tenant's connected providers, by name. Empty means nothing can be published.</param>
-    /// <param name="search">The PSA's ticket search (ST-092).</param>
+    /// <param name="search">The PSA's ticket search (ST-092). Asked for nothing, it answers the recent tickets.</param>
     /// <param name="publish">Sends the chosen destinations and says how each one went (ST-093, ST-094, ST-096).</param>
     /// <param name="rounding">The tenant's billing rounding; the draft reports unrounded minutes and this side rounds (STATUS §4).</param>
     /// <param name="mapping">The company-mapping prompt's calls (ST-097). Without them a <c>needs_mapping</c> failure is shown as the words it came with.</param>
@@ -248,6 +248,21 @@ public sealed class PublishPanel
         }
 
         Matches = await _search(trimmed, ct).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// The list on focus, before anything is typed (Spec §5 S3): a search for nothing, which the service
+    /// and the backend read as "the recent ones". Returns whether it asked.
+    /// </summary>
+    public async Task<bool> RecentAsync(CancellationToken ct = default)
+    {
+        if (!HasIntegrations)
+        {
+            return false;
+        }
+
+        Matches = await _search(string.Empty, ct).ConfigureAwait(false);
         return true;
     }
 

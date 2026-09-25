@@ -25,5 +25,8 @@ public sealed class ConnectWiseOptions
     /// <summary>ST-092 AC3: 25 at a time.</summary>
     public int PageSize { get; set; } = 25;
 
+    /// <summary>The recent-tickets list on focus (Spec §5 S3) is a glance: ten rows.</summary>
+    public int RecentCount { get; set; } = 10;
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId);
 }

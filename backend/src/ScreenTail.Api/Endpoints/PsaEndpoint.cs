@@ -12,7 +12,8 @@ public sealed record TicketSearchResponse(IReadOnlyList<TicketSearchRow> Tickets
 
 /// <summary>
 /// The client's way to the tenant's PSA (ST-092): a search, answered from the provider the vault's
-/// credential builds. The client never learns which PSA it is.
+/// credential builds, or with nothing typed the recent tickets the picker shows on focus (Spec §5 S3).
+/// The client never learns which PSA it is.
 /// </summary>
 public static class PsaEndpoint
 {
@@ -27,8 +28,10 @@ public static class PsaEndpoint
                 return Results.Unauthorized();
             }
 
+            // Nothing typed is a different question from too little typed: the first is the recent
+            // list, the second is a stray keystroke that would match half the PSA.
             var query = (q ?? string.Empty).Trim();
-            if (query.Length < 3 && !(query.Length > 0 && query.All(char.IsAsciiDigit)))
+            if (query.Length > 0 && query.Length < 3 && !query.All(char.IsAsciiDigit))
             {
                 return Results.BadRequest(new { error = "query_too_short", message = "Type at least three characters, or a ticket number." });
             }
@@ -39,7 +42,9 @@ public static class PsaEndpoint
                 return Results.Json(new { error = "no_psa", message = "Connect a PSA to search its tickets." }, statusCode: StatusCodes.Status501NotImplemented);
             }
 
-            var result = await psa.SearchTicketsAsync(query, ct).ConfigureAwait(false);
+            var result = query.Length == 0
+                ? await psa.RecentTicketsAsync(ct).ConfigureAwait(false)
+                : await psa.SearchTicketsAsync(query, ct).ConfigureAwait(false);
             if (!result.Ok)
             {
                 return Refused(result.Error!);
@@ -48,7 +53,7 @@ public static class PsaEndpoint
             return Results.Ok(new TicketSearchResponse([.. result.Value!.Select(t => new TicketSearchRow(t.Id, t.Summary, t.Company, t.Status))]));
         })
         .WithName("SearchTickets")
-        .WithSummary("Searches the tenant's PSA for tickets: three characters or a ticket number.");
+        .WithSummary("Searches the tenant's PSA for tickets: three characters or a ticket number. With no query, the open tickets most recently touched.");
 
         return group;
     }

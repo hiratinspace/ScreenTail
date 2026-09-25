@@ -69,8 +69,10 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
             ("GET", var p) when p.Contains("/service/tickets/", StringComparison.Ordinal) =>
                 NotFound("Ticket not found"),
 
+            // A summary search answers for "printer" and nothing else; a listing with no summary
+            // condition (the recent tickets) answers with the same two.
             ("GET", var p) when p.EndsWith("/service/tickets", StringComparison.Ordinal) =>
-                Ok(query.Contains("printer", StringComparison.OrdinalIgnoreCase)
+                Ok(query.Contains("printer", StringComparison.OrdinalIgnoreCase) || !Uri.UnescapeDataString(query).Contains("summary contains", StringComparison.OrdinalIgnoreCase)
                     ? new[]
                     {
                         Ticket(48213, "Printer offline in reception", "Acme Dental", "In Progress"),

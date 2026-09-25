@@ -40,6 +40,20 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public async Task FocusWithNothingTypedShowsTheRecentTickets()
+    {
+        // Spec §5 S3: recent tickets on focus. Asked as a search for nothing, which the service and the
+        // backend read as "the recent ones"; the pane never learns what recent means to the PSA.
+        var searches = new List<string>();
+        var panel = Panel(search: q => { searches.Add(q); return [new TicketMatch("48213", "Printer offline", "Acme Dental")]; });
+
+        Assert.True(await panel.RecentAsync());
+
+        Assert.Equal([string.Empty], searches);
+        Assert.Equal("48213", Assert.Single(panel.Matches).Id);
+    }
+
+    [Fact]
     public async Task AMatchIsShownAsIdSummaryCompany()
     {
         var panel = Panel(search: _ => [new TicketMatch("48213", "Printer offline", "Acme Dental")]);
