@@ -21,6 +21,12 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(EraseAllLocalDataCommand), "erase_all_local_data")]
 [JsonDerivedType(typeof(RequestConfirmationCommand), "request_confirmation")]
 [JsonDerivedType(typeof(IndicatorShowingCommand), "indicator_showing")]
+[JsonDerivedType(typeof(GetSessionCommand), "get_session")]
+[JsonDerivedType(typeof(GetFrameCommand), "get_frame")]
+[JsonDerivedType(typeof(SetFrameIncludedCommand), "set_frame_included")]
+[JsonDerivedType(typeof(DeleteFrameCommand), "delete_frame")]
+[JsonDerivedType(typeof(BlurFrameCommand), "blur_frame")]
+[JsonDerivedType(typeof(SaveDraftCommand), "save_draft")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -163,6 +169,104 @@ public sealed record ConfirmationIssued : IpcEvent
     public required string Phrase { get; init; }
 }
 
+// ---- Review over the pipe (ST-085 remainder, 2026-09-25) ----------------------------------------------
+//
+// The UI has no store. Until these existed the Review views were fed only by the screenshot harness, and
+// the shell's Review area showed the pane's name. Everything a technician does to a session in Review is
+// a question or a command here; the service, the one process that reads a frame, does the work.
+
+/// <summary>Asks for a session to review. Answered by a <see cref="SessionLoaded"/>, or a failed result when there is no such session.</summary>
+public sealed record GetSessionCommand : IpcCommand
+{
+    [JsonPropertyName("session_id")]
+    public required string SessionId { get; init; }
+}
+
+/// <summary>
+/// A session as the store hands it out: redacted frames only, with the draft (INV-1). The same
+/// <c>session.v1</c> shape the fixtures and the bundle use, so there is one serialiser for it.
+/// </summary>
+public sealed record SessionLoaded : IpcEvent
+{
+    [JsonPropertyName("session")]
+    public required Schema.Session Session { get; init; }
+}
+
+/// <summary>Asks for one redacted frame's image. Answered by a <see cref="FrameLoaded"/>.</summary>
+public sealed record GetFrameCommand : IpcCommand
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+}
+
+/// <summary>
+/// One frame's bytes. Also the answer to a <see cref="BlurFrameCommand"/>, carrying the image as it now is.
+///
+/// One frame per message because the pipe's frame limit is 1 MiB and a redacted screenshot is a few
+/// hundred kilobytes; a whole session's images in one message would be the first thing to exceed it.
+/// </summary>
+public sealed record FrameLoaded : IpcEvent
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+
+    [JsonPropertyName("image")]
+    public required byte[] Image { get; init; }
+}
+
+/// <summary>Space in the filmstrip: whether the frame goes out with the note (Spec §5 S3).</summary>
+public sealed record SetFrameIncludedCommand : IpcCommand
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+
+    [JsonPropertyName("included")]
+    public required bool Included { get; init; }
+}
+
+/// <summary>Delete, once the five-second undo has closed. A failed result means it was already gone.</summary>
+public sealed record DeleteFrameCommand : IpcCommand
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+}
+
+/// <summary>
+/// Blur a rectangle of a frame, in the frame's own pixels. Answered by a <see cref="FrameLoaded"/> with the
+/// image as it now is.
+///
+/// The service paints it, with the same masker redaction uses, and writes it before answering. The UI
+/// used to flatten in WPF and hand the bytes back over; that re-encoded a JPEG as PNG on the UI thread
+/// and made the stored name a lie (weaknesses P2-9). Destructive: the pixels underneath stop existing.
+/// </summary>
+public sealed record BlurFrameCommand : IpcCommand
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+
+    [JsonPropertyName("x")]
+    public required long X { get; init; }
+
+    [JsonPropertyName("y")]
+    public required long Y { get; init; }
+
+    [JsonPropertyName("width")]
+    public required long Width { get; init; }
+
+    [JsonPropertyName("height")]
+    public required long Height { get; init; }
+}
+
+/// <summary>The edited note, written back (ST-074's autosave). The whole note, every time: one write, one shape.</summary>
+public sealed record SaveDraftCommand : IpcCommand
+{
+    [JsonPropertyName("session_id")]
+    public required string SessionId { get; init; }
+
+    [JsonPropertyName("draft")]
+    public required Schema.DraftNote Draft { get; init; }
+}
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
@@ -173,6 +277,8 @@ public sealed record ConfirmationIssued : IpcEvent
 [JsonDerivedType(typeof(DiagnosticsReported), "diagnostics")]
 [JsonDerivedType(typeof(SessionsListed), "sessions")]
 [JsonDerivedType(typeof(ConfirmationIssued), "confirmation")]
+[JsonDerivedType(typeof(SessionLoaded), "session")]
+[JsonDerivedType(typeof(FrameLoaded), "frame")]
 public abstract record IpcEvent
 {
     /// <summary>

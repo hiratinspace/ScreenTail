@@ -36,6 +36,12 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `request_confirmation` | `action` (`discard_session` or `erase_everything`) | Ask for a one-use token before something irreversible (ST-085). Answered by `confirmation` |
 | `erase_all_local_data` | `confirmation` | Delete everything and stop (INV-12). Refused without a token issued for `erase_everything`. The pipe drops straight after: the store it was serving is being deleted |
 | `indicator_showing` | `x`, `y`, `width`, `height` | The UI saying the recording pill is on screen, and where (INV-4). Sent every two seconds while it is true; the service forgets a report it has not heard repeated within six seconds |
+| `get_session` | `session_id` | A session to review. Answered by `session` |
+| `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
+| `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note |
+| `delete_frame` | `frame_id` | Delete, once the five-second undo has closed. Fails when it was already gone |
+| `blur_frame` | `frame_id`, `x`, `y`, `width`, `height` | Blur a rectangle, in the frame's own pixels. Answered by `frame` with the image as it now is |
+| `save_draft` | `session_id`, `draft` | The edited note, written back. The whole note, every time |
 
 ## Events (service → UI)
 
@@ -49,6 +55,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `diagnostics` | see below | Answers `get_diagnostics` |
 | `sessions` | `sessions[]` | Answers `list_sessions` |
 | `confirmation` | `token`, `phrase` | Answers `request_confirmation` |
+| `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft |
+| `frame` | `frame_id`, `image` | Answers `get_frame` and `blur_frame`: one image, base64 |
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
@@ -150,6 +158,36 @@ socket stays open and the pill goes stale. A report expires after six seconds, a
 an indicator — the service counts pills it has heard from, not clients it can see (INV-4, #130). While
 none is reported, `IndicatorGuard` suppresses capture after a short grace for UI restarts.
 
+### Review over the pipe: `get_session`, `get_frame`, the edits
+
+ST-085's remainder (2026-09-25). The UI has no store, and until these existed the Review views were fed
+only by the screenshot harness: the shell's Review area showed the word "Review". Everything a technician
+does to a session in Review is a question or a command here, and the service — the one process that
+reads a frame — does the work.
+
+```json
+{ "type": "get_session", "request_id": 11, "session_id": "s1" }
+{ "type": "session", "request_id": 11, "session": { "schema_version": "session.v1", "session_id": "s1", "frames": [ … ], "draft": { … } } }
+{ "type": "get_frame", "request_id": 12, "frame_id": "f1" }
+{ "type": "frame", "request_id": 12, "frame_id": "f1", "image": "/9j/4AAQ…" }
+{ "type": "blur_frame", "request_id": 13, "frame_id": "f1", "x": 10, "y": 20, "width": 300, "height": 40 }
+{ "type": "frame", "request_id": 13, "frame_id": "f1", "image": "/9j/4AAQ…" }
+```
+
+`session` is the same `session.v1` shape the fixtures and the bundle use, as the store hands it out:
+**redacted frames only** (INV-1), so a pending frame is absent rather than flagged. `get_frame` for a
+pending frame is refused, not answered. One image per message, because the pipe's frame limit is 1 MiB
+and a redacted screenshot is a few hundred kilobytes; a frame over 700 KiB is refused with its size in
+the reason rather than closing the connection.
+
+`blur_frame` is painted by the service with the same masker redaction uses, written to the store, and
+only then answered — so a crash between the write and the reply leaves the disk ahead of the screen,
+never behind it. The region is recorded as `user_blur` in the frame's `masked_regions`. Destructive, and
+meant to be (Spec §5 S3). The UI used to flatten in WPF and hand the bytes back; that re-encoded a JPEG
+as PNG on the UI thread and made the stored name a lie (weaknesses P2-9).
+
+None of this bumps the version: an older client never sends these and never sees their replies.
+
 ## Authentication
 
 Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
@@ -177,3 +215,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-18 | `draft_title`, `draft_company` on the snapshot (ST-073, #66) | 2 |
 | 2026-09-20 | `request_confirmation` / `confirmation`; `confirmation` on `discard` and `erase_all_local_data` (#86) | 2 |
 | 2026-09-22 | `indicator_showing`; the oldest-silent handshake rule (#130) | 2 |
+| 2026-09-25 | `get_session` / `session`, `get_frame` / `frame`, `set_frame_included`, `delete_frame`, `blur_frame`, `save_draft` (ST-085 remainder) | 2 |

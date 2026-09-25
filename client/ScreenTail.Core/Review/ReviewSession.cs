@@ -25,10 +25,17 @@ public interface IReviewFrames
     /// <summary>Called when the 5 s undo window closes, never before it.</summary>
     Task<bool> DeleteAsync(string frameId, CancellationToken ct = default);
 
-    Task BlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default);
+    /// <summary>
+    /// Blurs a rectangle of the frame and returns the image as it now is, or null when the frame is gone.
+    ///
+    /// Whoever implements this does the painting and the writing, in that order, before returning. The
+    /// pane never flattens pixels itself: in the running application it has neither the store nor the
+    /// masker, and the one implementation that has both is on the other side of the pipe.
+    /// </summary>
+    Task<byte[]?> BlurAsync(string frameId, MaskedRegion region, CancellationToken ct = default);
 }
 
-public sealed class ReviewSession(ISessionStore store, string sessionId) : IReviewFrames
+public sealed class ReviewSession(ISessionStore store, string sessionId)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly string _sessionId = string.IsNullOrWhiteSpace(sessionId)
@@ -39,25 +46,6 @@ public sealed class ReviewSession(ISessionStore store, string sessionId) : IRevi
     public Task<Session?> LoadAsync(CancellationToken ct = default) => _store.LoadSessionAsync(_sessionId, ct);
 
     public Task SaveAsync(DraftNote note, CancellationToken ct = default) => _store.SaveDraftAsync(_sessionId, note, ct);
-
-    public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(frame);
-        return _store.GetRedactedFrameImageAsync(frame.Id, ct);
-    }
-
-    /// <summary>
-    /// `Space`. Persisted immediately, because the decision is usually "this must not leave the building"
-    /// and the next thing that happens might be a crash.
-    /// </summary>
-    public Task SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) =>
-        _store.SetFrameExcludedAsync(frameId, !included, ct);
-
-    public Task<bool> DeleteAsync(string frameId, CancellationToken ct = default) =>
-        _store.DeleteFrameAsync(frameId, ct);
-
-    public Task BlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default) =>
-        _store.ApplyUserBlurAsync(frameId, image, region, ct);
 
     /// <summary>
     /// Spec §5 S3 Discard, after the typed confirmation. The raw data goes now rather than at the next
