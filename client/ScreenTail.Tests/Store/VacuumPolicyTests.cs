@@ -21,18 +21,25 @@ public sealed class VacuumPolicyTests : IAsyncDisposable
 
     [Theory]
     // Nothing expired: nothing was freed, so there is nothing to reclaim.
-    [InlineData(0, 0.90, false, false)]
+    [InlineData(0, 0.90, false, double.PositiveInfinity, false)]
     // The common case that was costing half a minute for nothing.
-    [InlineData(3, 0.05, false, false)]
+    [InlineData(3, 0.05, false, double.PositiveInfinity, false)]
     // Enough of the file is free that rebuilding it returns something worth having.
-    [InlineData(3, 0.50, false, true)]
+    [InlineData(3, 0.50, false, double.PositiveInfinity, true)]
     // ...but not while a session is being recorded. Holding the gate for half a minute stalls the drain
     // loop, frame staging and every IPC read behind it. The space can wait; the session cannot.
-    [InlineData(3, 0.90, true, false)]
+    [InlineData(3, 0.90, true, double.PositiveInfinity, false)]
+    // ...and not twice in a day, however much is free. Sessions age out through the working day, one
+    // retention pass at a time; a rebuild an hour after the last one reclaims what that one just made
+    // room for (ST-049, P2-4).
+    [InlineData(3, 0.90, false, 2.0, false)]
+    [InlineData(3, 0.90, false, 25.0, true)]
     public void TheFileIsRebuiltOnlyWhenThereIsSomethingToReclaimAndNobodyIsRecording(
-        int purged, double freeFraction, bool recording, bool expected)
+        int purged, double freeFraction, bool recording, double hoursSinceLastVacuum, bool expected)
     {
-        Assert.Equal(expected, RetentionJob.ShouldVacuum(purged, freeFraction, recording));
+        var since = double.IsPositiveInfinity(hoursSinceLastVacuum) ? TimeSpan.MaxValue : TimeSpan.FromHours(hoursSinceLastVacuum);
+
+        Assert.Equal(expected, RetentionJob.ShouldVacuum(purged, freeFraction, recording, since));
     }
 
     [Fact]

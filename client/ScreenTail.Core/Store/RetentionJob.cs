@@ -9,8 +9,9 @@ public sealed class RetentionOptions
 /// <summary>
 /// INV-12: raw data has a retention limit. Runs at service start and hourly. Sessions whose last activity is
 /// older than the retention lose their frames, OCR text, transcript and events; the note text, the session row
-/// and the audit log stay, so Session history and published notes are unaffected. The file is vacuumed
-/// afterwards so the space is actually returned.
+/// and the audit log stay, so Session history and published notes are unaffected. The file is rebuilt
+/// afterwards when <see cref="ShouldVacuum"/> says so: a third of it free, nobody recording, and not
+/// within a day of the last rebuild.
 /// </summary>
 /// <param name="activeSessionId">
 /// The session being recorded right now, exempt while it runs. Everything else ages out, including a session
@@ -29,6 +30,17 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
     public const double WorthReclaiming = 0.3;
 
     /// <summary>
+    /// How long the file is left alone after a rebuild, whatever the numbers say.
+    ///
+    /// Sessions age out through the working day, one retention pass at a time, and each pass that
+    /// purged something used to be allowed its own rebuild. The second rebuild of a day reclaims the
+    /// space the first one just made room for, at the same cost as the first (ST-049, P2-4).
+    /// </summary>
+    public static readonly TimeSpan AtMostEvery = TimeSpan.FromDays(1);
+
+    private DateTimeOffset? _lastVacuum;
+
+    /// <summary>
     /// Whether to rebuild the file.
     ///
     /// VACUUM rewrites every page of an encrypted database -- decrypt, re-encrypt, write -- with the
@@ -40,8 +52,8 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
     /// Not while recording, whatever the numbers say. Holding the gate that long stalls the drain loop,
     /// frame staging and every IPC read behind them; the space can wait and the session cannot.
     /// </summary>
-    public static bool ShouldVacuum(int purged, double freeFraction, bool recording) =>
-        purged > 0 && !recording && freeFraction >= WorthReclaiming;
+    public static bool ShouldVacuum(int purged, double freeFraction, bool recording, TimeSpan sinceLastVacuum) =>
+        purged > 0 && !recording && freeFraction >= WorthReclaiming && sinceLastVacuum >= AtMostEvery;
 
     /// <returns>How many sessions were purged in this run.</returns>
     public async Task<int> RunAsync(CancellationToken ct = default)
@@ -53,12 +65,15 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
             await store.PurgeRawDataAsync(sessionId, ct).ConfigureAwait(false);
         }
 
+        var now = time.GetUtcNow();
         if (ShouldVacuum(
             expired.Count,
             await store.FreeSpaceFractionAsync(ct).ConfigureAwait(false),
-            recording: activeSessionId?.Invoke() is not null))
+            recording: activeSessionId?.Invoke() is not null,
+            sinceLastVacuum: _lastVacuum is { } last ? now - last : TimeSpan.MaxValue))
         {
             await store.VacuumAsync(ct).ConfigureAwait(false);
+            _lastVacuum = now;
         }
 
         return expired.Count;

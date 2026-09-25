@@ -78,6 +78,19 @@ public sealed class SessionStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task WhatIsDeletedIsOverwrittenNotMerelyFreed()
+    {
+        // SQLite leaves a deleted row's pages on a freelist with their contents intact until something
+        // reuses them, so "deleted for good" was true of the row and not of the bytes. The file is
+        // encrypted, but the promise INV-12 makes is about the data being gone, not about it being hard
+        // to read for whoever has the key later (P2-12). secure_delete is per connection, and the store
+        // has one, so this asks that one.
+        var store = await OpenAsync();
+
+        Assert.True(await store.SecureDeleteIsOnAsync());
+    }
+
+    [Fact]
     public async Task DifferentKeyCannotOpen()
     {
         var store = await OpenAsync();
