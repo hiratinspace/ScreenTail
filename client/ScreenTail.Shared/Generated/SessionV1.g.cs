@@ -62,6 +62,15 @@ public sealed record Session
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PolicyVersion { get; init; }
 
+    /// <summary>
+    /// A ticket number read off the remote-support window's title or the clipboard when the session started
+    /// (ST-077). Digits only, never the title or the clipboard; Review pre-selects it with a Suggested
+    /// badge.
+    /// </summary>
+    [JsonPropertyName("suggested_ticket")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SuggestedTicket { get; init; }
+
     [JsonPropertyName("events")]
     public required IReadOnlyList<SessionEvent> Events { get; init; }
 

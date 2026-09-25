@@ -454,6 +454,20 @@ public sealed class StateMachineTests : IAsyncDisposable
 
     private static TranscriptSegment Segment(string id, long tsMs) => new() { Id = id, TsMs = tsMs, EndMs = tsMs + 100, Speaker = Speaker.Tech, Text = "hi" };
 
+    [Fact]
+    public async Task StartingWithATicketHintRemembersIt()
+    {
+        // ST-077: the coordinator read a ticket number off the window when it started the session;
+        // Review needs it later, from the store, after any number of restarts.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.True(await harness.Machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Screenconnect }, suggestedTicket: "48213", ct: ct));
+
+        var session = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
+        Assert.Equal("48213", session.SuggestedTicket);
+    }
+
     private sealed class FixedKeyProvider(byte[] key) : IStoreKeyProvider
     {
         public byte[] GetKey() => (byte[])key.Clone();

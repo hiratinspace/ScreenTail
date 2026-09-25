@@ -48,7 +48,7 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         using var lifetime = await LifetimeAsync(hooks);
         var ct = TestContext.Current.CancellationToken;
 
-        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
         await lifetime.ApplyAsync(ct);
 
         Assert.True(hooks.Installed);
@@ -60,7 +60,7 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         var hooks = new CountingHooks();
         using var lifetime = await LifetimeAsync(hooks);
         var ct = TestContext.Current.CancellationToken;
-        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
         await lifetime.ApplyAsync(ct);
 
         Assert.True(await _harness.Machine.DiscardAsync(ct));
@@ -80,7 +80,7 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         var hooks = new CountingHooks();
         using var lifetime = await LifetimeAsync(hooks);
         var ct = TestContext.Current.CancellationToken;
-        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
         await lifetime.ApplyAsync(ct);
 
         Assert.True(await _harness.Machine.SuppressAsync(reason, ct));
@@ -96,7 +96,7 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         var hooks = new CountingHooks();
         using var lifetime = await LifetimeAsync(hooks);
         var ct = TestContext.Current.CancellationToken;
-        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
         await lifetime.ApplyAsync(ct);
 
         Assert.True(await _harness.Machine.PauseAsync(ct));
@@ -114,7 +114,7 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         var hooks = new CountingHooks();
         using var lifetime = await LifetimeAsync(hooks);
         var ct = TestContext.Current.CancellationToken;
-        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
 
         await lifetime.ApplyAsync(ct);
         await lifetime.ApplyAsync(ct);
@@ -131,7 +131,7 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         var hooks = new CountingHooks { Refuses = true };
         using var lifetime = await LifetimeAsync(hooks);
         var ct = TestContext.Current.CancellationToken;
-        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness!.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
 
         await lifetime.ApplyAsync(ct);
 

@@ -42,6 +42,7 @@
     },
     "local_only": { "type": "boolean", "description": "Local-only mode was on for this session (INV-8)." },
     "policy_version": { "type": "string", "description": "Tenant policy version in force (ST-047)." },
+    "suggested_ticket": { "type": "string", "pattern": "^[0-9]{3,9}$", "description": "A ticket number read off the remote-support window's title or the clipboard when the session started (ST-077). Digits only, never the title or the clipboard; Review pre-selects it with a Suggested badge." },
     "events": { "type": "array", "items": { "$ref": "#/$defs/SessionEvent" } },
     "frames": { "type": "array", "items": { "$ref": "#/$defs/Frame" } },
     "transcript": { "type": "array", "items": { "$ref": "#/$defs/TranscriptSegment" } },

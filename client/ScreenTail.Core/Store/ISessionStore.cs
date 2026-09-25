@@ -165,12 +165,14 @@ public interface ISessionStore : IAsyncDisposable
     Task<int> GetSchemaVersionAsync(CancellationToken ct = default);
 }
 
+/// <param name="SuggestedTicket">Digits read off the window or the clipboard at start (ST-077), or null. Never the title.</param>
 public sealed record NewSession(
     string SessionId,
     DateTimeOffset StartedAt,
     RemoteTool RemoteTool,
     bool LocalOnly,
-    string? PolicyVersion);
+    string? PolicyVersion,
+    string? SuggestedTicket = null);
 
 /// <summary>A captured, not yet redacted frame. Never leaves the capture service unredacted (INV-1).</summary>
 public sealed record StagedFrame(

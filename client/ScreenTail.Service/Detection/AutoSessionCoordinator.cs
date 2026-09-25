@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Threading.Channels;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Intel;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
@@ -29,12 +30,14 @@ internal sealed partial class AutoSessionCoordinator(
     ScopePolicy policy,
     SessionTrigger trigger,
     Func<bool> indicated,
-    ILogger logger)
+    ILogger logger,
+    Func<string?>? clipboard = null)
 {
     private readonly Channel<ForegroundWindowInfo> _windows = Channel.CreateBounded<ForegroundWindowInfo>(
         new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
 
     private ScopeDecision? _lastReported;
+    private ForegroundWindowInfo? _lastWindow;
 
     /// <summary>What the HUD shows about scope right now (Spec §5 S2).</summary>
     public ScopeDecision? CurrentScope => _lastReported;
@@ -66,7 +69,7 @@ internal sealed partial class AutoSessionCoordinator(
         }
 
         var tool = new RemoteTool { Kind = _lastReported?.Tool ?? RemoteToolKind.Other };
-        var started = await machine.StartAsync(tool, ct: ct).ConfigureAwait(false);
+        var started = await machine.StartAsync(tool, suggestedTicket: Hint(_lastWindow), ct: ct).ConfigureAwait(false);
         if (started)
         {
             LogManualStart(logger, _lastReported?.ToolId ?? "unknown");
@@ -110,6 +113,15 @@ internal sealed partial class AutoSessionCoordinator(
     }
 
     /// <summary>
+    /// The ticket number in front of the technician as the session starts (ST-077): the window's title
+    /// first, the clipboard only if the title says nothing, and the clipboard read here and only here —
+    /// once per start, never kept (AC3). Digits come out; nothing else does (INV-10).
+    /// </summary>
+    private string? Hint(ForegroundWindowInfo? window) =>
+        TicketHint.From(window?.Title, window?.BrowserTabTitle, null)
+            ?? (clipboard is null ? null : TicketHint.From(null, null, clipboard()));
+
+    /// <summary>
     /// One foreground change. Internal rather than private so the scope decision it leaves behind can be
     /// asserted directly; the class is already internal to this assembly and its tests.
     /// </summary>
@@ -117,6 +129,7 @@ internal sealed partial class AutoSessionCoordinator(
     {
         var decision = policy.Decide(window);
         var triggered = trigger.Observe(window);
+        _lastWindow = window;
 
         if (triggered.Start && machine.State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed)
         {
@@ -125,7 +138,7 @@ internal sealed partial class AutoSessionCoordinator(
             {
                 LogNoIndicator(logger);
             }
-            else if (await machine.StartAsync(tool, ct: ct).ConfigureAwait(false))
+            else if (await machine.StartAsync(tool, suggestedTicket: Hint(window), ct: ct).ConfigureAwait(false))
             {
                 LogAutoStart(logger, triggered.ToolId ?? "unknown");
             }

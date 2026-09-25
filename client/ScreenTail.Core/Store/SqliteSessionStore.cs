@@ -92,8 +92,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         var now = Iso(_time.GetUtcNow());
         return RunAsync(
             """
-            INSERT INTO sessions (id, started_at, remote_tool_kind, remote_tool_version, local_only, policy_version, created_at, updated_at)
-            VALUES (@id, @started, @kind, @version, @local, @policy, @now, @now)
+            INSERT INTO sessions (id, started_at, remote_tool_kind, remote_tool_version, local_only, policy_version, suggested_ticket, created_at, updated_at)
+            VALUES (@id, @started, @kind, @version, @local, @policy, @ticket, @now, @now)
             """,
             ct,
             ("@id", session.SessionId),
@@ -102,6 +102,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@version", session.RemoteTool.ClientVersion),
             ("@local", session.LocalOnly ? 1 : 0),
             ("@policy", session.PolicyVersion),
+            ("@ticket", session.SuggestedTicket),
             ("@now", now));
     }
 
@@ -1077,7 +1078,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             _connection,
             """
             SELECT id, started_at, remote_tool_kind, remote_tool_version, duration_ms, partial_capture,
-                   frames_purged_unredacted, local_only, policy_version, draft_json
+                   frames_purged_unredacted, local_only, policy_version, draft_json, suggested_ticket
             FROM sessions WHERE id = @id
             """,
             ("@id", sessionId));
@@ -1103,6 +1104,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             LocalOnly = reader.GetInt64(7) == 1,
             PolicyVersion = reader.IsDBNull(8) ? null : reader.GetString(8),
             Draft = reader.IsDBNull(9) ? null : JsonSerializer.Deserialize<DraftNote>(reader.GetString(9), SessionJson.Options),
+            SuggestedTicket = reader.IsDBNull(10) ? null : reader.GetString(10),
             Events = [],
             Frames = [],
             Transcript = [],

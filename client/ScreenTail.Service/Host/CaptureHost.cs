@@ -250,7 +250,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var indicator = new IndicatorGuard(machine, () => indicators.Showing);
         indicator.Failed += failure => LogGuardFailed(logger, "indicator", failure.GetType().Name);
 
-        var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), () => indicator.Indicated, logger);
+        // ST-077: the clipboard is read once, as a session starts, by the coordinator and nowhere else;
+        // TicketHint keeps digits or nothing of it.
+        var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), () => indicator.Indicated, logger, Platform.Clipboard.ClipboardText.ReadOnce);
         foreground.Changed += coordinator.Observe;
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);

@@ -201,6 +201,18 @@ public sealed class LiveShell : IAsyncDisposable
         var integrations = await publisher.IntegrationsAsync(ct).ConfigureAwait(true);
         var publish = new PublishPanel(session, integrations, publisher.SearchAsync, publisher.PublishAsync);
 
+        // ST-077: the ticket number the coordinator read off the window when the session started. The
+        // PSA is asked for it by id so the pane can show its summary and company beside the Suggested
+        // badge; a number the PSA does not know is not suggested, and the picker is as before.
+        if (session.SuggestedTicket is { } hinted && integrations.Count > 0)
+        {
+            var matches = await publisher.SearchAsync(hinted, ct).ConfigureAwait(true);
+            if (matches.FirstOrDefault(m => m.Id == hinted) is { } match)
+            {
+                publish.Suggest(match);
+            }
+        }
+
         return new ReviewViewModel(
             session,
             frames,
