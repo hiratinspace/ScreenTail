@@ -44,6 +44,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     /// the thing it was talking to is being deleted.
     /// </summary>
     private volatile bool _eraseOnShutdown;
+    private static PolicySync? _policySync;
 
     private static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -127,6 +128,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         });
         var egress = new EgressGuard(egressPolicy);
 
+        // ST-047: the tenant's policy changes these in place while the service runs. The technician's
+        // own local-only choice is what the settings said at start; the admin's overrides it when locked.
+        var retentionOptions = new RetentionOptions();
+        var userLocalOnly = egressPolicy.Settings.LocalOnly;
+
         // ST-060 built the bundle, ST-063 built the endpoint, ST-064 built the queue, and between them
         // sat a stub that returned "no summarization provider is configured yet" -- so no session has
         // ever produced a note. This is that step.
@@ -136,6 +142,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var draftHttp = new HttpClient(egress) { BaseAddress = backend };
         var sender = new DraftSender(draftHttp, store, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
         var psa = new PsaGateway(draftHttp, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"));
+        var policySync = new PolicySync(draftHttp, () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"), new FilePolicyCache(Path.Combine(DataDirectory, "policy.json")), TimeProvider.System);
+        _policySync = policySync;
         var outbox = new Core.Outbox.Outbox(
             store,
             (item, ct) => backend is null
@@ -252,7 +260,28 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // ST-077: the clipboard is read once, as a session starts, by the coordinator and nowhere else;
         // TicketHint keeps digits or nothing of it.
-        var coordinator = new AutoSessionCoordinator(machine, policy, new SessionTrigger(policy), () => indicator.Indicated, logger, Platform.Clipboard.ClipboardText.ReadOnce);
+        var coordinator = new AutoSessionCoordinator(
+            machine,
+            policy,
+            new SessionTrigger(policy),
+            () => indicator.Indicated,
+            logger,
+            Platform.Clipboard.ClipboardText.ReadOnce,
+            () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version));
+
+        // Applied now from the last synced copy, and again whenever a fetch brings something new (ST-047).
+        void ApplyPolicy(TenantPolicy tenantPolicy)
+        {
+            var applied = PolicyApplication.Resolve(tenantPolicy, userLocalOnly);
+            egressPolicy.Apply(applied.LocalOnly, applied.Enforced);
+            retentionOptions.Retention = applied.Retention;
+            policy.Apply(new ScopeOptions { Exclusions = exclusions, CaptureAllWindows = applied.CaptureAllWindows });
+            LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
+        }
+
+        ApplyPolicy(policySync.Current);
+        policySync.Changed += ApplyPolicy;
+        _ = Task.Run(() => policySync.RunAsync(stoppingToken), stoppingToken);
         foreground.Changed += coordinator.Observe;
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
@@ -427,7 +456,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             narration.Microphone);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
-        var retention = new RetentionJob(store, TimeProvider.System, new RetentionOptions(), () => machine.SessionId);
+        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => machine.SessionId);
 
         // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
         // technician is not waiting on, and a tight loop on a laptop is a battery complaint.
@@ -473,6 +502,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Foreground detection using {Mode}")]
     private static partial void LogForegroundMode(ILogger logger, string mode);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Policy {Version}: retention {Days} d, local-only {LocalOnly} (locked {Locked}), all windows {AllWindows}")]
+    private static partial void LogPolicy(ILogger logger, string version, int days, bool localOnly, bool locked, bool allWindows);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Exclusions {Version}: {Applications} applications, {Rules} rules")]
     private static partial void LogExclusions(ILogger logger, string version, int applications, int rules);
@@ -563,7 +595,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             KeystrokesDropped = keystrokesDropped ?? 0,
             EgressBlocked = egress.Blocked,
             LocalOnly = egressPolicy.Settings.LocalOnly,
-            PolicyVersion = "local", // ST-047 replaces this with the tenant's policy version.
+            PolicyVersion = _policySync?.Current.Version ?? TenantPolicy.Default.Version,
             CpuPercent = 0,
             WorkingSetBytes = self.WorkingSet64,
             ServiceVersion = version,
