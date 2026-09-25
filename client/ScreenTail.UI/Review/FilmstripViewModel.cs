@@ -110,6 +110,9 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<StripItem> Items { get; }
 
+    /// <summary>What goes out with the note, in strip order: included frames only, deleted ones absent.</summary>
+    public IReadOnlyList<string> IncludedFrameIds => [.. _strip.ToPublish().Select(frame => frame.Id)];
+
     /// <summary>"7 of 14 included" (Spec §5 S3).</summary>
     public string Header => _strip.Header;
 
