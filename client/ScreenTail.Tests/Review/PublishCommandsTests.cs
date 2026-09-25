@@ -81,6 +81,18 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheMappingQuestionsPassThrough()
+    {
+        var commands = await CommandsAsync();
+
+        var listed = Assert.IsType<CompanyMappingsListed>(await commands.ReplyToAsync(new GetCompanyMappingsCommand { RequestId = 3 }));
+        var mapped = await commands.HandleAsync(new MapCompanyCommand { RequestId = 4, PsaCompany = "Acme Dental", DocCompanyId = "7" });
+
+        Assert.Equal("Acme Dental", Assert.Single(listed.Companies).Name);
+        Assert.True(mapped!.Ok);
+    }
+
+    [Fact]
     public async Task CommandsItDoesNotOwnAreLeftAlone()
     {
         var commands = await CommandsAsync();
@@ -142,6 +154,12 @@ public sealed class PublishCommandsTests : IAsyncDisposable
             LastQuery = query;
             return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IReadOnlyList<TicketRow>>(r) : GatewayAnswer.Of<IReadOnlyList<TicketRow>>(Tickets));
         }
+
+        public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<CompanyMappingsAnswer>(r) : GatewayAnswer.Of(new CompanyMappingsAnswer([new CompanyChoiceRow("7", "Acme Dental")], [])));
+
+        public Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
 
         public Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
         {

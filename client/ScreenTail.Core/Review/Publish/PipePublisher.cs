@@ -26,6 +26,20 @@ public sealed class PipePublisher(CaptureConnection connection)
         return found is null ? [] : [.. found.Tickets.Select(t => new TicketMatch(t.Id, t.Summary, t.Company))];
     }
 
+    /// <summary>The documentation platform's companies, for the mapping prompt (ST-097). Empty when the service would not say.</summary>
+    public async Task<IReadOnlyList<CompanyChoice>> CompaniesAsync(CancellationToken ct = default)
+    {
+        var listed = await _connection.RequestAsync<CompanyMappingsListed>(id => new GetCompanyMappingsCommand { RequestId = id }, ct).ConfigureAwait(false);
+        return listed is null ? [] : [.. listed.Companies.Select(c => new CompanyChoice(c.Id, c.Name))];
+    }
+
+    /// <summary>The prompt's answer, remembered by the backend. False when it was refused.</summary>
+    public async Task<bool> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default)
+    {
+        var result = await _connection.SendAsync(id => new MapCompanyCommand { RequestId = id, PsaCompany = psaCompany, DocCompanyId = docCompanyId }, ct).ConfigureAwait(false);
+        return result.Ok;
+    }
+
     public async Task<IReadOnlyList<DestinationResult>> PublishAsync(PublishRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -61,7 +75,8 @@ public sealed class PipePublisher(CaptureConnection connection)
                 Parse(r.Destination),
                 r.Ok,
                 r.Link is { } link && Uri.TryCreate(link, UriKind.Absolute, out var uri) ? uri : null,
-                r.Error))];
+                r.Error,
+                r.Kind))];
     }
 
     /// <summary>

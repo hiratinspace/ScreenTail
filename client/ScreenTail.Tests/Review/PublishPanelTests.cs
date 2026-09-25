@@ -192,6 +192,70 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public async Task AKnowledgeBaseThatNeedsAMappingSaysWhichCompanyAndOffersTheChoices()
+    {
+        // ST-097 AC2: unmatched → prompt once at publish. The backend has said the ticket's company is
+        // not mapped; the pane asks for the platform's companies and shows the prompt beside the result.
+        var panel = Panel(
+            publish: r => [.. r.Destinations.Select(d => d == Destination.KbArticle
+                ? new DestinationResult(d, false, null, "\"Acme Dental\" is not mapped to a company in the documentation platform. Map it in Settings → Integrations, then publish the article again.", "needs_mapping")
+                : new DestinationResult(d, true))],
+            companies: () => [new CompanyChoice("7", "Acme Dental"), new CompanyChoice("9", "Bright Smiles")]);
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        panel.KbArticle = true;
+
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.True(panel.NeedsMapping);
+        Assert.Equal("Acme Dental", panel.CompanyToMap);
+        Assert.Equal(["Acme Dental", "Bright Smiles"], (await panel.CompanyChoicesAsync()).Select(c => c.Name));
+    }
+
+    [Fact]
+    public async Task MappingTheCompanyRemembersItAndRetriesOnlyTheArticle()
+    {
+        var mapped = new List<(string Psa, string Doc)>();
+        var mappedYet = false;
+        var calls = new List<IReadOnlySet<Destination>>();
+        var panel = Panel(
+            publish: r =>
+            {
+                calls.Add(r.Destinations);
+                return [.. r.Destinations.Select(d => d == Destination.KbArticle && !mappedYet
+                    ? new DestinationResult(d, false, null, "not mapped", "needs_mapping")
+                    : new DestinationResult(d, true, new Uri("https://x.example/1")))];
+            },
+            companies: () => [new CompanyChoice("7", "Acme Dental")],
+            map: (psa, doc) => { mapped.Add((psa, doc)); mappedYet = true; return true; });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        panel.KbArticle = true;
+        await panel.PublishAsync(Draft(), []);
+
+        var ok = await panel.MapAndRetryAsync("7", Draft(), []);
+
+        Assert.True(ok);
+        Assert.Equal([("Acme Dental", "7")], mapped);
+        Assert.False(panel.NeedsMapping);
+        Assert.True(panel.Published);
+        Assert.Equal([Destination.KbArticle], calls[1]);
+    }
+
+    [Fact]
+    public async Task AMappingTheBackendRefusedLeavesThePromptUp()
+    {
+        var panel = Panel(
+            publish: r => [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "not mapped", "needs_mapping"))],
+            companies: () => [new CompanyChoice("7", "Acme Dental")],
+            map: (_, _) => false);
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        panel.KbArticle = true;
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(await panel.MapAndRetryAsync("7", Draft(), []));
+        Assert.True(panel.NeedsMapping);
+    }
+
+    [Fact]
     public async Task PublishingWhileBlockedIsRefusedNotAttempted()
     {
         var attempted = false;
@@ -207,10 +271,15 @@ public sealed class PublishPanelTests
         IReadOnlyList<string>? integrations = null,
         Func<string, IReadOnlyList<TicketMatch>>? search = null,
         Func<PublishRequest, IReadOnlyList<DestinationResult>>? publish = null,
-        TimeEntryOptions? rounding = null) => new(
+        TimeEntryOptions? rounding = null,
+        Func<IReadOnlyList<CompanyChoice>>? companies = null,
+        Func<string, string, bool>? map = null) => new(
             session ?? Session(draft: Draft()),
             integrations ?? ConnectWise,
             (q, _) => Task.FromResult(search?.Invoke(q) ?? []),
             (r, _) => Task.FromResult(publish?.Invoke(r) ?? [.. r.Destinations.Select(d => new DestinationResult(d, true))]),
-            rounding);
+            rounding,
+            mapping: companies is null ? null : new CompanyMapping(
+                _ => Task.FromResult(companies()),
+                (psa, doc, _) => Task.FromResult(map?.Invoke(psa, doc) ?? true)));
 }

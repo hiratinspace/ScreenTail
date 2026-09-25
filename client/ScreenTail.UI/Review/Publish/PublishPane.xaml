@@ -114,6 +114,36 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <!-- ST-097 AC2: the article's company is not mapped, so ask once, here, and remember the answer.
+                 Shown in place of Retry, which would only fail the same way. -->
+            <Border Style="{StaticResource Banner.Info}"
+                    Margin="0,4,0,12"
+                    Visibility="{Binding MappingVisibility}"
+                    AutomationProperties.Name="Company mapping">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Body}"
+                               TextWrapping="Wrap"
+                               Text="{Binding MappingPrompt}"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <ComboBox Margin="0,8,0,0"
+                              ItemsSource="{Binding Companies}"
+                              SelectedItem="{Binding SelectedCompany}"
+                              DisplayMemberPath="Name"
+                              AutomationProperties.Name="Company in the documentation platform" />
+                    <TextBlock Margin="0,6,0,0"
+                               Style="{StaticResource Text.Error}"
+                               TextWrapping="Wrap"
+                               Text="{Binding MappingError}"
+                               Visibility="{Binding MappingErrorVisibility}"
+                               AutomationProperties.LiveSetting="Assertive" />
+                    <Button Margin="0,8,0,0"
+                            Style="{StaticResource Button.Primary}"
+                            HorizontalAlignment="Left"
+                            Content="Map and publish the article"
+                            Command="{Binding MapAndPublishCommand}"
+                            IsEnabled="{Binding CanMap}" />
+                </StackPanel>
+            </Border>
             <Button Style="{StaticResource Button.Primary}"
                     HorizontalAlignment="Left"
                     Content="Retry"

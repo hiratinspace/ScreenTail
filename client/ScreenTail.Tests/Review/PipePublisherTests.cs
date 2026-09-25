@@ -41,6 +41,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         var time = results.Single(r => r.Destination == Destination.TimeEntry);
         Assert.False(time.Ok);
         Assert.Equal("ConnectWise says no.", time.Error);
+        Assert.Equal("forbidden", time.Kind);
         Assert.Equal(["f1"], _backend.Received!.Frames.Select(f => f.Id));
         Assert.Equal("Acme Dental", _backend.Received.Company);
     }
@@ -57,6 +58,20 @@ public sealed class PipePublisherTests : IAsyncDisposable
         var only = Assert.Single(results);
         Assert.False(only.Ok);
         Assert.Equal("Connect a PSA to publish.", only.Error);
+    }
+
+    [Fact]
+    public async Task TheMappingPromptsChoicesAndAnswerGoOverThePipe()
+    {
+        var publisher = await PublisherAsync();
+        _backend.Companies = [new CompanyChoiceRow("7", "Acme Dental")];
+
+        var choices = await publisher.CompaniesAsync(TestContext.Current.CancellationToken);
+        var mapped = await publisher.MapAsync("Acme Dental", "7", TestContext.Current.CancellationToken);
+
+        Assert.Equal("Acme Dental", Assert.Single(choices).Name);
+        Assert.True(mapped);
+        Assert.Equal(("Acme Dental", "7"), _backend.Mapped);
     }
 
     [Fact]
@@ -122,6 +137,19 @@ public sealed class PipePublisherTests : IAsyncDisposable
         public IReadOnlyList<IntegrationInfo> Integrations { get; set; } = [];
 
         public PublishWire? Received { get; private set; }
+
+        public IReadOnlyList<CompanyChoiceRow> Companies { get; set; } = [];
+
+        public (string Psa, string Doc)? Mapped { get; private set; }
+
+        public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
+            Task.FromResult(GatewayAnswer.Of(new CompanyMappingsAnswer(Companies, [])));
+
+        public Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default)
+        {
+            Mapped = (psaCompany, docCompanyId);
+            return Task.FromResult(GatewayAnswer.Of(true));
+        }
 
         public Task<GatewayAnswer<IReadOnlyList<IntegrationInfo>>> IntegrationsAsync(CancellationToken ct = default) =>
             Task.FromResult(GatewayAnswer.Of<IReadOnlyList<IntegrationInfo>>(Integrations));

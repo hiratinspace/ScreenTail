@@ -72,6 +72,25 @@ public sealed class PsaGatewayTests
     }
 
     [Fact]
+    public async Task CompanyMappingsAreListedAndAMappingIsPut()
+    {
+        // ST-097's endpoints, as the service calls them for the pane's prompt.
+        using var listing = new RecordingHandler(Json(new { companies = new[] { new { id = "7", name = "Acme Dental" } }, mappings = new[] { new { psaCompany = "Acme", docCompanyId = "7", docCompanyName = "Acme Dental", confidence = "manual" } } }));
+        var companies = await Gateway(listing).CompanyMappingsAsync(TestContext.Current.CancellationToken);
+
+        using var putting = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var mapped = await Gateway(putting).MapCompanyAsync("Acme Dental", "7", TestContext.Current.CancellationToken);
+
+        Assert.True(companies.Ok);
+        Assert.Equal("Acme Dental", Assert.Single(companies.Value!.Companies).Name);
+        Assert.Equal("manual", Assert.Single(companies.Value.Mappings).Confidence);
+        Assert.EndsWith("/v1/integrations/hudu/companies", listing.Asked!.AbsolutePath, StringComparison.Ordinal);
+        Assert.True(mapped.Ok);
+        Assert.Equal(HttpMethod.Put, putting.Method);
+        Assert.Contains("\"psaCompany\":\"Acme Dental\"", putting.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ARefusalIsTheBackendsWordsNotAStatusCode()
     {
         using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NotImplemented)
@@ -176,12 +195,15 @@ public sealed class PsaGatewayTests
 
         public Uri? Asked { get; private set; }
 
+        public HttpMethod? Method { get; private set; }
+
         public System.Net.Http.Headers.AuthenticationHeaderValue? Authorization { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
             Asked = request.RequestUri;
+            Method = request.Method;
             Authorization = request.Headers.Authorization;
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
             return reply;

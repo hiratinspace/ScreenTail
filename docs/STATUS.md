@@ -83,7 +83,7 @@ not do is listed in §6.
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast.
 
-**Not built:** the mapping prompt in the pane (ST-097's client half), the picker's recent-tickets list,
+**Not built:** the picker's recent-tickets list, the Settings side of company mappings (ST-081),
 enrolment (ST-010 — a Development-only flag issues a device token until then), settings
 and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
@@ -163,7 +163,7 @@ and policy sync (ST-047, ST-081), a signed installer (ST-112), hosting (ST-007),
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | The mapping prompt in the publish pane (ST-097 client half); the "recent tickets" list the picker shows on focus (Spec §5 S3). Publishing is built end to end, note, time and KB article, and the ticket is pre-selected from the window (ST-077) — none of it against a real PSA yet | Agent |
+| Then, no owner input needed | The "recent tickets" list the picker shows on focus (Spec §5 S3). Publishing is built end to end, note, time and KB article with the mapping prompt (ST-097), and the ticket is pre-selected from the window (ST-077) — none of it against a real PSA yet | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |

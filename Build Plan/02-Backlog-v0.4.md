@@ -1862,7 +1862,7 @@ Note → draft article scoped to mapped company/central KB; images inline if sup
 - **Epic/Feature:** INTEG
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). **Owed:** the prompt in the client (AC2) and the Settings screen (AC3, ST-081); both read the same endpoints.
+- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). **Client half done 2026-09-25:** the publish pane acts on `needs_mapping` — the platform's companies in a picker beside the result, the choice sent with `map_company` and remembered, the article sent again on its own (AC2: unmatched → prompt once at publish). **Owed:** the Settings screen (AC3, ST-081), which reads the same endpoints.
 
 **Description:**
 Per-tenant mapping auto-matched by name with confidence, user-correctable in Settings.

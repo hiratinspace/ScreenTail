@@ -69,6 +69,9 @@ public sealed record PublishWire
     public required IReadOnlyList<PublishWireFrame> Frames { get; init; }
 }
 
+/// <summary><c>GET /v1/integrations/hudu/companies</c>: the documentation platform's companies, and this tenant's mappings so far (ST-097).</summary>
+public sealed record CompanyMappingsAnswer(IReadOnlyList<CompanyChoiceRow> Companies, IReadOnlyList<CompanyMappingRow> Mappings);
+
 /// <summary>The service's way to the backend for publishing (ST-093). The UI never has one.</summary>
 public interface IPsaGateway
 {
@@ -77,6 +80,11 @@ public interface IPsaGateway
     Task<GatewayAnswer<IReadOnlyList<TicketRow>>> SearchTicketsAsync(string query, CancellationToken ct = default);
 
     Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default);
+
+    Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default);
+
+    /// <summary>Maps the PSA's company name to a platform company, by hand; the backend remembers it (ST-097 AC2).</summary>
+    Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -115,7 +123,54 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
             ct);
     }
 
-    private async Task<GatewayAnswer<TOut>> AskAsync<TAnswer, TOut>(Func<HttpRequestMessage> build, Func<TAnswer, TOut> map, CancellationToken ct)
+    public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
+        AskAsync<MappingsAnswer, CompanyMappingsAnswer>(
+            () => EgressRequest.For(HttpMethod.Get, new Uri("v1/integrations/hudu/companies", UriKind.Relative), EgressPurpose.Publish),
+            answer => new CompanyMappingsAnswer(
+                [.. answer.Companies.Select(c => new CompanyChoiceRow(c.Id, c.Name))],
+                [.. answer.Mappings.Select(m => new CompanyMappingRow(m.PsaCompany, m.DocCompanyId, m.DocCompanyName, m.Confidence))]),
+            ct);
+
+    public Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
+        SendAsync(
+            () =>
+            {
+                var request = EgressRequest.For(HttpMethod.Put, new Uri("v1/integrations/hudu/companies", UriKind.Relative), EgressPurpose.Publish);
+                request.Content = JsonContent.Create(new MapCompanyBody(psaCompany, docCompanyId), options: Json);
+                return request;
+            },
+            (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
+            ct);
+
+    private Task<GatewayAnswer<TOut>> AskAsync<TAnswer, TOut>(Func<HttpRequestMessage> build, Func<TAnswer, TOut> map, CancellationToken ct) =>
+        SendAsync(
+            build,
+            async (response, token) =>
+            {
+                if (response.StatusCode != HttpStatusCode.OK)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    var answer = await response.Content.ReadFromJsonAsync<TAnswer>(Json, token).ConfigureAwait(false);
+                    return answer is null
+                        ? GatewayAnswer.Refused<TOut>("The backend answered with nothing.")
+                        : GatewayAnswer.Of<TOut>(map(answer));
+                }
+                catch (Exception ex) when (ex is JsonException or NotSupportedException)
+                {
+                    return GatewayAnswer.Refused<TOut>("The backend answered something this version does not understand.");
+                }
+            },
+            ct);
+
+    /// <summary>
+    /// The guarded send every call shares. <paramref name="read"/> turns a response it accepts into the
+    /// answer and returns null for one it does not, which is then read as the backend's refusal.
+    /// </summary>
+    private async Task<GatewayAnswer<TOut>> SendAsync<TOut>(Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<GatewayAnswer<TOut>?>> read, CancellationToken ct)
     {
         if (http.BaseAddress is null)
         {
@@ -145,22 +200,8 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
 
         using (response)
         {
-            if (response.StatusCode == HttpStatusCode.OK)
-            {
-                try
-                {
-                    var answer = await response.Content.ReadFromJsonAsync<TAnswer>(Json, ct).ConfigureAwait(false);
-                    return answer is null
-                        ? GatewayAnswer.Refused<TOut>("The backend answered with nothing.")
-                        : GatewayAnswer.Of<TOut>(map(answer));
-                }
-                catch (Exception ex) when (ex is JsonException or NotSupportedException)
-                {
-                    return GatewayAnswer.Refused<TOut>("The backend answered something this version does not understand.");
-                }
-            }
-
-            return GatewayAnswer.Refused<TOut>(await RefusalAsync(response, ct).ConfigureAwait(false));
+            return await read(response, ct).ConfigureAwait(false)
+                ?? GatewayAnswer.Refused<TOut>(await RefusalAsync(response, ct).ConfigureAwait(false));
         }
     }
 
@@ -201,4 +242,12 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
     private sealed record PublishAnswer(IReadOnlyList<PublishRowAnswer> Results);
 
     private sealed record PublishRowAnswer(string Destination, bool Ok, string? Id, string? Link, string? Error, string? Kind, bool Retryable);
+
+    private sealed record MappingsAnswer(IReadOnlyList<CompanyAnswer> Companies, IReadOnlyList<MappingRowAnswer> Mappings);
+
+    private sealed record CompanyAnswer(string Id, string Name);
+
+    private sealed record MappingRowAnswer(string PsaCompany, string DocCompanyId, string DocCompanyName, string Confidence);
+
+    private sealed record MapCompanyBody(string PsaCompany, string DocCompanyId);
 }
