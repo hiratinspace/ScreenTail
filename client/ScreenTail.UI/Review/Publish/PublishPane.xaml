@@ -12,8 +12,14 @@
             <TextBlock Margin="0,12,0,4" Style="{StaticResource Text.Muted}" Text="Ticket" />
             <TextBox Style="{StaticResource Input.Default}"
                      Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                     GotKeyboardFocus="OnTicketFocus"
                      AutomationProperties.Name="Search tickets"
-                     AutomationProperties.HelpText="Type three characters or a ticket number" />
+                     AutomationProperties.HelpText="Recent tickets on focus; type three characters or a ticket number to search" />
+            <TextBlock Margin="0,6,0,0"
+                       Style="{StaticResource Text.Muted}"
+                       FontSize="{DynamicResource Size.xs}"
+                       Text="{Binding MatchesHeading}"
+                       Visibility="{Binding MatchesVisibility}" />
             <ListBox MaxHeight="160"
                      Margin="0,4,0,0"
                      ItemsSource="{Binding Matches}"

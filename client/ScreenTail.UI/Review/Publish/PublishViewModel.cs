@@ -74,6 +74,10 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial TicketMatch? SelectedMatch { get; set; }
 
+    /// <summary>"Recent tickets" over the list on focus, "Matches" once something is typed (Spec §5 S3).</summary>
+    [ObservableProperty]
+    public partial string MatchesHeading { get; set; } = "Recent tickets";
+
     [ObservableProperty]
     public partial string TicketLabel { get; set; } = string.Empty;
 
@@ -206,6 +210,20 @@ public sealed partial class PublishViewModel : ObservableObject
         }
     }
 
+    /// <summary>The picker took focus with nothing typed: show the recent tickets (Spec §5 S3).</summary>
+    [RelayCommand]
+    private async Task ShowRecentAsync()
+    {
+        if (Query.Length > 0)
+        {
+            return;
+        }
+
+        var asked = await _panel.RecentAsync().ConfigureAwait(true);
+        MatchesHeading = "Recent tickets";
+        Show(asked ? _panel.Matches : []);
+    }
+
     partial void OnQueryChanged(string value) => _ = SearchAsync(value);
 
     partial void OnSelectedCompanyChanged(CompanyChoice? value) => CanMap = value is not null && _panel.NeedsMapping && !_panel.IsPublishing;
@@ -264,13 +282,16 @@ public sealed partial class PublishViewModel : ObservableObject
     private async Task SearchAsync(string query)
     {
         var asked = await _panel.SearchAsync(query).ConfigureAwait(true);
+        MatchesHeading = "Matches";
+        Show(asked ? _panel.Matches : []);
+    }
+
+    private void Show(IReadOnlyList<TicketMatch> matches)
+    {
         Matches.Clear();
-        if (asked)
+        foreach (var match in matches)
         {
-            foreach (var match in _panel.Matches)
-            {
-                Matches.Add(match);
-            }
+            Matches.Add(match);
         }
 
         MatchesVisibility = Matches.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
