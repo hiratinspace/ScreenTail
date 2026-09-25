@@ -91,6 +91,15 @@ wrong client; a note on a missing ticket is `NotFound` rather than `Invalid`; an
 back with an identifier, without which a retry after a dropped connection cannot tell "already published"
 from "not published".
 
+## ConnectWise Manage (ST-091)
+
+`ConnectWise/ConnectWiseProvider` is the first real one. It is never in the container as an
+`IPsaProvider`: `IPsaProviderFactory` builds one per tenant from the credential the vault holds
+(ST-009), with the tenant's own site as the base address and the deployment's `ConnectWise:ClientId`
+on every request. `docs/integrations/connectwise.md` has the routes, what a tenant supplies, and the
+sandbox check that has not been run yet. Its tests run against `ScriptedConnectWise`, recorded shapes
+of the API's answers, and it passes the contract harness like the fake does.
+
 ## The fakes
 
 `FakePsaProvider` and `FakeDocProvider` exist for two jobs: the contract harness runs against them, so
