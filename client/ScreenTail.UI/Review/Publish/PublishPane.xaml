@@ -1,0 +1,124 @@
+<UserControl x:Class="ScreenTail.UI.Review.Publish.PublishPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource Brush.bg.base}"
+             AutomationProperties.Name="Publish">
+    <Grid Margin="{DynamicResource Padding.pane}">
+
+        <!-- Before publishing: the ticket, how the note goes, and where. -->
+        <StackPanel Visibility="{Binding FormVisibility}">
+            <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Publish" />
+
+            <TextBlock Margin="0,12,0,4" Style="{StaticResource Text.Muted}" Text="Ticket" />
+            <TextBox Style="{StaticResource Input.Default}"
+                     Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Search tickets"
+                     AutomationProperties.HelpText="Type three characters or a ticket number" />
+            <ListBox MaxHeight="160"
+                     Margin="0,4,0,0"
+                     ItemsSource="{Binding Matches}"
+                     SelectedItem="{Binding SelectedMatch}"
+                     DisplayMemberPath="Label"
+                     Visibility="{Binding MatchesVisibility}"
+                     AutomationProperties.Name="Matching tickets" />
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0" Visibility="{Binding TicketVisibility}">
+                <TextBlock Style="{StaticResource Text.Body}" Text="{Binding TicketLabel}" VerticalAlignment="Center" />
+                <ContentControl Margin="8,0,0,0"
+                                Style="{StaticResource Badge.Suggested}"
+                                Content="Suggested from window title"
+                                Visibility="{Binding SuggestedVisibility}" />
+            </StackPanel>
+
+            <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Muted}" Text="Note type" />
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Content="Internal" IsChecked="{Binding IsInternal}" Foreground="{DynamicResource Brush.text.primary}" GroupName="NoteType" />
+                <RadioButton Margin="16,0,0,0" Content="Discussion" IsChecked="{Binding IsDiscussion}" Foreground="{DynamicResource Brush.text.primary}" GroupName="NoteType" />
+            </StackPanel>
+            <TextBlock Style="{StaticResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="Discussion notes are visible to the customer in ConnectWise." Margin="0,2,0,0" />
+
+            <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Muted}" Text="Time entry" />
+            <StackPanel Orientation="Horizontal">
+                <TextBox Width="80"
+                         Style="{StaticResource Input.Default}"
+                         Text="{Binding Minutes, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="Minutes" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="minutes" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding RoundingNote}" />
+            </StackPanel>
+
+            <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Muted}" Text="Destinations" />
+            <CheckBox Content="Ticket note" IsChecked="{Binding TicketNote}" Foreground="{DynamicResource Brush.text.primary}" />
+            <CheckBox Margin="0,4,0,0" Content="Time entry" IsChecked="{Binding TimeEntry}" Foreground="{DynamicResource Brush.text.primary}" />
+            <CheckBox Margin="0,4,0,0" Content="{Binding KbLabel}" IsChecked="{Binding KbArticle}" Foreground="{DynamicResource Brush.text.primary}" />
+
+            <Border Margin="0,16,0,12" Height="1" Background="{DynamicResource Brush.border.subtle}" />
+
+            <Button Style="{StaticResource Button.Primary}"
+                    HorizontalAlignment="Stretch"
+                    Content="Publish   Ctrl+Enter"
+                    Command="{Binding PublishCommand}"
+                    IsEnabled="{Binding CanPublish}"
+                    Visibility="{Binding PublishVisibility}" />
+
+            <!-- v0.4.3: the reason beside the button, never only in a tooltip a keyboard user cannot reach. -->
+            <TextBlock Margin="0,6,0,0"
+                       Style="{StaticResource Text.Muted}"
+                       TextWrapping="Wrap"
+                       Text="{Binding BlockedBecause}"
+                       Visibility="{Binding BlockedVisibility}"
+                       AutomationProperties.LiveSetting="Polite" />
+
+            <!-- No integration: the button is replaced, not disabled (Spec §5 S3). Settings arrives with ST-081. -->
+            <StackPanel Visibility="{Binding ConnectVisibility}">
+                <TextBlock Style="{StaticResource Text.Body}" Text="Connect a PSA to publish" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Nothing can be published until a PSA is connected in Settings, which arrives with ST-081." />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- After publishing: what landed, where, and Retry for what did not. -->
+        <StackPanel Visibility="{Binding ResultsVisibility}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Publish" />
+                <ContentControl Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource Badge.Published}"
+                                Content="Published"
+                                Visibility="{Binding PublishedVisibility}" />
+            </StackPanel>
+            <TextBlock Margin="0,10,0,0"
+                       Style="{StaticResource Text.Body}"
+                       TextWrapping="Wrap"
+                       Text="{Binding Summary}"
+                       AutomationProperties.LiveSetting="Assertive" />
+            <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding Results}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="20" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" Text="{Binding Mark}" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Label}" />
+                                <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Error}" Visibility="{Binding ErrorVisibility}" />
+                            </StackPanel>
+                            <Button Grid.Column="2"
+                                    Style="{StaticResource Button.Ghost}"
+                                    Content="Open in ConnectWise"
+                                    Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding Link}"
+                                    Visibility="{Binding LinkVisibility}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Style="{StaticResource Button.Primary}"
+                    HorizontalAlignment="Left"
+                    Content="Retry"
+                    Command="{Binding RetryCommand}"
+                    Visibility="{Binding RetryVisibility}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

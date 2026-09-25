@@ -163,7 +163,7 @@ token until then), settings and policy sync (ST-047, ST-081), a signed installer
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | **ST-078** (publish panel), **ST-093/094** shape against a fake PSA; ST-009 (the vault) is done | Agent |
+| Then, no owner input needed | **ST-091/092** ConnectWise client and ticket search against recorded mocks, then the client's path to the backend for search and publish; ST-009 (vault) and ST-078 (publish panel, against fakes) are done | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |

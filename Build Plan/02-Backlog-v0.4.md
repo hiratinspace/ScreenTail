@@ -1468,7 +1468,7 @@ Parse title and clipboard at session start for a ticket-ID pattern; pre-select i
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** Open.
+- **Status:** **Done on the Mac side 2026-09-25, against fakes.** `PublishPanel` in Core holds every rule (14 tests): a search needs three characters or a number; a match reads `#id · summary · company`; Publish is blocked with "Choose a ticket first", "Connect a PSA to publish", the failed-draft and offline sentences, or "Choose at least one destination"; the time entry starts from the draft's minutes rounded the tenant's way (ST-066); the KB toggle follows `kb_candidate` with its reason; a partial failure keeps the successes and Retry sends only what failed; the §6 summary lines are its. The pane is the Review screen's third column, `Ctrl+Enter` publishes, and CI renders it over the fixture in four states. **The running application shows "Connect a PSA to publish"**: ticket search (ST-092) and publishing (ST-093/094) are the PSA delegates it has not been handed, and the client's path to the backend for them does not exist yet. AC1's one-second figure is the provider's to meet.
 
 **Description:**
 Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entry, destinations, Publish with disabled reasons, result list with links and retry.

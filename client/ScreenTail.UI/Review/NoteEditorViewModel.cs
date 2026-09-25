@@ -130,6 +130,9 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
 
     public bool HasDraft { get; }
 
+    /// <summary>The note as it is now, edited, for publishing (ST-078). Never the draft as it arrived.</summary>
+    public DraftNote CurrentNote => _note.ToSchema();
+
     /// <summary>The other half, for the pane that replaces the editor. Two properties rather than an
     /// inverting converter, because a converter parameter that silently does nothing is how a pane ends up
     /// showing both states at once.</summary>
