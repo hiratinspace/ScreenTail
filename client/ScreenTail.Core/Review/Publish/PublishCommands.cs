@@ -87,6 +87,7 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway)
             {
                 SessionId = publish.SessionId,
                 TicketId = publish.TicketId,
+                Company = publish.TicketCompany,
                 NoteType = publish.NoteType,
                 Minutes = publish.Minutes,
                 StartedAt = session.StartedAt,

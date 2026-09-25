@@ -6,6 +6,8 @@
     "sender writes this shape, the backend's PublishBundle reads it, and the field names ARE the contract.",
     "TheContractIsWhatPublishAccepts (backend) and ClientWritesThePublishContract (client) notice drift.",
     "",
+    "`company` is the PSA's name for the ticket's company, as the search returned it; the backend maps it to",
+    "the documentation platform's company for a knowledge-base article (ST-097) and never stores the ticket.",
     "The note is the session.v1 draft as edited in Review: a step carries `confirmed` when the technician",
     "checked it and `transcript_refs` when it quotes the transcript, and omits both otherwise. The frames are the included ones only, in strip",
     "order, each as base64 bytes -- already redacted on the device (INV-1) and held by the backend for this",
@@ -16,6 +18,7 @@
   "request": {
     "session_id": "s-0001",
     "ticket_id": "48213",
+    "company": "Acme Dental",
     "note_type": "internal",
     "minutes": 30,
     "started_at": "2026-09-24T14:02:00Z",

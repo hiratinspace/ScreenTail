@@ -323,6 +323,10 @@ public sealed record PublishSessionCommand : IpcCommand
     [JsonPropertyName("ticket_id")]
     public required string TicketId { get; init; }
 
+    /// <summary>The PSA's name for the ticket's company, as the search returned it, for the knowledge-base mapping (ST-097).</summary>
+    [JsonPropertyName("ticket_company")]
+    public string? TicketCompany { get; init; }
+
     /// <summary><c>internal</c> or <c>discussion</c>.</summary>
     [JsonPropertyName("note_type")]
     public required string NoteType { get; init; }

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers.ConnectWise;
+using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Publish;
 
 namespace ScreenTail.Api.Endpoints;
@@ -18,7 +19,7 @@ public static class PublishEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/sessions/publish", async (PublishBundle bundle, ClaimsPrincipal caller, ScreenTailContext db, IPsaProviderFactory providers, CancellationToken ct) =>
+        group.MapPost("/sessions/publish", async (PublishBundle bundle, ClaimsPrincipal caller, ScreenTailContext db, IPsaProviderFactory providers, IDocProviderFactory docProviders, TimeProvider time, CancellationToken ct) =>
         {
             // Permission first, then shape, for the reason SummarizeEndpoint gives: a revoked device
             // must not read the rules back out of the 400s.
@@ -41,7 +42,12 @@ public static class PublishEndpoint
             // The footer names whoever reviewed it. The client does not know the technician's display
             // name and should not have to: the token says who they are.
             var reviewed = bundle with { Reviewer = string.IsNullOrWhiteSpace(bundle.Reviewer) ? who.User.DisplayName : bundle.Reviewer };
-            return Results.Ok(await Publisher.PublishAsync(psa, reviewed, ct).ConfigureAwait(false));
+
+            // The knowledge base is optional: none connected means that one destination says so.
+            var docs = bundle.Destinations.Contains(Destinations.KbArticle, StringComparer.Ordinal)
+                ? await docProviders.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false)
+                : null;
+            return Results.Ok(await Publisher.PublishAsync(psa, reviewed, docs, new CompanyMappings(db, who.TenantId, time), ct).ConfigureAwait(false));
         })
         .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(MaxRequestBytes))
         .WithName("Publish")

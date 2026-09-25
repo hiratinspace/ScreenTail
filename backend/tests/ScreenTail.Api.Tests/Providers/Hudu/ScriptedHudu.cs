@@ -67,7 +67,7 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     private static object[] Companies(int page, int pageSize)
     {
-        var all = Enumerable.Range(1, 28).Select(i => new { id = i, name = i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : $"Company {i}" }).ToList();
+        var all = Enumerable.Range(1, 28).Select(i => new { id = i, name = i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}" }).ToList();
         return [.. all.Skip((page - 1) * pageSize).Take(pageSize)];
     }
 

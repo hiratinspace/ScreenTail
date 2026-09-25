@@ -36,6 +36,10 @@ public sealed record PublishWire
     [JsonPropertyName("ticket_id")]
     public required string TicketId { get; init; }
 
+    /// <summary>The PSA's name for the ticket's company; the backend maps it to the documentation platform's (ST-097).</summary>
+    [JsonPropertyName("company")]
+    public string? Company { get; init; }
+
     [JsonPropertyName("note_type")]
     public required string NoteType { get; init; }
 

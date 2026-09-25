@@ -22,6 +22,10 @@ public sealed record PublishBundle
     [JsonPropertyName("ticket_id")]
     public required string TicketId { get; init; }
 
+    /// <summary>The PSA's name for the ticket's company, for the knowledge-base mapping (ST-097). Never stored with a session.</summary>
+    [JsonPropertyName("company")]
+    public string? Company { get; init; }
+
     /// <summary><c>internal</c> or <c>discussion</c>. Internal by default in the client (v0.4.1 Q2).</summary>
     [JsonPropertyName("note_type")]
     public string NoteType { get; init; } = "internal";
