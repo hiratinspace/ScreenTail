@@ -54,12 +54,56 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.Equal(111, coordinator.CurrentScope?.Window);
     }
 
-    private async Task<AutoSessionCoordinator> CoordinatorAsync(CancellationToken ct)
+    [Fact]
+    public async Task ATicketInTheTitleIsRememberedAndTheClipboardIsLeftAlone()
+    {
+        // ST-077 AC1: "#48213" in the window → the session carries 48213 for Review to pre-select. The
+        // title said enough, so the clipboard was never asked.
+        var ct = TestContext.Current.CancellationToken;
+        var reads = 0;
+        var coordinator = await CoordinatorAsync(ct, clipboard: () => { reads++; return "99999"; });
+
+        await coordinator.HandleAsync(Window(handle: 111, title: "Ticket #48213 - Printer offline - Remote Desktop"), ct);
+
+        var session = (await _store!.LoadSessionAsync(_machine!.SessionId!, ct))!;
+        Assert.Equal("48213", session.SuggestedTicket);
+        Assert.Equal(0, reads);
+    }
+
+    [Fact]
+    public async Task WithNothingInTheTitleTheClipboardIsReadOnceAtStart()
+    {
+        // AC3: once, at start. A second foreground change in the same session reads nothing.
+        var ct = TestContext.Current.CancellationToken;
+        var reads = 0;
+        var coordinator = await CoordinatorAsync(ct, clipboard: () => { reads++; return "50011"; });
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 222), ct);
+
+        var session = (await _store!.LoadSessionAsync(_machine!.SessionId!, ct))!;
+        Assert.Equal("50011", session.SuggestedTicket);
+        Assert.Equal(1, reads);
+    }
+
+    [Fact]
+    public async Task NoTicketAnywhereMeansNoSuggestion()
+    {
+        // AC2: no match → the picker is as before. Nothing invented from a clipboard full of other things.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, clipboard: () => "call 0161 496 0123");
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+
+        Assert.Null((await _store!.LoadSessionAsync(_machine!.SessionId!, ct))!.SuggestedTicket);
+    }
+
+    private async Task<AutoSessionCoordinator> CoordinatorAsync(CancellationToken ct, Func<string?>? clipboard = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)), ct: ct);
         _machine = new SessionMachine(_store, new NoCaptureSources(), new UnavailableDrafter());
         var policy = new ScopePolicy(Shipped);
-        return new AutoSessionCoordinator(_machine, policy, new SessionTrigger(policy), () => true, NullLogger.Instance);
+        return new AutoSessionCoordinator(_machine, policy, new SessionTrigger(policy), () => true, NullLogger.Instance, clipboard);
     }
 
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"st-scope-{Guid.NewGuid():N}.db");
@@ -87,6 +131,6 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
     }
 
     /// <summary>Two windows of one remote tool: same process, same tool id, different handle.</summary>
-    private static ForegroundWindowInfo Window(nint handle) =>
-        new(handle, 100, "mstsc", "Remote Desktop", "Window", null, false, At);
+    private static ForegroundWindowInfo Window(nint handle, string title = "Remote Desktop") =>
+        new(handle, 100, "mstsc", title, "Window", null, false, At);
 }

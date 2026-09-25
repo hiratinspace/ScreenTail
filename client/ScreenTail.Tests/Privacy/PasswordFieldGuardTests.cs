@@ -280,7 +280,7 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
         var ct = TestContext.Current.CancellationToken;
         var running = guard.RunAsync(ct);
 
-        Assert.True(await _harness.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct));
+        Assert.True(await _harness.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
 
         var suppressed = await WaitFor(() => _harness.Machine.State == SessionState.Suppressed);
         Assert.True(suppressed, "A session that started over a focused password field was not suppressed.");

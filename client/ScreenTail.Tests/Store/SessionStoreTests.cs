@@ -50,6 +50,19 @@ public sealed class SessionStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ASuggestedTicketIsKeptWithTheSessionAndNothingElseIs()
+    {
+        // ST-077: the digits, so Review can pre-select the ticket after a restart; never the title they
+        // came from (INV-10).
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1") with { SuggestedTicket = "48213" });
+        await store.CreateSessionAsync(Session("s2"));
+
+        Assert.Equal("48213", (await store.LoadSessionAsync("s1"))!.SuggestedTicket);
+        Assert.Null((await store.LoadSessionAsync("s2"))!.SuggestedTicket);
+    }
+
+    [Fact]
     public async Task RedactingTwiceIsRefused()
     {
         var store = await OpenAsync();

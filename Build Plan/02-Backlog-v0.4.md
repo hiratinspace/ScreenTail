@@ -1443,7 +1443,7 @@ Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace tr
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done on the Mac side 2026-09-25.** `TicketHint` reads a number introduced as a ticket (`#48213`, `Ticket 48213`, `SR 48213`) off the window's title — the browser tab's first — and, only when the title says nothing, off the clipboard, which the coordinator reads once as the session starts and keeps nothing of (AC3, INV-10). The digits travel as `suggested_ticket` on the session (schema, column 0009) and Review asks the PSA for that id and pre-selects it with the Suggested badge (AC1); a number the PSA does not know, or none, leaves the picker as before (AC2 — there is no "recent tickets" list yet; the picker waits for typing). Three Windows tests on the coordinator, eleven on the extractor. Not yet seen on a real screen.
 
 **Description:**
 Parse title and clipboard at session start for a ticket-ID pattern; pre-select in picker with "Suggested" badge.

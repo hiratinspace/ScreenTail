@@ -120,6 +120,10 @@ export interface Session {
    * Tenant policy version in force (ST-047).
    */
   policy_version?: string;
+  /**
+   * A ticket number read off the remote-support window's title or the clipboard when the session started (ST-077). Digits only, never the title or the clipboard; Review pre-selects it with a Suggested badge.
+   */
+  suggested_ticket?: string;
   events: SessionEvent[];
   frames: Frame[];
   transcript: TranscriptSegment[];

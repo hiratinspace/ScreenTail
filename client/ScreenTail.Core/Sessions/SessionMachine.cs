@@ -137,7 +137,8 @@ public sealed class SessionMachine : IAsyncDisposable
 
     // ---- transitions -----------------------------------------------------------------------------------
 
-    public async Task<bool> StartAsync(RemoteTool tool, bool localOnly = false, string? policyVersion = null, CancellationToken ct = default)
+    /// <param name="suggestedTicket">A ticket number read off the window at start (ST-077), or null. Digits, never a title.</param>
+    public async Task<bool> StartAsync(RemoteTool tool, bool localOnly = false, string? policyVersion = null, string? suggestedTicket = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(tool);
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
@@ -149,7 +150,7 @@ public sealed class SessionMachine : IAsyncDisposable
             }
 
             var session = new ActiveSession(Guid.NewGuid().ToString("D"), _time.GetTimestamp(), ToolKind(tool.Kind));
-            await _store.CreateSessionAsync(new NewSession(session.Id, _time.GetUtcNow(), tool, localOnly, policyVersion), ct).ConfigureAwait(false);
+            await _store.CreateSessionAsync(new NewSession(session.Id, _time.GetUtcNow(), tool, localOnly, policyVersion, suggestedTicket), ct).ConfigureAwait(false);
             _session = session;
             _holds.Clear();
             await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);

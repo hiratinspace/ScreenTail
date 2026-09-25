@@ -103,7 +103,7 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
 
         _ = await machine.SuppressAsync(CaptureStateReason.PasswordField, ct);
         _ = await machine.DiscardAsync(ct);
-        Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, localOnly: false, policyVersion: null, ct));
+        Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, localOnly: false, policyVersion: null, ct: ct));
 
         Assert.Equal(SessionState.Recording, machine.State);
     }
