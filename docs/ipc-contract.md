@@ -41,6 +41,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `publish_session` | `session_id`, `ticket_id`, `ticket_company?`, `note_type`, `minutes`, `billable`, `destinations[]`, `note`, `frame_ids[]` | Publish (INV-3). The service reads the frames' bytes from the store and asks the backend; the company is the PSA's name for the ticket's, for the knowledge-base mapping. Answered by `published` |
 | `get_company_mappings` | — | The documentation platform's companies and what this tenant has mapped (ST-097). Answered by `company_mappings` |
 | `map_company` | `psa_company`, `doc_company_id` | The mapping prompt's answer: this PSA company is that platform company. The backend remembers it. Answered by a `result` |
+| `activate_device` | `code`, `device_name` | The invite's code and this machine's name (ST-010, Spec §5 S8 step 2). The service keeps the refresh token the backend hands back under DPAPI; the UI only ever sees the tenant's name. Answered by `device_activated`, or a failed `result` with the backend's sentence |
+| `get_device` | — | The device's standing. Answered by `device` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
 | `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note |
@@ -66,6 +68,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `tickets` | `tickets[]` (`id`, `summary`, `company`, `status`) | Answers `search_tickets` |
 | `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed. `kind: needs_mapping` on `kb_article` is the one the pane acts on (below) |
 | `company_mappings` | `companies[]` (`id`, `name`), `mappings[]` (`psa_company`, `doc_company_id`, `doc_company_name`, `confidence`) | Answers `get_company_mappings` |
+| `device_activated` | `tenant_name`, `device_id` | Answers `activate_device` |
+| `device` | `activated`, `tenant_name`, `device_id`, `days_offline`, `beyond_grace`, `revoked`, `standing` | Answers `get_device`: one sentence in `standing` for a screen |
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
@@ -267,3 +271,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-25 | `get_integrations` / `integrations`, `search_tickets` / `tickets`, `publish_session` / `published` (ST-093) | 2 |
 | 2026-09-25 | `session` may carry `suggested_ticket` (schema session.v1; ST-077): digits read off the window at start, never the title | 2 |
 | 2026-09-25 | `get_company_mappings` / `company_mappings`, `map_company` (ST-097 client half) | 2 |
+| 2026-09-25 | `activate_device` / `device_activated`, `get_device` / `device` (ST-010 client half) | 2 |

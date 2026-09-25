@@ -32,6 +32,8 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(PublishSessionCommand), "publish_session")]
 [JsonDerivedType(typeof(GetCompanyMappingsCommand), "get_company_mappings")]
 [JsonDerivedType(typeof(MapCompanyCommand), "map_company")]
+[JsonDerivedType(typeof(ActivateDeviceCommand), "activate_device")]
+[JsonDerivedType(typeof(GetDeviceCommand), "get_device")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -366,6 +368,59 @@ public sealed record SessionPublished : IpcEvent
     public required IReadOnlyList<PublishOutcomeRow> Results { get; init; }
 }
 
+// ---- The device (ST-010; 2026-09-25) --------------------------------------------------------------------
+//
+// Activation is the one step in onboarding that talks to the backend (Spec §5 S8 step 2). The code
+// crosses the pipe once; the refresh token the backend hands back never does — the service keeps it
+// under DPAPI and the UI only ever sees the tenant's name.
+
+/// <summary>The invite's code and this machine's name. Answered by a <see cref="DeviceActivated"/>, or a failed <c>result</c> with the backend's sentence.</summary>
+public sealed record ActivateDeviceCommand : IpcCommand
+{
+    [JsonPropertyName("code")]
+    public required string Code { get; init; }
+
+    [JsonPropertyName("device_name")]
+    public required string DeviceName { get; init; }
+}
+
+public sealed record DeviceActivated : IpcEvent
+{
+    [JsonPropertyName("tenant_name")]
+    public required string TenantName { get; init; }
+
+    [JsonPropertyName("device_id")]
+    public required Guid DeviceId { get; init; }
+}
+
+/// <summary>The device's standing. Answered by a <see cref="DeviceReported"/>.</summary>
+public sealed record GetDeviceCommand : IpcCommand;
+
+/// <param name="Standing">One sentence for a screen: activated with whom, how long since the backend answered, or that access was revoked.</param>
+public sealed record DeviceReported : IpcEvent
+{
+    [JsonPropertyName("activated")]
+    public required bool Activated { get; init; }
+
+    [JsonPropertyName("tenant_name")]
+    public string? TenantName { get; init; }
+
+    [JsonPropertyName("device_id")]
+    public Guid? DeviceId { get; init; }
+
+    [JsonPropertyName("days_offline")]
+    public required int DaysOffline { get; init; }
+
+    [JsonPropertyName("beyond_grace")]
+    public required bool BeyondGrace { get; init; }
+
+    [JsonPropertyName("revoked")]
+    public required bool Revoked { get; init; }
+
+    [JsonPropertyName("standing")]
+    public required string Standing { get; init; }
+}
+
 // ---- The company mapping (ST-097; 2026-09-25) ---------------------------------------------------------
 //
 // A knowledge-base article is filed under the ticket's company in the documentation platform. When the
@@ -420,6 +475,8 @@ public sealed record MapCompanyCommand : IpcCommand
 [JsonDerivedType(typeof(TicketsFound), "tickets")]
 [JsonDerivedType(typeof(SessionPublished), "published")]
 [JsonDerivedType(typeof(CompanyMappingsListed), "company_mappings")]
+[JsonDerivedType(typeof(DeviceActivated), "device_activated")]
+[JsonDerivedType(typeof(DeviceReported), "device")]
 public abstract record IpcEvent
 {
     /// <summary>
