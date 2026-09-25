@@ -203,76 +203,24 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         return request;
     }
 
-    /// <summary>
-    /// Sends, retries what is worth retrying, and turns the answer into a value. The request is built
-    /// fresh per attempt because an <see cref="HttpRequestMessage"/> cannot be sent twice.
-    /// </summary>
-    private async Task<ProviderResult<JsonElement>> SendAsync(Func<HttpRequestMessage> build, CancellationToken ct)
+    private Task<ProviderResult<JsonElement>> SendAsync(Func<HttpRequestMessage> build, CancellationToken ct)
     {
         if (!_options.IsConfigured)
         {
-            return ProviderResult.Failure<JsonElement>(new ProviderError(
+            return Task.FromResult(ProviderResult.Failure<JsonElement>(new ProviderError(
                 ProviderErrorKind.Invalid,
                 "ConnectWise needs a clientId header and this deployment has none.",
-                "Set ConnectWise:ClientId on the backend."));
+                "Set ConnectWise:ClientId on the backend.")));
         }
 
-        ProviderError? last = null;
-        for (var attempt = 1; attempt <= Math.Max(1, _options.MaxAttempts); attempt++)
-        {
-            if (attempt > 1)
-            {
-                await Task.Delay(Backoff(attempt), _time, ct).ConfigureAwait(false);
-            }
-
-            HttpResponseMessage response;
-            try
-            {
-                using var request = build();
-                response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
-            {
-                last = new ProviderError(ProviderErrorKind.Unavailable, "ConnectWise did not answer.", "Try again in a minute.");
-                continue;
-            }
-
-            using (response)
-            {
-                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode)
-                {
-                    return ProviderResult.Success(Parse(body));
-                }
-
-                last = Failure(response.StatusCode, body, response.Headers.RetryAfter);
-                if (!last.Retryable)
-                {
-                    return ProviderResult.Failure<JsonElement>(last);
-                }
-            }
-        }
-
-        return ProviderResult.Failure<JsonElement>(last!);
-    }
-
-    private TimeSpan Backoff(int attempt)
-    {
-        var baseMs = _options.BackoffBase.TotalMilliseconds;
-        var exponential = baseMs * Math.Pow(2, attempt - 2);
-        var jitter = baseMs > 0 ? Random.Shared.NextDouble() * baseMs : 0;
-        return TimeSpan.FromMilliseconds(exponential + jitter);
-    }
-
-    private static JsonElement Parse(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return JsonDocument.Parse("{}").RootElement.Clone();
-        }
-
-        using var document = JsonDocument.Parse(body);
-        return document.RootElement.Clone();
+        return ProviderHttp.SendAsync(
+            _http,
+            build,
+            new RetryPolicy(_options.BackoffBase, _options.MaxAttempts),
+            (status, body, retryAfter) => Failure(status, body, ProviderHttp.RetryAfter(retryAfter, _time)),
+            "ConnectWise",
+            _time,
+            ct);
     }
 
     private static TicketRef Ticket(JsonElement element) => new(
@@ -286,7 +234,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     /// kept — they are what a technician will paste into a ticket — and nothing else from the body is:
     /// no URLs, no stack, no token.
     /// </summary>
-    private static ProviderError Failure(HttpStatusCode status, string body, RetryConditionHeaderValue? retryAfter) => status switch
+    private static ProviderError Failure(HttpStatusCode status, string body, TimeSpan? retryAfter) => status switch
     {
         HttpStatusCode.Unauthorized => new ProviderError(
             ProviderErrorKind.Unauthenticated,
@@ -304,12 +252,12 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             ProviderErrorKind.Unavailable,
             "ConnectWise is rate-limiting requests.",
             "Try again in a minute.",
-            retryAfter?.Delta ?? (retryAfter?.Date is { } date ? date - DateTimeOffset.UtcNow : null)),
+            retryAfter),
         >= HttpStatusCode.InternalServerError => new ProviderError(
             ProviderErrorKind.Unavailable,
             "ConnectWise did not answer.",
             "Try again in a minute.",
-            retryAfter?.Delta),
+            retryAfter),
         _ => new ProviderError(
             ProviderErrorKind.Invalid,
             $"ConnectWise refused the request: {Reason(body)}.",
@@ -326,7 +274,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
                 && errors[0].TryGetProperty("message", out var first)
                 ? first.GetString()
                 : root.TryGetProperty("message", out var message) ? message.GetString() : null;
-            return Sanitise(text);
+            return ProviderHttp.Sanitise(text);
         }
         catch (JsonException)
         {
@@ -334,19 +282,4 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         }
     }
 
-    private static string Sanitise(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return "no reason given";
-        }
-
-        var oneLine = string.Join(' ', text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-        if (oneLine.Length > 200)
-        {
-            oneLine = oneLine[..200];
-        }
-
-        return oneLine.TrimEnd('.');
-    }
 }

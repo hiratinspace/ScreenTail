@@ -100,6 +100,17 @@ on every request. `docs/integrations/connectwise.md` has the routes, what a tena
 sandbox check that has not been run yet. Its tests run against `ScriptedConnectWise`, recorded shapes
 of the API's answers, and it passes the contract harness like the fake does.
 
+## Hudu (ST-095)
+
+`Hudu/HuduProvider` is the documentation platform, built per tenant by `IDocProviderFactory` from the
+vault's `hudu` credential like ConnectWise. Companies are paged and cached ten minutes per tenant in
+`HuduCompanyCache`; an article is created as a draft under its company and its attachments are uploaded
+against it; a company the tenant does not have is refused before anything is sent.
+`docs/integrations/hudu.md` says what to verify against a real Hudu first — that `draft` is honoured.
+
+Both providers send through `ProviderHttp`, so they cannot disagree about what a 429 means: only an
+outage is retried, with exponential backoff and jitter, three attempts at most.
+
 ## The fakes
 
 `FakePsaProvider` and `FakeDocProvider` exist for two jobs: the contract harness runs against them, so

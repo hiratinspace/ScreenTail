@@ -1812,7 +1812,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done against recorded shapes 2026-09-25; the real check is owed.** `HuduProvider`: the key as a header, companies paged at 25 and cached ten minutes per tenant (AC1), "Hudu rejected the API key." for a 401 (AC2), a draft article under its company with each attachment uploaded against it, a company the tenant does not have refused before anything is sent; passes `DocProviderContract`. AC3's document, `docs/integrations/hudu.md`, says what to verify first against a real Hudu: that `draft` is honoured, and how uploads appear. Needs a Hudu key (owner).
 
 **Description:**
 `IDocProvider` for Hudu: companies, connection check, create/update articles, self-hosted URLs; verify image upload support and record approach.
