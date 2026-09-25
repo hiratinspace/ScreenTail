@@ -130,6 +130,23 @@ uttered, a credential written back out, or a note that reads as an instruction. 
 prompt-injection defence — text on a customer's screen can ask a model to emit a command, and a note is
 where somebody downstream would find it and run it.
 
+## Integration credentials
+
+A tenant's PSA and documentation keys are stored sealed (ST-009): each row's secret under its own data
+key, that key under the deployment's master key, AES-GCM at both layers. `GET /v1/integrations` shows
+the last four characters of each; nothing over HTTP ever returns a credential, and provider workers
+read them in process through `IIntegrationVault`.
+
+The master key is configuration and has no default. Without it the service starts, lists what it has,
+and refuses to store a credential with `501 not_configured`:
+
+```bash
+dotnet user-secrets set "Vault:MasterKey" "$(openssl rand -base64 32)"
+```
+
+Rotation is a rewrap of the data keys under a new master key, with the secrets untouched; the steps are
+in `docs/security/key-rotation.md` and `--rotate-vault-keys` does the one that touches the database.
+
 ## Authentication
 
 A device is activated once and holds a long-lived refresh token; the database keeps only its SHA-256. It
