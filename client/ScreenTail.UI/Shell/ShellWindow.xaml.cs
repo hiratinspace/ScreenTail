@@ -1,10 +1,13 @@
 using System.IO;
 using System.Windows;
 using ScreenTail.Core.Review.Publish;
+using ScreenTail.Core.Settings;
 using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
+using ScreenTail.UI.Settings;
+using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Theme;
 using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
@@ -29,13 +32,15 @@ public partial class ShellWindow : Window
     public ShellWindow(
         ShellState state,
         Func<string, CancellationToken, Task<object?>> loadReview,
-        Func<object> history)
+        Func<object> history,
+        Func<object> settings)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(loadReview);
         ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(settings);
         InitializeComponent();
-        DataContext = new ShellViewModel(state, loadReview, history);
+        DataContext = new ShellViewModel(state, loadReview, history, settings);
     }
 
     public ShellWindow(string? screenshotDirectory)
@@ -61,7 +66,8 @@ public partial class ShellWindow : Window
         DataContext = new ShellViewModel(
             state,
             loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames, publish: SamplePublish(fixture, id))),
-            history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())));
+            history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
+            settings: () => new SettingsViewModel(new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
         if (_screenshotDirectory is not null)
         {
             ContentRendered += async (_, _) => await CaptureAsync(state);
@@ -132,6 +138,41 @@ public partial class ShellWindow : Window
         }
     }
 
+    /// <summary>
+    /// Settings → Integrations as Spec §5 S7 draws it: ConnectWise connected, Hudu connected with a
+    /// failed last check, and a mapping table with one of each confidence. Nothing here reaches a
+    /// backend; the running application uses <see cref="PipeIntegrations"/>.
+    /// </summary>
+    private sealed class SampleIntegrations : IIntegrationsGateway
+    {
+        public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<IntegrationDetail>?>(
+            [
+                new("connectwise", "https://na.myconnectwise.net", "••••7Qa2", new DateTimeOffset(2026, 9, 20, 9, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 30, 0, TimeSpan.Zero), null),
+                new("hudu", "https://docs.contosomsp.com", "••••c09d", new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 31, 0, TimeSpan.Zero), "Hudu rejected the API key. Update it in Settings → Integrations."),
+            ]);
+
+        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
+            Task.FromResult(new CheckOutcome(true, $"Connected to {(provider == "hudu" ? "https://docs.contosomsp.com" : "https://na.myconnectwise.net")}."));
+
+        public Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default) =>
+            Task.FromResult<CompanyMappingsPage?>(new CompanyMappingsPage(
+                [new("7", "Acme Dental"), new("9", "Birch Legal"), new("12", "Pine Vet")],
+                [
+                    new("Acme Dental", "7", "Acme Dental", "exact"),
+                    new("Birch Legal LLP", "9", "Birch Legal", "likely"),
+                    new("Pine Veterinary Clinic", "12", "Pine Vet", "manual"),
+                ]));
+
+        public Task<string?> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<string?> UnmapAsync(string psaCompany, CancellationToken ct = default) => Task.FromResult<string?>(null);
+    }
+
     private static IReadOnlyList<SessionRow> SampleRows() =>
     [
         new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1 },
@@ -153,6 +194,7 @@ public partial class ShellWindow : Window
             ("review-partial", () => state.OpenSession("preview-partial")),
             ("review-needs-mapping", () => state.OpenSession("preview-needs-mapping")),
             ("history", () => state.Navigate(ShellView.History)),
+            ("settings", () => state.Navigate(ShellView.Settings)),
             ("service-down", () => { state.Navigate(ShellView.Review); state.Lost(); }),
         })
         {

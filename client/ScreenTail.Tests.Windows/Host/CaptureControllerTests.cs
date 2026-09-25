@@ -327,6 +327,21 @@ public sealed class CaptureControllerTests : IAsyncDisposable
 
         public Task<ScreenTail.Core.Net.GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
             Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<bool>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<IReadOnlyList<IntegrationDetailRow>>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<bool>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<bool>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<ScreenTail.Core.Net.IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<ScreenTail.Core.Net.IntegrationCheckRow>("No backend."));
+
+        public Task<ScreenTail.Core.Net.GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default) =>
+            Task.FromResult(ScreenTail.Core.Net.GatewayAnswer.Refused<bool>("No backend."));
     }
 
     /// <summary>A machine the test can drive as well as hand to the controller.</summary>

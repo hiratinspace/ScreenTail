@@ -84,6 +84,53 @@ public sealed class PsaGatewayTests
     }
 
     [Fact]
+    public async Task IntegrationDetailsCarryWhenTheyWereCheckedAndWhatWentWrong()
+    {
+        // Settings → Integrations (ST-082) reads the same list the publish pane does, and the rest of it.
+        using var handler = new RecordingHandler(Json(new { integrations = new[] { new { provider = "connectwise", siteUrl = "https://na.myconnectwise.net", secret = "••••1234", connectedAt = "2026-09-25T00:00:00Z", lastCheckedAt = "2026-09-25T10:00:00Z", lastError = "ConnectWise rejected the key. Update it in Settings → Integrations." } } }));
+
+        var answer = await Gateway(handler).IntegrationDetailsAsync(TestContext.Current.CancellationToken);
+
+        var row = Assert.Single(answer.Value!);
+        Assert.Equal(new DateTimeOffset(2026, 9, 25, 10, 0, 0, TimeSpan.Zero), row.LastCheckedAt);
+        Assert.StartsWith("ConnectWise rejected", row.LastError, StringComparison.Ordinal);
+        Assert.Equal(new DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero), row.ConnectedAt);
+    }
+
+    [Fact]
+    public async Task StoringCheckingRemovingAndUnmappingHitTheirRoutes()
+    {
+        using var storing = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var stored = await Gateway(storing).StoreIntegrationAsync("connectwise", "https://na.myconnectwise.net", "acme+PUB:PRIV", TestContext.Current.CancellationToken);
+        Assert.True(stored.Ok);
+        Assert.Equal(HttpMethod.Put, storing.Method);
+        Assert.EndsWith("/v1/integrations/connectwise", storing.Asked!.AbsolutePath, StringComparison.Ordinal);
+        Assert.Contains("\"siteUrl\":\"https://na.myconnectwise.net\"", storing.Body, StringComparison.Ordinal);
+        Assert.Contains("\"secret\":\"acme", storing.Body, StringComparison.Ordinal);
+        Assert.Contains("PRIV", storing.Body, StringComparison.Ordinal);
+
+        using var checking = new RecordingHandler(Json(new { ok = false, message = "ConnectWise rejected the key. Update it in Settings → Integrations.", checkedAt = "2026-09-25T10:00:00Z" }));
+        var checkAnswer = await Gateway(checking).CheckIntegrationAsync("connectwise", TestContext.Current.CancellationToken);
+        Assert.True(checkAnswer.Ok);
+        Assert.False(checkAnswer.Value!.Ok);
+        Assert.StartsWith("ConnectWise rejected", checkAnswer.Value.Message, StringComparison.Ordinal);
+        Assert.Equal(HttpMethod.Post, checking.Method);
+        Assert.EndsWith("/v1/integrations/connectwise/check", checking.Asked!.AbsolutePath, StringComparison.Ordinal);
+
+        using var removing = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var removed = await Gateway(removing).RemoveIntegrationAsync("hudu", TestContext.Current.CancellationToken);
+        Assert.True(removed.Ok);
+        Assert.Equal(HttpMethod.Delete, removing.Method);
+        Assert.EndsWith("/v1/integrations/hudu", removing.Asked!.AbsolutePath, StringComparison.Ordinal);
+
+        using var unmapping = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var unmapped = await Gateway(unmapping).UnmapCompanyAsync("Acme Dental", TestContext.Current.CancellationToken);
+        Assert.True(unmapped.Ok);
+        Assert.Equal(HttpMethod.Delete, unmapping.Method);
+        Assert.EndsWith("/v1/integrations/hudu/companies/Acme%20Dental", unmapping.Asked!.AbsoluteUri, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CompanyMappingsAreListedAndAMappingIsPut()
     {
         // ST-097's endpoints, as the service calls them for the pane's prompt.
