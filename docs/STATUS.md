@@ -80,6 +80,8 @@ not do is listed in §6.
 - Every HTTP call the service makes goes through the egress allowlist at the composition root. Anything
   that is not HTTPS, or not the model host or the configured backend host, is refused (INV-8).
 - The audit log is hash-chained with a head anchor (#85), so truncation from either end is detected.
+- Every process logs through one scrubbing sink (ST-011): content-carrying values are `[redacted]`,
+  paths `[path]`; a crash leaves a stack-only report, and only when opted in.
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast.
 

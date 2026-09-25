@@ -271,7 +271,7 @@ Owner signup (email/password or Microsoft SSO), invites, device activation by co
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** Open.
+- **Status:** **Done 2026-09-25.** One scrubbing log sink per process in place of the framework's providers (service, UI, backend): a value under a content-carrying key is `[redacted]`, paths are `[path]`, addresses `[email]`, exceptions written with type, scrubbed message and scrubbed trace (AC1); a source scan fails the build on a log template whose placeholder would carry content. A crash writes a stack-only report — types and frames, never the message — to `%LOCALAPPDATA%\ScreenTail\crashes\` when `SCREENTAIL_CRASH_REPORTS=1`, and nothing otherwise (AC2; sending is ST-098's). `SCREENTAIL_LOG_LEVEL` sets the level, Information by default (AC3). The scrubber is duplicated on the backend by hand, the way the wire contracts are.
 
 **Description:**
 Structured logs across service, UI, backend with a scrubber removing paths, window titles, transcript/OCR/note text; opt-in crash reports (stack traces only).

@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Contracts shared by service and UI: IPC messages (ST-004), generated session types (ST-003). Platform-neutral. -->
+  <!-- Contracts shared by service and UI: IPC messages (ST-004), generated session types (ST-003), and
+       the logging rules every process applies (ST-011). Platform-neutral. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>ScreenTail.Shared</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
 </Project>
