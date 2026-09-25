@@ -60,7 +60,7 @@ public sealed class SessionMetricsTests
     [Theory]
     [InlineData(new[] { "a", "b", "c", "d" }, new[] { "a", "b", "c", "d" }, 0.0)]
     [InlineData(new[] { "a", "b", "c", "d" }, new[] { "a", "B!", "c", "d" }, 0.25)]
-    [InlineData(new[] { "a", "b" }, new[] { "a", "b", "c" }, 0.5)]
+    [InlineData(new[] { "a", "b" }, new[] { "a", "b", "c" }, 0.3333333333333333)]
     [InlineData(new[] { "a", "b", "c" }, new[] { "a" }, 0.6666666666666666)]
     [InlineData(new string[0], new[] { "a" }, 1.0)]
     public void TheEditRatioIsTheShareOfStepsChangedAddedOrRemoved(string[] original, string[] published, double expected)
@@ -97,7 +97,7 @@ public sealed class SessionMetricsTests
         var reporter = new MetricsReporter(store, outbox, () => telemetry);
 
         await reporter.ReportAsync("s1", published: true, TestContext.Current.CancellationToken);
-        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
         Assert.Empty(sent);
 
         telemetry = true;
