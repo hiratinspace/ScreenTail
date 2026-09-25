@@ -27,5 +27,6 @@
     <EmbeddedResource Include="..\..\..\research\prompts\hardening-cases.json" LogicalName="ScreenTail.Api.Tests.hardening-cases.json" />
     <EmbeddedResource Include="..\..\..\shared\contracts\summarize-request.v1.json" LogicalName="ScreenTail.Api.Tests.summarize-request.v1.json" />
     <EmbeddedResource Include="..\..\..\shared\contracts\publish-request.v1.json" LogicalName="ScreenTail.Api.Tests.publish-request.v1.json" />
+    <EmbeddedResource Include="..\..\..\shared\contracts\session-metric.v1.json" LogicalName="ScreenTail.Api.Tests.session-metric.v1.json" />
   </ItemGroup>
 </Project>

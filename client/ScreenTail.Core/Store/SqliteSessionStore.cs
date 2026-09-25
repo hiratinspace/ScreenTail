@@ -456,11 +456,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     {
         ArgumentNullException.ThrowIfNull(draft);
         return RunAsync(
-            "UPDATE sessions SET draft_json = @draft, updated_at = @now WHERE id = @id",
+            "UPDATE sessions SET draft_json = @draft, original_draft_json = COALESCE(original_draft_json, @draft), updated_at = @now WHERE id = @id",
             ct,
             ("@draft", JsonSerializer.Serialize(draft, SessionJson.Options)),
             ("@now", Iso(_time.GetUtcNow())),
             ("@id", sessionId));
+    }
+
+    public async Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default)
+    {
+        await using var command = Command(_connection, "SELECT original_draft_json FROM sessions WHERE id = @id", ("@id", sessionId));
+        var json = await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
+        return json is null ? null : JsonSerializer.Deserialize<DraftNote>(json, SessionJson.Options);
     }
 
     public Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default)
@@ -600,7 +607,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             var now = Iso(_time.GetUtcNow());
             var discarded = await ExecuteAsync(
                 _connection,
-                "UPDATE sessions SET draft_json = NULL, raw_purged_at = @now, state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now WHERE id = @id",
+                "UPDATE sessions SET draft_json = NULL, original_draft_json = NULL, raw_purged_at = @now, state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now WHERE id = @id",
                 ct,
                 ("@now", now),
                 ("@state", Sessions.SessionStateNames.Discarded),

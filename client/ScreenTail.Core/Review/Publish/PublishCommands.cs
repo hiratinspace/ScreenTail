@@ -15,7 +15,7 @@ namespace ScreenTail.Core.Review.Publish;
 /// reason when there was no answer. The refusal is kept by request id between the two calls, because
 /// the server asks them in that order on the same connection.
 /// </summary>
-public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway)
+public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
@@ -115,9 +115,18 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway)
             },
             ct).ConfigureAwait(false);
 
-        return answer.Ok
-            ? new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! }
-            : Refuse(publish, answer.Refusal!);
+        if (!answer.Ok)
+        {
+            return Refuse(publish, answer.Refusal!);
+        }
+
+        // ST-098: the session counts as published once any destination landed. Counts and times only.
+        if (metrics is not null && answer.Value!.Any(r => r.Ok))
+        {
+            await metrics.ReportAsync(publish.SessionId, published: true, ct).ConfigureAwait(false);
+        }
+
+        return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
     }
 
     private IpcEvent? Refuse(IpcCommand command, string reason)

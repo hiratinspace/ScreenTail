@@ -225,6 +225,7 @@ _ = v1.MapIntegrations();
 _ = v1.MapPsa();
 _ = v1.MapPublish();
 _ = v1.MapCompanyMappings();
+_ = v1.MapMetrics();
 
 await app.RunAsync();
 

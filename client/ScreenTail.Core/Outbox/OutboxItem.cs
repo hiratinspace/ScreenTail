@@ -14,6 +14,9 @@ public enum OutboxKind
 
     /// <summary>Publish the knowledge-base article (ST-096).</summary>
     PublishArticle,
+
+    /// <summary>One session's counts and times for the pilot's numbers (ST-098). Never content.</summary>
+    Metric,
 }
 
 /// <summary>Where a piece of work has got to.</summary>
