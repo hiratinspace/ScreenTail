@@ -1,7 +1,11 @@
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
+using ScreenTail.Api.Providers;
+using ScreenTail.Api.Providers.ConnectWise;
+using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Vault;
 
 namespace ScreenTail.Api.Endpoints;
@@ -14,6 +18,9 @@ public sealed record StoreIntegrationRequest(string SiteUrl, string Secret);
 public sealed record IntegrationRow(string Provider, string SiteUrl, string Secret, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCheckedAt, string? LastError);
 
 public sealed record IntegrationsResponse(IReadOnlyList<IntegrationRow> Integrations);
+
+/// <summary>"Test connection" (ST-082): an answer in words either way. A refused credential is a result here, not a 502.</summary>
+public sealed record IntegrationCheckResponse(bool Ok, string Message, DateTimeOffset CheckedAt);
 
 /// <summary>
 /// The integrations endpoints (ST-009): a credential goes in and is never read back over HTTP.
@@ -91,8 +98,50 @@ public static partial class IntegrationsEndpoint
         .WithName("RemoveIntegration")
         .WithSummary("Forgets the tenant's credential for a provider.");
 
+        group.MapPost("/integrations/{provider}/check", async (string provider, ClaimsPrincipal caller, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct) =>
+        {
+            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
+            {
+                return Results.Unauthorized();
+            }
+
+            var row = await db.Integrations.SingleOrDefaultAsync(i => i.TenantId == who.TenantId && i.Provider == provider, ct).ConfigureAwait(false);
+            if (row is null)
+            {
+                return Results.NotFound(new { error = "not_connected", message = $"Connect {provider} first." });
+            }
+
+            // The cheapest call that proves the credential, from the provider the vault's row builds.
+            // A provider this deployment cannot build (a missing clientId, say) refuses inside CheckAsync
+            // with a message naming the setting, which is exactly what the card should show.
+            var result = provider switch
+            {
+                "connectwise" => await CheckAsync(await psa.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false), ct).ConfigureAwait(false),
+                "hudu" => await CheckAsync(await docs.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false), ct).ConfigureAwait(false),
+                _ => ProviderResult.Failure<bool>(new ProviderError(ProviderErrorKind.Invalid, $"ScreenTail has no {provider} integration to check.", "Remove it, or connect one of ConnectWise or Hudu.")),
+            };
+
+            var message = result.Ok ? $"Connected to {row.SiteUrl}." : result.Error!.ToString();
+            row.LastCheckedAt = time.GetUtcNow();
+            row.LastError = result.Ok ? null : message;
+            _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return Results.Ok(new IntegrationCheckResponse(result.Ok, message, row.LastCheckedAt.Value));
+        })
+        .WithName("CheckIntegration")
+        .WithSummary("Tests the tenant's credential for a provider and records when and how it went.");
+
         return group;
     }
+
+    private static async Task<ProviderResult<bool>> CheckAsync(IPsaProvider? provider, CancellationToken ct) =>
+        provider is null ? Gone() : await provider.CheckAsync(ct).ConfigureAwait(false);
+
+    private static async Task<ProviderResult<bool>> CheckAsync(IDocProvider? provider, CancellationToken ct) =>
+        provider is null ? Gone() : await provider.CheckAsync(ct).ConfigureAwait(false);
+
+    /// <summary>The row exists but the factory found no credential: removed between the two reads, or the vault cannot open it.</summary>
+    private static ProviderResult<bool> Gone() =>
+        ProviderResult.Failure<bool>(new ProviderError(ProviderErrorKind.Unavailable, "The stored credential could not be opened.", "Enter it again in Settings → Integrations."));
 
     private static IntegrationRow Masked(Integration row) => new(
         row.Provider,
