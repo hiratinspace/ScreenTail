@@ -1096,7 +1096,7 @@ System prompt and strict JSON output (`problem`, `steps[]{text,confidence,frame_
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Harness built 2026-09-26, corpus owed** (`research/eval/draft_quality.py`, ten tests). Edit ratio is words changed over words drafted, from the Levenshtein alignment of the steps with case and punctuation folded — word level, because rewriting three words of a twelve-word step is not rewriting the step. A hallucination is a step whose `frame_refs` or `transcript_refs` name something the session does not contain; a step citing nothing is unsupported and counted apart, since narration without a screenshot is ordinary. `--baseline` is AC2's gate: more than 10% worse on edit ratio, or one more invented step, exits 1. Runs over any corpus directory, so **AC1 and AC3 need ST-030's ten labelled sessions with reference notes and rubric scores** — the owner's to record; today it runs over the four handcrafted fixtures, which score themselves and prove the harness rather than the model.
 
 **Description:**
 Human rubric (accuracy, completeness, no hallucination, tone) plus automated edit-distance proxy against reference notes; runs on prompt/model changes; regression gate.
@@ -1737,7 +1737,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** Open.
+- **Status:** **Done against recorded shapes 2026-09-25** (see the heading above). The sandbox check is the owner's (`docs/integrations/connectwise.md`).
 
 **Description:**
 Search by ID/summary/company via `conditions`; default "recently touched by this API member".
