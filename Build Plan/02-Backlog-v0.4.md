@@ -1620,7 +1620,7 @@ Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 2
-- **Status:** Open.
+- **Status:** **Static half done 2026-09-26** (`docs/ux/a11y-audit.md`): every interactive element in the technician's screens has an automation name, held by a test that reads the XAML on every commit (three were missing: the confirmation dialog's box and button, the filmstrip list); contrast is already a CI test; the shortcut sheet and live regions are in place. **Owed on Windows:** the Narrator and keyboard-only pass of every screen, focus order, the 28 px hit targets and the reduce-motion check with Accessibility Insights (AC2's zero critical findings) — the laptop or the owner.
 
 **Description:**
 Narrator and keyboard-only audit of all screens against Spec §7; fix findings.

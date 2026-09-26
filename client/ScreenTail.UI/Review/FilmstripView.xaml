@@ -99,7 +99,8 @@
                  SelectionChanged="OnStripSelectionChanged"
                  ItemTemplateSelector="{StaticResource StripTemplate}"
                  KeyDown="OnStripKeyDown"
-                 MouseDoubleClick="OnStripDoubleClick" />
+                 MouseDoubleClick="OnStripDoubleClick"
+                 AutomationProperties.Name="Screenshots" />
 
         <!-- The chords that apply to this pane, on screen where they are used (Spec §5 S3). -->
         <Grid Grid.Row="2" Margin="0,10,0,0">
