@@ -40,7 +40,8 @@ public sealed class DraftSender(
     HttpClient http,
     ISessionStore store,
     Func<string?> token,
-    BundleOptions? options = null)
+    BundleOptions? options = null,
+    Func<IReadOnlyList<string>>? styleHints = null)
 {
     /// <summary>Where the backend drafts. Relative, so the host's base address decides the deployment.</summary>
     private static readonly Uri Endpoint = new("v1/sessions/summarize", UriKind.Relative);
@@ -182,7 +183,8 @@ public sealed class DraftSender(
             bundle.FramesPurgedUnredacted,
             bundle.OcrPartial,
             frames,
-            [.. bundle.Transcript.Select(segment => new WireSegment(segment.Id, segment.TsMs, segment.Text))]);
+            [.. bundle.Transcript.Select(segment => new WireSegment(segment.Id, segment.TsMs, segment.Text))],
+            styleHints?.Invoke() ?? []);
     }
 
     private sealed record WireBundle(
@@ -192,7 +194,8 @@ public sealed class DraftSender(
         [property: JsonPropertyName("frames_purged_unredacted")] long FramesPurgedUnredacted,
         [property: JsonPropertyName("ocr_partial")] bool OcrPartial,
         [property: JsonPropertyName("frames")] IReadOnlyList<WireFrame> Frames,
-        [property: JsonPropertyName("transcript")] IReadOnlyList<WireSegment> Transcript);
+        [property: JsonPropertyName("transcript")] IReadOnlyList<WireSegment> Transcript,
+        [property: JsonPropertyName("style_hints")] IReadOnlyList<string> StyleHints);
 
     private sealed record WireFrame(
         [property: JsonPropertyName("id")] string Id,

@@ -136,6 +136,13 @@ exception types and frames — never the message, which is where a path or a tit
 `%LOCALAPPDATA%\ScreenTail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
 opt-in nothing is written.
 
+**What the technician changes about drafts is learned as signals, not text** (ST-067). At publish the
+service compares the draft as written with the draft as published and keeps only structural ids —
+`past_tense`, `shorter_steps`, `no_full_stops`, `sentence_case`, `fewer_steps` — for the last ten
+sessions, in `style.json` beside the store. The next drafting request carries the ids a technician has
+earned; the backend turns the ones it knows into sentences of its own and refuses any other id, so
+nothing a client sends can become a line of the prompt.
+
 **The tenant's policy is the one thing fetched in local-only mode** (ST-047). It is a handful of
 settings — retention days, local-only and whether the admin locked it, capture scope — with no content,
 fetched from the configured backend host under its own egress purpose, at start and hourly. It has to
