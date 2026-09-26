@@ -3,15 +3,25 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              xmlns:publish="clr-namespace:ScreenTail.UI.Review.Publish"
+             xmlns:timeline="clr-namespace:ScreenTail.UI.Review.Timeline"
              AutomationProperties.Name="Review">
     <UserControl.InputBindings>
         <!-- Spec §5 S3: Ctrl+Enter publishes. The panel refuses when blocked, whatever pressed it. -->
         <KeyBinding Modifiers="Ctrl" Key="Return" Command="{Binding Publish.PublishCommand}" />
+        <!-- Alt+T opens and closes the timeline and transcript panel (ST-076). -->
+        <KeyBinding Modifiers="Alt" Key="T" Command="{Binding Timeline.ToggleCommand}" />
     </UserControl.InputBindings>
     <!-- Spec §5 S3: the note pane at the width the harness has always rendered it, the filmstrip taking
-         what is left, the publish pane on the right. The timeline row (ST-076) is not built; when it
-         is, it goes below all three. -->
+         what is left, the publish pane on the right, and the timeline row (ST-076) below all three. -->
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <timeline:TimelineView Grid.Row="1" DataContext="{Binding Timeline}" />
+
+        <Grid Grid.Row="0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="440" MinWidth="360" />
             <ColumnDefinition Width="6" />
@@ -20,7 +30,7 @@
             <ColumnDefinition Width="320" MinWidth="280" />
         </Grid.ColumnDefinitions>
 
-        <review:NoteEditorView Grid.Column="0" DataContext="{Binding Note}" />
+        <review:NoteEditorView Grid.Column="0" x:Name="Note" DataContext="{Binding Note}" FrameRequested="OnFrameRequested" />
 
         <GridSplitter Grid.Column="1"
                       Width="6"
@@ -37,5 +47,6 @@
                       AutomationProperties.Name="Resize the publish pane" />
 
         <publish:PublishPane Grid.Column="4" DataContext="{Binding Publish}" />
+        </Grid>
     </Grid>
 </UserControl>

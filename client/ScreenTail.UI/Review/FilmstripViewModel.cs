@@ -126,6 +126,10 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private FrameItem? _enlarged;
 
+    /// <summary>The strip's selection, two-way with the list, so a transcript line or a note's frame chip can set it (ST-076).</summary>
+    [ObservableProperty]
+    private StripItem? _selected;
+
     /// <summary>`T` in the enlarged view: the OCR text the redaction engine read, for verification.</summary>
     [ObservableProperty]
     private bool _showOcrText;
@@ -152,6 +156,16 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
                 item.Thumbnail = Thumbnails.Decode(bytes);
             }
         }
+    }
+
+    /// <summary>
+    /// Selects the frame with this id, or clears the selection when there is no such frame — or no id,
+    /// which is what a transcript line with no screenshot hands over. Returns whether a frame was selected.
+    /// </summary>
+    public bool Select(string? frameId)
+    {
+        Selected = frameId is null ? null : Items.OfType<FrameItem>().FirstOrDefault(item => item.Id == frameId);
+        return Selected is not null;
     }
 
     /// <summary>Call on the pane's timer: closes the undo window once its five seconds have run out.</summary>
