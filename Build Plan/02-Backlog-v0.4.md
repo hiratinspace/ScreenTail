@@ -1737,7 +1737,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** Open.
+- **Status:** **Done against recorded shapes 2026-09-25** (see the heading above). The sandbox check is the owner's (`docs/integrations/connectwise.md`).
 
 **Description:**
 Search by ID/summary/company via `conditions`; default "recently touched by this API member".
