@@ -1544,7 +1544,7 @@ Implements Spec §5 S5 sections and copy, including scope warning and hotkey con
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Built 2026-09-26, not yet seen on a real screen.** The technician's settings are a document the service keeps beside the store (`settings.json`) and applies in place: local-only (read-only with "Set by your admin (policy …)" when the policy locked it, AC3), excluded apps by process name, the redaction toggles and custom patterns — checked as typed, tried in a test box, an invalid one anywhere blocking Save with the reason (AC1) — retention 1–30 days with what is deleted spelled out (locked under an admin policy), usage telemetry with the exact field list read off the metric's wire type (off means nothing is queued, AC2), export of the audit log with its verification, and Delete everything through the service's typed confirmation (AC4). The data-flow explainer matches `docs/security/data-flow.md`.
 
 **Description:**
 Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns with live regex validator and test box, retention, telemetry with field list, export/delete; admin-locked variants.

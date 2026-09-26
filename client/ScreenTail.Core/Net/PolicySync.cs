@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ScreenTail.Shared.Settings;
 
 namespace ScreenTail.Core.Net;
 
@@ -58,23 +59,29 @@ public sealed class FilePolicyCache(string path) : IPolicyCache
 }
 
 /// <param name="Enforced">The admin locked local-only, so Settings shows it read-only with "Set by your admin".</param>
-public sealed record AppliedPolicy(string Version, TimeSpan Retention, bool LocalOnly, bool Enforced, bool CaptureAllWindows);
+/// <param name="RetentionEnforced">An admin policy is in force, so retention is the admin's and Settings shows it read-only.</param>
+public sealed record AppliedPolicy(string Version, TimeSpan Retention, bool LocalOnly, bool Enforced, bool CaptureAllWindows, bool RetentionEnforced);
 
 /// <summary>
-/// What a policy means for this client, next to what the technician chose. Retention is always the
-/// admin's; local-only is the admin's when locked and the technician's otherwise (INV-11).
+/// What a policy means for this client, next to what the technician chose (INV-11). With an admin
+/// policy in force retention is the admin's; local-only is the admin's only when locked. With no policy
+/// beyond the defaults, both are the technician's own settings (ST-081).
 /// </summary>
 public static class PolicyApplication
 {
-    public static AppliedPolicy Resolve(TenantPolicy policy, bool userLocalOnly)
+    public static AppliedPolicy Resolve(TenantPolicy policy, ClientSettings user)
     {
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(user);
+        var adminSet = policy.Version != TenantPolicy.Default.Version;
+        var days = adminSet ? policy.RetentionDays : user.RetentionDays;
         return new AppliedPolicy(
             policy.Version,
-            TimeSpan.FromDays(Math.Clamp(policy.RetentionDays, 1, 365)),
-            policy.LocalOnlyLocked ? policy.LocalOnly : userLocalOnly,
+            TimeSpan.FromDays(Math.Clamp(days, 1, 365)),
+            policy.LocalOnlyLocked ? policy.LocalOnly : user.LocalOnly,
             policy.LocalOnlyLocked,
-            policy.CaptureAllWindows);
+            policy.CaptureAllWindows,
+            adminSet);
     }
 }
 

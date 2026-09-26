@@ -5,9 +5,11 @@ using ScreenTail.Core.Net;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Sessions;
+using ScreenTail.Core.Settings;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
+using ScreenTail.Shared.Settings;
 
 namespace ScreenTail.Service.Host;
 
@@ -40,6 +42,7 @@ internal sealed class CaptureController(
     ReviewCommands review,
     PublishCommands publishing,
     DeviceCommands devices,
+    SettingsCommands settings,
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators) : IIpcCommandHandler
@@ -91,7 +94,8 @@ internal sealed class CaptureController(
             // (ST-093): what is connected, a ticket search, the publish itself.
             _ => await review.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await publishing.ReplyToAsync(command, ct).ConfigureAwait(false)
-                ?? await devices.ReplyToAsync(command, ct).ConfigureAwait(false),
+                ?? await devices.ReplyToAsync(command, ct).ConfigureAwait(false)
+                ?? await settings.ReplyToAsync(command, ct).ConfigureAwait(false),
         };
     }
 
@@ -114,6 +118,11 @@ internal sealed class CaptureController(
         if (await devices.HandleAsync(command, ct).ConfigureAwait(false) is { } notActivated)
         {
             return notActivated;
+        }
+
+        if (await settings.HandleAsync(command, ct).ConfigureAwait(false) is { } saved)
+        {
+            return saved;
         }
 
         var accepted = command switch
