@@ -247,3 +247,6 @@ as before. `--offboard-tenant <id>` deletes every row of a tenant.
 
 The tenant's policy (ST-047): `--set-policy <tenant-id> retention=3 local-only=true locked=true` writes
 a new versioned row; devices apply it within the hour, and the diagnostics panel shows the version.
+
+Usage telemetry (ST-098) is off unless `SCREENTAIL_TELEMETRY=1` is set for the service; the fields it
+sends are listed in `shared/contracts/session-metric.v1.json` and nothing else ever is.

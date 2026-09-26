@@ -139,6 +139,8 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => throw new NotSupportedException();
