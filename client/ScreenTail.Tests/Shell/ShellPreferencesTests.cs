@@ -24,6 +24,7 @@ public sealed class ShellPreferencesTests : IDisposable
             Maximised = true,
             HudX = 1_600,
             HudY = 40,
+            OnboardedAt = new DateTimeOffset(2026, 9, 26, 9, 0, 0, TimeSpan.Zero),
         };
 
         Assert.True(store.Save(preferences));

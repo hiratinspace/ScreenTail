@@ -38,6 +38,9 @@ public sealed record ShellPreferences
     /// not reopen it for every session.
     /// </summary>
     public bool TimelineExpanded { get; init; }
+
+    /// <summary>When the onboarding wizard was finished (ST-083). Null means it runs at the next start; the tray runs it again on request.</summary>
+    public DateTimeOffset? OnboardedAt { get; init; }
 }
 
 /// <summary>

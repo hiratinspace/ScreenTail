@@ -45,6 +45,7 @@ public sealed class TrayIconHost : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Item("What's being captured?", () => ShowDiagnostics?.Invoke()));
         menu.Items.Add(Item("Open ScreenTail", () => Open?.Invoke()));
+        menu.Items.Add(Item("Set up ScreenTail…", () => Setup?.Invoke()));
         menu.Items.Add(Item("Hide the recording pill (this session)", () => HidePill?.Invoke()));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Item("Quit", () => Quit?.Invoke()));
@@ -70,6 +71,9 @@ public sealed class TrayIconHost : IDisposable
     public event Action? ShowDiagnostics;
 
     public event Action? Open;
+
+    /// <summary>Spec §5 S8: the onboarding wizard, re-runnable from here (ST-083).</summary>
+    public event Action? Setup;
 
     /// <summary>
     /// The technician asking for a tray-only session. INV-4 permits it only as an explicit choice, and

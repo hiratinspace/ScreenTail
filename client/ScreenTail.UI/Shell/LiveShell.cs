@@ -50,6 +50,7 @@ public sealed class LiveShell : IAsyncDisposable
     private readonly TrayIconHost _tray = new();
     private readonly CaptureConnection _connection;
     private readonly ShellPreferencesStore _preferences = new(ShellPreferencesStore.DefaultPath);
+    private Onboarding.OnboardingWindow? _onboarding;
 
     /// <summary>
     /// The technician right-clicked the pill away. Held for this session only, never written to disk.
@@ -84,6 +85,7 @@ public sealed class LiveShell : IAsyncDisposable
         _tray.Stop += () => Send(id => new StopCommand { RequestId = id });
         _tray.Discard += DiscardWithConfirmation;
         _tray.Open += ShowWindow;
+        _tray.Setup += ShowOnboarding;
         _tray.ShowDiagnostics += ShowDiagnostics;
         _tray.HidePill += HidePillForThisSession;
         _tray.NotificationClicked += _ => ShowWindow();
@@ -107,6 +109,31 @@ public sealed class LiveShell : IAsyncDisposable
         _tray.Show(_state.Snapshot);
         ShowOrHideHud(_state.Snapshot);
         await _connection.StartAsync(ct).ConfigureAwait(false);
+
+        // ST-083: the first start runs setup. Finishing it is remembered; the tray runs it again on request.
+        if (_preferences.Load().OnboardedAt is null)
+        {
+            ShowOnboarding();
+        }
+    }
+
+    private void ShowOnboarding()
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(ShowOnboarding);
+            return;
+        }
+
+        if (_onboarding is { IsLoaded: true })
+        {
+            _ = _onboarding.Activate();
+            return;
+        }
+
+        _onboarding = Onboarding.OnboardingWindow.ForConnection(_connection, _preferences, () => { _state.Navigate(ShellView.Review); ShowWindow(); });
+        _onboarding.Closed += (_, _) => _onboarding = null;
+        _onboarding.Show();
     }
 
     /// <summary>
