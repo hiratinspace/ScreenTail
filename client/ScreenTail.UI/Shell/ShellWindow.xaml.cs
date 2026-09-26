@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using ScreenTail.Core.Onboarding;
 using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Settings;
 using ScreenTail.Core.Shell;
@@ -189,6 +190,25 @@ public partial class ShellWindow : Window
         public Task<string?> SaveAsync(Shared.Settings.CaptureSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
     }
 
+    /// <summary>A blocked microphone with its deep link, so the harness renders the Permissions step's fix (AC3).</summary>
+    private sealed class SampleCapabilities : ICapabilitiesGateway
+    {
+        public Task<IReadOnlyList<CapabilityStatus>?> CheckAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CapabilityStatus>?>(
+            [
+                new CapabilityStatus { Capability = "microphone", State = "blocked", Message = "Microphone access is off for desktop apps.", FixHint = "ms-settings:privacy-microphone" },
+                new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
+                new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
+            ]);
+    }
+
+    private sealed class SampleTestSession : ITestSession
+    {
+        public Task<bool> StartAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<bool> StopAsync(CancellationToken ct = default) => Task.FromResult(true);
+    }
+
     private sealed class SampleIntegrations : IIntegrationsGateway
     {
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) =>
@@ -252,6 +272,32 @@ public partial class ShellWindow : Window
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 UpdateLayout();
                 Save(Path.Combine(_screenshotDirectory!, $"shell-{name}-{theme.ToString().ToLowerInvariant()}.png"));
+            }
+        }
+
+        // ST-083's wizard, every step, over the sample gateways: a binding that breaks in a step fails
+        // this harness rather than the technician's first five minutes.
+        foreach (var step in Enum.GetValues<OnboardingStep>())
+        {
+            var wizard = new OnboardingWizard(
+                new Core.Settings.ActivationPanel(new SampleDevice(), "TECH-LAPTOP"),
+                new SampleCapabilities(),
+                new Core.Settings.CapturePanel(new SampleCapture()),
+                new Core.Settings.IntegrationsPanel(new SampleIntegrations()),
+                new SampleTestSession(),
+                _ => { });
+            wizard.Go(step);
+            var model = new Onboarding.OnboardingViewModel(wizard, () => { });
+            await model.LoadAsync();
+            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            {
+                ThemeManager.Apply(theme, Application.Current.Resources);
+                var window = new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+                window.Show();
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+                window.UpdateLayout();
+                Save(window, Path.Combine(_screenshotDirectory!, $"onboarding-{step.ToString().ToLowerInvariant()}-{theme.ToString().ToLowerInvariant()}.png"));
+                window.Close();
             }
         }
 
