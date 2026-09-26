@@ -41,7 +41,8 @@
                  Grid.Row="3"
                  Padding="8,6"
                  Style="{StaticResource Text.Mono}"
-                 TextChanged="OnTyped" />
+                 TextChanged="OnTyped"
+                 AutomationProperties.Name="Type the phrase to confirm" />
 
         <StackPanel Grid.Row="4"
                     Margin="0,20,0,0"
@@ -58,7 +59,8 @@
                     MinWidth="96"
                     IsEnabled="False"
                     Style="{StaticResource Button.Danger}"
-                    Click="OnConfirm" />
+                    Click="OnConfirm"
+                    AutomationProperties.Name="Confirm" />
         </StackPanel>
     </Grid>
 </Window>

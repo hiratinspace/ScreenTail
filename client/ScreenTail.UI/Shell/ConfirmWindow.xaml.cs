@@ -29,6 +29,7 @@ public partial class ConfirmWindow : Window
         Consequence.Text = consequence;
         Instruction.Text = $"Type {phrase} to confirm.";
         Confirm.Content = heading;
+        System.Windows.Automation.AutomationProperties.SetName(Confirm, heading);
     }
 
     /// <summary>
