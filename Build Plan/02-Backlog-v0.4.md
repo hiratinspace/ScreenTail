@@ -1519,7 +1519,7 @@ Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discar
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Built 2026-09-26, not yet seen on a real screen.** The capture settings are a document the service keeps beside the store (`capture.json`) and applies in place: a toggle per remote tool in the registry (a tool switched off is out of scope and starts nothing, AC1); the scope radio with the inline warning about other customers' data and a confirming click before "All windows" saves (AC2, INV-5), read-only when the admin's policy set it; auto-start off means the hotkey only; the grace period 30–300 s changes the trigger in place; hotkeys checked as typed with a clash's alternative inline (ST-029) and re-registered on save; scene-change sensitivity Low/Medium/High mapped to the sampler's threshold; the speech model chosen with its size and accuracy hint, applying at the next start and saying so; start at login through the technician's Run key. **Not built:** choosing the microphone and the live level meter (AC3) — the recorder this build uses takes Windows' default communications device; the card shows the device found and says why. Changes apply without a restart except the model.
 
 **Description:**
 Implements Spec §5 S5 sections and copy, including scope warning and hotkey conflict UI.

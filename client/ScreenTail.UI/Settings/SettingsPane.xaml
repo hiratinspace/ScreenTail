@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:activation="clr-namespace:ScreenTail.UI.Settings.Activation"
+             xmlns:capture="clr-namespace:ScreenTail.UI.Settings.Capture"
              xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
              xmlns:privacy="clr-namespace:ScreenTail.UI.Settings.Privacy"
              AutomationProperties.Name="Settings">
@@ -19,10 +20,13 @@
 
         <TextBlock Grid.Row="0" Style="{StaticResource Text.ScreenTitle}" Text="Settings" />
 
-        <!-- The sections Spec §5 lists, in its order; the one that is not built says which ticket brings it. -->
-        <TextBlock Grid.Row="1" Margin="0,8,0,16" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding CaptureLater}" />
+        <!-- The sections Spec §5 lists, in its order. -->
+        <activation:ActivationPane Grid.Row="1" Margin="0,8,0,0" MaxWidth="760" HorizontalAlignment="Left" DataContext="{Binding Activation}" />
 
-        <activation:ActivationPane Grid.Row="2" MaxWidth="760" HorizontalAlignment="Left" DataContext="{Binding Activation}" />
+        <StackPanel Grid.Row="2">
+            <TextBlock Margin="0,8,0,8" Style="{StaticResource Text.SectionHeading}" Text="Capture" />
+            <capture:CapturePane DataContext="{Binding Capture}" />
+        </StackPanel>
 
         <TextBlock Grid.Row="3" Margin="0,8,0,8" Style="{StaticResource Text.SectionHeading}" Text="Privacy &amp; Redaction" />
         <privacy:PrivacyPane Grid.Row="4" DataContext="{Binding Privacy}" />

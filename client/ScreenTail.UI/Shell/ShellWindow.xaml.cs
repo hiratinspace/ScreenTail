@@ -8,6 +8,7 @@ using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
 using ScreenTail.UI.Settings;
 using ScreenTail.UI.Settings.Activation;
+using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
 using ScreenTail.UI.Theme;
@@ -71,6 +72,7 @@ public partial class ShellWindow : Window
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
+                new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask),
                 new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), _ => Task.CompletedTask, () => Task.CompletedTask),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
         if (_screenshotDirectory is not null)
@@ -171,6 +173,20 @@ public partial class ShellWindow : Window
         public Task<string?> SaveAsync(Shared.Settings.ClientSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
         public Task<string?> ExportAuditAsync(CancellationToken ct = default) => Task.FromResult<string?>("{}");
+    }
+
+    /// <summary>Capture settings with one tool off and a clashing hotkey, so the harness renders the inline conflict (ST-029).</summary>
+    private sealed class SampleCapture : ICaptureGateway
+    {
+        public Task<CaptureSnapshot?> LoadAsync(CancellationToken ct = default) =>
+            Task.FromResult<CaptureSnapshot?>(new CaptureSnapshot(
+                new Shared.Settings.CaptureSettings { DisabledTools = ["anydesk"], GraceSeconds = 90 },
+                [new("screenconnect", "ScreenConnect"), new("rdp", "Remote Desktop"), new("anydesk", "AnyDesk")],
+                ["Headset (Jabra Evolve2)"],
+                PolicyForcesAllWindows: false,
+                DefaultGraceSeconds: 120));
+
+        public Task<string?> SaveAsync(Shared.Settings.CaptureSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
     }
 
     private sealed class SampleIntegrations : IIntegrationsGateway

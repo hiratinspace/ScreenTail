@@ -70,7 +70,10 @@ public sealed record SceneCounts(long Seen, long Kept, long Unchanged, long TooS
 public sealed class SceneSampler(TimeProvider? time = null, SceneSamplerOptions? options = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
-    private readonly SceneSamplerOptions _options = options ?? new SceneSamplerOptions();
+    private SceneSamplerOptions _options = options ?? new SceneSamplerOptions();
+
+    /// <summary>The technician's sensitivity arriving (ST-080): every sample after this one is judged under the new options.</summary>
+    public void Apply(SceneSamplerOptions options) => _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly Queue<DateTimeOffset> _kept = new();
     private SceneHash? _baseline;
     private DateTimeOffset _lastKept;

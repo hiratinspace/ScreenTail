@@ -47,6 +47,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     /// </summary>
     private volatile bool _eraseOnShutdown;
     private static PolicySync? _policySync;
+    private static string? _microphoneName;
 
     private static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -138,6 +139,13 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var settingsStore = new ClientSettingsStore(Path.Combine(DataDirectory, "settings.json"));
         Action<ClientSettings> applySettings = _ => { };
 
+        // ST-080: the capture settings, the same way. The scene sampler and the session trigger are built
+        // here so the settings can change them in place; the hotkeys are re-registered when they change.
+        var captureStore = new CaptureSettingsStore(Path.Combine(DataDirectory, "capture.json"));
+        var captureSettings = captureStore.Load();
+        var sampler = new SceneSampler(options: captureSettings.ToSceneOptions());
+        Func<CaptureSettings, Task> applyCapture = _ => Task.CompletedTask;
+
         // ST-060 built the bundle, ST-063 built the endpoint, ST-064 built the queue, and between them
         // sat a stub that returned "no summarization provider is configured yet" -- so no session has
         // ever produced a note. This is that step.
@@ -221,6 +229,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // What the UI reports about the pill being on screen, and what the indicator guard reads. A
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
+        // The registry is read here, ahead of the controller, because Settings → Capture lists its tools.
+        var registry = RemoteToolRegistry.Load(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
+            stoppingToken).ConfigureAwait(false));
+        LogRegistry(logger, registry.Version, registry.Tools.Count, registry.BrowserPatterns.Count, registry.Grace.TotalSeconds);
+
         var controller = new CaptureController(
             machine,
             new WindowsCapabilityProbe(),
@@ -233,6 +247,13 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 () => policySync.Current,
                 settings => applySettings(settings),
                 async ct => (await store.GetAuditRecordsAsync(null, ct).ConfigureAwait(false), await store.VerifyAuditAsync(ct).ConfigureAwait(false))),
+            new CaptureSettingsCommands(
+                captureStore,
+                () => [.. registry.Tools.Select(t => new ToolRow(t.Id, t.DisplayName)), .. registry.BrowserPatterns.Select(b => new ToolRow(b.Id, b.DisplayName))],
+                () => _microphoneName is { } name ? [name] : [],
+                () => policySync.Current,
+                () => (int)registry.Grace.TotalSeconds,
+                capture => _ = applyCapture(capture)),
             () => diagnostics(),
             _ =>
             {
@@ -284,10 +305,6 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-023: the registry decides what counts as a support session and what may be photographed
         // alongside one (INV-5). A registry that fails validation stops the service rather than falling back
         // to something permissive — the safe default here is to capture nothing, not to guess.
-        var registry = RemoteToolRegistry.Load(await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
-            stoppingToken).ConfigureAwait(false));
-        LogRegistry(logger, registry.Version, registry.Tools.Count, registry.BrowserPatterns.Count, registry.Grace.TotalSeconds);
 
         // ST-043: the shipped exclusions — password managers, banking tabs, credential prompts. Loaded
         // beside the registry and refused the same way if it will not parse: a privacy list that silently
@@ -305,14 +322,16 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // ST-077: the clipboard is read once, as a session starts, by the coordinator and nowhere else;
         // TicketHint keeps digits or nothing of it.
+        var trigger = new SessionTrigger(policy, grace: captureSettings.GraceSeconds is { } graceSeconds ? TimeSpan.FromSeconds(graceSeconds) : null);
         var coordinator = new AutoSessionCoordinator(
             machine,
             policy,
-            new SessionTrigger(policy),
+            trigger,
             () => indicator.Indicated,
             logger,
             Platform.Clipboard.ClipboardText.ReadOnce,
-            () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version));
+            () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version),
+            () => captureStore.Load().AutoStart);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
         // brings a new policy (ST-047) or the technician saves (ST-081). The policy decides local-only
@@ -320,14 +339,20 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         void ApplyAll(TenantPolicy tenantPolicy, ClientSettings settings)
         {
             var applied = PolicyApplication.Resolve(tenantPolicy, settings);
+            var capture = captureStore.Load();
             egressPolicy.Apply(applied.LocalOnly, applied.Enforced);
             retentionOptions.Retention = applied.Retention;
             policy.Apply(new ScopeOptions
             {
                 Exclusions = exclusions,
-                CaptureAllWindows = applied.CaptureAllWindows,
+
+                // The admin's scope wins where set; otherwise the technician's (ST-080), confirmed in Settings.
+                CaptureAllWindows = applied.CaptureAllWindows || capture.CaptureAllWindows,
                 ExcludedProcesses = new HashSet<string>(settings.ExcludedProcesses, StringComparer.OrdinalIgnoreCase),
+                DisabledTools = new HashSet<string>(capture.DisabledTools, StringComparer.OrdinalIgnoreCase),
             });
+            trigger.Apply(capture.GraceSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : registry.Grace);
+            sampler.Apply(capture.ToSceneOptions());
             redactionEngine.Apply(settings.ToRedactionPolicy());
             LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
         }
@@ -369,7 +394,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-026: clicks miss everything the technician reads rather than does — a dialog appearing while
         // they watch, a service finally starting. This looks once a second and only pays for a full capture
         // when the screen actually changed.
-        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger);
+        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger, sampler);
         var sampling = scenes.RunAsync(stoppingToken);
 
         // ST-029: "mark moment" is the only frame the technician asks for by name, so it goes around the
@@ -388,9 +413,25 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-029: the global chords. A conflict costs a shortcut, not a capture service, so it is reported
         // and the rest carry on.
         var router = new HotkeyRouter(machine, coordinator.StartFromForegroundAsync);
-        await using var hotkeys = new Hotkeys();
-        hotkeys.Pressed += action => _ = Task.Run(() => router.InvokeAsync(action, stoppingToken), stoppingToken);
+        await using var hotkeys = new HotkeyHost(captureSettings.ToBindings(), action => _ = Task.Run(() => router.InvokeAsync(action, stoppingToken), stoppingToken));
         await hotkeys.StartAsync(stoppingToken).ConfigureAwait(false);
+
+        // Settings → Capture changed a chord (ST-080): released and made again under the new bindings,
+        // with the conflicts logged the way they are at start.
+        async Task RebindHotkeysAsync(HotkeyBindings bindings)
+        {
+            foreach (var conflict in await hotkeys.RebindAsync(bindings, stoppingToken).ConfigureAwait(false))
+            {
+                LogHotkeyConflict(logger, conflict.Hotkey.ToString(), conflict.Reason, conflict.Suggestion?.ToString() ?? "none");
+            }
+        }
+
+        applyCapture = async capture =>
+        {
+            ApplyAll(policySync.Current, settingsStore.Load());
+            await RebindHotkeysAsync(capture.ToBindings()).ConfigureAwait(false);
+        };
+
         foreach (var conflict in hotkeys.Conflicts)
         {
             LogHotkeyConflict(logger, conflict.Hotkey.ToString(), conflict.Reason, conflict.Suggestion?.ToString() ?? "none");
@@ -435,7 +476,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // will not download all end the same way: clicks and screenshots are still recorded and the note
         // is written without narration.
         await using var microphone = new WindowsMicrophone();
-        await using var whisper = new WhisperRecogniser(new ModelDownload(new HttpClient(egress)));
+        _microphoneName = microphone.DeviceName;
+        await using var whisper = new WhisperRecogniser(
+            new ModelDownload(new HttpClient(egress)),
+            SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, captureSettings.SpeechModel, StringComparison.OrdinalIgnoreCase)));
         var narration = new NarrationRecorder(
             microphone,
             whisper,

@@ -46,6 +46,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `get_settings` | — | The technician's own settings and which fields the admin's policy locked (ST-081). Answered by `settings` |
 | `set_settings` | `settings` | The whole document, every time; the service validates, writes it beside the store and applies it in place. Refused with the first problem as a failed `result` |
 | `export_audit` | — | The audit log with its chain verification, as JSON (Spec §5 S6 "Export audit log"). Answered by `audit` |
+| `get_capture_settings` | — | The capture settings with the registry's tools, the device found and what the policy forces beside them (ST-080). Answered by `capture_settings` |
+| `set_capture_settings` | `settings` | The whole document, every time; validated, written beside the store, applied in place (hotkeys re-registered). Refused with the first problem as a failed `result` |
 | `list_integrations` | — | Settings → Integrations' list: each provider with its site, the credential's last four, when it was connected and last checked, and the last error (ST-082). Answered by `integration_details` |
 | `store_integration` | `provider`, `site_url`, `secret` | Stores or replaces a credential. The one message a secret ever travels in; it is never read back. Answered by a `result` |
 | `remove_integration` | `provider` | Forgets a credential. Answered by a `result` |
@@ -80,6 +82,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `device` | `activated`, `tenant_name`, `device_id`, `days_offline`, `beyond_grace`, `revoked`, `standing` | Answers `get_device`: one sentence in `standing` for a screen |
 | `settings` | `settings` (`local_only`, `telemetry`, `retention_days`, `ssn`, `cards`, `api_keys`, `passwords`, `emails`, `custom_patterns[]`, `excluded_processes[]`), `local_only_locked`, `retention_locked`, `policy_version` | Answers `get_settings` |
 | `audit` | `json` | Answers `export_audit` |
+| `capture_settings` | `settings` (`disabled_tools[]`, `capture_all_windows`, `auto_start`, `grace_seconds`, `hotkeys{}`, `sensitivity`, `speech_model`, `start_ui_at_login`), `tools[]` (`id`, `display_name`), `microphones[]`, `policy_forces_all_windows`, `default_grace_seconds` | Answers `get_capture_settings` |
 | `integration_details` | `integrations[]` (`provider`, `site_url`, `secret` as last four, `connected_at`, `last_checked_at`, `last_error`) | Answers `list_integrations` |
 | `integration_checked` | `ok`, `message` | Answers `check_integration`: the provider's answer in words, either way |
 
@@ -285,4 +288,5 @@ indicator unreachable rather than by touching capture.
 | 2026-09-25 | `get_company_mappings` / `company_mappings`, `map_company` (ST-097 client half) | 2 |
 | 2026-09-25 | `activate_device` / `device_activated`, `get_device` / `device` (ST-010 client half) | 2 |
 | 2026-09-26 | `get_settings` / `settings`, `set_settings`, `export_audit` / `audit` (ST-081) | 2 |
+| 2026-09-26 | `get_capture_settings` / `capture_settings`, `set_capture_settings` (ST-080) | 2 |
 | 2026-09-25 | `list_integrations` / `integration_details`, `store_integration`, `remove_integration`, `check_integration` / `integration_checked`, `unmap_company` (ST-082) | 2 |

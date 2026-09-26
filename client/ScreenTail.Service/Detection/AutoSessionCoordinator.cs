@@ -32,7 +32,8 @@ internal sealed partial class AutoSessionCoordinator(
     Func<bool> indicated,
     ILogger logger,
     Func<string?>? clipboard = null,
-    Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null)
+    Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null,
+    Func<bool>? autoStart = null)
 {
     private readonly Channel<ForegroundWindowInfo> _windows = Channel.CreateBounded<ForegroundWindowInfo>(
         new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
@@ -145,7 +146,12 @@ internal sealed partial class AutoSessionCoordinator(
         if (triggered.Start && machine.State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed)
         {
             var tool = new RemoteTool { Kind = decision.Tool ?? RemoteToolKind.Other };
-            if (!indicated())
+            if (autoStart is not null && !autoStart())
+            {
+                // Settings → Capture "Auto-start" off (ST-080): the tool is in scope, the session waits for Ctrl+Alt+R.
+                LogAutoStartOff(logger, triggered.ToolId ?? "unknown");
+            }
+            else if (!indicated())
             {
                 LogNoIndicator(logger);
             }
@@ -224,6 +230,9 @@ internal sealed partial class AutoSessionCoordinator(
     // The type and never the message: a store error can quote what it was asked to write (INV-10).
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Loop} loop hit {Error} and carried on")]
     private static partial void LogLoopFailed(ILogger logger, string loop, string error);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Tool} took focus; auto-start is off, so the session waits for the hotkey")]
+    private static partial void LogAutoStartOff(ILogger logger, string tool);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Session started automatically: {Tool} took focus")]
     private static partial void LogAutoStart(ILogger logger, string tool);

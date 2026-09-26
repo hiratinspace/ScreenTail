@@ -20,7 +20,12 @@ public sealed record TriggerDecision(bool Start, bool Stop, string? ToolId, stri
 public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null, TimeSpan? grace = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
-    private readonly TimeSpan _grace = grace ?? policy.Registry.Grace;
+    private TimeSpan _grace = grace ?? policy.Registry.Grace;
+
+    /// <summary>The grace in force. The technician's setting changes it in place (ST-080).</summary>
+    public TimeSpan Grace => _grace;
+
+    public void Apply(TimeSpan grace) => _grace = grace;
     private long _lastToolSeen;
     private bool _running;
     private string? _runningToolId;
