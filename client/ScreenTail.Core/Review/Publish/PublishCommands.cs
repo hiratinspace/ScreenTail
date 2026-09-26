@@ -53,6 +53,22 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway)
                         : Refuse(command, answer.Refusal!);
                 }
 
+            case ListIntegrationsCommand:
+                {
+                    var answer = await _gateway.IntegrationDetailsAsync(ct).ConfigureAwait(false);
+                    return answer.Ok
+                        ? new IntegrationDetailsListed { RequestId = command.RequestId, Integrations = answer.Value! }
+                        : Refuse(command, answer.Refusal!);
+                }
+
+            case CheckIntegrationCommand check:
+                {
+                    var answer = await _gateway.CheckIntegrationAsync(check.Provider, ct).ConfigureAwait(false);
+                    return answer.Ok
+                        ? new IntegrationChecked { RequestId = command.RequestId, Ok = answer.Value!.Ok, Message = answer.Value.Message }
+                        : Refuse(command, answer.Refusal!);
+                }
+
             default:
                 return null;
         }
@@ -61,14 +77,21 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway)
     public async Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
-        if (command is MapCompanyCommand map)
+        // The actions, whose result is the answer (the questions above are answered with their event).
+        GatewayAnswer<bool>? acted = command switch
         {
-            // The one command here that is an action rather than a question: its result is the answer.
-            var answer = await _gateway.MapCompanyAsync(map.PsaCompany, map.DocCompanyId, ct).ConfigureAwait(false);
+            MapCompanyCommand map => await _gateway.MapCompanyAsync(map.PsaCompany, map.DocCompanyId, ct).ConfigureAwait(false),
+            UnmapCompanyCommand unmap => await _gateway.UnmapCompanyAsync(unmap.PsaCompany, ct).ConfigureAwait(false),
+            StoreIntegrationCommand store => await _gateway.StoreIntegrationAsync(store.Provider, store.SiteUrl, store.Secret, ct).ConfigureAwait(false),
+            RemoveIntegrationCommand remove => await _gateway.RemoveIntegrationAsync(remove.Provider, ct).ConfigureAwait(false),
+            _ => null,
+        };
+        if (acted is { } answer)
+        {
             return new CommandResult { RequestId = command.RequestId, Ok = answer.Ok, Error = answer.Refusal };
         }
 
-        if (command is not (GetIntegrationsCommand or SearchTicketsCommand or PublishSessionCommand or GetCompanyMappingsCommand))
+        if (command is not (GetIntegrationsCommand or SearchTicketsCommand or PublishSessionCommand or GetCompanyMappingsCommand or ListIntegrationsCommand or CheckIntegrationCommand))
         {
             return null;
         }

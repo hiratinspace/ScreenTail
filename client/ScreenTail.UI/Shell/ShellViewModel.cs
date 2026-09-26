@@ -19,12 +19,14 @@ namespace ScreenTail.UI.Shell;
 public sealed partial class ShellViewModel : ObservableObject
 {
     private const string NothingToReview = "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.";
-    private const string SettingsLater = "Settings arrive with ST-081.";
+    private const string SettingsLater = "Settings arrive when the capture service answers.";
 
     private readonly ShellState _state;
     private readonly Func<string, CancellationToken, Task<object?>>? _loadReview;
     private readonly Func<object>? _history;
+    private readonly Func<object>? _settings;
     private object? _historyPane;
+    private object? _settingsPane;
     private string? _reviewShown;
 
     public ShellViewModel()
@@ -37,14 +39,17 @@ public sealed partial class ShellViewModel : ObservableObject
     /// not hand it over. Injected because this view model must not know about the pipe.
     /// </param>
     /// <param name="history">Builds the History pane, once.</param>
+    /// <param name="settings">Builds the Settings pane, once (ST-082).</param>
     public ShellViewModel(
         ShellState state,
         Func<string, CancellationToken, Task<object?>>? loadReview = null,
-        Func<object>? history = null)
+        Func<object>? history = null,
+        Func<object>? settings = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _loadReview = loadReview;
         _history = history;
+        _settings = settings;
         _state.Changed += snapshot =>
         {
             // The store raises on whatever thread the IPC client is reading on; WPF bindings are the
@@ -126,7 +131,13 @@ public sealed partial class ShellViewModel : ObservableObject
 
                 break;
             case ShellView.Settings:
-                Content = SettingsLater;
+                _settingsPane ??= _settings?.Invoke();
+                Content = _settingsPane ?? SettingsLater;
+                if (_settingsPane is Settings.SettingsViewModel settings)
+                {
+                    _ = settings.Integrations.LoadAsync();
+                }
+
                 break;
         }
     }

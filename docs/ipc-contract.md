@@ -43,6 +43,11 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `map_company` | `psa_company`, `doc_company_id` | The mapping prompt's answer: this PSA company is that platform company. The backend remembers it. Answered by a `result` |
 | `activate_device` | `code`, `device_name` | The invite's code and this machine's name (ST-010, Spec §5 S8 step 2). The service keeps the refresh token the backend hands back under DPAPI; the UI only ever sees the tenant's name. Answered by `device_activated`, or a failed `result` with the backend's sentence |
 | `get_device` | — | The device's standing. Answered by `device` |
+| `list_integrations` | — | Settings → Integrations' list: each provider with its site, the credential's last four, when it was connected and last checked, and the last error (ST-082). Answered by `integration_details` |
+| `store_integration` | `provider`, `site_url`, `secret` | Stores or replaces a credential. The one message a secret ever travels in; it is never read back. Answered by a `result` |
+| `remove_integration` | `provider` | Forgets a credential. Answered by a `result` |
+| `check_integration` | `provider` | "Test connection". Answered by `integration_checked` either way; a refusal (no backend, not enrolled) is a failed `result` |
+| `unmap_company` | `psa_company` | Forgets a company mapping. Answered by a `result` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
 | `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note |
@@ -70,6 +75,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `company_mappings` | `companies[]` (`id`, `name`), `mappings[]` (`psa_company`, `doc_company_id`, `doc_company_name`, `confidence`) | Answers `get_company_mappings` |
 | `device_activated` | `tenant_name`, `device_id` | Answers `activate_device` |
 | `device` | `activated`, `tenant_name`, `device_id`, `days_offline`, `beyond_grace`, `revoked`, `standing` | Answers `get_device`: one sentence in `standing` for a screen |
+| `integration_details` | `integrations[]` (`provider`, `site_url`, `secret` as last four, `connected_at`, `last_checked_at`, `last_error`) | Answers `list_integrations` |
+| `integration_checked` | `ok`, `message` | Answers `check_integration`: the provider's answer in words, either way |
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
@@ -272,3 +279,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-25 | `session` may carry `suggested_ticket` (schema session.v1; ST-077): digits read off the window at start, never the title | 2 |
 | 2026-09-25 | `get_company_mappings` / `company_mappings`, `map_company` (ST-097 client half) | 2 |
 | 2026-09-25 | `activate_device` / `device_activated`, `get_device` / `device` (ST-010 client half) | 2 |
+| 2026-09-25 | `list_integrations` / `integration_details`, `store_integration`, `remove_integration`, `check_integration` / `integration_checked`, `unmap_company` (ST-082) | 2 |

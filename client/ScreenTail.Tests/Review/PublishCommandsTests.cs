@@ -93,6 +93,26 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheSettingsQuestionsAndActionsPassThrough()
+    {
+        // ST-082: the Settings screen manages integrations through the same service and gateway.
+        var commands = await CommandsAsync();
+
+        var listed = Assert.IsType<IntegrationDetailsListed>(await commands.ReplyToAsync(new ListIntegrationsCommand { RequestId = 5 }));
+        var checkedEvent = Assert.IsType<IntegrationChecked>(await commands.ReplyToAsync(new CheckIntegrationCommand { RequestId = 6, Provider = "connectwise" }));
+        var stored = await commands.HandleAsync(new StoreIntegrationCommand { RequestId = 7, Provider = "hudu", SiteUrl = "https://acme.huducloud.com", Secret = "key" });
+        var removed = await commands.HandleAsync(new RemoveIntegrationCommand { RequestId = 8, Provider = "hudu" });
+        var unmapped = await commands.HandleAsync(new UnmapCompanyCommand { RequestId = 9, PsaCompany = "Acme Dental" });
+
+        Assert.Equal("connectwise", Assert.Single(listed.Integrations).Provider);
+        Assert.True(checkedEvent.Ok);
+        Assert.True(stored!.Ok);
+        Assert.True(removed!.Ok);
+        Assert.True(unmapped!.Ok);
+        Assert.Equal(("hudu", "https://acme.huducloud.com", "key"), _gateway.Stored);
+    }
+
+    [Fact]
     public async Task CommandsItDoesNotOwnAreLeftAlone()
     {
         var commands = await CommandsAsync();
@@ -154,6 +174,26 @@ public sealed class PublishCommandsTests : IAsyncDisposable
             LastQuery = query;
             return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IReadOnlyList<TicketRow>>(r) : GatewayAnswer.Of<IReadOnlyList<TicketRow>>(Tickets));
         }
+
+        public (string Provider, string SiteUrl, string Secret)? Stored { get; private set; }
+
+        public Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IReadOnlyList<IntegrationDetailRow>>(r) : GatewayAnswer.Of<IReadOnlyList<IntegrationDetailRow>>([new IntegrationDetailRow("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)]));
+
+        public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
+        {
+            Stored = (provider, siteUrl, secret);
+            return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+        }
+
+        public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+
+        public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IntegrationCheckRow>(r) : GatewayAnswer.Of(new IntegrationCheckRow(true, "Connected to https://na.myconnectwise.net.")));
+
+        public Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default) =>
+            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
 
         public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
             Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<CompanyMappingsAnswer>(r) : GatewayAnswer.Of(new CompanyMappingsAnswer([new CompanyChoiceRow("7", "Acme Dental")], [])));
