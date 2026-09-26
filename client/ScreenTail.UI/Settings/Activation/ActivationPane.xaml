@@ -1,0 +1,46 @@
+<UserControl x:Class="ScreenTail.UI.Settings.Activation.ActivationPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="This device">
+    <!-- Spec §5 S8 step 2, here until the onboarding wizard exists (ST-083): the code from the invite
+         goes in, the tenant's name comes back. The refresh token stays with the service. -->
+    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="This device" />
+                <ContentControl Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource Badge.Published}"
+                                Content="Activated"
+                                Visibility="{Binding ActivatedVisibility}" />
+            </StackPanel>
+            <TextBlock Margin="0,4,0,0"
+                       Style="{StaticResource Text.Body}"
+                       TextWrapping="Wrap"
+                       Text="{Binding Standing}"
+                       AutomationProperties.LiveSetting="Polite" />
+
+            <StackPanel Margin="0,10,0,0" Visibility="{Binding FormVisibility}">
+                <TextBlock Style="{StaticResource Text.Muted}" Text="Invite code" />
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBox Width="200"
+                             Style="{StaticResource Input.Default}"
+                             Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Invite code"
+                             AutomationProperties.HelpText="Ten letters and digits, like KX7PM-4R2WQ" />
+                    <Button Margin="8,0,0,0"
+                            Style="{StaticResource Button.Primary}"
+                            Content="Activate"
+                            Command="{Binding ActivateCommand}"
+                            IsEnabled="{Binding CanActivate}" />
+                </StackPanel>
+                <TextBlock Margin="0,6,0,0"
+                           Style="{StaticResource Text.Error}"
+                           TextWrapping="Wrap"
+                           Text="{Binding Problem}"
+                           Visibility="{Binding ProblemVisibility}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -135,6 +135,7 @@ public sealed partial class ShellViewModel : ObservableObject
                 Content = _settingsPane ?? SettingsLater;
                 if (_settingsPane is Settings.SettingsViewModel settings)
                 {
+                    _ = settings.Activation.LoadAsync();
                     _ = settings.Integrations.LoadAsync();
                 }
 
