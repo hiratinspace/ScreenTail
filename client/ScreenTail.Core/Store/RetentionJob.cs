@@ -3,7 +3,8 @@ namespace ScreenTail.Core.Store;
 public sealed class RetentionOptions
 {
     /// <summary>How long raw data (frames, OCR text, transcript, events) is kept after a session ends. Spec S6: 1–30 days, default 7.</summary>
-    public TimeSpan Retention { get; init; } = TimeSpan.FromDays(7);
+    /// <summary>Settable: the tenant's policy changes it while the job is running (ST-047).</summary>
+    public TimeSpan Retention { get; set; } = TimeSpan.FromDays(7);
 }
 
 /// <summary>

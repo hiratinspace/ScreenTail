@@ -66,7 +66,12 @@ public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToo
 /// </summary>
 public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? options = null)
 {
-    private readonly ScopeOptions _options = options ?? new ScopeOptions();
+    private ScopeOptions _options = options ?? new ScopeOptions();
+
+    public ScopeOptions Options => _options;
+
+    /// <summary>The tenant's policy arriving (ST-047): a new set of options for every decision after this one.</summary>
+    public void Apply(ScopeOptions options) => _options = options ?? throw new ArgumentNullException(nameof(options));
 
     public RemoteToolRegistry Registry => registry;
 
