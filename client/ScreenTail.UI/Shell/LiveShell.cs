@@ -18,6 +18,7 @@ using ScreenTail.UI.Review;
 using ScreenTail.UI.Settings;
 using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Integrations;
+using ScreenTail.UI.Settings.Privacy;
 using ScreenTail.UI.Tray;
 
 namespace ScreenTail.UI.Shell;
@@ -145,6 +146,7 @@ public sealed class LiveShell : IAsyncDisposable
             () => new HistoryViewModel(_state, ListSessionsAsync),
             () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
+                new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), SaveAuditExportAsync, EraseEverythingAsync),
                 new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
         _window.Closed += (_, _) => _window = null;
         _window.Show();
@@ -276,6 +278,30 @@ public sealed class LiveShell : IAsyncDisposable
             "Discard this session?",
             "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
             token => new DiscardCommand { RequestId = 0, Confirmation = token });
+    }
+
+    /// <summary>Spec §5 S6 "Delete everything": the service issues the token, the technician types the phrase, and INV-12 does the rest.</summary>
+    private Task EraseEverythingAsync() => ConfirmAndSendAsync(
+        "erase_everything",
+        "Delete everything on this device?",
+        "Every session, draft, screenshot and transcript, your settings, and this device's tokens go. ScreenTail will need to be set up again. It cannot be undone.",
+        token => new EraseAllLocalDataCommand { RequestId = 0, Confirmation = token });
+
+    /// <summary>Spec §5 S6 "Export audit log": the JSON the service produced, to a file the technician names.</summary>
+    private Task SaveAuditExportAsync(string json)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            FileName = $"screentail-audit-{DateTime.Now:yyyyMMdd-HHmm}.json",
+            Filter = "JSON (*.json)|*.json",
+            Title = "Export the audit log",
+        };
+        if (dialog.ShowDialog(_window) == true)
+        {
+            File.WriteAllText(dialog.FileName, json);
+        }
+
+        return Task.CompletedTask;
     }
 
     private async Task ConfirmAndSendAsync(string action, string heading, string consequence, Func<string, IpcCommand> build)

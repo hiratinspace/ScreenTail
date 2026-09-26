@@ -307,6 +307,11 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             new ReviewCommands(store, new WindowsFrameMasker()),
             new PublishCommands(store, new NoBackend()),
             new ScreenTail.Core.Net.DeviceCommands(new ScreenTail.Core.Net.DeviceSession(new System.Net.Http.HttpClient(), new NoCredentials())),
+            new ScreenTail.Core.Settings.SettingsCommands(
+                new ScreenTail.Core.Settings.ClientSettingsStore(Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.settings.json")),
+                () => ScreenTail.Core.Net.TenantPolicy.Default,
+                _ => { },
+                async ct => (await store.GetAuditRecordsAsync(null, ct), await store.VerifyAuditAsync(ct))),
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)),
             new IndicatorReports());

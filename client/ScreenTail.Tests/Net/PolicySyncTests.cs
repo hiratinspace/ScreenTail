@@ -87,7 +87,7 @@ public sealed class PolicySyncTests : IDisposable
     {
         // AC1: admin retention 3 d → client retention 3 d, field locked. Local-only follows the admin only
         // when locked; otherwise it is the technician's own switch.
-        var applied = PolicyApplication.Resolve(new TenantPolicy("p1", retentionDays, localOnly, locked, false), userLocalOnly);
+        var applied = PolicyApplication.Resolve(new TenantPolicy("p1", retentionDays, localOnly, locked, false), new ScreenTail.Shared.Settings.ClientSettings { LocalOnly = userLocalOnly });
 
         Assert.Equal(TimeSpan.FromDays(expectedDays), applied.Retention);
         Assert.Equal(expectedLocalOnly, applied.LocalOnly);

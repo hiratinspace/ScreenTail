@@ -1,0 +1,123 @@
+<UserControl x:Class="ScreenTail.UI.Settings.Privacy.PrivacyPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Privacy and redaction">
+    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+
+        <!-- Spec §5 S6 "What leaves this device": the data flow in plain language, matching docs/security/data-flow.md. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="What leaves this device" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap"
+                           Text="Captured on this device → redacted on this device → one request to draft the note (or nothing, in local-only mode) → you review → you publish. Nothing is published without your review." />
+            </StackPanel>
+        </Border>
+
+        <!-- Local-only, locked when the admin set it (INV-11): the toggle stays visible, read-only, with the reason. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
+                <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" Foreground="{DynamicResource Brush.text.primary}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here; notes are drafted on this device when that exists (ST-065) and wait until then." />
+            </StackPanel>
+        </Border>
+
+        <!-- Excluded apps: process names, never captured. The shipped list is the defaults and is not editable here. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Excluded apps" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Add any process that must never be captured." />
+                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding}" VerticalAlignment="Center" />
+                                <Button Margin="8,0,0,0" Style="{StaticResource Button.Ghost}" Content="Remove"
+                                        Command="{Binding DataContext.RemoveProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBox Width="240" Style="{StaticResource Input.Default}" Text="{Binding NewProcess, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Process to exclude" AutomationProperties.HelpText="As Task Manager shows it, like keepass" />
+                    <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddProcessCommand}" IsEnabled="{Binding CanAddProcess}" />
+                </StackPanel>
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewProcessProblem}" Visibility="{Binding NewProcessProblemVisibility}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Redaction patterns, with the custom one checked as it is typed and tried against a sample. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Redaction patterns" />
+                <CheckBox Margin="0,8,0,0" Content="Social security numbers" IsChecked="{Binding Ssn}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,4,0,0" Content="Card numbers" IsChecked="{Binding Cards}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,4,0,0" Content="API keys, tokens and private keys" IsChecked="{Binding ApiKeys}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,4,0,0" Content="Passwords, when said or typed after a cue" IsChecked="{Binding Passwords}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,4,0,0" Content="Email addresses" IsChecked="{Binding Emails}" Foreground="{DynamicResource Brush.text.primary}" />
+
+                <TextBlock Margin="0,12,0,4" Style="{StaticResource Text.Muted}" Text="Custom patterns (regular expressions)" />
+                <ItemsControl ItemsSource="{Binding CustomPatterns}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding}" VerticalAlignment="Center" />
+                                <Button Margin="8,0,0,0" Style="{StaticResource Button.Ghost}" Content="Remove"
+                                        Command="{Binding DataContext.RemovePatternCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBox Width="320" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding NewPattern, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New pattern" />
+                    <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddPatternCommand}" IsEnabled="{Binding CanAddPattern}" />
+                </StackPanel>
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Margin="0,10,0,4" Style="{StaticResource Text.Muted}" Text="Try it on some text" />
+                <TextBox Style="{StaticResource Input.Default}" Text="{Binding Sample, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Sample text" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding SampleMasked}" AutomationProperties.Name="What the sample becomes" />
+            </StackPanel>
+        </Border>
+
+        <!-- Retention, locked when the admin's policy set it. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Retention" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Slider Width="260" Minimum="1" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
+                    <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding RetentionDays}" />
+                    <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="days" />
+                </StackPanel>
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding RetentionLockVisibility}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding RetentionLabel}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Telemetry, with the exact field list, read off the wire type. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Usage telemetry" />
+                <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" Foreground="{DynamicResource Brush.text.primary}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Exactly these fields, and never any text from a session:" />
+                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding TelemetryFieldList}" />
+            </StackPanel>
+        </Border>
+
+        <Button Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" AutomationProperties.LiveSetting="Polite" />
+
+        <!-- Your data: export the audit log; delete everything, typed (INV-12). -->
+        <Border Style="{StaticResource Card}" Margin="0,16,0,12">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Your data" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Style="{StaticResource Button.Secondary}" Content="Export audit log" Command="{Binding ExportAuditCommand}" />
+                    <Button Margin="8,0,0,0" Style="{StaticResource Button.Danger}" Content="Delete everything on this device…" Command="{Binding EraseEverythingCommand}" />
+                </StackPanel>
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Delete removes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will type DELETE EVERYTHING to confirm. It cannot be undone." />
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

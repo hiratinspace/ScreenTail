@@ -34,7 +34,7 @@ public sealed record FrameRedaction(
 /// </summary>
 public sealed class RedactionEngine
 {
-    private readonly RedactionPolicy _policy;
+    private RedactionPolicy _policy;
     private readonly Func<string, RedactionPolicy, Action, IEnumerable<PatternMatch>> _find;
 
     public RedactionEngine(RedactionPolicy? policy = null)
@@ -48,6 +48,9 @@ public sealed class RedactionEngine
         _policy = policy ?? RedactionPolicy.Default;
         _find = find;
     }
+
+    /// <summary>The technician's settings arriving (ST-081): every frame and segment after this one is scrubbed under the new policy.</summary>
+    public void Apply(RedactionPolicy policy) => _policy = policy ?? throw new ArgumentNullException(nameof(policy));
 
     public ScrubResult ScrubText(string text)
     {

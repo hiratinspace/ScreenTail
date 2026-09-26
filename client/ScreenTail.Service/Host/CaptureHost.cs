@@ -12,6 +12,7 @@ using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Sessions;
+using ScreenTail.Core.Settings;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
 using ScreenTail.Platform.Ipc;
@@ -24,6 +25,7 @@ using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Speech;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
+using ScreenTail.Shared.Settings;
 
 namespace ScreenTail.Service.Host;
 
@@ -131,7 +133,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-047: the tenant's policy changes these in place while the service runs. The technician's
         // own local-only choice is what the settings said at start; the admin's overrides it when locked.
         var retentionOptions = new RetentionOptions();
-        var userLocalOnly = egressPolicy.Settings.LocalOnly;
+
+        // ST-081: the technician's own settings, on disk beside the store; the admin's policy sits on top.
+        var settingsStore = new ClientSettingsStore(Path.Combine(DataDirectory, "settings.json"));
+        Action<ClientSettings> applySettings = _ => { };
 
         // ST-060 built the bundle, ST-063 built the endpoint, ST-064 built the queue, and between them
         // sat a stub that returned "no summarization provider is configured yet" -- so no session has
@@ -183,7 +188,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 return outcome;
             },
             TimeProvider.System);
-        metrics = new MetricsReporter(store, outbox, () => Environment.GetEnvironmentVariable("SCREENTAIL_TELEMETRY") is "1" or "true" or "True");
+        metrics = new MetricsReporter(store, outbox, () => settingsStore.Load().Telemetry);
 
         var drafter = new BundlingDrafter(store, logger, outbox);
         // One engine for what is seen and what is said. Two would drift the day a tenant's own patterns
@@ -223,6 +228,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new ReviewCommands(store, new WindowsFrameMasker()),
             new PublishCommands(store, psa, metrics),
             new DeviceCommands(device),
+            new SettingsCommands(
+                settingsStore,
+                () => policySync.Current,
+                settings => applySettings(settings),
+                async ct => (await store.GetAuditRecordsAsync(null, ct).ConfigureAwait(false), await store.VerifyAuditAsync(ct).ConfigureAwait(false))),
             () => diagnostics(),
             _ =>
             {
@@ -304,18 +314,27 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             Platform.Clipboard.ClipboardText.ReadOnce,
             () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version));
 
-        // Applied now from the last synced copy, and again whenever a fetch brings something new (ST-047).
-        void ApplyPolicy(TenantPolicy tenantPolicy)
+        // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
+        // brings a new policy (ST-047) or the technician saves (ST-081). The policy decides local-only
+        // and retention where it is set; the settings decide the rest.
+        void ApplyAll(TenantPolicy tenantPolicy, ClientSettings settings)
         {
-            var applied = PolicyApplication.Resolve(tenantPolicy, userLocalOnly);
+            var applied = PolicyApplication.Resolve(tenantPolicy, settings);
             egressPolicy.Apply(applied.LocalOnly, applied.Enforced);
             retentionOptions.Retention = applied.Retention;
-            policy.Apply(new ScopeOptions { Exclusions = exclusions, CaptureAllWindows = applied.CaptureAllWindows });
+            policy.Apply(new ScopeOptions
+            {
+                Exclusions = exclusions,
+                CaptureAllWindows = applied.CaptureAllWindows,
+                ExcludedProcesses = new HashSet<string>(settings.ExcludedProcesses, StringComparer.OrdinalIgnoreCase),
+            });
+            redactionEngine.Apply(settings.ToRedactionPolicy());
             LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
         }
 
-        ApplyPolicy(policySync.Current);
-        policySync.Changed += ApplyPolicy;
+        ApplyAll(policySync.Current, settingsStore.Load());
+        policySync.Changed += tenantPolicy => ApplyAll(tenantPolicy, settingsStore.Load());
+        applySettings = settings => ApplyAll(policySync.Current, settings);
         _ = Task.Run(() => policySync.RunAsync(stoppingToken), stoppingToken);
         foreground.Changed += coordinator.Observe;
 

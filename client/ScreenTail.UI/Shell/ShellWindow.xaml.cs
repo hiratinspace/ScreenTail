@@ -9,6 +9,7 @@ using ScreenTail.UI.Review;
 using ScreenTail.UI.Settings;
 using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Integrations;
+using ScreenTail.UI.Settings.Privacy;
 using ScreenTail.UI.Theme;
 using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
@@ -70,6 +71,7 @@ public partial class ShellWindow : Window
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
+                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), _ => Task.CompletedTask, () => Task.CompletedTask),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
         if (_screenshotDirectory is not null)
         {
@@ -154,6 +156,21 @@ public partial class ShellWindow : Window
 
         public Task<ActivationAnswer> ActivateAsync(string code, string deviceName, CancellationToken ct = default) =>
             Task.FromResult(new ActivationAnswer("Contoso MSP", null));
+    }
+
+    /// <summary>Privacy settings under an admin policy that locked local-only and retention, so the harness renders the locked variant (Spec §3).</summary>
+    private sealed class SamplePrivacy : IPrivacyGateway
+    {
+        public Task<SettingsSnapshot?> LoadAsync(CancellationToken ct = default) =>
+            Task.FromResult<SettingsSnapshot?>(new SettingsSnapshot(
+                new Shared.Settings.ClientSettings { LocalOnly = true, RetentionDays = 3, CustomPatterns = [@"ACME-\d{6}"], ExcludedProcesses = ["keepass"] },
+                LocalOnlyLocked: true,
+                RetentionLocked: true,
+                PolicyVersion: "p20260925120000000"));
+
+        public Task<string?> SaveAsync(Shared.Settings.ClientSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<string?> ExportAuditAsync(CancellationToken ct = default) => Task.FromResult<string?>("{}");
     }
 
     private sealed class SampleIntegrations : IIntegrationsGateway

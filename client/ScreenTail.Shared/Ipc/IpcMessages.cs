@@ -34,6 +34,9 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(MapCompanyCommand), "map_company")]
 [JsonDerivedType(typeof(ActivateDeviceCommand), "activate_device")]
 [JsonDerivedType(typeof(GetDeviceCommand), "get_device")]
+[JsonDerivedType(typeof(GetSettingsCommand), "get_settings")]
+[JsonDerivedType(typeof(SetSettingsCommand), "set_settings")]
+[JsonDerivedType(typeof(ExportAuditCommand), "export_audit")]
 [JsonDerivedType(typeof(ListIntegrationsCommand), "list_integrations")]
 [JsonDerivedType(typeof(StoreIntegrationCommand), "store_integration")]
 [JsonDerivedType(typeof(RemoveIntegrationCommand), "remove_integration")]
@@ -426,6 +429,45 @@ public sealed record DeviceReported : IpcEvent
     public required string Standing { get; init; }
 }
 
+// ---- The technician's settings (ST-081; 2026-09-26) ------------------------------------------------------
+//
+// Settings → Privacy & Redaction reads and writes the technician's own settings through the service,
+// which keeps them on disk, applies them in place and says which fields the admin's policy locked.
+
+/// <summary>The settings and their locks. Answered by a <see cref="SettingsReported"/>.</summary>
+public sealed record GetSettingsCommand : IpcCommand;
+
+public sealed record SettingsReported : IpcEvent
+{
+    [JsonPropertyName("settings")]
+    public required ScreenTail.Shared.Settings.ClientSettings Settings { get; init; }
+
+    [JsonPropertyName("local_only_locked")]
+    public required bool LocalOnlyLocked { get; init; }
+
+    [JsonPropertyName("retention_locked")]
+    public required bool RetentionLocked { get; init; }
+
+    [JsonPropertyName("policy_version")]
+    public required string PolicyVersion { get; init; }
+}
+
+/// <summary>The whole document, every time. Refused with the first problem as a failed <c>result</c>.</summary>
+public sealed record SetSettingsCommand : IpcCommand
+{
+    [JsonPropertyName("settings")]
+    public required ScreenTail.Shared.Settings.ClientSettings Settings { get; init; }
+}
+
+/// <summary>The audit log with its verification, as JSON. Answered by an <see cref="AuditExported"/>.</summary>
+public sealed record ExportAuditCommand : IpcCommand;
+
+public sealed record AuditExported : IpcEvent
+{
+    [JsonPropertyName("json")]
+    public required string Json { get; init; }
+}
+
 // ---- The company mapping (ST-097; 2026-09-25) ---------------------------------------------------------
 //
 // A knowledge-base article is filed under the ticket's company in the documentation platform. When the
@@ -549,6 +591,8 @@ public sealed record UnmapCompanyCommand : IpcCommand
 [JsonDerivedType(typeof(CompanyMappingsListed), "company_mappings")]
 [JsonDerivedType(typeof(DeviceActivated), "device_activated")]
 [JsonDerivedType(typeof(DeviceReported), "device")]
+[JsonDerivedType(typeof(SettingsReported), "settings")]
+[JsonDerivedType(typeof(AuditExported), "audit")]
 [JsonDerivedType(typeof(IntegrationDetailsListed), "integration_details")]
 [JsonDerivedType(typeof(IntegrationChecked), "integration_checked")]
 public abstract record IpcEvent
