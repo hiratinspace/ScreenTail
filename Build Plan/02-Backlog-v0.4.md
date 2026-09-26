@@ -2064,7 +2064,7 @@ Plain-language data-flow doc with diagram (two-stage frames, scope), technician 
 - **Epic/Feature:** RELEASE
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Round one done 2026-09-25** (`docs/security/redteam-01.md`): 41 adversarial inputs at the text level — the path every frame's OCR and every transcript segment take — with the default policy. Twelve findings: ten secrets that survived (dotted SSNs and cards, GitHub fine-grained tokens, Azure account keys, Google OAuth and API keys, SendGrid keys, Slack webhook URLs, PGP key blocks, `pass:`) and two ordinary sentences that lost a word to the spoken-password rule; every one fixed in the pattern library with its regression in `RedTeamTests`, and the accepted gaps written down with their reasons. **Round two** — real screenshots through the VM harness and the speech model's own output — waits for ST-013.
 
 **Description:**
 ≥ 30 adversarial scenarios through the VM harness; fix or document every finding.

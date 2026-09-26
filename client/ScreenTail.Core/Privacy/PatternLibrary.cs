@@ -55,6 +55,17 @@ internal static partial class PatternLibrary
     private const int MaxConnectives = 4;
 
     /// <summary>
+    /// The joining words that assert a value — "is", "was", "set to" — as opposed to the articles and
+    /// prepositions that merely continue a sentence. An ordinary word reached only through the latter
+    /// is the sentence carrying on ("the PIN for the user", "a new password at first login"), not the
+    /// secret; one reached through the former is taken as the secret however plain it looks (ST-115).
+    /// </summary>
+    private static readonly HashSet<string> Assertive = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
+    };
+
+    /// <summary>
     /// How many words of the secret to mask once one is found.
     ///
     /// More than one because a spoken password is often more than one word — "Winter 2026" was masked as
@@ -78,6 +89,9 @@ internal static partial class PatternLibrary
     private static (int Start, int Length)? SecretAfter(string text, int from)
     {
         var at = from;
+
+        // A colon or an equals sign right after the cue asserts as much as "is" does: "pass: hunter2".
+        var asserted = text.AsSpan(from, Math.Min(4, text.Length - from)).IndexOfAny(':', '=') >= 0;
         for (var steps = 0; steps <= MaxConnectives; steps++)
         {
             var word = NextWord(text, at);
@@ -90,6 +104,7 @@ internal static partial class PatternLibrary
             var value = text.Substring(start, length);
             if (Connectives.Contains(value))
             {
+                asserted |= Assertive.Contains(value);
                 at = start + length;
                 continue;
             }
@@ -109,6 +124,12 @@ internal static partial class PatternLibrary
             {
                 at = start + length;
                 continue;
+            }
+
+            // An ordinary word reached without anything asserting a value is the sentence carrying on.
+            if (!LooksLikeSecret(value) && !asserted)
+            {
+                return null;
             }
 
             return (start, SecretEnd(text, start + length) - start);
@@ -461,7 +482,7 @@ internal static partial class PatternLibrary
     // budgets 2% false positives — masking every nine-digit run would spend that many times over on one
     // screen of a customer's order history.
     [GeneratedRegex(
-        @"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b"
+        @"\b(?!000|666|9\d\d)\d{3}[-. ](?!00)\d{2}[-. ](?!0000)\d{4}\b"
         + @"|(?<=(?i:ssn|social\s?security(?:\s?(?:number|no|#))?)\s{0,3}[:=#]?\s{0,3})(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b",
         RegexOptions.CultureInvariant,
         BuiltInTimeoutMs)]
@@ -471,7 +492,7 @@ internal static partial class PatternLibrary
     // to look, not a candidate: CardsIn finds the 4-4-4-4 and 4-6-5 shapes inside it. It used to stop at
     // five groups and treat what it had as the number, which is how a card swallowed the CVV beside it,
     // failed Luhn as a whole, and was left alone.
-    [GeneratedRegex(@"\b(?:\d{13,19}|(?<g>\d{3,6})(?:[ -](?<g>\d{3,6})){2,})\b", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, BuiltInTimeoutMs)]
+    [GeneratedRegex(@"\b(?:\d{13,19}|(?<g>\d{3,6})(?:[ .-](?<g>\d{3,6})){2,})\b", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, BuiltInTimeoutMs)]
     private static partial Regex CardCandidate();
 
     // Recognisable credential shapes plus any long random-looking string introduced as a key or token.
@@ -480,11 +501,18 @@ internal static partial class PatternLibrary
         (?:
             AKIA[0-9A-Z]{16}
           | gh[pousr]_[A-Za-z0-9]{30,}
+          | github_pat_[A-Za-z0-9_]{22,}
           | xox[baprs]-[A-Za-z0-9-]{10,}
+          | https://hooks\.slack\.com/services/[A-Za-z0-9/_-]{10,}
           | sk-[A-Za-z0-9_-]{20,}
+          | sk_(?:live|test)_[A-Za-z0-9]{16,}
+          | npm_[A-Za-z0-9]{30,}
+          | AIza[0-9A-Za-z_-]{30,}
+          | SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}
+          | ya29\.[A-Za-z0-9._-]{20,}
           | eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}
-          | -----BEGIN[\ A-Z]*PRIVATE\ KEY-----(?s:.*?)(?:-----END[\ A-Z]*PRIVATE\ KEY-----|$)
-          | (?<=(?i:(?:api|access|secret|private|auth)[ _-]?(?:key|token|secret)?|secret|token|bearer)["']?\s{0,4}[:=]?\s{0,4}["']?)[A-Za-z0-9+/_-]{24,}={0,2}
+          | -----BEGIN[\ A-Z]*PRIVATE\ KEY(?:\ BLOCK)?-----(?s:.*?)(?:-----END[\ A-Z]*PRIVATE\ KEY(?:\ BLOCK)?-----|$)
+          | (?<=(?i:(?:api|access|secret|private|auth|account|client|consumer|signing|encryption|master|app|maps)[ _-]?(?:key|token|secret)?|secret|token|bearer)["']?\s{0,4}[:=]?\s{0,4}["']?)[A-Za-z0-9+/_.-]{24,}={0,2}
         )
         """,
         RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace,
@@ -494,7 +522,7 @@ internal static partial class PatternLibrary
     // "password", "pwd", "passphrase". Only the cue: where the secret sits after it is a question about
     // how somebody speaks, and a regex answered it by assuming the very next token (2026-09-20 review).
     [GeneratedRegex(
-        @"\b(?:password|passphrase|passwd|pwd|pass\s?code|pin(?:\s?number)?)\b",
+        @"\b(?:password|passphrase|passwd|pwd|pass\s?code|pass(?=\s{0,3}[:=])|pin(?:\s?number)?)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         BuiltInTimeoutMs)]
     private static partial Regex PasswordCue();
