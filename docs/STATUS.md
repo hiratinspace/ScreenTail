@@ -89,7 +89,7 @@ not do is listed in §6.
   dark, light and high contrast.
 
 **Not built:** Settings → Capture and → Privacy & Redaction (ST-080, ST-081),
-the activation screen (ST-010 — the backend activates a device from an invite code and counts seats, and the service keeps the refresh token under DPAPI and renews access tokens; the UI has no step to enter the code yet, so the environment's token stands in), settings
+the onboarding wizard (ST-083 — activation itself is in ST-010: Settings → This device takes the invite code, the service keeps the refresh token under DPAPI and renews access tokens), settings
 and policy in Settings (ST-081; the sync itself is in, ST-047), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
 ## 4. Decisions already made

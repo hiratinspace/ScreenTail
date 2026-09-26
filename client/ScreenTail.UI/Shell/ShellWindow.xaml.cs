@@ -7,6 +7,7 @@ using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
 using ScreenTail.UI.Settings;
+using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Theme;
 using AppTheme = ScreenTail.UI.Theme.AppTheme;
@@ -67,7 +68,9 @@ public partial class ShellWindow : Window
             state,
             loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames, publish: SamplePublish(fixture, id), timelineExpanded: id == "preview-timeline")),
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
-            settings: () => new SettingsViewModel(new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
+            settings: () => new SettingsViewModel(
+                new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
+                new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
         if (_screenshotDirectory is not null)
         {
             ContentRendered += async (_, _) => await CaptureAsync(state);
@@ -143,6 +146,16 @@ public partial class ShellWindow : Window
     /// failed last check, and a mapping table with one of each confidence. Nothing here reaches a
     /// backend; the running application uses <see cref="PipeIntegrations"/>.
     /// </summary>
+    /// <summary>An activated device, for the harness: the card as most technicians will see it.</summary>
+    private sealed class SampleDevice : IDeviceGateway
+    {
+        public Task<DeviceStanding?> StandingAsync(CancellationToken ct = default) =>
+            Task.FromResult<DeviceStanding?>(new DeviceStanding(true, "Contoso MSP", 0, false, false, "Activated with Contoso MSP."));
+
+        public Task<ActivationAnswer> ActivateAsync(string code, string deviceName, CancellationToken ct = default) =>
+            Task.FromResult(new ActivationAnswer("Contoso MSP", null));
+    }
+
     private sealed class SampleIntegrations : IIntegrationsGateway
     {
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) =>

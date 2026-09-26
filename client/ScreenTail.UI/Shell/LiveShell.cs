@@ -16,6 +16,7 @@ using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
 using ScreenTail.UI.Settings;
+using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Tray;
 
@@ -142,7 +143,9 @@ public sealed class LiveShell : IAsyncDisposable
             _state,
             LoadReviewAsync,
             () => new HistoryViewModel(_state, ListSessionsAsync),
-            () => new SettingsViewModel(new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
+            () => new SettingsViewModel(
+                new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
+                new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
         _window.Closed += (_, _) => _window = null;
         _window.Show();
         _ = _window.Activate();
