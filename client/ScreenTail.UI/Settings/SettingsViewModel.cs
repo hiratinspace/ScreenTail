@@ -1,4 +1,5 @@
 using ScreenTail.UI.Settings.Activation;
+using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
 
@@ -9,13 +10,14 @@ namespace ScreenTail.UI.Settings;
 /// built; Capture and Privacy &amp; Redaction are named with the ticket that brings them rather than
 /// drawn as empty forms.
 /// </summary>
-public sealed class SettingsViewModel(ActivationViewModel activation, PrivacyViewModel privacy, IntegrationsViewModel integrations)
+public sealed class SettingsViewModel(ActivationViewModel activation, CaptureViewModel capture, PrivacyViewModel privacy, IntegrationsViewModel integrations)
 {
     public ActivationViewModel Activation { get; } = activation ?? throw new ArgumentNullException(nameof(activation));
+
+    public CaptureViewModel Capture { get; } = capture ?? throw new ArgumentNullException(nameof(capture));
 
     public PrivacyViewModel Privacy { get; } = privacy ?? throw new ArgumentNullException(nameof(privacy));
 
     public IntegrationsViewModel Integrations { get; } = integrations ?? throw new ArgumentNullException(nameof(integrations));
 
-    public string CaptureLater { get; } = "Capture settings — remote tools, hotkeys, screenshots, microphone — arrive with ST-080.";
 }

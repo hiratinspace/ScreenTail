@@ -43,6 +43,7 @@ internal sealed class CaptureController(
     PublishCommands publishing,
     DeviceCommands devices,
     SettingsCommands settings,
+    CaptureSettingsCommands captureSettings,
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators) : IIpcCommandHandler
@@ -95,7 +96,8 @@ internal sealed class CaptureController(
             _ => await review.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await publishing.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await devices.ReplyToAsync(command, ct).ConfigureAwait(false)
-                ?? await settings.ReplyToAsync(command, ct).ConfigureAwait(false),
+                ?? await settings.ReplyToAsync(command, ct).ConfigureAwait(false)
+                ?? await captureSettings.ReplyToAsync(command, ct).ConfigureAwait(false),
         };
     }
 
@@ -123,6 +125,11 @@ internal sealed class CaptureController(
         if (await settings.HandleAsync(command, ct).ConfigureAwait(false) is { } saved)
         {
             return saved;
+        }
+
+        if (await captureSettings.HandleAsync(command, ct).ConfigureAwait(false) is { } savedCapture)
+        {
+            return savedCapture;
         }
 
         var accepted = command switch

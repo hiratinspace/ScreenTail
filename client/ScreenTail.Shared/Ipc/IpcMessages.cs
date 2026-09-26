@@ -37,6 +37,8 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(GetSettingsCommand), "get_settings")]
 [JsonDerivedType(typeof(SetSettingsCommand), "set_settings")]
 [JsonDerivedType(typeof(ExportAuditCommand), "export_audit")]
+[JsonDerivedType(typeof(GetCaptureSettingsCommand), "get_capture_settings")]
+[JsonDerivedType(typeof(SetCaptureSettingsCommand), "set_capture_settings")]
 [JsonDerivedType(typeof(ListIntegrationsCommand), "list_integrations")]
 [JsonDerivedType(typeof(StoreIntegrationCommand), "store_integration")]
 [JsonDerivedType(typeof(RemoveIntegrationCommand), "remove_integration")]
@@ -468,6 +470,42 @@ public sealed record AuditExported : IpcEvent
     public required string Json { get; init; }
 }
 
+// ---- Capture settings (ST-080; 2026-09-26) --------------------------------------------------------------
+
+/// <summary>The capture settings with what the picker needs beside them. Answered by a <see cref="CaptureSettingsReported"/>.</summary>
+public sealed record GetCaptureSettingsCommand : IpcCommand;
+
+public sealed record ToolRow(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("display_name")] string DisplayName);
+
+public sealed record CaptureSettingsReported : IpcEvent
+{
+    [JsonPropertyName("settings")]
+    public required ScreenTail.Shared.Settings.CaptureSettings Settings { get; init; }
+
+    /// <summary>The registry's remote tools, for the toggles.</summary>
+    [JsonPropertyName("tools")]
+    public required IReadOnlyList<ToolRow> Tools { get; init; }
+
+    /// <summary>Capture devices by friendly name. Names, never audio (INV-10).</summary>
+    [JsonPropertyName("microphones")]
+    public required IReadOnlyList<string> Microphones { get; init; }
+
+    [JsonPropertyName("policy_forces_all_windows")]
+    public required bool PolicyForcesAllWindows { get; init; }
+
+    [JsonPropertyName("default_grace_seconds")]
+    public required int DefaultGraceSeconds { get; init; }
+}
+
+/// <summary>The whole document, every time. Refused with the first problem as a failed <c>result</c>.</summary>
+public sealed record SetCaptureSettingsCommand : IpcCommand
+{
+    [JsonPropertyName("settings")]
+    public required ScreenTail.Shared.Settings.CaptureSettings Settings { get; init; }
+}
+
 // ---- The company mapping (ST-097; 2026-09-25) ---------------------------------------------------------
 //
 // A knowledge-base article is filed under the ticket's company in the documentation platform. When the
@@ -593,6 +631,7 @@ public sealed record UnmapCompanyCommand : IpcCommand
 [JsonDerivedType(typeof(DeviceReported), "device")]
 [JsonDerivedType(typeof(SettingsReported), "settings")]
 [JsonDerivedType(typeof(AuditExported), "audit")]
+[JsonDerivedType(typeof(CaptureSettingsReported), "capture_settings")]
 [JsonDerivedType(typeof(IntegrationDetailsListed), "integration_details")]
 [JsonDerivedType(typeof(IntegrationChecked), "integration_checked")]
 public abstract record IpcEvent

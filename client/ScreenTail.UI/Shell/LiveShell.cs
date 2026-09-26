@@ -17,6 +17,7 @@ using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
 using ScreenTail.UI.Settings;
 using ScreenTail.UI.Settings.Activation;
+using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
 using ScreenTail.UI.Tray;
@@ -146,6 +147,7 @@ public sealed class LiveShell : IAsyncDisposable
             () => new HistoryViewModel(_state, ListSessionsAsync),
             () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
+                new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
                 new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), SaveAuditExportAsync, EraseEverythingAsync),
                 new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
         _window.Closed += (_, _) => _window = null;

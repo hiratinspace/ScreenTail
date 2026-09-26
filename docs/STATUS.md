@@ -88,7 +88,7 @@ not do is listed in §6.
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast.
 
-**Not built:** Settings → Capture (ST-080),
+**Not built:** the microphone picker and level meter in Settings → Capture (ST-080's AC3),
 the onboarding wizard (ST-083 — activation itself is in ST-010: Settings → This device takes the invite code, the service keeps the refresh token under DPAPI and renews access tokens), settings
 and policy in Settings (ST-081; the sync itself is in, ST-047), a signed installer (ST-112), hosting (ST-007), on-device drafting.
 
@@ -168,7 +168,7 @@ and policy in Settings (ST-081; the sync itself is in, ST-047), a signed install
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. The timeline view (ST-076) and Settings → Integrations (ST-082) are in. Privacy & Redaction (ST-081) followed the policy sync. Next: Settings → Capture (ST-080), then the onboarding wizard (ST-083) | Agent |
+| Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. The timeline view (ST-076) and Settings → Integrations (ST-082) are in. Privacy & Redaction (ST-081) and Capture (ST-080) followed. Next: the onboarding wizard (ST-083) | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect + second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting, enrolment, settings, installer, the security-lead review, the pilot | Both |

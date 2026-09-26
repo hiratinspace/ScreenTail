@@ -14,6 +14,9 @@ public sealed record ScopeOptions
     /// <summary>Processes the technician has excluded outright (ST-043). Beats everything else.</summary>
     public IReadOnlySet<string> ExcludedProcesses { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Remote tools the technician switched off in Settings (ST-080), by registry id. A window of one is out of scope.</summary>
+    public IReadOnlySet<string> DisabledTools { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// The shipped and tenant-synced exclusions: password managers, banking tabs, credential prompts
     /// (ST-043). Null means none are loaded, which is a misconfiguration rather than a policy — the
@@ -110,12 +113,16 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
 
         if (registry.MatchTool(window) is { } tool)
         {
-            return new ScopeDecision(CaptureScope.RemoteTool, tool.Id, tool.Kind, $"Capturing — {tool.DisplayName}", window.Handle);
+            return _options.DisabledTools.Contains(tool.Id)
+                ? new ScopeDecision(CaptureScope.OutOfScope, tool.Id, tool.Kind, $"Not capturing — {tool.DisplayName} is switched off in Settings.")
+                : new ScopeDecision(CaptureScope.RemoteTool, tool.Id, tool.Kind, $"Capturing — {tool.DisplayName}", window.Handle);
         }
 
         if (registry.MatchBrowser(window) is { } browser)
         {
-            return new ScopeDecision(CaptureScope.RemoteTool, browser.Id, RemoteToolKind.Browser, $"Capturing — {browser.DisplayName}", window.Handle);
+            return _options.DisabledTools.Contains(browser.Id)
+                ? new ScopeDecision(CaptureScope.OutOfScope, browser.Id, RemoteToolKind.Browser, $"Not capturing — {browser.DisplayName} is switched off in Settings.")
+                : new ScopeDecision(CaptureScope.RemoteTool, browser.Id, RemoteToolKind.Browser, $"Capturing — {browser.DisplayName}", window.Handle);
         }
 
         if (registry.MatchAdminTool(window) is { } admin)
