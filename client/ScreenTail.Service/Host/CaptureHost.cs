@@ -161,8 +161,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         _policySync = policySync;
 
         // ST-098: metrics ride the same queue, so an offline afternoon queues them rather than losing
-        // them. Telemetry is off unless SCREENTAIL_TELEMETRY says otherwise; ST-081's toggle replaces the
-        // variable. A drafted session reports once the draft lands; a published one reports again.
+        // them. Telemetry is the technician's setting (ST-081), off until switched on. A drafted session
+        // reports once the draft lands; a published one reports again.
         var metricsSender = new MetricsSender(draftHttp, () => device.CurrentToken);
         MetricsReporter? metrics = null;
         var outbox = new Core.Outbox.Outbox(
