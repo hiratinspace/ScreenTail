@@ -86,7 +86,7 @@ public sealed class SessionMetricsTests
     public async Task TheReporterQueuesAMetricOnlyWhenTelemetryIsOnAndMeasuresTheEditsAgainstTheOriginal()
     {
         var dir = Path.Combine(Path.GetTempPath(), "screentail-tests", Guid.NewGuid().ToString("N"));
-        await using var store = await ScreenTail.Core.Store.SqliteSessionStore.OpenAsync(Path.Combine(dir, "store.db"), new FixedKey());
+        var store = await ScreenTail.Core.Store.SqliteSessionStore.OpenAsync(Path.Combine(dir, "store.db"), new FixedKey());
         await store.CreateSessionAsync(new ScreenTail.Core.Store.NewSession("s1", DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
         await store.SaveDraftAsync("s1", Draft(Step("one"), Step("two")));
         await store.SaveDraftAsync("s1", Draft(Step("one"), Step("two, edited")));
@@ -110,6 +110,9 @@ public sealed class SessionMetricsTests
         Assert.Equal(0.5, metric.EditRatio);
         Assert.True(metric.Published);
         Assert.DoesNotContain("edited", item.Payload, StringComparison.Ordinal);
+
+        // Closed before the folder goes: Windows will not delete a database another handle holds open.
+        await store.DisposeAsync();
         Directory.Delete(dir, recursive: true);
     }
 
