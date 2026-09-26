@@ -5,6 +5,7 @@ using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Input;
+using ScreenTail.Core.Intel;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
@@ -163,7 +164,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"),
             TimeProvider.System);
         _ = Task.Run(() => device.RunAsync(stoppingToken), stoppingToken);
-        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken);
+        // ST-067: what the technician keeps changing about drafts, as hints on the next one.
+        var style = new StyleStore(Path.Combine(DataDirectory, "style.json"));
+        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints);
         var psa = new PsaGateway(draftHttp, () => device.CurrentToken);
         var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(DataDirectory, "policy.json")), TimeProvider.System);
         _policySync = policySync;
@@ -240,7 +243,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new WindowsCapabilityProbe(),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
-            new PublishCommands(store, psa, metrics),
+            new PublishCommands(store, psa, metrics, new StyleLearner(style, store)),
             new DeviceCommands(device),
             new SettingsCommands(
                 settingsStore,

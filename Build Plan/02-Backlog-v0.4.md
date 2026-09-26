@@ -1238,7 +1238,7 @@ Active duration minus pauses with tenant rounding (6/15) and minimum increment.
 - **Epic/Feature:** INTEL
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Done 2026-09-26.** At publish the service diffs the draft as first written against the draft as published and records structural signals only — steps rewritten into the past tense, cut short, stripped of full stops, capitalised, merged — as ids in `style.json` beside the store, never a word of the note (AC2). A signal seen in five of the last ten sessions becomes a hint on the next draft (AC1): the bundle's `style_hints` carries ids from a fixed list, the backend turns the ones it knows into its own sentences after the system prompt and refuses any other, so a client steers the shape and never the prompt. Edit rate per tenant is ST-098's view (AC3).
 
 **Description:**
 Diff draft vs final on publish; store structural style signals only; inject top signals as prompt hints.

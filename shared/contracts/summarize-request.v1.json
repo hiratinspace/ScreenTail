@@ -16,7 +16,9 @@
     "TheContractIsWhatThisEndpointAccepts (backend) are the pair that notice.",
     "",
     "The image is eight bytes of JPEG header rather than a real screenshot: what is under test is the",
-    "shape of the request, and a fixture nobody can read is a fixture nobody can check."
+    "shape of the request, and a fixture nobody can read is a fixture nobody can check.",
+    "",
+    "`style_hints` (ST-067) are ids from a fixed list the backend knows -- past_tense, shorter_steps, no_full_stops, sentence_case, fewer_steps -- learned on the device from how the technician edits drafts. Ids, never sentences: a hint cannot become a prompt of its own. Empty when nothing has been learned yet."
   ],
   "request": {
     "session_id": "s-0001",
@@ -49,6 +51,9 @@
         "ts_ms": 309000,
         "text": "started it again and set it to automatic so it comes back after a reboot"
       }
+    ],
+    "style_hints": [
+      "past_tense"
     ]
   }
 }

@@ -270,6 +270,11 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     private byte[] Body(SummarizeBundle bundle, string? repair)
     {
         var parts = new List<object> { new { text = prompt } };
+        if (StyleHints.Paragraph(bundle.StyleHints) is { } style)
+        {
+            parts.Add(new { text = style });
+        }
+
 
         if (repair is not null)
         {

@@ -87,6 +87,16 @@ public static partial class BundleLimits
             return "A session id is required.";
         }
 
+        if (bundle.StyleHints.Count > StyleHints.Max)
+        {
+            return $"At most {StyleHints.Max} style hints.";
+        }
+
+        if (bundle.StyleHints.FirstOrDefault(id => !StyleHints.IsKnown(id)) is { } unknown)
+        {
+            return $"\"{unknown}\" is not a style hint this backend knows.";
+        }
+
         if (bundle.SessionId.Length > MaxSessionIdLength)
         {
             return $"That session id is longer than {MaxSessionIdLength} characters.";

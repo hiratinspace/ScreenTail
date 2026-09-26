@@ -15,7 +15,7 @@ namespace ScreenTail.Core.Review.Publish;
 /// reason when there was no answer. The refusal is kept by request id between the two calls, because
 /// the server asks them in that order on the same connection.
 /// </summary>
-public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null)
+public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null, Intel.IStyleLearner? style = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
@@ -144,9 +144,18 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
         }
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
-        if (metrics is not null && answer.Value!.Any(r => r.Ok))
+        // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
+        if (answer.Value!.Any(r => r.Ok))
         {
-            await metrics.ReportAsync(publish.SessionId, published: true, ct).ConfigureAwait(false);
+            if (metrics is not null)
+            {
+                await metrics.ReportAsync(publish.SessionId, published: true, ct).ConfigureAwait(false);
+            }
+
+            if (style is not null)
+            {
+                await style.LearnAsync(publish.SessionId, ct).ConfigureAwait(false);
+            }
         }
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };

@@ -62,6 +62,10 @@ public sealed record SummarizeBundle
 
     [JsonPropertyName("transcript")]
     public IReadOnlyList<BundleSegment> Transcript { get; init; } = [];
+
+    /// <summary>Ids from <see cref="StyleHints"/>' list, learned on the device from how the technician edits (ST-067). Ids, never sentences.</summary>
+    [JsonPropertyName("style_hints")]
+    public IReadOnlyList<string> StyleHints { get; init; } = [];
 }
 
 /// <param name="Confidence">
