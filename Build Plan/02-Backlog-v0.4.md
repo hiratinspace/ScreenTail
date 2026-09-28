@@ -1187,7 +1187,7 @@ Local outbox with idempotency keys; retry with backoff; "Draft pending — offli
 - **Epic/Feature:** INTEL
 - **Priority:** High
 - **Estimate:** 8
-- **Status:** Open.
+- **Status:** **AC3 done 2026-09-28; the model is owed.** When no drafting request can leave the machine — local-only mode, or no backend configured; the egress guard's own decision is asked — the session is drafted on the device from what it holds (`FallbackDraft`): one low-confidence step per thing said, each pointing at the screenshot the aligner tied it to, or one per screenshot when nothing was said; marked `local` so Review shows "Drafted on this device only — quality may be lower"; nothing queued. Every reference names something the session holds, so ST-062's hallucination count is zero by construction. **Owed:** the local text model itself (AC1: a schema-valid draft under 90 s on a 16 GB laptop; AC2: the harness's edit ratio), which needs llama.cpp and a model download and is a decision about size and licence for the owner.
 
 **Description:**
 OCR text + transcript + click log → small local text model (Llama 3.2 3B / Phi-3.5-mini via llama.cpp Q4); optional vision when GPU present; flagged lower confidence.

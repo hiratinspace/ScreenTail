@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Intel;
@@ -40,6 +41,29 @@ public sealed class BundlingDrafterTests : IAsyncDisposable
         Assert.Equal(BundlingDrafter.NoProviderReason, outcome.Reason);
         Assert.Equal(0, drafter.Last!.Chosen);
         Assert.Equal(0, drafter.Last.Considered);
+    }
+
+    [Fact]
+    public async Task WhenNothingCanBeSentTheSessionIsDraftedHereAndNothingIsQueued()
+    {
+        // ST-065 AC3. Local-only mode, or no backend: the outbox would hold a request policy never lets
+        // out, and the session would sit at "draft failed" for a choice the technician made.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        await store.CreateSessionAsync(new NewSession("s1", At, new RemoteTool { Kind = RemoteToolKind.Rdp }, true, null), ct);
+        await store.SaveRedactedFrameAsync("s1", new StagedFrame("f1", 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), new RedactionOutcome(new byte[] { 9 }, "Services", [], false, At), ct);
+        await store.FinalizeSessionAsync("s1", new FinalizeInfo(60_000, false), ct);
+        var sent = 0;
+        var outbox = new Core.Outbox.Outbox(store, (_, _) => { sent++; return Task.FromResult(SendOutcome.Done(null)); });
+        var drafter = new BundlingDrafter(store, NullLogger.Instance, outbox, canSend: () => false);
+
+        var outcome = await drafter.DraftAsync("s1", ct);
+        _ = await outbox.DrainAsync(ct);
+
+        Assert.True(outcome.Succeeded, outcome.Reason);
+        Assert.Equal(DraftSource.Local, outcome.Draft!.Source);
+        Assert.Equal(["f1"], Assert.Single(outcome.Draft.Steps).FrameRefs);
+        Assert.Equal(0, sent);
     }
 
     [Fact]

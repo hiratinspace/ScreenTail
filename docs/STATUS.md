@@ -90,7 +90,7 @@ not do is listed in §6.
 
 **Not built:** the microphone picker and level meter in Settings → Capture (ST-080's AC3),
 the onboarding wizard (ST-083 — activation itself is in ST-010: Settings → This device takes the invite code, the service keeps the refresh token under DPAPI and renews access tokens), settings
-and policy in Settings (ST-081; the sync itself is in, ST-047), a signed installer (ST-112), hosting (ST-007), on-device drafting.
+and policy in Settings (ST-081; the sync itself is in, ST-047), a signed installer (ST-112), hosting (ST-007), the on-device model (ST-065 — a structured draft from the transcript and screenshots covers local-only mode today).
 
 ## 4. Decisions already made
 
