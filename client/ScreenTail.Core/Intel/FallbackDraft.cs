@@ -41,7 +41,7 @@ public static class FallbackDraft
                 {
                     Text = Sentence(segment.Text),
                     Confidence = StepConfidence.Low,
-                    FrameRefs = segment.FrameId is { } frame ? [frame] : [],
+                    FrameRefs = segment.FrameId is { } frame && showableIds.Contains(frame) ? [frame] : [],
                     TranscriptRefs = [segment.Id],
                 });
             }
