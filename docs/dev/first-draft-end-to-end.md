@@ -113,8 +113,9 @@ fails harmlessly if the tool is already installed.
 
 ## 5. Enrol a device (whenever the token has expired)
 
-There is no enrolment flow yet — ST-010 will issue tokens as part of signing in. Until then, in the
-shell from step 3:
+Two ways. The real one (ST-010) is an invite code activated in the client; it is at the end of this
+document, and the token it produces renews itself. The quick one, for a first run, is a Development-only
+flag that prints an hour's access token. In the shell from step 3:
 
 ```powershell
 dotnet run --project src\ScreenTail.Api -- --enrol-dev-device
@@ -161,10 +162,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-local.ps1
 It has to be `https://`. An `http://` address is refused by the guard with "http is not encrypted", and
 the outbox keeps the work rather than sending it.
 
-Both values are environment variables and neither is a settings system. ST-047 and ST-081 own settings;
-this is what makes the path runnable before they exist. The address you set is also what names the
-backend host in the egress allowlist, so a typo here looks like a blocked request rather than a request
-to somewhere unexpected — which is the intended behaviour, not a bug to work around.
+Both values are environment variables. The backend address has no settings-screen equivalent on
+purpose (it is the deployment's, not the technician's); the token is the fallback the service uses
+when no invite has activated the device. The address you set is also what names the backend host in
+the egress allowlist, so a typo here looks like a blocked request rather than a request to somewhere
+unexpected — which is the intended behaviour, not a bug to work around.
+
+**The first start opens the setup wizard** (ST-083). With the token in the environment the device
+counts as enrolled, so on the Activate step press Skip for now; check the Permissions step's three
+marks, leave the tools as detected, skip Connect, and either run the sixty-second test or Finish.
+Finishing is remembered; the tray's "Set up ScreenTail…" runs it again.
 
 ## 8. Record something worth drafting
 
@@ -221,11 +228,13 @@ If it does, that is M1, and the next thing is the eval corpus rather than more p
 
 ## What is deliberately missing
 
-- **Enrolment** (ST-010). Step 5 exists because it does not.
-- **Settings** (ST-047, ST-081). Step 7 is two environment variables for the same reason.
 - **Hosting** (ST-007). The backend runs on the laptop; Phase D deploys it, and the certificate question
   above goes away with a real hostname.
-- **Publishing** (ST-077, ST-078). The note stays in the store. There is nowhere to send it yet.
+- **Sign-up and mail** (ST-010's owner half). Invites are issued by the operator with `--invite` and
+  handed on; there is no web admin and no mail provider yet.
+- **A real PSA** (ST-091–097 are built against recorded shapes). Publishing goes through Settings →
+  Integrations once a ConnectWise sandbox or a Hudu key is stored; nothing in this runbook exercises it.
+- **Signing** (ST-112). Fresh service builds have tripped the laptop's Application Control policy.
 
 Each of those is a ticket rather than an oversight, and this document should shrink as they land.
 
