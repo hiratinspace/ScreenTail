@@ -10,8 +10,9 @@ P1-2, P1-6; **#85** P1-5 (the audit chain has a head anchor, schema 7); **#128**
 (`NothingUnredactedIsEverInTheStore` reads the bytes back) and P1-9 (gone with the pending-frame query);
 **P1-8** corrected in `docs/security/threat-model.md` on 2026-09-22; **ST-049 (#135)** P1-7 (the key
 reaches SQLCipher as bytes). The P2 table below carries a status per row and the P3 section a dated
-note; two P2 items wait for the Review pane to exist in the live shell, and ST-049 stays Partial until
-they land. The sections are otherwise left as written on 2026-09-15 so the code comments that cite them
+note. The two that waited for the Review pane landed with it (P2-3, P2-9) and ST-049 closed with them;
+P2-7 closed on 2026-09-28 once the onboarding wizard made it live; P2-2 and P2-5 stay scheduled on a
+hardware decision. The sections are otherwise left as written on 2026-09-15 so the code comments that cite them
 still point at the right words; read each section's opening note before its body.
 
 ## How this is ranked
