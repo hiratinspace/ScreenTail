@@ -87,8 +87,12 @@ public sealed class OnboardingWizard(
 
     public bool CanGoBack => Step > OnboardingStep.Welcome && Step < OnboardingStep.Done;
 
-    /// <summary>Connect is the one step that can be skipped: publishing can wait, capture cannot (Spec §5 S8 step 5).</summary>
-    public bool CanSkip => Step == OnboardingStep.Connect;
+    /// <summary>
+    /// Two steps can be skipped. Connect, because publishing can wait and capture cannot (Spec §5 S8
+    /// step 5); Activate, because its own words offer Settings later, and a device enrolled from the
+    /// environment (the M1 runbook) has no code to enter.
+    /// </summary>
+    public bool CanSkip => Step is OnboardingStep.Connect or OnboardingStep.Activate;
 
     /// <summary>Why the technician cannot continue yet, or null.</summary>
     public string? Blocker => Step switch
