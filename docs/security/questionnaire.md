@@ -3,7 +3,8 @@
 For procurement and vendor-review forms. Every answer names what enforces it, so a reviewer can check
 rather than take our word for it.
 
-**Answers marked ⚠ describe something not yet built.** They are written as "designed to" rather than
+**Answers marked ⚠ describe something not yet built.** Brought into line with `main` on 2026-09-28
+(after #168); the review by an MSP security lead (7.4) has still not happened. They are written as "designed to" rather than
 "does", because a questionnaire that overstates a shipped control is the one document that will be held
 against you later. Do not delete the marks before the tickets close.
 
@@ -91,10 +92,11 @@ Locally, always. OCR uses the Windows on-device engine.
 Default 7 days, configurable 1–30. Screenshots, transcript and timeline are deleted on that clock; the
 drafted note survives. *(INV-12)*
 
-**2.8 ⚠ Is there a delete-everything option?**
-The service accepts the command only with a typed confirmation it issued moments before, and it removes
-tokens as well as data. The Settings screen that offers it is not built (ST-081), so today nothing in the
-UI reaches it.
+**2.8 Is there a delete-everything option?**
+Yes: Settings → Privacy & Redaction → Your data → "Delete everything on this device…" (ST-081). The
+service accepts the command only with a typed confirmation it issued moments before ("DELETE
+EVERYTHING"), and it removes the device's tokens as well as its data. The same screen exports the audit
+log with its chain verification.
 
 **2.9 Is deleted data recoverable?**
 No. Deletion is a hard delete followed by a vacuum. A blurred region is flattened to solid colour and the
@@ -121,8 +123,11 @@ in that mode keeps its screenshots and transcript and says the note could not be
 drafting is not built.
 
 **3.4 ⚠ Can an administrator lock local-only mode on?**
-Designed to, via tenant policy enforced client-side rather than merely displayed. *(INV-11; ST-047 not yet
-implemented.)*
+Yes. The tenant's policy is fetched at start and hourly under its own egress purpose (the one request
+local-only mode allows, because it is how local-only is lifted), the last copy is kept on disk for when
+the backend is away, and a locked local-only is applied to the egress guard itself rather than only
+shown: Settings renders the toggle read-only with "Set by your admin (policy …)". *(INV-11; ST-047,
+2026-09-25.)* The operator sets a policy with `--set-policy` until the web admin exists (ST-099).
 
 **3.5 ⚠ Does the backend store screenshots?**
 No. There is no table that could hold a frame, a transcript or a note; a bundle is held in memory for one
@@ -139,9 +144,13 @@ No. Logs and metrics have no content-carrying fields — no window titles, OCR t
 company or ticket names. The diagnostics record has nowhere to put them, which is stronger than scrubbing
 them out. *(INV-10)*
 
-**3.8 ⚠ What does telemetry send?**
-No telemetry is sent: there is no metrics system in the client. The Settings screen that would list the
-fields does not exist either.
+**3.8 What does telemetry send?**
+Nothing unless the technician switches it on in Settings → Privacy & Redaction, where the exact field
+list is shown. One metric per session: `session_id`, `started_at`, `duration_ms`, `frames`,
+`transcript_segments`, `frames_purged_unredacted`, `edit_ratio`, `published` — the contract is
+`shared/contracts/session-metric.v1.json`, and a test on each side fails if the type ever gains a string
+field other than the id. No note text, ticket, company, transcript or window title can be sent, because
+there is nowhere in the shape to put one. *(INV-10; ST-098.)*
 
 **3.9 Is the diagnostics panel trustworthy?**
 Yes. It is filled from the service's own counters and policy over the pipe; the UI holds no value of its
