@@ -20,7 +20,7 @@ to trust it and where to change it.
 | `ipc-contract.md` | The service–UI pipe contract, versioned. Kept at the root because three source files and the backlog cite it by this path |
 | `adr/000N-*.md` | Architecture decisions. All six are Accepted. `adr/evidence/` holds the measurements they rest on, with its own README |
 | `review/weaknesses.md` | The 2026-09-15 adversarial review, closed 2026-09-22: every finding says what fixed it, and the one still open says where it is tracked. Kept because code comments cite its numbers |
-| `security/threat-model.md`, `data-flow.md`, `questionnaire.md` | The privacy pack (ST-114). Brought into line with the code on 2026-09-22. Items marked ⚠ are not yet built; the pack has not had a security-lead review and says so |
+| `security/threat-model.md`, `data-flow.md`, `questionnaire.md` | The privacy pack (ST-114). Brought into line with the code on 2026-09-28. Items marked ⚠ are not yet built; the pack has not had a security-lead review and says so |
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
 | `dev/first-draft-end-to-end.md` | Getting one real session to produce one real note: the M1 step list, everything on the laptop |

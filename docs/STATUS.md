@@ -130,7 +130,7 @@ and policy in Settings (ST-081; the sync itself is in, ST-047), a signed install
 - [ ] **Record the ten-minute narration** for ST-027's WER number. `research/fixtures/audio/README.md`
       says what it needs and the one command that scores it.
 - [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). The three documents were brought
-      into line with the code on 2026-09-22; they are still unreviewed and say so.
+      into line with the code on 2026-09-28; they are still unreviewed and say so.
 - [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions and ST-001 AC2.
 - [ ] **Hosting decision** (Phase D). Docker Postgres on a laptop is fine until then.
 - [ ] **ST-110 pilot-MSP baseline interviews**, and the market scan's §6 question in the same
