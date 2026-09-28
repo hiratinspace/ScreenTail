@@ -9,7 +9,7 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="What leaves this device" />
                 <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap"
-                           Text="Captured on this device → redacted on this device → one request to draft the note (or nothing, in local-only mode) → you review → you publish. Nothing is published without your review." />
+                           Text="Captured on this device → redacted on this device → one request to draft the note (or a plainer draft written here, in local-only mode) → you review → you publish. Nothing is published without your review." />
             </StackPanel>
         </Border>
 
@@ -19,7 +19,7 @@
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
                 <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" Foreground="{DynamicResource Brush.text.primary}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here; notes are drafted on this device when that exists (ST-065) and wait until then." />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here. Notes are drafted on this device from what was said and shown — plainer than the model's, and marked as such in Review." />
             </StackPanel>
         </Border>
 
