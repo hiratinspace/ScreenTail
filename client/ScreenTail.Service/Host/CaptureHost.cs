@@ -240,7 +240,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         var controller = new CaptureController(
             machine,
-            new WindowsCapabilityProbe(),
+            // P2-7: a report is good for five seconds, so the wizard's "Check again" and a burst of pipe
+            // requests do not each install and remove a global mouse hook.
+            new CachedCapabilityProbe(new WindowsCapabilityProbe()),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
             new PublishCommands(store, psa, metrics, new StyleLearner(style, store)),
