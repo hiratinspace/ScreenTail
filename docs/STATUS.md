@@ -1,6 +1,6 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-22
+**Snapshot taken:** 2026-09-28
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -25,9 +25,9 @@ the filmstrip, `Alt+T` opens the transcript and the choice is remembered. Settin
 section (ST-082): a card per provider, Test connection, secrets masked after save, the company mapping
 table; Capture and Privacy & Redaction (ST-080, ST-081) are still sentences.
 
-**Of 85 tickets, 42 are Done, 4 are Partial and 39 are Open.** Phases A and B of the ordered plan
+**Of 85 tickets, 65 are Done or built, 4 are Partial and 16 are Open.** Phases A and B of the ordered plan
 (backlog Part C) are complete apart from the two that need the owner: ST-030 (golden sessions; needs a
-ScreenConnect trial and a second machine) and ST-062 (the eval harness, which runs on ST-030's sessions).
+ScreenConnect trial and a second machine) and ST-062 (the harness is built; the corpus it scores is ST-030's).
 The four Partial tickets each say what they wait for: ST-027 (the WER number needs a human recording),
 ST-042 (the recall gate needs ST-030's labelled frames), ST-085 (done on the Mac side and green on the
 laptop; the ticket's own Windows walk-through has not been done by a person), ST-114 (the security-lead

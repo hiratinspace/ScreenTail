@@ -46,6 +46,15 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
 
         var blurred = await frames.BlurAsync("f1", region);
 
+        // A null here is a refusal the pane never sees the words of (CaptureConnection turns it into
+        // null on purpose). It failed once on the hosted Windows runner (#165) and passed on rerun
+        // and locally; the next time, the service's own reason is in the failure rather than "null".
+        if (blurred is null)
+        {
+            var refusal = await _connection!.SendAsync(id => new BlurFrameCommand { RequestId = id, FrameId = "f1", X = region.X, Y = region.Y, Width = region.Width, Height = region.Height });
+            Assert.Fail($"The blur came back null; asked again plainly, the service said: {refusal.Error ?? "(ok, so the null was the wire's)"}");
+        }
+
         Assert.Equal(PaintedBytes, blurred);
         Assert.Equal(PaintedBytes, await _store!.GetRedactedFrameImageAsync("f1"));
     }
