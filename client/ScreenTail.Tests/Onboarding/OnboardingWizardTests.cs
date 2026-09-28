@@ -47,6 +47,21 @@ public sealed class OnboardingWizardTests
     }
 
     [Fact]
+    public async Task ActivationCanBeSkippedBecauseTheStepSaysItCan()
+    {
+        // The blocker's own words are "or come back to this from Settings later" (ST-010's card), and a
+        // device enrolled from the environment (the M1 runbook) has no code to enter. Skip has to be real.
+        var wizard = Wizard();
+        wizard.Next();
+        await wizard.LoadStepAsync();
+
+        Assert.True(wizard.CanSkip);
+        wizard.Skip();
+
+        Assert.Equal(OnboardingStep.Permissions, wizard.Step);
+    }
+
+    [Fact]
     public async Task ABlockedMicrophoneShowsTheFixAndIsCheckedAgain()
     {
         // AC3: blocked mic → deep link and re-check.
