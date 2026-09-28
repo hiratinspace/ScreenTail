@@ -2,7 +2,7 @@
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
-**Last brought into line with the code: 2026-09-22.** `IpcContract.Version` is **2**, since 2026-09-14 (ST-072, #46): `reason` and `scope_process` were added to the state snapshot, and because the framing rejects unknown members an older reader would have failed on a newer snapshot rather than ignored the field. Everything since has been new commands and events an older client never sends or receives, and has not bumped it.
+**Last brought into line with the code: 2026-09-28.** `IpcContract.Version` is **2**, since 2026-09-14 (ST-072, #46): `reason` and `scope_process` were added to the state snapshot, and because the framing rejects unknown members an older reader would have failed on a newer snapshot rather than ignored the field. Everything since has been new commands and events an older client never sends or receives, and has not bumped it.
 
 ## Framing
 
