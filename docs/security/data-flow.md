@@ -5,7 +5,7 @@ is. Written in plain language on purpose: a data-flow document nobody outside en
 document that gets forwarded and never checked.
 
 Everything here is enforced in code and named against the invariant that enforces it. Where something is
-not yet built, it says so. **Revised 2026-09-22** against `main` at #132; not yet reviewed by a security
+not yet built, it says so. **Revised 2026-09-28** against `main` after #168; not yet reviewed by a security
 lead.
 
 ---
@@ -97,8 +97,8 @@ password fields — and then, and only then, the frame becomes readable to the r
 **Raw data has a deadline.** Screenshots, transcript and timeline are deleted after a retention period
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).
 "Delete everything" exists as a command the service accepts only with a typed confirmation it issued
-moments before, and it removes tokens as well as data; the Settings screen that offers it is not built
-yet (ST-081).
+moments before, and it removes tokens as well as data; Settings → Privacy & Redaction offers it
+(ST-081), and exports the audit log with its verification beside it.
 
 ---
 
@@ -188,19 +188,28 @@ The full threat model, with mitigations mapped to tickets, is in [threat-model.m
 
 This document describes what is enforced today. These are named here rather than implied:
 
-- **Publishing** (ST-077, ST-078) is not implemented. Nothing reaches a PSA yet.
+- **Publishing is built and untested against a real PSA.** A note, a time entry and a knowledge-base
+  article go through the service to the backend, which holds the tenant's credentials in its vault; the
+  client never learns which PSA. The ConnectWise sandbox check and a Hudu key are the owner's.
 - **The hosted backend** is built and runs locally on Postgres; it is not deployed (ST-007). INV-7 is
   asserted by its tests, which count every row in every table before and after a draft.
-- **Enrolment** (ST-010) is not built. A Development-only flag issues a device token until it is.
-- **Tenant policy sync** (ST-047) is not implemented, so "a tenant can lock local-only mode" describes the
-  designed behaviour, not a shipped one.
-- **The egress allowlist** (INV-8) **is in the path now**: every HTTP client the service builds goes
-  through it, it refuses anything that is not HTTPS, and the list holds only the speech-model host and
-  the backend address an operator configured. The UI process makes no HTTP calls.
-- **"Delete everything"** is a command the service accepts behind a typed confirmation; nothing in the
-  UI reaches it until the Settings screen exists (ST-081).
+- **Enrolment is built on both sides** (ST-010): an invite code, issued by the operator, activates the
+  device; the service keeps the refresh token under DPAPI and renews access tokens; Settings → This
+  device takes the code. Owner sign-up and SSO, and the invite email, wait for the web admin and a mail
+  provider.
+- **Tenant policy sync is built** (ST-047; see the questionnaire's 3.4). Exclusions, redaction patterns
+  and telemetry are not yet fields of the policy.
+- **The egress allowlist** (INV-8) is in the path: every HTTP client the service builds goes through it,
+  it refuses anything that is not HTTPS, and the list holds only the speech-model host and the backend
+  address an operator configured. The UI process makes no HTTP calls.
+- **"Delete everything"** is offered in Settings → Privacy & Redaction behind the service's typed
+  confirmation (ST-081).
 - **Audio capture is built** (ST-027). The service opens the technician's default microphone while a
   session is recording and nothing else; there is no code path for system or remote audio, so INV-9 is
   enforced by there being no other source to open.
-- **On-device drafting is not built.** With no backend configured, nothing leaves the device and the
-  session keeps its screenshots and transcript with a note that says it could not be drafted.
+- **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
+  its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
+  nothing is lost.
+- **Binaries are not signed** (ST-112). The peer check falls back to the same-directory rule on
+  development builds, and the spare laptop's Application Control policy has blocked fresh service
+  builds more than once.

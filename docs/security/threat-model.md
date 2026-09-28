@@ -61,8 +61,11 @@ than optional, so a `null` has to be typed on purpose — and the live shell pas
 (ST-085). An unsigned development build falls back to the same-directory rule on both sides;
 `scripts/windows/run-local.ps1` exists because `dotnet run` on each project separately fails that rule.
 
-**T15 is not wired.** Policy sync (ST-047) is not built, so local-only mode today means "no backend
-configured", which the guard enforces, rather than a tenant setting.
+**T15 is wired** (ST-047, 2026-09-25). The tenant's policy arrives at start and hourly, the last copy
+is kept on disk, and a locked local-only is applied to the egress guard's own settings — the object it
+decides with — rather than to a display flag. A technician's Settings shows the toggle read-only with
+the policy's version. What a policy cannot yet carry: exclusions, redaction patterns and telemetry as
+tenant fields (the model has retention, local-only, its lock and the capture scope).
 
 **The `netstat` evidence in ST-012's acceptance criteria** is a source-level guard here (T13, T14). A run
 of the service with no listening ports is worth adding to the laptop's hardware checks once the service
