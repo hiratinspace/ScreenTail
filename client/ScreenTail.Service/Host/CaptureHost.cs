@@ -201,7 +201,13 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             TimeProvider.System);
         metrics = new MetricsReporter(store, outbox, () => settingsStore.Load().Telemetry);
 
-        var drafter = new BundlingDrafter(store, logger, outbox);
+        // ST-065 AC3: with no backend, or local-only on, the session is drafted here rather than left at
+        // "draft failed". The guard's own decision is asked, so the two can never disagree.
+        var drafter = new BundlingDrafter(
+            store,
+            logger,
+            outbox,
+            canSend: () => backend is not null && egressPolicy.Decide(EgressPurpose.Summarisation, backend).Allowed);
         // One engine for what is seen and what is said. Two would drift the day a tenant's own patterns
         // are loaded into one of them, and speech would go on being checked against the defaults.
         var redactionEngine = new RedactionEngine();

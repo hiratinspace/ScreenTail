@@ -136,6 +136,11 @@ exception types and frames — never the message, which is where a path or a tit
 `%LOCALAPPDATA%\ScreenTail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
 opt-in nothing is written.
 
+**A local-only session is drafted on the device** (ST-065 AC3). When the egress guard would refuse the
+drafting request — local-only mode, or no backend at all — nothing is queued and the note is written
+here from the transcript and the screenshots: one step per thing said, low confidence, marked local.
+No model runs, so no model is contacted; the note says what it is.
+
 **What the technician changes about drafts is learned as signals, not text** (ST-067). At publish the
 service compares the draft as written with the draft as published and keeps only structural ids —
 `past_tense`, `shorter_steps`, `no_full_stops`, `sentence_case`, `fewer_steps` — for the last ten

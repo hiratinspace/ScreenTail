@@ -119,8 +119,8 @@ No. There is no automatic publishing path. *(INV-3)*
 Yes: with no backend configured, nothing leaves the device. Every HTTP call the service makes goes
 through an allowlist that defaults closed, refuses anything that is not HTTPS, and takes the
 destination's purpose from the calling code rather than inferring it from the URL. *(INV-8)* A session
-in that mode keeps its screenshots and transcript and says the note could not be drafted; on-device
-drafting is not built.
+in that mode keeps its screenshots and transcript and gets a plainer draft written on the device from
+them (no model runs; the note is marked local and Review says so).
 
 **3.4 ⚠ Can an administrator lock local-only mode on?**
 Yes. The tenant's policy is fetched at start and hourly under its own egress purpose (the one request
