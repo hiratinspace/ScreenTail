@@ -211,7 +211,14 @@ the reason rather than closing the connection.
 `blur_frame` is painted by the service with the same masker redaction uses, written to the store, and
 only then answered — so a crash between the write and the reply leaves the disk ahead of the screen,
 never behind it. The region is recorded as `user_blur` in the frame's `masked_regions`. Destructive, and
-meant to be (Spec §5 S3). The UI used to flatten in WPF and hand the bytes back; that re-encoded a JPEG
+meant to be (Spec §5 S3). The rectangle is in the frame's own pixels (its `width` and `height`, which
+every masked region uses) and must lie wholly inside them, or it is refused and nothing is painted. The
+stored image is smaller, because redaction downscales it to a 1600 px long edge, so the service scales
+the rectangle into the stored image's pixels and rounds outward before painting: every stored pixel
+that shows any part of it is covered. If the image the masker decodes is not the size the store
+recorded, the blur is refused rather than painted somewhere else. The frame's `ocr_text` is cleared in
+the same write, because it was read from the pixels just destroyed and nothing records which words were
+under the rectangle (ST-075). The UI used to flatten in WPF and hand the bytes back; that re-encoded a JPEG
 as PNG on the UI thread and made the stored name a lie (weaknesses P2-9).
 
 None of this bumps the version: an older client never sends these and never sees their replies.

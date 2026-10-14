@@ -420,11 +420,45 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         var reopened = await OpenAsync();
         Assert.Equal(blurred, await reopened.GetRedactedFrameImageAsync("f1"));
-        Assert.Single((await reopened.LoadSessionAsync("s1"))!.Frames);
+        var frame = Assert.Single((await reopened.LoadSessionAsync("s1"))!.Frames);
+
+        // The text read from the destroyed pixels goes with them, in the same statement (S-18). Nothing
+        // records which words were under the rectangle, so none of it can be kept as safe.
+        Assert.Null(frame.OcrText);
 
         // The original is unrecoverable because nothing kept it: the undo window holds it in memory alone
         // (UndoWindowTests), and ApplyUserBlurAsync overwrites the one column that had it. There is no
         // history table for this test to check, and that absence is the guarantee.
+    }
+
+    [Fact]
+    public async Task AFrameRemembersTheSizeItsImageWasStoredAt()
+    {
+        // ST-075: a Review blur is drawn in the capture's pixels and painted on the stored image, which
+        // redaction downscaled. Both sizes come back together, so the scale between them is never guessed.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.SaveRedactedFrameAsync(
+            "s1",
+            Staged("new", 1000, Bytes(0xAA, 10)) with { Width = 2560, Height = 1440 },
+            Outcome(Bytes(0xBB, 10), null) with { StoredWidth = 1600, StoredHeight = 900 });
+        await store.StageFrameAsync("s1", Staged("old", 2000, Bytes(0xAA, 10)) with { Width = 3840, Height = 2160 });
+        await store.MarkFrameRedactedAsync("old", Outcome(Bytes(0xBB, 10), null));
+        await store.StageFrameAsync("s1", Staged("pending", 3000, Bytes(0xAA, 10)));
+
+        var recorded = await store.GetRedactedFrameForBlurAsync("new");
+        var legacy = await store.GetRedactedFrameForBlurAsync("old");
+
+        Assert.Equal((2560, 1440, 1600, 900), (recorded!.Width, recorded.Height, recorded.StoredWidth, recorded.StoredHeight));
+        Assert.Equal(Bytes(0xBB, 10), recorded.Image);
+
+        // Written without a stored size, as every frame before migration 0011 was: the downscale rule
+        // that made it says how big it is.
+        Assert.Equal((3840, 2160, 1600, 900), (legacy!.Width, legacy.Height, legacy.StoredWidth, legacy.StoredHeight));
+
+        // INV-1 holds on this read path as on every other.
+        Assert.Null(await store.GetRedactedFrameForBlurAsync("pending"));
+        Assert.Null(await store.GetRedactedFrameForBlurAsync("missing"));
     }
 
     [Fact]

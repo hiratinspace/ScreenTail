@@ -294,7 +294,7 @@ public sealed class RedactionWorker(
         await store.SaveRedactedFrameAsync(
             queued.SessionId,
             frame,
-            new RedactionOutcome(masked.Image, redaction.Text, regions, sensitive, _time.GetUtcNow()),
+            new RedactionOutcome(masked.Image, redaction.Text, regions, sensitive, _time.GetUtcNow(), masked.Width, masked.Height),
             ct).ConfigureAwait(false);
 
         // ST-045: what was covered over, counted by kind. The customer's question is "what did it find on

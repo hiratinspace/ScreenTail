@@ -55,6 +55,61 @@ public static class BlurRegion
 
     /// <summary>Whether the drag was big enough to mean anything, or just a click that wobbled.</summary>
     public static bool IsMeaningful(Rect drawn) => drawn.Width >= 4 && drawn.Height >= 4;
+
+    /// <summary>
+    /// Whether a region is a non-empty rectangle wholly inside a frame of this size. What <see cref="From"/>
+    /// makes always is; a region that is not came from somewhere else, and painting a clamped part of it
+    /// would record a rectangle that was never covered.
+    /// </summary>
+    public static bool IsInside(MaskedRegion region, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+
+        // Subtracting rather than adding, so that no value a caller can send overflows the comparison.
+        return region.X >= 0 && region.Y >= 0
+            && region.Width >= 1 && region.Height >= 1
+            && region.X < width && region.Y < height
+            && region.Width <= width - region.X && region.Height <= height - region.Y;
+    }
+
+    /// <summary>
+    /// The same rectangle in the stored image, which redaction downscaled from the frame's own size
+    /// (ST-075, S-38). Every region is recorded in the frame's pixels; the picture that gets painted is
+    /// smaller, so painting the region as recorded would cover the wrong part of it.
+    ///
+    /// Rounded outward, per axis, in exact integers: stored pixel <c>p</c> shows the frame's pixels from
+    /// <c>p * width / storedWidth</c> up to the next one's, and every stored pixel that shows any part of the
+    /// rectangle is painted. One that is left shows a strip of what the technician asked to destroy.
+    /// </summary>
+    /// <param name="region">Inside the frame, by <see cref="IsInside"/>.</param>
+    public static MaskedRegion InStoredImage(MaskedRegion region, int width, int height, int storedWidth, int storedHeight)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        if (!IsInside(region, width, height))
+        {
+            throw new ArgumentOutOfRangeException(nameof(region), "The region is not inside the frame.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(storedWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(storedHeight);
+
+        var (left, right) = Outward(region.X, region.Width, width, storedWidth);
+        var (top, bottom) = Outward(region.Y, region.Height, height, storedHeight);
+        return region with { X = left, Y = top, Width = right - left, Height = bottom - top };
+    }
+
+    /// <summary>
+    /// [from, from + length) in an axis of <paramref name="native"/> pixels, as the smallest whole span of
+    /// <paramref name="stored"/> pixels that contains it. Both ends are at most 2^31, so the products fit.
+    /// </summary>
+    private static (long From, long To) Outward(long from, long length, int native, int stored)
+    {
+        var start = from * stored / native;
+        var end = (((from + length) * stored) + native - 1) / native;
+
+        // Never empty: the region is at least one frame pixel, and at least one stored pixel shows it.
+        return (start, Math.Clamp(end, start + 1, stored));
+    }
 }
 
 /// <summary>A rectangle, without taking a dependency on WPF so the arithmetic stays testable (ADR-0002).</summary>

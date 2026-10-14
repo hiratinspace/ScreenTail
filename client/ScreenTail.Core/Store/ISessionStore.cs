@@ -85,7 +85,9 @@ public interface ISessionStore : IAsyncDisposable
 
     /// <summary>
     /// Replaces a redacted frame's image with one the technician blurred a region out of, and records the
-    /// region as <c>user_blur</c> (ST-075).
+    /// region as <c>user_blur</c> (ST-075). The frame's OCR text goes in the same statement: it was read
+    /// from the pixels the technician has just destroyed, and nothing records which words were under the
+    /// rectangle, so all of it goes rather than any of it surviving to be shown or sent.
     ///
     /// The original bytes are not kept anywhere. Spec §5 S3 calls this destructive and means it: a
     /// technician blurring a password on a customer's screen is telling the product to destroy those
@@ -152,6 +154,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>Image bytes of a redacted frame; null when the frame is pending or doesn't exist.</summary>
     Task<byte[]?> GetRedactedFrameImageAsync(string frameId, CancellationToken ct = default);
 
+    /// <summary>
+    /// A redacted frame's image with its captured and stored sizes, for a blur; null when the frame is
+    /// pending or doesn't exist. A frame written before the stored size was recorded reports the size the
+    /// downscale rule gives its captured one.
+    /// </summary>
+    Task<StoredFrameImage?> GetRedactedFrameForBlurAsync(string frameId, CancellationToken ct = default);
+
     /// <summary>Deletes the session and everything under it, and writes an audit row.</summary>
     Task DeleteSessionAsync(string sessionId, CancellationToken ct = default);
 
@@ -191,12 +200,27 @@ public sealed record StagedFrame(
 
 public sealed record PendingFrame(string Id, string SessionId, long TsMs, byte[] Image);
 
+/// <param name="StoredWidth">The width of <paramref name="RedactedImage"/>, which the masker downscaled from
+/// the frame's own. Null when the caller does not know it; a reader then assumes the one downscale rule
+/// there has ever been (<see cref="Capture.Downscale"/>).</param>
+/// <param name="StoredHeight">The height of <paramref name="RedactedImage"/>; null with the width.</param>
 public sealed record RedactionOutcome(
     ReadOnlyMemory<byte> RedactedImage,
     string? OcrText,
     IReadOnlyList<MaskedRegion> MaskedRegions,
     bool SensitiveContext,
-    DateTimeOffset RedactedAt);
+    DateTimeOffset RedactedAt,
+    int? StoredWidth = null,
+    int? StoredHeight = null);
+
+/// <summary>
+/// A redacted frame's image with the two sizes a Review blur has to reconcile (ST-075).
+/// </summary>
+/// <param name="Width">The frame's own width, as captured. Its masked regions, and the rectangle the Review
+/// pane sends, are in these pixels.</param>
+/// <param name="StoredWidth">The width of <paramref name="Image"/>, which redaction downscaled. What gets
+/// painted is in these pixels.</param>
+public sealed record StoredFrameImage(byte[] Image, int Width, int Height, int StoredWidth, int StoredHeight);
 
 public sealed record FinalizeInfo(long DurationMs, bool PartialCapture);
 
