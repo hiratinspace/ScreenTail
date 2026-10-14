@@ -176,8 +176,7 @@ public sealed class SessionRecorder(
     {
         // Re-read rather than reuse the decision from the top of the batch: the technician may have moved
         // to another window between two events, and a picture is taken against the window scope is about.
-        var scope = currentScope();
-        if (scope is null || !scope.MayCaptureFrames)
+        if (FrameGate.WindowFor(currentScope()) is not { } window)
         {
             return;
         }
@@ -187,7 +186,7 @@ public sealed class SessionRecorder(
             return;
         }
 
-        var frame = capturer.CaptureForegroundWindow(scope.Window);
+        var frame = capturer.CaptureForegroundWindow(window);
         if (frame is null)
         {
             FrameMissed?.Invoke(click.TsMs);
