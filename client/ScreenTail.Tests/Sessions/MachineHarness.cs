@@ -36,7 +36,8 @@ internal sealed class MachineHarness : IAsyncDisposable
 
     /// <param name="time">A hand-moved clock for tests that assert durations, so they measure the
     /// machine's accounting rather than the runner's scheduler.</param>
-    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null)
+    /// <param name="sources">What the machine starts, stops and asks for a marked frame. None by default.</param>
+    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null)
     {
         var path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
         var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
@@ -46,7 +47,7 @@ internal sealed class MachineHarness : IAsyncDisposable
         var pending = new PendingFrames(depth: 1000);
         var machine = new SessionMachine(
             store,
-            new NoCaptureSources(),
+            sources ?? new NoCaptureSources(),
             new UnavailableDrafter(),
             time: time,
             options: new SessionMachineOptions
