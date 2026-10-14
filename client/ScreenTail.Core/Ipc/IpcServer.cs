@@ -450,8 +450,13 @@ public sealed class IpcServer : IAsyncDisposable
             queue.Writer.TryComplete();
             await serving.CancelAsync().ConfigureAwait(false);
 
+            // Nothing reads this pipe any more, so it is closed now rather than once a slow handler
+            // returns. Left open, the client still looked connected and did not reconnect, and the
+            // heartbeat, Stop and Pause hung for as long as the backend took (round 1 review of E-25).
+            connection.Close();
+
             // Before the connection is disposed under it. A handler already running finishes, as it
-            // always did; its failure, if it had one, is what ends the connection.
+            // always did; its reply has nowhere to go, and that failure is what ends the worker.
             await worker.ConfigureAwait(false);
         }
     }
@@ -462,11 +467,14 @@ public sealed class IpcServer : IAsyncDisposable
     ///
     /// Named here rather than the slow ones, so that a command added later queues by default and can
     /// never be the thing a heartbeat waits behind. <c>request_confirmation</c> is here because a discard
-    /// needs its token first.
+    /// needs its token first. The two settings writes are here so that a Start sent after a Save, which
+    /// the tray and the hotkey do without waiting, still records under what was saved; both are a local
+    /// file and an in-memory apply.
     /// </summary>
     private static bool AnsweredOnTheReadLoop(IpcCommand command) => command is IndicatorShowingCommand
         or StartCommand or PauseCommand or ResumeCommand or StopCommand or DiscardCommand or MarkMomentCommand
-        or RequestConfirmationCommand or GetStateCommand or GetCapabilitiesCommand or HelloCommand;
+        or RequestConfirmationCommand or GetStateCommand or GetCapabilitiesCommand or HelloCommand
+        or SetSettingsCommand or SetCaptureSettingsCommand;
 
     private async Task WorkAsync(Connection connection, ChannelReader<IpcCommand> queue, CancellationTokenSource serving, CancellationToken ct)
     {
@@ -581,6 +589,12 @@ public sealed class IpcServer : IAsyncDisposable
                 _writeLock.Release();
             }
         }
+
+        /// <summary>
+        /// Ends the pipe, so the client sees it close, but keeps the write lock: a handler still running
+        /// may yet try to answer, and should fail on the pipe rather than on the lock.
+        /// </summary>
+        public void Close() => pipe.Dispose();
 
         public async ValueTask DisposeAsync()
         {

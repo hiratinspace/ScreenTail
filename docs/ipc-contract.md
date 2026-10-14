@@ -260,7 +260,9 @@ under the same purpose as the publish.
 E-25, 2026-10-12 review. A connection's commands are answered on two lanes, so replies can arrive in a different order from the commands, and the client matches them by `request_id`.
 
 - The session's own commands are answered as soon as they are read, in the order they arrive: `indicator_showing`, `start`, `pause`, `resume`, `stop`, `discard`, `mark_moment`, `request_confirmation`, `get_state`, `get_capabilities`. They are answered from local state and never wait behind anything on the network.
+- So are the two settings writes, `set_settings` and `set_capture_settings`, which are a local file and an in-memory apply. A session command sent after a setting change on the same connection (the tray and the hotkey send Start without waiting) is therefore always handled after that change, never under the settings it replaced.
 - Every other command, including any added later, goes to one queue per connection and is run one at a time in the order it was sent, as every command was before. At most 16 wait behind the one running; one more is answered at once with `ok: false` and a "busy" sentence rather than read later. When the client disconnects, whatever is still waiting is dropped, not run.
+- If a command on either lane fails, the service closes the connection at once, even while a queued command is still running, so the client sees the pipe end and reconnects. The running command finishes, but its reply goes nowhere.
 
 Before this a slow backend call (a publish, a ticket search) held up the HUD's `indicator_showing` past the indicator's grace, and the service dropped frames and typing as unindicated with the pill on screen (INV-4, INV-6). The wire format is unchanged and the version is not bumped: the client has always matched replies by `request_id`.
 
@@ -299,4 +301,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-26 | `get_settings` / `settings`, `set_settings`, `export_audit` / `audit` (ST-081) | 2 |
 | 2026-09-26 | `get_capture_settings` / `capture_settings`, `set_capture_settings` (ST-080) | 2 |
 | 2026-09-25 | `list_integrations` / `integration_details`, `store_integration`, `remove_integration`, `check_integration` / `integration_checked`, `unmap_company` (ST-082) | 2 |
-| 2026-10-14 | Two answering lanes per connection: the session's commands are answered on the read loop, the rest queue (16 at most) behind one worker (E-25) | 2 |
+| 2026-10-14 | Two answering lanes per connection: the session's commands and the two settings writes are answered on the read loop, the rest queue (16 at most) behind one worker (E-25) | 2 |
