@@ -49,8 +49,24 @@ public interface ISpeechRecogniser : IAsyncDisposable
     Task<Transcribed?> TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct = default);
 }
 
-/// <param name="Append">
-/// Writes a segment to the session. Returns false when the machine refused it, which is the ordinary
-/// answer while capture is paused or suppressed (INV-6) and not a failure.
+/// <summary>
+/// The session being recorded right now, as narration needs to know it.
+/// </summary>
+/// <param name="SessionId">
+/// Which session is listening. A segment is stamped with it when it is cut from the microphone, and is
+/// only ever written into that session: one customer's words must not reach the next customer's ticket
+/// because the model was still thinking when the sessions changed over.
 /// </param>
-public delegate Task<bool> AppendTranscript(TranscriptSegment segment, CancellationToken ct);
+/// <param name="AtMs">
+/// How far into the session this moment is, on the session's own clock (the one clicks and frames are
+/// stamped with), so a segment lands on the timeline where it was said.
+/// </param>
+public readonly record struct NarrationSession(string SessionId, long AtMs);
+
+/// <param name="heardIn">The session the segment was heard in, from <see cref="NarrationSession.SessionId"/>.</param>
+/// <param name="segment">What was said, on that session's clock.</param>
+/// <returns>
+/// False when the session refused it, which is the ordinary answer once that session is over or discarded
+/// (INV-6) and not a failure.
+/// </returns>
+public delegate Task<bool> AppendTranscript(string heardIn, TranscriptSegment segment, CancellationToken ct);

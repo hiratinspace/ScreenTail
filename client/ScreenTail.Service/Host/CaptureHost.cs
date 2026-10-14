@@ -468,13 +468,23 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var narration = new NarrationRecorder(
             microphone,
             whisper,
-            (segment, ct) => machine.TryAppendTranscriptAsync(segment, ct),
 
-            // The microphone is opened only while this is true, and what it hears while it is not is
-            // dropped where it arrives (INV-6, INV-9). Both: the drop is the invariant, and not opening
+            // Into the session it was heard in and no other: a segment still with the model when one
+            // session ends and the next begins is refused by the next (2026-10-12 review).
+            (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
+
+            // The microphone is opened only while a session is recording, and what it hears while none is
+            // is dropped where it arrives (INV-6, INV-9). Both: the drop is the invariant, and not opening
             // the device is what keeps Windows' microphone-in-use indicator off a customer's screen for
             // the rest of the day (2026-09-20 review).
-            recording: () => machine.State == SessionState.Recording);
+            recording: () => machine.Hearing,
+
+            // Speech follows the screenshots: heard only while the window in front may be photographed.
+            // An excluded app (a password manager), an elevated window and anything else out of scope
+            // drop what is said where it arrives, and so does a moment with no scope decision yet
+            // (INV-6, 2026-10-12 review).
+            hearing: () => coordinator.CurrentScope?.MayHearNarration == true,
+            backlog: machine.Narration);
 
         // The transition is the signal, for two things. The recorder would otherwise find out on its
         // next look and a session would begin with its first word already gone; and the model is not

@@ -1,4 +1,5 @@
 using ScreenTail.Core.Audit;
+using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
@@ -31,6 +32,13 @@ public sealed class SessionMachineOptions
     /// unredacted.
     /// </summary>
     public Capture.PendingFrames Pending { get; init; } = new();
+
+    /// <summary>
+    /// What narration each session is still owed (ST-027): segments heard while it was recording and still
+    /// with the model. Finalize waits on it within the same grace as the frames, and discarding or
+    /// finalizing a session forgets what is left of it.
+    /// </summary>
+    public NarrationBacklog Narration { get; init; } = new();
 }
 
 /// <summary>
@@ -379,6 +387,10 @@ public sealed class SessionMachine : IAsyncDisposable
             // Whatever is still queued for it goes too. Nobody has read those frames, so nobody can say
             // what is on them, and ADR-0004 is clear about such a frame.
             _options.Pending.Forget(_session.Id);
+
+            // And whatever narration it is still owed: refused if it arrives, and not transcribed at all
+            // if it has not reached the model yet.
+            _ = _options.Narration.Forget(_session.Id);
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
             _session = null;
             ClearHolds();
@@ -492,13 +504,62 @@ public sealed class SessionMachine : IAsyncDisposable
         return true;
     }
 
-    public async Task<bool> TryAppendTranscriptAsync(TranscriptSegment segment, CancellationToken ct = default)
+    /// <summary>
+    /// The session narration is being heard for right now, and how far into it: null unless recording
+    /// (INV-6). Asked by the recorder of every chunk of audio, so it is one lock and no allocation.
+    ///
+    /// Read under the same lock as the state, which is what makes the pair agree: a session is only ever
+    /// named here while it is the one recording, never the one before or the one after.
+    /// </summary>
+    public NarrationSession? Hearing
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _state == SessionState.Recording && _session is { } session
+                    ? new NarrationSession(session.Id, session.BaseMs + (long)_time.GetElapsedTime(session.StartedAt).TotalMilliseconds)
+                    : null;
+            }
+        }
+    }
+
+    /// <summary>What narration each session is still owed. The recorder fills it; finalize waits on it.</summary>
+    public NarrationBacklog Narration => _options.Narration;
+
+    /// <summary>
+    /// Writes a segment that was heard in <paramref name="heardIn"/>, if that session is still taking narration.
+    ///
+    /// Refused when any other session is current, or none is. Accepted while the session that heard it is
+    /// recording, paused, suppressed or finalizing: the recorder only cuts a segment from audio heard while
+    /// recording, so the words belong to the session even when the model finishes them after a pause or a
+    /// Stop, exactly as a frame taken before a pause is still redacted and written during it. Once
+    /// finalize has stopped waiting for narration, nothing more is written behind the draft's back.
+    /// </summary>
+    public Task<bool> TryAppendTranscriptAsync(string heardIn, TranscriptSegment segment, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(heardIn);
+        var session = _session;
+        return session is null
+            || session.NarrationClosed
+            || !string.Equals(session.Id, heardIn, StringComparison.Ordinal)
+            || State is not (SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing)
+            ? Task.FromResult(false)
+            : AppendTranscriptAsync(session, segment, ct);
+    }
+
+    /// <summary>Writes a segment into the session recording right now. Refused unless one is (INV-6).</summary>
+    public Task<bool> TryAppendTranscriptAsync(TranscriptSegment segment, CancellationToken ct = default)
     {
         var session = _session;
-        if (State != SessionState.Recording || session is null)
-        {
-            return false;
-        }
+        return State != SessionState.Recording || session is null
+            ? Task.FromResult(false)
+            : AppendTranscriptAsync(session, segment, ct);
+    }
+
+    private async Task<bool> AppendTranscriptAsync(ActiveSession session, TranscriptSegment segment, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
 
         // Scrubbed here because this is the one door: every spoken segment that reaches the store comes
         // through this method, exactly as every frame comes through TryStageFrameAsync. Doing it in the
@@ -648,12 +709,25 @@ public sealed class SessionMachine : IAsyncDisposable
         // The queue, not the store: a frame that has not been redacted has not been written, so the
         // store cannot say whether one is still owed (ADR-0006). Both states count -- waiting to be
         // read, and read but not yet written.
+        //
+        // Narration too, within the same grace. The model takes seconds a segment, so the last things
+        // said before Stop are usually still being transcribed, and the note used to be drafted without
+        // them: the end of a session, which is usually its outcome (2026-10-12 review).
         while (waitFor > TimeSpan.Zero
-               && _options.Pending.DepthFor(sessionId) > 0
+               && (_options.Pending.DepthFor(sessionId) > 0 || _options.Narration.DepthFor(sessionId) > 0)
                && _time.GetElapsedTime(deadline) < waitFor)
         {
             await Task.Delay(_options.RedactionPoll, _time, ct).ConfigureAwait(false);
         }
+
+        // From here the note is drawn up, so nothing more is written into the transcript, and what the
+        // model has not reached is not transcribed at all.
+        if (_session is { } closing && string.Equals(closing.Id, sessionId, StringComparison.Ordinal))
+        {
+            closing.CloseNarration();
+        }
+
+        _ = _options.Narration.Forget(sessionId);
 
         // Whatever is still queued when the grace runs out. The frames were captured and never read, so
         // they cannot be stored (ADR-0004) -- and there is no row to delete, so what is left to do is
@@ -744,6 +818,13 @@ public sealed class SessionMachine : IAsyncDisposable
         public long BaseMs { get; } = baseMs;
 
         public bool Partial { get; init; }
+
+        private volatile bool _narrationClosed;
+
+        /// <summary>Set once finalize stops waiting for narration. Read by the transcript door on the recorder's thread.</summary>
+        public bool NarrationClosed => _narrationClosed;
+
+        public void CloseNarration() => _narrationClosed = true;
 
         public long ActiveMs(TimeProvider time, SessionState current) =>
             _activeMs + (current is SessionState.Recording ? (long)time.GetElapsedTime(_activeSince).TotalMilliseconds : 0);

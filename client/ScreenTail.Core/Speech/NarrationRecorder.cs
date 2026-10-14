@@ -61,24 +61,40 @@ public sealed class NarrationRecorder : IDisposable
     /// behind the conversation rather than seconds. Four is a handful of sentences.
     ///
     /// One reader, so segments reach the assembler in the order they were said.
+    ///
+    /// Each carries the session it was heard in. It used to carry nothing, and the append looked the
+    /// session up when the model finished, seconds later: by then the next customer's session could be
+    /// recording, and it was given the last customer's words (2026-10-12 review).
     /// </summary>
-    private readonly Channel<(SpeechSegment Segment, ReadOnlyMemory<short> Audio)> _pending =
-        Channel.CreateBounded<(SpeechSegment, ReadOnlyMemory<short>)>(
+    private readonly Channel<(string Session, SpeechSegment Segment, ReadOnlyMemory<short> Audio)> _pending =
+        Channel.CreateBounded<(string, SpeechSegment, ReadOnlyMemory<short>)>(
             new BoundedChannelOptions(4) { SingleReader = true, SingleWriter = true });
     private readonly ISpeechRecogniser _recogniser;
     private readonly AppendTranscript _append;
-    private readonly Func<bool> _recording;
+    private readonly Func<NarrationSession?> _recording;
+    private readonly Func<bool> _hearing;
+    private readonly NarrationBacklog _backlog;
     private readonly NarrationOptions _options;
     private readonly VoiceActivity _voice = new();
     private readonly SpeechGate _gate;
-    private readonly TranscriptAssembler _assembler = new();
     private readonly short[] _ring;
     private readonly short[] _frame;
     private long _written;
     private int _filled;
 
+    /// <summary>
+    /// The session the current stretch of listening belongs to, and where on its clock the stretch began.
+    /// Null between stretches. Set by the first chunk heard and cleared by <see cref="Discard"/>, so the
+    /// gate is never open without one.
+    /// </summary>
+    private NarrationSession? _stretch;
+
+    /// <summary>One per session, on the drain's side: ids and the monotonic clamp both start again with each.</summary>
+    private TranscriptAssembler _assembler = new();
+    private string? _assembling;
+
     /// <param name="recording">
-    /// Whether the session is recording right now.
+    /// The session recording right now, or null when none is.
     ///
     /// Asked of every chunk as it arrives, rather than of every segment as it is written. The microphone
     /// is opened when the service starts and listens for the life of it, so without this everything said
@@ -87,18 +103,38 @@ public sealed class NarrationRecorder : IDisposable
     /// back. A password read aloud during a pause, finished after the resume, was stored (2026-09-19
     /// review).
     ///
+    /// It names the session rather than only saying yes, and says where on that session's clock this
+    /// moment is.
+    /// Each segment is stamped with the session it was heard in and placed on its timeline, and is
+    /// written into that session or nowhere.
+    ///
     /// It defaults to "always", which is what the tests of the pipeline itself want and what nothing
     /// that ships should use.
+    /// </param>
+    /// <param name="hearing">
+    /// Whether what is said right now may be kept, asked of every chunk while a session is recording.
+    /// The host answers no while the window in front may not be photographed: an excluded app such as a
+    /// password manager, an elevated window, anything out of scope (INV-6). The microphone stays open,
+    /// because the session is still recording, and the audio is dropped where it arrives. Defaults to
+    /// "always".
+    /// </param>
+    /// <param name="backlog">
+    /// Where the segments each session is still owed are counted, shared with the session machine so
+    /// finalize can wait for them and discard can drop them. The recorder keeps its own when none is given.
     /// </param>
     public NarrationRecorder(
         IMicrophone microphone,
         ISpeechRecogniser recogniser,
         AppendTranscript append,
-        Func<bool>? recording = null,
+        Func<NarrationSession?>? recording = null,
         NarrationOptions? options = null,
-        SpeechGateOptions? gate = null)
+        SpeechGateOptions? gate = null,
+        Func<bool>? hearing = null,
+        NarrationBacklog? backlog = null)
     {
-        _recording = recording ?? (() => true);
+        _recording = recording ?? (() => new NarrationSession("narration", 0));
+        _hearing = hearing ?? (() => true);
+        _backlog = backlog ?? new NarrationBacklog();
         _microphone = microphone ?? throw new ArgumentNullException(nameof(microphone));
         _recogniser = recogniser ?? throw new ArgumentNullException(nameof(recogniser));
         _append = append ?? throw new ArgumentNullException(nameof(append));
@@ -162,7 +198,7 @@ public sealed class NarrationRecorder : IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                if (!_recording())
+                if (_recording() is null)
                 {
                     // Nothing to hear, so the device is not held open.
                     //
@@ -254,12 +290,32 @@ public sealed class NarrationRecorder : IDisposable
         {
             await foreach (var chunk in _microphone.ListenAsync(ct).ConfigureAwait(false))
             {
-                if (!_recording())
+                if (_recording() is not { } now)
                 {
                     Discard();
                     return true;
                 }
 
+                if (_stretch is { } stretch && !string.Equals(stretch.SessionId, now.SessionId, StringComparison.Ordinal))
+                {
+                    // One session ended and the next began between two chunks. Nothing said in one may
+                    // be finished in the other.
+                    Discard();
+                }
+
+                if (!_hearing())
+                {
+                    // Something in front that may not be captured. Dropped where it arrives, and what was
+                    // being said is forgotten once, at the boundary, as a pause forgets it.
+                    if (_stretch is not null)
+                    {
+                        Discard();
+                    }
+
+                    continue;
+                }
+
+                _stretch ??= now;
                 await OfferAsync(chunk, ct).ConfigureAwait(false);
             }
 
@@ -283,13 +339,23 @@ public sealed class NarrationRecorder : IDisposable
     /// The gate as well as the buffer: a sentence that began while recording must not be finished after
     /// a pause. Capture coming back starts a new sentence, which is the honest reading — nobody can say
     /// what was said in between, and this is the mechanism whose whole job is not to guess.
+    ///
+    /// The gate's clock restarts with the buffer. It used to keep running while the buffer's count went
+    /// back to zero, so after the first pause, suppression or session end every segment pointed at audio
+    /// that was never written, came out empty, and narration was lost until the service restarted
+    /// (2026-10-12 review). The stretch goes too: what is heard next is placed by the session's clock
+    /// when it is heard.
     /// </summary>
     private void Discard()
     {
-        _ = _gate.Flush();
+        _gate.Reset();
         _filled = 0;
-        _written = 0;
-        Array.Clear(_ring);
+        _stretch = null;
+        if (_written > 0)
+        {
+            _written = 0;
+            Array.Clear(_ring);
+        }
     }
 
     /// <summary>Accepts however much audio arrived and judges it a frame at a time.</summary>
@@ -335,36 +401,62 @@ public sealed class NarrationRecorder : IDisposable
     /// the sentence after the one being transcribed aged out of the ring and was lost, which the old
     /// comment on this method admitted in as many words (2026-09-20 review).
     /// </summary>
-    private ValueTask QueueAsync(SpeechSegment segment, CancellationToken ct)
+    private async ValueTask QueueAsync(SpeechSegment segment, CancellationToken ct)
     {
+        if (_stretch is not { } stretch)
+        {
+            // Not reachable: the gate is only fed inside a stretch and is emptied with it. Kept so that
+            // nothing can ever be queued without a session to belong to.
+            return;
+        }
+
         Heard++;
         if (!_recogniser.Ready)
         {
             MissedWaitingForModel++;
-            return ValueTask.CompletedTask;
+            return;
         }
 
         var audio = Extract(segment);
         if (audio.IsEmpty)
         {
             MissedWaitingForModel++;
-            return ValueTask.CompletedTask;
+            return;
         }
 
-        // Bounded, and waits rather than dropping: the queue only fills when the model is slower than
-        // the technician is talkative, and an unbounded one would hold a support call in memory. Waiting
-        // here costs what the old code cost, and only once the buffer is already full.
-        return _pending.Writer.WriteAsync((segment, audio), ct);
+        // Cut on the gate's clock, which starts with the stretch; stored on the session's, which is what
+        // clicks and frames are stamped with.
+        var placed = segment with { StartMs = segment.StartMs + stretch.AtMs, EndMs = segment.EndMs + stretch.AtMs };
+
+        // Owed from now until it is written or refused, so finalize waits for it.
+        _backlog.Owe(stretch.SessionId);
+        try
+        {
+            // Bounded, and waits rather than dropping: the queue only fills when the model is slower than
+            // the technician is talkative, and an unbounded one would hold a support call in memory.
+            // Waiting here costs what the old code cost, and only once the buffer is already full.
+            await _pending.Writer.WriteAsync((stretch.SessionId, placed, audio), ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            _backlog.Settle(stretch.SessionId);
+            throw;
+        }
     }
 
     /// <summary>Transcribes queued segments one at a time, in the order they were spoken.</summary>
     private async Task DrainAsync(CancellationToken ct)
     {
-        await foreach (var (segment, audio) in _pending.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var (session, segment, audio) in _pending.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             try
             {
-                await TranscribeAsync(segment, audio, ct).ConfigureAwait(false);
+                // A session discarded or finalized since this was queued has stopped taking narration.
+                // The model's seconds are not spent on words nobody can store.
+                if (_backlog.Wants(session))
+                {
+                    await TranscribeAsync(session, segment, audio, ct).ConfigureAwait(false);
+                }
             }
 #pragma warning disable CA1031 // One segment must not end narration; RunAsync's catch is the same rule.
             catch (Exception failure) when (failure is not OperationCanceledException)
@@ -373,15 +465,27 @@ public sealed class NarrationRecorder : IDisposable
                 Failures++;
                 Failed?.Invoke(failure);
             }
+            finally
+            {
+                _backlog.Settle(session);
+            }
         }
     }
 
-    private async Task TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct)
+    private async Task TranscribeAsync(string session, SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct)
     {
         var heard = await _recogniser.TranscribeAsync(segment, audio, ct).ConfigureAwait(false);
         if (heard is null)
         {
             return;
+        }
+
+        if (!string.Equals(_assembling, session, StringComparison.Ordinal))
+        {
+            // A new session's transcript starts from its own beginning: ids from t-0001, and no clamp
+            // against where the last session's ended.
+            _assembler = new TranscriptAssembler();
+            _assembling = session;
         }
 
         var written = _assembler.Add(heard);
@@ -391,7 +495,7 @@ public sealed class NarrationRecorder : IDisposable
             return;
         }
 
-        if (await _append(written, ct).ConfigureAwait(false))
+        if (await _append(session, written, ct).ConfigureAwait(false))
         {
             Kept++;
         }

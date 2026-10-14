@@ -417,6 +417,170 @@ public sealed class StateMachineTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task WhatWasSaidAtTheEndOfASessionReachesThatSessionsNote()
+    {
+        // 2026-10-12 review. The model takes seconds per segment, so the last few things a technician
+        // says are usually still being transcribed when they press Stop. Finalizing refused them and the
+        // note was drafted without them, and the end of a session is usually its outcome.
+        var machine = await MachineAsync(grace: TimeSpan.FromSeconds(5));
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        var drafted = -1;
+        _drafter.Drafting = async session => drafted = (await _store!.LoadSessionAsync(session))!.Transcript.Count;
+
+        // Heard while recording, and still with the model.
+        Assert.Equal(id, machine.Hearing?.SessionId);
+        machine.Narration.Owe(id);
+
+        var stopping = machine.StopAsync();
+        for (var i = 0; i < 100 && machine.State != SessionState.Finalizing; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(SessionState.Finalizing, machine.State);
+        Assert.False(stopping.IsCompleted, "Stop drafted the note while narration was still owed to it.");
+
+        Assert.True(await machine.TryAppendTranscriptAsync(id, Said("t-1", 5_000, "and that fixed the spooler")));
+        machine.Narration.Settle(id);
+        Assert.True(await stopping);
+
+        Assert.Equal(1, drafted);
+        Assert.Equal(SessionState.DraftReady, machine.State);
+    }
+
+    [Fact]
+    public async Task NarrationStillOwedWhenTheGraceRunsOutIsNotWaitedForAnyLonger()
+    {
+        // A model that never answers must not hold the note hostage: the wait has the frames' bound, and
+        // whatever arrives after it is refused rather than written behind the draft's back.
+        var machine = await MachineAsync(grace: TimeSpan.FromMilliseconds(200));
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        machine.Narration.Owe(id);
+
+        var clock = Stopwatch.StartNew();
+        Assert.True(await machine.StopAsync());
+        clock.Stop();
+
+        Assert.True(clock.ElapsedMilliseconds >= 150, $"Stop waited {clock.ElapsedMilliseconds} ms for narration.");
+        Assert.False(machine.Narration.Wants(id));
+        Assert.False(await machine.TryAppendTranscriptAsync(id, Said("t-late", 5_000, "too late")));
+        Assert.Empty((await _store!.LoadSessionAsync(id))!.Transcript);
+    }
+
+    [Fact]
+    public async Task NothingIsWrittenIntoTheTranscriptWhileTheNoteIsBeingDrafted()
+    {
+        // The session is still finalizing while it drafts, and that state takes narration. Once the wait
+        // is over the note is being drawn from the transcript, so a segment the model finishes now would
+        // be stored without being in the note it was supposed to be part of.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        bool? accepted = null;
+        _drafter.Drafting = async session =>
+            accepted = await machine.TryAppendTranscriptAsync(session, Said("t-1", 5_000, "and that fixed it"));
+
+        Assert.True(await machine.StopAsync());
+
+        Assert.False(accepted);
+        Assert.Empty((await _store!.LoadSessionAsync(id))!.Transcript);
+    }
+
+    [Fact]
+    public async Task ASegmentHeardInOneSessionIsRefusedByTheNext()
+    {
+        // The other half of the same finding: the customer after is the one who would have been sent the
+        // customer before's words.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var first = machine.SessionId!;
+        await machine.StopAsync();
+        await machine.StartAsync(ScreenConnect);
+        var second = machine.SessionId!;
+
+        Assert.False(await machine.TryAppendTranscriptAsync(first, Said("t-1", 100, "the server is called acme-dc01")));
+
+        Assert.Empty((await _store!.LoadSessionAsync(second))!.Transcript);
+        Assert.Empty((await _store!.LoadSessionAsync(first))!.Transcript);
+        Assert.True(await machine.TryAppendTranscriptAsync(second, Said("t-1", 100, "restarting the spooler")));
+    }
+
+    [Fact]
+    public async Task ASegmentHeardInADiscardedSessionGoesNowhere()
+    {
+        // Discard is the technician saying this session should not exist. What it was still owed is
+        // forgotten with it, and a segment that finishes afterwards is refused by whatever runs next.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var discarded = machine.SessionId!;
+        machine.Narration.Owe(discarded);
+
+        Assert.True(await machine.DiscardAsync());
+        Assert.False(machine.Narration.Wants(discarded));
+
+        await machine.StartAsync(ScreenConnect);
+        Assert.False(await machine.TryAppendTranscriptAsync(discarded, Said("t-1", 100, "the password is Winter2026!")));
+        Assert.Empty((await _store!.LoadSessionAsync(machine.SessionId!))!.Transcript);
+    }
+
+    [Fact]
+    public async Task NarrationIsHeardOnlyWhileRecording()
+    {
+        // What the recorder asks of every chunk. Anything but recording is "nothing to hear" (INV-6), and
+        // while recording it names the session and where in it this moment is.
+        var machine = await MachineAsync();
+        Assert.Null(machine.Hearing);
+
+        await machine.StartAsync(ScreenConnect);
+        var hearing = Assert.NotNull(machine.Hearing);
+        Assert.Equal(machine.SessionId, hearing.SessionId);
+        Assert.InRange(hearing.AtMs, 0, machine.NowMs);
+
+        await machine.PauseAsync();
+        Assert.Null(machine.Hearing);
+        await machine.ResumeAsync();
+        Assert.NotNull(machine.Hearing);
+
+        await machine.SuppressAsync(CaptureStateReason.PasswordField);
+        Assert.Null(machine.Hearing);
+        await machine.UnsuppressAsync(CaptureStateReason.PasswordField);
+        Assert.NotNull(machine.Hearing);
+
+        await machine.StopAsync();
+        Assert.Null(machine.Hearing);
+    }
+
+    [Fact]
+    public async Task ASegmentHeardBeforeAPauseIsKeptWhenTheModelFinishesDuringIt()
+    {
+        // Heard while recording, so it belongs to the session; the pause began after it was said. A
+        // frame taken before a pause is redacted and written during it for the same reason.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        await machine.PauseAsync();
+        Assert.True(await machine.TryAppendTranscriptAsync(id, Said("t-1", 100, "restarting the spooler")));
+
+        Assert.Single((await _store!.LoadSessionAsync(id))!.Transcript);
+    }
+
+    [Fact]
+    public async Task AStampedSegmentIsScrubbedLikeAnyOther()
+    {
+        // The stamped door is the same door: nothing reaches the store without the scrubber.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        Assert.True(await machine.TryAppendTranscriptAsync(id, Said("t-1", 100, "her social is 123-45-6789")));
+
+        Assert.DoesNotContain("123-45-6789", Assert.Single((await _store!.LoadSessionAsync(id))!.Transcript).Text, StringComparison.Ordinal);
+    }
+
     private async Task<SqliteSessionStore> OpenStoreAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
     /// <summary>Where a captured frame waits to be read (ADR-0006). The store no longer holds one.</summary>
@@ -518,7 +682,17 @@ public sealed class StateMachineTests : IAsyncDisposable
 
         public bool Throw { get; set; }
 
-        public Task<DraftOutcome> DraftAsync(string sessionId, CancellationToken ct = default) =>
-            Throw ? throw new InvalidOperationException("provider down") : Task.FromResult(Outcome);
+        /// <summary>Called as drafting begins, so a test can see what the note was drafted from.</summary>
+        public Func<string, Task>? Drafting { get; set; }
+
+        public async Task<DraftOutcome> DraftAsync(string sessionId, CancellationToken ct = default)
+        {
+            if (Drafting is { } drafting)
+            {
+                await drafting(sessionId);
+            }
+
+            return Throw ? throw new InvalidOperationException("provider down") : Outcome;
+        }
     }
 }
