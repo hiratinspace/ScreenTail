@@ -79,7 +79,7 @@ public sealed class PrivacyViewModelTests
             };
             var screen = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
             await screen.LoadAsync();
-            var slider = Shown(screen);
+            var slider = await ShownAsync(screen);
             Assert.Equal(ClientSettings.MaxRetentionDays, (int)slider.Maximum);
             Assert.Equal(12, (int)slider.Value);
             Assert.Equal(12, screen.RetentionDays);
@@ -91,7 +91,7 @@ public sealed class PrivacyViewModelTests
             gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: true, EffectiveRetentionDays: 90);
             var locked = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
             await locked.LoadAsync();
-            slider = Shown(locked);
+            slider = await ShownAsync(locked);
             Assert.Equal(90, (int)slider.Maximum);
             Assert.Equal(90, (int)slider.Value);
             Assert.Equal(90, locked.RetentionDays);
@@ -102,11 +102,16 @@ public sealed class PrivacyViewModelTests
         });
     }
 
-    /// <summary>Builds the real pane, then gives it the view model, in the order SettingsPane.xaml does.</summary>
-    private static Slider Shown(PrivacyViewModel screen)
+    /// <summary>
+    /// Builds the real pane, then gives it the view model, in the order SettingsPane.xaml does. Bindings made
+    /// while a pane loads its XAML attach later, when the dispatcher reaches data binding, in the order the
+    /// XAML declares them; the app lets that happen before the pane is ever drawn, so this does too.
+    /// </summary>
+    private static async Task<Slider> ShownAsync(PrivacyViewModel screen)
     {
         var pane = new PrivacyPane();
         pane.DataContext = screen;
+        await Dispatcher.Yield(DispatcherPriority.Background);
         return Find<Slider>(pane, "Retention in days") ?? throw new InvalidOperationException("The pane has no retention slider.");
     }
 
