@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using ScreenTail.Api.Logging;
 
@@ -52,6 +53,10 @@ public sealed class LogScrubberTests
     [InlineData("SearchQuery", true)]
     [InlineData("redirect", true)]
     [InlineData("Location", true)]
+    [InlineData("SourceValue", true)]
+    [InlineData("@Company", true)]
+    [InlineData("$Ticket", true)]
+    [InlineData("@Elapsed", false)]
     [InlineData("Method", false)]
     [InlineData("StatusCode", false)]
     [InlineData("ElapsedMilliseconds", false)]
@@ -157,6 +162,52 @@ public sealed class LogScrubberTests
         Assert.DoesNotContain("48213", log, StringComparison.Ordinal);
         Assert.Contains("Opened [redacted] after 12 ms", log, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ABadRequestsMessageIsNeverWrittenWhereverItIsLogged()
+    {
+        using var sink = new StringWriter();
+        var logger = new ScrubbingLoggerProvider(sink, LogLevel.Information).CreateLogger("Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware");
+
+        // The message quotes the part of the request that could not be read, inner or outer.
+        var bad = new BadHttpRequestException("Invalid request line: 'GET /v1/psa/tickets?q=Acme Dental HTTP/1.1'");
+        Unhandled(logger, new InvalidOperationException("The request could not be handled.", bad));
+
+        var log = sink.ToString();
+        Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.AspNetCore.Http.BadHttpRequestException: 400 [redacted]", log, StringComparison.Ordinal);
+        Assert.Contains("System.InvalidOperationException: The request could not be handled.", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void KestrelsBadRequestLinesKeepOnlyTheConnectionId()
+    {
+        using var sink = new StringWriter();
+        var provider = new ScrubbingLoggerProvider(sink, LogLevel.Debug);
+        var kestrel = provider.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.BadRequests");
+        var other = provider.CreateLogger("ScreenTail.Api.Test");
+
+        BadRequestData(kestrel, "0HNPA86DOS3ED", "Invalid request header: 'Authorization : Bearer Acme-token'", null);
+        var untemplated = new Untemplated("Rejected 'GET /?q=Acme'", ("Line", "GET /?q=Acme"));
+        kestrel.Log(LogLevel.Debug, new EventId(17), untemplated, null, (state, _) => state.Message);
+        kestrel.Log(LogLevel.Debug, new EventId(17), "Rejected 'GET /?q=Acme'", null, (state, _) => state);
+
+        // The same names in any other category follow the ordinary rule.
+        BadRequestData(other, "0HNPA86DOS3EE", "too many headers", null);
+
+        var log = sink.ToString();
+        Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
+        Assert.Contains("Connection id \"0HNPA86DOS3ED\" bad request data: \"[redacted]\"", log, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.AspNetCore.Server.Kestrel.BadRequests: [redacted]" + Environment.NewLine, log, StringComparison.Ordinal);
+        Assert.Contains("Connection id \"0HNPA86DOS3EE\" bad request data: \"too many headers\"", log, StringComparison.Ordinal);
+    }
+
+    // Kestrel's own template for a request it cannot parse (Kestrel spells the second name {message}).
+    private static readonly Action<ILogger, string, string, Exception?> BadRequestData =
+        LoggerMessage.Define<string, string>(LogLevel.Debug, new EventId(17), "Connection id \"{ConnectionId}\" bad request data: \"{Message}\"");
+
+    private static readonly Action<ILogger, Exception?> Unhandled =
+        LoggerMessage.Define(LogLevel.Error, new EventId(18), "An unhandled exception has occurred while executing the request.");
 
     private static readonly Action<ILogger, double, string?, int[], int, int, Exception?> Shaped =
         LoggerMessage.Define<double, string?, int[], int, int>(LogLevel.Information, new EventId(9), "{{literal}} took [{Elapsed,5:0.0}] for {Status} with {Codes} then {Count} and {Count}");

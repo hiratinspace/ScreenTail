@@ -1,7 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.Sockets;
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -101,6 +105,36 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         }
     }
 
+    [Theory]
+    [InlineData(LogLevel.Debug)]
+    [InlineData(LogLevel.Trace)]
+    public async Task OverKestrelARequestItCannotParseIsLoggedWithoutItsLineOrHeaders(LogLevel level)
+    {
+        // The server that ships, not the in-memory one: Kestrel rejects a request it cannot parse before
+        // any of the app runs, and its exception quotes the raw line it choked on. A request line with a
+        // space in the query, and a header line with a space before its colon, carry a search and a token.
+        using var sink = new StringWriter();
+        using var host = HostWith(sink, level, new ScriptedConnectWise());
+        host.UseKestrel(options => options.Listen(IPAddress.Loopback, 0));
+        host.StartServer();
+        var address = new Uri(host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
+        var ct = TestContext.Current.CancellationToken;
+
+        var line = await SendRawAsync(address, "GET /v1/psa/tickets?q=Acme Dental printer HTTP/1.1\r\nHost: localhost\r\n\r\n", ct);
+        var header = await SendRawAsync(address, "GET /v1/psa/tickets HTTP/1.1\r\nHost: localhost\r\nAuthorization : Bearer Acme-token-PRIV-7731\r\n\r\n", ct);
+
+        Assert.StartsWith("HTTP/1.1 400", line, StringComparison.Ordinal);
+        Assert.StartsWith("HTTP/1.1 400", header, StringComparison.Ordinal);
+        var log = await LoggedAsync(sink, "bad request data", times: 2, ct);
+        Assert.Contains("BadHttpRequestException: 400 [redacted]", log, StringComparison.Ordinal);
+        foreach (var word in Content)
+        {
+            Assert.DoesNotContain(word, log, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.DoesNotContain("Bearer", log, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task ACallToAPsaIsLoggedWithoutItsSiteTicketOrConditions()
     {
@@ -180,6 +214,32 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         {
             return sink.ToString();
         }
+    }
+
+    // One request written as raw bytes, which no HTTP client would send, and the answer read to the end:
+    // Kestrel closes the connection after a request it rejects.
+    private static async Task<string> SendRawAsync(Uri address, string request, CancellationToken ct)
+    {
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(address.Host, address.Port, ct);
+        await using var stream = tcp.GetStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(request), ct);
+        using var reader = new StreamReader(stream, Encoding.ASCII);
+        return await reader.ReadToEndAsync(ct);
+    }
+
+    // Kestrel writes its line on the connection's own thread, so the test waits for it, for a bounded time.
+    private static async Task<string> LoggedAsync(StringWriter sink, string expected, int times, CancellationToken ct)
+    {
+        var log = Read(sink);
+        for (var wait = 0; wait < 100 && log.Split(expected).Length - 1 < times; wait++)
+        {
+            await Task.Delay(50, ct);
+            log = Read(sink);
+        }
+
+        Assert.Equal(times, log.Split(expected).Length - 1);
+        return log;
     }
 
     private sealed class Answers : HttpMessageHandler

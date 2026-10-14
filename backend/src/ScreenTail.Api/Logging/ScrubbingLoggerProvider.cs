@@ -21,6 +21,12 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
     {
         private const string OriginalFormat = "{OriginalFormat}";
         private const string NullValue = "(null)";
+        private const string ConnectionId = "ConnectionId";
+
+        // Kestrel's bad-request lines quote what the client sent, from a request line with its query to a
+        // header line with its token, under names such as {message} that say nothing about it. Every value
+        // in this category is treated as content, except the connection id, which Kestrel makes up itself.
+        private readonly bool _quotesRequests = category.StartsWith("Microsoft.AspNetCore.Server.Kestrel.BadRequests", StringComparison.Ordinal);
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -36,8 +42,8 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
 
             ArgumentNullException.ThrowIfNull(formatter);
             var message = state is IReadOnlyList<KeyValuePair<string, object?>> pairs
-                ? FromTemplate(pairs) ?? Withhold(pairs, formatter(state, exception))
-                : formatter(state, exception);
+                ? FromTemplate(pairs) ?? (_quotesRequests ? LogScrubber.Redacted : Withhold(pairs, formatter(state, exception)))
+                : _quotesRequests ? LogScrubber.Redacted : formatter(state, exception);
 
             var line = $"{time.GetUtcNow():HH:mm:ss.fff} {Label(logLevel)} {category}: {LogScrubber.Scrub(message)}";
             lock (sink)
@@ -45,7 +51,7 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
                 sink.WriteLine(line);
                 for (var current = exception; current is not null; current = current.InnerException)
                 {
-                    sink.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    {current.GetType().FullName}: {LogScrubber.Scrub(current.Message)}"));
+                    sink.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    {current.GetType().FullName}: {Describe(current)}"));
                     if (current.StackTrace is { } trace)
                     {
                         foreach (var frame in trace.Split('\n'))
@@ -59,12 +65,18 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
             }
         }
 
+        // A bad request's message quotes the part of the request that could not be read, wherever the
+        // exception is logged, so only its status code is written.
+        private static string Describe(Exception exception) => exception is BadHttpRequestException bad
+            ? string.Create(CultureInfo.InvariantCulture, $"{bad.StatusCode} {LogScrubber.Redacted}")
+            : LogScrubber.Scrub(exception.Message);
+
         // The line is built from its template, so a value under a sensitive key is never written at all.
         // Looking for the value in the finished line instead depends on the order of the keys, on values
         // that overlap, and on the value being written as its own ToString(), and each of those can leak.
         // Null when there is no template. The template itself, which is a constant, when a value cannot
         // be placed.
-        private static string? FromTemplate(IReadOnlyList<KeyValuePair<string, object?>> pairs)
+        private string? FromTemplate(IReadOnlyList<KeyValuePair<string, object?>> pairs)
         {
             string? template = null;
             for (var i = pairs.Count - 1; i >= 0; i--)
@@ -119,7 +131,7 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
                 }
 
                 used[index] = true;
-                if (LogScrubber.IsSensitiveKey(pairs[index].Key))
+                if (LogScrubber.IsSensitiveKey(pairs[index].Key) || (_quotesRequests && pairs[index].Key != ConnectionId))
                 {
                     _ = line.Append(LogScrubber.Redacted);
                 }
