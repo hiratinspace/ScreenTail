@@ -191,6 +191,56 @@ public sealed class HookLifetimeTests : IAsyncDisposable
         Assert.Equal(1, lifetime.Failures);
     }
 
+    [Fact]
+    public async Task ASessionAfterAStopThatTimedOutGetsItsHooksOnceTheOldLoopHasEnded()
+    {
+        // A stop that times out has still asked the loop to end. Believing the hooks were still in made the
+        // next session skip installing them, so it recorded no input even after the old loop had gone. The
+        // session that meets the old loop still ending is refused and counted; the one after gets hooks.
+        using var release = new ManualResetEventSlim();
+        await using var pump = new RestartablePump(
+            "test hooks",
+            run =>
+            {
+                run.Ready();
+                release.Wait();
+                _ = run.Stopping.WaitHandle.WaitOne();
+            },
+            stopWait: TimeSpan.FromMilliseconds(50));
+        _harness = await MachineHarness.StartAsync();
+        using var lifetime = new HookLifetime(_harness.Machine, pump.StartAsync, pump.StopAsync);
+        var announced = new List<bool>();
+        lifetime.Changed += announced.Add;
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.True(await _harness.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        await lifetime.ApplyAsync(ct);
+        Assert.True(await _harness.Machine.DiscardAsync(ct));
+        await lifetime.ApplyAsync(ct);
+
+        Assert.False(lifetime.Installed);
+        Assert.Equal(1, lifetime.Failures);
+
+        // The old loop is still ending: the start is refused and counted, never announced.
+        Assert.True(await _harness.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        await lifetime.ApplyAsync(ct);
+        Assert.False(lifetime.Installed);
+        Assert.Equal(2, lifetime.Failures);
+        Assert.True(await _harness.Machine.DiscardAsync(ct));
+        await lifetime.ApplyAsync(ct);
+
+        release.Set();
+        Assert.True(SpinWait.SpinUntil(() => !pump.Running, TimeSpan.FromSeconds(5)));
+
+        Assert.True(await _harness.Machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        await lifetime.ApplyAsync(ct);
+
+        Assert.True(lifetime.Installed);
+        Assert.True(pump.Running);
+        Assert.Equal(2, lifetime.Failures);
+        Assert.Equal([true, true], announced);
+    }
+
     private async Task<HookLifetime> LifetimeAsync(CountingHooks hooks)
     {
         _harness = await MachineHarness.StartAsync();

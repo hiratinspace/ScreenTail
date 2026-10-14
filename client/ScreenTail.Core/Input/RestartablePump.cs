@@ -140,6 +140,12 @@ public sealed class RestartablePump(
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // The caller gave up and will not remove what it does not know went in, so it does not stay in.
+            // Nobody awaits this run's ready signal now, and a loop that ends before it is ready faults it.
+            _ = run.ReadyTask.ContinueWith(
+                static ready => _ = ready.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
             try
             {
                 await StopRunAsync(run, CancellationToken.None).ConfigureAwait(false);
