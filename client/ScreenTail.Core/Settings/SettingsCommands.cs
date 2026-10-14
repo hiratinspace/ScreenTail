@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ScreenTail.Core.Audit;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Store;
@@ -10,17 +11,22 @@ namespace ScreenTail.Core.Settings;
 /// The service's side of Settings → Privacy (ST-081): the technician's settings on disk, applied in place
 /// when they change, reported with which fields the admin's policy locked; and the audit log exported
 /// with its verification. Same two entry points as the other command classes.
+///
+/// The export is written to a file by <see cref="AuditExporter"/> and only its place and verdict are
+/// answered: the log outgrows one pipe message within weeks (2026-10-12 review, E-2). A refusal is kept
+/// by request id between the two calls, as <c>PublishCommands</c> does, so the result says why.
 /// </summary>
 public sealed class SettingsCommands(
     ClientSettingsStore store,
     Func<TenantPolicy> policy,
     Action<ClientSettings> apply,
-    Func<CancellationToken, Task<(IReadOnlyList<AuditRecord> Records, AuditVerification Verification)>> audit)
+    Func<CancellationToken, Task<AuditExportResult>> exportAudit)
 {
     private readonly ClientSettingsStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly Func<TenantPolicy> _policy = policy ?? throw new ArgumentNullException(nameof(policy));
     private readonly Action<ClientSettings> _apply = apply ?? throw new ArgumentNullException(nameof(apply));
-    private readonly Func<CancellationToken, Task<(IReadOnlyList<AuditRecord> Records, AuditVerification Verification)>> _audit = audit ?? throw new ArgumentNullException(nameof(audit));
+    private readonly Func<CancellationToken, Task<AuditExportResult>> _exportAudit = exportAudit ?? throw new ArgumentNullException(nameof(exportAudit));
+    private readonly ConcurrentDictionary<int, string> _refusals = new();
 
     // A save writes the file and then applies, and the service keeps what was applied in memory. Two
     // connections saving at once must not finish with the file saying one thing and the guard the other.
@@ -47,8 +53,21 @@ public sealed class SettingsCommands(
 
             case ExportAuditCommand:
                 {
-                    var (records, verification) = await _audit(ct).ConfigureAwait(false);
-                    return new AuditExported { RequestId = command.RequestId, Json = AuditExport.ToJson(records, verification) };
+                    var export = await _exportAudit(ct).ConfigureAwait(false);
+                    if (export is not { Path: { } path, Verification: { } verdict })
+                    {
+                        _refusals[command.RequestId] = export.Refusal ?? "The audit log could not be exported.";
+                        return null;
+                    }
+
+                    return new AuditExported
+                    {
+                        RequestId = command.RequestId,
+                        Path = path,
+                        Rows = export.Rows,
+                        Intact = verdict.Intact,
+                        Note = verdict.Describe(),
+                    };
                 }
 
             default:
@@ -82,8 +101,16 @@ public sealed class SettingsCommands(
                     return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = true });
                 }
 
-            case GetSettingsCommand or ExportAuditCommand:
+            case GetSettingsCommand:
                 return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be read." });
+
+            case ExportAuditCommand:
+                return Task.FromResult<CommandResult?>(new CommandResult
+                {
+                    RequestId = command.RequestId,
+                    Ok = false,
+                    Error = _refusals.TryRemove(command.RequestId, out var reason) ? reason : "The audit log could not be exported.",
+                });
 
             default:
                 return Task.FromResult<CommandResult?>(null);

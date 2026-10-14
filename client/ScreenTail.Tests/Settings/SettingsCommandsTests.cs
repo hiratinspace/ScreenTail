@@ -74,19 +74,38 @@ public sealed class SettingsCommandsTests : IDisposable
     [Fact]
     public async Task TheAuditLogIsExportedWithItsVerification()
     {
-        var commands = Commands(TenantPolicy.Default);
+        // Where the file is and what verifying it found. The log itself stays off the pipe (E-2).
+        var commands = Commands(TenantPolicy.Default, export: new AuditExportResult("/data/exports/audit.json", 12, new AuditVerification(false, 3, 0, 4), null));
 
         var exported = Assert.IsType<AuditExported>(await commands.ReplyToAsync(new ExportAuditCommand { RequestId = 4 }));
 
-        Assert.Contains("\"intact\"", exported.Json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("/data/exports/audit.json", exported.Path);
+        Assert.Equal(12, exported.Rows);
+        Assert.False(exported.Intact);
+        Assert.Contains("row 4 does not follow", exported.Note, StringComparison.Ordinal);
         Assert.Null(await commands.ReplyToAsync(new StartCommand { RequestId = 5 }));
     }
 
-    private SettingsCommands Commands(TenantPolicy policy, Action<ClientSettings>? apply = null) => new(
+    [Fact]
+    public async Task AnExportThatCouldNotBeWrittenIsRefusedWithItsReason()
+    {
+        var commands = Commands(TenantPolicy.Default, export: AuditExportResult.Refused("The audit log could not be written to disk."));
+
+        Assert.Null(await commands.ReplyToAsync(new ExportAuditCommand { RequestId = 6 }));
+        var refused = await commands.HandleAsync(new ExportAuditCommand { RequestId = 6 });
+
+        Assert.False(refused!.Ok);
+        Assert.Equal("The audit log could not be written to disk.", refused.Error);
+
+        // Said once. The reason is not kept for a later command that happens to reuse the id.
+        Assert.Equal("The audit log could not be exported.", (await commands.HandleAsync(new ExportAuditCommand { RequestId = 6 }))!.Error);
+    }
+
+    private SettingsCommands Commands(TenantPolicy policy, Action<ClientSettings>? apply = null, AuditExportResult? export = null) => new(
         new ClientSettingsStore(Path.Combine(_dir, "settings.json")),
         () => policy,
         apply ?? (_ => { }),
-        _ => Task.FromResult<(IReadOnlyList<AuditRecord>, AuditVerification)>(([], new AuditVerification(true, 0, 0, null))));
+        _ => Task.FromResult(export ?? new AuditExportResult("/data/exports/audit.json", 0, new AuditVerification(true, 0, 0, null), null)));
 
     public void Dispose()
     {

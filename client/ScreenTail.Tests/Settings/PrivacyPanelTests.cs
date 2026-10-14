@@ -157,6 +157,7 @@ public sealed class PrivacyPanelTests
             return Task.FromResult(Refusal);
         }
 
-        public Task<string?> ExportAuditAsync(CancellationToken ct = default) => Task.FromResult<string?>("{}");
+        public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
+            Task.FromResult(new AuditSaved(true, true, "All 0 audit rows verify."));
     }
 }

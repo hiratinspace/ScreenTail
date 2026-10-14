@@ -196,6 +196,21 @@ public static class LocalDataEraser
             }
         }
 
+        // Audit exports the UI never collected (2026-10-12 review, E-2). No content, but a copy of the
+        // log is still a record of the sessions the technician asked to have forgotten.
+        var exports = Path.Combine(dataDirectory, Audit.AuditExporter.DirectoryName);
+        if (Directory.Exists(exports))
+        {
+            if (TryDelete(() => Directory.Delete(exports, recursive: true)))
+            {
+                deleted.Add(exports);
+            }
+            else
+            {
+                complete = false;
+            }
+        }
+
         // Last, and only when there is nothing left to owe. While it is there, the next start finishes
         // the job rather than opening what survived.
         if (complete && IsPending(dataDirectory))

@@ -74,7 +74,7 @@ public partial class ShellWindow : Window
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask),
-                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), _ => Task.CompletedTask, () => Task.CompletedTask),
+                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.CompletedTask),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
         if (_screenshotDirectory is not null)
         {
@@ -173,7 +173,8 @@ public partial class ShellWindow : Window
 
         public Task<string?> SaveAsync(Shared.Settings.ClientSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
-        public Task<string?> ExportAuditAsync(CancellationToken ct = default) => Task.FromResult<string?>("{}");
+        public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
+            Task.FromResult(new AuditSaved(true, true, "All 0 audit rows verify."));
     }
 
     /// <summary>Capture settings with one tool off and a clashing hotkey, so the harness renders the inline conflict (ST-029).</summary>

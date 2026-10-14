@@ -212,7 +212,10 @@ Yes, deliberately. Discarding a session or purging it on retention keeps the aud
 record that data existed and was destroyed. *(INV-12)*
 
 **5.5 Can the audit log be exported?**
-Yes, JSON or CSV, with the verification result included.
+Yes, JSON or CSV, with the verification result included. The service writes the JSON export to a file in
+the same pass that verifies the chain, and the technician chooses where to keep it, anywhere outside
+ScreenTail's own folder. A copy the UI did not collect is removed by the next export, and by "Delete
+everything".
 
 ---
 

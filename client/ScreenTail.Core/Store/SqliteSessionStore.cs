@@ -822,21 +822,23 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                 var records = new List<AuditRecord>();
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
-                    records.Add(new AuditRecord(
-                        reader.GetInt64(0),
-                        ParseIso(reader.GetString(1)),
-                        reader.IsDBNull(2) ? null : reader.GetString(2),
-                        reader.GetString(3),
-                        reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                        reader.IsDBNull(5) ? null : reader.GetString(5),
-                        reader.IsDBNull(6) ? null : reader.GetString(6),
-                        reader.IsDBNull(7) ? null : reader.GetString(7)));
+                    records.Add(ReadAuditRecord(reader));
                 }
 
                 return records;
             },
             ct,
             ("@session", sessionId));
+
+    private static AuditRecord ReadAuditRecord(SqliteDataReader reader) => new(
+        reader.GetInt64(0),
+        ParseIso(reader.GetString(1)),
+        reader.IsDBNull(2) ? null : reader.GetString(2),
+        reader.GetString(3),
+        reader.IsDBNull(4) ? null : reader.GetInt64(4),
+        reader.IsDBNull(5) ? null : reader.GetString(5),
+        reader.IsDBNull(6) ? null : reader.GetString(6),
+        reader.IsDBNull(7) ? null : reader.GetString(7));
 
     /// <summary>
     /// Walks the whole chain and says whether it holds (ST-045).
@@ -845,18 +847,49 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// not the row before it in the session, so verifying a filtered view would report a break at every gap
     /// where another session's row sits. The export filters what it shows and verifies what is there.
     /// </summary>
-    public async Task<AuditVerification> VerifyAuditAsync(CancellationToken ct = default)
+    public Task<AuditVerification> VerifyAuditAsync(CancellationToken ct = default) =>
+        ReadAuditAsync(static (_, _) => ValueTask.CompletedTask, ct);
+
+    /// <summary>
+    /// Hands every audit row to <paramref name="each"/> in order, one at a time, and verifies the chain in
+    /// the same pass (ST-045; 2026-10-12 review, E-2 and E-4).
+    ///
+    /// The export used to read the whole log into a list, let go of the gate, then read it all again to
+    /// verify it. The log is never pruned, so that was two lists the size of everything the client ever
+    /// did, and two verdicts about two different moments. One forward-only reader under one hold of the
+    /// gate means what is written out is exactly what was verified, in memory that does not grow with
+    /// the log. The gate is held while <paramref name="each"/> runs, so it must not touch the store.
+    /// </summary>
+    public async Task<AuditVerification> ReadAuditAsync(Func<AuditRecord, CancellationToken, ValueTask> each, CancellationToken ct = default)
     {
-        // Both reads under one hold of the gate. They used to be two: the rows were read, the gate was
-        // let go, and the head was read after — so an append landing in that gap made the head describe
-        // one more row than the reader had seen, which this method reports as rows deleted from the end.
-        // Tampering, on a log nobody had touched, and the store audits every staged frame, so a
+        ArgumentNullException.ThrowIfNull(each);
+
+        // The rows and the head under one hold of the gate. They used to be two: the rows were read, the
+        // gate was let go, and the head was read after, so an append landing in that gap made the head
+        // describe one more row than the reader had seen, which this reports as rows deleted from the
+        // end. Tampering, on a log nobody had touched, and the store audits every staged frame, so a
         // verification during recording was racing a writer running several times a second (2026-09-20
         // review). A verification that cries wolf is one people stop reading.
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await VerifyHoldingGateAsync(ct).ConfigureAwait(false);
+            var chain = new ChainCheck();
+            _ = await QueryInTransactionAsync(
+                "SELECT id, at, session_id, type, count, detail, prev_hash, hash FROM audit_log ORDER BY id",
+                async reader =>
+                {
+                    while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                    {
+                        var record = ReadAuditRecord(reader);
+                        chain.Add(record);
+                        await each(record, ct).ConfigureAwait(false);
+                    }
+
+                    return true;
+                },
+                ct).ConfigureAwait(false);
+
+            return chain.Verdict(await ReadAuditHeadHoldingGateAsync(ct).ConfigureAwait(false));
         }
         finally
         {
@@ -864,52 +897,69 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
     }
 
-    private async Task<AuditVerification> VerifyHoldingGateAsync(CancellationToken ct)
+    /// <summary>The chain checked one row at a time, so nothing has to hold the whole log to verify it.</summary>
+    private sealed class ChainCheck
     {
-        var records = await ReadAuditRecordsHoldingGateAsync(null, ct).ConfigureAwait(false);
-        string? previous = null;
-        var checked_ = 0;
-        var unchained = 0;
+        private string? _previous;
+        private int _checked;
+        private int _unchained;
+        private long? _brokenAt;
+        private long? _last;
 
-        foreach (var record in records)
+        public void Add(AuditRecord record)
         {
+            _last = record.Id;
+            if (_brokenAt is not null)
+            {
+                // The first break is the answer. What follows it cannot be vouched for either way.
+                return;
+            }
+
             if (record.Hash is null)
             {
                 // Written before schema 4. Genuinely unattested rather than broken.
-                unchained++;
-                continue;
+                _unchained++;
+                return;
             }
 
-            if (record.PreviousHash != previous || AuditChain.Hash(record, previous) != record.Hash)
+            if (record.PreviousHash != _previous || AuditChain.Hash(record, _previous) != record.Hash)
             {
-                return new AuditVerification(false, checked_, unchained, record.Id);
+                _brokenAt = record.Id;
+                return;
             }
 
-            previous = record.Hash;
-            checked_++;
+            _previous = record.Hash;
+            _checked++;
         }
 
-        // The chain is intact as far as it goes. Whether it goes far enough is a separate question, and
-        // the one the chain alone cannot answer: rows deleted from the end leave a shorter chain that
-        // verifies perfectly.
-        var head = await ReadAuditHeadHoldingGateAsync(ct).ConfigureAwait(false);
-        if (head is { } end)
+        public AuditVerification Verdict((long Rows, string Hash)? head)
         {
-            var have = checked_ + unchained;
-            if (have < end.Rows)
+            if (_brokenAt is { } broken)
             {
-                return new AuditVerification(false, checked_, unchained, null, end.Rows - have);
+                return new AuditVerification(false, _checked, _unchained, broken);
             }
 
-            if (previous is not null && end.Hash.Length > 0 && previous != end.Hash)
+            // The chain is intact as far as it goes. Whether it goes far enough is a separate question,
+            // and the one the chain alone cannot answer: rows deleted from the end leave a shorter chain
+            // that verifies perfectly.
+            if (head is { } end)
             {
-                // As many rows as there should be, ending somewhere else. A row replaced wholesale at
-                // the end, or a chain rebuilt from a different point.
-                return new AuditVerification(false, checked_, unchained, records.Count > 0 ? records[^1].Id : null);
+                var have = _checked + _unchained;
+                if (have < end.Rows)
+                {
+                    return new AuditVerification(false, _checked, _unchained, null, end.Rows - have);
+                }
+
+                if (_previous is not null && end.Hash.Length > 0 && _previous != end.Hash)
+                {
+                    // As many rows as there should be, ending somewhere else. A row replaced wholesale at
+                    // the end, or a chain rebuilt from a different point.
+                    return new AuditVerification(false, _checked, _unchained, _last);
+                }
             }
+
+            return new AuditVerification(true, _checked, _unchained, null);
         }
-
-        return new AuditVerification(true, checked_, unchained, null);
     }
 
     /// <summary>Where the log says it should end, or null on a store older than schema 7.</summary>

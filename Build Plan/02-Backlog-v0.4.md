@@ -909,7 +909,7 @@ Delete raw frames/OCR/transcripts/outbox older than retention (default 7 d); kee
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Done 2026-09-15 (#47).
+- **Status:** Done 2026-09-15 (#47). 2026-10-14: the export is written to a file in one verified pass and only its place and verdict cross the pipe, which it had outgrown (2026-10-12 review, E-2).
 
 **Description:**
 Append-only hash-chained log of captured/suppressed/redacted/purged/sent/published events; export JSON/CSV without content.
