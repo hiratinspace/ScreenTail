@@ -140,6 +140,75 @@ public sealed class ForegroundWatcherTests
     }
 
     [Fact]
+    public async Task ABackgroundWindowRetitlingItselfIsNeverReportedAsTheForegroundWindow()
+    {
+        // The test above moves a window, and the watcher stopped listening to moves in ST-048, so it
+        // cannot see what keeps the remaining subscription honest. EVENT_OBJECT_NAMECHANGE is raised by
+        // every window on the desktop that renames itself: a browser in the background loading a page, a
+        // build log counting up, a chat client's unread badge. The only thing standing between those and
+        // scope (and the typing gate behind it) is the check that the window renaming itself is the one in
+        // front (INV-6). Remove it and each rename here is published as the foreground window, because a
+        // different handle is never held back by the change filter.
+        Hardware.RequireDesktop();
+        var ct = TestContext.Current.CancellationToken;
+        var noisyPrefix = $"ScreenTail retitling {Guid.NewGuid():N}";
+        var frontTitle = $"ScreenTail front {Guid.NewGuid():N}";
+        var frontRenamed = $"ScreenTail front renamed {Guid.NewGuid():N}";
+
+        // Shown, so nothing can say its renames went unreported only because it was hidden; and shown
+        // without being activated, so it never holds the foreground for a moment of its own.
+        using var noisy = DesktopWindow.Create(noisyPrefix);
+        noisy.ShowBehind();
+        using var front = DesktopWindow.Create(frontTitle);
+        front.RequireForeground();
+
+        await using var watcher = new WindowsForegroundWatcher();
+        var reported = new List<string?>();
+        var renamed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        watcher.Changed += info =>
+        {
+            lock (reported)
+            {
+                reported.Add(info.Title);
+            }
+
+            if (info.Title == frontRenamed)
+            {
+                renamed.TrySetResult();
+            }
+        };
+        await watcher.StartAsync(ct);
+        await Task.Delay(200, ct);
+
+        for (var i = 0; i < 50; i++)
+        {
+            noisy.Retitle($"{noisyPrefix} {i}");
+            await Task.Delay(10, ct);
+        }
+
+        await Task.Delay(300, ct);
+
+        // The control. A rename of the window in front must still arrive, or the silence above proves
+        // only that no name change was delivered at all. Taken again first, because a window from an
+        // earlier test closing can briefly move the foreground; when it cannot be had, this skips with
+        // the marker rather than failing for a reason that is not the watcher's.
+        front.RequireForeground();
+        front.Retitle(frontRenamed);
+        await renamed.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        string[] seen;
+        lock (reported)
+        {
+            seen = [.. reported.Where(t => t is not null).Select(t => t!)];
+        }
+
+        var leaked = seen.Count(t => t.StartsWith(noisyPrefix, StringComparison.Ordinal));
+        Record($"50 background renames produced **{leaked}** foreground reports for the renaming window (must be 0)");
+        Assert.Equal(0, leaked);
+        Assert.Contains(frontRenamed, seen);
+    }
+
+    [Fact]
     public async Task TheWatcherCostsAlmostNothingWhileTheDesktopIsBusy()
     {
         // AC3's budget, measured under the condition ST-031 actually budgets for. The earlier version of
