@@ -884,7 +884,7 @@ Processes/title substrings/URL fragments that trigger `suppressed`; defaults for
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** Done 2026-09-12. **Delete everything fixed 2026-10-14** (2026-10-12 review, S-16 and T-57): it had been leaving the device's refresh token (`device.cred`), the settings, the cached policy, the UI's preferences and the crash reports, so the device restarted still activated. It now empties the data directory except the downloaded speech models, removes the key and then the refresh token before anything else, and the running service forgets its tokens at once so a renewal in flight cannot write one back. The tests name the files the producers write rather than reading the eraser's own list.
+- **Status:** Done 2026-09-12. **Delete everything fixed 2026-10-14** (2026-10-12 review, S-16 and T-57): it had been leaving the device's refresh token (`device.cred`), the settings, the cached policy, the UI's preferences and the crash reports, so the device restarted still activated. It now empties the data directory except the downloaded speech models and a folder the program itself runs from, removes the key and then the refresh token before anything else, and the running service forgets its tokens at once so a renewal in flight cannot write one back. The tests name the files the producers write rather than reading the eraser's own list.
 
 **Description:**
 Delete raw frames/OCR/transcripts/outbox older than retention (default 7 d); keep note text and audit; "Delete everything now" also removes tokens (INV-12).

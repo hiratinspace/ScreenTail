@@ -208,6 +208,22 @@ public sealed class DeviceSessionTests
         Assert.Null(session.CurrentToken);
     }
 
+    [Fact]
+    public async Task ARenewalWhoseCredentialWillNotSaveStillHoldsTheTokenItBought()
+    {
+        // Antivirus holding device.cred while it is replaced. The renewal fails loudly, as it always has,
+        // but the access token the backend has just issued is held first, as it was before "delete
+        // everything" shared the gate with the save (2026-10-12 review, round 2).
+        var backend = new ScriptedBackend();
+        backend.Reply(Json(new { accessToken = "access-2", expiresAt = T0.AddHours(2) }));
+        var credentials = new StubbornCredentials(new DeviceCredential("refresh-1", "Acme IT", Guid.NewGuid(), T0.AddHours(-1)));
+        var session = new DeviceSession(Client(backend), credentials, time: new ManualTime(T0));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.RefreshAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal("access-2", session.CurrentToken);
+    }
+
     private static HttpClient Client(ScriptedBackend backend) => new(backend) { BaseAddress = new Uri("https://api.screentail.example/") };
 
     private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body, options: new JsonSerializerOptions(JsonSerializerDefaults.Web)) };

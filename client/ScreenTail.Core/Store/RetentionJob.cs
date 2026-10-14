@@ -160,11 +160,20 @@ public static class LocalDataEraser
     /// Aborting on the first failure left everything after it on disk, and the list began with the
     /// database. A file held open by antivirus or a backup agent is the ordinary case, not a rare one.
     /// </summary>
-    public static ErasureResult Erase(string dataDirectory)
+    public static ErasureResult Erase(string dataDirectory) => Erase(dataDirectory, AppContext.BaseDirectory);
+
+    /// <param name="dataDirectory">The folder to empty.</param>
+    /// <param name="runningFrom">
+    /// Where this program's own files are. A folder in the data directory that holds them is kept whole,
+    /// like the models: deleting a running program fails part way, leaves a copy that will not start, and
+    /// keeps the erasure owed on every start after, which wipes each new session too.
+    /// </param>
+    internal static ErasureResult Erase(string dataDirectory, string? runningFrom)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         var deleted = new List<string>();
         var complete = true;
+        var program = FolderHolding(dataDirectory, runningFrom);
 
         foreach (var name in SecretsFirst)
         {
@@ -194,7 +203,8 @@ public static class LocalDataEraser
         foreach (var entry in entries)
         {
             if (entry.Name.Equals(KeptDirectory, StringComparison.OrdinalIgnoreCase)
-                || entry.Name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase))
+                || entry.Name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase)
+                || entry.Name.Equals(program, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -225,7 +235,28 @@ public static class LocalDataEraser
         }
     }
 
-    private enum Outcome
+    /// <summary>
+    /// The name of the folder directly in the data directory that the program runs from, or null when it
+    /// runs from somewhere else. Paths are compared as Windows compares them, ignoring case.
+    /// </summary>
+    private static string? FolderHolding(string dataDirectory, string? runningFrom)
+    {
+        if (string.IsNullOrEmpty(runningFrom))
+        {
+            return null;
+        }
+
+        var data = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDirectory)) + Path.DirectorySeparatorChar;
+        var running = Path.GetFullPath(runningFrom);
+        if (running.Length <= data.Length || !running.StartsWith(data, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return running[data.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], 2)[0];
+    }
+
+    internal enum Outcome
     {
         Removed,
         AlreadyGone,
@@ -272,19 +303,23 @@ public static class LocalDataEraser
         return outcome;
     }
 
-    private static Outcome TryRemove(FileSystemInfo entry)
+    private static Outcome TryRemove(FileSystemInfo entry) => TryRemove(entry, () =>
+    {
+        if (entry is DirectoryInfo folder)
+        {
+            folder.Delete(recursive: true);
+        }
+        else
+        {
+            entry.Delete();
+        }
+    });
+
+    internal static Outcome TryRemove(FileSystemInfo entry, Action delete)
     {
         try
         {
-            if (entry is DirectoryInfo folder)
-            {
-                folder.Delete(recursive: true);
-            }
-            else
-            {
-                entry.Delete();
-            }
-
+            delete();
             return Outcome.Removed;
         }
         catch (DirectoryNotFoundException)
