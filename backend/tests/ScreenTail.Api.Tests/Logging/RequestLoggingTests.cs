@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using ScreenTail.Api.Auth;
@@ -48,13 +49,19 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         using var search = await client.GetAsync(new Uri("/v1/psa/tickets?q=Acme%20Dental%20printer", UriKind.Relative), ct);
         using var unicode = await client.GetAsync(new Uri("/v1/psa/tickets?q=Z%C3%BCrich+Dental&q=printer", UriKind.Relative), ct);
         using var refused = await anonymous.GetAsync(new Uri("/v1/psa/tickets?q=Acme%20Dental%20printer", UriKind.Relative), ct);
+
+        // A slash in the query. At the root the path is "/" too, which once hid the query from redaction.
+        using var slashed = await client.GetAsync(new Uri("/v1/psa/tickets?q=Acme/Dental", UriKind.Relative), ct);
+        using var root = await anonymous.GetAsync(new Uri("/?q=Acme/Dental", UriKind.Relative), ct);
         using var unmap = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), ct);
 
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         Assert.Equal(HttpStatusCode.OK, search.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, slashed.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, root.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, unmap.StatusCode);
-        var log = sink.ToString();
+        var log = Read(sink);
 
         // Not vacuous: the request lines and the PSA call were logged, just without what they carried.
         Assert.Contains("Request starting", log, StringComparison.Ordinal);
@@ -70,6 +77,30 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         Assert.DoesNotContain("Z%C3%BCrich", log, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(LogLevel.Debug)]
+    [InlineData(LogLevel.Trace)]
+    public async Task OutsideDevelopmentARedirectToHttpsIsLoggedWithoutTheQuery(LogLevel level)
+    {
+        // The pipeline that ships: HSTS and the HTTPS redirect run only outside Development, and the
+        // redirect logs where it sends the request, which is the whole URL with its query.
+        using var sink = new StringWriter();
+        using var host = HostWith(sink, level, new ScriptedConnectWise(), Environments.Production);
+        using var plain = host.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        using var response = await plain.GetAsync(new Uri("/v1/psa/tickets?q=Acme%20Dental%20printer", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, response.StatusCode);
+        Assert.Equal("https://localhost/v1/psa/tickets?q=Acme%20Dental%20printer", response.Headers.Location?.AbsoluteUri);
+        var log = Read(sink);
+        Assert.Contains("Redirecting to", log, StringComparison.Ordinal);
+        Assert.Contains("Request finished", log, StringComparison.Ordinal);
+        foreach (var word in Content)
+        {
+            Assert.DoesNotContain(word, log, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     [Fact]
     public async Task ACallToAPsaIsLoggedWithoutItsSiteTicketOrConditions()
     {
@@ -82,26 +113,37 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
 
         using var response = await http.GetAsync(new Uri(Site + "/v4_6_release/apis/3.0/service/tickets/48213/notes?conditions=company/name%20like%20%22Acme%25%22"), TestContext.Current.CancellationToken);
 
-        var log = sink.ToString();
+        var log = Read(sink);
         Assert.Contains("HTTP request", log, StringComparison.Ordinal);
         Assert.DoesNotContain("brightsmiles", log, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("48213", log, StringComparison.Ordinal);
         Assert.DoesNotContain("Acme", log, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void TheScrubbingLoggerIsTheOnlySink()
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public void TheScrubbingLoggerIsTheOnlySink(string environment)
     {
         // The service's own composition, not a test's: ClearProviders and then this one provider. A
         // second provider (a JSON console, the debug sink, an exporter) would receive every framework line
-        // before any scrubbing, so the test is that there is exactly one.
-        var provider = Assert.Single(api.Services.GetServices<ILoggerProvider>());
+        // before any scrubbing, so the test is that there is exactly one. Production as well, because a
+        // sink added only outside Development would never show up in a Development host.
+        using var host = api.WithWebHostBuilder(builder => builder.UseEnvironment(environment));
+        var provider = Assert.Single(host.Services.GetServices<ILoggerProvider>());
 
         Assert.IsType<ScrubbingLoggerProvider>(provider);
     }
 
-    private WebApplicationFactory<Program> HostWith(StringWriter sink, LogLevel level, ScriptedConnectWise cw) => api.WithWebHostBuilder(builder =>
+    private WebApplicationFactory<Program> HostWith(StringWriter sink, LogLevel level, ScriptedConnectWise cw, string? environment = null) => api.WithWebHostBuilder(builder =>
     {
+        if (environment is not null)
+        {
+            // Outside Development the HTTPS redirect needs to know the port it sends a request to.
+            _ = builder.UseEnvironment(environment);
+            _ = builder.UseSetting("https_port", "443");
+        }
+
         _ = builder.UseSetting("ConnectWise:ClientId", "11111111-2222-3333-4444-555555555555");
         _ = builder.UseSetting("Logging:LogLevel:Default", level.ToString());
         _ = builder.ConfigureTestServices(services =>
@@ -128,6 +170,16 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
             return await db.SaveChangesAsync();
         });
         return (tenantId, userId, deviceId);
+    }
+
+    // The host keeps logging on its own threads after a response (connection and scope lines at Trace).
+    // The provider writes under a lock on the writer, so the test reads under the same lock.
+    private static string Read(StringWriter sink)
+    {
+        lock (sink)
+        {
+            return sink.ToString();
+        }
     }
 
     private sealed class Answers : HttpMessageHandler

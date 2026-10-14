@@ -13,6 +13,26 @@ public sealed class LogScrubberTests
     private static readonly Action<ILogger, string, string, int, Exception?> Published =
         LoggerMessage.Define<string, string, int>(LogLevel.Information, new EventId(1), "Published to {Company} ticket {Ticket} in {Elapsed} ms");
 
+    // The hosting layer's request line, in its own order: a root path of "/" comes before a query that
+    // has slashes in it.
+    private static readonly Action<ILogger, string, string, Exception?> RequestLine =
+        LoggerMessage.Define<string, string>(LogLevel.Information, new EventId(2), "Request starting HTTP/1.1 GET http://localhost{Path}{QueryString} - 401");
+
+    // The same two values the other way round, so no order of keys is the lucky one.
+    private static readonly Action<ILogger, string, string, Exception?> Reversed =
+        LoggerMessage.Define<string, string>(LogLevel.Information, new EventId(3), "{QueryString} was asked of {Path}");
+
+    // A value that overlaps another one where it appears, without either containing the other.
+    private static readonly Action<ILogger, string, string, Exception?> Overlapping =
+        LoggerMessage.Define<string, string>(LogLevel.Information, new EventId(4), "{Note}: {Title} printer");
+
+    // Values the message renders differently from their own ToString(): a format, and a list.
+    private static readonly Action<ILogger, int, Exception?> Formatted =
+        LoggerMessage.Define<int>(LogLevel.Information, new EventId(5), "Opened ticket {Ticket:X} for review");
+
+    private static readonly Action<ILogger, string[], Exception?> Listed =
+        LoggerMessage.Define<string[]>(LogLevel.Information, new EventId(6), "Searched for {Query} in 3 ms");
+
     [Theory]
     [InlineData("Wrote /home/app/.aspnet/DataProtection-Keys/key.xml", "Wrote [path]")]
     [InlineData(@"Denied C:\inetpub\screentail\appsettings.json", "Denied [path]")]
@@ -30,6 +50,8 @@ public sealed class LogScrubberTests
     [InlineData("RequestUri", true)]
     [InlineData("BaseUrl", true)]
     [InlineData("SearchQuery", true)]
+    [InlineData("redirect", true)]
+    [InlineData("Location", true)]
     [InlineData("Method", false)]
     [InlineData("StatusCode", false)]
     [InlineData("ElapsedMilliseconds", false)]
@@ -52,5 +74,109 @@ public sealed class LogScrubberTests
         Assert.DoesNotContain("48213", line, StringComparison.Ordinal);
         Assert.Contains("[redacted]", line, StringComparison.Ordinal);
         Assert.Contains("812 ms", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AValueInsideAnotherSensitiveValueDoesNotSaveIt()
+    {
+        using var sink = new StringWriter();
+        var logger = new ScrubbingLoggerProvider(sink, LogLevel.Information).CreateLogger("ScreenTail.Api.Test");
+
+        RequestLine(logger, "/", "?q=Acme/Dental", null);
+        Reversed(logger, "?q=Acme/Dental", "/", null);
+        RequestLine(logger, "/v1/psa/tickets", "?q=Acme/Dental/v1/psa/tickets", null);
+
+        var log = sink.ToString();
+        Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dental", log, StringComparison.Ordinal);
+        Assert.Contains("GET http://localhost[redacted][redacted] - 401", log, StringComparison.Ordinal);
+        Assert.Contains("[redacted] was asked of [redacted]", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValuesThatOverlapWhereTheyAppearAreBothRedacted()
+    {
+        using var sink = new StringWriter();
+        var logger = new ScrubbingLoggerProvider(sink, LogLevel.Information).CreateLogger("ScreenTail.Api.Test");
+
+        // "Dental printer: Acme Dental printer". Removing the note first used to cut the title in half.
+        Overlapping(logger, "Dental printer", "Acme Dental", null);
+
+        var line = sink.ToString();
+        Assert.DoesNotContain("Acme", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dental", line, StringComparison.Ordinal);
+        Assert.Contains("[redacted]: [redacted]", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AValueTheMessageRendersDifferentlyIsStillRedacted()
+    {
+        using var sink = new StringWriter();
+        var logger = new ScrubbingLoggerProvider(sink, LogLevel.Information).CreateLogger("ScreenTail.Api.Test");
+
+        // 48213 is BC55 in hex, and a list is written as "Acme, Dental": neither is the value's ToString(),
+        // so looking for the value in the finished line cannot find it. The line is built from its template.
+        Formatted(logger, 48213, null);
+        Listed(logger, ["Acme", "Dental"], null);
+
+        var log = sink.ToString();
+        Assert.DoesNotContain("BC55", log, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
+        Assert.Contains("Opened ticket [redacted] for review", log, StringComparison.Ordinal);
+        Assert.Contains("Searched for [redacted] in 3 ms", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EverythingElseInTheTemplateIsWrittenAsTheFrameworkWouldWriteIt()
+    {
+        using var sink = new StringWriter();
+        var logger = new ScrubbingLoggerProvider(sink, LogLevel.Information).CreateLogger("ScreenTail.Api.Test");
+
+        // Escaped braces, an alignment, a format, a null, a list that is not content, and a name used twice.
+        Shaped(logger, 3.14159, null, [200, 404], 7, 8, null);
+
+        var line = sink.ToString();
+        Assert.Contains("{literal} took [  3.1] for (null) with 200, 404 then 7 and 8", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WithoutATemplateALineThatStillCarriesAValueIsWithheld()
+    {
+        using var sink = new StringWriter();
+        var logger = new ScrubbingLoggerProvider(sink, LogLevel.Information).CreateLogger("ScreenTail.Api.Test");
+
+        // A state with no template, so the finished line is all there is. The two values overlap in it.
+        var overlapping = new Untemplated("Dental printer: Acme Dental printer", ("Note", "Dental printer"), ("Title", "Acme Dental"));
+        var plain = new Untemplated("Opened 48213 after 12 ms", ("Ticket", "48213"), ("Elapsed", 12));
+        logger.Log(LogLevel.Information, new EventId(7), overlapping, null, (state, _) => state.Message);
+        logger.Log(LogLevel.Information, new EventId(8), plain, null, (state, _) => state.Message);
+
+        var log = sink.ToString();
+        Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dental", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("48213", log, StringComparison.Ordinal);
+        Assert.Contains("Opened [redacted] after 12 ms", log, StringComparison.Ordinal);
+    }
+
+    private static readonly Action<ILogger, double, string?, int[], int, int, Exception?> Shaped =
+        LoggerMessage.Define<double, string?, int[], int, int>(LogLevel.Information, new EventId(9), "{{literal}} took [{Elapsed,5:0.0}] for {Status} with {Codes} then {Count} and {Count}");
+
+    private sealed class Untemplated(string message, params (string Key, object? Value)[] values) : IReadOnlyList<KeyValuePair<string, object?>>
+    {
+        public string Message { get; } = message;
+
+        public int Count => values.Length;
+
+        public KeyValuePair<string, object?> this[int index] => new(values[index].Key, values[index].Value);
+
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator()
+        {
+            for (var i = 0; i < values.Length; i++)
+            {
+                yield return this[i];
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

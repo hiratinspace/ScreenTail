@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Globalization;
+using System.Text;
 
 namespace ScreenTail.Api.Logging;
 
@@ -17,6 +19,9 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
 
     private sealed class ScrubbingLogger(string category, TextWriter sink, LogLevel minimum, TimeProvider time) : ILogger
     {
+        private const string OriginalFormat = "{OriginalFormat}";
+        private const string NullValue = "(null)";
+
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
@@ -30,17 +35,9 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
             }
 
             ArgumentNullException.ThrowIfNull(formatter);
-            var message = formatter(state, exception);
-            if (state is IReadOnlyList<KeyValuePair<string, object?>> pairs)
-            {
-                foreach (var (key, value) in pairs)
-                {
-                    if (LogScrubber.IsSensitiveKey(key) && value?.ToString() is { Length: > 0 } text)
-                    {
-                        message = message.Replace(text, LogScrubber.Redacted, StringComparison.Ordinal);
-                    }
-                }
-            }
+            var message = state is IReadOnlyList<KeyValuePair<string, object?>> pairs
+                ? FromTemplate(pairs) ?? Withhold(pairs, formatter(state, exception))
+                : formatter(state, exception);
 
             var line = $"{time.GetUtcNow():HH:mm:ss.fff} {Label(logLevel)} {category}: {LogScrubber.Scrub(message)}";
             lock (sink)
@@ -60,6 +57,170 @@ public sealed class ScrubbingLoggerProvider(TextWriter sink, LogLevel minimum, T
 
                 sink.Flush();
             }
+        }
+
+        // The line is built from its template, so a value under a sensitive key is never written at all.
+        // Looking for the value in the finished line instead depends on the order of the keys, on values
+        // that overlap, and on the value being written as its own ToString(), and each of those can leak.
+        // Null when there is no template. The template itself, which is a constant, when a value cannot
+        // be placed.
+        private static string? FromTemplate(IReadOnlyList<KeyValuePair<string, object?>> pairs)
+        {
+            string? template = null;
+            for (var i = pairs.Count - 1; i >= 0; i--)
+            {
+                if (pairs[i].Key == OriginalFormat)
+                {
+                    template = pairs[i].Value as string;
+                    break;
+                }
+            }
+
+            if (template is null)
+            {
+                return null;
+            }
+
+            var used = new bool[pairs.Count];
+            var line = new StringBuilder(template.Length + 32);
+            var at = 0;
+            while (at < template.Length)
+            {
+                var brace = template.AsSpan(at).IndexOfAny('{', '}');
+                if (brace < 0)
+                {
+                    _ = line.Append(template, at, template.Length - at);
+                    break;
+                }
+
+                _ = line.Append(template, at, brace);
+                at += brace;
+                var twice = at + 1 < template.Length && template[at + 1] == template[at];
+                if (template[at] == '}' || twice)
+                {
+                    _ = line.Append(template[at]);
+                    at += twice ? 2 : 1;
+                    continue;
+                }
+
+                var close = template.IndexOf('}', at + 1);
+                if (close < 0)
+                {
+                    return template;
+                }
+
+                var hole = template.AsSpan(at + 1, close - at - 1);
+                var split = hole.IndexOfAny(',', ':');
+                var name = split < 0 ? hole : hole[..split];
+                var index = Next(pairs, name, used);
+                if (index < 0)
+                {
+                    return template;
+                }
+
+                used[index] = true;
+                if (LogScrubber.IsSensitiveKey(pairs[index].Key))
+                {
+                    _ = line.Append(LogScrubber.Redacted);
+                }
+                else
+                {
+                    try
+                    {
+                        _ = line.AppendFormat(CultureInfo.InvariantCulture, string.Concat("{0", split < 0 ? [] : hole[split..], "}"), Shape(pairs[index].Value));
+                    }
+                    catch (FormatException)
+                    {
+                        return template;
+                    }
+                }
+
+                at = close + 1;
+            }
+
+            return line.ToString();
+        }
+
+        // The next value logged under this name, in order, so a name the template uses twice takes both.
+        private static int Next(IReadOnlyList<KeyValuePair<string, object?>> pairs, ReadOnlySpan<char> name, bool[] used)
+        {
+            for (var i = 0; i < pairs.Count; i++)
+            {
+                if (!used[i] && name.SequenceEqual(pairs[i].Key))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        // What the framework's own formatter writes for a value: (null), or a list joined with commas.
+        private static object Shape(object? value)
+        {
+            switch (value)
+            {
+                case null:
+                    return NullValue;
+                case string text:
+                    return text;
+                case IEnumerable items:
+                    var joined = new StringBuilder();
+                    foreach (var item in items)
+                    {
+                        _ = joined.Append(joined.Length > 0 ? ", " : string.Empty).Append(CultureInfo.InvariantCulture, $"{item ?? NullValue}");
+                    }
+
+                    return joined.ToString();
+                default:
+                    return value;
+            }
+        }
+
+        // No template, so the finished line is all there is: each sensitive value is cut out of it, longest
+        // first, so a value inside another cannot break the longer match. When an earlier cut has already
+        // broken a later value where it appears, part of it would be left behind, so the whole message is
+        // withheld instead.
+        private static string Withhold(IReadOnlyList<KeyValuePair<string, object?>> pairs, string message)
+        {
+            var values = new List<string>();
+            foreach (var (key, value) in pairs)
+            {
+                if (LogScrubber.IsSensitiveKey(key) && value?.ToString() is { Length: > 0 } text)
+                {
+                    values.Add(text);
+                }
+            }
+
+            if (values.Count == 0)
+            {
+                return message;
+            }
+
+            values.Sort((a, b) => b.Length.CompareTo(a.Length));
+            var original = message;
+            foreach (var text in values)
+            {
+                if (Occurrences(message, text) < Occurrences(original, text))
+                {
+                    return LogScrubber.Redacted;
+                }
+
+                message = message.Replace(text, LogScrubber.Redacted, StringComparison.Ordinal);
+            }
+
+            return message;
+        }
+
+        private static int Occurrences(string message, string text)
+        {
+            var count = 0;
+            for (var at = message.IndexOf(text, StringComparison.Ordinal); at >= 0; at = message.IndexOf(text, at + text.Length, StringComparison.Ordinal))
+            {
+                count++;
+            }
+
+            return count;
         }
 
         private static string Label(LogLevel level) => level switch

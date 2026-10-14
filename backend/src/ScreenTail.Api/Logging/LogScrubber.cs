@@ -6,22 +6,26 @@ namespace ScreenTail.Api.Logging;
 /// The client's scrubber, on the backend (ST-011, INV-10). The API holds a note's text and a ticket's
 /// company in memory for one request (INV-7); a framework message that quotes a value is the way either
 /// would reach a log, so every line passes through here first. Kept in step with
-/// <c>client/ScreenTail.Shared/Logging/LogScrubber.cs</c> by hand, the way the wire contracts are.
+/// <c>client/ScreenTail.Shared/Logging/LogScrubber.cs</c> by hand, the way the wire contracts are, with
+/// one deliberate difference: this list also carries the web framework's request keys (QueryString, Uri,
+/// redirect, Location, and the query, uri and url suffixes). The client hosts no web server and makes no
+/// call through IHttpClientFactory, so those lines never reach its logs. Do not drop them in a sync.
 /// </summary>
 public static partial class LogScrubber
 {
     public const string Redacted = "[redacted]";
 
     // The last line is the framework's, not ours: the hosting layer logs every request line with
-    // {QueryString} (a ticket search's typed text) and {Path} (a route value such as a company), and the
-    // HTTP client logs every PSA call with {Uri} (the tenant's site and a ticket id). Matched as suffixes
-    // too, so RequestUri, BaseUrl and SearchQuery are covered by the same rule.
+    // {QueryString} (a ticket search's typed text) and {Path} (a route value such as a company), the
+    // HTTP client logs every PSA call with {Uri} (the tenant's site and a ticket id), and the HTTPS
+    // redirect logs the whole URL it sends a request to as {redirect}. Location is the same URL as a
+    // header. Matched as suffixes too, so RequestUri, BaseUrl and SearchQuery fall under the same rule.
     private static readonly HashSet<string> Words = new(StringComparer.Ordinal)
     {
         "title", "text", "ocr", "ocrtext", "transcript", "note", "notes", "body", "clipboard", "summary",
         "query", "secret", "token", "password", "credential", "authorization", "apikey", "privatekey",
         "publickey", "company", "ticket", "email", "path", "filename", "file", "url", "site", "siteurl",
-        "querystring", "uri",
+        "querystring", "uri", "redirect", "location",
     };
 
     private static readonly string[] Suffixes = ["title", "text", "transcript", "clipboard", "secret", "password", "credential", "token", "note", "query", "uri", "url"];

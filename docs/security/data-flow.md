@@ -129,10 +129,14 @@ key (`Title`, `Text`, `Transcript`, `Note`, `Company`, `Ticket`, a secret) is wr
 and every line and every exception passes through a path and address scrubber (`[path]`, `[email]`)
 before it is written. A test scans every log template in the client for a placeholder that would carry
 content. On the backend the framework's own lines count as well: the request line is logged without its
-path or query string (a ticket search's typed text, a company in a route), and a call to a tenant's PSA
-without its address (the tenant's site, a ticket id). A test drives real requests through the API at
-every log level and fails if any of that text reaches the log, and another fails if a second log sink
-is ever added beside the scrubbing one. The level is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend)
+path or query string (a ticket search's typed text, a company in a route), a call to a tenant's PSA
+without its address (the tenant's site, a ticket id), and the HTTPS redirect without the address it
+sends a request to. The backend builds each line from its template and writes `[redacted]` in place of
+a sensitive value, so the value is never written, however it overlaps another or is formatted. A line
+with no template has each value cut out of it, and is withheld whole when that cannot be done cleanly.
+Tests drive real requests through the API at Information, Debug and Trace, in the Development pipeline
+and in the Production one (which adds the HTTPS redirect), and fail if any of that text reaches the
+log. Another fails if a second log sink is added beside the scrubbing one in either environment. The level is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend)
 and Information unless said otherwise.
 
 **A crash leaves a stack trace and nothing else.** With `SCREENTAIL_CRASH_REPORTS=1` a crash writes the
