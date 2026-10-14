@@ -371,7 +371,9 @@ public sealed class ScopeRecordingTests
         var capturer = new CountingCapturer();
         var sources = new ScopedCaptureSources(capturer, () => Forbidding(scope), () => { });
         var outOfScope = 0;
+        var noWindow = 0;
         sources.MomentOutOfScope += () => outOfScope++;
+        sources.MomentWithNoWindow += () => noWindow++;
         await using var harness = await MachineHarness.StartAsync(sources: sources);
         var ct = TestContext.Current.CancellationToken;
         await harness.Machine.StartAsync(ScreenConnect, ct: ct);
@@ -383,6 +385,7 @@ public sealed class ScopeRecordingTests
         Assert.Equal(0, capturer.Captures);
         Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
         Assert.Equal(1, outOfScope);
+        Assert.Equal(0, noWindow);
     }
 
     [Fact]
@@ -411,6 +414,10 @@ public sealed class ScopeRecordingTests
     {
         var capturer = new CountingCapturer();
         var sources = new ScopedCaptureSources(capturer, InScopeWithNoWindow, () => { });
+        var outOfScope = 0;
+        var noWindow = 0;
+        sources.MomentOutOfScope += () => outOfScope++;
+        sources.MomentWithNoWindow += () => noWindow++;
         await using var harness = await MachineHarness.StartAsync(sources: sources);
         var ct = TestContext.Current.CancellationToken;
         await harness.Machine.StartAsync(ScreenConnect, ct: ct);
@@ -419,6 +426,11 @@ public sealed class ScopeRecordingTests
 
         Assert.Equal(0, capturer.Captures);
         Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
+        Assert.Equal(1, noWindow);
+
+        // Scope allowed this window; it is the missing window that refused the picture. Reporting it as
+        // out of scope would send whoever reads the log looking at the wrong rule.
+        Assert.Equal(0, outOfScope);
     }
 
     [Fact]
