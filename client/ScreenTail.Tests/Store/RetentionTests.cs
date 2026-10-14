@@ -147,8 +147,10 @@ public sealed class RetentionTests : IAsyncDisposable
         _store = null;
         File.WriteAllBytes(Path.Combine(_dir, "store.key"), new byte[64]);
         File.WriteAllBytes(Path.Combine(_dir, "ipc.token"), new byte[32]);
-        Directory.CreateDirectory(Path.Combine(_dir, "tokens"));
-        File.WriteAllText(Path.Combine(_dir, "tokens", "device.jwt"), "eyJ");
+        // The device's refresh token, where DpapiDeviceCredentials keeps it. This used to be a
+        // tokens/device.jwt that nothing in the product writes, so the test passed while the real
+        // credential survived (2026-10-12 review, S-16).
+        File.WriteAllBytes(Path.Combine(_dir, "device.cred"), new byte[48]);
         Directory.CreateDirectory(Path.Combine(_dir, "models"));
         File.WriteAllText(Path.Combine(_dir, "models", "ggml-base.bin"), "model");
 
@@ -157,10 +159,10 @@ public sealed class RetentionTests : IAsyncDisposable
         Assert.False(File.Exists(Path.Combine(_dir, "store.db")));
         Assert.False(File.Exists(Path.Combine(_dir, "store.key")));
         Assert.False(File.Exists(Path.Combine(_dir, "ipc.token")));
-        Assert.False(Directory.Exists(Path.Combine(_dir, "tokens")));
+        Assert.False(File.Exists(Path.Combine(_dir, "device.cred")));
         Assert.True(File.Exists(Path.Combine(_dir, "models", "ggml-base.bin")), "models are not user data and stay");
         Assert.Contains(Path.Combine(_dir, "store.db"), deleted.Deleted);
-        Assert.Contains(Path.Combine(_dir, "tokens"), deleted.Deleted);
+        Assert.Contains(Path.Combine(_dir, "device.cred"), deleted.Deleted);
         Assert.True(deleted.Complete);
     }
 
