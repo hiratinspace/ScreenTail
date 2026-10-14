@@ -127,7 +127,7 @@ Yes. The tenant's policy is fetched at start and hourly under its own egress pur
 local-only mode allows, because it is how local-only is lifted), the last copy is kept on disk for when
 the backend is away, and a locked local-only is applied to the egress guard itself rather than only
 shown: Settings renders the toggle read-only with "Set by your admin (policy …)". A policy that arrives
-with a field missing is refused and the last synced one stands, so a lock is never read as "unlocked"
+with a field missing or of the wrong type is refused and the last synced one stands, so a lock is never read as "unlocked"
 because a field name drifted; the wire shape is `shared/contracts/tenant-policy.v1.json`, tested from
 both ends. *(INV-11; ST-047, 2026-09-25; the contract 2026-10-14.)* The operator sets a policy with `--set-policy` until the web admin exists (ST-099).
 

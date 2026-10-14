@@ -86,6 +86,35 @@ public sealed class PolicySyncTests : IDisposable
         Assert.Equal(0, changed);
     }
 
+    [Theory]
+    [InlineData("retentionDays", "\"3\"")]
+    [InlineData("retentionDays", "3.5")]
+    [InlineData("retentionDays", "null")]
+    [InlineData("localOnlyLocked", "\"true\"")]
+    [InlineData("localOnlyLocked", "1")]
+    [InlineData("localOnlyLocked", "null")]
+    [InlineData("version", "20260925")]
+    public async Task APolicyWithAFieldOfTheWrongTypeIsRefusedAndTheLastSyncedOneStands(string field, string value)
+    {
+        // The contract states the types too. A value of another type is drift as much as a missing field
+        // is, so it is refused the same way rather than read leniently.
+        var cache = new FilePolicyCache(Path.Combine(_dir, "policy.json"));
+        var synced = new TenantPolicy("p1", 3, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: false);
+        cache.Save(synced);
+        var body = JsonNode.Parse(Contract("response"))!.AsObject();
+        body[field] = JsonNode.Parse(value);
+        var sync = new PolicySync(Client(new OneReply(Text(body.ToJsonString()))), () => "token", cache);
+        var changed = 0;
+        sync.Changed += _ => changed++;
+
+        Assert.False(await sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(synced, sync.Current);
+        Assert.Equal(synced, cache.Load());
+        Assert.Null(sync.LastSyncedAt);
+        Assert.Equal(0, changed);
+    }
+
     [Fact]
     public async Task AFieldANewerBackendAddsIsIgnored()
     {
