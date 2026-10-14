@@ -122,23 +122,7 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
 
         Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
 
-        Assert.Empty(masker.Calls);
-        var session = (await store.LoadSessionAsync("s1"))!;
-        Assert.Empty(session.Frames);
-        Assert.Null(await store.GetRedactedFrameImageAsync("f1"));
-        Assert.Equal(1, session.FramesPurgedUnredacted);
-        var audit = await store.GetAuditAsync("s1");
-        Assert.Contains(audit, a => a.Type == AuditTypes.FramesPurgedUnredacted);
-        Assert.DoesNotContain(audit, a => a.Type == AuditTypes.FrameRedacted);
-
-        // Counted as read badly, not as read nothing, and not as a frame that made it.
-        var progress = worker.Progress;
-        Assert.Equal(1, progress.Unreadable);
-        Assert.Equal(0, progress.Unread);
-        Assert.Equal(0, progress.Frames);
-        Assert.Equal(0, progress.Failed);
-        Assert.Empty(progress.Masked);
-        Assert.Equal(0, _pending.Depth);
+        await AssertDiscardedUnsearchedAsync(store, worker, masker);
     }
 
     [Fact]
@@ -154,12 +138,32 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
 
         Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
 
+        await AssertDiscardedUnsearchedAsync(store, worker, masker);
+    }
+
+    /// <summary>
+    /// What a frame whose scan did not finish leaves behind: nothing painted, nothing stored, an audit row
+    /// saying it was purged and none saying it was redacted, one Unreadable (not Unread, not Failed, not a
+    /// frame that made it), and its queue slot given back.
+    /// </summary>
+    private async Task AssertDiscardedUnsearchedAsync(SqliteSessionStore store, RedactionWorker worker, RecordingMasker masker)
+    {
         Assert.Empty(masker.Calls);
         var session = (await store.LoadSessionAsync("s1"))!;
         Assert.Empty(session.Frames);
+        Assert.Null(await store.GetRedactedFrameImageAsync("f1"));
         Assert.Equal(1, session.FramesPurgedUnredacted);
-        Assert.Equal(1, worker.Progress.Unreadable);
-        Assert.Equal(0, worker.Progress.Frames);
+        var audit = await store.GetAuditAsync("s1");
+        Assert.Contains(audit, a => a.Type == AuditTypes.FramesPurgedUnredacted);
+        Assert.DoesNotContain(audit, a => a.Type == AuditTypes.FrameRedacted);
+
+        var progress = worker.Progress;
+        Assert.Equal(1, progress.Unreadable);
+        Assert.Equal(0, progress.Unread);
+        Assert.Equal(0, progress.Frames);
+        Assert.Equal(0, progress.Failed);
+        Assert.Empty(progress.Masked);
+        Assert.Equal(0, _pending.Depth);
     }
 
     [Fact]
