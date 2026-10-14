@@ -484,10 +484,14 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ACommandStillQueuedWhenTheClientLeavesIsNeverRun()
+    public async Task NothingQueuedRunsAfterTheClientLeaves()
     {
         // An instruction from a window that has gone has nobody to tell how it went, and the old loop
         // never read it at all. Queued work is dropped with the connection rather than run blind.
+        //
+        // What stops it here is mostly the reply to the held command: it has nowhere to go once the
+        // client has left, and that failure ends the worker before it reaches the next item. The check
+        // between items is a backstop behind that, and this test does not tell the two apart.
         _controller.Holds = typeof(GetIntegrationsCommand);
         await StartServerAsync();
         var ui = await ConnectAsync();
@@ -525,6 +529,67 @@ public sealed class IpcServerTests : IAsyncDisposable
         await disconnected.Task.WaitAsync(Soon, ct);
         await Assert.ThrowsAsync<IOException>(() => failed.WaitAsync(Soon, ct));
         await WaitUntilAsync(() => _server!.ConnectedClients == 0);
+    }
+
+    [Fact]
+    public async Task AFailedSessionCommandClosesTheConnectionWithoutWaitingForASlowOne()
+    {
+        // Round 1 review of E-25. A session command that fails on the read loop ends the reading, but
+        // the pipe stayed open until the slow command behind it finished. Nothing read it in that time
+        // and the client still looked connected, so it did not reconnect: the heartbeat, Stop, Pause and
+        // Mark all hung for as long as the backend took. The old loop closed the connection at once.
+        _controller.State = Recording("s1");
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        _controller.FailsOn = typeof(PauseCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ui.Disconnected += () => disconnected.TrySetResult();
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var failed = ui.SendAsync(id => new PauseCommand { RequestId = id }, ct);
+
+        await disconnected.Task.WaitAsync(Soon, ct);
+        Assert.False(_controller.Release.Task.IsCompleted, "the connection closed only once the slow command was released");
+        await Assert.ThrowsAsync<IOException>(() => failed.WaitAsync(Soon, ct));
+        await Assert.ThrowsAsync<IOException>(() => slow.WaitAsync(Soon, ct));
+
+        // A fresh connection is answered at once, and the held command's late reply goes nowhere.
+        await using var again = await ConnectAsync();
+        Assert.True((await again.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct).WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+        _controller.Release.TrySetResult();
+        await WaitUntilAsync(() => _server!.ConnectedClients == 1);
+    }
+
+    [Fact]
+    public async Task ASettingChangeIsAppliedBeforeASessionCommandSentAfterIt()
+    {
+        // Round 1 review of E-25. A Start from the tray or the hotkey does not wait for its answer, so a
+        // Save followed by a Start used to be applied in that order. With the settings behind a slow
+        // command and the Start on the read loop, capture could begin under the excluded processes and
+        // redaction choices the technician had just changed. Both settings writes are local files, so
+        // they are answered on the read loop beside the session's own commands.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var privacy = ui.SendAsync(id => new SetSettingsCommand { RequestId = id, Settings = new ScreenTail.Shared.Settings.ClientSettings() }, ct);
+        var capture = ui.SendAsync(id => new SetCaptureSettingsCommand { RequestId = id, Settings = new ScreenTail.Shared.Settings.CaptureSettings() }, ct);
+        Assert.True((await ui.SendAsync(id => new StartCommand { RequestId = id }, ct).WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+
+        Assert.True((await privacy.WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+        Assert.True((await capture.WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+        Assert.Equal(
+            [typeof(GetIntegrationsCommand), typeof(SetSettingsCommand), typeof(SetCaptureSettingsCommand), typeof(StartCommand)],
+            _controller.Received.Select(c => c.GetType()));
+
+        _controller.Release.TrySetResult();
+        Assert.True((await slow.WaitAsync(Soon, ct)).Ok);
     }
 
     [Fact]
