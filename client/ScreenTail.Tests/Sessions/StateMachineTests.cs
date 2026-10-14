@@ -3,9 +3,11 @@ using System.Security.Cryptography;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
+using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
+using ScreenTail.Tests.Speech;
 
 namespace ScreenTail.Tests.Sessions;
 
@@ -468,6 +470,10 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.False(machine.Narration.Wants(id));
         Assert.False(await machine.TryAppendTranscriptAsync(id, Said("t-late", 5_000, "too late")));
         Assert.Empty((await _store!.LoadSessionAsync(id))!.Transcript);
+
+        // Heard just before Stop and queued just after it stopped waiting: not handed to the model.
+        machine.Narration.Owe(id);
+        Assert.False(machine.Narration.Wants(id));
     }
 
     [Fact]
@@ -524,6 +530,77 @@ public sealed class StateMachineTests : IAsyncDisposable
         await machine.StartAsync(ScreenConnect);
         Assert.False(await machine.TryAppendTranscriptAsync(discarded, Said("t-1", 100, "the password is Winter2026!")));
         Assert.Empty((await _store!.LoadSessionAsync(machine.SessionId!))!.Transcript);
+    }
+
+    [Fact]
+    public async Task NothingIsHeardOrWrittenForASessionWhileItIsBeingDiscarded()
+    {
+        // Discard awaits the capture sources and then the store, and the session is still the current one,
+        // still recording, all that time. Narration used to be let go of in the middle of it, so a chunk
+        // heard in that window was queued for the discarded session again and a segment the model finished
+        // in it passed the door. Discard is the technician saying this session should not exist: from its
+        // first moment nothing more is heard for it and nothing is written into it.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        var held = new TaskCompletionSource();
+        _sources.Stopping = () => held.Task;
+
+        var discarding = machine.DiscardAsync();
+        Assert.Equal(1, _sources.Stops);
+        Assert.False(discarding.IsCompleted);
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        Assert.Null(machine.Hearing);
+        machine.Narration.Owe(id);
+        Assert.False(machine.Narration.Wants(id));
+        Assert.False(await machine.TryAppendTranscriptAsync(id, Said("t-1", 100, "the password is Winter2026!")));
+
+        held.SetResult();
+        Assert.True(await discarding);
+        Assert.Null(await _store!.LoadSessionAsync(id));
+    }
+
+    [Fact]
+    public async Task WhatTheRecorderHeardBeforeStopIsInTheNote()
+    {
+        // The host's wiring in miniature: the real recorder, asking the real machine what it is hearing,
+        // sharing its backlog and writing through its stamped door. Stop is pressed while the model is
+        // still on the last sentence, and the note waits for it.
+        var machine = await MachineAsync(grace: TimeSpan.FromSeconds(5));
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        var drafted = new List<string>();
+        _drafter.Drafting = async session =>
+            drafted.AddRange((await _store!.LoadSessionAsync(session))!.Transcript.Select(segment => segment.Text));
+
+        var recogniser = new NarrationRecorderTests.FakeRecogniser("and that fixed the spooler") { Blocked = new TaskCompletionSource() };
+        var recorder = new NarrationRecorder(
+            new NarrationRecorderTests.FakeMicrophone(
+                NarrationRecorderTests.Silence(20), NarrationRecorderTests.Speech(40), NarrationRecorderTests.Silence(40)),
+            recogniser,
+            (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
+            () => machine.Hearing,
+            backlog: machine.Narration);
+
+        var running = recorder.RunAsync(TestContext.Current.CancellationToken);
+        for (var i = 0; i < 250 && recogniser.Asked == 0; i++)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.Equal(1, machine.Narration.DepthFor(id));
+
+        var stopping = machine.StopAsync();
+        await Task.Delay(200);
+        Assert.False(stopping.IsCompleted, "Stop drafted the note while the recorder's segment was still with the model.");
+
+        recogniser.Blocked.SetResult();
+        Assert.True(await stopping);
+        await running;
+
+        Assert.Equal(["and that fixed the spooler"], drafted);
+        Assert.Equal(1, recorder.Kept);
     }
 
     [Fact]
@@ -651,10 +728,13 @@ public sealed class StateMachineTests : IAsyncDisposable
             return Task.CompletedTask;
         }
 
+        /// <summary>Held by a test that needs to act while the sources are being stopped.</summary>
+        public Func<Task>? Stopping { get; set; }
+
         public Task StopAsync(CancellationToken ct = default)
         {
             Stops++;
-            return Task.CompletedTask;
+            return Stopping?.Invoke() ?? Task.CompletedTask;
         }
 
         public Task MarkMomentAsync(CancellationToken ct = default)
