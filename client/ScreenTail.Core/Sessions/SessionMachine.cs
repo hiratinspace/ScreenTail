@@ -52,9 +52,10 @@ public sealed class SessionMachine : IAsyncDisposable
     /// Which guards are currently holding capture down, by their reason (INV-6).
     ///
     /// A set rather than a flag because three guards share one suppressed state and each has to be able
-    /// to let go of its own hold without letting go of anybody else's. Only ever touched inside
-    /// <see cref="_transitions"/>, so it needs no lock of its own. Emptied when a session ends: a hold
-    /// left behind would suppress the next session, which nobody suppressed, for ever.
+    /// to let go of its own hold without letting go of anybody else's. Only ever changed inside
+    /// <see cref="_transitions"/>, and under <see cref="_stateLock"/> as well so that <see cref="IsHeld"/>
+    /// can read it from a guard's loop. Emptied when a session ends: a hold left behind would suppress
+    /// the next session, which nobody suppressed, for ever.
     /// </summary>
     private readonly HashSet<CaptureStateReason> _holds = [];
     private readonly Lock _stateLock = new();
@@ -93,6 +94,22 @@ public sealed class SessionMachine : IAsyncDisposable
     }
 
     public string? SessionId => _session?.Id;
+
+    /// <summary>
+    /// Whether this reason is holding the running session down.
+    ///
+    /// A guard asks this rather than remembering. Its memory was wrong in both directions: a pause
+    /// made it forget a hold the session still kept, so Resume went back to a suppression nothing would
+    /// lift, and a restart inside a hold's window made it remember one the new session never had
+    /// (2026-10-12 review, T-41 and T-50). A pause keeps its holds; a session ending drops them.
+    /// </summary>
+    public bool IsHeld(CaptureStateReason reason)
+    {
+        lock (_stateLock)
+        {
+            return _holds.Contains(reason);
+        }
+    }
 
     /// <summary>
     /// The timestamp the running session started from, for turning a hook's monotonic timestamp into
@@ -152,7 +169,7 @@ public sealed class SessionMachine : IAsyncDisposable
             var session = new ActiveSession(Guid.NewGuid().ToString("D"), _time.GetTimestamp(), ToolKind(tool.Kind));
             await _store.CreateSessionAsync(new NewSession(session.Id, _time.GetUtcNow(), tool, localOnly, policyVersion, suggestedTicket), ct).ConfigureAwait(false);
             _session = session;
-            _holds.Clear();
+            ClearHolds();
             await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
             await _sources.StartAsync(this, ct).ConfigureAwait(false);
             return true;
@@ -171,13 +188,33 @@ public sealed class SessionMachine : IAsyncDisposable
     ///
     /// Suppressed → Paused → Recording was a way round every guard, reachable from the pipe, and the
     /// hotkey path already refused it (2026-09-20 review).
+    ///
+    /// The holds are read once it is this call's turn, not when it was made. Read earlier, a guard
+    /// letting go in between sent the session back to Suppressed with nothing holding it, and nothing
+    /// would ever lift that (2026-10-12 review).
     /// </summary>
-    public Task<bool> ResumeAsync(CancellationToken ct = default) =>
-        TransitionIfAsync(
-            s => s is SessionState.Paused,
-            _holds.Count > 0 ? SessionState.Suppressed : SessionState.Recording,
-            _holds.Count > 0 ? _holds.First() : CaptureStateReason.User,
-            ct);
+    public async Task<bool> ResumeAsync(CancellationToken ct = default)
+    {
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (State is not SessionState.Paused || _session is null)
+            {
+                return false;
+            }
+
+            var held = _holds.Count > 0;
+            await TransitionAsync(
+                held ? SessionState.Suppressed : SessionState.Recording,
+                held ? _holds.First() : CaptureStateReason.User,
+                ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
 
     /// <summary>
     /// Automatic pause: password field, excluded app, elevated window, sensitive context (INV-6).
@@ -188,21 +225,49 @@ public sealed class SessionMachine : IAsyncDisposable
     /// second guard believing it held nothing (2026-09-20 review).
     ///
     /// Returns true when this reason is now held, whether or not it was this call that stopped capture.
+    ///
+    /// A hold exists only once capture is actually off. If the transition fails before the state moves,
+    /// the hold comes out again: left in, the guard would be told it held and never try again, while the
+    /// session went on recording (2026-10-12 review).
+    ///
+    /// <b>Paused, the hold is recorded and nothing else happens.</b> Capture is already off and stays
+    /// paused, and Resume finds the hold and goes to Suppressed. Refused while paused, a condition that
+    /// began or came back during a pause held nothing, so Resume went to Recording over it until the
+    /// guard's next tick: up to 500 ms with no indicator on screen (2026-10-12 review, round 2).
     /// </summary>
     public async Task<bool> SuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
     {
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_session is null || State is not (SessionState.Recording or SessionState.Suppressed))
+            if (_session is null || State is not (SessionState.Recording or SessionState.Suppressed or SessionState.Paused))
             {
                 return false;
             }
 
-            _ = _holds.Add(reason);
+            bool added;
+            lock (_stateLock)
+            {
+                added = _holds.Add(reason);
+            }
+
             if (State is SessionState.Recording)
             {
-                await TransitionAsync(SessionState.Suppressed, reason, ct).ConfigureAwait(false);
+                try
+                {
+                    await TransitionAsync(SessionState.Suppressed, reason, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Something after the state moved (a listener) can throw too. Capture is off then,
+                    // and the hold is what will lift it, so it stays.
+                    if (added && State is not SessionState.Suppressed)
+                    {
+                        _ = ReleaseHold(reason);
+                    }
+
+                    throw;
+                }
             }
 
             return true;
@@ -220,18 +285,35 @@ public sealed class SessionMachine : IAsyncDisposable
     /// capture for every other guard too, including one whose condition was still true and whose next
     /// poll was up to a second away. A login screen's window expiring while the technician was still
     /// typing in the password field is the ordinary way to reach that.
+    ///
+    /// If the transition fails before the state moves, the hold goes back. Otherwise the session stayed
+    /// Suppressed with nothing holding it, the guard saw nothing left to let go of, and nothing would
+    /// ever lift it (2026-10-12 review).
     /// </summary>
     public async Task<bool> UnsuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
     {
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_session is null || !_holds.Remove(reason) || State is not SessionState.Suppressed || _holds.Count > 0)
+            if (_session is null || !ReleaseHold(reason) || State is not SessionState.Suppressed || _holds.Count > 0)
             {
                 return false;
             }
 
-            await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
+            try
+            {
+                await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (State is SessionState.Suppressed)
+                {
+                    RestoreHold(reason);
+                }
+
+                throw;
+            }
+
             return true;
         }
         finally
@@ -254,8 +336,20 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            _holds.Clear();
-            await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
+            // The holds go once the session has moved, not before. Cleared first, a Finalizing write that
+            // failed left the session Suppressed with nothing holding it, and nothing to lift it.
+            try
+            {
+                await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (State is SessionState.Finalizing)
+                {
+                    ClearHolds();
+                }
+            }
+
             await _sources.StopAsync(ct).ConfigureAwait(false);
             await FinalizeAndDraftAsync(_session.Id, _session.ActiveMs(_time, SessionState.Finalizing), _session.Partial, ct).ConfigureAwait(false);
             return true;
@@ -287,7 +381,7 @@ public sealed class SessionMachine : IAsyncDisposable
             _options.Pending.Forget(_session.Id);
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
             _session = null;
-            _holds.Clear();
+            ClearHolds();
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.Idle, null);
             return true;
@@ -447,6 +541,31 @@ public sealed class SessionMachine : IAsyncDisposable
 
     // ---- internals -------------------------------------------------------------------------------------
 
+    private bool ReleaseHold(CaptureStateReason reason)
+    {
+        lock (_stateLock)
+        {
+            return _holds.Remove(reason);
+        }
+    }
+
+    /// <summary>Puts a hold back after a release whose transition did not happen.</summary>
+    private void RestoreHold(CaptureStateReason reason)
+    {
+        lock (_stateLock)
+        {
+            _ = _holds.Add(reason);
+        }
+    }
+
+    private void ClearHolds()
+    {
+        lock (_stateLock)
+        {
+            _holds.Clear();
+        }
+    }
+
     private async Task<bool> TransitionIfAsync(Func<SessionState, bool> allowed, SessionState next, CaptureStateReason reason, CancellationToken ct)
     {
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
@@ -466,31 +585,18 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
-    /// <summary>Persists the transition (session row + timeline event), then updates the in-memory state and announces it.</summary>
+    /// <summary>
+    /// Persists the transition (session row + timeline event), then updates the in-memory state and announces it.
+    ///
+    /// Nothing in memory moves until the transition is saved. The active-time accounting and the
+    /// suppressed interval used to move first, so a state write that failed and was tried again counted
+    /// active time twice, or recorded the interval as ended at the failed attempt and never recorded its
+    /// real end (2026-10-12 review, round 2).
+    /// </summary>
     private async Task TransitionAsync(SessionState next, CaptureStateReason reason, CancellationToken ct)
     {
         var session = _session ?? throw new InvalidOperationException("No active session.");
-        session.Account(_time, State, next);
-
-        // ST-045: suppressed intervals, recorded where every transition already passes. The two guards
-        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves
-        // — an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
-        // catches the ends the guards never see: a session stopped or discarded while still suppressed.
-        if (State is SessionState.Suppressed && next is not SessionState.Suppressed && _suppressedSince is { } since)
-        {
-            var held = (long)(_time.GetUtcNow() - since.At).TotalMilliseconds;
-            if (_store is IAuditLog leaving)
-            {
-                await leaving.RecordAsync(
-                    AuditTypes.CaptureSuppressed, session.Id, held, AuditDetail.Of(since.Reason), ct).ConfigureAwait(false);
-            }
-
-            _suppressedSince = null;
-        }
-        else if (next is SessionState.Suppressed && State is not SessionState.Suppressed)
-        {
-            _suppressedSince = (reason, _time.GetUtcNow());
-        }
+        var from = State;
 
         await _store.SetSessionStateAsync(session.Id, next.ToWire(), reason == CaptureStateReason.User ? null : ReasonName(reason), ct).ConfigureAwait(false);
         if (SchemaState(next) is { } schemaState)
@@ -501,6 +607,27 @@ public sealed class SessionMachine : IAsyncDisposable
                 ct).ConfigureAwait(false);
         }
 
+        // ST-045: suppressed intervals, recorded where every transition already passes. The two guards
+        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves
+        // — an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
+        // catches the ends the guards never see: a session stopped or discarded while still suppressed.
+        if (from is SessionState.Suppressed && next is not SessionState.Suppressed && _suppressedSince is { } since)
+        {
+            var held = (long)(_time.GetUtcNow() - since.At).TotalMilliseconds;
+            if (_store is IAuditLog leaving)
+            {
+                await leaving.RecordAsync(
+                    AuditTypes.CaptureSuppressed, session.Id, held, AuditDetail.Of(since.Reason), ct).ConfigureAwait(false);
+            }
+
+            _suppressedSince = null;
+        }
+        else if (next is SessionState.Suppressed && from is not SessionState.Suppressed)
+        {
+            _suppressedSince = (reason, _time.GetUtcNow());
+        }
+
+        session.Account(_time, from, next);
         SetState(next, null);
     }
 

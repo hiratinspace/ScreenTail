@@ -195,18 +195,51 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task APasswordFieldFocusedWhileNotRecordingHoldsNothing()
+    public async Task APasswordFieldFocusedDuringAPauseIsHeldTheMomentItResumes()
     {
+        // 2026-10-12 review, round 2. Holding nothing while paused meant Resume went to Recording with
+        // the field focused, and stayed there until the next probe answered. The hold is taken during
+        // the pause now; the session stays paused, and Resume goes straight to Suppressed.
         var machine = await RecordingAsync();
-        Assert.True(await machine.PauseAsync(TestContext.Current.CancellationToken));
+        var ct = TestContext.Current.CancellationToken;
+        Assert.True(await machine.PauseAsync(ct));
         using var guard = new PasswordFieldGuard(machine, _probe);
 
         _probe.Focused = FocusedField.Password;
-        await guard.TickAsync(TestContext.Current.CancellationToken);
+        Assert.True(await guard.TickAsync(ct));
 
-        Assert.False(guard.Holding);
-        Assert.Equal(0, guard.Holds);
+        Assert.True(guard.Holding);
+        Assert.Equal(1, guard.Holds);
         Assert.Equal(SessionState.Paused, machine.State);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.False(await machine.TryStageFrameAsync(Frame("over-the-field"), ct));
+    }
+
+    [Fact]
+    public async Task AFieldLeftAndFocusedAgainDuringAPauseIsHeldTheMomentItResumes()
+    {
+        // The route the T-41 fix opened. The hold is let go during the pause when focus leaves the field,
+        // so focus coming back during the same pause has to take it again, or Resume walks past it.
+        var machine = await RecordingAsync();
+        using var guard = new PasswordFieldGuard(machine, _probe);
+        var ct = TestContext.Current.CancellationToken;
+
+        _probe.Focused = FocusedField.Password;
+        await guard.TickAsync(ct);
+        Assert.True(await machine.PauseAsync(ct));
+        _probe.Focused = FocusedField.NotPassword;
+        await guard.TickAsync(ct);
+        Assert.False(guard.Holding);
+        _probe.Focused = FocusedField.Password;
+        await guard.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.False(await machine.TryStageFrameAsync(Frame("over-the-field"), ct));
+        Assert.Equal(2, guard.Holds);
     }
 
     [Fact]
@@ -300,6 +333,73 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
         }
 
         return false;
+    }
+
+    [Fact]
+    public async Task AHoldWhoseConditionEndsDuringAPauseDoesNotOutliveTheResume()
+    {
+        // 2026-10-12 review, T-41. Pausing while typing a password is ordinary. The field lost focus
+        // during the pause, and the guard dropped its belief that it held anything without letting go
+        // of the hold itself. Resume then went back to Suppressed, and nothing ever lifted it: the rest
+        // of the session captured nothing.
+        var machine = await RecordingAsync();
+        using var guard = new PasswordFieldGuard(machine, _probe);
+        var ct = TestContext.Current.CancellationToken;
+
+        _probe.Focused = FocusedField.Password;
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        Assert.True(await machine.PauseAsync(ct));
+        _probe.Focused = FocusedField.NotPassword;
+        await guard.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(guard.Holding);
+        Assert.True(await machine.TryStageFrameAsync(Frame("after"), ct));
+    }
+
+    [Fact]
+    public async Task AFieldStillFocusedAfterAPauseKeepsItsHold()
+    {
+        // The other half of the same rule: a pause is not the condition ending. Resume must come back
+        // suppressed, and the guard must still say it holds.
+        var machine = await RecordingAsync();
+        using var guard = new PasswordFieldGuard(machine, _probe);
+        var ct = TestContext.Current.CancellationToken;
+
+        _probe.Focused = FocusedField.Password;
+        await guard.TickAsync(ct);
+        Assert.True(await machine.PauseAsync(ct));
+        await guard.TickAsync(ct);
+        Assert.True(guard.Holding);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.Equal(1, guard.Holds);
+        Assert.False(await machine.TryStageFrameAsync(Frame("over-the-field"), ct));
+    }
+
+    [Fact]
+    public async Task APausedSessionIsStillAskedWhatHasFocus()
+    {
+        // The probe is the expensive part, and the 2026-09-20 saving was about a machine with no session
+        // at all. A paused session is one Resume away from recording, so it has to keep asking: a hold
+        // has to be able to end while paused, and to begin, or Resume walks past a focused field.
+        var machine = await RecordingAsync();
+        using var guard = new PasswordFieldGuard(machine, _probe);
+        var ct = TestContext.Current.CancellationToken;
+        Assert.True(await machine.PauseAsync(ct));
+
+        _ = await guard.TickAsync(ct);
+
+        Assert.Equal(1, _probe.Reads);
     }
 
     private async Task<SessionMachine> RecordingAsync()

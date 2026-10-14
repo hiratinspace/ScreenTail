@@ -32,8 +32,12 @@ public sealed class IndicatorGuard(
     private DateTimeOffset? _goneSince;
     private long _failures;
 
-    /// <summary>True while this guard is holding capture suppressed.</summary>
-    public bool Holding { get; private set; }
+    /// <summary>
+    /// True while the session keeps this guard's hold, which a pause does not end. Asked of the session
+    /// every time rather than remembered: a remembered hold went stale across a pause and across a
+    /// restart, and was wrong in both directions (2026-10-12 review, T-41 and T-50).
+    /// </summary>
+    public bool Holding => machine.IsHeld(CaptureStateReason.NoIndicator);
 
     /// <summary>How many separate times capture has been suppressed for this. Counts only (INV-10).</summary>
     public int Holds { get; private set; }
@@ -79,38 +83,33 @@ public sealed class IndicatorGuard(
             _goneSince ??= now;
         }
 
-        // Re-derived from the session rather than trusted: Holding is only this guard's belief, and the
-        // other guards share the same suppressed state. One of them lifting it would otherwise leave
-        // this one thinking it still held something (the bug PasswordFieldGuard had until 2026-09-20).
-        if (Holding && machine.State is not SessionState.Suppressed)
-        {
-            Holding = false;
-        }
-
+        // Asked of the session, not remembered: the session keeps one hold per guard, a pause keeps
+        // them, and a session ending drops them.
+        var held = Holding;
         var wanted = _goneSince is { } since && now - since >= _options.Grace;
-        if (wanted == Holding)
+        if (wanted == held)
         {
-            return Holding;
+            return held;
         }
 
         if (wanted)
         {
-            // Suppress fails when the session is paused, stopped or idle, and correcting that is not this
-            // guard's business. But then it holds nothing and must say so, or the next tick would
-            // "resume" a session it never suppressed.
-            Holding = await machine.SuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
-            if (Holding)
+            // Paused, the session records the hold and stays paused, so Resume goes straight to Suppressed.
+            // Suppress fails when the session is stopped or idle, and correcting that is not this guard's
+            // business. Then nothing is held, and the session says so.
+            held = await machine.SuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
+            if (held)
             {
                 Holds++;
             }
-        }
-        else
-        {
-            _ = await machine.UnsuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
-            Holding = false;
+
+            return held;
         }
 
-        return Holding;
+        // The hold is over, paused or not. Paused, this leaves the session paused and lets go of the
+        // hold, so Resume does not go back to a suppression nothing would lift (2026-10-12 review, T-41).
+        _ = await machine.UnsuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
+        return false;
     }
 
     public async Task RunAsync(CancellationToken ct)

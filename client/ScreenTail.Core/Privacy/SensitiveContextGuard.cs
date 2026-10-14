@@ -27,8 +27,12 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
     private long _failures;
     private DateTimeOffset _until;
 
-    /// <summary>True while this guard is holding capture suppressed.</summary>
-    public bool Holding { get; private set; }
+    /// <summary>
+    /// True while the session keeps this guard's hold, which a pause does not end. Asked of the session
+    /// every time rather than remembered: a remembered hold went stale across a pause and across a
+    /// restart, and was wrong in both directions (2026-10-12 review, T-41 and T-50).
+    /// </summary>
+    public bool Holding => machine.IsHeld(CaptureStateReason.SensitiveContext);
 
     /// <summary>How many separate times capture has been suppressed for this reason. Counts only (INV-10).</summary>
     public int Holds { get; private set; }
@@ -63,40 +67,34 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
             wanted = _until > _time.GetUtcNow();
         }
 
-        // Re-derived from the session rather than trusted, because Holding is only this guard's belief.
-        // A session that stopped and started again inside the ten-second window left it true while the
-        // new session was Recording: the guard saw "already holding", did nothing, and the credential
-        // prompt still on screen was captured for the whole of the new session.
-        if (Holding && machine.State is not SessionState.Suppressed)
+        // Asked of the session, not remembered. A session that stopped and started again inside the
+        // ten-second window has no hold yet, and remembering one meant the credential prompt still on
+        // screen was captured for the whole of the new session. A paused session keeps its hold, and
+        // forgetting that meant the window ending was never passed on.
+        var held = Holding;
+        if (wanted == held)
         {
-            Holding = false;
-        }
-
-        if (wanted == Holding)
-        {
-            return Holding;
+            return held;
         }
 
         if (wanted)
         {
-            // Suppress fails when the session is paused, stopped, or not running, and correcting that is
-            // not this guard's business. But then it is holding nothing and has to say so, or the next
-            // tick would "resume" a session it never suppressed.
-            Holding = await machine.SuppressAsync(CaptureStateReason.SensitiveContext, ct).ConfigureAwait(false);
-            if (Holding)
+            // Paused, the session records the hold and stays paused, so Resume goes straight to Suppressed.
+            // Suppress fails when the session is stopped or idle, and correcting that is not this guard's
+            // business. Then nothing is held, and the session says so.
+            held = await machine.SuppressAsync(CaptureStateReason.SensitiveContext, ct).ConfigureAwait(false);
+            if (held)
             {
                 Holds++;
             }
-        }
-        else
-        {
-            // Whether or not this moved the session — the technician may have paused it meanwhile, which
-            // leaves Unsuppress a no-op — the hold is over.
-            _ = await machine.UnsuppressAsync(CaptureStateReason.SensitiveContext, ct).ConfigureAwait(false);
-            Holding = false;
+
+            return held;
         }
 
-        return Holding;
+        // The hold is over, paused or not. Paused, this leaves the session paused and lets go of the
+        // hold, so Resume does not go back to a suppression nothing would lift (2026-10-12 review, T-41).
+        _ = await machine.UnsuppressAsync(CaptureStateReason.SensitiveContext, ct).ConfigureAwait(false);
+        return false;
     }
 
     /// <summary>How many passes ended in an exception. A rising count means the guard is struggling, not gone.</summary>
