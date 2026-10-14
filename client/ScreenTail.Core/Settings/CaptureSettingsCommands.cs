@@ -54,6 +54,10 @@ public sealed class CaptureSettingsCommands(
 {
     private readonly CaptureSettingsStore _store = store ?? throw new ArgumentNullException(nameof(store));
 
+    // Save and apply as one step, for the reason SettingsCommands gives: the file and the scope in force
+    // must end on the same document when two connections save at once.
+    private readonly Lock _saving = new();
+
     public Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -83,12 +87,16 @@ public sealed class CaptureSettingsCommands(
                         return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = problems[0] });
                     }
 
-                    if (!_store.Save(set.Settings))
+                    lock (_saving)
                     {
-                        return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be written to disk." });
+                        if (!_store.Save(set.Settings))
+                        {
+                            return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be written to disk." });
+                        }
+
+                        apply(set.Settings);
                     }
 
-                    apply(set.Settings);
                     return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = true });
                 }
 

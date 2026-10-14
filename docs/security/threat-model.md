@@ -37,7 +37,7 @@ copy of our own binaries, and the network.
 | T12 | A second client instance, or a repeated failing client, floods the service | **D**enial of service | Capture stops for the session in progress | Any number of clients, but at most sixteen handshakes in flight and two seconds to say `hello`; when the table is full the oldest silent handshake is dropped so the real UI is never the one refused; rejections are rate-limited into the audit log rather than written per attempt | `IpcServer` | ST-004 |
 | T13 | A listening socket on a technician's machine inside a customer network | **E**levation / **I**nformation disclosure | A second interface with no ACL, no token and no peer check | The client listens on nothing but the named pipe, and a test fails the build if a socket type appears in client source | `ReleaseSurfaceTests` | **ST-012** |
 | T14 | A debug build path that is more permissive than the shipped one | **T**ampering | A check that is off in the build people actually run | No `#if DEBUG` / `#if TRACE` anywhere in client source, enforced by test | `ReleaseSurfaceTests` | **ST-012** |
-| T15 | Admin policy changed locally to re-enable what a tenant forbade | **T**ampering | Cloud drafting where policy said local-only, for one machine | Policy is enforced client-side, not merely displayed (INV-11) | Policy sync | ST-047 |
+| T15 | Admin policy changed locally to re-enable what a tenant forbade | **T**ampering | Cloud drafting where policy said local-only, for one machine | Policy is enforced client-side, not merely displayed (INV-11) | `PolicySync`, `PolicyApplier` | ST-047 |
 
 ---
 
@@ -66,9 +66,14 @@ is kept on disk, and a locked local-only is applied to the egress guard's own se
 decides with — rather than to a display flag. A technician's Settings shows the toggle read-only with
 the policy's version. An answer that does not match `shared/contracts/tenant-policy.v1.json` (a field
 missing or of the wrong type) is refused like an unanswered fetch and the last synced policy stands, so
-a drifted field name cannot unlock a locked local-only (INV-11). What a policy cannot yet carry:
-exclusions, redaction patterns and telemetry as tenant fields (the model has retention, local-only, its
-lock and the capture scope).
+a drifted field name cannot unlock a locked local-only (INV-11). `PolicyApplier` in Core does the applying: a fetch and a Settings or Capture save
+each take one lock and resolve against the newest of all three, and the technician's last saved settings
+are kept in memory rather than read back from disk, so a lock lands without a restart and a settings file
+that cannot be read at that moment cannot lift local-only. The service opens its pipe only once the
+applier is wired, so no save lands before it, and each save writes and applies as one step, so two at
+once leave the file and what is in force the same. The Mac suite drives it from a fetch or a save
+to a request the guard refuses (2026-10-12 review). What a policy cannot yet carry: exclusions, redaction patterns and telemetry as
+tenant fields (the model has retention, local-only, its lock and the capture scope).
 
 **The `netstat` evidence in ST-012's acceptance criteria** is a source-level guard here (T13, T14). A run
 of the service with no listening ports is worth adding to the laptop's hardware checks once the service

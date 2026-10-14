@@ -22,6 +22,10 @@ public sealed class SettingsCommands(
     private readonly Action<ClientSettings> _apply = apply ?? throw new ArgumentNullException(nameof(apply));
     private readonly Func<CancellationToken, Task<(IReadOnlyList<AuditRecord> Records, AuditVerification Verification)>> _audit = audit ?? throw new ArgumentNullException(nameof(audit));
 
+    // A save writes the file and then applies, and the service keeps what was applied in memory. Two
+    // connections saving at once must not finish with the file saying one thing and the guard the other.
+    private readonly Lock _saving = new();
+
     public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -65,12 +69,16 @@ public sealed class SettingsCommands(
                         return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = problems[0] });
                     }
 
-                    if (!_store.Save(set.Settings))
+                    lock (_saving)
                     {
-                        return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be written to disk." });
+                        if (!_store.Save(set.Settings))
+                        {
+                            return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be written to disk." });
+                        }
+
+                        _apply(set.Settings);
                     }
 
-                    _apply(set.Settings);
                     return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = true });
                 }
 

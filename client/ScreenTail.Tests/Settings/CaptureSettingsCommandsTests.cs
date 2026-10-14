@@ -41,6 +41,36 @@ public sealed class CaptureSettingsCommandsTests : IDisposable
         Assert.Null(await commands.HandleAsync(new StartCommand { RequestId = 4 }));
     }
 
+    [Fact]
+    public async Task TwoSavesAtOnceLeaveTheFileAndWhatIsInForceTheSame()
+    {
+        // As for Settings → Privacy: the second save waits until the first has written and applied, so the
+        // file and the scope in force end on the same document.
+        CaptureSettings? inForce = null;
+        Task<CommandResult?>? second = null;
+        var calls = 0;
+        CaptureSettingsCommands? commands = null;
+        commands = Commands(TenantPolicy.Default, settings =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                second = Task.Run(() => commands!.HandleAsync(new SetCaptureSettingsCommand { RequestId = 7, Settings = new CaptureSettings { CaptureAllWindows = false } }), TestContext.Current.CancellationToken);
+                _ = second.Wait(TimeSpan.FromMilliseconds(500), TestContext.Current.CancellationToken);
+            }
+
+            inForce = settings;
+        });
+
+        var first = await commands.HandleAsync(new SetCaptureSettingsCommand { RequestId = 6, Settings = new CaptureSettings { CaptureAllWindows = true } }, TestContext.Current.CancellationToken);
+        Assert.NotNull(second);
+        var then = await second;
+
+        Assert.True(first!.Ok);
+        Assert.True(then!.Ok);
+        Assert.False(new CaptureSettingsStore(Path.Combine(_dir, "capture.json")).Load().CaptureAllWindows);
+        Assert.False(inForce!.CaptureAllWindows);
+    }
+
     private CaptureSettingsCommands Commands(TenantPolicy policy, Action<CaptureSettings>? apply = null) => new(
         new CaptureSettingsStore(Path.Combine(_dir, "capture.json")),
         () => [new ToolRow("rdp", "Remote Desktop")],

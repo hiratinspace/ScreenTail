@@ -115,21 +115,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // customer "local-only: no" whatever the guard was actually doing (2026-09-19 review).
         //
         // The model hosts are named because the transcriber cannot fetch its model otherwise. The
-        // backend host is named from the address that was configured, so the allowlist is what an
-        // operator asked for rather than whatever a server later claims to be.
-        var egressPolicy = new EgressPolicy(new EgressSettings
-        {
-            ModelHosts = SpeechModels.Hosts,
-            BackendHosts = backend is null
-                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backend.Host },
-
-            // Publishing goes to the backend too -- the PSA's credentials live there, never here -- and
-            // under the user-initiated purpose, which local-only mode does not stop (INV-8).
-            PublishHosts = backend is null
-                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backend.Host },
-        });
+        // backend host is on the backend list and the publish list both, so under local-only the purpose
+        // each sender attaches is what keeps a draft in (INV-8); LocalOnlyEgressTests pins that shape.
+        var egressPolicy = new EgressPolicy(EgressSettings.ForBackend(backend, SpeechModels.Hosts));
         var egress = new EgressGuard(egressPolicy);
 
         // ST-047: the tenant's policy changes these in place while the service runs. The technician's
@@ -279,11 +267,6 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         Array.Clear(token);
 
         machine.StateChanged += snapshot => _ = server.BroadcastAsync(new StateChanged { State = snapshot }, stoppingToken);
-        server.Start();
-
-        var mode = verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory";
-        var state = machine.State.ToWire();
-        LogStarted(logger, IpcContract.Version, mode, state);
 
         // INV-10: capability messages describe Windows settings, never anything captured.
         var capabilities = new WindowsCapabilityProbe().Probe();
@@ -337,32 +320,28 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             () => captureStore.Load().AutoStart);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
-        // brings a new policy (ST-047) or the technician saves (ST-081). The policy decides local-only
-        // and retention where it is set; the settings decide the rest.
-        void ApplyAll(TenantPolicy tenantPolicy, ClientSettings settings)
+        // brings a new policy (ST-047) or the technician saves (ST-081, ST-080). The policy decides
+        // local-only and retention where it is set; the settings decide the rest. Core, so the Mac suite
+        // runs it (PolicyApplierTests).
+        var applier = new PolicyApplier(policySync, settingsStore.Load(), captureSettings, egressPolicy, retentionOptions, policy, trigger, sampler, redactionEngine);
+        applier.Applied += applied => LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
+        applySettings = settings => applier.Apply(settings);
+        applyCapture = capture =>
         {
-            var applied = PolicyApplication.Resolve(tenantPolicy, settings);
-            var capture = captureStore.Load();
-            egressPolicy.Apply(applied.LocalOnly, applied.Enforced);
-            retentionOptions.Retention = applied.Retention;
-            policy.Apply(new ScopeOptions
-            {
-                Exclusions = exclusions,
+            _ = applier.Apply(capture);
+            return Task.CompletedTask;
+        };
+        _ = applier.Apply();
 
-                // The admin's scope wins where set; otherwise the technician's (ST-080), confirmed in Settings.
-                CaptureAllWindows = applied.CaptureAllWindows || capture.CaptureAllWindows,
-                ExcludedProcesses = new HashSet<string>(settings.ExcludedProcesses, StringComparer.OrdinalIgnoreCase),
-                DisabledTools = new HashSet<string>(capture.DisabledTools, StringComparer.OrdinalIgnoreCase),
-            });
-            trigger.Apply(capture.GraceSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : registry.Grace);
-            sampler.Apply(capture.ToSceneOptions());
-            redactionEngine.Apply(settings.ToRedactionPolicy());
-            LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
-        }
+        // The pipe opens only now. The applier keeps saved settings in memory, so a save that reached a
+        // no-op apply before this point would be on disk but never in force, local-only and scope included,
+        // until the next save. From here every save is applied; the hotkeys follow below, once they exist.
+        server.Start();
 
-        ApplyAll(policySync.Current, settingsStore.Load());
-        policySync.Changed += tenantPolicy => ApplyAll(tenantPolicy, settingsStore.Load());
-        applySettings = settings => ApplyAll(policySync.Current, settings);
+        var mode = verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory";
+        var state = machine.State.ToWire();
+        LogStarted(logger, IpcContract.Version, mode, state);
+
         _ = Task.Run(() => policySync.RunAsync(stoppingToken), stoppingToken);
         foreground.Changed += coordinator.Observe;
 
@@ -431,7 +410,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         applyCapture = async capture =>
         {
-            ApplyAll(policySync.Current, settingsStore.Load());
+            _ = applier.Apply(capture);
             await RebindHotkeysAsync(capture.ToBindings()).ConfigureAwait(false);
         };
 
