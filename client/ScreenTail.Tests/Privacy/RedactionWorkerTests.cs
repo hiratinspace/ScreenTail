@@ -101,6 +101,103 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         Assert.Empty((await store.LoadSessionAsync("s1"))!.Frames);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFrameWhoseScanCouldNotFinishIsDiscardedRatherThanStored(bool foundACardFirst)
+    {
+        // ADR-0004 on the frame path (INV-1): a pattern that ran out of its budget left text unsearched, so
+        // the frame is gone and counted, never painted and stored as if it had been checked. Matches found
+        // before the scan gave up do not rescue it: what was found is not everything that was there. The
+        // stand-in reports late, after its last match, as the real library does when a detector times out.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        var masker = new RecordingMasker();
+        var engine = new RedactionEngine(
+            RedactionPolicy.Default,
+            (text, _, onIncomplete) => GiveUpAfter(text, foundACardFirst, onIncomplete));
+        var worker = Worker(store, Reads(
+            new OcrWord("Card", 10, 40, 50, 20),
+            new OcrWord("4111111111111111", 70, 40, 200, 20)), masker, engine);
+
+        Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        Assert.Empty(masker.Calls);
+        var session = (await store.LoadSessionAsync("s1"))!;
+        Assert.Empty(session.Frames);
+        Assert.Null(await store.GetRedactedFrameImageAsync("f1"));
+        Assert.Equal(1, session.FramesPurgedUnredacted);
+        var audit = await store.GetAuditAsync("s1");
+        Assert.Contains(audit, a => a.Type == AuditTypes.FramesPurgedUnredacted);
+        Assert.DoesNotContain(audit, a => a.Type == AuditTypes.FrameRedacted);
+
+        // Counted as read badly, not as read nothing, and not as a frame that made it.
+        var progress = worker.Progress;
+        Assert.Equal(1, progress.Unreadable);
+        Assert.Equal(0, progress.Unread);
+        Assert.Equal(0, progress.Frames);
+        Assert.Equal(0, progress.Failed);
+        Assert.Empty(progress.Masked);
+        Assert.Equal(0, _pending.Depth);
+    }
+
+    [Fact]
+    public async Task ATenantPatternThatWillNotCompileDiscardsTheFrameRatherThanStoringItHalfSearched()
+    {
+        // The same rule through the real pattern library: an administrator's typo is a rule that never ran,
+        // and the text it was meant to search is text nobody searched.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        var masker = new RecordingMasker();
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["(unclosed"] });
+        var worker = Worker(store, Reads(new OcrWord("Services", 0, 0, 80, 20)), masker, engine);
+
+        Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        Assert.Empty(masker.Calls);
+        var session = (await store.LoadSessionAsync("s1"))!;
+        Assert.Empty(session.Frames);
+        Assert.Equal(1, session.FramesPurgedUnredacted);
+        Assert.Equal(1, worker.Progress.Unreadable);
+        Assert.Equal(0, worker.Progress.Frames);
+    }
+
+    [Fact]
+    public async Task TheMaskerIsAskedToPaintEveryRegionThatWasFound()
+    {
+        // INV-1 is a claim about pixels. A worker that handed the masker an empty list, or only some of the
+        // boxes, would store a card number in plain sight and record it as masked, and the text side of the
+        // frame would still read "[CARD]". So the masker must get every box the engine placed, at the
+        // configured edge, over the captured bytes; and what is stored is its output, with the same boxes.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        var masker = new RecordingMasker();
+        var worker = Worker(
+            store,
+            Reads(
+                new OcrWord("Card", 10, 40, 50, 20),
+                new OcrWord("4111111111111111", 70, 40, 200, 20),
+                new OcrWord("123-45-6789", 70, 80, 120, 20)),
+            masker,
+            options: new RedactionOptions { MaxEdge = 1234 });
+
+        Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        var call = Assert.Single(masker.Calls);
+        Assert.Equal(1234, call.MaxEdge);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, call.Image);
+        Assert.Collection(
+            call.Regions.OrderBy(r => r.Y),
+            card => Assert.Equal(new MaskedRegion { Kind = MaskKind.Card, X = 70, Y = 40, Width = 200, Height = 20 }, card),
+            ssn => Assert.Equal(new MaskedRegion { Kind = MaskKind.Ssn, X = 70, Y = 80, Width = 120, Height = 20 }, ssn));
+
+        var frame = Assert.Single((await store.LoadSessionAsync("s1"))!.Frames);
+        Assert.Equal(call.Regions, frame.MaskedRegions);
+        Assert.Equal(new byte[] { 0xEE }, await store.GetRedactedFrameImageAsync("f1"));
+        Assert.Equal(1, worker.Progress.Masked[MaskKind.Card]);
+        Assert.Equal(1, worker.Progress.Masked[MaskKind.Ssn]);
+    }
+
     [Fact]
     public async Task AFrameTheRecogniserReadNothingFromIsDeletedRatherThanStored()
     {
@@ -329,8 +426,27 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         Assert.True(_pending.TryEnqueue(sessionId, new StagedFrame(frameId, 1_000, FrameTrigger.Click, 800, 600, null, new byte[] { 1, 2, 3, 4 })));
     }
 
-    private RedactionWorker Worker(SqliteSessionStore store, IFrameTextRecogniser recogniser, IFrameMasker? masker = null) =>
-        new(store, recogniser, masker ?? new FakeMasker(), new RedactionEngine(), _pending);
+    private RedactionWorker Worker(
+        SqliteSessionStore store,
+        IFrameTextRecogniser recogniser,
+        IFrameMasker? masker = null,
+        RedactionEngine? engine = null,
+        RedactionOptions? options = null) =>
+        new(store, recogniser, masker ?? new FakeMasker(), engine ?? new RedactionEngine(), _pending, options);
+
+    /// <summary>
+    /// A pattern library that runs out of budget: it may report a card first, and then says the scan did
+    /// not finish. Lazily, after the last match, which is when the real library learns a detector timed out.
+    /// </summary>
+    private static IEnumerable<PatternMatch> GiveUpAfter(string text, bool findCard, Action onIncomplete)
+    {
+        if (findCard)
+        {
+            yield return new PatternMatch(MaskKind.Card, text.IndexOf("4111", StringComparison.Ordinal), 16, "[CARD]");
+        }
+
+        onIncomplete();
+    }
 
     private static FakeRecogniser Reads(params OcrWord[] words) => new() { Words = words, Confidence = 0.95 };
 
@@ -353,6 +469,18 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     {
         public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge) =>
             new([.. image.Span.ToArray(), (byte)regions.Count], 800, 600);
+    }
+
+    /// <summary>Keeps what it was asked to paint and returns a marker byte, so the stored image is known to be its output.</summary>
+    private sealed class RecordingMasker : IFrameMasker
+    {
+        public List<(byte[] Image, IReadOnlyList<MaskedRegion> Regions, int MaxEdge)> Calls { get; } = [];
+
+        public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge)
+        {
+            Calls.Add((image.ToArray(), [.. regions], maxEdge));
+            return new MaskedImage([0xEE], 800, 600);
+        }
     }
 
     private sealed class ThrowingMasker : IFrameMasker
