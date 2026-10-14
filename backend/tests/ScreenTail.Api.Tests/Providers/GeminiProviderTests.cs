@@ -364,9 +364,12 @@ public sealed class GeminiProviderTests
         using var handler = new SlowHandler();
         var provider = Provider(handler, options => options.Timeout = Timeout.InfiniteTimeSpan);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        deadline.CancelAfter(TimeSpan.FromMilliseconds(50));
 
-        var result = await provider.DraftAsync(Bundle(), null, deadline.Token);
+        // Cancelled once the request is out, not on a timer, so a slow machine cannot cancel it first.
+        var drafting = provider.DraftAsync(Bundle(), null, deadline.Token);
+        await handler.Sent.Task.WaitAsync(TestContext.Current.CancellationToken);
+        await deadline.CancelAsync();
+        var result = await drafting;
 
         Assert.False(result.Ok);
         Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
@@ -421,14 +424,22 @@ public sealed class GeminiProviderTests
         // The stubs above stand in for the transport. This is the transport: a socket that takes the
         // whole request and never answers, the way a model that is still thinking looks from here.
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
-        var server = DrainAsync(listener, stop.Token);
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = DrainAsync(listener, received, stop.Token);
 
         try
         {
             using var http = SocketsClient(((IPEndPoint)listener.LocalEndpoint).Port);
-            var result = await OverSockets(http).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+            // The caller gives up once the socket has the request, not on a timer, so a slow machine
+            // cannot give up before anything was written.
+            var drafting = OverSockets(http).DraftAsync(Bundle(), null, caller.Token);
+            await received.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await caller.CancelAsync();
+            var result = await drafting;
 
             Assert.False(result.Ok);
             Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
@@ -460,7 +471,7 @@ public sealed class GeminiProviderTests
     }
 
     private static readonly SummarizationOptions SocketOptions =
-        new() { ApiKey = "test-key", Timeout = TimeSpan.FromMilliseconds(500) };
+        new() { ApiKey = "test-key", Timeout = TimeSpan.FromSeconds(30) };
 
     /// <summary>
     /// A client over the real socket transport, pointed at a loopback port. The test disposes it, which
@@ -475,8 +486,11 @@ public sealed class GeminiProviderTests
     /// <summary>The provider over that client.</summary>
     private static GeminiProvider OverSockets(HttpClient http) => new(http, SocketOptions, "the note prompt");
 
-    /// <summary>Accepts one connection and reads everything sent on it, answering nothing.</summary>
-    private static async Task DrainAsync(TcpListener listener, CancellationToken ct)
+    /// <summary>
+    /// Accepts one connection and reads everything sent on it, answering nothing. <c>received</c> is set
+    /// once the first bytes arrive.
+    /// </summary>
+    private static async Task DrainAsync(TcpListener listener, TaskCompletionSource received, CancellationToken ct)
     {
         try
         {
@@ -485,6 +499,7 @@ public sealed class GeminiProviderTests
             var buffer = new byte[64 * 1024];
             while (await stream.ReadAsync(buffer, ct) > 0)
             {
+                _ = received.TrySetResult();
             }
         }
         catch (Exception ex) when (ex is OperationCanceledException or IOException)
@@ -500,11 +515,15 @@ public sealed class GeminiProviderTests
     /// </summary>
     private sealed class SlowHandler(bool readsTheRequest = true) : HttpMessageHandler
     {
+        /// <summary>Set once the request has been taken.</summary>
+        public TaskCompletionSource Sent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             if (readsTheRequest)
             {
                 _ = await request.Content!.ReadAsByteArrayAsync(ct);
+                _ = Sent.TrySetResult();
             }
 
             await Task.Delay(Timeout.Infinite, ct);

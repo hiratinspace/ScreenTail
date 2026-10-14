@@ -348,6 +348,7 @@ public sealed class SummarizationServiceTests
 
         Assert.Equal(SummarizeStatus.Unavailable, result.Status);
         Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
     }
 
     [Fact]
@@ -432,6 +433,31 @@ public sealed class SummarizationServiceTests
         Assert.Equal(fallbackAnswers, result.Ok);
         Assert.Equal(1, fallback.Calls);
         Assert.Equal((decimal)expected, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task APrimaryThatMayHaveBeenBilledIsStillChargedWhenTheFallbackThrows()
+    {
+        // The primary's possible charge must already be counted when the fallback is asked. A fallback
+        // that throws rather than failing skips everything after the call that throws, and a charge held
+        // only in its answer was settled at nothing.
+        var primary = new FakeLlm
+        {
+            Failure = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.")
+            {
+                MayHaveBeenBilled = true,
+            },
+        };
+        var fallback = new FakeLlm { Throws = new InvalidOperationException("misconfigured"), Name = "fallback" };
+        var ledger = new FakeLedger();
+        var service = Service(primary, fallback, ledger);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, fallback.Calls);
+        Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
     }
 
     [Fact]
