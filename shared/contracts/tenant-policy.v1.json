@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "The tenant's policy on the wire, exactly as the backend answers GET /v1/policy (ST-047).",
+    "",
+    "Read by both ends and by neither's production code, like summarize-request.v1.json, but in the other",
+    "direction: the backend's TenantPolicyResponse writes this shape and the client's PolicySync reads it",
+    "into TenantPolicy. The field names ARE the contract, and here a drift is not a failed request but a",
+    "quiet one: a renamed localOnlyLocked would read as false, and an admin-locked local-only setting",
+    "would become the technician's to change (INV-11). So the client refuses a policy with a field",
+    "missing and keeps the last one it synced. ThePolicyResponseIsTheSharedContract (backend) and",
+    "TheSharedPolicyContractDeserialises (client) are the pair that notice.",
+    "",
+    "Every value here differs from the defaults (version \"default\", 7 days, everything false), so a field",
+    "either side stopped reading or writing shows up as a wrong value, not as a coincidence. Nothing here",
+    "is content (INV-10): a policy says what the client does, not what it saw."
+  ],
+  "response": {
+    "version": "p20260925140200000",
+    "retentionDays": 3,
+    "localOnly": true,
+    "localOnlyLocked": true,
+    "captureAllWindows": true
+  }
+}
