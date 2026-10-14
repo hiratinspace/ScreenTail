@@ -59,6 +59,59 @@ public sealed class InputHookTests
     }
 
     [Fact]
+    public async Task HooksComeBackForTheSecondSession()
+    {
+        // T-33: the service starts and stops one hooks object for every session. The second session's loop
+        // used to find the first one's stop signal still set and take the hooks out at once, while the start
+        // reported success. Every session after the first in a service lifetime recorded no input.
+        Assert.SkipUnless(
+            new WindowsCapabilityProbe().Probe()[Capability.InputHooks].State == CapabilityState.Ok,
+            "Windows won't allow input hooks on this machine.");
+        var ct = TestContext.Current.CancellationToken;
+        var buffer = new InputRingBuffer(64);
+        await using var hooks = new WindowsInputHooks(buffer);
+
+        await hooks.StartAsync(ct);
+        await hooks.StopAsync(ct);
+        Assert.False(hooks.Installed);
+
+        await hooks.StartAsync(ct);
+        await Task.Delay(200, ct);
+
+        // Still in after the loop had every chance to end on a stale stop.
+        Assert.True(hooks.Installed);
+        Assert.Equal(2, hooks.Installs);
+
+        // A third session, so nothing left behind by the second (its window class) costs the next one.
+        await hooks.StopAsync(ct);
+        await hooks.StartAsync(ct);
+        await Task.Delay(200, ct);
+        Assert.True(hooks.Installed);
+        Assert.Equal(3, hooks.Installs);
+
+        // Everything above is the T-33 regression itself, and it needs no injected input, so it is asserted on
+        // every runner. Whether a click then reaches the second session's hooks needs SendInput, which only
+        // the laptop's input job may use. A laptop that lost injection would also skip the other injection
+        // tests there and fail that job's zero skip budget. Elsewhere this test passes on what it proved and
+        // says in the log that the click went unchecked, rather than skipping the hooks check with it.
+        if (!CanInject)
+        {
+            Record("Second session: both hooks in for sessions 2 and 3 after a stop; click not injected on this runner, the laptop input job asserts it");
+            return;
+        }
+
+        _ = buffer.Drain(new InputSignal[64]);
+        using var window = DesktopWindow.Create("ScreenTail second session target");
+        window.RequireForeground();
+        Synthetic.ClickLeft();
+        await Task.Delay(300, ct);
+
+        var signals = new InputSignal[64];
+        var count = buffer.Drain(signals);
+        Assert.Contains(InputKind.Click, signals.AsSpan(0, count).ToArray().Select(s => s.Kind));
+    }
+
+    [Fact]
     public async Task TypingAPasswordRecordsOnlyHowManyKeys()
     {
         // The criterion that matters most: a real password goes through a real keyboard hook, and what comes
