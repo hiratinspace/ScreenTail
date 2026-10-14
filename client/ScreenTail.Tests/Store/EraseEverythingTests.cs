@@ -134,7 +134,7 @@ public sealed class EraseEverythingTests : IDisposable
         try
         {
             File.WriteAllText(Path.Combine(elsewhere, "not-ours.txt"), "somebody else's file");
-            Directory.CreateSymbolicLink(Path.Combine(_directory, "linked-folder"), elsewhere);
+            LinkOrSkip(Path.Combine(_directory, "linked-folder"), elsewhere);
             File.CreateSymbolicLink(Path.Combine(_directory, "linked-file"), Path.Combine(elsewhere, "not-ours.txt"));
             Directory.CreateDirectory(Path.Combine(_directory, "crashes"));
             Directory.CreateSymbolicLink(Path.Combine(_directory, "crashes", "linked-deeper"), elsewhere);
@@ -149,6 +149,42 @@ public sealed class EraseEverythingTests : IDisposable
         {
             Directory.Delete(elsewhere, recursive: true);
         }
+    }
+
+    [Fact]
+    public void SomethingThatSaysItIsMissingCountsAsGoneOnlyWhenItReallyIs()
+    {
+        // A recursive delete can say "not found" part way down, about something inside the folder rather
+        // than the folder itself. Taking that as "already gone" would call the erasure complete and
+        // delete the marker with the folder still full. So the eraser looks again, and the answer has to
+        // be fresh: what it was told when the folder was listed is out of date by then.
+        var crashes = new DirectoryInfo(Path.Combine(_directory, Crashes));
+        Assert.False(crashes.Exists); // remembered as missing
+        Directory.CreateDirectory(crashes.FullName);
+        File.WriteAllText(Path.Combine(crashes.FullName, "report.txt"), "a stack");
+
+        Assert.True(LocalDataEraser.IsStillThere(crashes));
+
+        var settings = new FileInfo(Path.Combine(_directory, "settings.json"));
+        File.WriteAllText(settings.FullName, "a customer's name");
+        Assert.True(settings.Exists); // remembered as there
+        File.Delete(settings.FullName);
+
+        Assert.False(LocalDataEraser.IsStillThere(settings));
+        Assert.False(LocalDataEraser.IsStillThere(new DirectoryInfo(Path.Combine(_directory, "never-was"))));
+    }
+
+    [Fact]
+    public void ALinkWhoseTargetHasGoneIsStillThere()
+    {
+        // A dangling link answers "missing" when asked about what it points at, and yet the link is
+        // still in the folder. It is not gone until the link itself is.
+        var target = Path.Combine(_directory, "moved-away");
+        var link = Path.Combine(_directory, "linked-folder");
+        LinkOrSkip(link, target);
+
+        Assert.True(LocalDataEraser.IsStillThere(new DirectoryInfo(link)));
+        Assert.True(LocalDataEraser.IsStillThere(new FileInfo(link)));
     }
 
     [Fact]
@@ -275,6 +311,25 @@ public sealed class EraseEverythingTests : IDisposable
     private sealed class Restores(Action restore) : IDisposable
     {
         public void Dispose() => restore();
+    }
+
+    /// <summary>
+    /// Makes a link to a folder, which needs a privilege on Windows that an ordinary account only has with
+    /// Developer Mode on. Hosted CI runs elevated and must never skip here (the skip budget counts it), so
+    /// the skip is only for a developer's own machine.
+    /// </summary>
+    private static void LinkOrSkip(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            && OperatingSystem.IsWindows()
+            && Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true")
+        {
+            Assert.Skip("This account cannot make links. Turn on Developer Mode, or run elevated.");
+        }
     }
 
     /// <summary>The crash-report queue's folder, CrashReport.DefaultDirectory's last part.</summary>
