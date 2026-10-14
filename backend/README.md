@@ -164,7 +164,7 @@ exchanges that for short-lived access tokens. Tokens are pinned to HS256 — a t
 algorithm is a token that can name `none` — with issuer, audience, lifetime and signature all validated
 and no clock skew allowed.
 
-Revocation is checked on every request under `/v1` by one shared check, `CallerCheck`: a revoked device, a disabled technician or a disabled tenant is refused, whatever its token still says. That sentence was aspirational until 2026-09-19 — the check existed only on `/v1/me`, so a revoked laptop went on drafting, and spending, until its token expired rather than at activation: a token stays valid for its whole
+Revocation is checked on every request under `/v1` by one shared check, `CallerCheck`: a revoked device, a disabled technician or a disabled tenant is refused, whatever its token still says. Since 2026-10-12 it is an authorization policy on the whole `/v1` group (`CallerPolicy`) rather than a line each handler had to remember, so a route mapped there tomorrow is covered without anyone adding anything; it runs before the request body is read, and its 401 is the same one a forged token gets. `EveryRouteRevocationTests` walks the app's own route table to prove it. That first sentence was aspirational until 2026-09-19. The check existed only on `/v1/me`, so a revoked laptop went on drafting, and spending, until its token expired rather than at activation: a token stays valid for its whole
 lifetime, so a technician who leaves has to stop working before it expires, not when it does.
 
 A refusal never says which check failed. An error that explains itself is an error that helps whoever is

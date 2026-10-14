@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
@@ -33,15 +32,8 @@ public static class MeEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapGet("/me", async (ClaimsPrincipal caller, ScreenTailContext db, TimeProvider time, CancellationToken ct) =>
+        group.MapGet("/me", async (Caller who, ScreenTailContext db, TimeProvider time, CancellationToken ct) =>
         {
-            // One implementation of "may this caller still act", shared with every other endpoint
-            // under /v1. It used to live only here, which is how a revoked device went on drafting.
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             var device = who.Device;
 
             // Recorded on a read because it is the one request every client makes: it gives the seat list

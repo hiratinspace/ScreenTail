@@ -1,6 +1,4 @@
-using System.Security.Claims;
 using ScreenTail.Api.Auth;
-using ScreenTail.Api.Data;
 using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Endpoints;
@@ -36,26 +34,13 @@ public static class SummarizeEndpoint
 
         group.MapPost("/sessions/summarize", async (
             SummarizeBundle bundle,
-            ClaimsPrincipal caller,
-            ScreenTailContext db,
+            Caller who,
             SummarizationService summarizer,
             CancellationToken ct) =>
         {
-            // A valid signature is not permission. The device may have been revoked, the technician
-            // disabled or the tenant switched off since this token was issued, and until the 2026-09-19
-            // review this endpoint asked none of that: a revoked laptop went on spending the tenant's
-            // budget here while /v1/me already refused it.
-            //
-            // First, ahead of the bundle checks. It used to be second, so a revoked device could send
-            // deliberately malformed bundles and read the rules back out of the 400s — the frame
-            // ceiling, the identifier shape, the accepted media types — which is a map of the endpoint
-            // handed to the one caller already established as not allowed to be here (2026-09-20
-            // review). Two database reads before the size checks is the price, and it is a pair of
-            // indexed lookups against a request that has already been parsed.
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
+            // Who is asking was settled before the bundle was read: CallerPolicy refuses a revoked
+            // device, a disabled technician or a switched-off tenant on the whole /v1 group, so none of
+            // them can read the rules below back out of the 400s (2026-09-20 and 2026-10-12 reviews).
 
             // Everything the bundle could be wrong about, before a model call is paid for. Two of the
             // 2026-09-19 review's findings were requests that were accepted, billed, and only then found

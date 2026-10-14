@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
@@ -36,26 +35,16 @@ public static partial class IntegrationsEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapGet("/integrations", async (ClaimsPrincipal caller, ScreenTailContext db, IIntegrationVault vault, CancellationToken ct) =>
+        group.MapGet("/integrations", async (Caller who, IIntegrationVault vault, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             var rows = await vault.ListAsync(who.TenantId, ct).ConfigureAwait(false);
             return Results.Ok(new IntegrationsResponse([.. rows.Select(Masked)]));
         })
         .WithName("ListIntegrations")
         .WithSummary("The tenant's integrations, with each credential's last four characters and nothing more.");
 
-        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, ClaimsPrincipal caller, ScreenTailContext db, IIntegrationVault vault, ProviderNetworkOptions network, CancellationToken ct) =>
+        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ProviderNetworkOptions network, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             if (!ProviderName().IsMatch(provider))
             {
                 return Results.BadRequest(new { error = "bad_provider", message = "A provider is a short lowercase name, like connectwise or hudu." });
@@ -91,13 +80,8 @@ public static partial class IntegrationsEndpoint
         .WithName("StoreIntegration")
         .WithSummary("Stores or replaces the tenant's credential for a provider. It is never returned.");
 
-        group.MapDelete("/integrations/{provider}", async (string provider, ClaimsPrincipal caller, ScreenTailContext db, IIntegrationVault vault, CancellationToken ct) =>
+        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             return await vault.RemoveAsync(who.TenantId, provider, ct).ConfigureAwait(false)
                 ? Results.NoContent()
                 : Results.NotFound();
@@ -105,13 +89,8 @@ public static partial class IntegrationsEndpoint
         .WithName("RemoveIntegration")
         .WithSummary("Forgets the tenant's credential for a provider.");
 
-        group.MapPost("/integrations/{provider}/check", async (string provider, ClaimsPrincipal caller, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct) =>
+        group.MapPost("/integrations/{provider}/check", async (string provider, Caller who, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             var row = await db.Integrations.SingleOrDefaultAsync(i => i.TenantId == who.TenantId && i.Provider == provider, ct).ConfigureAwait(false);
             if (row is null)
             {

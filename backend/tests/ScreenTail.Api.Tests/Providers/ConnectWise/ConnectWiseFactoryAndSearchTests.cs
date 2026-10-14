@@ -154,6 +154,29 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         Assert.Empty(cw.Requests);
     }
 
+    [Fact]
+    public async Task ARevokedDeviceCannotSearchThePsa()
+    {
+        var cw = new ScriptedConnectWise();
+        using var host = HostWith(cw);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+        _ = await api.UseAsync(db => db.Devices
+            .Where(d => d.Id == deviceId)
+            .ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+
+        using var search = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var recent = await client.GetAsync(new Uri("/v1/psa/tickets", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var tooShort = await client.GetAsync(new Uri("/v1/psa/tickets?q=pr", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, search.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, recent.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, tooShort.StatusCode);
+        Assert.Empty(cw.Requests);
+    }
+
     private WebApplicationFactoryHost HostWith(ScriptedConnectWise cw) => new(api.WithWebHostBuilder(builder =>
     {
         _ = builder.UseSetting("ConnectWise:ClientId", "11111111-2222-3333-4444-555555555555");
