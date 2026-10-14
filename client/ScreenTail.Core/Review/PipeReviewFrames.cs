@@ -16,7 +16,11 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
 {
     private readonly CaptureConnection _connection = connection ?? throw new ArgumentNullException(nameof(connection));
 
-    /// <summary>The session as the service holds it: redacted frames only, with its draft. Null when there is no such session or no service.</summary>
+    /// <summary>
+    /// The session as the service holds it: redacted frames only, with its draft, and no frame's OCR text
+    /// (see <see cref="OcrTextAsync"/>). Null when there is no such session, no service, or the session is
+    /// too large for one message, which the service refuses rather than closing the pipe.
+    /// </summary>
     public async Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) =>
         (await _connection.RequestAsync<SessionLoaded>(id => new GetSessionCommand { RequestId = id, SessionId = sessionId }, ct).ConfigureAwait(false))?.Session;
 
@@ -28,6 +32,13 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
     {
         ArgumentNullException.ThrowIfNull(frame);
         return (await _connection.RequestAsync<FrameLoaded>(id => new GetFrameCommand { RequestId = id, FrameId = frame.Id }, ct).ConfigureAwait(false))?.Image;
+    }
+
+    /// <summary>One frame's OCR text, asked for on its own because the session crosses without it (E-20). Null when it has none, or there is no frame or no service.</summary>
+    public async Task<string?> OcrTextAsync(Frame frame, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        return (await _connection.RequestAsync<FrameTextLoaded>(id => new GetFrameTextCommand { RequestId = id, FrameId = frame.Id }, ct).ConfigureAwait(false))?.OcrText;
     }
 
     public async Task<bool> SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) =>

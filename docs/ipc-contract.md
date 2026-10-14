@@ -55,6 +55,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `unmap_company` | `psa_company` | Forgets a company mapping. Answered by a `result` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
+| `get_frame_text` | `frame_id` | One redacted frame's OCR text, for `T` in the enlarged view. Answered by `frame_text` |
 | `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note. Fails when there is no such frame, and the UI then shows an inclusion that failed as excluded again |
 | `delete_frame` | `frame_id` | Delete, once the five-second undo has closed. Fails when it was already gone |
 | `blur_frame` | `frame_id`, `x`, `y`, `width`, `height` | Blur a rectangle, in the frame's own pixels. Answered by `frame` with the image as it now is |
@@ -72,8 +73,9 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `diagnostics` | see below | Answers `get_diagnostics` |
 | `sessions` | `sessions[]` | Answers `list_sessions` |
 | `confirmation` | `token`, `phrase` | Answers `request_confirmation` |
-| `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft |
+| `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft and without any frame's `ocr_text`. Refused with its size when it would not fit in one message |
 | `frame` | `frame_id`, `image` | Answers `get_frame` and `blur_frame`: one image, base64 |
+| `frame_text` | `frame_id`, `ocr_text?` | Answers `get_frame_text`. `ocr_text` is absent when the frame had none |
 | `integrations` | `integrations[]` (`provider`, `site_url`, `secret` as last four) | Answers `get_integrations` |
 | `tickets` | `tickets[]` (`id`, `summary`, `company`, `status`) | Answers `search_tickets` |
 | `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed. `kind: needs_mapping` on `kb_article` is the one the pane acts on (below). `kind: unknown` means it may have been saved; its `error` says to check before publishing again, and `retryable` is false |
@@ -200,6 +202,8 @@ reads a frame — does the work.
 { "type": "frame", "request_id": 12, "frame_id": "f1", "image": "/9j/4AAQ…" }
 { "type": "blur_frame", "request_id": 13, "frame_id": "f1", "x": 10, "y": 20, "width": 300, "height": 40 }
 { "type": "frame", "request_id": 13, "frame_id": "f1", "image": "/9j/4AAQ…" }
+{ "type": "get_frame_text", "request_id": 14, "frame_id": "f1" }
+{ "type": "frame_text", "request_id": 14, "frame_id": "f1", "ocr_text": "Print Spooler  Stopped  Automatic" }
 ```
 
 `session` is the same `session.v1` shape the fixtures and the bundle use, as the store hands it out:
@@ -207,6 +211,16 @@ reads a frame — does the work.
 pending frame is refused, not answered. One image per message, because the pipe's frame limit is 1 MiB
 and a redacted screenshot is a few hundred kilobytes; a frame over 700 KiB is refused with its size in
 the reason rather than closing the connection.
+
+`session` leaves every frame's `ocr_text` out (E-20, 2026-10-14). On a long, text-heavy session the
+text was most of the message: about two hours of busy capture passed 1 MiB, the write threw, the
+service dropped the UI's connection, and the session could never be opened in Review. The pane shows
+the text for one enlarged frame at a time, so it asks `get_frame_text` when a frame is opened and lets
+the text go when the frame closes. The store still holds it, and the drafter and the bundle read it
+there. What remains (frames, events, transcript, draft) is measured on the service before it is
+written, in the bytes the framing would write; a session that still would not fit is refused with a
+failed `result` that gives its size and the limit, and the connection stays up. `frame_text` is
+measured the same way. Like `get_frame`, a pending frame's text is refused, not answered (INV-1).
 
 `blur_frame` is painted by the service with the same masker redaction uses, written to the store, and
 only then answered — so a crash between the write and the reply leaves the disk ahead of the screen,
@@ -304,3 +318,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-26 | `get_capture_settings` / `capture_settings`, `set_capture_settings` (ST-080) | 2 |
 | 2026-09-25 | `list_integrations` / `integration_details`, `store_integration`, `remove_integration`, `check_integration` / `integration_checked`, `unmap_company` (ST-082) | 2 |
 | 2026-10-14 | `effective_local_only`, `effective_retention_days` on `settings` (ST-081) | **3** |
+| 2026-10-14 | `get_frame_text` / `frame_text`; `session` leaves out every frame's `ocr_text` and is refused with its size when it would not fit (E-20). An older client reads the session as before and shows no OCR text | 3 |

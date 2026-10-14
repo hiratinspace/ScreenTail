@@ -45,9 +45,15 @@ public sealed partial class FrameItem : StripItem
     /// </summary>
     public string StateLabel => Cell.Withheld ? "withheld" : Cell.Included ? "included" : "excluded";
 
-    public string? OcrText => Cell.Frame.OcrText;
+    /// <summary>
+    /// What redaction read on the frame, held only while it is enlarged, like <see cref="Image"/>. The
+    /// session crosses the pipe without it (E-20), so it is asked for when the frame is opened.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOcrText))]
+    private string? _ocrText;
 
-    public bool HasOcrText => !string.IsNullOrWhiteSpace(Cell.Frame.OcrText);
+    public bool HasOcrText => !string.IsNullOrWhiteSpace(OcrText);
 
     /// <summary>Where the cursor was, for the marker in the enlarged view. Null when it was not recorded.</summary>
     public Point? Cursor => Cell.Frame.Cursor;
@@ -58,10 +64,6 @@ public sealed partial class FrameItem : StripItem
         OnPropertyChanged(nameof(Label));
         OnPropertyChanged(nameof(Included));
         OnPropertyChanged(nameof(StateLabel));
-
-        // A blur takes the frame's OCR text with it, and the enlarged view is bound to these.
-        OnPropertyChanged(nameof(OcrText));
-        OnPropertyChanged(nameof(HasOcrText));
     }
 }
 
@@ -270,6 +272,13 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
             item.Image = await _frames.ImageAsync(item.Cell.Frame).ConfigureAwait(true);
         }
 
+        if (item is not null && item.OcrText is null)
+        {
+            item.OcrText = _frames is not null
+                ? await _frames.OcrTextAsync(item.Cell.Frame).ConfigureAwait(true)
+                : item.Cell.Frame.OcrText;
+        }
+
         Enlarged = item;
         ShowOcrText = false;
         OnPropertyChanged(nameof(IsEnlarged));
@@ -281,6 +290,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
         if (Enlarged is { } item)
         {
             item.Image = null;
+            item.OcrText = null;
         }
 
         Enlarged = null;
@@ -307,6 +317,10 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
         item.Thumbnail = Thumbnails.Decode(blurred.Image);
         item.Refresh(item.Cell with { Frame = blurred.Frame });
         _strip.Replace(blurred.Frame);
+
+        // A blur takes the frame's OCR text with it: the service cleared it in the same write. The text
+        // the enlarged view holds was fetched before the blur, so it goes too, or `T` would still show it.
+        item.OcrText = null;
 
         // The text panel would otherwise stay open over the text the blur has just withdrawn.
         ShowOcrText = false;

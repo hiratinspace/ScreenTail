@@ -54,6 +54,33 @@ public class IpcFramingTests
     }
 
     [Theory]
+    [InlineData("plain words")]
+    [InlineData("<html> & 'quotes' \"escaped\"")] // the default encoder writes these as \uXXXX
+    [InlineData("Ünïcödé, 中文, and an emoji 😀")] // non-ASCII is escaped too: one char is six bytes
+    [InlineData("")]
+    public async Task MeasuredBytesAreExactlyWhatTheFrameCarries(string text)
+    {
+        // E-20: a reply is refused on this number instead of being written past the limit, so it must be
+        // the frame's own length and not an estimate in characters. Measured through the polymorphic base,
+        // the way the server writes every event.
+        IpcEvent message = new FrameTextLoaded { RequestId = 3, FrameId = "f1", OcrText = text };
+        using var stream = new MemoryStream();
+
+        await IpcFraming.WriteAsync(stream, message);
+
+        Assert.Equal(stream.Length - 4, IpcFraming.MeasureBytes(message));
+    }
+
+    [Fact]
+    public void MeasuringAMessageOverTheLimitDoesNotThrow()
+    {
+        // The point is to learn the size before the write that would throw.
+        IpcEvent message = new FrameTextLoaded { RequestId = 3, FrameId = "f1", OcrText = new string('é', IpcFraming.MaxMessageBytes / 4) };
+
+        Assert.True(IpcFraming.MeasureBytes(message) > IpcFraming.MaxMessageBytes);
+    }
+
+    [Theory]
     [InlineData("""{"type":"start","request_id":1,"extra":true}""")] // unknown member
     [InlineData("""{"type":"launch_missiles","request_id":1}""")] // unknown type
     [InlineData("""{"request_id":1}""")] // no discriminator
