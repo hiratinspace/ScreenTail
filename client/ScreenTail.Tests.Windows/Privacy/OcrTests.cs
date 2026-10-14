@@ -220,6 +220,52 @@ public sealed class OcrTests
         Measurements.Save("masked-frame.jpg", masked.Image);
     }
 
+    /// <summary>
+    /// The other branch of the masker: a frame whose long edge is already within the limit is encoded as it
+    /// is, with no resample. That is every frame from a screen of 1600 px or less, and every Review blur,
+    /// which asks for an edge no image reaches. The test above only ever takes the resampling branch, so a
+    /// masker that encoded the source bytes here, or a copy taken before the paint, would pass it while
+    /// storing the secret in plain sight (INV-1).
+    /// </summary>
+    [Theory]
+    [InlineData(1600)]
+    [InlineData(1280)]
+    [InlineData(int.MaxValue)]
+    public void MaskingCoversTheRegionWhenTheFrameIsAlreadySmallEnough(int maxEdge)
+    {
+        Assert.SkipUnless(OnWindows, "Windows only.");
+        var image = RenderDialog(1280, 720);
+        var masker = new WindowsFrameMasker();
+
+        // Over the column of labels, so the box has text under it to hide. Aligned to the 16 px blocks the
+        // JPEG encoder works in, so the samples just inside its corners sit in blocks that are wholly
+        // painted and stay clear of the ringing at the box's edges.
+        var masked = masker.Mask(
+            image,
+            [new MaskedRegion { X = 96, Y = 96, Width = 400, Height = 160, Kind = MaskKind.Card }],
+            maxEdge);
+
+        // Not resampled: the stored frame is the captured size, so the box is at the coordinates it was found at.
+        Assert.Equal(1280, masked.Width);
+        Assert.Equal(720, masked.Height);
+        using var stored = new Bitmap(new MemoryStream(masked.Image));
+        Assert.Equal(1280, stored.Width);
+        Assert.Equal(720, stored.Height);
+
+        (int X, int Y)[] inside = [(296, 176), (100, 100), (491, 100), (100, 251), (491, 251)];
+        foreach (var (x, y) in inside)
+        {
+            var sample = stored.GetPixel(x, y);
+            Assert.True(
+                sample.R < 40 && sample.G < 40 && sample.B < 40,
+                $"expected the masked area to be black at ({x}, {y}) with maxEdge {maxEdge}, found {sample}");
+        }
+
+        // And only the box: the rest of the frame is still the light dialog it was.
+        var outside = stored.GetPixel(900, 600);
+        Assert.True(outside.R > 200 && outside.G > 200 && outside.B > 200, $"expected the dialog background outside the box, found {outside}");
+    }
+
     /// <summary>A settings dialog, drawn rather than captured, so the same pixels are read on every runner.</summary>
     private static byte[] RenderDialog(int width, int height, string? secret = null)
     {
