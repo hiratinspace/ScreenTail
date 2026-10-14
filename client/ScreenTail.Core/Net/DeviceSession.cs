@@ -48,6 +48,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
 
     private static readonly TimeSpan Margin = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private const string ErasedRefusal = "Everything on this device is being deleted, so it was not activated.";
 
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
     private readonly IDeviceCredentials _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
@@ -55,6 +56,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     private readonly Lock _gate = new();
     private string? _access;
     private DateTimeOffset _accessExpires;
+    private volatile bool _erased;
 
     public bool Activated => _credentials.Load() is not null;
 
@@ -71,6 +73,11 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         {
             lock (_gate)
             {
+                if (_erased)
+                {
+                    return null;
+                }
+
                 if (_access is not null && _time.GetUtcNow() < _accessExpires - Margin)
                 {
                     return _access;
@@ -120,6 +127,11 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
             return GatewayAnswer.Refused<ActivatedDeviceRow>("No backend is configured, so this device cannot be activated.");
         }
 
+        if (_erased)
+        {
+            return GatewayAnswer.Refused<ActivatedDeviceRow>(ErasedRefusal);
+        }
+
         using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/devices/activate", UriKind.Relative), EgressPurpose.Publish);
         request.Content = JsonContent.Create(new ActivateBody(code ?? string.Empty, deviceName ?? string.Empty), options: Json);
         HttpResponseMessage response;
@@ -159,8 +171,11 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
             }
 
             var now = _time.GetUtcNow();
-            _credentials.Save(new DeviceCredential(answer.RefreshToken, answer.TenantName ?? string.Empty, answer.DeviceId, now));
-            Remember(answer.AccessToken, answer.ExpiresAt);
+            if (!Keep(new DeviceCredential(answer.RefreshToken, answer.TenantName ?? string.Empty, answer.DeviceId, now), answer.AccessToken, answer.ExpiresAt))
+            {
+                return GatewayAnswer.Refused<ActivatedDeviceRow>(ErasedRefusal);
+            }
+
             Revoked = false;
             return GatewayAnswer.Of(new ActivatedDeviceRow(answer.TenantName ?? string.Empty, answer.DeviceId));
         }
@@ -169,7 +184,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     /// <summary>Buys a new access token. False when there was nothing to buy it with, or the backend said no or nothing.</summary>
     public async Task<bool> RefreshAsync(CancellationToken ct = default)
     {
-        if (_credentials.Load() is not { } credential || _http.BaseAddress is null)
+        if (_erased || _credentials.Load() is not { } credential || _http.BaseAddress is null)
         {
             return false;
         }
@@ -215,9 +230,12 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
                 return false;
             }
 
-            Remember(answer.AccessToken, answer.ExpiresAt);
+            if (!Keep(credential with { LastContactAt = _time.GetUtcNow() }, answer.AccessToken, answer.ExpiresAt))
+            {
+                return false;
+            }
+
             Revoked = false;
-            _credentials.Save(credential with { LastContactAt = _time.GetUtcNow() });
             return true;
         }
     }
@@ -239,12 +257,48 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         }
     }
 
-    private void Remember(string access, DateTimeOffset expires)
+    /// <summary>
+    /// "Delete everything" (INV-12): the refresh token goes from the store that keeps it, the access
+    /// token from memory, and nothing this session does afterwards sends either or saves one back.
+    ///
+    /// The renewal loop and an activation run on their own. One that was waiting on the backend when
+    /// the technician confirmed would otherwise write the refresh token again after it had been removed,
+    /// and the device would start its next run still enrolled. The flag and the saves share the gate,
+    /// so a save is either finished before this clears it or refused after.
+    /// </summary>
+    public void Erase()
     {
         lock (_gate)
         {
+            _erased = true;
+            _access = null;
+            _accessExpires = default;
+            try
+            {
+                _credentials.Clear();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Held open. The file is in the data directory the eraser sweeps, and the erasure stays
+                // owed on disk until it is gone; this session has already stopped using it.
+            }
+        }
+    }
+
+    /// <summary>Saves the credential and holds the access token, unless everything was erased meanwhile.</summary>
+    private bool Keep(DeviceCredential credential, string access, DateTimeOffset expires)
+    {
+        lock (_gate)
+        {
+            if (_erased)
+            {
+                return false;
+            }
+
+            _credentials.Save(credential);
             _access = access;
             _accessExpires = expires;
+            return true;
         }
     }
 

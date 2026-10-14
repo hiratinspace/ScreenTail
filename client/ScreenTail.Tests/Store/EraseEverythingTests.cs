@@ -48,20 +48,124 @@ public sealed class EraseEverythingTests : IDisposable
     }
 
     [Fact]
+    public void TheDevicesRefreshTokenGoesStraightAfterTheKey()
+    {
+        // The other secret. With the key gone the store is unreadable; with the refresh token gone the
+        // device can no longer ask the backend for anything. Both before the slow part, so a sweep that
+        // stalls on a locked database has already done what matters most.
+        Populate();
+
+        var deleted = LocalDataEraser.Erase(_directory).Deleted.Select(Path.GetFileName).ToArray();
+
+        Assert.Equal(["store.key", "device.cred", "device.cred.tmp"], deleted[..3]);
+    }
+
+    [Fact]
+    public void EveryFileTheServiceWritesUnderTheDataDirectoryIsErasedOrDeliberatelyKept()
+    {
+        // The names are written out here rather than read from the eraser, which is how the device's
+        // refresh token and the settings files went missing for a month: the fixture was built from the
+        // same list it was checking, so a file the list forgot was never created either (2026-10-12
+        // review, S-16 and T-57). Each name is the one its producer uses.
+        string[] written =
+        [
+            "store.key",                  // DpapiKeyProvider.DefaultKeyFilePath
+            "store.db",                   // CaptureHost, the store
+            "store.db-wal",               // SQLite, WAL mode
+            "store.db-shm",               // SQLite, WAL mode
+            "store.db-journal",           // SQLite, rollback journal where WAL is refused
+            "device.cred",                // DpapiDeviceCredentials.DefaultPath: the refresh token
+            "device.cred.tmp",            // DpapiDeviceCredentials.Save writes this, then moves it
+            "ipc.token",                  // IpcTokenFile.DefaultPath
+            "ipc.token.tmp",              // IpcTokenFile.Write
+            "settings.json",              // CaptureHost, ClientSettingsStore
+            "settings.json.tmp",
+            "capture.json",               // CaptureHost, CaptureSettingsStore
+            "capture.json.tmp",
+            "style.json",                 // CaptureHost, StyleStore
+            "style.json.tmp",
+            "policy.json",                // CaptureHost, FilePolicyCache
+            "policy.json.tmp",
+            "shell.json",                 // ShellPreferencesStore.DefaultPath, written by the UI
+            "shell.json.tmp",
+            LocalDataEraser.PendingMarker,
+        ];
+        foreach (var name in written)
+        {
+            File.WriteAllText(Path.Combine(_directory, name), "a customer's session");
+        }
+
+        Directory.CreateDirectory(Path.Combine(_directory, "crashes")); // CrashReport.DefaultDirectory
+        File.WriteAllText(Path.Combine(_directory, "crashes", "ScreenTail.Service-20261012.txt"), "a stack");
+        Directory.CreateDirectory(Path.Combine(_directory, "models")); // WhisperRecogniser's default
+        File.WriteAllText(Path.Combine(_directory, "models", "ggml-base.bin"), "weights");
+
+        var result = LocalDataEraser.Erase(_directory);
+
+        // The downloaded speech model is the one thing kept on purpose: it holds nothing about anybody,
+        // and it is hundreds of megabytes to fetch again.
+        Assert.True(result.Complete);
+        Assert.Equal(["models"], Directory.GetFileSystemEntries(_directory).Select(Path.GetFileName));
+        Assert.Equal(["ggml-base.bin"], Directory.GetFileSystemEntries(Path.Combine(_directory, "models")).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void AFileNobodyHasListedYetGoesToo()
+    {
+        // The next thing a ticket writes beside the store is erased without anyone remembering to add
+        // it here. Keeping is the exception that has to be named; deleting is the default.
+        File.WriteAllText(Path.Combine(_directory, "something-a-later-version-writes.json"), "a customer's name");
+        Directory.CreateDirectory(Path.Combine(_directory, "cache", "thumbnails"));
+        File.WriteAllText(Path.Combine(_directory, "cache", "thumbnails", "f1.png"), "a screenshot");
+
+        var result = LocalDataEraser.Erase(_directory);
+
+        Assert.True(result.Complete);
+        Assert.Empty(Directory.GetFileSystemEntries(_directory));
+    }
+
+    [Fact]
+    public void ALinkInTheDataDirectoryGoesAndWhatItPointsAtStays()
+    {
+        // The sweep removes whatever is in the folder, so it must never walk out of it. A link to
+        // somewhere else is removed as a link; the folder it points at is not ours to empty.
+        var elsewhere = _directory + "-elsewhere";
+        Directory.CreateDirectory(elsewhere);
+        try
+        {
+            File.WriteAllText(Path.Combine(elsewhere, "not-ours.txt"), "somebody else's file");
+            Directory.CreateSymbolicLink(Path.Combine(_directory, "linked-folder"), elsewhere);
+            File.CreateSymbolicLink(Path.Combine(_directory, "linked-file"), Path.Combine(elsewhere, "not-ours.txt"));
+            Directory.CreateDirectory(Path.Combine(_directory, "crashes"));
+            Directory.CreateSymbolicLink(Path.Combine(_directory, "crashes", "linked-deeper"), elsewhere);
+
+            var result = LocalDataEraser.Erase(_directory);
+
+            Assert.True(result.Complete);
+            Assert.Empty(Directory.GetFileSystemEntries(_directory));
+            Assert.Equal("somebody else's file", File.ReadAllText(Path.Combine(elsewhere, "not-ours.txt")));
+        }
+        finally
+        {
+            Directory.Delete(elsewhere, recursive: true);
+        }
+    }
+
+    [Fact]
     public void AFileThatWillNotGoDoesNotStopTheRest()
     {
         // Antivirus and backup agents hold files open. Aborting on the first one left everything after
         // it on disk, and the list happens to start with the database.
         Populate();
-        using var blocked = BlockTokens();
+        using var blocked = BlockCrashes();
 
         var result = LocalDataEraser.Erase(_directory);
 
-        // The stored credentials could not go, and everything else did — including the key, which is
-        // what makes the session data unreadable whatever else survives.
+        // The crash reports could not go, and everything else did: the key, which is what makes the
+        // session data unreadable whatever else survives, and the device's refresh token with it.
         Assert.False(result.Complete);
         Assert.Empty(Directory.GetFiles(_directory));
-        Assert.True(Directory.Exists(Path.Combine(_directory, LocalDataEraser.TokensDirectory)));
+        Assert.True(Directory.Exists(Path.Combine(_directory, Crashes)));
     }
 
     [Fact]
@@ -101,7 +205,7 @@ public sealed class EraseEverythingTests : IDisposable
         Populate();
         LocalDataEraser.MarkPending(_directory);
 
-        using (BlockTokens())
+        using (BlockCrashes())
         {
             var blocked = Assert.IsType<ErasureResult>(LocalDataEraser.EraseIfPending(_directory));
 
@@ -139,7 +243,7 @@ public sealed class EraseEverythingTests : IDisposable
     }
 
     /// <summary>
-    /// Makes the stored-credentials directory refuse to be removed, until the returned handle is let go.
+    /// Makes the crash-report directory refuse to be removed, until the returned handle is let go.
     ///
     /// The real reason differs by platform and neither one travels: on Windows a file held open cannot
     /// be unlinked, and on Unix it can — the bytes simply go when the last handle closes — while a
@@ -149,23 +253,23 @@ public sealed class EraseEverythingTests : IDisposable
     ///
     /// The Unix arm does nothing when the tests run as root, which nothing in this project does.
     /// </summary>
-    private IDisposable BlockTokens()
+    private IDisposable BlockCrashes()
     {
-        var tokens = Path.Combine(_directory, LocalDataEraser.TokensDirectory);
+        var crashes = Path.Combine(_directory, Crashes);
         if (OperatingSystem.IsWindows())
         {
-            return File.Open(Path.Combine(tokens, "psa.bin"), FileMode.Open, FileAccess.Read, FileShare.None);
+            return File.Open(Path.Combine(crashes, "report.txt"), FileMode.Open, FileAccess.Read, FileShare.None);
         }
 
-        return BlockUnix(tokens);
+        return BlockUnix(crashes);
     }
 
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
-    private static Restores BlockUnix(string tokens)
+    private static Restores BlockUnix(string directory)
     {
-        var original = File.GetUnixFileMode(tokens);
-        File.SetUnixFileMode(tokens, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-        return new Restores(() => File.SetUnixFileMode(tokens, original));
+        var original = File.GetUnixFileMode(directory);
+        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        return new Restores(() => File.SetUnixFileMode(directory, original));
     }
 
     private sealed class Restores(Action restore) : IDisposable
@@ -173,16 +277,23 @@ public sealed class EraseEverythingTests : IDisposable
         public void Dispose() => restore();
     }
 
+    /// <summary>The crash-report queue's folder, CrashReport.DefaultDirectory's last part.</summary>
+    private const string Crashes = "crashes";
+
+    /// <summary>
+    /// What a device that has been used looks like, by the names the producers write. Deliberately not
+    /// read from the eraser: a fixture built from the list under test cannot see what the list forgot.
+    /// </summary>
     private void Populate()
     {
-        foreach (var name in LocalDataEraser.DataFiles)
+        foreach (var name in (string[])["store.key", "store.db", "store.db-wal", "device.cred", "device.cred.tmp", "ipc.token", "settings.json", "policy.json", "shell.json"])
         {
             File.WriteAllText(Path.Combine(_directory, name), "a customer's session");
         }
 
-        var tokens = Path.Combine(_directory, LocalDataEraser.TokensDirectory);
-        Directory.CreateDirectory(tokens);
-        File.WriteAllText(Path.Combine(tokens, "psa.bin"), "a credential");
+        var crashes = Path.Combine(_directory, Crashes);
+        Directory.CreateDirectory(crashes);
+        File.WriteAllText(Path.Combine(crashes, "report.txt"), "a stack");
     }
 
     public void Dispose()

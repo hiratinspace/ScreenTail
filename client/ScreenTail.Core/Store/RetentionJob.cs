@@ -82,9 +82,10 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
 }
 
 /// <summary>
-/// "Delete everything now" (Spec S6, INV-12): the store, its key, this run's IPC token and any saved
-/// credentials under the data directory. Downloaded models stay; they hold no user data. The store must
-/// be closed first: on Windows an open database file cannot be deleted.
+/// "Delete everything now" (Spec S6, INV-12): everything under the data directory, which is the store, its
+/// key, the device's refresh token, this run's IPC token, the settings and the crash reports. Downloaded
+/// models stay; they hold no user data. The store must be closed first: on Windows an open database file
+/// cannot be deleted.
 /// </summary>
 /// <param name="Deleted">What went, in the order it went. The key is first on purpose.</param>
 /// <param name="Complete">
@@ -95,30 +96,30 @@ public sealed record ErasureResult(IReadOnlyList<string> Deleted, bool Complete)
 public static class LocalDataEraser
 {
     /// <summary>
-    /// Everything "delete everything" has to remove (INV-12).
+    /// What goes before anything else, in this order (INV-12).
     ///
     /// <b>The key is first.</b> The store is encrypted, so removing the key makes all of it unreadable
-    /// in one step — which is the most that can be promised when the step after it might fail. The
+    /// in one step, which is the most that can be promised when the step after it might fail. The
     /// database used to be first, so a database held open by antivirus left a readable store and a key
     /// beside it, and the technician had been told it was gone.
     ///
-    /// The two with -journal and .tmp are not hypothetical: SQLite falls back to a rollback journal
-    /// wherever WAL cannot be enabled, which is any redirected or network profile, and the token's
-    /// temporary file survives a failure between writing it and restricting it. Both would otherwise be
-    /// left holding real data after the user asked for all of it to go.
+    /// <b>The device's refresh token is next</b> (DpapiDeviceCredentials), with the temporary file a save
+    /// writes before moving it into place. Without it the device can ask the backend for nothing, and
+    /// the next start finds it not activated. It used to be left behind altogether.
     /// </summary>
-    public static readonly string[] DataFiles =
-    [
-        "store.key",
-        "store.db",
-        "store.db-wal",
-        "store.db-shm",
-        "store.db-journal",
-        "ipc.token",
-        "ipc.token.tmp",
-    ];
+    private static readonly string[] SecretsFirst = ["store.key", "device.cred", "device.cred.tmp"];
 
-    public const string TokensDirectory = "tokens";
+    /// <summary>
+    /// The one thing kept: the downloaded speech models. Nothing about anybody is in them, and they are
+    /// hundreds of megabytes to fetch again.
+    ///
+    /// Everything else under the data directory goes, whatever its name. This used to be a list of the
+    /// files the eraser knew about, and it did not know about the refresh token, the settings, the
+    /// cached policy, the UI's preferences or the crash reports (2026-10-12 review). A file a later
+    /// version writes is erased without anybody having to remember to add it here: keeping is the
+    /// exception that has to be named, and deleting is the default.
+    /// </summary>
+    public const string KeptDirectory = "models";
 
     /// <summary>
     /// Says that an erasure has been asked for, before anybody is told it happened.
@@ -165,35 +166,40 @@ public static class LocalDataEraser
         var deleted = new List<string>();
         var complete = true;
 
-        foreach (var name in DataFiles)
+        foreach (var name in SecretsFirst)
         {
             var path = Path.Combine(dataDirectory, name);
-            if (!File.Exists(path))
+            if (File.Exists(path))
+            {
+                Count(path, Remove(new FileInfo(path)));
+            }
+        }
+
+        // Read in full before anything is removed, rather than deleting from under an enumeration.
+        FileSystemInfo[] entries;
+        try
+        {
+            entries = new DirectoryInfo(dataDirectory).GetFileSystemInfos();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            entries = [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing can be listed, so nothing can be said to be gone. Owed until the next start.
+            return new ErasureResult(deleted, Complete: false);
+        }
+
+        foreach (var entry in entries)
+        {
+            if (entry.Name.Equals(KeptDirectory, StringComparison.OrdinalIgnoreCase)
+                || entry.Name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (TryDelete(() => File.Delete(path)))
-            {
-                deleted.Add(path);
-            }
-            else
-            {
-                complete = false;
-            }
-        }
-
-        var tokens = Path.Combine(dataDirectory, TokensDirectory);
-        if (Directory.Exists(tokens))
-        {
-            if (TryDelete(() => Directory.Delete(tokens, recursive: true)))
-            {
-                deleted.Add(tokens);
-            }
-            else
-            {
-                complete = false;
-            }
+            Count(Path.Combine(dataDirectory, entry.Name), Remove(entry));
         }
 
         // Last, and only when there is nothing left to owe. While it is there, the next start finishes
@@ -201,28 +207,61 @@ public static class LocalDataEraser
         if (complete && IsPending(dataDirectory))
         {
             var marker = Path.Combine(dataDirectory, PendingMarker);
-            if (TryDelete(() => File.Delete(marker)))
-            {
-                deleted.Add(marker);
-            }
+            Count(marker, Remove(new FileInfo(marker)));
         }
 
         return new ErasureResult(deleted, complete);
+
+        void Count(string path, Outcome outcome)
+        {
+            if (outcome == Outcome.Removed)
+            {
+                deleted.Add(path);
+            }
+            else if (outcome == Outcome.Refused)
+            {
+                complete = false;
+            }
+        }
     }
 
-    private static bool TryDelete(Action delete)
+    private enum Outcome
+    {
+        Removed,
+        AlreadyGone,
+        Refused,
+    }
+
+    /// <summary>
+    /// Removes one entry, and never anything outside the data directory: a folder goes with everything in
+    /// it, and a link goes as a link. .NET removes a link to a folder without following it, at the top
+    /// and on the way down, on Windows and on Unix alike, so whatever it points at is left alone.
+    /// </summary>
+    private static Outcome Remove(FileSystemInfo entry)
     {
         try
         {
-            delete();
-            return true;
+            if (entry is DirectoryInfo folder)
+            {
+                folder.Delete(recursive: true);
+            }
+            else
+            {
+                entry.Delete();
+            }
+
+            return Outcome.Removed;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Gone between being listed and being removed. Nothing is owed for it.
+            return Outcome.AlreadyGone;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Held open, or not ours to remove. Counted rather than thrown: the caller's job is to keep
             // going and to leave the erasure owed.
-            return false;
+            return Outcome.Refused;
         }
     }
 }
-

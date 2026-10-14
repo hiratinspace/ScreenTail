@@ -49,11 +49,18 @@ public sealed class DpapiDeviceCredentials(string path) : IDeviceCredentials
         File.Move(temporary, path, overwrite: true);
     }
 
+    /// <summary>
+    /// Removes the token and the copy an interrupted <see cref="Save"/> leaves beside it, which holds the
+    /// same token ("delete everything", INV-12).
+    /// </summary>
     public void Clear()
     {
-        if (File.Exists(path))
+        foreach (var file in (string[])[path, path + ".tmp"])
         {
-            File.Delete(path);
+            if (File.Exists(file))
+            {
+                File.Delete(file);
+            }
         }
     }
 }
