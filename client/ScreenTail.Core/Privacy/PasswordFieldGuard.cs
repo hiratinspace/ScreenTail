@@ -103,11 +103,13 @@ public sealed class PasswordFieldGuard(
         // day, on a machine that spends most of its day not recording. That is one to two per cent of a
         // core against ST-031's one per cent idle budget, spent deciding nothing (2026-09-20 review).
         //
-        // Suppressed as well as Recording: a hold has to be able to end. And Paused while the session
-        // still keeps this guard's hold, for the same reason: focus leaving the field during a pause has
-        // to let go of it, or Resume goes back to a suppression nothing will lift (2026-10-12 review,
-        // T-41). A pause with nothing held still asks nothing.
-        if (machine.State is not (SessionState.Recording or SessionState.Suppressed) && !Holding)
+        // Suppressed as well as Recording: a hold has to be able to end. And Paused, because a paused
+        // session is one Resume away from recording. Focus leaving the field during a pause has to let go
+        // of the hold, or Resume goes back to a suppression nothing will lift (T-41); focus arriving has
+        // to take one, or Resume goes to Recording over the field until the next probe answers
+        // (2026-10-12 review). The saving is the idle day, not the paused minutes. Holding covers the
+        // moment a session is leaving, when a hold can still be in place.
+        if (machine.State is not (SessionState.Recording or SessionState.Suppressed or SessionState.Paused) && !Holding)
         {
             return false;
         }
@@ -130,8 +132,9 @@ public sealed class PasswordFieldGuard(
 
         if (wanted)
         {
-            // Suppress fails when the session is paused, stopped or idle, and correcting that is not this
-            // guard's business. Then nothing is held, and the session says so.
+            // Paused, the session records the hold and stays paused, so Resume goes straight to Suppressed.
+            // Suppress fails when the session is stopped or idle, and correcting that is not this guard's
+            // business. Then nothing is held, and the session says so.
             held = await machine.SuppressAsync(CaptureStateReason.PasswordField, ct).ConfigureAwait(false);
             if (held)
             {

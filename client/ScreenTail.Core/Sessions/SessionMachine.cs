@@ -229,13 +229,18 @@ public sealed class SessionMachine : IAsyncDisposable
     /// A hold exists only once capture is actually off. If the transition fails before the state moves,
     /// the hold comes out again: left in, the guard would be told it held and never try again, while the
     /// session went on recording (2026-10-12 review).
+    ///
+    /// <b>Paused, the hold is recorded and nothing else happens.</b> Capture is already off and stays
+    /// paused, and Resume finds the hold and goes to Suppressed. Refused while paused, a condition that
+    /// began or came back during a pause held nothing, so Resume went to Recording over it until the
+    /// guard's next tick: up to 500 ms with no indicator on screen (2026-10-12 review, round 2).
     /// </summary>
     public async Task<bool> SuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
     {
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_session is null || State is not (SessionState.Recording or SessionState.Suppressed))
+            if (_session is null || State is not (SessionState.Recording or SessionState.Suppressed or SessionState.Paused))
             {
                 return false;
             }
@@ -331,8 +336,20 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            ClearHolds();
-            await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
+            // The holds go once the session has moved, not before. Cleared first, a Finalizing write that
+            // failed left the session Suppressed with nothing holding it, and nothing to lift it.
+            try
+            {
+                await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (State is SessionState.Finalizing)
+                {
+                    ClearHolds();
+                }
+            }
+
             await _sources.StopAsync(ct).ConfigureAwait(false);
             await FinalizeAndDraftAsync(_session.Id, _session.ActiveMs(_time, SessionState.Finalizing), _session.Partial, ct).ConfigureAwait(false);
             return true;
@@ -568,31 +585,18 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
-    /// <summary>Persists the transition (session row + timeline event), then updates the in-memory state and announces it.</summary>
+    /// <summary>
+    /// Persists the transition (session row + timeline event), then updates the in-memory state and announces it.
+    ///
+    /// Nothing in memory moves until the transition is saved. The active-time accounting and the
+    /// suppressed interval used to move first, so a state write that failed and was tried again counted
+    /// active time twice, or recorded the interval as ended at the failed attempt and never recorded its
+    /// real end (2026-10-12 review, round 2).
+    /// </summary>
     private async Task TransitionAsync(SessionState next, CaptureStateReason reason, CancellationToken ct)
     {
         var session = _session ?? throw new InvalidOperationException("No active session.");
-        session.Account(_time, State, next);
-
-        // ST-045: suppressed intervals, recorded where every transition already passes. The two guards
-        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves
-        // — an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
-        // catches the ends the guards never see: a session stopped or discarded while still suppressed.
-        if (State is SessionState.Suppressed && next is not SessionState.Suppressed && _suppressedSince is { } since)
-        {
-            var held = (long)(_time.GetUtcNow() - since.At).TotalMilliseconds;
-            if (_store is IAuditLog leaving)
-            {
-                await leaving.RecordAsync(
-                    AuditTypes.CaptureSuppressed, session.Id, held, AuditDetail.Of(since.Reason), ct).ConfigureAwait(false);
-            }
-
-            _suppressedSince = null;
-        }
-        else if (next is SessionState.Suppressed && State is not SessionState.Suppressed)
-        {
-            _suppressedSince = (reason, _time.GetUtcNow());
-        }
+        var from = State;
 
         await _store.SetSessionStateAsync(session.Id, next.ToWire(), reason == CaptureStateReason.User ? null : ReasonName(reason), ct).ConfigureAwait(false);
         if (SchemaState(next) is { } schemaState)
@@ -603,6 +607,27 @@ public sealed class SessionMachine : IAsyncDisposable
                 ct).ConfigureAwait(false);
         }
 
+        // ST-045: suppressed intervals, recorded where every transition already passes. The two guards
+        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves
+        // — an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
+        // catches the ends the guards never see: a session stopped or discarded while still suppressed.
+        if (from is SessionState.Suppressed && next is not SessionState.Suppressed && _suppressedSince is { } since)
+        {
+            var held = (long)(_time.GetUtcNow() - since.At).TotalMilliseconds;
+            if (_store is IAuditLog leaving)
+            {
+                await leaving.RecordAsync(
+                    AuditTypes.CaptureSuppressed, session.Id, held, AuditDetail.Of(since.Reason), ct).ConfigureAwait(false);
+            }
+
+            _suppressedSince = null;
+        }
+        else if (next is SessionState.Suppressed && from is not SessionState.Suppressed)
+        {
+            _suppressedSince = (reason, _time.GetUtcNow());
+        }
+
+        session.Account(_time, from, next);
         SetState(next, null);
     }
 

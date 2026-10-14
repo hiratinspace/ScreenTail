@@ -87,20 +87,66 @@ public sealed class SensitiveContextGuardTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ASightingWhileNotRecordingHoldsNothing()
+    public async Task ASightingWithNoSessionRunningHoldsNothing()
     {
-        // Nothing to suppress, so nothing to resume later. Claiming a hold here would make the next tick
-        // unsuppress a session this guard never touched.
-        var machine = await RecordingAsync();
-        Assert.True(await machine.PauseAsync(TestContext.Current.CancellationToken));
-        var guard = new SensitiveContextGuard(machine, _time);
+        // Nothing to suppress, so nothing to hold. A hold claimed here would suppress the next session,
+        // which nobody suppressed.
+        _harness = await MachineHarness.StartAsync();
+        var guard = new SensitiveContextGuard(_harness.Machine, _time);
 
         guard.Seen(LoginScreenHeuristic.Suppression);
-        await guard.TickAsync(TestContext.Current.CancellationToken);
+        Assert.False(await guard.TickAsync(TestContext.Current.CancellationToken));
 
         Assert.False(guard.Holding);
         Assert.Equal(0, guard.Holds);
+        Assert.Equal(SessionState.Idle, _harness.Machine.State);
+    }
+
+    [Fact]
+    public async Task ASightingDuringAPauseIsHeldTheMomentItResumes()
+    {
+        // 2026-10-12 review, round 2. A sighting during a pause used to hold nothing, so Resume went to
+        // Recording with the credential prompt on screen until the next tick, up to 250 ms later. The
+        // hold is taken during the pause now (the session stays paused, and only this guard's own hold
+        // is in the set, so its next tick lets go of nobody else's).
+        var machine = await RecordingAsync();
+        var ct = TestContext.Current.CancellationToken;
+        Assert.True(await machine.PauseAsync(ct));
+        var guard = new SensitiveContextGuard(machine, _time);
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        Assert.True(await guard.TickAsync(ct));
+
+        Assert.True(guard.Holding);
+        Assert.Equal(1, guard.Holds);
         Assert.Equal(SessionState.Paused, machine.State);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Suppressed, machine.State);
+    }
+
+    [Fact]
+    public async Task AWindowThatEndsAndOpensAgainDuringAPauseIsHeldTheMomentItResumes()
+    {
+        // The route the T-41 fix opened: the window ends during the pause and the hold is let go, then a
+        // second sighting arrives before the technician resumes.
+        var machine = await RecordingAsync();
+        var guard = new SensitiveContextGuard(machine, _time);
+        var ct = TestContext.Current.CancellationToken;
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        await guard.TickAsync(ct);
+        Assert.True(await machine.PauseAsync(ct));
+        _time.Advance(LoginScreenHeuristic.Suppression * 2);
+        await guard.TickAsync(ct);
+        Assert.False(guard.Holding);
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        await guard.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.Equal(2, guard.Holds);
     }
 
     [Fact]

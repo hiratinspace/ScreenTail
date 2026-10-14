@@ -79,8 +79,9 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
 
         if (wanted)
         {
-            // Suppress fails when the session is paused, stopped, or not running, and correcting that is
-            // not this guard's business. Then nothing is held, and the session says so.
+            // Paused, the session records the hold and stays paused, so Resume goes straight to Suppressed.
+            // Suppress fails when the session is stopped or idle, and correcting that is not this guard's
+            // business. Then nothing is held, and the session says so.
             held = await machine.SuppressAsync(CaptureStateReason.SensitiveContext, ct).ConfigureAwait(false);
             if (held)
             {
