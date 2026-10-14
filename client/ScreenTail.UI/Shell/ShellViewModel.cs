@@ -13,10 +13,15 @@ namespace ScreenTail.UI.Shell;
 /// last snapshot the store handed out. That is the point of the store — Review, History and the tray all
 /// read one thing, so a technician can never see "recording" in one window and "idle" in another.
 ///
+/// It lives as long as its window, not as long as the store. The tray opens a new window after each close,
+/// so a model that kept listening to the store after its window closed would go on loading every new
+/// draft and reloading Settings for nobody, once per window ever opened. <see cref="Dispose"/> stops it
+/// listening and cancels what it was loading; <see cref="ShellWindow"/> calls it when it closes.
+///
 /// Everything the view binds to is a string or a visibility, computed here rather than in a converter,
 /// because the wording is Spec §5's and belongs somewhere it can be read and changed without opening XAML.
 /// </summary>
-public sealed partial class ShellViewModel : ObservableObject
+public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private const string NothingToReview = "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.";
     private const string SettingsLater = "Settings arrive when the capture service answers.";
@@ -25,6 +30,9 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly Func<string, CancellationToken, Task<object?>>? _loadReview;
     private readonly Func<object>? _history;
     private readonly Func<object>? _settings;
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationToken _closing;
+    private volatile bool _disposed;
     private object? _historyPane;
     private object? _settingsPane;
     private string? _reviewShown;
@@ -50,18 +58,8 @@ public sealed partial class ShellViewModel : ObservableObject
         _loadReview = loadReview;
         _history = history;
         _settings = settings;
-        _state.Changed += snapshot =>
-        {
-            // The store raises on whatever thread the IPC client is reading on; WPF bindings are the
-            // dispatcher's. Marshalling here rather than at the store keeps the store free of WPF.
-            if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
-            {
-                _ = dispatcher.BeginInvoke(() => Apply(snapshot));
-                return;
-            }
-
-            Apply(snapshot);
-        };
+        _closing = _lifetime.Token;
+        _state.Changed += OnStateChanged;
 
         Apply(_state.Snapshot);
     }
@@ -102,8 +100,46 @@ public sealed partial class ShellViewModel : ObservableObject
     {
     }
 
+    /// <summary>
+    /// Stops listening to the store and cancels anything still loading. Idempotent, and called on the
+    /// dispatcher when the window closes. A change the store raised just before, and already queued for
+    /// the dispatcher, finds the model disposed and does nothing.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _state.Changed -= OnStateChanged;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+
+    private void OnStateChanged(ShellSnapshot snapshot)
+    {
+        // The store raises on whatever thread the IPC client is reading on; WPF bindings are the
+        // dispatcher's. Marshalling here rather than at the store keeps the store free of WPF.
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(() => Apply(snapshot));
+            return;
+        }
+
+        Apply(snapshot);
+    }
+
     private void Apply(ShellSnapshot snapshot)
     {
+        // The store copies its handler list before it raises, so a raise already under way on the IPC
+        // thread can still reach a model whose window has closed, directly or through the dispatcher.
+        if (_disposed)
+        {
+            return;
+        }
+
         Banner = snapshot.Banner ?? string.Empty;
         BannerVisibility = snapshot.Banner is null ? Visibility.Collapsed : Visibility.Visible;
         Status = Describe(snapshot);
@@ -126,7 +162,7 @@ public sealed partial class ShellViewModel : ObservableObject
                 Content = _historyPane ?? "History arrives when the capture service answers.";
                 if (_historyPane is History.HistoryViewModel list)
                 {
-                    _ = list.RefreshAsync();
+                    _ = list.RefreshAsync(_closing);
                 }
 
                 break;
@@ -135,10 +171,10 @@ public sealed partial class ShellViewModel : ObservableObject
                 Content = _settingsPane ?? SettingsLater;
                 if (_settingsPane is Settings.SettingsViewModel settings)
                 {
-                    _ = settings.Activation.LoadAsync();
-                    _ = settings.Capture.LoadAsync();
-                    _ = settings.Privacy.LoadAsync();
-                    _ = settings.Integrations.LoadAsync();
+                    _ = settings.Activation.LoadAsync(_closing);
+                    _ = settings.Capture.LoadAsync(_closing);
+                    _ = settings.Privacy.LoadAsync(_closing);
+                    _ = settings.Integrations.LoadAsync(_closing);
                 }
 
                 break;
@@ -148,14 +184,17 @@ public sealed partial class ShellViewModel : ObservableObject
     /// <summary>
     /// Asks for the session and shows the pane when it arrives. The id is remembered as shown before
     /// the await, so a second snapshot for the same session while it loads does not ask twice; a snapshot
-    /// for a different session wins, because the last thing asked for is the thing to show.
+    /// for a different session wins, because the last thing asked for is the thing to show. Closing the
+    /// window cancels the load, and a pane that arrives after the close is not shown.
     /// </summary>
     private async Task LoadReviewAsync(string sessionId)
     {
         _reviewShown = sessionId;
         Content = "Asking the capture service for the session…";
-        var pane = _loadReview is null ? null : await _loadReview(sessionId, CancellationToken.None).ConfigureAwait(true);
-        if (_reviewShown != sessionId)
+
+        // A load the close cancelled ends this task as cancelled, which nothing observes and nothing reports.
+        var pane = _loadReview is null ? null : await _loadReview(sessionId, _closing).ConfigureAwait(true);
+        if (_disposed || _reviewShown != sessionId)
         {
             return;
         }
