@@ -10,7 +10,16 @@ namespace ScreenTail.Core.Settings;
 
 /// <param name="LocalOnlyLocked">The admin's policy set local-only; the field is read-only here (INV-11).</param>
 /// <param name="RetentionLocked">The admin's policy set retention.</param>
-public sealed record SettingsSnapshot(ClientSettings Settings, bool LocalOnlyLocked, bool RetentionLocked, string PolicyVersion);
+/// <param name="EffectiveLocalOnly">Local-only as it is in force; shown in place of the technician's own when locked.</param>
+/// <param name="EffectiveRetentionDays">Retention as it is in force; shown in place of the technician's own when locked.</param>
+public sealed record SettingsSnapshot(ClientSettings Settings, bool LocalOnlyLocked, bool RetentionLocked, string PolicyVersion, bool EffectiveLocalOnly, int EffectiveRetentionDays)
+{
+    public static SettingsSnapshot From(SettingsReported reported)
+    {
+        ArgumentNullException.ThrowIfNull(reported);
+        return new(reported.Settings, reported.LocalOnlyLocked, reported.RetentionLocked, reported.PolicyVersion, reported.EffectiveLocalOnly, reported.EffectiveRetentionDays);
+    }
+}
 
 /// <summary>What Settings → Privacy asks the service (ST-081). Over the pipe in the running application; a fake in tests.</summary>
 public interface IPrivacyGateway
@@ -26,9 +35,9 @@ public interface IPrivacyGateway
 
 /// <summary>
 /// Settings → Privacy &amp; Redaction's rules (ST-081, Spec §5 S6). Every field is the technician's own
-/// unless the admin's policy locked it, in which case it is shown as the policy has it and never sent
-/// back changed. A custom pattern is checked as it is typed and tried against a sample; an invalid one
-/// anywhere in the list blocks saving and says why (AC1). The telemetry list is read off the metric's
+/// unless the admin's policy locked it, in which case it is shown as the policy has it, and a save sends
+/// back the technician's own value unchanged. A custom pattern is checked as it is typed and tried
+/// against a sample; an invalid one anywhere in the list blocks saving and says why (AC1). The telemetry list is read off the metric's
 /// wire type, so the screen cannot promise less than is sent.
 /// </summary>
 public sealed class PrivacyPanel(IPrivacyGateway gateway)
@@ -38,6 +47,8 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
     private readonly List<string> _processes = [];
     private ClientSettings _loaded = new();
     private string? _refusal;
+    private bool _localOnly;
+    private int _retentionDays = 7;
 
     /// <summary>The exact field names usage telemetry sends: <c>shared/contracts/session-metric.v1.json</c>, read off the type.</summary>
     public static IReadOnlyList<string> TelemetryFields { get; } =
@@ -48,13 +59,29 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     public bool Loaded { get; private set; }
 
-    public bool LocalOnly { get; set; }
+    /// <summary>Local-only as shown. A write while the admin locked it is ignored, so the screen keeps showing what is in force.</summary>
+    public bool LocalOnly
+    {
+        get => _localOnly;
+        set => _localOnly = LocalOnlyLocked ? _localOnly : value;
+    }
 
     public bool LocalOnlyLocked { get; private set; }
 
-    public int RetentionDays { get; set; } = 7;
+    /// <summary>
+    /// Retention as shown. A write while the admin locked it is ignored: a slider whose top shrinks under
+    /// its value pushes the clamped value back, and that must not replace the admin's.
+    /// </summary>
+    public int RetentionDays
+    {
+        get => _retentionDays;
+        set => _retentionDays = RetentionLocked ? _retentionDays : value;
+    }
 
     public bool RetentionLocked { get; private set; }
+
+    /// <summary>The slider's top: the technician's 30 days, or more when the admin's locked retention is longer.</summary>
+    public int RetentionMaximum => Math.Max(ClientSettings.MaxRetentionDays, RetentionDays);
 
     public string PolicyVersion { get; private set; } = "default";
 
@@ -124,7 +151,7 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     public bool CanSave => Loaded && Problem is null;
 
-    /// <summary>What the technician is about to save: the fields, with the locked ones as the policy has them.</summary>
+    /// <summary>What the technician is about to save: the fields, with the locked ones left as the technician's own on disk.</summary>
     public ClientSettings Current() => new()
     {
         LocalOnly = LocalOnlyLocked ? _loaded.LocalOnly : LocalOnly,
@@ -151,10 +178,10 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
         }
 
         _loaded = snapshot.Settings;
-        LocalOnly = _loaded.LocalOnly;
         LocalOnlyLocked = snapshot.LocalOnlyLocked;
-        RetentionDays = _loaded.RetentionDays;
+        _localOnly = LocalOnlyLocked ? snapshot.EffectiveLocalOnly : _loaded.LocalOnly;
         RetentionLocked = snapshot.RetentionLocked;
+        _retentionDays = RetentionLocked ? snapshot.EffectiveRetentionDays : _loaded.RetentionDays;
         PolicyVersion = snapshot.PolicyVersion;
         Telemetry = _loaded.Telemetry;
         Ssn = _loaded.Ssn;
@@ -228,7 +255,7 @@ public sealed class PipePrivacy(CaptureConnection connection) : IPrivacyGateway
     public async Task<SettingsSnapshot?> LoadAsync(CancellationToken ct = default)
     {
         var reported = await _connection.RequestAsync<SettingsReported>(id => new GetSettingsCommand { RequestId = id }, ct).ConfigureAwait(false);
-        return reported is null ? null : new SettingsSnapshot(reported.Settings, reported.LocalOnlyLocked, reported.RetentionLocked, reported.PolicyVersion);
+        return reported is null ? null : SettingsSnapshot.From(reported);
     }
 
     public async Task<string?> SaveAsync(ClientSettings settings, CancellationToken ct = default)

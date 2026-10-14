@@ -8,8 +8,8 @@ namespace ScreenTail.Core.Settings;
 
 /// <summary>
 /// The service's side of Settings → Privacy (ST-081): the technician's settings on disk, applied in place
-/// when they change, reported with which fields the admin's policy locked; and the audit log exported
-/// with its verification. Same two entry points as the other command classes.
+/// when they change, reported with which fields the admin's policy locked and the values in force; and
+/// the audit log exported with its verification. Same two entry points as the other command classes.
 /// </summary>
 public sealed class SettingsCommands(
     ClientSettingsStore store,
@@ -33,15 +33,21 @@ public sealed class SettingsCommands(
         {
             case GetSettingsCommand:
                 {
+                    // One read, so the locks and what is in force describe the same document. Settings
+                    // stays the technician's own, which is what a save sends back; the screen shows the
+                    // effective values for the locked fields (INV-8, INV-11).
                     var tenant = _policy();
-                    var applied = PolicyApplication.Resolve(tenant, _store.Load());
+                    var settings = _store.Load();
+                    var applied = PolicyApplication.Resolve(tenant, settings);
                     return new SettingsReported
                     {
                         RequestId = command.RequestId,
-                        Settings = _store.Load(),
+                        Settings = settings,
                         LocalOnlyLocked = applied.Enforced,
                         RetentionLocked = applied.RetentionEnforced,
                         PolicyVersion = tenant.Version,
+                        EffectiveLocalOnly = applied.LocalOnly,
+                        EffectiveRetentionDays = applied.Retention.Days,
                     };
                 }
 
