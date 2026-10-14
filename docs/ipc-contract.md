@@ -2,7 +2,7 @@
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
-**Last brought into line with the code: 2026-10-14.** `IpcContract.Version` is **3**, since 2026-10-14 (ST-081): `effective_local_only` and `effective_retention_days` were added to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. Both bumped for the same reason: the framing rejects unknown members, so an older reader would fail on the new field rather than ignore it. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
+**Last brought into line with the code: 2026-09-28.** `IpcContract.Version` is **3**, since 2026-10-14 (ST-081): `effective_local_only` and `effective_retention_days` were added to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. Both bumped for the same reason: the framing rejects unknown members, so an older reader would fail on the new field rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
 
 ## Framing
 
