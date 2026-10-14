@@ -39,8 +39,11 @@ public sealed partial class FrameItem : StripItem
 
     public bool Included => Cell.Included;
 
-    /// <summary>Spec §5 S3: excluded frames are dimmed, and say so in a word as well (Spec §7).</summary>
-    public string StateLabel => Cell.Included ? "included" : "excluded";
+    /// <summary>
+    /// Spec §5 S3: excluded frames are dimmed, and say so in a word as well (Spec §7). A withheld frame
+    /// (it looked sensitive, or capture was off) says why `Space` does nothing to it.
+    /// </summary>
+    public string StateLabel => Cell.Withheld ? "withheld" : Cell.Included ? "included" : "excluded";
 
     public string? OcrText => Cell.Frame.OcrText;
 
@@ -191,7 +194,8 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ToggleIncludeAsync(FrameItem? item)
     {
-        if (item is null || _strip.Toggle(item.Id) is not { } included)
+        // A withheld frame cannot be put in, so there is nothing to change and nothing to tell the service.
+        if (item is null || item.Cell.Withheld || _strip.Toggle(item.Id) is not { } included)
         {
             return;
         }
