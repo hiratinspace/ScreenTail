@@ -143,21 +143,40 @@ public sealed class SettingsCommandsTests : IDisposable
     [Fact]
     public async Task TheAuditLogIsExportedWithItsVerification()
     {
-        var commands = Commands(TenantPolicy.Default);
+        // Where the file is and what verifying it found. The log itself stays off the pipe (E-2).
+        var commands = Commands(TenantPolicy.Default, export: new AuditExportResult("/data/exports/audit.json", 12, new AuditVerification(false, 3, 0, 4), null));
 
         var exported = Assert.IsType<AuditExported>(await commands.ReplyToAsync(new ExportAuditCommand { RequestId = 4 }));
 
-        Assert.Contains("\"intact\"", exported.Json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("/data/exports/audit.json", exported.Path);
+        Assert.Equal(12, exported.Rows);
+        Assert.False(exported.Intact);
+        Assert.Contains("row 4 does not follow", exported.Note, StringComparison.Ordinal);
         Assert.Null(await commands.ReplyToAsync(new StartCommand { RequestId = 5 }));
     }
 
     private void Save(ClientSettings settings) => Assert.True(new ClientSettingsStore(Path.Combine(_dir, "settings.json")).Save(settings));
 
-    private SettingsCommands Commands(TenantPolicy policy, Action<ClientSettings>? apply = null) => new(
+    [Fact]
+    public async Task AnExportThatCouldNotBeWrittenIsRefusedWithItsReason()
+    {
+        var commands = Commands(TenantPolicy.Default, export: AuditExportResult.Refused("The audit log could not be written to disk."));
+
+        Assert.Null(await commands.ReplyToAsync(new ExportAuditCommand { RequestId = 6 }));
+        var refused = await commands.HandleAsync(new ExportAuditCommand { RequestId = 6 });
+
+        Assert.False(refused!.Ok);
+        Assert.Equal("The audit log could not be written to disk.", refused.Error);
+
+        // Said once. The reason is not kept for a later command that happens to reuse the id.
+        Assert.Equal("The audit log could not be exported.", (await commands.HandleAsync(new ExportAuditCommand { RequestId = 6 }))!.Error);
+    }
+
+    private SettingsCommands Commands(TenantPolicy policy, Action<ClientSettings>? apply = null, AuditExportResult? export = null) => new(
         new ClientSettingsStore(Path.Combine(_dir, "settings.json")),
         () => policy,
         apply ?? (_ => { }),
-        _ => Task.FromResult<(IReadOnlyList<AuditRecord>, AuditVerification)>(([], new AuditVerification(true, 0, 0, null))));
+        _ => Task.FromResult(export ?? new AuditExportResult("/data/exports/audit.json", 0, new AuditVerification(true, 0, 0, null), null)));
 
     /// <summary>The pipe's gateway without the pipe: each reply goes through the wire framing, as it would between the two processes.</summary>
     private sealed class CommandsGateway(SettingsCommands commands) : IPrivacyGateway
@@ -171,7 +190,8 @@ public sealed class SettingsCommandsTests : IDisposable
             return result.Ok ? null : result.Error;
         }
 
-        public Task<string?> ExportAuditAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
+            throw new NotSupportedException("The export is not under test here.");
 
         private static async Task<T> OverTheWireAsync<T>(IpcEvent? reply)
             where T : IpcEvent

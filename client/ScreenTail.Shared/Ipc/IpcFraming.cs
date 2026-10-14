@@ -20,7 +20,9 @@ public static class IpcFraming
         var payload = JsonSerializer.SerializeToUtf8Bytes(message, Json);
         if (payload.Length > MaxMessageBytes)
         {
-            throw new IpcProtocolException($"Message of {payload.Length} bytes exceeds the {MaxMessageBytes}-byte limit.");
+            // Thrown before a byte is written, so the stream is still in step and the caller can answer
+            // with something that fits rather than give up on the connection.
+            throw new IpcMessageTooLargeException(payload.Length);
         }
 
         var frame = new byte[4 + payload.Length];
@@ -157,7 +159,7 @@ internal sealed class CountingStream : Stream
     public override void SetLength(long value) => throw new NotSupportedException();
 }
 
-public sealed class IpcProtocolException : Exception
+public class IpcProtocolException : Exception
 {
     public IpcProtocolException()
     {
@@ -172,4 +174,36 @@ public sealed class IpcProtocolException : Exception
         : base(message, inner)
     {
     }
+}
+
+/// <summary>
+/// A message that would not fit in one frame, refused before anything was written (2026-10-12 review,
+/// E-2). The stream is untouched, so a server can answer the command with a refusal instead of dropping
+/// the connection. Still an <see cref="IpcProtocolException"/> for every caller that does not care which.
+/// </summary>
+public sealed class IpcMessageTooLargeException : IpcProtocolException
+{
+    public IpcMessageTooLargeException()
+        : this(0)
+    {
+    }
+
+    public IpcMessageTooLargeException(int bytes)
+        : base($"Message of {bytes} bytes exceeds the {IpcFraming.MaxMessageBytes}-byte limit.")
+    {
+        Bytes = bytes;
+    }
+
+    public IpcMessageTooLargeException(string message)
+        : base(message)
+    {
+    }
+
+    public IpcMessageTooLargeException(string message, Exception inner)
+        : base(message, inner)
+    {
+    }
+
+    /// <summary>How large the message would have been.</summary>
+    public int Bytes { get; }
 }

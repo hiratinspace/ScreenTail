@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Shell;
@@ -21,6 +22,11 @@ public sealed record SettingsSnapshot(ClientSettings Settings, bool LocalOnlyLoc
     }
 }
 
+/// <param name="Saved">The file is where the technician asked for it.</param>
+/// <param name="Intact">The log verified when it was written.</param>
+/// <param name="Message">The verification in a sentence when saved; otherwise why it was not.</param>
+public sealed record AuditSaved(bool Saved, bool Intact, string Message);
+
 /// <summary>What Settings → Privacy asks the service (ST-081). Over the pipe in the running application; a fake in tests.</summary>
 public interface IPrivacyGateway
 {
@@ -29,8 +35,11 @@ public interface IPrivacyGateway
     /// <summary>Null when saved and applied; otherwise the reason.</summary>
     Task<string?> SaveAsync(ClientSettings settings, CancellationToken ct = default);
 
-    /// <summary>The audit log as JSON with its verification, or null when the service did not answer.</summary>
-    Task<string?> ExportAuditAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Has the service write the audit log with its verification, and copies the file to
+    /// <paramref name="destination"/>. The log never crosses the pipe (2026-10-12 review, E-2).
+    /// </summary>
+    Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -244,13 +253,15 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
         return true;
     }
 
-    public Task<string?> ExportAuditAsync(CancellationToken ct = default) => _gateway.ExportAuditAsync(ct);
+    public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) => _gateway.ExportAuditAsync(destination, ct);
 }
 
 /// <summary>Settings → Privacy's gateway, over the pipe (ST-081).</summary>
-public sealed class PipePrivacy(CaptureConnection connection) : IPrivacyGateway
+/// <param name="exports">Where the service writes exports. Left out, the same user's data directory.</param>
+public sealed class PipePrivacy(CaptureConnection connection, string? exports = null) : IPrivacyGateway
 {
     private readonly CaptureConnection _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+    private readonly string _exports = exports ?? AuditExporter.DefaultDirectory;
 
     public async Task<SettingsSnapshot?> LoadAsync(CancellationToken ct = default)
     {
@@ -264,9 +275,15 @@ public sealed class PipePrivacy(CaptureConnection connection) : IPrivacyGateway
         return result.Ok ? null : result.Error ?? "The capture service refused the settings.";
     }
 
-    public async Task<string?> ExportAuditAsync(CancellationToken ct = default)
+    public async Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default)
     {
         var exported = await _connection.RequestAsync<AuditExported>(id => new ExportAuditCommand { RequestId = id }, ct).ConfigureAwait(false);
-        return exported?.Json;
+        if (exported is null)
+        {
+            return new AuditSaved(false, false, "The capture service could not export the audit log.");
+        }
+
+        var problem = await AuditExporter.CollectAsync(exported.Path, destination, _exports, ct).ConfigureAwait(false);
+        return new AuditSaved(problem is null, exported.Intact, problem ?? exported.Note);
     }
 }

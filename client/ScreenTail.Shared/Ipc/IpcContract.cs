@@ -12,8 +12,12 @@ namespace ScreenTail.Shared.Ipc;
 /// 3: ST-081 adds <c>effective_local_only</c> and <c>effective_retention_days</c> to <c>settings</c>, so
 /// Privacy shows a locked field as the admin set it rather than the technician's own value. Same reason
 /// as 2: an older reader would fail on the new members.
+///
+/// 4: the <c>audit</c> reply carries where the export was written and its verdict instead of the whole
+/// log as one string, which outgrew the frame limit within weeks (2026-10-12 review, E-2). The reply
+/// changes shape, so an older reader would fail on it.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 3;
+    public const int Version = 4;
 }

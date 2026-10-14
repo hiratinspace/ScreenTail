@@ -236,7 +236,7 @@ public sealed class ShellViewModelLifetimeTests
         public SettingsViewModel Settings() => new(
             new ActivationViewModel(new ActivationPanel(this, "TECH-LAPTOP")),
             new CaptureViewModel(new CapturePanel(this), _ => Task.CompletedTask),
-            new PrivacyViewModel(new PrivacyPanel(this), _ => Task.CompletedTask, () => Task.CompletedTask),
+            new PrivacyViewModel(new PrivacyPanel(this), () => null, () => Task.CompletedTask),
             new IntegrationsViewModel(new IntegrationsPanel(this)));
 
         public Task<DeviceStanding?> StandingAsync(CancellationToken ct = default) => Count<DeviceStanding>(ct);
@@ -254,7 +254,7 @@ public sealed class ShellViewModelLifetimeTests
         public Task<string?> SaveAsync(ClientSettings settings, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
-        public Task<string?> ExportAuditAsync(CancellationToken ct = default) =>
+        public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Count<IReadOnlyList<IntegrationDetail>>(ct);

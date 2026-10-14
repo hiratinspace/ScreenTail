@@ -175,7 +175,7 @@ public sealed class LiveShell : IAsyncDisposable
             () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                 new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
-                new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), SaveAuditExportAsync, EraseEverythingAsync),
+                new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
                 new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
         _window.Closed += (_, _) => _window = null;
         _window.Show();
@@ -317,7 +317,8 @@ public sealed class LiveShell : IAsyncDisposable
         token => new EraseAllLocalDataCommand { RequestId = 0, Confirmation = token });
 
     /// <summary>Spec §5 S6 "Export audit log": the JSON the service produced, to a file the technician names.</summary>
-    private Task SaveAuditExportAsync(string json)
+    /// <summary>Where the technician wants the audit log. The service writes it and the panel copies it there.</summary>
+    private string? ChooseAuditFile()
     {
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
@@ -325,12 +326,7 @@ public sealed class LiveShell : IAsyncDisposable
             Filter = "JSON (*.json)|*.json",
             Title = "Export the audit log",
         };
-        if (dialog.ShowDialog(_window) == true)
-        {
-            File.WriteAllText(dialog.FileName, json);
-        }
-
-        return Task.CompletedTask;
+        return dialog.ShowDialog(_window) == true ? dialog.FileName : null;
     }
 
     private async Task ConfirmAndSendAsync(string action, string heading, string consequence, Func<string, IpcCommand> build)
