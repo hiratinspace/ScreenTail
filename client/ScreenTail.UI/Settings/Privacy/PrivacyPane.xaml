@@ -85,7 +85,7 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Retention" />
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <Slider Width="260" Minimum="1" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
+                    <Slider Width="260" Minimum="1" Maximum="{Binding RetentionMaximum}" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
                     <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding RetentionDays}" />
                     <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="days" />
                 </StackPanel>
