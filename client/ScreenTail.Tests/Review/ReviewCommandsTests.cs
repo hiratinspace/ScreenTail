@@ -169,8 +169,9 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
 
         Assert.IsType<FrameLoaded>(await commands.ReplyToAsync(new BlurFrameCommand { RequestId = 4, FrameId = "old", X = 960, Y = 540, Width = 480, Height = 270 }));
 
+        // 800..1200 by 450..675 in the stored image, and one stored pixel more on every side.
         var painted = Assert.Single(masker.Painted);
-        Assert.Equal((800, 450, 1200, 675), (painted.Left, painted.Top, painted.Right, painted.Bottom));
+        Assert.Equal((799, 449, 1201, 676), (painted.Left, painted.Top, painted.Right, painted.Bottom));
     }
 
     [Fact]
@@ -412,16 +413,20 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
 
     /// <summary>
     /// Asserts that the painted span on one axis is exactly the stored pixels that show any part of the
-    /// drawn span: every one of them, so nothing under the rectangle survives, and no others, so the
-    /// rounding is outward by less than a pixel rather than by a margin nobody asked for.
+    /// drawn span, plus one stored pixel either side when the axis was downscaled: every one of them, so
+    /// nothing under the rectangle survives, and no others, so the margin stays one pixel. The margin is
+    /// there because the downscale is bilinear, and a bilinear pixel just outside the box still carries a
+    /// blend of the frame pixels just inside it. Stored at its own size, nothing was resampled and the
+    /// span is exact.
     /// </summary>
     private static void AssertCoversExactly(long paintedFrom, long paintedTo, long drawnFrom, long drawnLength, int native, int stored, string axis)
     {
+        var margin = stored < native ? 1 : 0;
         for (long pixel = 0; pixel < stored; pixel++)
         {
             // Stored pixel p shows the frame's pixels [p * native / stored, (p + 1) * native / stored), in
-            // exact integers: does that meet [drawnFrom, drawnFrom + drawnLength)?
-            var shows = pixel * native < (drawnFrom + drawnLength) * stored && (pixel + 1) * native > drawnFrom * stored;
+            // exact integers: does that meet [drawnFrom, drawnFrom + drawnLength), once widened by the margin?
+            var shows = (pixel - margin) * native < (drawnFrom + drawnLength) * stored && (pixel + 1 + margin) * native > drawnFrom * stored;
             var painted = pixel >= paintedFrom && pixel < paintedTo;
             Assert.True(shows == painted, $"{axis} = {pixel}: {(shows ? "under the rectangle but left unpainted" : "painted though nothing of the rectangle is there")} (painted [{paintedFrom}, {paintedTo}))");
         }
