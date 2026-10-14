@@ -6,15 +6,15 @@ using System.Text.Json.Nodes;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Net;
-using ScreenTail.Core.Store;
 
 namespace ScreenTail.Tests.Net;
 
 /// <summary>
-/// ST-047: the tenant's policy, fetched at start and hourly, applied to the guard, the retention job
-/// and the scope, and kept so the last synced policy stands when the backend does not answer (AC2).
-/// An enforced field is the admin's decision, not the technician's (INV-11); the client enforces it
-/// rather than only displaying it.
+/// ST-047: the tenant's policy, fetched at start and hourly, and kept so the last synced policy stands
+/// when the backend does not answer (AC2). An enforced field is the admin's decision, not the
+/// technician's (INV-11); the client enforces it rather than only displaying it. Applying it to the
+/// guard, the retention job and the scope is <see cref="ScreenTail.Core.Settings.PolicyApplier"/>'s,
+/// and PolicyApplierTests drives that from a fetch to a refused request.
 /// </summary>
 public sealed class PolicySyncTests : IDisposable
 {
@@ -184,25 +184,6 @@ public sealed class PolicySyncTests : IDisposable
         Assert.Equal(expectedLocalOnly, applied.LocalOnly);
         Assert.Equal(expectedEnforced, applied.Enforced);
         Assert.Equal("p1", applied.Version);
-    }
-
-    [Fact]
-    public void ApplyingAPolicyChangesTheGuardTheRetentionAndTheScopeInPlace()
-    {
-        var egress = new EgressPolicy(new EgressSettings { BackendHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "api.screentail.example" } });
-        var retention = new RetentionOptions();
-        var scope = new ScopePolicy(RemoteToolRegistry.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"))));
-
-        egress.Apply(localOnly: true, enforced: true);
-        retention.Retention = TimeSpan.FromDays(3);
-        scope.Apply(new ScopeOptions { CaptureAllWindows = true });
-
-        Assert.True(egress.Settings.LocalOnly);
-        Assert.False(egress.CanChangeLocally);
-        Assert.Equal("Local-only (set by your administrator)", egress.Badge);
-        Assert.False(egress.Decide(EgressPurpose.Backend, new Uri("https://api.screentail.example/x")).Allowed);
-        Assert.Equal(TimeSpan.FromDays(3), retention.Retention);
-        Assert.True(scope.Options.CaptureAllWindows);
     }
 
     private static HttpClient Client(HttpMessageHandler handler) => new(handler) { BaseAddress = new Uri("https://api.screentail.example/") };

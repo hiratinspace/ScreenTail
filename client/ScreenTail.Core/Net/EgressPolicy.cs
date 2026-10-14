@@ -46,6 +46,28 @@ public sealed record EgressSettings
     public IReadOnlySet<string> BackendHosts { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlySet<string> ModelHosts { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The deployment's shape, as the service builds it: the speech model hosts, and the one backend host
+    /// on both the backend list and the publish list. Publishing goes to the backend too, because the
+    /// PSA's credentials live there and never here, so under local-only the purpose a sender attaches is
+    /// what separates a publish from a draft (INV-8). The host is the address that was configured, not
+    /// whatever a server later claims to be. No backend means both lists are empty.
+    /// </summary>
+    public static EgressSettings ForBackend(Uri? backend, IReadOnlySet<string> modelHosts)
+    {
+        ArgumentNullException.ThrowIfNull(modelHosts);
+        return new EgressSettings
+        {
+            ModelHosts = modelHosts,
+            BackendHosts = Hosts(backend),
+            PublishHosts = Hosts(backend),
+        };
+    }
+
+    private static HashSet<string> Hosts(Uri? backend) => backend is null
+        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backend.Host };
 }
 
 /// <summary>
@@ -67,7 +89,9 @@ public sealed record EgressSettings
 /// </summary>
 public sealed class EgressPolicy(EgressSettings? settings = null)
 {
-    private EgressSettings _settings = settings ?? new EgressSettings();
+    // Volatile: the policy applier replaces it on the thread a fetch or a save arrived on, and every
+    // request after that, on whatever thread sends it, has to be decided under the new settings.
+    private volatile EgressSettings _settings = settings ?? new EgressSettings();
 
     public EgressSettings Settings => _settings;
 
