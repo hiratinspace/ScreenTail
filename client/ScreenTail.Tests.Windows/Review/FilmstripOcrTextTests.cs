@@ -37,6 +37,61 @@ public sealed class FilmstripOcrTextTests
     }
 
     [Fact]
+    public async Task EnlargingAnotherFrameLetsTheFirstOneGo()
+    {
+        // Enter on a second frame while the first is open moves the view without passing through Esc.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new TextPerFrame(new Dictionary<string, string?> { ["f0"] = "first", ["f1"] = "second" });
+        var strip = new FilmstripViewModel(SessionWith(2), frames);
+        var first = strip.Items.OfType<FrameItem>().First();
+        var second = strip.Items.OfType<FrameItem>().Last();
+        await strip.EnlargeCommand.ExecuteAsync(first);
+        Assert.NotNull(first.Image);
+
+        await strip.EnlargeCommand.ExecuteAsync(second);
+
+        Assert.Same(second, strip.Enlarged);
+        Assert.Equal("second", second.OcrText);
+        Assert.NotNull(second.Image);
+        Assert.Null(first.OcrText);
+        Assert.Null(first.Image);
+    }
+
+    [Fact]
+    public async Task EnlargingTheOpenFrameAgainKeepsWhatItHolds()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new TextPerFrame(new Dictionary<string, string?> { ["f0"] = "first" });
+        var strip = new FilmstripViewModel(SessionWith(2), frames);
+        var first = strip.Items.OfType<FrameItem>().First();
+        await strip.EnlargeCommand.ExecuteAsync(first);
+
+        await strip.EnlargeCommand.ExecuteAsync(first);
+
+        Assert.Same(first, strip.Enlarged);
+        Assert.Equal("first", first.OcrText);
+        Assert.NotNull(first.Image);
+        Assert.Equal(["f0"], frames.Asked);
+    }
+
+    [Fact]
+    public async Task DeletingTheEnlargedFrameLetsItsTextAndImageGo()
+    {
+        // The frame can come back with Undo, so the item outlives the delete; what it held must not.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new TextPerFrame(new Dictionary<string, string?> { ["f0"] = "first" });
+        var strip = new FilmstripViewModel(SessionWith(2), frames);
+        var first = strip.Items.OfType<FrameItem>().First();
+        await strip.EnlargeCommand.ExecuteAsync(first);
+
+        strip.DeleteCommand.Execute(first);
+
+        Assert.Null(strip.Enlarged);
+        Assert.Null(first.OcrText);
+        Assert.Null(first.Image);
+    }
+
+    [Fact]
     public async Task AFrameWithNoTextLeavesTheToggleOff()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
@@ -97,7 +152,7 @@ public sealed class FilmstripOcrTextTests
     {
         public List<string> Asked { get; } = [];
 
-        public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default) => Task.FromResult<byte[]?>(null);
+        public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default) => Task.FromResult<byte[]?>([1, 2, 3]);
 
         public Task<string?> OcrTextAsync(Frame frame, CancellationToken ct = default)
         {

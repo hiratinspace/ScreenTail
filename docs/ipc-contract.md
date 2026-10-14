@@ -216,7 +216,7 @@ the reason rather than closing the connection.
 text was most of the message: about two hours of busy capture passed 1 MiB, the write threw, the
 service dropped the UI's connection, and the session could never be opened in Review. The pane shows
 the text for one enlarged frame at a time, so it asks `get_frame_text` when a frame is opened and lets
-the text go when the frame closes. The store still holds it, and the drafter and the bundle read it
+the text go when the frame closes or another one opens. The store still holds it, and the drafter and the bundle read it
 there. What remains (frames, events, transcript, draft) is measured on the service before it is
 written, in the bytes the framing would write; a session that still would not fit is refused with a
 failed `result` that gives its size and the limit, and the connection stays up. `frame_text` is
