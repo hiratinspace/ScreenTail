@@ -89,7 +89,17 @@ public sealed class InputHookTests
         Assert.True(hooks.Installed);
         Assert.Equal(3, hooks.Installs);
 
-        Assert.SkipUnless(CanInject, "Input injection not permitted on this runner; the hooks are in, the click is unproven.");
+        // Everything above is the T-33 regression itself, and it needs no injected input, so it is asserted on
+        // every runner. Whether a click then reaches the second session's hooks needs SendInput, which only
+        // the laptop's input job may use. A laptop that lost injection would also skip the other injection
+        // tests there and fail that job's zero skip budget. Elsewhere this test passes on what it proved and
+        // says in the log that the click went unchecked, rather than skipping the hooks check with it.
+        if (!CanInject)
+        {
+            Record("Second session: both hooks in for sessions 2 and 3 after a stop; click not injected on this runner, the laptop input job asserts it");
+            return;
+        }
+
         _ = buffer.Drain(new InputSignal[64]);
         using var window = DesktopWindow.Create("ScreenTail second session target");
         window.RequireForeground();
