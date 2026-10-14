@@ -108,11 +108,20 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
             return Refuse(publish, "The session is gone, so there is nothing to publish.");
         }
 
-        var frames = new List<PublishWireFrame>(publish.FrameIds.Count);
+        // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
+        // drafting bundle's own rule may go (redacted, not sensitive, not excluded, not taken while capture
+        // was off). Anything else named is dropped, and so is a second mention of the same frame.
+        var eligible = Intel.BundleBuilder.Eligible(session).Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal);
+        var frames = new List<PublishWireFrame>(Math.Min(publish.FrameIds.Count, eligible.Count));
         foreach (var id in publish.FrameIds)
         {
-            // Redacted frames only: the store will not hand back a pending one, and one deleted between
-            // the technician's choice and now is simply not sent (INV-1).
+            if (!eligible.Remove(id))
+            {
+                continue;
+            }
+
+            // The store will still not hand back a pending one, and one deleted between the technician's
+            // choice and now is simply not sent (INV-1).
             var image = await _store.GetRedactedFrameImageAsync(id, ct).ConfigureAwait(false);
             if (image is { Length: > 0 })
             {

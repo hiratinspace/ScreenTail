@@ -39,6 +39,82 @@ public sealed class FilmstripTests
     }
 
     [Fact]
+    public void ASensitiveFrameIsNeverInWhatPublishes()
+    {
+        // session.v1 says a sensitive_context frame is never sent or attached. It used to open included,
+        // because the strip read excluded_by_user and nothing else, and went to the ticket with the rest.
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000), Frame("f2", 2000, sensitive: true)));
+
+        Assert.False(strip.IsIncluded("f2"));
+        Assert.Equal("1 of 2 included", strip.Header);
+        Assert.Equal(["f1"], strip.ToPublish().Select(frame => frame.Id));
+        Assert.True(strip.Frames.Single(cell => cell.Frame.Id == "f2").Withheld);
+        Assert.False(strip.Frames.Single(cell => cell.Frame.Id == "f1").Withheld);
+    }
+
+    [Fact]
+    public void ASensitiveFrameCannotBeSwitchedBackOn()
+    {
+        // The technician can take a frame out but cannot put this one in: Space answers with the state it
+        // stays in, so the strip, the header and what publishes all keep agreeing.
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000, sensitive: true)));
+
+        Assert.False(strip.Toggle("f1"));
+        Assert.False(strip.Set("f1", included: true));
+        Assert.False(strip.Toggle("f1"));
+
+        Assert.False(strip.IsIncluded("f1"));
+        Assert.False(strip.Frames.Single().Included);
+        Assert.Empty(strip.ToPublish());
+        Assert.Equal("0 of 1 included", strip.Header);
+    }
+
+    [Fact]
+    public void ASensitiveFrameStaysOutWhenAnUndoneDeleteBringsItBack()
+    {
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000, sensitive: true)));
+        var removed = strip.Frames.Single().Frame;
+        strip.Remove("f1");
+
+        strip.Restore(removed, included: true);
+
+        Assert.False(strip.IsIncluded("f1"));
+        Assert.True(strip.Frames.Single().Withheld);
+        Assert.Empty(strip.ToPublish());
+    }
+
+    [Fact]
+    public void AFrameTakenWhileCaptureWasOffIsNeverInWhatPublishes()
+    {
+        // The same rule the drafting bundle applies (INV-6): something was suppressing capture when this
+        // was taken, so the strip shows it withheld rather than offering it for the ticket.
+        var session = WithFrames(Frame("f1", 1000), Frame("f2", 3000), Frame("f3", 5000)) with
+        {
+            Events =
+            [
+                new CaptureStateEvent { TsMs = 2000, State = CaptureState.Suppressed, Reason = CaptureStateReason.PasswordField },
+                new CaptureStateEvent { TsMs = 4000, State = CaptureState.Recording },
+            ],
+        };
+
+        var strip = new Filmstrip(session);
+
+        Assert.Equal(["f1", "f3"], strip.ToPublish().Select(frame => frame.Id));
+        Assert.False(strip.Set("f2", included: true));
+        Assert.Equal("2 of 3 included", strip.Header);
+    }
+
+    [Fact]
+    public void AnOrdinaryFrameStillTogglesBothWays()
+    {
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000), Frame("f2", 2000, sensitive: true)));
+
+        Assert.False(strip.Toggle("f1"));
+        Assert.True(strip.Toggle("f1"));
+        Assert.Equal(["f1"], strip.ToPublish().Select(frame => frame.Id));
+    }
+
+    [Fact]
     public void FramesAreNumberedByTheirPlaceInTime()
     {
         // The note's chips say "frame 2" and this is the 2. The store's order is the store's business.
@@ -176,7 +252,7 @@ public sealed class FilmstripTests
 
     private static Session WithFrames(params Frame[] frames) => Session() with { Frames = frames };
 
-    private static Frame Frame(string id, long tsMs, bool excluded = false) => new()
+    private static Frame Frame(string id, long tsMs, bool excluded = false, bool sensitive = false) => new()
     {
         Id = id,
         TsMs = tsMs,
@@ -187,7 +263,7 @@ public sealed class FilmstripTests
         RedactionPending = false,
         RedactedAt = DateTimeOffset.UnixEpoch,
         MaskedRegions = [],
-        SensitiveContext = false,
+        SensitiveContext = sensitive,
         ExcludedByUser = excluded,
     };
 }
