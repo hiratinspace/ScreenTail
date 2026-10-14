@@ -47,4 +47,16 @@ public static class ShellWindows
 
     /// <summary>Whether this window class is one of the shell's own surfaces. A dictionary lookup per foreground change.</summary>
     public static bool IsShell(string? className) => className is { Length: > 0 } && Classes.Contains(className);
+
+    /// <summary>
+    /// Whether this window is one of the shell's surfaces, or a window of the shell's process whose class
+    /// could not be read. Nothing shows the second kind is not the desktop, so it is refused the same way,
+    /// which keeps "all windows" from reaching it. Other apps' windows are judged by class alone.
+    /// </summary>
+    public static bool IsShell(ForegroundWindowInfo window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return IsShell(window.ClassName)
+            || (string.IsNullOrWhiteSpace(window.ClassName) && string.Equals(window.ProcessName, ProcessName, StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -114,8 +114,8 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
         // The desktop, the taskbar and Task View. The desktop's rectangle is every monitor, so a frame of it
         // is a frame of every window in front of it, excluded ones included (2026-10-12 review, S-2). Refused
         // before any match and whatever "all windows" says; clicks are still logged, as for any out-of-scope
-        // window.
-        if (ShellWindows.IsShell(window.ClassName))
+        // window. A shell window whose class could not be read is refused too: nothing shows it is not the desktop.
+        if (ShellWindows.IsShell(window))
         {
             return NotCapturing(process);
         }

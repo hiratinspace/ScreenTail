@@ -287,14 +287,53 @@ public sealed class ScopePolicyTests
     [Fact]
     public void TheDesktopDoesNotKeepASessionAliveOrStartOne()
     {
+        // Only a remote tool starts a session or holds one open, so this registry makes the desktop look like
+        // one by its class. The refusal comes first, so the desktop still neither starts nor extends anything.
+        var registry = RemoteToolRegistry.Load("""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "rdp", "kind": "rdp", "display_name": "RDP", "processes": ["mstsc"],
+                           "window_class_patterns": ["^Progman$"] } ] }
+            """);
         var clock = new ManualTime(At);
-        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var trigger = new SessionTrigger(new ScopePolicy(registry), clock, TimeSpan.FromSeconds(90));
+        var desktop = Window("explorer", "Program Manager", "Progman");
 
-        Assert.False(trigger.Observe(Window("explorer", "Program Manager", "Progman")).Start);
-        trigger.Observe(Window("mstsc", "RECEPTION-02"));
-        clock.Advance(TimeSpan.FromSeconds(91));
+        Assert.False(trigger.Observe(desktop).Start);
+        Assert.False(trigger.SessionRunning);
 
-        Assert.True(trigger.Observe(Window("explorer", "Program Manager", "Progman")).Stop);
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-02")).Start);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.False(trigger.Observe(desktop).Stop);
+        clock.Advance(TimeSpan.FromSeconds(31));
+
+        // 91 seconds since the remote tool, 31 since the desktop: the desktop did not refresh the grace.
+        Assert.True(trigger.Observe(desktop).Stop);
+    }
+
+    [Theory]
+    [InlineData("explorer", "")]
+    [InlineData("EXPLORER", "")]
+    [InlineData("explorer", " ")]
+    public void AShellWindowWhoseClassCannotBeReadIsNotPhotographedEvenWithAllWindowsOn(string process, string className)
+    {
+        // A shell window with no readable class could be the desktop, and nothing shows it is not. Refused
+        // like the desktop, so "all windows" cannot reach it either; the same out-of-scope words as any other.
+        var policy = new ScopePolicy(Shipped, new ScopeOptions { CaptureAllWindows = true });
+
+        var decision = policy.Decide(Window(process, "", className) with { Handle = 0x10010 });
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
+        Assert.False(decision.MayCaptureFrames);
+        Assert.Equal(0, decision.Window);
+    }
+
+    [Fact]
+    public void AnotherAppsWindowWhoseClassCannotBeReadIsStillCapturedWithAllWindowsOn()
+    {
+        // The refusal is for the shell's process only: "all windows" means every other app's windows.
+        var policy = new ScopePolicy(Shipped, new ScopeOptions { CaptureAllWindows = true });
+
+        Assert.True(policy.Decide(Window("notepad", "notes", "")).MayCaptureFrames);
     }
 
     [Theory]
