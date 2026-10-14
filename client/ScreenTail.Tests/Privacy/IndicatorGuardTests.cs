@@ -159,6 +159,53 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         Assert.False(guard.Holding);
     }
 
+    [Fact]
+    public async Task AHoldWhoseConditionEndsDuringAPauseDoesNotOutliveTheResume()
+    {
+        // 2026-10-12 review, T-41. The UI came back while the technician had the session paused. The
+        // guard forgot its hold instead of letting go of it, and Resume went back to a suppression that
+        // nothing would ever lift.
+        var clock = new ManualTime(At);
+        var machine = await RecordingAsync();
+        var showing = false;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        await GraceOutAsync(guard, clock, ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        Assert.True(await machine.PauseAsync(ct));
+        showing = true;
+        await guard.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.True(await machine.TryStageFrameAsync(Frame("after"), ct));
+    }
+
+    [Fact]
+    public async Task AnIndicatorStillMissingAfterAPauseKeepsItsHold()
+    {
+        var clock = new ManualTime(At);
+        var machine = await RecordingAsync();
+        var guard = new IndicatorGuard(machine, () => false, clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        await GraceOutAsync(guard, clock, ct);
+        Assert.True(await machine.PauseAsync(ct));
+        await guard.TickAsync(ct);
+        Assert.True(guard.Holding);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.Equal(1, guard.Holds);
+    }
+
     /// <summary>
     /// Ticks once to notice the indicator is gone, waits past the grace, and ticks again.
     ///

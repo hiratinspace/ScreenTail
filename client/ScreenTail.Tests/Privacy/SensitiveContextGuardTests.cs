@@ -103,6 +103,107 @@ public sealed class SensitiveContextGuardTests : IAsyncDisposable
         Assert.Equal(SessionState.Paused, machine.State);
     }
 
+    [Fact]
+    public async Task AHoldWhoseConditionEndsDuringAPauseDoesNotOutliveTheResume()
+    {
+        // 2026-10-12 review, T-41. The login screen's window ran out while the technician had paused.
+        // The guard forgot its hold instead of letting go of it, and Resume went back to a suppression
+        // that nothing would ever lift.
+        var machine = await RecordingAsync();
+        var guard = new SensitiveContextGuard(machine, _time);
+        var ct = TestContext.Current.CancellationToken;
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        Assert.True(await machine.PauseAsync(ct));
+        _time.Advance(LoginScreenHeuristic.Suppression * 2);
+        await guard.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(guard.Holding);
+    }
+
+    [Fact]
+    public async Task AWindowStillOpenAfterAPauseKeepsItsHold()
+    {
+        var machine = await RecordingAsync();
+        var guard = new SensitiveContextGuard(machine, _time);
+        var ct = TestContext.Current.CancellationToken;
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        await guard.TickAsync(ct);
+        Assert.True(await machine.PauseAsync(ct));
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await guard.TickAsync(ct);
+        Assert.True(guard.Holding);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.Equal(1, guard.Holds);
+    }
+
+    [Fact]
+    public async Task AHoldThatEndsDuringAPauseLeavesAnotherGuardsHoldInPlace()
+    {
+        // Letting go while paused must be this guard letting go of its own hold and nobody else's.
+        var machine = await RecordingAsync();
+        var sensitive = new SensitiveContextGuard(machine, _time);
+        var showing = false;
+        var indicator = new IndicatorGuard(machine, () => showing, _time);
+        var ct = TestContext.Current.CancellationToken;
+
+        sensitive.Seen(LoginScreenHeuristic.Suppression);
+        await sensitive.TickAsync(ct);
+        await indicator.TickAsync(ct);
+        _time.Advance(TimeSpan.FromSeconds(5));
+        await indicator.TickAsync(ct);
+        Assert.True(indicator.Holding);
+
+        Assert.True(await machine.PauseAsync(ct));
+        _time.Advance(LoginScreenHeuristic.Suppression);
+        await sensitive.TickAsync(ct);
+        await indicator.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        showing = true;
+        await indicator.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+    }
+
+    [Fact]
+    public async Task ANewSessionInsideTheWindowIsSuppressedToo()
+    {
+        // 2026-10-12 review, T-50. A session stopped and started again inside the ten seconds. A guard
+        // that trusted its own memory of holding saw "already holding", did nothing, and the credential
+        // prompt still on screen was captured for the whole of the new session.
+        var machine = await RecordingAsync();
+        var guard = new SensitiveContextGuard(machine, _time);
+        var ct = TestContext.Current.CancellationToken;
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        Assert.True(await machine.StopAsync(ct));
+        Assert.True(await machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(guard.Holding);
+        Assert.Equal(2, guard.Holds);
+    }
+
     private async Task<SessionMachine> RecordingAsync()
     {
         _harness = await MachineHarness.StartAsync();

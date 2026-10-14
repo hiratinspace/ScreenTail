@@ -52,9 +52,10 @@ public sealed class SessionMachine : IAsyncDisposable
     /// Which guards are currently holding capture down, by their reason (INV-6).
     ///
     /// A set rather than a flag because three guards share one suppressed state and each has to be able
-    /// to let go of its own hold without letting go of anybody else's. Only ever touched inside
-    /// <see cref="_transitions"/>, so it needs no lock of its own. Emptied when a session ends: a hold
-    /// left behind would suppress the next session, which nobody suppressed, for ever.
+    /// to let go of its own hold without letting go of anybody else's. Only ever changed inside
+    /// <see cref="_transitions"/>, and under <see cref="_stateLock"/> as well so that <see cref="IsHeld"/>
+    /// can read it from a guard's loop. Emptied when a session ends: a hold left behind would suppress
+    /// the next session, which nobody suppressed, for ever.
     /// </summary>
     private readonly HashSet<CaptureStateReason> _holds = [];
     private readonly Lock _stateLock = new();
@@ -93,6 +94,22 @@ public sealed class SessionMachine : IAsyncDisposable
     }
 
     public string? SessionId => _session?.Id;
+
+    /// <summary>
+    /// Whether this reason is holding the running session down.
+    ///
+    /// A guard asks this rather than remembering. Its memory was wrong in both directions: a pause
+    /// made it forget a hold the session still kept, so Resume went back to a suppression nothing would
+    /// lift, and a restart inside a hold's window made it remember one the new session never had
+    /// (2026-10-12 review, T-41 and T-50). A pause keeps its holds; a session ending drops them.
+    /// </summary>
+    public bool IsHeld(CaptureStateReason reason)
+    {
+        lock (_stateLock)
+        {
+            return _holds.Contains(reason);
+        }
+    }
 
     /// <summary>
     /// The timestamp the running session started from, for turning a hook's monotonic timestamp into
@@ -152,7 +169,7 @@ public sealed class SessionMachine : IAsyncDisposable
             var session = new ActiveSession(Guid.NewGuid().ToString("D"), _time.GetTimestamp(), ToolKind(tool.Kind));
             await _store.CreateSessionAsync(new NewSession(session.Id, _time.GetUtcNow(), tool, localOnly, policyVersion, suggestedTicket), ct).ConfigureAwait(false);
             _session = session;
-            _holds.Clear();
+            ClearHolds();
             await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
             await _sources.StartAsync(this, ct).ConfigureAwait(false);
             return true;
@@ -171,13 +188,33 @@ public sealed class SessionMachine : IAsyncDisposable
     ///
     /// Suppressed → Paused → Recording was a way round every guard, reachable from the pipe, and the
     /// hotkey path already refused it (2026-09-20 review).
+    ///
+    /// The holds are read once it is this call's turn, not when it was made. Read earlier, a guard
+    /// letting go in between sent the session back to Suppressed with nothing holding it, and nothing
+    /// would ever lift that (2026-10-12 review).
     /// </summary>
-    public Task<bool> ResumeAsync(CancellationToken ct = default) =>
-        TransitionIfAsync(
-            s => s is SessionState.Paused,
-            _holds.Count > 0 ? SessionState.Suppressed : SessionState.Recording,
-            _holds.Count > 0 ? _holds.First() : CaptureStateReason.User,
-            ct);
+    public async Task<bool> ResumeAsync(CancellationToken ct = default)
+    {
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (State is not SessionState.Paused || _session is null)
+            {
+                return false;
+            }
+
+            var held = _holds.Count > 0;
+            await TransitionAsync(
+                held ? SessionState.Suppressed : SessionState.Recording,
+                held ? _holds.First() : CaptureStateReason.User,
+                ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
 
     /// <summary>
     /// Automatic pause: password field, excluded app, elevated window, sensitive context (INV-6).
@@ -199,7 +236,11 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            _ = _holds.Add(reason);
+            lock (_stateLock)
+            {
+                _ = _holds.Add(reason);
+            }
+
             if (State is SessionState.Recording)
             {
                 await TransitionAsync(SessionState.Suppressed, reason, ct).ConfigureAwait(false);
@@ -226,7 +267,7 @@ public sealed class SessionMachine : IAsyncDisposable
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_session is null || !_holds.Remove(reason) || State is not SessionState.Suppressed || _holds.Count > 0)
+            if (_session is null || !ReleaseHold(reason) || State is not SessionState.Suppressed || _holds.Count > 0)
             {
                 return false;
             }
@@ -254,7 +295,7 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            _holds.Clear();
+            ClearHolds();
             await TransitionAsync(SessionState.Finalizing, CaptureStateReason.User, ct).ConfigureAwait(false);
             await _sources.StopAsync(ct).ConfigureAwait(false);
             await FinalizeAndDraftAsync(_session.Id, _session.ActiveMs(_time, SessionState.Finalizing), _session.Partial, ct).ConfigureAwait(false);
@@ -287,7 +328,7 @@ public sealed class SessionMachine : IAsyncDisposable
             _options.Pending.Forget(_session.Id);
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
             _session = null;
-            _holds.Clear();
+            ClearHolds();
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.Idle, null);
             return true;
@@ -446,6 +487,22 @@ public sealed class SessionMachine : IAsyncDisposable
     }
 
     // ---- internals -------------------------------------------------------------------------------------
+
+    private bool ReleaseHold(CaptureStateReason reason)
+    {
+        lock (_stateLock)
+        {
+            return _holds.Remove(reason);
+        }
+    }
+
+    private void ClearHolds()
+    {
+        lock (_stateLock)
+        {
+            _holds.Clear();
+        }
+    }
 
     private async Task<bool> TransitionIfAsync(Func<SessionState, bool> allowed, SessionState next, CaptureStateReason reason, CancellationToken ct)
     {

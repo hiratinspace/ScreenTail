@@ -65,8 +65,12 @@ public sealed class PasswordFieldGuard(
     private readonly SemaphoreSlim _focusMoved = new(0);
     private long _failures;
 
-    /// <summary>True while this guard is holding capture suppressed.</summary>
-    public bool Holding { get; private set; }
+    /// <summary>
+    /// True while the session keeps this guard's hold, which a pause does not end. Asked of the session
+    /// every time rather than remembered: a remembered hold went stale across a pause and across a
+    /// restart, and was wrong in both directions (2026-10-12 review, T-41 and T-50).
+    /// </summary>
+    public bool Holding => machine.IsHeld(CaptureStateReason.PasswordField);
 
     /// <summary>How many separate times capture has been suppressed for a password field. Counts only (INV-10).</summary>
     public int Holds { get; private set; }
@@ -99,10 +103,12 @@ public sealed class PasswordFieldGuard(
         // day, on a machine that spends most of its day not recording. That is one to two per cent of a
         // core against ST-031's one per cent idle budget, spent deciding nothing (2026-09-20 review).
         //
-        // Suppressed as well as Recording: a hold has to be able to end.
-        if (machine.State is not (SessionState.Recording or SessionState.Suppressed))
+        // Suppressed as well as Recording: a hold has to be able to end. And Paused while the session
+        // still keeps this guard's hold, for the same reason: focus leaving the field during a pause has
+        // to let go of it, or Resume goes back to a suppression nothing will lift (2026-10-12 review,
+        // T-41). A pause with nothing held still asks nothing.
+        if (machine.State is not (SessionState.Recording or SessionState.Suppressed) && !Holding)
         {
-            Holding = false;
             return false;
         }
 
@@ -113,43 +119,33 @@ public sealed class PasswordFieldGuard(
             return Holding;
         }
 
-        // Re-derived from the session rather than trusted, because Holding is only this guard's belief.
-        // Focus a password field, pause and resume: the session is Recording again over the same field,
-        // and a guard that believed it was already holding did nothing until focus moved. The same goes
-        // for a new session begun over a field that still has focus, and for the other guard lifting a
-        // suppression the two of them share. SensitiveContextGuard learned this first.
-        if (Holding && machine.State is not SessionState.Suppressed)
-        {
-            Holding = false;
-        }
-
+        // Asked of the session, not remembered. A new session begun over a field that still has focus
+        // has no hold yet, whatever this guard did in the last one; a paused session still has its hold.
+        var held = Holding;
         var wanted = focused == FocusedField.Password;
-        if (wanted == Holding)
+        if (wanted == held)
         {
-            return Holding;
+            return held;
         }
 
         if (wanted)
         {
             // Suppress fails when the session is paused, stopped or idle, and correcting that is not this
-            // guard's business. But then it holds nothing and must say so, or the next tick would "resume"
-            // a session it never suppressed.
-            Holding = await machine.SuppressAsync(CaptureStateReason.PasswordField, ct).ConfigureAwait(false);
-            if (Holding)
+            // guard's business. Then nothing is held, and the session says so.
+            held = await machine.SuppressAsync(CaptureStateReason.PasswordField, ct).ConfigureAwait(false);
+            if (held)
             {
                 Holds++;
             }
-        }
-        else
-        {
-            // Whether or not this moves the session — the technician may have paused meanwhile, which
-            // leaves Unsuppress a no-op — the hold is over. Capture resumes with the next click, because
-            // everything the hooks saw during the hold was dropped as it was drained.
-            _ = await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct).ConfigureAwait(false);
-            Holding = false;
+
+            return held;
         }
 
-        return Holding;
+        // The hold is over, paused or not. Paused, this leaves the session paused and lets go of the
+        // hold, so Resume does not go back to it. Otherwise capture resumes with the next click, because
+        // everything the hooks saw during the hold was dropped as it was drained.
+        _ = await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct).ConfigureAwait(false);
+        return false;
     }
 
     /// <summary>How many passes ended in an exception. A rising count means the guard is struggling, not gone.</summary>
