@@ -85,6 +85,28 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
         Assert.Empty(session.Frames);
     }
 
+    [Fact]
+    public async Task AnInclusionSaysWhetherTheServiceRecordedIt()
+    {
+        // The store's flag, not the strip's, decides what publish attaches (ST-078). A write that did not
+        // land has to say so, or the strip goes on promising a frame the service will not send.
+        var frames = await FramesAsync();
+
+        Assert.True(await frames.SetIncludedAsync("f1", true));
+        Assert.False(await frames.SetIncludedAsync("nope", true));
+    }
+
+    [Fact]
+    public async Task AnInclusionWithNoServiceIsNotRecorded()
+    {
+        var frames = new PipeReviewFrames(new CaptureConnection(
+            new ShellState(),
+            _ => throw new IOException("no service"),
+            CaptureConnection.Never));
+
+        Assert.False(await frames.SetIncludedAsync("f1", true));
+    }
+
     private static readonly byte[] RedactedBytes = [9, 8, 7, 6];
     private static readonly byte[] PaintedBytes = [0xCC, 0xCC];
 

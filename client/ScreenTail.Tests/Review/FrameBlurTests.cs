@@ -106,7 +106,7 @@ public sealed class FrameBlurTests
 
         public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<bool> DeleteAsync(string frameId, CancellationToken ct = default) => throw new NotSupportedException();
 

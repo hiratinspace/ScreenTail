@@ -55,7 +55,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `unmap_company` | `psa_company` | Forgets a company mapping. Answered by a `result` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
-| `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note |
+| `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note. Fails when there is no such frame, and the UI then shows an inclusion that failed as excluded again |
 | `delete_frame` | `frame_id` | Delete, once the five-second undo has closed. Fails when it was already gone |
 | `blur_frame` | `frame_id`, `x`, `y`, `width`, `height` | Blur a rectangle, in the frame's own pixels. Answered by `frame` with the image as it now is |
 | `save_draft` | `session_id`, `draft` | The edited note, written back. The whole note, every time |

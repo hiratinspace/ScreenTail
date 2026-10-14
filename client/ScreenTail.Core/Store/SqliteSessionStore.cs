@@ -377,8 +377,14 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
     }
 
-    public Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default) =>
-        RunAsync("UPDATE frames SET excluded_by_user = @x WHERE id = @id", ct, ("@id", frameId), ("@x", excluded ? 1 : 0));
+    public async Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default)
+    {
+        var changed = await RunAsync("UPDATE frames SET excluded_by_user = @x WHERE id = @id", ct, ("@id", frameId), ("@x", excluded ? 1 : 0)).ConfigureAwait(false);
+        if (changed == 0)
+        {
+            throw new InvalidOperationException("There is no such frame.");
+        }
+    }
 
     public async Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default)
     {
