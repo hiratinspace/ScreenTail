@@ -31,6 +31,12 @@ public sealed class ScopedCaptureSources(
     /// <summary>Raised when a moment was marked over a window that may not be photographed. The marker is still written.</summary>
     public event Action? MomentOutOfScope;
 
+    /// <summary>
+    /// Raised when scope allowed frames but named no window to prove the picture against, so none was taken.
+    /// Kept apart from <see cref="MomentOutOfScope"/> so a log never blames scope for it. The marker is still written.
+    /// </summary>
+    public event Action? MomentWithNoWindow;
+
     /// <summary>Raised when the window was gone before the picture was taken.</summary>
     public event Action? MomentMissed;
 
@@ -58,9 +64,10 @@ public sealed class ScopedCaptureSources(
 
         // INV-5 still applies. A technician can press the chord over anything, and scope decides what may
         // be photographed: asking for a frame is not permission to take one of a customer's inbox.
-        if (FrameGate.WindowFor(currentScope()) is not { } window)
+        var scope = currentScope();
+        if (FrameGate.WindowFor(scope) is not { } window)
         {
-            MomentOutOfScope?.Invoke();
+            (scope is { MayCaptureFrames: true } ? MomentWithNoWindow : MomentOutOfScope)?.Invoke();
             return;
         }
 

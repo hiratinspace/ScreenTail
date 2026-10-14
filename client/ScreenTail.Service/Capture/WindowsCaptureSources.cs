@@ -26,6 +26,7 @@ internal sealed partial class WindowsCaptureSources : ICaptureSources
     {
         _sources = new ScopedCaptureSources(capturer, currentScope, resetHistory);
         _sources.MomentOutOfScope += () => LogOutOfScope(logger);
+        _sources.MomentWithNoWindow += () => LogNoWindow(logger);
         _sources.MomentMissed += () => LogNoFrame(logger);
     }
 
@@ -37,6 +38,9 @@ internal sealed partial class WindowsCaptureSources : ICaptureSources
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Mark moment: the window in front is out of scope, so no frame was taken")]
     private static partial void LogOutOfScope(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Mark moment: scope named no window to check the picture against, so no frame was taken")]
+    private static partial void LogNoWindow(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Mark moment: the window was gone before it could be captured")]
     private static partial void LogNoFrame(ILogger logger);
