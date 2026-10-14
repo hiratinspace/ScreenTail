@@ -111,6 +111,15 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
             return new ScopeDecision(CaptureScope.OutOfScope, null, null, "Elevated window — screen not captured.");
         }
 
+        // The desktop, the taskbar and Task View. The desktop's rectangle is every monitor, so a frame of it
+        // is a frame of every window in front of it, excluded ones included (2026-10-12 review, S-2). Refused
+        // before any match and whatever "all windows" says; clicks are still logged, as for any out-of-scope
+        // window. A shell window whose class could not be read is refused too: nothing shows it is not the desktop.
+        if (ShellWindows.IsShell(window))
+        {
+            return NotCapturing(process);
+        }
+
         if (registry.MatchTool(window) is { } tool)
         {
             return _options.DisabledTools.Contains(tool.Id)
@@ -135,6 +144,9 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
             return new ScopeDecision(CaptureScope.AdminTool, null, null, $"Capturing — {process} (all windows)", window.Handle);
         }
 
-        return new ScopeDecision(CaptureScope.OutOfScope, null, null, $"Not capturing — {process}");
+        return NotCapturing(process);
     }
+
+    private static ScopeDecision NotCapturing(string process) =>
+        new(CaptureScope.OutOfScope, null, null, $"Not capturing — {process}");
 }
