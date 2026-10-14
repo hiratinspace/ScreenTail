@@ -12,14 +12,19 @@ public static partial class LogScrubber
 {
     public const string Redacted = "[redacted]";
 
+    // The last line is the framework's, not ours: the hosting layer logs every request line with
+    // {QueryString} (a ticket search's typed text) and {Path} (a route value such as a company), and the
+    // HTTP client logs every PSA call with {Uri} (the tenant's site and a ticket id). Matched as suffixes
+    // too, so RequestUri, BaseUrl and SearchQuery are covered by the same rule.
     private static readonly HashSet<string> Words = new(StringComparer.Ordinal)
     {
         "title", "text", "ocr", "ocrtext", "transcript", "note", "notes", "body", "clipboard", "summary",
         "query", "secret", "token", "password", "credential", "authorization", "apikey", "privatekey",
         "publickey", "company", "ticket", "email", "path", "filename", "file", "url", "site", "siteurl",
+        "querystring", "uri",
     };
 
-    private static readonly string[] Suffixes = ["title", "text", "transcript", "clipboard", "secret", "password", "credential", "token", "note"];
+    private static readonly string[] Suffixes = ["title", "text", "transcript", "clipboard", "secret", "password", "credential", "token", "note", "query", "uri", "url"];
 
     [GeneratedRegex(@"(?<![\w])(?:[A-Za-z]:\\|\\\\)(?:[^\\\s""'<>|]+(?: [^\\\s""'<>|]+)*\\)*[^\\\s""'<>|]*")]
     private static partial Regex WindowsPath();

@@ -23,6 +23,22 @@ public sealed class LogScrubberTests
         Assert.Equal(expected, LogScrubber.Scrub(line));
     }
 
+    [Theory]
+    [InlineData("QueryString", true)]
+    [InlineData("Path", true)]
+    [InlineData("Uri", true)]
+    [InlineData("RequestUri", true)]
+    [InlineData("BaseUrl", true)]
+    [InlineData("SearchQuery", true)]
+    [InlineData("Method", false)]
+    [InlineData("StatusCode", false)]
+    [InlineData("ElapsedMilliseconds", false)]
+    public void TheFrameworksRequestKeysAreContentAndItsCountsAreNot(string key, bool sensitive)
+    {
+        // The hosting layer's request line and the HTTP client's call line, by the names they log under.
+        Assert.Equal(sensitive, LogScrubber.IsSensitiveKey(key));
+    }
+
     [Fact]
     public void AValueUnderASensitiveKeyIsRedacted()
     {

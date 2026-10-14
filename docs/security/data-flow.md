@@ -128,7 +128,11 @@ backend — writes through one scrubbing log sink and no other: a value logged u
 key (`Title`, `Text`, `Transcript`, `Note`, `Company`, `Ticket`, a secret) is written as `[redacted]`,
 and every line and every exception passes through a path and address scrubber (`[path]`, `[email]`)
 before it is written. A test scans every log template in the client for a placeholder that would carry
-content. The level is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend)
+content. On the backend the framework's own lines count as well: the request line is logged without its
+path or query string (a ticket search's typed text, a company in a route), and a call to a tenant's PSA
+without its address (the tenant's site, a ticket id). A test drives real requests through the API at
+every log level and fails if any of that text reaches the log, and another fails if a second log sink
+is ever added beside the scrubbing one. The level is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend)
 and Information unless said otherwise.
 
 **A crash leaves a stack trace and nothing else.** With `SCREENTAIL_CRASH_REPORTS=1` a crash writes the
