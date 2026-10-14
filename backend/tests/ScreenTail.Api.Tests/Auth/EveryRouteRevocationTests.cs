@@ -3,6 +3,9 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -32,7 +35,7 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
         RevokedDevice,
         DisabledTechnician,
         DisabledTenant,
-        DeviceNeverActivated,
+        UnknownDevice,
         AnotherTenantsDevice,
     }
 
@@ -40,7 +43,7 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
     [InlineData(Standing.RevokedDevice)]
     [InlineData(Standing.DisabledTechnician)]
     [InlineData(Standing.DisabledTenant)]
-    [InlineData(Standing.DeviceNeverActivated)]
+    [InlineData(Standing.UnknownDevice)]
     [InlineData(Standing.AnotherTenantsDevice)]
     public async Task EveryAuthenticatedRouteTurnsAwayARevokedDevice(Standing standing)
     {
@@ -67,17 +70,28 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
     public async Task EveryAuthenticatedRouteLetsAGoodDeviceThrough()
     {
         // The control. Without it a route that refused everybody would pass the theory above, and so
-        // would an enumeration that found nothing.
+        // would an enumeration that found nothing. It has to prove the handler ran, not only that nobody
+        // said 401: a Caller that failed to bind is the binder's 400 (plain text here, empty in
+        // production), and a handler that threw is a 500, and neither is the handler answering. So every
+        // 400 and every 5xx must be the handler's own JSON, and each body is one the binder accepts, so
+        // the handler's own rules are what judge it.
         using var client = Client(await TokenForAsync(standing: null));
         var refused = new List<string>();
 
         foreach (var (method, path) in AuthenticatedRoutes())
         {
-            using var request = Request(method, path);
+            using var request = Request(method, path, BodyTheBinderAccepts(path));
             using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            var handlerAnswered = response.StatusCode switch
             {
-                refused.Add($"{method} {path} answered {(int)response.StatusCode}");
+                HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => false,
+                HttpStatusCode.BadRequest or >= HttpStatusCode.InternalServerError =>
+                    response.Content.Headers.ContentType?.MediaType == "application/json",
+                _ => true,
+            };
+            if (!handlerAnswered)
+            {
+                refused.Add($"{method} {path} answered {(int)response.StatusCode} {response.Content.Headers.ContentType}");
             }
         }
 
@@ -149,6 +163,75 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
         }
     }
 
+    [Fact]
+    public async Task AHandlerGetsTheCallerThePolicyProvedWithoutAskingTheDatabaseAgain()
+    {
+        // The policy proves the caller once and leaves it for the handler. If the hand-over broke, every
+        // request would quietly read the device and the tenant twice and every other test would stay
+        // green, because the fallback check succeeds too. Revoking the device between the two steps
+        // tells them apart: the hand-over still gives the caller, a second read would give nothing.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var scope = api.Services.CreateScope();
+        var http = Request(scope, tenantId, userId, deviceId);
+        var authorization = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
+
+        var result = await authorization.AuthorizeAsync(http.User, http, CallerPolicy.Name);
+        _ = await api.UseAsync(db => db.Devices.Where(d => d.Id == deviceId).ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+        var first = await Caller.BindAsync(http);
+        var second = await Caller.BindAsync(http);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(deviceId, first?.DeviceId);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public async Task ARouteMappedOutsideThePolicyStillNeverRunsForARevokedDevice()
+    {
+        // The fallback above, through the real minimal API pipeline rather than by calling BindAsync: a
+        // route somebody maps outside the /v1 group, with authentication but no policy, that asks for a
+        // Caller. A revoked device is turned away by the binder and the handler never runs.
+        var ran = 0;
+        using var outside = api.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            // As in production, where a parameter that does not bind is a 400 rather than an exception.
+            _ = services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
+            _ = services.AddSingleton<IStartupFilter>(new OutsideRoute(who =>
+            {
+                _ = Interlocked.Increment(ref ran);
+                return who.DeviceId;
+            }));
+        }));
+
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = outside.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var good = await client.GetAsync(new Uri(OutsideRoute.Path, UriKind.Relative), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, good.StatusCode);
+        Assert.Equal(1, ran);
+
+        _ = await api.UseAsync(db => db.Devices.Where(d => d.Id == deviceId).ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+        using var revoked = await client.GetAsync(new Uri(OutsideRoute.Path, UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, revoked.StatusCode);
+        Assert.Equal(1, ran);
+    }
+
+    /// <summary>A route mapped ahead of the app's own pipeline, so no policy of the app's applies to it.</summary>
+    private sealed class OutsideRoute(Func<Caller, Guid> handler) : IStartupFilter
+    {
+        public const string Path = "/outside-the-policy";
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            _ = app.UseRouting();
+            _ = app.UseAuthentication();
+            _ = app.UseEndpoints(endpoints => endpoints.MapGet(Path, (Caller who) => handler(who)));
+            next(app);
+        };
+    }
+
     private static DefaultHttpContext Request(IServiceScope scope, Guid tenantId, Guid userId, Guid deviceId) => new()
     {
         RequestServices = scope.ServiceProvider,
@@ -182,16 +265,30 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
             .ThenBy(r => r.method, StringComparer.Ordinal),
     ];
 
-    private static HttpRequestMessage Request(string method, string path)
+    private static HttpRequestMessage Request(string method, string path, string body = "{}")
     {
         var request = new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative));
         if (method is "POST" or "PUT" or "PATCH")
         {
-            request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
         }
 
         return request;
     }
+
+    /// <summary>
+    /// A body with every field the binder requires and nothing the handler accepts (an empty session id),
+    /// so a good device reaches the handler's own 400 and nothing is drafted or published. Every other
+    /// route takes an empty object.
+    /// </summary>
+    private static string BodyTheBinderAccepts(string path) => path switch
+    {
+        "/v1/sessions/publish" => """
+            {"session_id":"","ticket_id":"","note":{"problem":"","steps":[],"result":"","follow_ups":[],"suggested_title":"","suggested_time_minutes":0,"kb_candidate":false,"kb_reason":"","source":"","prompt_version":""}}
+            """,
+        "/v1/sessions/summarize" => """{"session_id":""}""",
+        _ => "{}",
+    };
 
     private HttpClient Client(string token)
     {
@@ -215,7 +312,7 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
             case Standing.DisabledTenant:
                 _ = await api.UseAsync(db => db.Tenants.Where(t => t.Id == tenantId).ExecuteUpdateAsync(set => set.SetProperty(t => t.DisabledAt, DateTimeOffset.UtcNow)));
                 break;
-            case Standing.DeviceNeverActivated:
+            case Standing.UnknownDevice:
                 deviceId = Guid.NewGuid();
                 break;
             case Standing.AnotherTenantsDevice:
