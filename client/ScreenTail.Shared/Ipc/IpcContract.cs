@@ -8,8 +8,11 @@ namespace ScreenTail.Shared.Ipc;
 /// capture stopped. Additive, but the framing rejects unknown members on purpose, so an older reader
 /// would fail on a newer snapshot rather than ignore the field. The handshake compares versions and
 /// refuses a mismatched pair, which is the behaviour that makes this safe to change at all.
+///
+/// 3: the <c>audit</c> reply carries where the export was written and its verdict instead of the whole
+/// log as one string, which outgrew the frame limit within weeks (2026-10-12 review, E-2).
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 2;
+    public const int Version = 3;
 }

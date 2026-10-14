@@ -461,13 +461,29 @@ public sealed record SetSettingsCommand : IpcCommand
     public required ScreenTail.Shared.Settings.ClientSettings Settings { get; init; }
 }
 
-/// <summary>The audit log with its verification, as JSON. Answered by an <see cref="AuditExported"/>.</summary>
+/// <summary>
+/// Writes the audit log with its verification to a file the service owns. Answered by an
+/// <see cref="AuditExported"/> saying where, or a failed result saying why not. The log itself never
+/// crosses the pipe: it is never pruned, so it outgrows one frame within weeks (2026-10-12 review, E-2).
+/// </summary>
 public sealed record ExportAuditCommand : IpcCommand;
 
+/// <summary>Where the export was written, and what verifying the chain found in the same pass.</summary>
 public sealed record AuditExported : IpcEvent
 {
-    [JsonPropertyName("json")]
-    public required string Json { get; init; }
+    /// <summary>A file in the service's exports directory. The UI copies it where the technician chose and deletes it.</summary>
+    [JsonPropertyName("path")]
+    public required string Path { get; init; }
+
+    [JsonPropertyName("rows")]
+    public required long Rows { get; init; }
+
+    [JsonPropertyName("intact")]
+    public required bool Intact { get; init; }
+
+    /// <summary>The verification in a sentence, the same one the file carries.</summary>
+    [JsonPropertyName("note")]
+    public required string Note { get; init; }
 }
 
 // ---- Capture settings (ST-080; 2026-09-26) --------------------------------------------------------------

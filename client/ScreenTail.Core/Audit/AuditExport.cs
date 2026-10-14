@@ -38,37 +38,27 @@ public sealed record AuditInterval(long Times, long TotalMs);
 /// </summary>
 public static class AuditExport
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
-
+    /// <summary>
+    /// The export as a string, through the same writer the service streams to a file with. For tests and
+    /// for a log small enough to hold; the service never builds the whole export in memory.
+    /// </summary>
     public static string ToJson(IReadOnlyList<AuditRecord> records, AuditVerification verification)
     {
         ArgumentNullException.ThrowIfNull(records);
         ArgumentNullException.ThrowIfNull(verification);
 
-        return JsonSerializer.Serialize(
-            new
+        using var buffer = new MemoryStream();
+        using (var writer = new AuditJsonWriter(buffer, DateTimeOffset.UtcNow))
+        {
+            foreach (var record in records)
             {
-                exported_at = DateTimeOffset.UtcNow,
-                integrity = new
-                {
-                    intact = verification.Intact,
-                    rows_checked = verification.Checked,
-                    rows_predating_the_chain = verification.Unchained,
-                    first_broken_row = verification.BrokenAt,
-                    note = verification.Describe(),
-                },
-                entries = records.Select(r => new
-                {
-                    id = r.Id,
-                    at = r.At,
-                    session_id = r.SessionId,
-                    type = r.Type,
-                    count = r.Count,
-                    detail = r.Detail,
-                    hash = r.Hash,
-                }),
-            },
-            Indented);
+                writer.Write(record);
+            }
+
+            writer.Complete(verification);
+        }
+
+        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
     }
 
     public static string ToCsv(IReadOnlyList<AuditRecord> records)
@@ -132,5 +122,117 @@ public static class AuditExport
         }
 
         return new AuditSummary(sessionId, captured, purged, suppressions, redactions, sent);
+    }
+}
+
+/// <summary>
+/// Writes the audit export one row at a time (2026-10-12 review, E-2).
+///
+/// The log is never pruned, so the export has to be written in memory that does not grow with it: each
+/// row goes to the stream as it is read, and the writer's buffer is flushed every few kilobytes. The
+/// verification comes last, after the rows, because it is only known once the last row has been read;
+/// a JSON reader does not care about the order of an object's members. Compact rather than indented: the
+/// file is evidence for a tool to check, and a year of rows indented is several times the size.
+///
+/// Built only from <see cref="AuditRecord"/>, for the reason <see cref="AuditExport"/> gives.
+/// </summary>
+public sealed class AuditJsonWriter : IDisposable, IAsyncDisposable
+{
+    /// <summary>How much the writer holds before it hands it to the stream.</summary>
+    private const int FlushAt = 32 * 1024;
+
+    private readonly Utf8JsonWriter _json;
+
+    public AuditJsonWriter(Stream destination, DateTimeOffset exportedAt)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        _json = new Utf8JsonWriter(destination);
+        _json.WriteStartObject();
+        _json.WriteString("exported_at", exportedAt);
+        _json.WriteStartArray("entries");
+    }
+
+    /// <summary>How many rows have been written.</summary>
+    public long Rows { get; private set; }
+
+    public void Write(AuditRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        _json.WriteStartObject();
+        _json.WriteNumber("id", record.Id);
+        _json.WriteString("at", record.At);
+        WriteText("session_id", record.SessionId);
+        _json.WriteString("type", record.Type);
+        if (record.Count is { } count)
+        {
+            _json.WriteNumber("count", count);
+        }
+        else
+        {
+            _json.WriteNull("count");
+        }
+
+        WriteText("detail", record.Detail);
+        WriteText("hash", record.Hash);
+        _json.WriteEndObject();
+        Rows++;
+    }
+
+    /// <summary>Writes a row, and passes what has built up to the stream once there is enough of it.</summary>
+    public ValueTask WriteAsync(AuditRecord record, CancellationToken ct)
+    {
+        Write(record);
+        return _json.BytesPending >= FlushAt ? new ValueTask(_json.FlushAsync(ct)) : ValueTask.CompletedTask;
+    }
+
+    /// <summary>Closes the rows and says whether they verify.</summary>
+    public void Complete(AuditVerification verification)
+    {
+        End(verification);
+        _json.Flush();
+    }
+
+    public Task CompleteAsync(AuditVerification verification, CancellationToken ct)
+    {
+        End(verification);
+        return _json.FlushAsync(ct);
+    }
+
+    public void Dispose() => _json.Dispose();
+
+    public ValueTask DisposeAsync() => _json.DisposeAsync();
+
+    private void End(AuditVerification verification)
+    {
+        ArgumentNullException.ThrowIfNull(verification);
+        _json.WriteEndArray();
+        _json.WriteStartObject("integrity");
+        _json.WriteBoolean("intact", verification.Intact);
+        _json.WriteNumber("rows_checked", verification.Checked);
+        _json.WriteNumber("rows_predating_the_chain", verification.Unchained);
+        if (verification.BrokenAt is { } broken)
+        {
+            _json.WriteNumber("first_broken_row", broken);
+        }
+        else
+        {
+            _json.WriteNull("first_broken_row");
+        }
+
+        _json.WriteString("note", verification.Describe());
+        _json.WriteEndObject();
+        _json.WriteEndObject();
+    }
+
+    private void WriteText(string name, string? value)
+    {
+        if (value is null)
+        {
+            _json.WriteNull(name);
+        }
+        else
+        {
+            _json.WriteString(name, value);
+        }
     }
 }

@@ -1,12 +1,12 @@
-# Service–UI IPC contract (v2)
+# Service–UI IPC contract (v3)
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
-**Last brought into line with the code: 2026-09-28.** `IpcContract.Version` is **2**, since 2026-09-14 (ST-072, #46): `reason` and `scope_process` were added to the state snapshot, and because the framing rejects unknown members an older reader would have failed on a newer snapshot rather than ignored the field. Everything since has been new commands and events an older client never sends or receives, and has not bumped it.
+**Last brought into line with the code: 2026-10-14.** `IpcContract.Version` is **3**, since 2026-10-14 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 2 dates from 2026-09-14 (ST-072, #46), when `reason` and `scope_process` were added to the state snapshot for the same reason.
 
 ## Framing
 
-Each message is one frame: a 4-byte little-endian unsigned length, then that many bytes of UTF-8 JSON. Maximum 1 MiB; a larger length closes the connection. No message is ever split across frames or batched.
+Each message is one frame: a 4-byte little-endian unsigned length, then that many bytes of UTF-8 JSON. Maximum 1 MiB; a larger length closes the connection. No message is ever split across frames or batched. The service never sends a larger answer: one that would not fit is refused before a byte is written, with a failed `result` that gives its size, and the connection stays up.
 
 ## Handshake
 
@@ -45,7 +45,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `get_device` | — | The device's standing. Answered by `device` |
 | `get_settings` | — | The technician's own settings and which fields the admin's policy locked (ST-081). Answered by `settings` |
 | `set_settings` | `settings` | The whole document, every time; the service validates, writes it beside the store and applies it in place. Refused with the first problem as a failed `result` |
-| `export_audit` | — | The audit log with its chain verification, as JSON (Spec §5 S6 "Export audit log"). Answered by `audit` |
+| `export_audit` | — | Writes the audit log with its chain verification, as JSON, to a new file in the service's `exports` folder under its data directory, verified in the same pass (Spec §5 S6 "Export audit log"). Answered by `audit`, or a failed `result` saying why. The log itself never crosses the pipe, and the service never takes a path from it |
 | `get_capture_settings` | — | The capture settings with the registry's tools, the device found and what the policy forces beside them (ST-080). Answered by `capture_settings` |
 | `set_capture_settings` | `settings` | The whole document, every time; validated, written beside the store, applied in place (hotkeys re-registered). Refused with the first problem as a failed `result` |
 | `list_integrations` | — | Settings → Integrations' list: each provider with its site, the credential's last four, when it was connected and last checked, and the last error (ST-082). Answered by `integration_details` |
@@ -81,7 +81,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `device_activated` | `tenant_name`, `device_id` | Answers `activate_device` |
 | `device` | `activated`, `tenant_name`, `device_id`, `days_offline`, `beyond_grace`, `revoked`, `standing` | Answers `get_device`: one sentence in `standing` for a screen |
 | `settings` | `settings` (`local_only`, `telemetry`, `retention_days`, `ssn`, `cards`, `api_keys`, `passwords`, `emails`, `custom_patterns[]`, `excluded_processes[]`), `local_only_locked`, `retention_locked`, `policy_version` | Answers `get_settings` |
-| `audit` | `json` | Answers `export_audit` |
+| `audit` | `path`, `rows`, `intact`, `note` | Answers `export_audit`: where the file is, how many rows it holds, and the verification. The UI copies the file where the technician chose and deletes it; one left behind is removed by the next export after ten minutes, and by `erase_all_local_data` |
 | `capture_settings` | `settings` (`disabled_tools[]`, `capture_all_windows`, `auto_start`, `grace_seconds`, `hotkeys{}`, `sensitivity`, `speech_model`, `start_ui_at_login`), `tools[]` (`id`, `display_name`), `microphones[]`, `policy_forces_all_windows`, `default_grace_seconds` | Answers `get_capture_settings` |
 | `integration_details` | `integrations[]` (`provider`, `site_url`, `secret` as last four, `connected_at`, `last_checked_at`, `last_error`) | Answers `list_integrations` |
 | `integration_checked` | `ok`, `message` | Answers `check_integration`: the provider's answer in words, either way |
@@ -289,4 +289,5 @@ indicator unreachable rather than by touching capture.
 | 2026-09-25 | `activate_device` / `device_activated`, `get_device` / `device` (ST-010 client half) | 2 |
 | 2026-09-26 | `get_settings` / `settings`, `set_settings`, `export_audit` / `audit` (ST-081) | 2 |
 | 2026-09-26 | `get_capture_settings` / `capture_settings`, `set_capture_settings` (ST-080) | 2 |
+| 2026-10-14 | `audit` carries `path`, `rows`, `intact`, `note` instead of `json`; an answer too large for one frame is a failed `result` (2026-10-12 review, E-2) | **3** |
 | 2026-09-25 | `list_integrations` / `integration_details`, `store_integration`, `remove_integration`, `check_integration` / `integration_checked`, `unmap_company` (ST-082) | 2 |

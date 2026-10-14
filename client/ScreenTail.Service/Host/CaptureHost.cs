@@ -237,7 +237,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 settingsStore,
                 () => policySync.Current,
                 settings => applySettings(settings),
-                async ct => (await store.GetAuditRecordsAsync(null, ct).ConfigureAwait(false), await store.VerifyAuditAsync(ct).ConfigureAwait(false))),
+                new Core.Audit.AuditExporter(store.ReadAuditAsync, Path.Combine(DataDirectory, Core.Audit.AuditExporter.DirectoryName)).ExportAsync),
             new CaptureSettingsCommands(
                 captureStore,
                 () => [.. registry.Tools.Select(t => new ToolRow(t.Id, t.DisplayName)), .. registry.BrowserPatterns.Select(b => new ToolRow(b.Id, b.DisplayName))],

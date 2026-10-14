@@ -311,7 +311,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
                 new ScreenTail.Core.Settings.ClientSettingsStore(Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.settings.json")),
                 () => ScreenTail.Core.Net.TenantPolicy.Default,
                 _ => { },
-                async ct => (await store.GetAuditRecordsAsync(null, ct), await store.VerifyAuditAsync(ct))),
+                new ScreenTail.Core.Audit.AuditExporter(store.ReadAuditAsync, Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.exports")).ExportAsync),
             new ScreenTail.Core.Settings.CaptureSettingsCommands(
                 new ScreenTail.Core.Settings.CaptureSettingsStore(Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.capture.json")),
                 () => [],

@@ -416,8 +416,7 @@ public sealed class IpcServer : IAsyncDisposable
                     // that only understands results still learns the command was accepted.
                     if (await _handler.ReplyToAsync(command, connection.Id, ct).ConfigureAwait(false) is { } reply)
                     {
-                        await connection.SendAsync(reply with { RequestId = command.RequestId }, ct).ConfigureAwait(false);
-                        result = new CommandResult { RequestId = command.RequestId, Ok = true };
+                        result = await AnswerAsync(connection, reply with { RequestId = command.RequestId }, ct).ConfigureAwait(false);
                     }
                     else
                     {
@@ -428,6 +427,31 @@ public sealed class IpcServer : IAsyncDisposable
             }
 
             await connection.SendAsync(result, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Sends an answer, or refuses with a reason when it would not fit in one frame.
+    ///
+    /// An answer over the limit used to throw out of the serve loop, which dropped the UI's only
+    /// connection: the one carrying the indicator heartbeat and every button (2026-10-12 review, E-2).
+    /// The framing refuses before writing a byte, so the pipe is still in step and the result can follow.
+    /// </summary>
+    private static async Task<CommandResult> AnswerAsync(Connection connection, IpcEvent reply, CancellationToken ct)
+    {
+        try
+        {
+            await connection.SendAsync(reply, ct).ConfigureAwait(false);
+            return new CommandResult { RequestId = reply.RequestId, Ok = true };
+        }
+        catch (IpcMessageTooLargeException tooLarge)
+        {
+            return new CommandResult
+            {
+                RequestId = reply.RequestId,
+                Ok = false,
+                Error = $"The answer is too large for the pipe: {tooLarge.Bytes} bytes against a limit of {IpcFraming.MaxMessageBytes}.",
+            };
         }
     }
 

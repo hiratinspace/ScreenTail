@@ -14,15 +14,15 @@ namespace ScreenTail.UI.Settings.Privacy;
 public sealed partial class PrivacyViewModel : ObservableObject
 {
     private readonly PrivacyPanel _panel;
-    private readonly Func<string, Task> _export;
+    private readonly Func<string?> _chooseFile;
     private readonly Func<Task> _eraseEverything;
 
-    /// <param name="export">Hands the audit log's JSON to the shell to save.</param>
+    /// <param name="chooseFile">Asks the technician where to keep the audit log; null when they cancelled.</param>
     /// <param name="eraseEverything">The shell's typed-confirmation flow for INV-12.</param>
-    public PrivacyViewModel(PrivacyPanel panel, Func<string, Task> export, Func<Task> eraseEverything)
+    public PrivacyViewModel(PrivacyPanel panel, Func<string?> chooseFile, Func<Task> eraseEverything)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
-        _export = export ?? throw new ArgumentNullException(nameof(export));
+        _chooseFile = chooseFile ?? throw new ArgumentNullException(nameof(chooseFile));
         _eraseEverything = eraseEverything ?? throw new ArgumentNullException(nameof(eraseEverything));
         Refresh();
     }
@@ -170,15 +170,21 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportAuditAsync()
     {
-        var json = await _panel.ExportAuditAsync().ConfigureAwait(true);
-        if (json is null)
+        // Where first, so a cancelled dialog costs the service nothing and leaves no file behind.
+        if (_chooseFile() is not { } destination)
         {
-            Problem = "The capture service did not answer, so the audit log could not be exported.";
-            ProblemVisibility = Visibility.Visible;
             return;
         }
 
-        await _export(json).ConfigureAwait(true);
+        var saved = await _panel.ExportAuditAsync(destination).ConfigureAwait(true);
+        if (saved.Saved && saved.Intact)
+        {
+            return;
+        }
+
+        // Not saved, or saved from a log that does not verify: either is something to say out loud.
+        Problem = saved.Message;
+        ProblemVisibility = Visibility.Visible;
     }
 
     [RelayCommand]
