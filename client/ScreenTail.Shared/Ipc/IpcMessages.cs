@@ -193,7 +193,7 @@ public sealed record ConfirmationIssued : IpcEvent
 // the shell's Review area showed the pane's name. Everything a technician does to a session in Review is
 // a question or a command here; the service, the one process that reads a frame, does the work.
 
-/// <summary>Asks for a session to review. Answered by a <see cref="SessionLoaded"/>, or a failed result when there is no such session.</summary>
+/// <summary>Asks for a session to review. Answered by a <see cref="SessionLoaded"/>, or a failed result when there is no such session or it is too large for one message.</summary>
 public sealed record GetSessionCommand : IpcCommand
 {
     [JsonPropertyName("session_id")]

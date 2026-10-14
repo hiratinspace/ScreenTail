@@ -231,6 +231,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
         if (Enlarged == item)
         {
+            Release(item);
             Enlarged = null;
             OnPropertyChanged(nameof(IsEnlarged));
         }
@@ -279,6 +280,13 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
                 : item.Cell.Frame.OcrText;
         }
 
+        // Enter on another frame while one is open moves the view without passing through Esc, so the
+        // frame being left lets go of what it held here, after the new one has loaded.
+        if (Enlarged is { } previous && previous != item)
+        {
+            Release(previous);
+        }
+
         Enlarged = item;
         ShowOcrText = false;
         OnPropertyChanged(nameof(IsEnlarged));
@@ -289,12 +297,18 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     {
         if (Enlarged is { } item)
         {
-            item.Image = null;
-            item.OcrText = null;
+            Release(item);
         }
 
         Enlarged = null;
         OnPropertyChanged(nameof(IsEnlarged));
+    }
+
+    /// <summary>Drops the full image and the OCR text, which a frame holds only while it is the enlarged one.</summary>
+    private static void Release(FrameItem item)
+    {
+        item.Image = null;
+        item.OcrText = null;
     }
 
     [RelayCommand]
