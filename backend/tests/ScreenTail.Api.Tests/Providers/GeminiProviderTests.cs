@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using ScreenTail.Api.Providers;
@@ -355,21 +356,173 @@ public sealed class GeminiProviderTests
         Assert.False(result.Error!.MayHaveBeenBilled);
     }
 
-    /// <summary>Never answers, so the caller's own deadline is what ends the call.</summary>
-    private sealed class SlowHandler : HttpMessageHandler
+    [Fact]
+    public async Task AModelTheCallerStoppedWaitingForMayStillHaveBeenBilled()
+    {
+        // 2026-10-12 review. Which deadline ended the wait says nothing about the money. The service's
+        // own deadline is a cancelled token by the time this sees it, and it was read as "not billed".
+        using var handler = new SlowHandler();
+        var provider = Provider(handler, options => options.Timeout = Timeout.InfiniteTimeSpan);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMilliseconds(50));
+
+        var result = await provider.DraftAsync(Bundle(), null, deadline.Token);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
+        Assert.True(result.Error.MayHaveBeenBilled);
+    }
+
+    [Fact]
+    public async Task ARequestThatNeverLeftWasNotBilledHoweverItTimedOut()
+    {
+        // A connection that never opened carried nothing, whichever timeout gave up on it.
+        using var handler = new SlowHandler(readsTheRequest: false);
+        var provider = Provider(handler, options => options.Timeout = TimeSpan.FromMilliseconds(50));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
+        Assert.False(result.Error.MayHaveBeenBilled);
+    }
+
+    [Fact]
+    public async Task AConnectionThatDropsAfterTheRequestLeftMayHaveBeenBilled()
+    {
+        // The model can be running a request whose answer never makes it back.
+        using var handler = new BrokenHandler(readsTheRequest: true);
+
+        var result = await Provider(handler).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.True(result.Error!.Retryable);
+        Assert.True(result.Error.MayHaveBeenBilled);
+    }
+
+    [Fact]
+    public async Task ACallerThatHadAlreadyGivenUpSendsNothingAndOwesNothing()
+    {
+        // What a fallback is handed after the primary used the whole deadline.
+        using var handler = new RecordingHandler(Answer());
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+
+        var result = await Provider(handler).DraftAsync(Bundle(), null, gone.Token);
+
+        Assert.False(result.Ok);
+        Assert.False(result.Error!.MayHaveBeenBilled);
+        Assert.Null(handler.Uri);
+    }
+
+    [Fact]
+    public async Task ARealTransportThatSentTheRequestSaysItMayHaveBeenBilled()
+    {
+        // The stubs above stand in for the transport. This is the transport: a socket that takes the
+        // whole request and never answers, the way a model that is still thinking looks from here.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var server = DrainAsync(listener, stop.Token);
+
+        try
+        {
+            var result = await OverSockets(((IPEndPoint)listener.LocalEndpoint).Port)
+                .DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+            Assert.False(result.Ok);
+            Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
+            Assert.True(result.Error.MayHaveBeenBilled);
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await server;
+        }
+    }
+
+    [Fact]
+    public async Task ARealTransportThatCouldNotConnectSaysNothingWasBilled()
+    {
+        int port;
+        using (var listener = new TcpListener(IPAddress.Loopback, 0))
+        {
+            listener.Start();
+            port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
+
+        var result = await OverSockets(port).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
+        Assert.False(result.Error.MayHaveBeenBilled);
+    }
+
+    /// <summary>The provider over the real socket transport, pointed at a loopback port.</summary>
+    private static GeminiProvider OverSockets(int port)
+    {
+        var options = new SummarizationOptions { ApiKey = "test-key", Timeout = TimeSpan.FromMilliseconds(500) };
+        var http = new HttpClient(new SocketsHttpHandler())
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{port}/"),
+            Timeout = options.Timeout,
+        };
+        return new GeminiProvider(http, options, "the note prompt");
+    }
+
+    /// <summary>Accepts one connection and reads everything sent on it, answering nothing.</summary>
+    private static async Task DrainAsync(TcpListener listener, CancellationToken ct)
+    {
+        try
+        {
+            using var client = await listener.AcceptTcpClientAsync(ct);
+            var stream = client.GetStream();
+            var buffer = new byte[64 * 1024];
+            while (await stream.ReadAsync(buffer, ct) > 0)
+            {
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            // The test is over, or the client hung up. Either way there is nothing left to read.
+        }
+    }
+
+    /// <summary>
+    /// Takes the request the way a transport does, by writing it out, and then never answers, so a
+    /// deadline is what ends the call. With <c>readsTheRequest</c> false it hangs before taking any of it,
+    /// which is a connection that never opened.
+    /// </summary>
+    private sealed class SlowHandler(bool readsTheRequest = true) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (readsTheRequest)
+            {
+                _ = await request.Content!.ReadAsByteArrayAsync(ct);
+            }
+
             await Task.Delay(Timeout.Infinite, ct);
             throw new UnreachableException();
         }
     }
 
-    /// <summary>Fails the way an unreachable host does: nothing was sent.</summary>
-    private sealed class BrokenHandler : HttpMessageHandler
+    /// <summary>
+    /// Fails the way an unreachable host does: nothing was sent. With <c>readsTheRequest</c> it fails the
+    /// way a connection dropped mid-answer does, after the request went out.
+    /// </summary>
+    private sealed class BrokenHandler(bool readsTheRequest = false) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (readsTheRequest)
+            {
+                _ = await request.Content!.ReadAsByteArrayAsync(ct);
+                throw new HttpRequestException("The response ended prematurely.");
+            }
+
             throw new HttpRequestException("No such host is known.");
+        }
     }
 
     private static GeminiProvider Provider(HttpMessageHandler handler, Action<SummarizationOptions>? configure = null)

@@ -53,14 +53,22 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     {
         ArgumentNullException.ThrowIfNull(bundle);
 
+        // A caller that has already given up is told so before anything is built or sent. A fallback
+        // asked after the primary used the whole deadline lands here, and owes nothing.
+        if (ct.IsCancellationRequested)
+        {
+            return ProviderResult.Failure<LlmDraft>(Unanswered(inTime: true, mayHaveBeenBilled: false));
+        }
+
+        var content = new OutgoingContent(Body(bundle, repair))
+        {
+            Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" } },
+        };
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             $"v1beta/models/{options.Model}:generateContent")
         {
-            Content = new ByteArrayContent(Body(bundle, repair))
-            {
-                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" } },
-            },
+            Content = content,
         };
 
         // Header rather than query string: a key in a URL is a key in every proxy log between here and
@@ -72,32 +80,25 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
         {
             response = await http.SendAsync(request, ct).ConfigureAwait(false);
         }
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            // Our own deadline, not the caller's. The request went out and the model was probably
-            // running when we stopped waiting, so this says it may have been billed; the ledger settles
-            // it at the estimate rather than at nothing (2026-09-20 review).
-            return ProviderResult.Failure<LlmDraft>(new ProviderError(
-                ProviderErrorKind.Unavailable,
-                "The drafting model did not answer in time.",
-                "The session is queued and will be drafted when it responds.")
-            {
-                MayHaveBeenBilled = true,
-            });
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            // Unreachable. Nothing was sent, so nothing is owed. Retryable, and the only kind that
-            // earns a fallback.
-            return ProviderResult.Failure<LlmDraft>(new ProviderError(
-                ProviderErrorKind.Unavailable,
-                "The drafting model did not answer.",
-                "The session is queued and will be drafted when it responds."));
+            // Retryable either way. Whether it cost anything is decided by whether the request left, and
+            // by nothing else (2026-10-12 review). This used to ask which token had fired, and in the
+            // deployed wiring the service's own deadline always fires first: every timeout was settled
+            // at nothing, the client retried it, and the daily cap never moved during the slowdown it
+            // exists for. A caller that hung up after sending, a dropped connection after sending and
+            // either deadline are all a request the model may have run. A connection that never opened
+            // is not, so an outage still cannot spend a tenant's day.
+            return ProviderResult.Failure<LlmDraft>(
+                Unanswered(inTime: ex is OperationCanceledException, mayHaveBeenBilled: content.Left));
         }
 
         using (response)
         {
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            // Already in memory: SendAsync reads the whole answer before it returns. Not the caller's
+            // token, because a deadline landing between the two lines would throw away an answer that
+            // has been paid for, and the cost in it, for a read that cannot block.
+            var body = await response.Content.ReadAsStringAsync(CancellationToken.None).ConfigureAwait(false);
 
             return response.IsSuccessStatusCode
                 ? Read(body)
@@ -105,6 +106,18 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
                     Failure(response.StatusCode, options.Model) with { RetryAfter = RetryAfter(body) });
         }
     }
+
+    /// <summary>
+    /// Nobody answered. Retryable, and the only kind that earns a fallback; billed or not is the caller's
+    /// question to settle, from <see cref="ProviderError.MayHaveBeenBilled"/>.
+    /// </summary>
+    private static ProviderError Unanswered(bool inTime, bool mayHaveBeenBilled) => new(
+        ProviderErrorKind.Unavailable,
+        inTime ? "The drafting model did not answer in time." : "The drafting model did not answer.",
+        "The session is queued and will be drafted when it responds.")
+    {
+        MayHaveBeenBilled = mayHaveBeenBilled,
+    };
 
     /// <summary>
     /// Maps the status onto what a technician should do (Spec §4).
@@ -259,6 +272,42 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     private decimal Cost(int promptTokens, int completionTokens) =>
         ((promptTokens * options.InputCostPerMillionUsd)
             + (completionTokens * options.OutputCostPerMillionUsd)) / 1_000_000m;
+
+    /// <summary>
+    /// The request body, and the one fact about it that money depends on: whether any of it has left.
+    ///
+    /// A transport writes the body after the connection is open, so the first write is the point past
+    /// which the model may have the request. Every way of reading content goes through one of the methods
+    /// below (buffering included), so nothing can send it without saying so. When unsure it says yes:
+    /// an over-count costs a tenant one draft against the cap, an under-count is the cap not working.
+    /// </summary>
+    private sealed class OutgoingContent(byte[] body) : HttpContent
+    {
+        private volatile bool _left;
+
+        public bool Left => _left;
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            SerializeToStreamAsync(stream, context, CancellationToken.None);
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+        {
+            _left = true;
+            return stream.WriteAsync(body, cancellationToken).AsTask();
+        }
+
+        protected override void SerializeToStream(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+        {
+            _left = true;
+            stream.Write(body);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = body.Length;
+            return true;
+        }
+    }
 
     /// <summary>
     /// The request body: the prompt, the session, and the images.

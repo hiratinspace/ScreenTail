@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Net;
 using ScreenTail.Api.Providers;
+using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Tests.Summarize;
@@ -288,6 +291,226 @@ public sealed class SummarizationServiceTests
         Assert.Equal(0m, ledger.Recorded);
     }
 
+    [Theory]
+    [InlineData(100, 100)] // As Program.cs wires it: one setting for both, and the deadline is armed first.
+    [InlineData(100, -1)] // The service's deadline is the only one.
+    [InlineData(5_000, 100)] // HttpClient.Timeout is the one that fires.
+    public async Task ADraftTheDeadlineCutOffIsSettledAtTheEstimate(int deadlineMs, int httpTimeoutMs)
+    {
+        // 2026-10-12 review. Whether a call may have been billed was read from which token fired, and
+        // in the deployed wiring the service's own deadline always fires first. Every production timeout
+        // was settled at nothing, the client retried it, and the daily cap never moved during exactly
+        // the slowdown it exists for. The request left; that is the whole of the question.
+        using var handler = new HangingHandler();
+        var (service, ledger) = Real(handler, deadlineMs, httpTimeoutMs);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
+    }
+
+    [Theory]
+    [InlineData(100, 100)]
+    [InlineData(100, -1)]
+    [InlineData(5_000, 100)]
+    public async Task ADraftThatNeverLeftCostsNothingHoweverItTimedOut(int deadlineMs, int httpTimeoutMs)
+    {
+        // The other direction of the same rule. A connection that never opened carried nothing to the
+        // model, and charging it would let a network outage spend a tenant's whole day.
+        using var handler = new HangingHandler(readsTheRequest: false);
+        var (service, ledger) = Real(handler, deadlineMs, httpTimeoutMs);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(0m, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
+    }
+
+    [Fact]
+    public async Task ADraftWhoseCallerHungUpAfterItWasSentIsStillCharged()
+    {
+        // The client's own timeout ends the request on the backend too, and the model does not hear
+        // about it. DraftSender retries on the promise that this call was settled at its estimate.
+        using var handler = new HangingHandler();
+        var (service, ledger) = Real(handler, deadlineMs: 60_000, httpTimeoutMs: 60_000);
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        var drafting = service.DraftAsync(Tenant, Bundle(), caller.Token);
+        await handler.Sent.Task.WaitAsync(TestContext.Current.CancellationToken);
+        await caller.CancelAsync();
+        var result = await drafting;
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task ARepairTheDeadlineCutOffIsChargedOnTopOfTheFirstAnswer()
+    {
+        // The first answer broke the rules and cost what its usage says. The repair was sent and never
+        // came back, which is a second call the model may have run, and the cap has to see both.
+        using var handler = new HangingHandler(first: GeminiAnswer(
+            WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
+            promptTokens: 40_000));
+        var (service, ledger) = Real(handler, deadlineMs: 300, httpTimeoutMs: 300);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Contains("f-invented", result.Reason, StringComparison.Ordinal);
+        Assert.Equal(0.03m + new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task ARepairThatFailsLeavesTheFirstReasonAndCountsWhatItMayHaveCost()
+    {
+        var provider = new FakeLlm
+        {
+            Reply = WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
+            FailureOnRetry = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.")
+            {
+                MayHaveBeenBilled = true,
+            },
+        };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Contains("f-invented", result.Reason, StringComparison.Ordinal);
+        Assert.Equal(2, provider.Calls);
+        Assert.Equal(0.04m + new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+        Assert.Equal(ledger.Recorded, result.CostUsd);
+    }
+
+    [Fact]
+    public async Task ARepairThatNeverLeftCostsOnlyTheFirstAnswer()
+    {
+        var provider = new FakeLlm
+        {
+            Reply = WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
+            FailureOnRetry = new ProviderError(ProviderErrorKind.Unavailable, "No answer.", "Try again."),
+        };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Equal(0.04m, ledger.Recorded);
+    }
+
+    [Theory]
+    [InlineData(true, 0.14)] // The fallback answered: its own cost on top of the estimate.
+    [InlineData(false, 0.10)] // The fallback could not be reached either: the primary's estimate stands.
+    public async Task APrimaryThatMayHaveBeenBilledIsChargedWhateverTheFallbackDoes(bool fallbackAnswers, double expected)
+    {
+        // Falling over used to replace the primary's failure with the fallback's, and with it the only
+        // record that the first call may have been paid for.
+        var primary = new FakeLlm
+        {
+            Failure = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.")
+            {
+                MayHaveBeenBilled = true,
+            },
+        };
+        var fallback = fallbackAnswers
+            ? new FakeLlm { Reply = Good(), Name = "fallback" }
+            : new FakeLlm { Failure = new ProviderError(ProviderErrorKind.Unavailable, "No answer.", "Try again.") };
+        var ledger = new FakeLedger();
+        var service = Service(primary, fallback, ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(fallbackAnswers, result.Ok);
+        Assert.Equal(1, fallback.Calls);
+        Assert.Equal((decimal)expected, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task TwoCallsThatMayBothHaveBeenBilledAreChargedTwice()
+    {
+        var slow = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.") { MayHaveBeenBilled = true };
+        var ledger = new FakeLedger();
+        var service = Service(new FakeLlm { Failure = slow }, new FakeLlm { Failure = slow }, ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(2 * new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
+    }
+
+    /// <summary>
+    /// The production shape: a real <see cref="GeminiProvider"/> over an HttpClient with its own timeout,
+    /// inside a service with its own deadline. -1 is no HttpClient timeout at all.
+    /// </summary>
+    private static (SummarizationService Service, FakeLedger Ledger) Real(HttpMessageHandler handler, int deadlineMs, int httpTimeoutMs)
+    {
+        var options = new SummarizationOptions { ApiKey = "test-key", Timeout = TimeSpan.FromMilliseconds(deadlineMs) };
+        var http = new HttpClient(handler, disposeHandler: false)
+        {
+            BaseAddress = new Uri("https://generativelanguage.googleapis.com/"),
+            Timeout = httpTimeoutMs < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(httpTimeoutMs),
+        };
+        var ledger = new FakeLedger();
+        return (new SummarizationService(new GeminiProvider(http, options, "the note prompt"), null, ledger, options), ledger);
+    }
+
+    private static HttpResponseMessage GeminiAnswer(string text, int promptTokens) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(
+            $$"""
+            {
+              "candidates": [ { "content": { "parts": [ { "text": {{System.Text.Json.JsonSerializer.Serialize(text)}} } ] } } ],
+              "usageMetadata": { "promptTokenCount": {{promptTokens}}, "candidatesTokenCount": 0 }
+            }
+            """),
+    };
+
+    /// <summary>
+    /// Takes the request the way a transport does, by writing it out, and then never answers. With
+    /// <c>readsTheRequest</c> false it hangs before taking anything, which is a connection that never
+    /// opened. Answers the first request with <c>first</c> when one is given.
+    /// </summary>
+    private sealed class HangingHandler(HttpResponseMessage? first = null, bool readsTheRequest = true) : HttpMessageHandler
+    {
+        private HttpResponseMessage? _first = first;
+
+        public TaskCompletionSource Sent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (readsTheRequest)
+            {
+                _ = await request.Content!.ReadAsByteArrayAsync(ct);
+            }
+
+            if (Interlocked.Exchange(ref _first, null) is { } answer)
+            {
+                return answer;
+            }
+
+            _ = Sent.TrySetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new UnreachableException();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Interlocked.Exchange(ref _first, null)?.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
     private static SummarizeBundle Bundle() => new()
     {
         SessionId = "s1",
@@ -325,6 +548,9 @@ public sealed class SummarizationServiceTests
 
         public ProviderError? Failure { get; set; }
 
+        /// <summary>How the repair call fails, when it is asked for one.</summary>
+        public ProviderError? FailureOnRetry { get; set; }
+
         /// <summary>A provider that fails by throwing, which is what a bug in one looks like.</summary>
         public Exception? Throws { get; set; }
 
@@ -341,6 +567,11 @@ public sealed class SummarizationServiceTests
             if (Failure is { } error)
             {
                 return Task.FromResult(ProviderResult.Failure<LlmDraft>(error));
+            }
+
+            if (repair is not null && FailureOnRetry is { } retryError)
+            {
+                return Task.FromResult(ProviderResult.Failure<LlmDraft>(retryError));
             }
 
             var json = repair is not null && ReplyOnRetry is not null ? ReplyOnRetry : Reply!;

@@ -164,18 +164,12 @@ public sealed class SummarizationService(
 
         try
         {
-            (model, usedFallback, failure) = await ChooseAsync(bundle, deadline.Token).ConfigureAwait(false);
+            // What the calls that did not answer may have cost, already counted.
+            (model, usedFallback, failure, cost) = await ChooseAsync(bundle, deadline.Token).ConfigureAwait(false);
             if (model is not null)
             {
-                cost = model.CostUsd;
+                cost += model.CostUsd;
                 outcome = Interpret(model.Json, bundle);
-            }
-            else if (failure!.MayHaveBeenBilled)
-            {
-                // We stopped waiting; the model did not stop working. Settled at the estimate because
-                // that is the honest guess, and because a cap that ignores the calls it never saw the
-                // end of is a cap a slow afternoon walks straight through (2026-09-20 review).
-                cost = options.MaxSessionCostUsd;
             }
 
             if (model is not null && outcome.Draft is null)
@@ -189,6 +183,12 @@ public sealed class SummarizationService(
                     cost += second.Value!.CostUsd;
                     outcome = Interpret(second.Value.Json, bundle);
                     repaired = outcome.Draft is not null;
+                }
+                else
+                {
+                    // The first answer's reason stands. The repair is a second call, and one that was
+                    // sent and never came back is a second call the model may have run (2026-10-12 review).
+                    cost += Owed(second.Error!);
                 }
             }
         }
@@ -227,25 +227,39 @@ public sealed class SummarizationService(
     ///
     /// Only an outage falls over. A rejected payload is rejected twice, and a revoked key is not fixed by
     /// spending money somewhere else — both would buy a second failure at the price of a second call.
+    ///
+    /// <c>Owed</c> is what the calls that failed may have cost. Kept apart from the failure that is
+    /// reported, because falling over used to replace the primary's failure with the fallback's, and with
+    /// it the only record that the first call may have been paid for.
     /// </summary>
-    private async Task<(LlmDraft? Draft, bool UsedFallback, ProviderError? Failure)> ChooseAsync(
+    private async Task<(LlmDraft? Draft, bool UsedFallback, ProviderError? Failure, decimal Owed)> ChooseAsync(
         SummarizeBundle bundle,
         CancellationToken ct)
     {
         var first = await primary.DraftAsync(bundle, null, ct).ConfigureAwait(false);
         if (first.Ok)
         {
-            return (first.Value, false, null);
+            return (first.Value, false, null, 0m);
         }
 
+        var owed = Owed(first.Error!);
         if (first.Error!.Kind != ProviderErrorKind.Unavailable || fallback is null)
         {
-            return (null, false, first.Error);
+            return (null, false, first.Error, owed);
         }
 
         var second = await fallback.DraftAsync(bundle, null, ct).ConfigureAwait(false);
-        return second.Ok ? (second.Value, true, null) : (null, true, second.Error);
+        return second.Ok ? (second.Value, true, null, owed) : (null, true, second.Error, owed + Owed(second.Error!));
     }
+
+    /// <summary>
+    /// What a call that did not answer is settled at.
+    ///
+    /// We stopped waiting; the model did not stop working. The estimate, because that is the honest guess,
+    /// and because a cap that ignores the calls it never saw the end of is a cap a slow afternoon walks
+    /// straight through (2026-09-20 review). Nothing, when the provider says the request never left.
+    /// </summary>
+    private decimal Owed(ProviderError error) => error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m;
 
     /// <summary>Parses what the model said and applies the post-conditions to it.</summary>
     private static (DraftJson? Draft, string Reason) Interpret(string json, SummarizeBundle bundle)
