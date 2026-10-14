@@ -69,14 +69,16 @@ public sealed partial class AuditExporter
 
     /// <summary>
     /// A name the service could have given an export, and nothing else: no separators, no stream names,
-    /// nothing that could point the UI's copy-and-delete at another file.
+    /// nothing that could point the UI's copy-and-delete at another file. ASCII digits only (<c>\d</c> takes
+    /// any script's), and <c>\z</c> rather than <c>$</c>, which would also let a final line break through.
     /// </summary>
-    [GeneratedRegex(@"^audit-\d{8}-\d{6}-[0-9a-f]{32}\.json$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^audit-[0-9]{8}-[0-9]{6}-[0-9a-f]{32}\.json\z", RegexOptions.CultureInvariant)]
     private static partial Regex ExportName { get; }
 
     /// <summary>
-    /// Writes the log and its verdict to a new file. Never throws for a disk or store failure: the
-    /// answer goes back over the pipe, and a refusal with a reason is one the UI can show.
+    /// Writes the log and its verdict to a new file. Never throws for a disk or store failure, or a row
+    /// that cannot be read: the answer goes back over the pipe, and a refusal with a reason is one the
+    /// UI can show. Whatever else stops it, the partial file is removed before the exception goes on.
     /// </summary>
     /// <exception cref="OperationCanceledException">Cancelled; the partial file is removed first.</exception>
     public async Task<AuditExportResult> ExportAsync(CancellationToken ct = default)
@@ -113,15 +115,22 @@ public sealed partial class AuditExporter
 
             return new AuditExportResult(path, rows, verdict, null);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DbException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DbException or FormatException)
         {
             Discard(path);
-            return AuditExportResult.Refused(ex is DbException
-                ? "The audit log could not be read from the store."
-                : "The audit log could not be written to disk.");
+            return AuditExportResult.Refused(ex switch
+            {
+                DbException => "The audit log could not be read from the store.",
+
+                // A cell edited by hand until it no longer parses. It cannot be hashed or written out as
+                // it stands, so there is no honest export of it; the technician gets a reason instead.
+                FormatException => "The audit log has a row that cannot be read, so it cannot be exported. It may have been edited outside ScreenTail.",
+                _ => "The audit log could not be written to disk.",
+            });
         }
-        catch (OperationCanceledException)
+        catch
         {
+            // Cancelled, the store shutting down, anything else: half a log is not left looking whole.
             Discard(path);
             throw;
         }
@@ -146,9 +155,10 @@ public sealed partial class AuditExporter
 
         try
         {
-            if (!Path.IsPathFullyQualified(destination) || IsInside(destination, directory))
+            if (!Path.IsPathFullyQualified(destination) || IsInside(destination, DataDirectoryOf(directory)))
             {
-                // Inside the folder the next export sweeps, the technician's copy would be deleted.
+                // Inside the folder the next export sweeps, the technician's copy would be deleted, and
+                // anywhere else in ScreenTail's folder it would overwrite the store, settings or policy.
                 return "Choose somewhere outside ScreenTail's own folder to keep the audit log.";
             }
 
@@ -204,6 +214,13 @@ public sealed partial class AuditExporter
 
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    /// <summary>The data directory the exports folder sits in: everything ScreenTail keeps for this user.</summary>
+    private static string DataDirectoryOf(string exports)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(exports));
+        return Path.GetDirectoryName(full) ?? full;
+    }
 
     private static bool IsInside(string path, string directory)
     {
