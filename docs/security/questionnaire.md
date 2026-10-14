@@ -37,7 +37,8 @@ continuously.
 
 **1.6 Which windows are captured?**
 By default, the remote-support tool plus an allowlist of admin tools. Capturing all windows is opt-in and
-warns that other customers' data may be on screen. *(INV-5)*
+warns that other customers' data may be on screen. The desktop, taskbar and Task View are never captured
+in either mode, because a picture of the desktop is a picture of every window on screen. *(INV-5)*
 
 **1.7 Can capture be running without the user knowing?**
 No. A recording pill is on screen whenever capture is anything but idle, it cannot be dismissed

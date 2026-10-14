@@ -176,6 +176,180 @@ public sealed class ScopePolicyTests
         Assert.Contains("outlook", decision.Reason, StringComparison.Ordinal);
     }
 
+    // ---- the Windows shell ---------------------------------------------------------------------------
+
+    /// <summary>The shell's own surfaces, each drawn by explorer.exe and none of them a folder window.</summary>
+    public static TheoryData<string, bool> ShellSurfaces()
+    {
+        var data = new TheoryData<string, bool>();
+        foreach (var className in new[]
+        {
+            "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "MultitaskingViewFrame",
+            "XamlExplorerHostIslandWindow", "TaskSwitcherWnd", "ForegroundStaging", "NotifyIconOverflowWindow",
+            "TopLevelWindowForOverflowXamlIsland",
+        })
+        {
+            data.Add(className, false);
+            data.Add(className, true);
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(ShellSurfaces))]
+    public void TheDesktopTaskbarAndTaskViewAreNeverPhotographed(string className, bool allWindows)
+    {
+        // 2026-10-12 review, S-2. "explorer" was an admin tool by process name alone, and the desktop is
+        // an explorer window whose rectangle is every monitor. A click on it photographed every window
+        // on screen, excluded ones included, because exclusions are judged on the window in front. "All
+        // windows" does not change that: it widens which app may be photographed, not which pixels.
+        var policy = new ScopePolicy(Shipped, new ScopeOptions { CaptureAllWindows = allWindows });
+
+        var decision = policy.Decide(Window("explorer", "Program Manager", className) with { Handle = 0x10010 });
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
+        Assert.False(decision.MayCaptureFrames);
+        Assert.Null(decision.ToolId);
+        Assert.Equal(0, decision.Window);
+        // The HUD says what it says for any out-of-scope explorer window: the app, nothing from the window.
+        Assert.Equal(new ScopePolicy(Shipped).Decide(Window("explorer", "Run", "#32770")).Reason, decision.Reason);
+    }
+
+    [Fact]
+    public void AFileExplorerWindowIsStillAnAdminTool()
+    {
+        // The half of the rule that was right: browsing C:\Windows\Temp during a session is support work.
+        var decision = new ScopePolicy(Shipped).Decide(Window("explorer", "Temp", "CabinetWClass") with { Handle = 0x20020 });
+
+        Assert.Equal(CaptureScope.AdminTool, decision.Scope);
+        Assert.Equal("explorer", decision.ToolId);
+        Assert.Equal(0x20020, decision.Window);
+    }
+
+    [Theory]
+    [InlineData("#32770")]
+    [InlineData("OperationStatusWindow")]
+    [InlineData("Window")]
+    [InlineData("CabinetWClassX")]
+    [InlineData("")]
+    public void ExplorerIsAnAdminToolOnlyInAFolderWindow(string className)
+    {
+        // explorer.exe draws the Run box, copy progress and property sheets too, and a class it could not
+        // read is not evidence of a folder window either. Out of scope, clicks still logged.
+        var decision = new ScopePolicy(Shipped).Decide(Window("explorer", "Run", className));
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
+        Assert.False(decision.MayCaptureFrames);
+    }
+
+    [Theory]
+    [InlineData("cabinetwclass", true)]
+    [InlineData("CABINETWCLASS", true)]
+    [InlineData("progman", false)]
+    [InlineData("WORKERW", false)]
+    public void WindowClassesCompareTheWayWindowsComparesThem(string className, bool inScope)
+    {
+        // Windows registers class names without regard to case, so the rule has to read them the same way
+        // or a shell window could slip past it by spelling.
+        var decision = new ScopePolicy(Shipped, new ScopeOptions { CaptureAllWindows = !inScope }).Decide(Window("explorer", "x", className));
+
+        Assert.Equal(inScope, decision.MayCaptureFrames);
+    }
+
+    [Theory]
+    [InlineData("wallpaper64", "WorkerW")]
+    [InlineData(null, "Progman")]
+    public void AShellClassIsRefusedWhicheverProcessDrawsIt(string? process, string className)
+    {
+        // Wallpaper tools parent themselves under a WorkerW, and a process we cannot name is no better.
+        var decision = new ScopePolicy(Shipped, new ScopeOptions { CaptureAllWindows = true })
+            .Decide(Window("x", "", className) with { ProcessName = process });
+
+        Assert.False(decision.MayCaptureFrames);
+    }
+
+    [Fact]
+    public void ARegistryThatNamesTheShellAsARemoteToolStillCannotPhotographTheDesktop()
+    {
+        // The refusal sits before every match, so no entry, shipped or edited, can reach the desktop.
+        var registry = RemoteToolRegistry.Load("""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "shell", "kind": "other", "display_name": "Shell", "processes": ["explorer"],
+                           "window_class_patterns": ["^Progman$"] } ] }
+            """);
+
+        Assert.False(new ScopePolicy(registry).Decide(Window("explorer", "Program Manager", "Progman")).MayCaptureFrames);
+        Assert.False(new ScopePolicy(registry).Decide(Window("other", "Program Manager", "Progman")).MayCaptureFrames);
+    }
+
+    [Fact]
+    public void TheDesktopDoesNotKeepASessionAliveOrStartOne()
+    {
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+
+        Assert.False(trigger.Observe(Window("explorer", "Program Manager", "Progman")).Start);
+        trigger.Observe(Window("mstsc", "RECEPTION-02"));
+        clock.Advance(TimeSpan.FromSeconds(91));
+
+        Assert.True(trigger.Observe(Window("explorer", "Program Manager", "Progman")).Stop);
+    }
+
+    [Theory]
+    [InlineData("explorer")]
+    [InlineData("Explorer")]
+    public void AnAdminToolForTheShellProcessMustNameItsWindowClasses(string process)
+    {
+        // Without a class list the rule is the one S-2 found: every explorer window, desktop included.
+        var problems = RemoteToolRegistry.Validate(new RegistryDocument
+        {
+            Tools = [new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] }],
+            AdminTools = [new AdminToolEntry { Id = "files", DisplayName = "Files", Processes = [process] }],
+        });
+
+        Assert.Contains(problems, p => p.Contains("files", StringComparison.Ordinal) && p.Contains("window classes", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Progman")]
+    [InlineData("workerw")]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void AnAdminToolCannotListAShellOrBlankWindowClass(string className)
+    {
+        var problems = RemoteToolRegistry.Validate(new RegistryDocument
+        {
+            Tools = [new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] }],
+            AdminTools = [new AdminToolEntry { Id = "files", DisplayName = "Files", Processes = ["explorer"], WindowClasses = ["CabinetWClass", className] }],
+        });
+
+        Assert.Contains(problems, p => p.Contains("files", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AWindowClassListThatIsNullInTheFileIsTreatedAsMissing()
+    {
+        // A hand-edited "window_classes": null must not become "no restriction" by way of a crash path.
+        var load = () => RemoteToolRegistry.Load("""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "t", "kind": "other", "display_name": "T", "processes": ["x"] } ],
+              "admin_tools": [ { "id": "files", "display_name": "Files", "processes": ["explorer"], "window_classes": null } ] }
+            """);
+
+        var refused = Assert.Throws<InvalidOperationException>(load);
+        Assert.Contains("window classes", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAdminToolThatNamesNoClassesStillMatchesAnyOfItsWindows()
+    {
+        // The restriction is opt-in per entry: PowerShell is PowerShell in a console host or a terminal.
+        var decision = new ScopePolicy(Shipped).Decide(Window("powershell", "Administrator", "ConsoleWindowClass"));
+
+        Assert.Equal(CaptureScope.AdminTool, decision.Scope);
+    }
+
     // ---- starting and stopping ------------------------------------------------------------------------
 
     [Fact]
