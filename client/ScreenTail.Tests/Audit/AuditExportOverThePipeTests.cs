@@ -5,6 +5,7 @@ using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Shell;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 
@@ -24,8 +25,12 @@ public sealed class AuditExportOverThePipeTests : IAsyncDisposable
     private readonly byte[] _token = IpcToken.Generate();
     private SqliteSessionStore? _store;
     private IpcServer? _server;
+    private CaptureConnection? _connection;
 
-    private string Exports => Path.Combine(_dir, AuditExporter.DirectoryName);
+    /// <summary>ScreenTail's own folder. What the technician chooses sits beside it, never inside.</summary>
+    private string Data => Path.Combine(_dir, "ScreenTail");
+
+    private string Exports => Path.Combine(Data, AuditExporter.DirectoryName);
 
     [Fact]
     public async Task AnAuditLogOfFiveThousandRowsStillExports()
@@ -71,7 +76,7 @@ public sealed class AuditExportOverThePipeTests : IAsyncDisposable
         var ct = TestContext.Current.CancellationToken;
         var store = await OpenAsync();
         await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click", ct);
-        Directory.CreateDirectory(_dir);
+        Directory.CreateDirectory(Data);
         await File.WriteAllTextAsync(Exports, "a file where the folder should be", ct);
 
         await using var ui = await ServeAsync(new AuditExporter(store.ReadAuditAsync, Exports), ct);
@@ -84,8 +89,77 @@ public sealed class AuditExportOverThePipeTests : IAsyncDisposable
         Assert.True((await ui.SendAsync(id => new GetStateCommand { RequestId = id }, ct)).Ok);
     }
 
+    [Fact]
+    public async Task ThePrivacyPanelsGatewaySavesTheExportWhereTheTechnicianChoseAndLeavesNoServiceCopy()
+    {
+        // The glue the panel calls: the request over the pipe, then the copy and the clean-up.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync();
+        for (var i = 0; i < 3; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click", ct);
+        }
+
+        var privacy = await PrivacyAsync(new AuditExporter(store.ReadAuditAsync, Exports), ct);
+        var chosen = Path.Combine(_dir, "audit.json");
+
+        var saved = await privacy.ExportAuditAsync(chosen, ct);
+
+        Assert.Equal(new AuditSaved(true, true, "All 3 audit rows verify."), saved);
+        await using (var file = File.OpenRead(chosen))
+        {
+            using var parsed = await JsonDocument.ParseAsync(file, cancellationToken: ct);
+            Assert.Equal(3, parsed.RootElement.GetProperty("entries").GetArrayLength());
+        }
+
+        Assert.Empty(Directory.EnumerateFiles(Exports));
+    }
+
+    [Fact]
+    public async Task ALogThatDoesNotVerifyIsStillSavedAndTheMessageSaysBoth()
+    {
+        // Saved, and broken. Shown on its own, the verification sentence reads as though nothing was saved.
+        var ct = TestContext.Current.CancellationToken;
+        var exporter = new AuditExporter(
+            async (each, token) =>
+            {
+                await each(new AuditRecord(1, DateTimeOffset.UnixEpoch, "s1", AuditTypes.FrameCaptured, 1, "Click", null, "0"), token);
+                return new AuditVerification(false, 0, 0, 1);
+            },
+            Exports);
+        var privacy = await PrivacyAsync(exporter, ct);
+        var chosen = Path.Combine(_dir, "audit.json");
+
+        var saved = await privacy.ExportAuditAsync(chosen, ct);
+
+        Assert.True(saved.Saved);
+        Assert.False(saved.Intact);
+        Assert.Equal("Saved to audit.json. The audit log does not verify: row 1 does not follow the row before it.", saved.Message);
+        Assert.True(File.Exists(chosen));
+        Assert.Empty(Directory.EnumerateFiles(Exports));
+    }
+
+    [Fact]
+    public async Task AnExportTheServiceRefusesIsNotSaved()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var privacy = await PrivacyAsync(new AuditExporter((_, _) => throw new IOException("disk full"), Exports), ct);
+        var chosen = Path.Combine(_dir, "audit.json");
+
+        var saved = await privacy.ExportAuditAsync(chosen, ct);
+
+        Assert.False(saved.Saved);
+        Assert.False(File.Exists(chosen));
+        Assert.True(_connection!.IsConnected);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        if (_connection is not null)
+        {
+            await _connection.DisposeAsync();
+        }
+
         if (_server is not null)
         {
             await _server.DisposeAsync();
@@ -104,6 +178,12 @@ public sealed class AuditExportOverThePipeTests : IAsyncDisposable
 
     private async Task<IpcClient> ServeAsync(AuditExporter exporter, CancellationToken ct)
     {
+        Serve(exporter);
+        return await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1", ct: ct);
+    }
+
+    private void Serve(AuditExporter exporter)
+    {
         var commands = new SettingsCommands(
             new ClientSettingsStore(Path.Combine(_dir, "settings.json")),
             () => TenantPolicy.Default,
@@ -111,11 +191,29 @@ public sealed class AuditExportOverThePipeTests : IAsyncDisposable
             exporter.ExportAsync);
         _server = new IpcServer(IpcServer.DefaultPipeFactory(_pipeName), _token, new AnyClient(), new SettingsOnly(commands), new NoAudit(), "0.0.1-test");
         _server.Start();
-        return await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1", ct: ct);
+    }
+
+    /// <summary>The panel's gateway over a real <see cref="CaptureConnection"/>, as the UI builds it, pointed at this test's exports.</summary>
+    private async Task<PipePrivacy> PrivacyAsync(AuditExporter exporter, CancellationToken ct)
+    {
+        Serve(exporter);
+        _connection = new CaptureConnection(
+            new ShellState(),
+            async token => await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1", ct: token),
+            CaptureConnection.Never);
+        await _connection.StartAsync(ct);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!_connection.IsConnected)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the connection did not come up");
+            await Task.Delay(10, ct);
+        }
+
+        return new PipePrivacy(_connection, Exports);
     }
 
     private async Task<SqliteSessionStore> OpenAsync() =>
-        _store ??= await SqliteSessionStore.OpenAsync(Path.Combine(_dir, "store.db"), new FixedKey(RandomNumberGenerator.GetBytes(32)));
+        _store ??= await SqliteSessionStore.OpenAsync(Path.Combine(Data, "store.db"), new FixedKey(RandomNumberGenerator.GetBytes(32)));
 
     /// <summary>The controller's chain, cut down to the one command class under test.</summary>
     private sealed class SettingsOnly(SettingsCommands settings) : IIpcCommandHandler

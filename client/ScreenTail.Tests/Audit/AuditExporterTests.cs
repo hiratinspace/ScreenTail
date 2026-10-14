@@ -17,7 +17,10 @@ public sealed class AuditExporterTests : IAsyncDisposable
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
     private SqliteSessionStore? _store;
 
-    private string Exports => Path.Combine(_dir, AuditExporter.DirectoryName);
+    /// <summary>ScreenTail's own folder, as %LOCALAPPDATA%\ScreenTail is in the service. Chosen destinations sit beside it.</summary>
+    private string Data => Path.Combine(_dir, "ScreenTail");
+
+    private string Exports => Path.Combine(Data, AuditExporter.DirectoryName);
 
     [Fact]
     public async Task WhatIsWrittenIsExactlyWhatWasVerifiedEvenWhileTheLogGrows()
@@ -38,11 +41,13 @@ public sealed class AuditExporterTests : IAsyncDisposable
             },
             ct);
 
+        // At least once, however soon the writer finishes: a loop that checked first could export nothing.
         var results = new List<AuditExportResult>();
-        while (!writing.IsCompleted)
+        do
         {
             results.Add(await exporter.ExportAsync(ct));
         }
+        while (!writing.IsCompleted);
 
         await writing;
         Assert.NotEmpty(results);
@@ -238,7 +243,7 @@ public sealed class AuditExporterTests : IAsyncDisposable
         var bystander = shape switch
         {
             "elsewhere" => Path.Combine(_dir, name),
-            "traversal" => Path.Combine(_dir, name),
+            "traversal" => Path.Combine(Data, name),
             "renamed" => Path.Combine(Exports, "store.db"),
             _ => name,
         };
@@ -260,17 +265,95 @@ public sealed class AuditExporterTests : IAsyncDisposable
         }
     }
 
-    [Fact]
-    public async Task ADestinationInsideTheExportsFolderIsRefusedBecauseTheSweepWouldTakeIt()
+    [Theory]
+    [InlineData("the export itself")]
+    [InlineData("store.db")]
+    [InlineData("settings.json")]
+    [InlineData("a folder inside")]
+    public async Task ADestinationInsideScreenTailsOwnFolderIsRefusedAndNothingThereIsTouched(string shape)
     {
+        // Inside the exports folder the next sweep would take the technician's copy. Anywhere else in
+        // ScreenTail's folder, the copy would overwrite the store, the settings or the policy it sits beside.
         var ct = TestContext.Current.CancellationToken;
         var store = await OpenAsync();
         var exported = (await new AuditExporter(store.ReadAuditAsync, Exports).ExportAsync(ct)).Path!;
+        await File.WriteAllTextAsync(Path.Combine(Data, "settings.json"), "{\"local_only\":true}", ct);
+        var destination = shape switch
+        {
+            "the export itself" => exported,
+            "a folder inside" => Path.Combine(Data, "kept", "audit.json"),
+            _ => Path.Combine(Data, shape),
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        var before = File.Exists(destination) && destination != exported ? await File.ReadAllBytesAsync(destination, ct) : null;
 
-        var problem = await AuditExporter.CollectAsync(exported, exported, Exports, ct);
+        var problem = await AuditExporter.CollectAsync(exported, destination, Exports, ct);
 
         Assert.Equal("Choose somewhere outside ScreenTail's own folder to keep the audit log.", problem);
         Assert.False(File.Exists(exported));
+        if (before is not null)
+        {
+            Assert.Equal(before, await File.ReadAllBytesAsync(destination, ct));
+        }
+        else if (destination != exported)
+        {
+            Assert.False(File.Exists(destination));
+        }
+    }
+
+    [Theory]
+    [InlineData("a trailing line break")]
+    [InlineData("digits from another script")]
+    public void ANameThatOnlyLooksLikeAnExportIsNotOne(string shape)
+    {
+        // The copy-and-delete is only ever pointed at a name the service could have written: ASCII
+        // digits, and nothing after ".json". A looser match is a looser allow-list than it says.
+        var hex = Guid.NewGuid().ToString("N");
+        var name = shape == "a trailing line break"
+            ? $"audit-20261014-101500-{hex}.json\n"
+            : $"audit-\u0662\u0660\u0662\u0666\u0661\u0660\u0661\u0664-101500-{hex}.json";
+
+        Assert.True(AuditExporter.IsExport(Path.Combine(Exports, $"audit-20261014-101500-{hex}.json"), Exports));
+        Assert.False(AuditExporter.IsExport(Path.Combine(Exports, name), Exports));
+    }
+
+    [Fact]
+    public async Task ARowThatCannotBeReadIsARefusalWithAReasonAndLeavesNoFile()
+    {
+        // A row edited by hand until it no longer parses. It cannot be hashed or written out faithfully,
+        // so there is no honest export of it, but the answer is a reason, not a dropped pipe.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync();
+        for (var i = 0; i < 5; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click", ct);
+        }
+
+        var target = (await store.GetAuditRecordsAsync(ct: ct))[2];
+        store = await TamperAsync("UPDATE audit_log SET at = 'not a time' WHERE id = " + target.Id);
+
+        var result = await new AuditExporter(store.ReadAuditAsync, Exports).ExportAsync(ct);
+
+        Assert.Null(result.Path);
+        Assert.Equal("The audit log has a row that cannot be read, so it cannot be exported. It may have been edited outside ScreenTail.", result.Refusal);
+        Assert.Empty(Directory.EnumerateFiles(Exports));
+    }
+
+    [Fact]
+    public async Task AnUnexpectedFailureStillLeavesNoHalfFileBehind()
+    {
+        // Whatever stops the export part way, half a log is not left in the folder looking like a whole one.
+        var exporter = new AuditExporter(
+            async (each, token) =>
+            {
+                await each(new AuditRecord(1, DateTimeOffset.UnixEpoch, "s1", AuditTypes.FrameCaptured, 1, "Click", null, null), token);
+                throw new ObjectDisposedException("SemaphoreSlim");
+            },
+            Exports);
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => exporter.ExportAsync(TestContext.Current.CancellationToken));
+
+        Assert.Empty(Directory.EnumerateFiles(Exports));
     }
 
     [Fact]
@@ -315,7 +398,7 @@ public sealed class AuditExporterTests : IAsyncDisposable
         await store.DisposeAsync();
         _store = null;
 
-        var erased = LocalDataEraser.Erase(_dir);
+        var erased = LocalDataEraser.Erase(Data);
 
         Assert.True(erased.Complete);
         Assert.False(File.Exists(exported));
@@ -343,14 +426,14 @@ public sealed class AuditExporterTests : IAsyncDisposable
     }
 
     private async Task<SqliteSessionStore> OpenAsync() =>
-        _store ??= await SqliteSessionStore.OpenAsync(Path.Combine(_dir, "store.db"), new FixedKey(_key));
+        _store ??= await SqliteSessionStore.OpenAsync(Path.Combine(Data, "store.db"), new FixedKey(_key));
 
     /// <summary>Edits the table behind the store's back, the way someone with the key and a SQL client would.</summary>
     private async Task<SqliteSessionStore> TamperAsync(string sql)
     {
         await _store!.DisposeAsync();
         _store = null;
-        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(_dir, "store.db"), Pooling = false }.ToString()))
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(Data, "store.db"), Pooling = false }.ToString()))
         {
             await connection.OpenAsync();
             await using (var key = connection.CreateCommand())

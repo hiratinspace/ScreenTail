@@ -179,6 +179,9 @@ public sealed partial class PrivacyViewModel : ObservableObject
         var saved = await _panel.ExportAuditAsync(destination).ConfigureAwait(true);
         if (saved.Saved && saved.Intact)
         {
+            // A clean save clears an earlier export's problem, leaving only what the panel itself says.
+            Problem = _panel.Problem ?? string.Empty;
+            ProblemVisibility = Problem.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
             return;
         }
 

@@ -257,6 +257,12 @@ public sealed class PipePrivacy(CaptureConnection connection, string? exports = 
         }
 
         var problem = await AuditExporter.CollectAsync(exported.Path, destination, _exports, ct).ConfigureAwait(false);
-        return new AuditSaved(problem is null, exported.Intact, problem ?? exported.Note);
+        if (problem is not null)
+        {
+            return new AuditSaved(false, exported.Intact, problem);
+        }
+
+        // Saved but broken is still saved. The verification sentence alone reads as though it was not.
+        return new AuditSaved(true, exported.Intact, exported.Intact ? exported.Note : $"Saved to {Path.GetFileName(destination)}. {exported.Note}");
     }
 }
