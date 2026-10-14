@@ -285,7 +285,7 @@ public sealed class AuditExporterTests : IAsyncDisposable
             _ => Path.Combine(Data, shape),
         };
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        var before = File.Exists(destination) && destination != exported ? await File.ReadAllBytesAsync(destination, ct) : null;
+        var before = File.Exists(destination) && destination != exported ? await ReadBesideAsync(destination, ct) : null;
 
         var problem = await AuditExporter.CollectAsync(exported, destination, Exports, ct);
 
@@ -293,7 +293,7 @@ public sealed class AuditExporterTests : IAsyncDisposable
         Assert.False(File.Exists(exported));
         if (before is not null)
         {
-            Assert.Equal(before, await File.ReadAllBytesAsync(destination, ct));
+            Assert.Equal(before, await ReadBesideAsync(destination, ct));
         }
         else if (destination != exported)
         {
@@ -424,6 +424,18 @@ public sealed class AuditExporterTests : IAsyncDisposable
         await using var file = File.OpenRead(path);
         using var parsed = await JsonDocument.ParseAsync(file);
         return parsed.RootElement.GetProperty("entries").GetArrayLength();
+    }
+
+    /// <summary>
+    /// Reads a file another handle may hold open, as the store holds store.db. File.ReadAllBytesAsync
+    /// shares only reading, which Windows refuses while SQLite has the file open to write.
+    /// </summary>
+    private static async Task<byte[]> ReadBesideAsync(string path, CancellationToken ct)
+    {
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var copy = new MemoryStream();
+        await file.CopyToAsync(copy, ct);
+        return copy.ToArray();
     }
 
     private async Task<SqliteSessionStore> OpenAsync() =>
