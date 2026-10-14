@@ -316,7 +316,6 @@ public sealed class LiveShell : IAsyncDisposable
         "Every session, draft, screenshot and transcript, your settings, and this device's tokens go. ScreenTail will need to be set up again. It cannot be undone.",
         token => new EraseAllLocalDataCommand { RequestId = 0, Confirmation = token });
 
-    /// <summary>Spec §5 S6 "Export audit log": the JSON the service produced, to a file the technician names.</summary>
     /// <summary>Where the technician wants the audit log. The service writes it and the panel copies it there.</summary>
     private string? ChooseAuditFile()
     {
