@@ -58,7 +58,7 @@ public static class Transcribe
         var recorder = new NarrationRecorder(
             new FileMicrophone(audio),
             recogniser,
-            (segment, _) =>
+            (_, segment, _) =>
             {
                 heard.Add(segment);
                 return Task.FromResult(true);

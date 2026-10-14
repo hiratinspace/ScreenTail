@@ -268,7 +268,7 @@ public sealed class NarrationRecorderTests
         var recorder = new NarrationRecorder(
             new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
             new FakeRecogniser("restarting the spooler"),
-            (segment, _) =>
+            (_, segment, _) =>
             {
                 refusals++;
                 return refusals == 1
@@ -311,6 +311,281 @@ public sealed class NarrationRecorderTests
         Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
     }
 
+    [Fact]
+    public async Task SpeechAfterAPauseIsStillTranscribed()
+    {
+        // 2026-10-12 review. Discard emptied the ring and its sample counter at every pause, suppression
+        // and session end, and left the gate's frame clock running. Every segment after the first such
+        // boundary then pointed at ring positions that were never written, came out empty, and was
+        // counted as missed: narration ended for the life of the service after the first pause.
+        var microphone = new LiveMicrophone(Silence(20), Speech(40), Silence(40));
+        var kept = new List<TranscriptSegment>();
+        var recording = true;
+        var recorder = Recorder(microphone, new FakeRecogniser("restarting the spooler"), kept, recording: () => recording);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => kept.Count >= 1);
+        Assert.Single(kept);
+
+        // A pause (a password field, or the session ending): the microphone closes.
+        recording = false;
+        await UntilAsync(() => !recorder.Listening);
+        Assert.False(recorder.Listening);
+
+        // Capture comes back and the technician speaks again.
+        recording = true;
+        recorder.Nudge();
+        await UntilAsync(() => kept.Count >= 2);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(2, microphone.Opens);
+        Assert.Equal(0, recorder.MissedWaitingForModel);
+        Assert.Equal(2, kept.Count);
+    }
+
+    [Fact]
+    public async Task TranscriptTimesStartAgainWithEachSession()
+    {
+        // ts_ms is session time: clicks and frames are stamped from the session's start, and ST-028
+        // aligns speech against them. The gate counted from the service's start instead, so the second
+        // session's narration was placed minutes or hours after anything else in it.
+        var microphone = new LiveMicrophone(Silence(20), Speech(40), Silence(40));
+        var kept = new List<(string Session, TranscriptSegment Segment)>();
+        NarrationSession? session = new("session-a", 0);
+        var recorder = new NarrationRecorder(
+            microphone,
+            new FakeRecogniser("restarting the spooler"),
+            (heardIn, segment, _) =>
+            {
+                kept.Add((heardIn, segment));
+                return Task.FromResult(true);
+            },
+            () => session);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => kept.Count >= 1);
+
+        session = null;
+        await UntilAsync(() => !recorder.Listening);
+
+        session = new NarrationSession("session-b", 0);
+        recorder.Nudge();
+        await UntilAsync(() => kept.Count >= 2);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(2, kept.Count);
+        var (firstSession, first) = kept[0];
+        var (secondSession, second) = kept[1];
+        Assert.Equal("session-a", firstSession);
+        Assert.Equal("session-b", secondSession);
+
+        // The same words at the same moment of two sessions are at the same place on each timeline, and
+        // the second is not pushed after the first session's last word either.
+        Assert.Equal(first.TsMs, second.TsMs);
+        Assert.Equal(first.EndMs, second.EndMs);
+        Assert.InRange(second.TsMs, 0, 1_000);
+    }
+
+    [Fact]
+    public async Task WhatIsSaidAfterAPauseLandsWhereItWasSaid()
+    {
+        // The other half of session time. The gate's clock restarts when listening does, so what is said
+        // after a pause has to be placed by the session's own clock at that moment, not at zero again.
+        var microphone = new LiveMicrophone(Silence(20), Speech(40), Silence(40));
+        var kept = new List<TranscriptSegment>();
+        NarrationSession? session = new("session-a", 0);
+        var recorder = new NarrationRecorder(
+            microphone,
+            new FakeRecogniser("restarting the spooler"),
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => session);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => kept.Count >= 1);
+
+        session = null;
+        await UntilAsync(() => !recorder.Listening);
+
+        // A minute later on the session's clock, the same session resumes.
+        session = new NarrationSession("session-a", 60_000);
+        recorder.Nudge();
+        await UntilAsync(() => kept.Count >= 2);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(2, kept.Count);
+        Assert.Equal(kept[0].TsMs + 60_000, kept[1].TsMs);
+        Assert.NotEqual(kept[0].Id, kept[1].Id);
+    }
+
+    [Fact]
+    public async Task NarrationQueuedInOneSessionIsNeverWrittenIntoTheNext()
+    {
+        // 2026-10-12 review. A queued segment carried no session, and the append looked the session up
+        // when the model finished. With a few segments queued and the model taking seconds each, the
+        // next customer's session could be recording by then, and it got the last customer's words.
+        var microphone = new FakeMicrophone(Silence(20), Speech(40), Silence(40));
+        var recogniser = new FakeRecogniser("the server is called acme-dc01") { Blocked = new TaskCompletionSource() };
+        var written = new List<string>();
+        var session = "session-a";
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (heardIn, _, _) =>
+            {
+                written.Add(heardIn);
+                return Task.FromResult(true);
+            },
+            () => new NarrationSession(session, 0));
+
+        var running = recorder.RunAsync(TestContext.Current.CancellationToken);
+        await UntilAsync(() => recogniser.Asked == 1);
+        Assert.Equal(1, recogniser.Asked);
+
+        // The model is still busy with session A's sentence when session B begins.
+        session = "session-b";
+        recogniser.Blocked.SetResult();
+        await running;
+
+        Assert.Equal(["session-a"], written);
+    }
+
+    [Fact]
+    public async Task WhatIsStillWithTheModelIsOwedToItsSession()
+    {
+        // The recorder's half of finalize's wait: a segment is owed to its session from the moment it is
+        // cut until it has been written or refused, and no longer.
+        var backlog = new NarrationBacklog();
+        var recogniser = new FakeRecogniser("restarting the spooler") { Blocked = new TaskCompletionSource() };
+        var kept = new List<TranscriptSegment>();
+        var recorder = new NarrationRecorder(
+            new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
+            recogniser,
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => new NarrationSession("session-a", 0),
+            backlog: backlog);
+
+        var running = recorder.RunAsync(TestContext.Current.CancellationToken);
+        await UntilAsync(() => recogniser.Asked == 1);
+        Assert.Equal(1, backlog.DepthFor("session-a"));
+
+        recogniser.Blocked.SetResult();
+        await running;
+
+        Assert.Single(kept);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+        Assert.False(backlog.Wants("session-a"));
+    }
+
+    [Fact]
+    public async Task WhatIsQueuedForADiscardedSessionIsNeverTranscribed()
+    {
+        // Discarding a session forgets what it is owed. A segment still queued for it is dropped rather
+        // than handed to the model: nobody can store it, and it is a piece of the customer's call held
+        // in memory for nothing.
+        var backlog = new NarrationBacklog();
+        var recogniser = new FakeRecogniser("restarting the spooler") { Blocked = new TaskCompletionSource() };
+        var kept = new List<TranscriptSegment>();
+        var microphone = new FakeMicrophone(Silence(20), Speech(40), Silence(40), Speech(40), Silence(40));
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => new NarrationSession("session-a", 0),
+            backlog: backlog);
+
+        var running = recorder.RunAsync(TestContext.Current.CancellationToken);
+        await UntilAsync(() => backlog.DepthFor("session-a") == 2);
+        Assert.Equal(2, backlog.DepthFor("session-a"));
+
+        Assert.Equal(2, backlog.Forget("session-a"));
+        recogniser.Blocked.SetResult();
+        await running;
+
+        // The first was already with the model; the second never reached it.
+        Assert.Equal(1, recogniser.Asked);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    [Fact]
+    public async Task NothingSaidWhileAnExcludedAppIsInFrontIsTranscribed()
+    {
+        // 2026-10-12 review. With a password manager in front, frames and keystrokes were dropped and
+        // speech was not: "the admin password is ..." read off the vault went through the model, into
+        // the store, the bundle and the draft.
+        var recogniser = new FakeRecogniser("the admin password is hunter2");
+        var kept = new List<TranscriptSegment>();
+        var recorder = Recorder(
+            new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
+            recogniser,
+            kept,
+            hearing: () => false);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(kept);
+        Assert.Equal(0, recogniser.Asked);
+        Assert.Equal(0, recorder.Heard);
+    }
+
+    [Fact]
+    public async Task ASentenceStartedBeforeAnExcludedAppCameToFrontIsNotFinishedAfterIt()
+    {
+        // The vault comes to the front mid-sentence and the technician reads the rest off it. The words
+        // said before it came to the front are dropped at that boundary, rather than kept as the start of
+        // a segment that goes on to include what was read.
+        var recogniser = new FakeRecogniser("the admin password is hunter2");
+        var kept = new List<TranscriptSegment>();
+        var chunks = 0;
+        var recorder = Recorder(
+            new FakeMicrophone(Silence(20), Speech(20), Speech(20), Silence(40)),
+            recogniser,
+            kept,
+            hearing: () =>
+            {
+                // In scope for the silence and the first words, excluded for the rest of the sentence,
+                // back in scope for the quiet after it.
+                chunks++;
+                return chunks is <= 40 or > 60;
+            });
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(kept);
+        Assert.Equal(0, recogniser.Asked);
+    }
+
+    [Fact]
+    public async Task SpeechIsHeardAgainOnceTheExcludedAppHasGone()
+    {
+        // The control. Dropping speech while the vault is in front must not end narration, and the
+        // microphone is not closed and reopened for it: the session is still recording.
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var kept = new List<TranscriptSegment>();
+        var chunks = 0;
+        var microphone = new FakeMicrophone(Silence(20), Speech(40), Silence(40), Silence(20), Speech(40), Silence(40));
+        var recorder = Recorder(
+            microphone,
+            recogniser,
+            kept,
+            hearing: () => ++chunks > 100);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
+        Assert.Equal(1, recogniser.Asked);
+        Assert.Equal(1, microphone.Opens);
+        Assert.Equal(0, recorder.MissedWaitingForModel);
+    }
+
     private static bool Add(List<TranscriptSegment> kept, TranscriptSegment segment)
     {
         kept.Add(segment);
@@ -318,19 +593,26 @@ public sealed class NarrationRecorderTests
     }
 
     private static NarrationRecorder Recorder(
-        FakeMicrophone microphone,
+        IMicrophone microphone,
         FakeRecogniser recogniser,
         List<TranscriptSegment> kept,
-        Func<bool>? recording = null) =>
+        Func<bool>? recording = null,
+        Func<bool>? hearing = null) =>
         new(
             microphone,
             recogniser,
-            (segment, _) =>
-            {
-                kept.Add(segment);
-                return Task.FromResult(true);
-            },
-            recording ?? (() => true));
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => recording is null || recording() ? new NarrationSession("session-a", 0) : null,
+            hearing: hearing);
+
+    /// <summary>Waits for a condition the recorder reaches on its own threads, for at most a few seconds.</summary>
+    private static async Task UntilAsync(Func<bool> done)
+    {
+        for (var i = 0; i < 250 && !done(); i++)
+        {
+            await Task.Delay(20);
+        }
+    }
 
     /// <summary>Frames of digital silence, at the gate's frame length.</summary>
     private static short[][] Silence(int frames) => Frames(frames, _ => 0);
@@ -400,6 +682,38 @@ public sealed class NarrationRecorderTests
                 Yielded++;
                 yield return frame;
                 await Task.Yield();
+            }
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>A microphone that plays its script on every open and then keeps delivering silence until closed, as a real one does.</summary>
+    private sealed class LiveMicrophone(params short[][][] runs) : IMicrophone
+    {
+        private readonly List<short[]> _frames = [.. runs.SelectMany(run => run)];
+        private readonly short[] _quiet = new short[Rate * 32 / 1000];
+
+        public int Opens { get; private set; }
+
+        public string? DeviceName => "Live Fake Microphone";
+
+        public int SampleRate => Rate;
+
+        public async IAsyncEnumerable<ReadOnlyMemory<short>> ListenAsync([EnumeratorCancellation] CancellationToken ct = default)
+        {
+            Opens++;
+            foreach (var frame in _frames)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return frame;
+                await Task.Yield();
+            }
+
+            while (!ct.IsCancellationRequested)
+            {
+                yield return _quiet;
+                await Task.Delay(1, CancellationToken.None);
             }
         }
 
