@@ -192,14 +192,33 @@ public sealed class InputCaptureTests
             buffer.Write(signal);
         }
 
-        // Raw timestamps rather than Stopwatch.StartNew, which allocates the Stopwatch itself — 40 bytes
+        // Raw timestamps rather than Stopwatch.StartNew, which allocates the Stopwatch itself: 40 bytes
         // that the first version of this test blamed on the buffer.
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        //
+        // Three runs, and the least allocation counts, the way the fastest batch counts for speed. Every
+        // write is counted, so an allocation in Write shows in every run (7.2 MB a run when one is
+        // planted). Once in about twenty full-suite runs the runtime charged this thread a kilobyte or
+        // two of its own during one run, and an assertion on a single run read that as the buffer.
+        var fewestBytes = long.MaxValue;
+        var fastest = double.MaxValue;
+        for (var run = 0; run < 3; run++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var ms = FastestWriteMs(buffer, signal);
+            fewestBytes = Math.Min(fewestBytes, GC.GetAllocatedBytesForCurrentThread() - before);
+            fastest = Math.Min(fastest, ms);
+        }
 
-        // Three batches, and the fastest one counts. A lock or an allocation creeping in would slow every
-        // batch; a GC pause or the scheduler taking the core slows one. Judging on the total made this
-        // fail about once in four runs on a machine doing anything else, and an intermittently red suite
-        // is one people stop reading.
+        Assert.Equal(0, fewestBytes);
+        Assert.True(fastest < 0.001, $"{fastest * 1000:F3} µs per write");
+    }
+
+    // Three batches, and the fastest one counts. A lock or an allocation creeping in would slow every
+    // batch; a GC pause or the scheduler taking the core slows one. Judging on the total made this fail
+    // about once in four runs on a machine doing anything else, and an intermittently red suite is one
+    // people stop reading.
+    private static double FastestWriteMs(InputRingBuffer buffer, InputSignal signal)
+    {
         var fastest = double.MaxValue;
         for (var batch = 0; batch < 3; batch++)
         {
@@ -212,10 +231,7 @@ public sealed class InputCaptureTests
             fastest = Math.Min(fastest, Stopwatch.GetElapsedTime(start).TotalMilliseconds / 100_000);
         }
 
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-        Assert.Equal(0, allocated);
-        Assert.True(fastest < 0.001, $"{fastest * 1000:F3} µs per write");
+        return fastest;
     }
 
     private static Session SessionWith(IReadOnlyList<SessionEvent> events) => new()
