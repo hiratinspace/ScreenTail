@@ -50,12 +50,13 @@ public sealed class FrameBlur(IReviewFrames frames)
             return null;
         }
 
+        // The text goes with the pixels, as it does in the store: it was read from what was just destroyed.
         return new BlurredFrame(
-            frame with { MaskedRegions = [.. frame.MaskedRegions, region] },
+            frame with { MaskedRegions = [.. frame.MaskedRegions, region], OcrText = null },
             flattened,
             region);
     }
 }
 
-/// <param name="Frame">The frame as it now is, with the region appended to what redaction already found.</param>
+/// <param name="Frame">The frame as it now is: the region appended to what redaction already found, and no OCR text.</param>
 public sealed record BlurredFrame(Frame Frame, byte[] Image, MaskedRegion Region);

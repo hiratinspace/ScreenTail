@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Data.Sqlite;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 
@@ -409,11 +410,99 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         var reopened = await OpenAsync();
         Assert.Equal(blurred, await reopened.GetRedactedFrameImageAsync("f1"));
-        Assert.Single((await reopened.LoadSessionAsync("s1"))!.Frames);
+        var frame = Assert.Single((await reopened.LoadSessionAsync("s1"))!.Frames);
+
+        // The text read from the destroyed pixels goes with them, in the same statement (S-18). Nothing
+        // records which words were under the rectangle, so none of it can be kept as safe.
+        Assert.Null(frame.OcrText);
 
         // The original is unrecoverable because nothing kept it: the undo window holds it in memory alone
         // (UndoWindowTests), and ApplyUserBlurAsync overwrites the one column that had it. There is no
         // history table for this test to check, and that absence is the guarantee.
+    }
+
+    [Fact]
+    public async Task AFrameRemembersTheSizeItsImageWasStoredAt()
+    {
+        // ST-075: a Review blur is drawn in the capture's pixels and painted on the stored image, which
+        // redaction downscaled. Both sizes come back together, so the scale between them is never guessed.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.SaveRedactedFrameAsync(
+            "s1",
+            Staged("new", 1000, Bytes(0xAA, 10)) with { Width = 2560, Height = 1440 },
+            Outcome(Bytes(0xBB, 10), null) with { StoredWidth = 1600, StoredHeight = 900 });
+        await store.StageFrameAsync("s1", Staged("old", 2000, Bytes(0xAA, 10)) with { Width = 3840, Height = 2160 });
+        await store.MarkFrameRedactedAsync("old", Outcome(Bytes(0xBB, 10), null));
+        await store.StageFrameAsync("s1", Staged("pending", 3000, Bytes(0xAA, 10)));
+
+        var recorded = await store.GetRedactedFrameForBlurAsync("new");
+        var legacy = await store.GetRedactedFrameForBlurAsync("old");
+
+        Assert.Equal((2560, 1440, 1600, 900), (recorded!.Width, recorded.Height, recorded.StoredWidth, recorded.StoredHeight));
+        Assert.Equal(Bytes(0xBB, 10), recorded.Image);
+
+        // Written without a stored size, as every frame before migration 0011 was: the downscale rule
+        // that made it says how big it is.
+        Assert.Equal((3840, 2160, 1600, 900), (legacy!.Width, legacy.Height, legacy.StoredWidth, legacy.StoredHeight));
+
+        // INV-1 holds on this read path as on every other.
+        Assert.Null(await store.GetRedactedFrameForBlurAsync("pending"));
+        Assert.Null(await store.GetRedactedFrameForBlurAsync("missing"));
+    }
+
+    [Fact]
+    public async Task AStoreWithFramesFromBeforeTheStoredSizeUpgradesAndTheyFallBackToTheirDownscale()
+    {
+        // Migration 0011 adds two columns to a table that already holds frames on every machine that has
+        // used Review. The store is put back to how version 10 left it, frames and all, and reopened.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.SaveRedactedFrameAsync(
+            "s1",
+            Staged("old", 1000, Bytes(0xAA, 10)) with { Width = 3840, Height = 2160 },
+            Outcome(Bytes(0xBB, 10), "Service status: Stopped"));
+        await store.DisposeAsync();
+        _stores.Remove(store);
+
+        await using (var raw = await OpenRawAsync())
+        {
+            await RawAsync(raw, "ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
+        }
+
+        var upgraded = await OpenAsync();
+
+        Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await upgraded.GetSchemaVersionAsync());
+        var legacy = await upgraded.GetRedactedFrameForBlurAsync("old");
+        Assert.Equal((3840, 2160, 1600, 900), (legacy!.Width, legacy.Height, legacy.StoredWidth, legacy.StoredHeight));
+        Assert.Equal(Bytes(0xBB, 10), legacy.Image);
+        Assert.Equal("Service status: Stopped", Assert.Single((await upgraded.LoadSessionAsync("s1"))!.Frames).OcrText);
+
+        // The columns the migration added still refuse a size no image can have.
+        await using var check = await OpenRawAsync();
+        var refused = await Assert.ThrowsAsync<SqliteException>(() => RawAsync(check, "UPDATE frames SET stored_width = 0 WHERE id = 'old';"));
+        Assert.Contains("CHECK", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The store's own file opened directly, for putting it back to an older schema.</summary>
+    private async Task<SqliteConnection> OpenRawAsync()
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _path,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        StoreKey.Apply(connection, _key.GetKey());
+        return connection;
+    }
+
+    private static async Task RawAsync(SqliteConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]

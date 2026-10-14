@@ -190,7 +190,8 @@ trust:
   the screen being captured. Worth saying aloud, since watching one is the product's entire premise.
 - **A technician who opens the wrong window.** Scope defaults and suppression reduce this; they do not
   eliminate it. The review step exists partly for this reason — the technician sees every screenshot
-  before it goes anywhere, and can exclude or blur any of them.
+  before it goes anywhere, and can exclude or blur any of them. A blur deletes the text read from that
+  screenshot as well as the pixels.
 
 The full threat model, with mitigations mapped to tickets, is in [threat-model.md](threat-model.md).
 

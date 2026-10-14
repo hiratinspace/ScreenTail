@@ -1392,7 +1392,7 @@ Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence 
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** Done 2026-09-13 (#43).
+- **Status:** Done 2026-09-13 (#43). 2026-10-14 review fix: a blur is drawn in the capture's pixels but the stored image is downscaled, so the service now scales it into the stored image (rounded outward with a one-pixel margin for the bilinear downscale, refused if the sizes disagree), and the frame's OCR text is deleted with the pixels (S-18, S-38, T-134). Blurs made before this fix on captures wider or taller than 1600 px were painted unscaled and may not cover what their `user_blur` region records; sessions reviewed that way before 2026-10-14 should be reviewed again or deleted (retention ages them out).
 
 **Description:**
 Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur with undo window, delete with undo toast, enlarge with OCR toggle, suppression/scope gap markers.
