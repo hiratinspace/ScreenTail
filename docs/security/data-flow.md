@@ -61,6 +61,15 @@ data rather than hiding it** (INV-6): no screenshot is taken and no typing event
 interval. The gap is shown in the review screen so the technician can see that something was deliberately
 not captured, rather than wondering what went missing.
 
+**Speech is dropped on the same terms.** What the technician says is kept only while the window in front
+could be photographed. While an excluded application, an elevated window or any other window outside the
+session's scope is in front, the microphone's audio is thrown away as it arrives: it is never transcribed
+and never stored, so a credential read aloud off a password manager does not reach the transcript. A
+sentence already under way when such a window comes to the front is dropped with it. *(Until 2026-10-14
+speech was gated on the session state alone, and was transcribed and stored with a password manager in
+front.)* For an excluded or out-of-scope window the pill still reads Recording, because the session is
+still recording clicks; the "What's being captured right now?" panel names the window's scope.
+
 **While any of this is happening, it is visible.** A pill on screen shows the state, always, including
 while the technician is sharing their screen (INV-4). It cannot be dismissed mid-session, and it is kept
 out of screen-share and recording software so the customer's view never shows it. There is no
@@ -220,7 +229,14 @@ This document describes what is enforced today. These are named here rather than
   confirmation (ST-081).
 - **Audio capture is built** (ST-027). The service opens the technician's default microphone while a
   session is recording and nothing else; there is no code path for system or remote audio, so INV-9 is
-  enforced by there being no other source to open.
+  enforced by there being no other source to open. Each stretch of speech is stamped with the session it
+  was heard in and is written into that session or nowhere, so a segment the model finishes after one
+  session ends cannot land in the next customer's transcript; discarding a session drops what was still
+  queued for it. Stop waits, within the same grace as the last screenshots, for speech still being
+  transcribed, so the note includes the last things said. Nothing said during a pause or a
+  suppression is heard. A sentence said while recording and finished by the model after a pause or a
+  suppression began is still written (scrubbed like any other), as a screenshot taken before a pause
+  is redacted and written during it.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
   its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
   nothing is lost.
