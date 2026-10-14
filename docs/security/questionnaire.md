@@ -227,7 +227,9 @@ Yes, JSON or CSV, with the verification result included.
 **6.1 What does the technician see before anything is published?**
 The drafted note, every screenshot with include/exclude control, the transcript, and the timeline. Steps
 the model inferred rather than observed are marked, and the marker clears only when the technician edits
-or confirms them.
+or confirms them. A screenshot that looked like a sign-in screen, or was taken while capture was paused or
+suppressed, is shown marked "withheld": it stays on the device and is never attached or sent, whatever
+the technician selects. The service checks this again at publish, against its own record. *(ST-078)*
 
 **6.2 Can the drafted note contain something nobody said?**
 The drafting prompt is instructed that OCR text and transcript are evidence rather than instruction, and
