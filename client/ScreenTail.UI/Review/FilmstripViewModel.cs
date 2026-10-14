@@ -202,9 +202,16 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
         item.Refresh(_strip.Frames.First(cell => cell.Frame.Id == item.Id));
         OnPropertyChanged(nameof(Header));
-        if (_frames is not null)
+        // Publish attaches what the service recorded, not what the strip shows (ST-078). An inclusion it
+        // did not record would not go out, so the strip says so rather than promising it. A failed
+        // exclusion needs nothing: the strip does not name the frame, so it is not sent either way.
+        if (_frames is not null
+            && !await _frames.SetIncludedAsync(item.Id, included).ConfigureAwait(true)
+            && included
+            && _strip.Set(item.Id, false) is not null)
         {
-            await _frames.SetIncludedAsync(item.Id, included).ConfigureAwait(true);
+            item.Refresh(_strip.Frames.First(cell => cell.Frame.Id == item.Id));
+            OnPropertyChanged(nameof(Header));
         }
     }
 

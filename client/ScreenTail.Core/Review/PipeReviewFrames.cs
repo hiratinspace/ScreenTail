@@ -30,8 +30,8 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
         return (await _connection.RequestAsync<FrameLoaded>(id => new GetFrameCommand { RequestId = id, FrameId = frame.Id }, ct).ConfigureAwait(false))?.Image;
     }
 
-    public Task SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) =>
-        _connection.SendAsync(id => new SetFrameIncludedCommand { RequestId = id, FrameId = frameId, Included = included }, ct);
+    public async Task<bool> SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) =>
+        (await _connection.SendAsync(id => new SetFrameIncludedCommand { RequestId = id, FrameId = frameId, Included = included }, ct).ConfigureAwait(false)).Ok;
 
     public async Task<bool> DeleteAsync(string frameId, CancellationToken ct = default) =>
         (await _connection.SendAsync(id => new DeleteFrameCommand { RequestId = id, FrameId = frameId }, ct).ConfigureAwait(false)).Ok;
