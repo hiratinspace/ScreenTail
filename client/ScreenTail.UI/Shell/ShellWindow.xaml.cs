@@ -17,9 +17,12 @@ using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
 namespace ScreenTail.UI.Shell;
 
+#pragma warning disable CA1001 // A window ends in OnClosed, which disposes the model. WPF never calls Dispose on a window.
 public partial class ShellWindow : Window
+#pragma warning restore CA1001
 {
     private readonly string? _screenshotDirectory;
+    private readonly ShellViewModel _model;
 
     public ShellWindow()
         : this((string?)null)
@@ -44,7 +47,19 @@ public partial class ShellWindow : Window
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(settings);
         InitializeComponent();
-        DataContext = new ShellViewModel(state, loadReview, history, settings);
+        _model = new ShellViewModel(state, loadReview, history, settings);
+        DataContext = _model;
+    }
+
+    /// <summary>
+    /// The tray builds a new window after each close, so this one's model must stop listening to the store
+    /// now. Left subscribed, every window ever closed would keep loading each new draft and reloading
+    /// Settings until the UI restarted.
+    /// </summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _model.Dispose();
+        base.OnClosed(e);
     }
 
     public ShellWindow(string? screenshotDirectory)
@@ -67,7 +82,7 @@ public partial class ShellWindow : Window
         // binding that breaks in ReviewPane or HistoryPane fails this harness rather than the technician.
         var fixture = SessionFixture.Load();
         var frames = new FixtureFrames(SessionFixture.Directory());
-        DataContext = new ShellViewModel(
+        _model = new ShellViewModel(
             state,
             loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames, publish: SamplePublish(fixture, id), timelineExpanded: id == "preview-timeline")),
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
@@ -76,6 +91,7 @@ public partial class ShellWindow : Window
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask),
                 new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), _ => Task.CompletedTask, () => Task.CompletedTask),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
+        DataContext = _model;
         if (_screenshotDirectory is not null)
         {
             ContentRendered += async (_, _) => await CaptureAsync(state);
