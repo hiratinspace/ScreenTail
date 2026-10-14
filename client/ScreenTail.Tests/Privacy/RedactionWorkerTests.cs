@@ -40,6 +40,21 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheStoredFrameRemembersTheSizeTheMaskerShrankItTo()
+    {
+        // ST-075: the row keeps the capture's size, and a Review blur drawn in those pixels is painted on
+        // the stored image. Without the stored size beside it, the scale between them is a guess.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+
+        Assert.True(await Worker(store, Reads(new OcrWord("Services", 0, 0, 40, 20)), new HalvingMasker())
+            .ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        var stored = await store.GetRedactedFrameForBlurAsync("f1", TestContext.Current.CancellationToken);
+        Assert.Equal((800, 600, 400, 300), (stored!.Width, stored.Height, stored.StoredWidth, stored.StoredHeight));
+    }
+
+    [Fact]
     public async Task TheStoredTextNeverContainsWhatWasMasked()
     {
         // INV-1 and INV-10 together: the frame is readable afterwards, and nothing kept alongside it
@@ -353,6 +368,12 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     {
         public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge) =>
             new([.. image.Span.ToArray(), (byte)regions.Count], 800, 600);
+    }
+
+    private sealed class HalvingMasker : IFrameMasker
+    {
+        public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge) =>
+            new([.. image.Span.ToArray()], 400, 300);
     }
 
     private sealed class ThrowingMasker : IFrameMasker

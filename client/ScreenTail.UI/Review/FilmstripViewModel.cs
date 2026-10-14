@@ -55,6 +55,10 @@ public sealed partial class FrameItem : StripItem
         OnPropertyChanged(nameof(Label));
         OnPropertyChanged(nameof(Included));
         OnPropertyChanged(nameof(StateLabel));
+
+        // A blur takes the frame's OCR text with it, and the enlarged view is bound to these.
+        OnPropertyChanged(nameof(OcrText));
+        OnPropertyChanged(nameof(HasOcrText));
     }
 }
 
@@ -296,6 +300,9 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
         item.Thumbnail = Thumbnails.Decode(blurred.Image);
         item.Refresh(item.Cell with { Frame = blurred.Frame });
         _strip.Replace(blurred.Frame);
+
+        // The text panel would otherwise stay open over the text the blur has just withdrawn.
+        ShowOcrText = false;
     }
 
     private static StripItem Item(FilmstripCell cell) => cell switch
