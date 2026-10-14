@@ -130,11 +130,19 @@ public sealed class PolicyApplierTests : IAsyncDisposable
         _ = rig.Applier.Apply(new ClientSettings { LocalOnly = true, RetentionDays = 2, ExcludedProcesses = ["notepad"] });
 
         _ = rig.Applier.Apply(new CaptureSettings { Sensitivity = "high" });
-        rig.Backend.Policy = new TenantPolicy("default", 7, false, false, false);
-        _ = await rig.Sync.FetchAsync(TestContext.Current.CancellationToken);
-
         Assert.True(rig.Egress.Settings.LocalOnly);
         Assert.Equal(TimeSpan.FromDays(2), rig.Retention.Retention);
+
+        // Then a new policy that sets retention and leaves local-only to the technician. It has to apply
+        // (the retention becomes the admin's) and keep both saves as they were.
+        var reported = new List<AppliedPolicy>();
+        rig.Applier.Applied += reported.Add;
+        rig.Backend.Policy = new TenantPolicy("p2", 5, LocalOnly: false, LocalOnlyLocked: false, CaptureAllWindows: false);
+        Assert.True(await rig.Sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal("p2", Assert.Single(reported).Version);
+        Assert.Equal(TimeSpan.FromDays(5), rig.Retention.Retention);
+        Assert.True(rig.Egress.Settings.LocalOnly);
         Assert.Contains("notepad", rig.Scope.Options.ExcludedProcesses);
         Assert.Equal(5, rig.Sampler.Options.Threshold);
     }
@@ -224,6 +232,37 @@ public sealed class PolicyApplierTests : IAsyncDisposable
         Assert.Equal("default", second.Version);
         Assert.True(second.LocalOnly);
         Assert.False(second.Enforced);
+    }
+
+    [Fact]
+    public async Task AnApplyIsReportedBeforeTheNextOneCanTakeEffect()
+    {
+        // The host logs each report, so the last line logged has to be what the guard enforces. A second
+        // apply started while the first is still reporting must wait for it; if it could finish first, the
+        // first's report would land last and say local-only is off while the guard has it on.
+        using var rig = new Rig();
+        var reported = new List<bool>();
+        var calls = 0;
+        Task<AppliedPolicy>? next = null;
+        var overtook = false;
+        rig.Applier.Applied += applied =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                next = Task.Run(() => rig.Applier.Apply(new ClientSettings { LocalOnly = true }), TestContext.Current.CancellationToken);
+                overtook = next.Wait(TimeSpan.FromMilliseconds(500), TestContext.Current.CancellationToken);
+            }
+
+            reported.Add(applied.LocalOnly);
+        };
+
+        _ = rig.Applier.Apply(new ClientSettings { LocalOnly = false });
+        Assert.NotNull(next);
+        _ = await next;
+
+        Assert.False(overtook);
+        Assert.Equal([false, true], reported);
+        Assert.Equal(reported[^1], rig.Egress.Settings.LocalOnly);
     }
 
     [Fact]

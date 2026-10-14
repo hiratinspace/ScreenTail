@@ -75,7 +75,10 @@ public sealed class PolicyApplier
         _policy.Changed += _ => Apply();
     }
 
-    /// <summary>Raised after every apply, outside the lock, with what is now in force. The host logs it; it is never content (INV-10).</summary>
+    /// <summary>
+    /// Raised after every apply, under the lock, with what is now in force. The host logs it; it is never
+    /// content (INV-10). A handler must be quick and must not wait on another thread's apply.
+    /// </summary>
     public event Action<AppliedPolicy>? Applied;
 
     /// <summary>Applies the policy in force and the settings last handed over. The host calls it once at start.</summary>
@@ -119,9 +122,12 @@ public sealed class PolicyApplier
             _trigger.Apply(_capture.GraceSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : _scope.Registry.Grace);
             _sampler.Apply(_capture.ToSceneOptions());
             _redaction.Apply(_settings.ToRedactionPolicy());
+
+            // Inside the lock, so reports come out in the order the applies took effect and the last line
+            // the host logs is what the guard enforces. The one subscriber writes a log line.
+            Applied?.Invoke(applied);
         }
 
-        Applied?.Invoke(applied);
         return applied;
     }
 }

@@ -267,11 +267,6 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         Array.Clear(token);
 
         machine.StateChanged += snapshot => _ = server.BroadcastAsync(new StateChanged { State = snapshot }, stoppingToken);
-        server.Start();
-
-        var mode = verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory";
-        var state = machine.State.ToWire();
-        LogStarted(logger, IpcContract.Version, mode, state);
 
         // INV-10: capability messages describe Windows settings, never anything captured.
         var capabilities = new WindowsCapabilityProbe().Probe();
@@ -328,10 +323,25 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // brings a new policy (ST-047) or the technician saves (ST-081, ST-080). The policy decides
         // local-only and retention where it is set; the settings decide the rest. Core, so the Mac suite
         // runs it (PolicyApplierTests).
-        var applier = new PolicyApplier(policySync, settingsStore.Load(), captureStore.Load(), egressPolicy, retentionOptions, policy, trigger, sampler, redactionEngine);
+        var applier = new PolicyApplier(policySync, settingsStore.Load(), captureSettings, egressPolicy, retentionOptions, policy, trigger, sampler, redactionEngine);
         applier.Applied += applied => LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
         applySettings = settings => applier.Apply(settings);
+        applyCapture = capture =>
+        {
+            _ = applier.Apply(capture);
+            return Task.CompletedTask;
+        };
         _ = applier.Apply();
+
+        // The pipe opens only now. The applier keeps saved settings in memory, so a save that reached a
+        // no-op apply before this point would be on disk but never in force, local-only and scope included,
+        // until the next save. From here every save is applied; the hotkeys follow below, once they exist.
+        server.Start();
+
+        var mode = verifier.ServiceIsSigned ? "signed-publisher" : "dev-same-directory";
+        var state = machine.State.ToWire();
+        LogStarted(logger, IpcContract.Version, mode, state);
+
         _ = Task.Run(() => policySync.RunAsync(stoppingToken), stoppingToken);
         foreground.Changed += coordinator.Observe;
 

@@ -69,7 +69,9 @@ missing or of the wrong type) is refused like an unanswered fetch and the last s
 a drifted field name cannot unlock a locked local-only (INV-11). `PolicyApplier` in Core does the applying: a fetch and a Settings or Capture save
 each take one lock and resolve against the newest of all three, and the technician's last saved settings
 are kept in memory rather than read back from disk, so a lock lands without a restart and a settings file
-that cannot be read at that moment cannot lift local-only. The Mac suite drives it from a fetch or a save
+that cannot be read at that moment cannot lift local-only. The service opens its pipe only once the
+applier is wired, so no save lands before it, and each save writes and applies as one step, so two at
+once leave the file and what is in force the same. The Mac suite drives it from a fetch or a save
 to a request the guard refuses (2026-10-12 review). What a policy cannot yet carry: exclusions, redaction patterns and telemetry as
 tenant fields (the model has retention, local-only, its lock and the capture scope).
 
