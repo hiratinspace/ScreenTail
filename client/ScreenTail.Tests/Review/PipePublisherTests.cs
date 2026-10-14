@@ -142,6 +142,26 @@ public sealed class PipePublisherTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AnAcceptedActivationNamesTheTenantAfterOneCall()
+    {
+        // The single ask also carries the good answer: the card names the tenant, the device keeps its
+        // credentials, and the backend saw exactly one activation.
+        var backend = new ActivationBackend(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { tenantName = "Acme IT", deviceId = Guid.NewGuid(), refreshToken = "r", accessToken = "a", expiresAt = DateTimeOffset.UtcNow.AddHours(1) }),
+        });
+        _ = await PublisherAsync(backend.Commands());
+        var device = new PipeDevice(_connection!);
+
+        var answer = await device.ActivateAsync("KX7PM-4R2WQ", "TECH", TestContext.Current.CancellationToken);
+
+        Assert.Equal("Acme IT", answer.TenantName);
+        Assert.Null(answer.Refusal);
+        Assert.Equal(1, backend.Calls);
+        Assert.NotNull(backend.Credentials.Load());
+    }
+
+    [Fact]
     public async Task ARefusedActivationIsAskedOfTheBackendOnce()
     {
         // S-135: the activation card had the same second ask. A used or expired code costs one call.

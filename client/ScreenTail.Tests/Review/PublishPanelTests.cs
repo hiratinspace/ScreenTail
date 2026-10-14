@@ -298,7 +298,7 @@ public sealed class PublishPanelTests
         await panel.PublishAsync(Draft(), []);
 
         Assert.False(panel.CanPublish);
-        Assert.NotNull(panel.BlockedBecause);
+        Assert.Equal(partly ? PublishPanel.PartlyPublished : PublishPanel.AlreadyPublished, panel.BlockedBecause);
         await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
         Assert.Equal(1, calls);
     }
@@ -323,8 +323,7 @@ public sealed class PublishPanelTests
     [Fact]
     public async Task WhenNothingLandedPublishIsStillOffered()
     {
-        // Nothing reached the ticket, so asking again duplicates nothing; the technician may also change
-        // the destinations before trying.
+        // Nothing reached the ticket, so asking again duplicates nothing.
         var calls = 0;
         var panel = Panel(publish: r => { calls++; return [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "The backend did not answer."))]; });
         panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
