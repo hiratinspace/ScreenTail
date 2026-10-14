@@ -7,7 +7,8 @@ namespace ScreenTail.Core.Review.Publish;
 /// The publish pane's three delegates, over the pipe (ST-078 meets ST-093). The pane reasons in
 /// <see cref="TicketMatch"/> and <see cref="DestinationResult"/>; this turns the service's answers into
 /// those and a refusal into a failed result for every requested destination, with the reason, so the
-/// pane shows it where the technician is looking rather than throwing under an open window.
+/// pane shows it where the technician is looking rather than throwing under an open window. A link is
+/// kept only when it is one the pane may hand to the shell (<see cref="ExternalLinks.IsWebLink"/>).
 /// </summary>
 public sealed class PipePublisher(CaptureConnection connection)
 {
@@ -44,12 +45,11 @@ public sealed class PipePublisher(CaptureConnection connection)
     {
         ArgumentNullException.ThrowIfNull(request);
         var destinations = request.Destinations.ToList();
-        var channel = _connection;
 
-        // Asked as a question so the answer carries every destination; a refusal is a failed result,
-        // whose words the exchange below keeps.
-        string? refusal = null;
-        var published = await channel.RequestAsync<SessionPublished>(
+        // Asked once, whatever comes back (S-36). A refusal's words arrive on this same exchange; asking
+        // again to learn them would publish again, and a first ask that timed out after landing would
+        // then put a second note on the customer's ticket that nobody clicked for (INV-3).
+        var answer = await _connection.AskAsync<SessionPublished>(
             id => new PublishSessionCommand
             {
                 RequestId = id,
@@ -64,42 +64,18 @@ public sealed class PipePublisher(CaptureConnection connection)
             },
             ct).ConfigureAwait(false);
 
-        if (published is null)
+        if (answer.Reply is not { } published)
         {
-            refusal ??= await ReasonAsync(request, ct).ConfigureAwait(false);
-            return [.. destinations.Select(d => new DestinationResult(d, false, null, refusal))];
+            return [.. destinations.Select(d => new DestinationResult(d, false, null, answer.Refusal))];
         }
 
         return [.. published.Results
             .Select(r => new DestinationResult(
                 Parse(r.Destination),
                 r.Ok,
-                r.Link is { } link && Uri.TryCreate(link, UriKind.Absolute, out var uri) ? uri : null,
+                r.Link is { } link && Uri.TryCreate(link, UriKind.Absolute, out var uri) && ExternalLinks.IsWebLink(uri) ? uri : null,
                 r.Error,
                 r.Kind))];
-    }
-
-    /// <summary>
-    /// <see cref="CaptureConnection.RequestAsync{TReply}"/> turns a refusal into null so a screen does not
-    /// crash; the reason is fetched with a plain send, which returns the failed result with its words.
-    /// </summary>
-    private async Task<string> ReasonAsync(PublishRequest request, CancellationToken ct)
-    {
-        var result = await _connection.SendAsync(
-            id => new PublishSessionCommand
-            {
-                RequestId = id,
-                SessionId = request.SessionId,
-                TicketId = request.Ticket.Id,
-                TicketCompany = request.Ticket.Company,
-                NoteType = request.NoteType == NoteType.Internal ? "internal" : "discussion",
-                Minutes = request.Minutes,
-                Destinations = [.. request.Destinations.Select(Wire)],
-                Note = request.Note,
-                FrameIds = request.FrameIds,
-            },
-            ct).ConfigureAwait(false);
-        return result.Error ?? "The capture service refused to publish.";
     }
 
     private static string Wire(Destination destination) => destination switch

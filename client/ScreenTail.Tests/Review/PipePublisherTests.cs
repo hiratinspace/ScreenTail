@@ -1,4 +1,6 @@
 using System.IO.Pipes;
+using System.Net;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
@@ -8,6 +10,7 @@ using ScreenTail.Core.Shell;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
+using ScreenTail.Tests.Net;
 using static ScreenTail.Tests.Review.ReviewFixture;
 
 namespace ScreenTail.Tests.Review;
@@ -59,6 +62,143 @@ public sealed class PipePublisherTests : IAsyncDisposable
         var only = Assert.Single(results);
         Assert.False(only.Ok);
         Assert.Equal("Connect a PSA to publish.", only.Error);
+    }
+
+    [Fact]
+    public async Task ARefusedPublishIsAskedOfTheBackendOnce()
+    {
+        // S-36: the refusal's words come back on the one exchange. Sending the command again to learn
+        // them is a second publish, with a customer's ticket at the end of it.
+        var publisher = await PublisherAsync();
+        _backend.Refusal = "The backend did not answer.";
+        var request = new PublishRequest("s1", new TicketMatch("1", "x", "y"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote, Destination.TimeEntry }, Draft(), ["f1"]);
+
+        var results = await publisher.PublishAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.Equal((false, "The backend did not answer."), (r.Ok, r.Error)));
+        Assert.Equal(1, _backend.PublishCalls);
+    }
+
+    [Fact]
+    public async Task ARefusalThatClearsOnTheSecondAskIsNotPublishedBehindTheTechniciansBack()
+    {
+        // The case that posts a customer note nobody clicked for (INV-3): the first answer is a timeout
+        // and a second ask would have gone through. One click is one ask; the pane shows the refusal and
+        // Retry is the technician's to press.
+        var publisher = await PublisherAsync();
+        _backend.RefuseOnce = "The backend did not answer.";
+        var request = new PublishRequest("s1", new TicketMatch("1", "x", "y"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote }, Draft(), ["f1"]);
+
+        var results = await publisher.PublishAsync(request, TestContext.Current.CancellationToken);
+
+        var only = Assert.Single(results);
+        Assert.False(only.Ok);
+        Assert.Equal("The backend did not answer.", only.Error);
+        Assert.Equal(1, _backend.PublishCalls);
+        Assert.Null(_backend.Received);
+    }
+
+    [Fact]
+    public async Task WithNoServiceEveryDestinationFailsWithoutAsking()
+    {
+        await using var nobody = new CaptureConnection(new ShellState(), _ => throw new TimeoutException("nothing is listening"), CaptureConnection.Never);
+        var publisher = new PipePublisher(nobody);
+        var request = new PublishRequest("s1", new TicketMatch("1", "x", "y"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote, Destination.KbArticle }, Draft(), []);
+
+        var results = await publisher.PublishAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.Equal((false, "Not connected to the capture service."), (r.Ok, r.Error)));
+    }
+
+    [Fact]
+    public async Task ALinkThatIsNotHttpsIsNotOfferedToOpen()
+    {
+        // "Open in ConnectWise" hands the link to the shell, so only a web link the provider gave back
+        // is kept; anything else lands without a link rather than with one that opens something else.
+        var publisher = await PublisherAsync();
+        _backend.Link = "file:///C:/Windows/System32/calc.exe";
+        var request = new PublishRequest("s1", new TicketMatch("1", "x", "y"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote }, Draft(), []);
+
+        var only = Assert.Single(await publisher.PublishAsync(request, TestContext.Current.CancellationToken));
+
+        Assert.True(only.Ok);
+        Assert.Null(only.Link);
+    }
+
+    [Fact]
+    public async Task ARefusedConnectionCheckIsAskedOfTheBackendOnce()
+    {
+        _ = await PublisherAsync();
+        var settings = new PipeIntegrations(_connection!);
+        _backend.Refusal = "The backend did not answer.";
+
+        var check = await settings.CheckAsync("hudu", TestContext.Current.CancellationToken);
+
+        Assert.False(check.Ok);
+        Assert.Equal("The backend did not answer.", check.Message);
+        Assert.Equal(1, _backend.CheckCalls);
+    }
+
+    [Fact]
+    public async Task AnAcceptedActivationNamesTheTenantAfterOneCall()
+    {
+        // The single ask also carries the good answer: the card names the tenant, the device keeps its
+        // credentials, and the backend saw exactly one activation.
+        var backend = new ActivationBackend(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { tenantName = "Acme IT", deviceId = Guid.NewGuid(), refreshToken = "r", accessToken = "a", expiresAt = DateTimeOffset.UtcNow.AddHours(1) }),
+        });
+        _ = await PublisherAsync(backend.Commands());
+        var device = new PipeDevice(_connection!);
+
+        var answer = await device.ActivateAsync("KX7PM-4R2WQ", "TECH", TestContext.Current.CancellationToken);
+
+        Assert.Equal("Acme IT", answer.TenantName);
+        Assert.Null(answer.Refusal);
+        Assert.Equal(1, backend.Calls);
+        Assert.NotNull(backend.Credentials.Load());
+    }
+
+    [Fact]
+    public async Task ARefusedActivationIsAskedOfTheBackendOnce()
+    {
+        // S-135: the activation card had the same second ask. A used or expired code costs one call.
+        var backend = new ActivationBackend(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = JsonContent.Create(new { error = "invite_expired", message = "That code has expired. Ask your admin for a new invite." }),
+        });
+        _ = await PublisherAsync(backend.Commands());
+        var device = new PipeDevice(_connection!);
+
+        var answer = await device.ActivateAsync("KX7PM-4R2WQ", "TECH", TestContext.Current.CancellationToken);
+
+        Assert.Null(answer.TenantName);
+        Assert.Equal("That code has expired. Ask your admin for a new invite.", answer.Refusal);
+        Assert.Equal(1, backend.Calls);
+    }
+
+    [Fact]
+    public async Task AnActivationRefusedOnceIsNotRetriedBehindTheTechniciansBack()
+    {
+        // A backend that timed out and would have answered the second time: the card shows the timeout,
+        // and the device is not enrolled by a call the technician did not make.
+        var backend = new ActivationBackend(call => call == 1
+            ? throw new HttpRequestException("timed out")
+            : new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { tenantName = "Acme IT", deviceId = Guid.NewGuid(), refreshToken = "r", accessToken = "a", expiresAt = DateTimeOffset.UtcNow.AddHours(1) }),
+            });
+        _ = await PublisherAsync(backend.Commands());
+        var device = new PipeDevice(_connection!);
+
+        var answer = await device.ActivateAsync("KX7PM-4R2WQ", "TECH", TestContext.Current.CancellationToken);
+
+        Assert.Null(answer.TenantName);
+        Assert.Equal("The backend did not answer.", answer.Refusal);
+        Assert.Equal(1, backend.Calls);
+        Assert.Null(backend.Credentials.Load());
     }
 
     [Fact]
@@ -137,7 +277,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         Assert.Equal(["connectwise"], integrations);
     }
 
-    private async Task<PipePublisher> PublisherAsync()
+    private async Task<PipePublisher> PublisherAsync(DeviceCommands? device = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
         await _store.CreateSessionAsync(new NewSession("s1", DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
@@ -145,7 +285,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         await _store.SaveDraftAsync("s1", Draft());
         await _store.FinalizeSessionAsync("s1", new FinalizeInfo(10_000, false));
 
-        var handler = new PublishOnlyController(new PublishCommands(_store, _backend));
+        var handler = new PipeController(new PublishCommands(_store, _backend), device);
         _server = new IpcServer(IpcServer.DefaultPipeFactory(_pipeName), _token, new AcceptAll(), handler, _store, "0.0.1-test");
         _server.Start();
         _connection = new CaptureConnection(
@@ -163,21 +303,55 @@ public sealed class PipePublisherTests : IAsyncDisposable
         return new PipePublisher(_connection);
     }
 
-    private sealed class PublishOnlyController(PublishCommands publishing) : IIpcCommandHandler
+    /// <summary>The service's publish commands, and its device commands when a test brings them.</summary>
+    private sealed class PipeController(PublishCommands publishing, DeviceCommands? device) : IIpcCommandHandler
     {
         public CaptureStateSnapshot CurrentState => CaptureStateSnapshot.Idle;
 
         public CapabilitiesReported CurrentCapabilities => throw new NotSupportedException();
 
         public async Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default) =>
-            await publishing.HandleAsync(command, ct) ?? new CommandResult { RequestId = command.RequestId, Ok = false, Error = "Not a publish command." };
+            await publishing.HandleAsync(command, ct)
+            ?? (device is null ? null : await device.HandleAsync(command, ct))
+            ?? new CommandResult { RequestId = command.RequestId, Ok = false, Error = "Not a publish command." };
 
-        public Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default) => publishing.ReplyToAsync(command, ct);
+        public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default) =>
+            await publishing.ReplyToAsync(command, ct)
+            ?? (device is null ? null : await device.ReplyToAsync(command, ct));
+    }
+
+    /// <summary>The backend's <c>/v1/devices/activate</c>, counting every call that reaches it.</summary>
+    private sealed class ActivationBackend(Func<int, HttpResponseMessage> answer) : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        public DeviceSessionTests.InMemoryCredentials Credentials { get; } = new();
+
+        public DeviceCommands Commands() => new(new DeviceSession(
+            new HttpClient(this) { BaseAddress = new Uri("https://api.screentail.example/") },
+            Credentials,
+            time: new ManualTime(DateTimeOffset.UtcNow)));
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(answer(Calls));
+        }
     }
 
     private sealed class ScriptedBackend : IPsaGateway
     {
         public string? Refusal { get; set; }
+
+        /// <summary>Refuses the next publish with these words, then lands every one after it.</summary>
+        public string? RefuseOnce { get; set; }
+
+        /// <summary>Every publish that reached the backend, refused or not.</summary>
+        public int PublishCalls { get; private set; }
+
+        public int CheckCalls { get; private set; }
+
+        public string Link { get; set; } = "https://cw.example/1";
 
         public bool FailTime { get; set; }
 
@@ -217,8 +391,11 @@ public sealed class PipePublisherTests : IAsyncDisposable
             return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
         }
 
-        public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
-            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IntegrationCheckRow>(r) : GatewayAnswer.Of(new IntegrationCheckRow(true, $"Connected to {Details.FirstOrDefault(d => d.Provider == provider)?.SiteUrl}.")));
+        public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default)
+        {
+            CheckCalls++;
+            return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IntegrationCheckRow>(r) : GatewayAnswer.Of(new IntegrationCheckRow(true, $"Connected to {Details.FirstOrDefault(d => d.Provider == provider)?.SiteUrl}.")));
+        }
 
         public Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default)
         {
@@ -245,6 +422,13 @@ public sealed class PipePublisherTests : IAsyncDisposable
 
         public Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
         {
+            PublishCalls++;
+            if (RefuseOnce is { } once)
+            {
+                RefuseOnce = null;
+                return Task.FromResult(GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(once));
+            }
+
             if (Refusal is { } r)
             {
                 return Task.FromResult(GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(r));
@@ -253,7 +437,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
             Received = bundle;
             return Task.FromResult(GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d => d == "time_entry" && FailTime
                 ? new PublishOutcomeRow(d, false, Error: "ConnectWise says no.", Kind: "forbidden")
-                : new PublishOutcomeRow(d, true, "1", "https://cw.example/1"))]));
+                : new PublishOutcomeRow(d, true, "1", Link))]));
         }
     }
 

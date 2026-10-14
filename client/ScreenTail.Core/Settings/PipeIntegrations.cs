@@ -7,8 +7,8 @@ namespace ScreenTail.Core.Settings;
 /// <summary>
 /// Settings → Integrations' gateway, over the pipe (ST-082). The UI never talks to the backend: each
 /// call is a command the service answers from the backend, and a refusal comes back as the reason.
-/// A question whose answer is an event comes back null when refused; the reason is then fetched with a
-/// plain send, which returns the failed result with its words.
+/// "Test connection" is asked once and its refusal read off the same reply; asking again to learn the
+/// words would call the provider twice (S-36).
 /// </summary>
 public sealed class PipeIntegrations(CaptureConnection connection) : IIntegrationsGateway
 {
@@ -30,14 +30,10 @@ public sealed class PipeIntegrations(CaptureConnection connection) : IIntegratio
 
     public async Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default)
     {
-        var checkedEvent = await _connection.RequestAsync<IntegrationChecked>(id => new CheckIntegrationCommand { RequestId = id, Provider = provider }, ct).ConfigureAwait(false);
-        if (checkedEvent is not null)
-        {
-            return new CheckOutcome(checkedEvent.Ok, checkedEvent.Message);
-        }
-
-        var result = await _connection.SendAsync(id => new CheckIntegrationCommand { RequestId = id, Provider = provider }, ct).ConfigureAwait(false);
-        return new CheckOutcome(false, result.Error ?? "The capture service could not check the connection.");
+        var answer = await _connection.AskAsync<IntegrationChecked>(id => new CheckIntegrationCommand { RequestId = id, Provider = provider }, ct).ConfigureAwait(false);
+        return answer.Reply is { } checkedEvent
+            ? new CheckOutcome(checkedEvent.Ok, checkedEvent.Message)
+            : new CheckOutcome(false, answer.Refusal ?? "The capture service could not check the connection.");
     }
 
     public async Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default)

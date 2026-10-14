@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Onboarding;
+using ScreenTail.Core.Shell;
 using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Integrations;
 
@@ -159,9 +160,9 @@ public sealed partial class OnboardingViewModel : ObservableObject
     [RelayCommand]
     private static void OpenFix(string? link)
     {
-        if (link is { Length: > 0 } && (link.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase) || link.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+        if (ExternalLinks.TryFixLink(link, out var target))
         {
-            _ = Process.Start(new ProcessStartInfo(link) { UseShellExecute = true });
+            _ = Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
         }
     }
 

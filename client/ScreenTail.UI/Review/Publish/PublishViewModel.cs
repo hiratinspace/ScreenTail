@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Review.Publish;
+using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.UI.Review.Publish;
@@ -200,11 +201,11 @@ public sealed partial class PublishViewModel : ObservableObject
         Refresh();
     }
 
-    /// <summary>"Open in ConnectWise". Only ever a link the provider handed back, and only https.</summary>
+    /// <summary>"Open in ConnectWise". Only ever a link the provider handed back, and only a web link (<see cref="ExternalLinks.IsWebLink"/>).</summary>
     [RelayCommand]
     private static void OpenLink(Uri? link)
     {
-        if (link is { Scheme: "https" })
+        if (ExternalLinks.IsWebLink(link))
         {
             _ = Process.Start(new ProcessStartInfo(link.AbsoluteUri) { UseShellExecute = true });
         }
