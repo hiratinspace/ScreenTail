@@ -25,7 +25,9 @@ tenant's.
 
 1. **An API key**: Hudu → Admin → API Keys → New. Give it the permissions to read companies and to
    create articles and uploads; nothing more.
-2. **The site**: the tenant's Hudu address, for example `https://acme.huducloud.com`.
+2. **The site**: the tenant's Hudu address, for example `https://acme.huducloud.com`. A self-hosted
+   Hudu must be reachable at a public internet address: the backend refuses a site on its own machine
+   or a private network, when it is stored and again when it is called.
 
 Stored once, from Settings → Integrations or by hand over the device's authenticated connection to
 the backend, and never returned:

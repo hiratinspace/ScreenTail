@@ -46,6 +46,14 @@ public static class ProviderHttp
                 using var request = build();
                 response = await http.SendAsync(request, ct).ConfigureAwait(false);
             }
+            catch (HttpRequestException ex) when (PublicNetwork.WasRefused(ex))
+            {
+                // Not an outage, so not retried: the site itself is the problem (security check 2026-10-14).
+                return ProviderResult.Failure<JsonElement>(new ProviderError(
+                    ProviderErrorKind.Invalid,
+                    $"The {providerName} site is on a private network, and ScreenTail only calls public addresses.",
+                    "Enter the provider's public address in Settings → Integrations."));
+            }
             catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
             {
                 last = new ProviderError(ProviderErrorKind.Unavailable, $"{providerName} did not answer.", "Try again in a minute.");
@@ -58,6 +66,16 @@ public static class ProviderHttp
                 if (response.IsSuccessStatusCode)
                 {
                     return ProviderResult.Success(Parse(body));
+                }
+
+                if ((int)response.StatusCode is >= 300 and <= 399)
+                {
+                    // Redirects are not followed (security check 2026-10-14), so a moved site lands here.
+                    // The stored site is what needs changing, which no provider's own mapping would say.
+                    return ProviderResult.Failure<JsonElement>(new ProviderError(
+                        ProviderErrorKind.Invalid,
+                        $"The {providerName} site answered with a redirect, and ScreenTail does not follow redirects.",
+                        "Check the site address in Settings → Integrations."));
                 }
 
                 last = failure(response.StatusCode, body, response.Headers.RetryAfter);

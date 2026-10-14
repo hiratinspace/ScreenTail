@@ -170,7 +170,7 @@ Five schema-valid bundles assembled from staged VM screenshots, written transcri
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Open. Needs a cloud account and a hosting decision (owner). No longer blocks ST-008 (Part D, D-2).
+- **Status:** Open. Needs a cloud account and a hosting decision (owner). No longer blocks ST-008 (Part D, D-2). When the cloud is chosen, add its platform addresses that sit in public ranges (metadata, DNS, health probes) to `PublicNetwork.NotPublicV4`, so provider calls cannot reach them.
 
 **Description:**
 Terraform for staging/production: API hosting, managed Postgres, KMS, secrets manager, TLS, release-feed bucket. No object storage for frames (INV-7).
@@ -220,7 +220,7 @@ ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integra
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Done 2026-09-25.** Envelope encryption with AES-GCM at both layers: a per-row data key seals the secret, the deployment's master key (`Vault:MasterKey`, configuration standing where a KMS key will stand once there is a cloud) seals the data key. `PUT`/`GET`/`DELETE /v1/integrations[/{provider}]`; the list shows the last four characters and nothing over HTTP ever returns a credential; provider workers read through `IIntegrationVault`. Rotation is a rewrap (`--rotate-vault-keys`), documented in `docs/security/key-rotation.md` and exercised by `KeyRotationTests`. Without a master key the service starts and refuses to store with `501 not_configured`. Any device of the tenant may manage credentials until ST-010 brings roles.
+- **Status:** **Done 2026-09-25.** Envelope encryption with AES-GCM at both layers: a per-row data key seals the secret, the deployment's master key (`Vault:MasterKey`, configuration standing where a KMS key will stand once there is a cloud) seals the data key. `PUT`/`GET`/`DELETE /v1/integrations[/{provider}]`; the list shows the last four characters and nothing over HTTP ever returns a credential; provider workers read through `IIntegrationVault`. Rotation is a rewrap (`--rotate-vault-keys`), documented in `docs/security/key-rotation.md` and exercised by `KeyRotationTests`. Without a master key the service starts and refuses to store with `501 not_configured`. Any device of the tenant may manage credentials until ST-010 brings roles. Since the security check of 2026-10-14, a plainly internal site (localhost, a private or loopback IP) is refused with `400 private_site_url`, and ConnectWise and Hudu calls connect only to public addresses, follow no redirects and use no proxy.
 
 **Description:**
 Envelope encryption (KMS key + per-record data key) for PSA/doc credentials; readable only by provider workers; masked in API responses.

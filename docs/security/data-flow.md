@@ -190,7 +190,9 @@ This document describes what is enforced today. These are named here rather than
 
 - **Publishing is built and untested against a real PSA.** A note, a time entry and a knowledge-base
   article go through the service to the backend, which holds the tenant's credentials in its vault; the
-  client never learns which PSA. The ConnectWise sandbox check and a Hudu key are the owner's.
+  client never learns which PSA. The backend calls a tenant's provider only at a public internet
+  address: a site on its own machine or a private network is refused when stored and again when the
+  call connects. The ConnectWise sandbox check and a Hudu key are the owner's.
 - **The hosted backend** is built and runs locally on Postgres; it is not deployed (ST-007). INV-7 is
   asserted by its tests, which count every row in every table before and after a draft.
 - **Enrolment is built on both sides** (ST-010): an invite code, issued by the operator, activates the

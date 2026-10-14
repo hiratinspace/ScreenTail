@@ -250,6 +250,25 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.Single(_api.Requests);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.MovedPermanently)]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    [InlineData(HttpStatusCode.PermanentRedirect)]
+    public async Task ARedirectSaysTheSiteNeedsCheckingNotThatScreenTailHasABug(HttpStatusCode status)
+    {
+        // Redirects are not followed (security check 2026-10-14), so a moved site comes back as a 3xx.
+        // That is the stored site's problem, and the technician is pointed at it.
+        _api.Failing = status;
+
+        var result = await Provider().CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Single(_api.Requests);
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("The ConnectWise site answered with a redirect, and ScreenTail does not follow redirects.", result.Error.What);
+        Assert.Equal("Check the site address in Settings → Integrations.", result.Error.Todo);
+    }
+
     [Fact]
     public async Task ATimeEntryOfNoMinutesNeverReachesTheWire()
     {
