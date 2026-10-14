@@ -151,6 +151,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>Image bytes of a redacted frame; null when the frame is pending or doesn't exist.</summary>
     Task<byte[]?> GetRedactedFrameImageAsync(string frameId, CancellationToken ct = default);
 
+    /// <summary>
+    /// What the redaction worker read on a redacted frame, after masking: one row, for Review's `T` (E-20).
+    /// Null when the frame is pending or does not exist (INV-1); a redacted frame with no text is a
+    /// <see cref="FrameText"/> whose text is null.
+    /// </summary>
+    Task<FrameText?> GetRedactedFrameTextAsync(string frameId, CancellationToken ct = default);
+
     /// <summary>Deletes the session and everything under it, and writes an audit row.</summary>
     Task DeleteSessionAsync(string sessionId, CancellationToken ct = default);
 
@@ -198,6 +205,9 @@ public sealed record RedactionOutcome(
     DateTimeOffset RedactedAt);
 
 public sealed record FinalizeInfo(long DurationMs, bool PartialCapture);
+
+/// <param name="OcrText">The frame's OCR text as redaction left it, or null when it had none.</param>
+public sealed record FrameText(string? OcrText);
 
 /// <summary>
 /// One row of the history table (ST-079, Spec §5 S4). Counts and states only: this list is rendered

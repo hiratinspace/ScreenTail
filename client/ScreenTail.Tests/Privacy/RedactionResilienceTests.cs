@@ -317,6 +317,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task<byte[]?> GetRedactedFrameImageAsync(string frameId, CancellationToken ct = default) => inner.GetRedactedFrameImageAsync(frameId, ct);
 
+        public Task<FrameText?> GetRedactedFrameTextAsync(string frameId, CancellationToken ct = default) => inner.GetRedactedFrameTextAsync(frameId, ct);
+
         public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => inner.DeleteSessionAsync(sessionId, ct);
 
         public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) => inner.GetSchemaVersionAsync(ct);

@@ -23,6 +23,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(IndicatorShowingCommand), "indicator_showing")]
 [JsonDerivedType(typeof(GetSessionCommand), "get_session")]
 [JsonDerivedType(typeof(GetFrameCommand), "get_frame")]
+[JsonDerivedType(typeof(GetFrameTextCommand), "get_frame_text")]
 [JsonDerivedType(typeof(SetFrameIncludedCommand), "set_frame_included")]
 [JsonDerivedType(typeof(DeleteFrameCommand), "delete_frame")]
 [JsonDerivedType(typeof(BlurFrameCommand), "blur_frame")]
@@ -202,6 +203,10 @@ public sealed record GetSessionCommand : IpcCommand
 /// <summary>
 /// A session as the store hands it out: redacted frames only, with the draft (INV-1). The same
 /// <c>session.v1</c> shape the fixtures and the bundle use, so there is one serialiser for it.
+///
+/// Every frame's <c>ocr_text</c> is left out (E-20): it was most of a long session's size, and the pane
+/// shows it for one enlarged frame at a time, so it travels per frame as a <see cref="FrameTextLoaded"/>.
+/// A session that still would not fit in one message is refused with its size, not written.
 /// </summary>
 public sealed record SessionLoaded : IpcEvent
 {
@@ -229,6 +234,27 @@ public sealed record FrameLoaded : IpcEvent
 
     [JsonPropertyName("image")]
     public required byte[] Image { get; init; }
+}
+
+/// <summary>Asks for what the redaction worker read on one redacted frame. Answered by a <see cref="FrameTextLoaded"/>.</summary>
+public sealed record GetFrameTextCommand : IpcCommand
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+}
+
+/// <summary>
+/// One redacted frame's OCR text, for `T` in the enlarged view: the text the redaction engine read, after
+/// masking, so the technician can check it. Absent when the frame had none. Never a pending frame's (INV-1).
+/// </summary>
+public sealed record FrameTextLoaded : IpcEvent
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+
+    [JsonPropertyName("ocr_text")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OcrText { get; init; }
 }
 
 /// <summary>Space in the filmstrip: whether the frame goes out with the note (Spec §5 S3).</summary>
@@ -623,6 +649,7 @@ public sealed record UnmapCompanyCommand : IpcCommand
 [JsonDerivedType(typeof(ConfirmationIssued), "confirmation")]
 [JsonDerivedType(typeof(SessionLoaded), "session")]
 [JsonDerivedType(typeof(FrameLoaded), "frame")]
+[JsonDerivedType(typeof(FrameTextLoaded), "frame_text")]
 [JsonDerivedType(typeof(IntegrationsListed), "integrations")]
 [JsonDerivedType(typeof(TicketsFound), "tickets")]
 [JsonDerivedType(typeof(SessionPublished), "published")]
