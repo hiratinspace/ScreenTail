@@ -21,6 +21,7 @@ namespace ScreenTail.Tests.Sessions;
 public sealed class SuppressionHoldsTests : IAsyncDisposable
 {
     private MachineHarness? _harness;
+    private SessionMachine? _gated;
 
     [Fact]
     public async Task OneGuardLettingGoDoesNotLetGoForAnother()
@@ -137,6 +138,104 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
         Assert.Equal(SessionState.Recording, machine.State);
     }
 
+    [Fact]
+    public async Task ASuppressionThatWasNotSavedHoldsNothing()
+    {
+        // 2026-10-12 review, round 2. The hold went into the set before the state write. When that write
+        // failed, the session stayed Recording with the hold still in the set, so a guard asking IsHeld
+        // was told it held capture down and never asked again. Capture ran on over the very thing the
+        // guard had seen.
+        var ct = TestContext.Current.CancellationToken;
+        var (machine, gate) = await RecordingOverGateAsync(ct);
+
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(machine.IsHeld(CaptureStateReason.PasswordField));
+
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(machine.IsHeld(CaptureStateReason.PasswordField));
+    }
+
+    [Fact]
+    public async Task ALetGoThatWasNotSavedKeepsItsHold()
+    {
+        // The mirror. The hold left the set before the state write; when that failed the session stayed
+        // Suppressed with nothing holding it, the guard saw nothing left to let go of, and nothing would
+        // ever lift the suppression.
+        var ct = TestContext.Current.CancellationToken;
+        var (machine, gate) = await RecordingOverGateAsync(ct);
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(machine.IsHeld(CaptureStateReason.PasswordField));
+
+        Assert.True(await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(machine.IsHeld(CaptureStateReason.PasswordField));
+    }
+
+    [Fact]
+    public async Task ATransitionThatHappenedKeepsItsHoldEvenWhenSomethingAfterItThrows()
+    {
+        // The undo is for a transition that did not happen. A listener throwing after the state has
+        // moved is not that: capture is off, so the hold stays, and undoing it would leave the session
+        // Suppressed with nothing holding it. The same goes for a release.
+        var machine = await RecordingAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var throwOnce = true;
+        machine.StateChanged += _ =>
+        {
+            if (throwOnce)
+            {
+                throwOnce = false;
+                throw new InvalidOperationException("a listener failed");
+            }
+        };
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(machine.IsHeld(CaptureStateReason.PasswordField));
+
+        throwOnce = true;
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(machine.IsHeld(CaptureStateReason.PasswordField));
+    }
+
+    [Fact]
+    public async Task ASecondHoldThatNeedsNoWriteIsKeptWhenAnotherIsAlreadyInPlace()
+    {
+        // A second guard joining a suppression writes nothing, so there is nothing to fail and nothing to
+        // undo: its hold stays, and the first guard letting go leaves capture off.
+        var ct = TestContext.Current.CancellationToken;
+        var (machine, gate) = await RecordingOverGateAsync(ct);
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.SensitiveContext, ct));
+
+        gate.FailNext();
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+        gate.Disarm();
+
+        Assert.True(machine.IsHeld(CaptureStateReason.PasswordField));
+        _ = await machine.UnsuppressAsync(CaptureStateReason.SensitiveContext, ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+    }
+
+    private async Task<(SessionMachine Machine, GatedStore Gate)> RecordingOverGateAsync(CancellationToken ct)
+    {
+        _harness = await MachineHarness.StartAsync();
+        var (store, gate) = GatedStore.Over(_harness.Store);
+        var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        _gated = machine;
+        Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, localOnly: false, policyVersion: null, ct: ct));
+        return (machine, gate);
+    }
+
     private async Task<SessionMachine> RecordingAsync()
     {
         _harness = await MachineHarness.StartAsync();
@@ -148,6 +247,11 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_gated is not null)
+        {
+            await _gated.DisposeAsync();
+        }
+
         if (_harness is not null)
         {
             await _harness.DisposeAsync();
@@ -155,15 +259,17 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// The real store, with one state write that can be made to wait. Holding a transition inside its
-    /// store write is how a test lines up the calls queued behind it in a known order. Not sealed,
-    /// because DispatchProxy derives from it.
+    /// The real store, with one state write that can be made to wait or to fail. Holding a transition
+    /// inside its store write is how a test lines up the calls queued behind it in a known order; failing
+    /// one is how it reaches a transition that did not happen. Not sealed, because DispatchProxy derives
+    /// from it.
     /// </summary>
     public class GatedStore : DispatchProxy
     {
         private ISessionStore? _inner;
         private TaskCompletionSource? _gate;
         private bool _armed;
+        private bool _failNext;
 
         /// <summary>Completed once a state write has reached the closed gate.</summary>
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -185,9 +291,21 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
 
         public void Open() => _gate?.TrySetResult();
 
+        /// <summary>The next state write fails, the way a busy or full disk would, and later ones go through.</summary>
+        public void FailNext() => _failNext = true;
+
+        /// <summary>Withdraws a <see cref="FailNext"/> that nothing used.</summary>
+        public void Disarm() => _failNext = false;
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             ArgumentNullException.ThrowIfNull(targetMethod);
+            if (targetMethod.Name == nameof(ISessionStore.SetSessionStateAsync) && _failNext)
+            {
+                _failNext = false;
+                return Task.FromException(new IOException("The store could not be written."));
+            }
+
             if (targetMethod.Name == nameof(ISessionStore.SetSessionStateAsync) && _armed && _gate is { } gate)
             {
                 _armed = false;

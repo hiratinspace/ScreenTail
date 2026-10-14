@@ -225,6 +225,10 @@ public sealed class SessionMachine : IAsyncDisposable
     /// second guard believing it held nothing (2026-09-20 review).
     ///
     /// Returns true when this reason is now held, whether or not it was this call that stopped capture.
+    ///
+    /// A hold exists only once capture is actually off. If the transition fails before the state moves,
+    /// the hold comes out again: left in, the guard would be told it held and never try again, while the
+    /// session went on recording (2026-10-12 review).
     /// </summary>
     public async Task<bool> SuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
     {
@@ -236,14 +240,29 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
+            bool added;
             lock (_stateLock)
             {
-                _ = _holds.Add(reason);
+                added = _holds.Add(reason);
             }
 
             if (State is SessionState.Recording)
             {
-                await TransitionAsync(SessionState.Suppressed, reason, ct).ConfigureAwait(false);
+                try
+                {
+                    await TransitionAsync(SessionState.Suppressed, reason, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Something after the state moved (a listener) can throw too. Capture is off then,
+                    // and the hold is what will lift it, so it stays.
+                    if (added && State is not SessionState.Suppressed)
+                    {
+                        _ = ReleaseHold(reason);
+                    }
+
+                    throw;
+                }
             }
 
             return true;
@@ -261,6 +280,10 @@ public sealed class SessionMachine : IAsyncDisposable
     /// capture for every other guard too, including one whose condition was still true and whose next
     /// poll was up to a second away. A login screen's window expiring while the technician was still
     /// typing in the password field is the ordinary way to reach that.
+    ///
+    /// If the transition fails before the state moves, the hold goes back. Otherwise the session stayed
+    /// Suppressed with nothing holding it, the guard saw nothing left to let go of, and nothing would
+    /// ever lift it (2026-10-12 review).
     /// </summary>
     public async Task<bool> UnsuppressAsync(CaptureStateReason reason, CancellationToken ct = default)
     {
@@ -272,7 +295,20 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
+            try
+            {
+                await TransitionAsync(SessionState.Recording, CaptureStateReason.User, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (State is SessionState.Suppressed)
+                {
+                    RestoreHold(reason);
+                }
+
+                throw;
+            }
+
             return true;
         }
         finally
@@ -493,6 +529,15 @@ public sealed class SessionMachine : IAsyncDisposable
         lock (_stateLock)
         {
             return _holds.Remove(reason);
+        }
+    }
+
+    /// <summary>Puts a hold back after a release whose transition did not happen.</summary>
+    private void RestoreHold(CaptureStateReason reason)
+    {
+        lock (_stateLock)
+        {
+            _ = _holds.Add(reason);
         }
     }
 

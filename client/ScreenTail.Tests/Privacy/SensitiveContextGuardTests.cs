@@ -204,6 +204,56 @@ public sealed class SensitiveContextGuardTests : IAsyncDisposable
         Assert.Equal(2, guard.Holds);
     }
 
+    [Fact]
+    public async Task ASuppressionTheStoreRefusedIsTriedAgainOnTheNextTick()
+    {
+        // 2026-10-12 review, round 2. The state write failed, the session stayed Recording, and the hold
+        // stayed in the set. The guard asked the session, was told it held, and never tried again, so the
+        // credential prompt was captured for as long as it stayed on screen (INV-6).
+        var ct = TestContext.Current.CancellationToken;
+        _harness = await MachineHarness.StartAsync();
+        var (store, gate) = SuppressionHoldsTests.GatedStore.Over(_harness.Store);
+        await using var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        Assert.True(await machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        var guard = new SensitiveContextGuard(machine, _time);
+
+        guard.Seen(TimeSpan.FromMinutes(1));
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => guard.TickAsync(ct));
+        Assert.False(guard.Holding);
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(await guard.TickAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(guard.Holding);
+    }
+
+    [Fact]
+    public async Task AnEndTheStoreRefusedIsTriedAgainOnTheNextTick()
+    {
+        // The mirror. The hold left the set before the write that failed, the guard saw nothing left to
+        // let go of, and the session stayed Suppressed for the rest of its life.
+        var ct = TestContext.Current.CancellationToken;
+        _harness = await MachineHarness.StartAsync();
+        var (store, gate) = SuppressionHoldsTests.GatedStore.Over(_harness.Store);
+        await using var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        Assert.True(await machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        var guard = new SensitiveContextGuard(machine, _time);
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        Assert.True(await guard.TickAsync(ct));
+        _time.Advance(LoginScreenHeuristic.Suppression + TimeSpan.FromSeconds(1));
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => guard.TickAsync(ct));
+        Assert.True(guard.Holding);
+
+        Assert.False(await guard.TickAsync(ct));
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(guard.Holding);
+    }
+
     private async Task<SessionMachine> RecordingAsync()
     {
         _harness = await MachineHarness.StartAsync();
