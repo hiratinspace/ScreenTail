@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -51,16 +52,30 @@ public sealed class DpapiDeviceCredentials(string path) : IDeviceCredentials
 
     /// <summary>
     /// Removes the token and the copy an interrupted <see cref="Save"/> leaves beside it, which holds the
-    /// same token ("delete everything", INV-12).
+    /// same token ("delete everything", INV-12). Both are tried even when the first will not go, and then
+    /// the first failure is thrown, so the caller still knows something was left.
     /// </summary>
     public void Clear()
     {
+        Exception? failed = null;
         foreach (var file in (string[])[path, path + ".tmp"])
         {
-            if (File.Exists(file))
+            try
             {
-                File.Delete(file);
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                }
             }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failed ??= ex;
+            }
+        }
+
+        if (failed is not null)
+        {
+            ExceptionDispatchInfo.Throw(failed);
         }
     }
 }

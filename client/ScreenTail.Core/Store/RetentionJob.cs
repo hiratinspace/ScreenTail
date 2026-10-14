@@ -233,11 +233,46 @@ public static class LocalDataEraser
     }
 
     /// <summary>
+    /// Whether an entry is still in the folder, asked afresh. A link counts while it is there, whether or
+    /// not what it points at is. When the answer cannot be had, it is "still there", so the erasure stays
+    /// owed rather than being called done.
+    /// </summary>
+    internal static bool IsStillThere(FileSystemInfo entry)
+    {
+        try
+        {
+            entry.Refresh();
+            return entry.Exists || entry.LinkTarget is not null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Removes one entry, and never anything outside the data directory: a folder goes with everything in
     /// it, and a link goes as a link. .NET removes a link to a folder without following it, at the top
     /// and on the way down, on Windows and on Unix alike, so whatever it points at is left alone.
     /// </summary>
     private static Outcome Remove(FileSystemInfo entry)
+    {
+        var outcome = TryRemove(entry);
+
+        // Windows will not delete anything marked read-only, and a restore from backup or a copy off
+        // removable media can leave that mark on anything. Refused over it, the erasure would stay owed
+        // and run again on every start, after a new activation too. The mark is this account's own to
+        // clear, so it is cleared and the delete tried once more. Only after a refusal: the usual erase
+        // pays nothing for it. Unix has no such mark, and a folder without write permission is a refusal.
+        if (outcome == Outcome.Refused && OperatingSystem.IsWindows() && ClearReadOnly(entry))
+        {
+            outcome = TryRemove(entry);
+        }
+
+        return outcome;
+    }
+
+    private static Outcome TryRemove(FileSystemInfo entry)
     {
         try
         {
@@ -254,14 +289,62 @@ public static class LocalDataEraser
         }
         catch (DirectoryNotFoundException)
         {
-            // Gone between being listed and being removed. Nothing is owed for it.
-            return Outcome.AlreadyGone;
+            // Usually gone between being listed and being removed, and then nothing is owed for it. But a
+            // recursive delete can say this part way down, about something inside, so it counts as gone
+            // only when it really is.
+            return IsStillThere(entry) ? Outcome.Refused : Outcome.AlreadyGone;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Held open, or not ours to remove. Counted rather than thrown: the caller's job is to keep
             // going and to leave the erasure owed.
             return Outcome.Refused;
+        }
+    }
+
+    /// <summary>
+    /// Clears the read-only mark on an entry and on everything inside it. Links are neither changed nor
+    /// followed, so nothing outside the data directory is touched.
+    /// </summary>
+    /// <returns>Whether anything was cleared, which is whether another try can go differently.</returns>
+    private static bool ClearReadOnly(FileSystemInfo entry)
+    {
+        var cleared = false;
+        try
+        {
+            entry.Refresh();
+            cleared = ClearOne(entry);
+            if (entry is DirectoryInfo folder && !entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                var inside = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint,
+                    IgnoreInaccessible = true,
+                };
+                foreach (var item in folder.EnumerateFileSystemInfos("*", inside))
+                {
+                    cleared |= ClearOne(item);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // What could be cleared was; the retry says whether it was enough.
+        }
+
+        return cleared;
+
+        static bool ClearOne(FileSystemInfo item)
+        {
+            var attributes = item.Attributes;
+            if ((attributes & (FileAttributes.ReadOnly | FileAttributes.ReparsePoint)) != FileAttributes.ReadOnly)
+            {
+                return false;
+            }
+
+            item.Attributes = attributes & ~FileAttributes.ReadOnly;
+            return true;
         }
     }
 }
