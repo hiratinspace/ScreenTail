@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using ScreenTail.Api.Providers;
 
@@ -156,6 +157,10 @@ public sealed class SummarizationService(
         // left the reservation claimed for the rest of the day, and a hundred of those is a tenant's
         // whole budget spent on nothing (2026-09-20 review).
         var cost = 0m;
+
+        // What the calls that did not answer may have cost. Filled in by ChooseAsync before it asks the
+        // fallback, so a fallback that throws cannot take the primary's charge with it.
+        var owed = new StrongBox<decimal>();
         var repaired = false;
         var usedFallback = false;
         LlmDraft? model;
@@ -164,18 +169,11 @@ public sealed class SummarizationService(
 
         try
         {
-            (model, usedFallback, failure) = await ChooseAsync(bundle, deadline.Token).ConfigureAwait(false);
+            (model, usedFallback, failure) = await ChooseAsync(bundle, owed, deadline.Token).ConfigureAwait(false);
             if (model is not null)
             {
-                cost = model.CostUsd;
+                cost += model.CostUsd;
                 outcome = Interpret(model.Json, bundle);
-            }
-            else if (failure!.MayHaveBeenBilled)
-            {
-                // We stopped waiting; the model did not stop working. Settled at the estimate because
-                // that is the honest guess, and because a cap that ignores the calls it never saw the
-                // end of is a cap a slow afternoon walks straight through (2026-09-20 review).
-                cost = options.MaxSessionCostUsd;
             }
 
             if (model is not null && outcome.Draft is null)
@@ -189,6 +187,12 @@ public sealed class SummarizationService(
                     cost += second.Value!.CostUsd;
                     outcome = Interpret(second.Value.Json, bundle);
                     repaired = outcome.Draft is not null;
+                }
+                else
+                {
+                    // The first answer's reason stands. The repair is a second call, and one that was
+                    // sent and never came back is a second call the model may have run (2026-10-12 review).
+                    cost += Owed(second.Error!);
                 }
             }
         }
@@ -204,6 +208,7 @@ public sealed class SummarizationService(
             // CancellationToken.None, not the request's. The money is gone whether or not the technician
             // is still waiting for the answer, and a client that hangs up mid-request was cancelling the
             // write that records what they spent.
+            cost += owed.Value;
             await ledger.SettleAsync(reservation, cost, CancellationToken.None).ConfigureAwait(false);
         }
 
@@ -227,9 +232,16 @@ public sealed class SummarizationService(
     ///
     /// Only an outage falls over. A rejected payload is rejected twice, and a revoked key is not fixed by
     /// spending money somewhere else — both would buy a second failure at the price of a second call.
+    ///
+    /// <c>owed</c> collects what the calls that failed may have cost. Kept apart from the failure that is
+    /// reported, because falling over used to replace the primary's failure with the fallback's, and with
+    /// it the only record that the first call may have been paid for. Added to before the fallback is
+    /// asked, and not returned, so a fallback that throws leaves the primary's charge where the caller's
+    /// finally can still see it.
     /// </summary>
     private async Task<(LlmDraft? Draft, bool UsedFallback, ProviderError? Failure)> ChooseAsync(
         SummarizeBundle bundle,
+        StrongBox<decimal> owed,
         CancellationToken ct)
     {
         var first = await primary.DraftAsync(bundle, null, ct).ConfigureAwait(false);
@@ -238,14 +250,30 @@ public sealed class SummarizationService(
             return (first.Value, false, null);
         }
 
+        owed.Value += Owed(first.Error!);
         if (first.Error!.Kind != ProviderErrorKind.Unavailable || fallback is null)
         {
             return (null, false, first.Error);
         }
 
         var second = await fallback.DraftAsync(bundle, null, ct).ConfigureAwait(false);
-        return second.Ok ? (second.Value, true, null) : (null, true, second.Error);
+        if (second.Ok)
+        {
+            return (second.Value, true, null);
+        }
+
+        owed.Value += Owed(second.Error!);
+        return (null, true, second.Error);
     }
+
+    /// <summary>
+    /// What a call that did not answer is settled at.
+    ///
+    /// We stopped waiting; the model did not stop working. The estimate, because that is the honest guess,
+    /// and because a cap that ignores the calls it never saw the end of is a cap a slow afternoon walks
+    /// straight through (2026-09-20 review). Nothing, when the provider says the request never left.
+    /// </summary>
+    private decimal Owed(ProviderError error) => error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m;
 
     /// <summary>Parses what the model said and applies the post-conditions to it.</summary>
     private static (DraftJson? Draft, string Reason) Interpret(string json, SummarizeBundle bundle)
