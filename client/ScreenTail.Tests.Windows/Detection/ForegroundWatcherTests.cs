@@ -156,17 +156,19 @@ public sealed class ForegroundWatcherTests
         var frontRenamed = $"ScreenTail front renamed {Guid.NewGuid():N}";
 
         // Shown, so nothing can say its renames went unreported only because it was hidden; and shown
-        // without being activated, so it never holds the foreground for a moment of its own.
-        using var noisy = DesktopWindow.Create(noisyPrefix);
+        // without being activated, so it never holds the foreground for a moment of its own. Both are
+        // ordinary windows, because the STATIC windows the other tests use raise no name change at all.
+        using var noisy = DesktopWindow.CreateOrdinary(noisyPrefix);
         noisy.ShowBehind();
-        using var front = DesktopWindow.Create(frontTitle);
+        using var front = DesktopWindow.CreateOrdinary(frontTitle);
         front.RequireForeground();
 
         // The control. Fifty silent renames prove nothing unless they were delivered to a hook like the
         // watcher's, so the test installs one of its own and counts them. An earlier version renamed the
-        // window in front instead and waited for the watcher to report it, which only works while that
-        // window keeps the foreground and its rename is not held back behind a report made moments
-        // before. The witness shows delivery whichever window is in front.
+        // window in front instead and waited for the watcher to report it, which timed out on the hosted
+        // runner: its windows were STATIC controls, whose renames raise no name change, so nothing was
+        // ever delivered and the wait could only run out. The witness says so directly, and shows delivery
+        // whichever window is in front.
         using var witness = NameChangeWitness.Start();
 
         // The safety-net poll pushed out of reach, so that what the watcher reports below can only have
