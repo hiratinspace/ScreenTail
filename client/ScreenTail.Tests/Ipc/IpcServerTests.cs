@@ -341,6 +341,245 @@ public sealed class IpcServerTests : IAsyncDisposable
         Assert.Equal(1, _audit.Types.Count(t => t == "ipc_rejected_" + RejectReasons.BadToken));
     }
 
+    [Fact]
+    public async Task ASlowCommandDoesNotHoldUpTheIndicatorOrTheSessionControls()
+    {
+        // E-25 (2026-10-12 review). The server read a command, awaited its handler, wrote the reply, and
+        // only then read the next. The HUD's two-second "the pill is on screen" shares the UI's one
+        // connection with publish, search and the integration screens, which wait on the backend. A
+        // backend call that ran past the indicator's grace left the pill on screen and the service
+        // believing nothing showed it, so frames and typing were dropped as unindicated (INV-4, INV-6),
+        // and Stop and Pause queued behind the same call.
+        _controller.State = Recording("s1");
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+
+        // What the HUD says every two seconds, and every button a technician reaches for mid-session.
+        Func<int, IpcCommand>[] urgent =
+        [
+            id => new IndicatorShowingCommand { RequestId = id, X = 10, Y = 10, Width = 160, Height = 32 },
+            id => new PauseCommand { RequestId = id },
+            id => new ResumeCommand { RequestId = id },
+            id => new MarkMomentCommand { RequestId = id },
+            id => new GetStateCommand { RequestId = id },
+            id => new RequestConfirmationCommand { RequestId = id, Action = "discard_session" },
+            id => new StopCommand { RequestId = id },
+            id => new StartCommand { RequestId = id },
+            id => new DiscardCommand { RequestId = id },
+        ];
+        foreach (var build in urgent)
+        {
+            var answered = await ui.SendAsync(build, ct).WaitAsync(TimeSpan.FromSeconds(1), ct);
+            Assert.True(answered.Ok);
+        }
+
+        Assert.False(slow.IsCompleted, "the slow command was answered before its handler finished");
+        _controller.Release.TrySetResult();
+        Assert.True((await slow.WaitAsync(Soon, ct)).Ok);
+    }
+
+    [Fact]
+    public async Task CommandsQueuedBehindASlowOneRunInTheOrderTheyWereSent()
+    {
+        // Only the session's own commands overtake. Everything else keeps the order it was sent in, as
+        // it always had: a save and the publish after it, or a setting and the read after it, must not
+        // swap places because one of them waited on the network.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var search = ui.SendAsync(id => new SearchTicketsCommand { RequestId = id, Query = "48213" }, ct);
+        await ui.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct).WaitAsync(Soon, ct);
+        var settings = ui.SendAsync(id => new GetSettingsCommand { RequestId = id }, ct);
+        await ui.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct).WaitAsync(Soon, ct);
+
+        // Both have been read by now (the pipe is read in order and the indicator after each was
+        // answered), and neither has run.
+        Assert.False(search.IsCompleted);
+        Assert.False(settings.IsCompleted);
+        Assert.DoesNotContain(_controller.Received, c => c is SearchTicketsCommand or GetSettingsCommand);
+
+        _controller.Release.TrySetResult();
+        await Task.WhenAll(slow, search, settings).WaitAsync(Soon, ct);
+
+        Assert.Equal(
+            [typeof(GetIntegrationsCommand), typeof(SearchTicketsCommand), typeof(GetSettingsCommand)],
+            _controller.Received.Where(c => c is not IndicatorShowingCommand).Select(c => c.GetType()));
+    }
+
+    [Fact]
+    public async Task AClientCannotQueueUnboundedWorkBehindASlowCommand()
+    {
+        // The queue behind a slow command is bounded, and a command that does not fit is refused at
+        // once rather than making the reader wait for room: a reader waiting for room is a reader not
+        // hearing the indicator.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        const int Extra = 4;
+        var queued = Enumerable.Range(0, IpcServer.MostQueuedPerConnection + Extra)
+            .Select(_ => ui.SendAsync(id => new GetSettingsCommand { RequestId = id }, ct))
+            .ToList();
+
+        var heartbeat = await ui.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct)
+            .WaitAsync(TimeSpan.FromSeconds(1), ct);
+        Assert.True(heartbeat.Ok);
+
+        // The refusals come back at once. Waited for rather than counted on the spot, because the
+        // client hands each answer to its caller on the thread pool. No more than the extra can ever
+        // finish here: the rest are queued behind the held handler.
+        await WaitUntilAsync(() => queued.Count(t => t.IsCompleted) == Extra);
+        var refused = queued.Where(t => t.IsCompleted).Select(t => t.Result).ToList();
+        Assert.All(refused, r => Assert.False(r.Ok));
+        Assert.All(refused, r => Assert.Contains("busy", r.Error, StringComparison.OrdinalIgnoreCase));
+
+        _controller.Release.TrySetResult();
+        var all = await Task.WhenAll(queued).WaitAsync(Soon, ct);
+        Assert.True((await slow.WaitAsync(Soon, ct)).Ok);
+        Assert.Equal(IpcServer.MostQueuedPerConnection, all.Count(r => r.Ok));
+        Assert.Equal(IpcServer.MostQueuedPerConnection, _controller.Received.Count(c => c is GetSettingsCommand));
+    }
+
+    [Fact]
+    public async Task NothingQueuedRunsAfterTheClientLeaves()
+    {
+        // An instruction from a window that has gone has nobody to tell how it went, and the old loop
+        // never read it at all. Queued work is dropped with the connection rather than run blind.
+        //
+        // What stops it here is mostly the reply to the held command: it has nowhere to go once the
+        // client has left, and that failure ends the worker before it reaches the next item. The check
+        // between items is a backstop behind that, and this test does not tell the two apart.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        _ = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        _ = ui.SendAsync(id => new DeleteFrameCommand { RequestId = id, FrameId = "f1" }, ct);
+        await ui.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct).WaitAsync(Soon, ct);
+
+        await ui.DisposeAsync();
+
+        // Long enough for the reader to see the far end close; a local socket says so at once.
+        await Task.Delay(250, ct);
+        _controller.Release.TrySetResult();
+
+        await WaitUntilAsync(() => _server!.ConnectedClients == 0);
+        Assert.DoesNotContain(_controller.Received, c => c is DeleteFrameCommand);
+    }
+
+    [Fact]
+    public async Task AHandlerThatFailsOffTheReadLoopStillEndsTheConnection()
+    {
+        // A handler that threw used to end the connection, and the UI reconnected. Moving the work off
+        // the read loop must not turn that into a connection that reads on and never answers again.
+        _controller.FailsOn = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ui.Disconnected += () => disconnected.TrySetResult();
+
+        var failed = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+
+        await disconnected.Task.WaitAsync(Soon, ct);
+        await Assert.ThrowsAsync<IOException>(() => failed.WaitAsync(Soon, ct));
+        await WaitUntilAsync(() => _server!.ConnectedClients == 0);
+    }
+
+    [Fact]
+    public async Task AFailedSessionCommandClosesTheConnectionWithoutWaitingForASlowOne()
+    {
+        // Round 1 review of E-25. A session command that fails on the read loop ends the reading, but
+        // the pipe stayed open until the slow command behind it finished. Nothing read it in that time
+        // and the client still looked connected, so it did not reconnect: the heartbeat, Stop, Pause and
+        // Mark all hung for as long as the backend took. The old loop closed the connection at once.
+        _controller.State = Recording("s1");
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        _controller.FailsOn = typeof(PauseCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ui.Disconnected += () => disconnected.TrySetResult();
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var failed = ui.SendAsync(id => new PauseCommand { RequestId = id }, ct);
+
+        await disconnected.Task.WaitAsync(Soon, ct);
+        Assert.False(_controller.Release.Task.IsCompleted, "the connection closed only once the slow command was released");
+        await Assert.ThrowsAsync<IOException>(() => failed.WaitAsync(Soon, ct));
+        await Assert.ThrowsAsync<IOException>(() => slow.WaitAsync(Soon, ct));
+
+        // A fresh connection is answered at once, and the held command's late reply goes nowhere.
+        await using var again = await ConnectAsync();
+        Assert.True((await again.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct).WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+        _controller.Release.TrySetResult();
+        await WaitUntilAsync(() => _server!.ConnectedClients == 1);
+    }
+
+    [Fact]
+    public async Task ASettingChangeIsAppliedBeforeASessionCommandSentAfterIt()
+    {
+        // Round 1 review of E-25. A Start from the tray or the hotkey does not wait for its answer, so a
+        // Save followed by a Start used to be applied in that order. With the settings behind a slow
+        // command and the Start on the read loop, capture could begin under the excluded processes and
+        // redaction choices the technician had just changed. Both settings writes are local files, so
+        // they are answered on the read loop beside the session's own commands.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var privacy = ui.SendAsync(id => new SetSettingsCommand { RequestId = id, Settings = new ScreenTail.Shared.Settings.ClientSettings() }, ct);
+        var capture = ui.SendAsync(id => new SetCaptureSettingsCommand { RequestId = id, Settings = new ScreenTail.Shared.Settings.CaptureSettings() }, ct);
+        Assert.True((await ui.SendAsync(id => new StartCommand { RequestId = id }, ct).WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+
+        Assert.True((await privacy.WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+        Assert.True((await capture.WaitAsync(TimeSpan.FromSeconds(1), ct)).Ok);
+        Assert.Equal(
+            [typeof(GetIntegrationsCommand), typeof(SetSettingsCommand), typeof(SetCaptureSettingsCommand), typeof(StartCommand)],
+            _controller.Received.Select(c => c.GetType()));
+
+        _controller.Release.TrySetResult();
+        Assert.True((await slow.WaitAsync(Soon, ct)).Ok);
+    }
+
+    [Fact]
+    public async Task StoppingTheServiceDoesNotWaitForASlowCommand()
+    {
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ui.Disconnected += () => disconnected.TrySetResult();
+
+        _ = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+
+        await _server!.DisposeAsync().AsTask().WaitAsync(Soon, ct);
+        _server = null;
+
+        await disconnected.Task.WaitAsync(Soon, ct);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_server is not null)
@@ -456,17 +695,58 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         public CaptureStateSnapshot State { get; set; } = CaptureStateSnapshot.Idle;
 
-        public List<IpcCommand> Received { get; } = [];
+        private readonly List<IpcCommand> _received = [];
+
+        /// <summary>What reached the handler, in the order it arrived. A copy: two lanes add to it at once.</summary>
+        public IReadOnlyList<IpcCommand> Received
+        {
+            get
+            {
+                lock (_received)
+                {
+                    return [.. _received];
+                }
+            }
+        }
 
         public CaptureStateSnapshot CurrentState => State;
 
         /// <summary>What a question is answered with, when a test sets one.</summary>
         public IpcEvent? Answer { get; set; }
 
-        public Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
+        /// <summary>
+        /// A command of this type waits inside the handler until <see cref="Release"/> is set, the way a
+        /// publish waits on the backend.
+        /// </summary>
+        public Type? Holds { get; set; }
+
+        /// <summary>Set once a held command is inside the handler.</summary>
+        public TaskCompletionSource Holding { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>A command of this type fails inside the handler, the way a broken store would.</summary>
+        public Type? FailsOn { get; set; }
+
+        public async Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
         {
-            Received.Add(command);
-            return Task.FromResult(new CommandResult { RequestId = command.RequestId, Ok = true });
+            lock (_received)
+            {
+                _received.Add(command);
+            }
+
+            if (command.GetType() == Holds)
+            {
+                Holding.TrySetResult();
+                await Release.Task.WaitAsync(ct);
+            }
+
+            if (command.GetType() == FailsOn)
+            {
+                throw new IOException("The handler failed.");
+            }
+
+            return new CommandResult { RequestId = command.RequestId, Ok = true };
         }
 
         public Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
@@ -476,7 +756,11 @@ public sealed class IpcServerTests : IAsyncDisposable
                 return Task.FromResult<IpcEvent?>(null);
             }
 
-            Received.Add(command);
+            lock (_received)
+            {
+                _received.Add(command);
+            }
+
             return Task.FromResult<IpcEvent?>(Answer);
         }
     }

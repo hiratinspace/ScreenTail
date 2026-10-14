@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Threading.Channels;
 using ScreenTail.Core.Audit;
 using ScreenTail.Shared.Ipc;
 
@@ -76,6 +77,17 @@ public sealed class IpcServer : IAsyncDisposable
     /// diagnostics panel a third; anything beyond a handful at the same instant is not a technician.
     /// </summary>
     private const int MaxHandshakesInFlight = 16;
+
+    /// <summary>
+    /// Commands one connection may have waiting behind the one its worker is running (E-25). One more
+    /// is refused at once with a failed result, rather than read later: a reader waiting for room is a
+    /// reader not hearing the indicator. The UI sends one at a time apart from the ticket picker's
+    /// search, so sixteen is room to spare, and at the 1 MiB frame limit it is a bound on memory too.
+    /// </summary>
+    public const int MostQueuedPerConnection = 16;
+
+    /// <summary>What a command that did not fit in the queue is told. No content, like every refusal here.</summary>
+    private const string BusyError = "The capture service is busy with earlier requests. Try again in a moment.";
 
     public void Start()
     {
@@ -384,51 +396,148 @@ public sealed class IpcServer : IAsyncDisposable
         return null;
     }
 
+    /// <summary>
+    /// Reads one connection's commands and answers them, on two lanes (E-25, 2026-10-12 review).
+    ///
+    /// It used to answer every command before reading the next. The UI has one connection, and the HUD's
+    /// two-second "the pill is on screen" shares it with publishing, the ticket search and the
+    /// integration screens, which wait on the backend. One slow backend call held the heartbeat past
+    /// the indicator's grace, and the service then dropped frames and typing as unindicated with the
+    /// pill in plain view (INV-4, INV-6). Stop and Pause waited behind the same call.
+    ///
+    /// Now the session's own commands (<see cref="AnsweredOnTheReadLoop"/>) are answered here, in the
+    /// order they arrive, and never wait for anything but the machine. Everything else goes to one
+    /// worker per connection, which runs them in the order they were sent, one at a time, exactly as
+    /// before. Replies share the connection's write lock and carry their request id, which the client
+    /// already matched on.
+    /// </summary>
     private async Task ServeAsync(Connection connection, CancellationToken ct)
     {
-        while (true)
+        var queue = Channel.CreateBounded<IpcCommand>(new BoundedChannelOptions(MostQueuedPerConnection)
         {
-            var command = await connection.ReadAsync(ct).ConfigureAwait(false);
-            if (command is null)
-            {
-                return;
-            }
+            SingleReader = true,
+            SingleWriter = true,
+        });
 
-            CommandResult result;
-            switch (command)
+        // Ends the reading on either side: the worker's when the client has gone (what is still queued
+        // is dropped, not run blind), and this loop's when the worker failed.
+        using var serving = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var worker = Task.Run(() => WorkAsync(connection, queue.Reader, serving, ct), CancellationToken.None);
+        try
+        {
+            while (true)
             {
-                case HelloCommand:
-                    result = new CommandResult { RequestId = command.RequestId, Ok = false, Error = "Already authenticated." };
-                    break;
-                case GetStateCommand:
-                    await connection.SendAsync(new StateChanged { State = _handler.CurrentState }, ct).ConfigureAwait(false);
-                    result = new CommandResult { RequestId = command.RequestId, Ok = true };
-                    break;
+                var command = await connection.ReadAsync(serving.Token).ConfigureAwait(false);
+                if (command is null)
+                {
+                    return;
+                }
 
-                case GetCapabilitiesCommand:
+                if (AnsweredOnTheReadLoop(command))
+                {
+                    await AnswerAsync(connection, command, ct).ConfigureAwait(false);
+                }
+                else if (!queue.Writer.TryWrite(command))
+                {
                     await connection.SendAsync(
-                        _handler.CurrentCapabilities with { RequestId = command.RequestId },
+                        new CommandResult { RequestId = command.RequestId, Ok = false, Error = BusyError },
                         ct).ConfigureAwait(false);
-                    result = new CommandResult { RequestId = command.RequestId, Ok = true };
-                    break;
-                default:
-                    // A question is answered with its own event first and a result after, so a client
-                    // that only understands results still learns the command was accepted.
-                    if (await _handler.ReplyToAsync(command, connection.Id, ct).ConfigureAwait(false) is { } reply)
-                    {
-                        await connection.SendAsync(reply with { RequestId = command.RequestId }, ct).ConfigureAwait(false);
-                        result = new CommandResult { RequestId = command.RequestId, Ok = true };
-                    }
-                    else
-                    {
-                        result = await _handler.HandleAsync(command, connection.Id, ct).ConfigureAwait(false);
-                    }
-
-                    break;
+                }
             }
-
-            await connection.SendAsync(result, ct).ConfigureAwait(false);
         }
+        finally
+        {
+            queue.Writer.TryComplete();
+            await serving.CancelAsync().ConfigureAwait(false);
+
+            // Nothing reads this pipe any more, so it is closed now rather than once a slow handler
+            // returns. Left open, the client still looked connected and did not reconnect, and the
+            // heartbeat, Stop and Pause hung for as long as the backend took (round 1 review of E-25).
+            connection.Close();
+
+            // Before the connection is disposed under it. A handler already running finishes, as it
+            // always did; its reply has nowhere to go, and that failure is what ends the worker.
+            await worker.ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The commands that act on, or report, the session being recorded. They are answered from local
+    /// state alone, so nothing on the network can hold them up.
+    ///
+    /// Named here rather than the slow ones, so that a command added later queues by default and can
+    /// never be the thing a heartbeat waits behind. <c>request_confirmation</c> is here because a discard
+    /// needs its token first. The two settings writes are here so that a Start sent after a Save, which
+    /// the tray and the hotkey do without waiting, still records under what was saved; both are a local
+    /// file and an in-memory apply.
+    /// </summary>
+    private static bool AnsweredOnTheReadLoop(IpcCommand command) => command is IndicatorShowingCommand
+        or StartCommand or PauseCommand or ResumeCommand or StopCommand or DiscardCommand or MarkMomentCommand
+        or RequestConfirmationCommand or GetStateCommand or GetCapabilitiesCommand or HelloCommand
+        or SetSettingsCommand or SetCaptureSettingsCommand;
+
+    private async Task WorkAsync(Connection connection, ChannelReader<IpcCommand> queue, CancellationTokenSource serving, CancellationToken ct)
+    {
+        try
+        {
+            while (await queue.WaitToReadAsync(serving.Token).ConfigureAwait(false))
+            {
+                while (!serving.IsCancellationRequested && queue.TryRead(out var command))
+                {
+                    await AnswerAsync(connection, command, ct).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (serving.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // The client has gone. Whatever it still had queued has nobody to answer to.
+        }
+        catch
+        {
+            // A failed handler ended the connection when it ran on the read loop, and the client
+            // reconnected. It still does: a reader that went on reading would leave every later command
+            // unanswered.
+            await serving.CancelAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task AnswerAsync(Connection connection, IpcCommand command, CancellationToken ct)
+    {
+        CommandResult result;
+        switch (command)
+        {
+            case HelloCommand:
+                result = new CommandResult { RequestId = command.RequestId, Ok = false, Error = "Already authenticated." };
+                break;
+            case GetStateCommand:
+                await connection.SendAsync(new StateChanged { State = _handler.CurrentState }, ct).ConfigureAwait(false);
+                result = new CommandResult { RequestId = command.RequestId, Ok = true };
+                break;
+
+            case GetCapabilitiesCommand:
+                await connection.SendAsync(
+                    _handler.CurrentCapabilities with { RequestId = command.RequestId },
+                    ct).ConfigureAwait(false);
+                result = new CommandResult { RequestId = command.RequestId, Ok = true };
+                break;
+            default:
+                // A question is answered with its own event first and a result after, so a client
+                // that only understands results still learns the command was accepted.
+                if (await _handler.ReplyToAsync(command, connection.Id, ct).ConfigureAwait(false) is { } reply)
+                {
+                    await connection.SendAsync(reply with { RequestId = command.RequestId }, ct).ConfigureAwait(false);
+                    result = new CommandResult { RequestId = command.RequestId, Ok = true };
+                }
+                else
+                {
+                    result = await _handler.HandleAsync(command, connection.Id, ct).ConfigureAwait(false);
+                }
+
+                break;
+        }
+
+        await connection.SendAsync(result, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -480,6 +589,12 @@ public sealed class IpcServer : IAsyncDisposable
                 _writeLock.Release();
             }
         }
+
+        /// <summary>
+        /// Ends the pipe, so the client sees it close, but keeps the write lock: a handler still running
+        /// may yet try to answer, and should fail on the pipe rather than on the lock.
+        /// </summary>
+        public void Close() => pipe.Dispose();
 
         public async ValueTask DisposeAsync()
         {
