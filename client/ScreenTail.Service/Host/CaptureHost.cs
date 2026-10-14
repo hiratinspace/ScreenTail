@@ -50,7 +50,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     private static PolicySync? _policySync;
     private static string? _microphoneName;
 
-    private static readonly string DataDirectory = Path.Combine(
+    internal static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ScreenTail");
 
@@ -252,6 +252,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 // open by antivirus, or the process dying on the way out — and the next start will
                 // finish the job rather than opening what survived (INV-12).
                 LocalDataEraser.MarkPending(DataDirectory);
+                // The device's tokens go now rather than at shutdown, so a renewal still in flight cannot
+                // save the refresh token back after the sweep has removed it.
+                device.Erase();
                 _eraseOnShutdown = true;
                 lifetime.StopApplication();
                 return Task.FromResult(true);
