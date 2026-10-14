@@ -45,7 +45,8 @@ public interface IScreenshotCapturer
     /// reading a decision that may already be stale. A technician who clicks in ScreenConnect and
     /// immediately alt-tabs to Outlook would otherwise have their inbox photographed against a scope
     /// decision made about a different window. Zero means "whatever is in front", for callers with no
-    /// decision to honour.
+    /// decision to honour. The capture paths never pass it: <see cref="FrameGate"/> refuses a decision
+    /// that names no window before the camera is pointed anywhere.
     /// </param>
     CapturedFrame? CaptureForegroundWindow(nint expected = 0);
 
