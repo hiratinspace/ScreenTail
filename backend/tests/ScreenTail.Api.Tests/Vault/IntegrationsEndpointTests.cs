@@ -256,6 +256,24 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
     }
 
+    [Fact]
+    public async Task TheVaultStoresTheSiteItJudged()
+    {
+        // The rule forgives surrounding whitespace, so the stored value must be the trimmed one. A
+        // provider builds its address by appending to the site, and a site that kept a trailing space
+        // would send the credential to a path nobody meant, whichever caller of the vault wrote it.
+        var (tenantId, _, _) = await SeedAsync();
+        using var scope = api.Services.CreateScope();
+        var vault = scope.ServiceProvider.GetRequiredService<IIntegrationVault>();
+
+        await vault.StoreAsync(tenantId, "connectwise", " \thttps://na.myconnectwise.net/  ", Secret, TestContext.Current.CancellationToken);
+        var stored = await api.UseAsync(db => db.Integrations.SingleAsync(i => i.TenantId == tenantId));
+        var revealed = await vault.RevealAsync(tenantId, "connectwise", TestContext.Current.CancellationToken);
+
+        Assert.Equal("https://na.myconnectwise.net/", stored.SiteUrl);
+        Assert.Equal("https://na.myconnectwise.net/", revealed?.SiteUrl);
+    }
+
     [Theory]
     [InlineData("https://na.myconnectwise.net")]
     [InlineData("https://psa.acme-msp.example:8443")]

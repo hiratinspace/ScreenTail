@@ -95,7 +95,8 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
             db.Integrations.Add(row);
         }
 
-        row.SiteUrl = siteUrl;
+        // The value the rule judged, trimmed, so what is stored cannot differ from what was checked.
+        row.SiteUrl = siteUrl.Trim();
         row.SecretHint = secret[^Math.Min(4, secret.Length)..];
         row.SecretCiphertext = sealed_.Ciphertext;
         row.SecretNonce = sealed_.Nonce;
