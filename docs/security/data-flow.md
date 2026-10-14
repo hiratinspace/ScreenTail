@@ -45,7 +45,9 @@ recording — not continuously, and not on a timer.
 
 **Which windows** is restricted by default to the remote-support tool plus an allowlist of admin tools
 (INV-5). "All windows" exists, is opt-in, and warns that it will capture other customers' data if the
-technician has anything else open.
+technician has anything else open. The Windows desktop, taskbar and Task View are never captured, in
+either mode: the desktop's rectangle is every monitor, so a picture of it would be a picture of every
+window in front of it. File Explorer counts as an admin tool only in a folder window.
 
 **Keystrokes are never recorded.** The keyboard hook produces categories and counts — "a burst of 14
 characters", "a shortcut", "Enter" — and there is no field anywhere in the data format that can hold a

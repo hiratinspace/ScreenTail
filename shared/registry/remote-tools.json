@@ -72,6 +72,6 @@
     { "id": "registry-editor", "display_name": "Registry Editor", "processes": ["regedit"] },
     { "id": "event-viewer", "display_name": "Event Viewer", "processes": ["eventvwr"] },
     { "id": "control-panel", "display_name": "Control Panel", "processes": ["control", "SystemPropertiesAdvanced"] },
-    { "id": "explorer", "display_name": "File Explorer", "processes": ["explorer"] }
+    { "id": "explorer", "display_name": "File Explorer", "processes": ["explorer"], "window_classes": ["CabinetWClass"] }
   ]
 }

@@ -51,9 +51,40 @@ public sealed class ScopeEnforcementTests
     [InlineData("notepad")]
     public void AnOutOfScopeWindowAuthorisesNoCapture(string process)
     {
-        // Not "explorer": it is an admin tool in the shipped registry and legitimately in scope beside a
-        // session. Assuming otherwise is how a test ends up asserting the opposite of the design.
+        // Not "explorer": a folder window is an admin tool in the shipped registry and legitimately in
+        // scope beside a session. Its shell windows are not, and have their own test below.
         Assert.False(new ScopePolicy(Registry).Decide(Window(process, handle: 11)).MayCaptureFrames);
+    }
+
+    [Theory]
+    [InlineData("Progman", "Program Manager")]
+    [InlineData("WorkerW", "")]
+    [InlineData("Shell_TrayWnd", "")]
+    [InlineData("Shell_SecondaryTrayWnd", "")]
+    public void TheDesktopAndTaskbarAuthoriseNoFrame(string className, string title)
+    {
+        // The service's own composition: shipped registry, shipped exclusions. The capturer copies the
+        // decided window's rectangle off the screen, and the desktop's rectangle is every monitor, so a
+        // decision naming the desktop would authorise a picture of everything in front of it.
+        var policy = new ScopePolicy(Registry, new ScopeOptions { Exclusions = Exclusions });
+        var shell = new ForegroundWindowInfo(0x10010, 4321, "explorer", title, className, null, false, DateTimeOffset.UnixEpoch);
+
+        var decision = policy.Decide(shell);
+
+        Assert.False(decision.MayCaptureFrames);
+        Assert.Equal(0, decision.Window);
+    }
+
+    [Fact]
+    public void AFileExplorerWindowIsStillInScope()
+    {
+        var policy = new ScopePolicy(Registry, new ScopeOptions { Exclusions = Exclusions });
+        var folder = new ForegroundWindowInfo(0x20020, 4321, "explorer", "Temp", "CabinetWClass", null, false, DateTimeOffset.UnixEpoch);
+
+        var decision = policy.Decide(folder);
+
+        Assert.True(decision.MayCaptureFrames);
+        Assert.Equal(0x20020, decision.Window);
     }
 
     [Fact]

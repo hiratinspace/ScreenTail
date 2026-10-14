@@ -113,6 +113,11 @@ public sealed class RemoteToolRegistry
             }
         }
 
+        foreach (var admin in document.AdminTools)
+        {
+            problems.AddRange(AdminToolProblems(admin));
+        }
+
         return problems;
     }
 
@@ -187,10 +192,20 @@ public sealed class RemoteToolRegistry
         return null;
     }
 
+    /// <summary>
+    /// The admin tool this window belongs to, or null. Process name first; then, for an entry that names
+    /// window classes, the class has to be one of them. explorer.exe draws File Explorer and the desktop
+    /// alike, and only one of those is an admin tool (2026-10-12 review, S-2).
+    /// </summary>
     public AdminToolEntry? MatchAdminTool(ForegroundWindowInfo window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        return window.ProcessName is { } process && _adminByProcess.TryGetValue(process, out var tool) ? tool : null;
+        if (window.ProcessName is not { } process || !_adminByProcess.TryGetValue(process, out var tool))
+        {
+            return null;
+        }
+
+        return tool.WindowClasses.Count == 0 || tool.ClassSet.Contains(window.ClassName) ? tool : null;
     }
 
     /// <summary>A pattern that runs out of its budget matches nothing, rather than stalling the watcher.</summary>
@@ -204,6 +219,33 @@ public sealed class RemoteToolRegistry
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// An admin tool is in scope beside a session, so an entry that reaches the shell reaches every window
+    /// on screen. The shell's process has to name its window classes, and none of them may be the shell's
+    /// own surfaces (2026-10-12 review, S-2).
+    /// </summary>
+    private static List<string> AdminToolProblems(AdminToolEntry admin)
+    {
+        var problems = new List<string>();
+        if (admin.WindowClasses.Any(string.IsNullOrWhiteSpace))
+        {
+            problems.Add($"admin tool '{admin.Id}' lists a blank window class");
+        }
+
+        if (admin.WindowClasses.FirstOrDefault(ShellWindows.IsShell) is { } shell)
+        {
+            problems.Add($"admin tool '{admin.Id}' lists the shell's window class '{shell}'");
+        }
+
+        if (admin.WindowClasses.Count == 0
+            && admin.Processes.Any(p => string.Equals(p, ShellWindows.ProcessName, StringComparison.OrdinalIgnoreCase)))
+        {
+            problems.Add($"admin tool '{admin.Id}' names the shell's process without window classes, which would include the desktop");
+        }
+
+        return problems;
     }
 
     private static string[] PatternProblems(string id, string pattern)
@@ -320,4 +362,22 @@ public sealed class AdminToolEntry
 
     [JsonPropertyName("processes")]
     public IReadOnlyList<string> Processes { get; init; } = [];
+
+    private readonly IReadOnlyList<string> _windowClasses = [];
+    private HashSet<string>? _classSet;
+
+    /// <summary>
+    /// When not empty, the window classes this tool's windows have; any other window of the same process is
+    /// not this tool. Exact names, compared without regard to case as Windows compares them. A null in the
+    /// file reads as empty, so validation sees a missing list rather than a crash.
+    /// </summary>
+    [JsonPropertyName("window_classes")]
+    public IReadOnlyList<string> WindowClasses
+    {
+        get => _windowClasses;
+        init => _windowClasses = value ?? [];
+    }
+
+    /// <summary>Built once, on first use, and reused for every foreground change afterwards.</summary>
+    internal HashSet<string> ClassSet => _classSet ??= new HashSet<string>(WindowClasses, StringComparer.OrdinalIgnoreCase);
 }
