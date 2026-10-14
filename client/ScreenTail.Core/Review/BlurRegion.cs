@@ -80,6 +80,10 @@ public static class BlurRegion
     /// Rounded outward, per axis, in exact integers: stored pixel <c>p</c> shows the frame's pixels from
     /// <c>p * width / storedWidth</c> up to the next one's, and every stored pixel that shows any part of the
     /// rectangle is painted. One that is left shows a strip of what the technician asked to destroy.
+    ///
+    /// On an axis that was downscaled, one stored pixel more on each side (clamped to the image). The
+    /// downscale is bilinear, so the pixel just outside the box still holds a faint blend of the frame
+    /// pixels just inside it. Stored at its own size, nothing was resampled and the span is exact.
     /// </summary>
     /// <param name="region">Inside the frame, by <see cref="IsInside"/>.</param>
     public static MaskedRegion InStoredImage(MaskedRegion region, int width, int height, int storedWidth, int storedHeight)
@@ -100,12 +104,14 @@ public static class BlurRegion
 
     /// <summary>
     /// [from, from + length) in an axis of <paramref name="native"/> pixels, as the smallest whole span of
-    /// <paramref name="stored"/> pixels that contains it. Both ends are at most 2^31, so the products fit.
+    /// <paramref name="stored"/> pixels that contains it, widened by one either side when the axis was
+    /// resampled. Both ends are at most 2^31, so the products fit.
     /// </summary>
     private static (long From, long To) Outward(long from, long length, int native, int stored)
     {
-        var start = from * stored / native;
-        var end = (((from + length) * stored) + native - 1) / native;
+        var margin = stored < native ? 1 : 0;
+        var start = Math.Max(0, (from * stored / native) - margin);
+        var end = ((((from + length) * stored) + native - 1) / native) + margin;
 
         // Never empty: the region is at least one frame pixel, and at least one stored pixel shows it.
         return (start, Math.Clamp(end, start + 1, stored));
