@@ -213,6 +213,9 @@ internal sealed class DesktopWindow : IDisposable
 
     public void Retitle(string title) => SetWindowText(Handle, title);
 
+    /// <summary>Whether Windows says this window is in front right now.</summary>
+    public bool IsForeground => GetForegroundWindow() == Handle;
+
     public void Resize(int width, int height) =>
         _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_SHOWWINDOW);
 
