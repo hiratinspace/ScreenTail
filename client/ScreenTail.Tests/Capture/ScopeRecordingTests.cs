@@ -219,6 +219,8 @@ public sealed class ScopeRecordingTests
         await harness.Machine.StartAsync(ScreenConnect, ct: ct);
         var capturer = new CountingCapturer();
         var scenes = new SceneRecorder(harness.Machine, capturer, InScope, EagerSampler());
+        var staged = 0;
+        scenes.FrameStaged += _ => staged++;
 
         await scenes.SampleAsync(ct);   // the baseline, never kept
         await scenes.SampleAsync(ct);   // changed: kept
@@ -227,8 +229,32 @@ public sealed class ScopeRecordingTests
         Assert.Equal(99, capturer.GridExpected);
         Assert.Equal(1, capturer.Captures);
         Assert.Equal(99, capturer.Expected);
+        Assert.Equal(1, staged);
         Assert.True(harness.Pending.TryTake(out var queued));
         Assert.Equal(FrameTrigger.SceneChange, queued.Frame.Trigger);
+    }
+
+    [Fact]
+    public async Task ASceneFrameTheMachineRefusesIsNotReportedAsStaged()
+    {
+        // Redaction is losing and the queue is full, so the machine turns the picture away. The host logs
+        // "scene frame kept" on FrameStaged, which would claim a frame the session never got.
+        await using var harness = await MachineHarness.StartAsync(pendingDepth: 1);
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var capturer = new CountingCapturer();
+        var scenes = new SceneRecorder(harness.Machine, capturer, InScope, EagerSampler());
+        var staged = 0;
+        scenes.FrameStaged += _ => staged++;
+
+        await scenes.SampleAsync(ct);   // the baseline
+        await scenes.SampleAsync(ct);   // changed: kept, and fills the queue
+        await scenes.SampleAsync(ct);   // changed again: taken, and refused
+
+        Assert.Equal(2, capturer.Captures);
+        Assert.Equal(1, staged);
+        Assert.Equal(1, harness.Pending.DepthFor(harness.Machine.SessionId!));
+        Assert.Equal(1, harness.Pending.Dropped);
     }
 
     [Fact]

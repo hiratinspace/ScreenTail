@@ -37,14 +37,15 @@ internal sealed class MachineHarness : IAsyncDisposable
     /// <param name="time">A hand-moved clock for tests that assert durations, so they measure the
     /// machine's accounting rather than the runner's scheduler.</param>
     /// <param name="sources">What the machine starts, stops and asks for a marked frame. None by default.</param>
-    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null)
+    /// <param name="pendingDepth">How many frames may wait. Small only for a test that needs the machine to refuse one.</param>
+    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null, int pendingDepth = 1000)
     {
         var path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
         var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
 
         // Deep, so a test that captures a handful of frames is not measuring the production depth of
         // four; PendingFramesTests owns that number.
-        var pending = new PendingFrames(depth: 1000);
+        var pending = new PendingFrames(depth: pendingDepth);
         var machine = new SessionMachine(
             store,
             sources ?? new NoCaptureSources(),
