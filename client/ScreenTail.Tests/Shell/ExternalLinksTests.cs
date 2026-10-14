@@ -46,6 +46,16 @@ public sealed class ExternalLinksTests
         Assert.Equal(expected, target);
     }
 
+    [Fact]
+    public void ASettingsPageOfSixtyFourCharactersOpensAndOneMoreDoesNot()
+    {
+        var longest = "ms-settings:" + new string('a', 64);
+
+        Assert.True(ExternalLinks.TryFixLink(longest, out var target));
+        Assert.Equal(longest, target);
+        Assert.False(ExternalLinks.TryFixLink(longest + "a", out _));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
