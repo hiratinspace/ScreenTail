@@ -115,6 +115,36 @@ public sealed class FilmstripTests
     }
 
     [Fact]
+    public void AnInclusionTheServiceDidNotRecordGoesBackToExcluded()
+    {
+        // Publish attaches what the store says is included (ST-078). An inclusion that did not land would
+        // not go out, so the strip must stop promising it.
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000), Frame("f2", 2000, excluded: true)));
+        Assert.True(strip.Toggle("f2"));
+
+        Assert.True(strip.Answered("f2", included: true, recorded: false));
+
+        Assert.False(strip.IsIncluded("f2"));
+        Assert.Equal(["f1"], strip.ToPublish().Select(frame => frame.Id));
+        Assert.Equal("1 of 2 included", strip.Header);
+    }
+
+    [Fact]
+    public void AnAnswerThatNeedsNoChangeLeavesTheStripAlone()
+    {
+        // A recorded write is already on screen. A failed exclusion stays out: the strip does not name the
+        // frame at publish, so it is not sent either way. A frame that has left the strip is ignored.
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000), Frame("f2", 2000)));
+        Assert.False(strip.Toggle("f2"));
+
+        Assert.False(strip.Answered("f1", included: true, recorded: true));
+        Assert.False(strip.Answered("f2", included: false, recorded: false));
+        Assert.False(strip.Answered("gone", included: true, recorded: false));
+
+        Assert.Equal(["f1"], strip.ToPublish().Select(frame => frame.Id));
+    }
+
+    [Fact]
     public void FramesAreNumberedByTheirPlaceInTime()
     {
         // The note's chips say "frame 2" and this is the 2. The store's order is the store's business.

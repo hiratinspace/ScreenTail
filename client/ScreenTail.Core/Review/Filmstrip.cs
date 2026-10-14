@@ -15,7 +15,10 @@ public sealed record FrameCell(Frame Frame, int Number, bool Included) : Filmstr
     /// <summary>
     /// Never goes out, whatever the technician does: it looked like a sign-in screen, or capture was off
     /// when it was taken. The same rule the drafting bundle applies, so Review cannot offer the ticket a
-    /// frame the model was not allowed to see.
+    /// frame the model was not allowed to see. That rule counts both ends of a paused or suppressed
+    /// stretch, including one that lasted no time at all, which the strip does not draw as a gap. So a
+    /// frame stamped in the very millisecond capture came back can be withheld with no gap beside it. It
+    /// fails closed on purpose.
     /// </summary>
     public bool Withheld { get; init; }
 }
@@ -127,6 +130,15 @@ public sealed class Filmstrip
         Replace(frameId, cell => cell with { Included = included });
         return included;
     }
+
+    /// <summary>
+    /// The service's answer to a <see cref="Set"/>. Publish attaches what the store says is included, not
+    /// what the strip shows (ST-078), so an inclusion the service did not record goes back to excluded
+    /// rather than promising a frame that will not go out. A failed exclusion needs nothing: the strip does
+    /// not name the frame at publish, so it is not sent either way. True when the strip changed.
+    /// </summary>
+    public bool Answered(string frameId, bool included, bool recorded) =>
+        !recorded && included && Set(frameId, false) is not null;
 
     /// <summary>
     /// What actually gets attached when the note is published. Excluded frames are absent, not marked —
