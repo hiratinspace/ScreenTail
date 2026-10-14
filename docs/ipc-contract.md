@@ -255,6 +255,15 @@ under the same purpose as the publish.
 { "type": "result", "request_id": 23, "ok": true }
 ```
 
+## Answering order
+
+E-25, 2026-10-12 review. A connection's commands are answered on two lanes, so replies can arrive in a different order from the commands, and the client matches them by `request_id`.
+
+- The session's own commands are answered as soon as they are read, in the order they arrive: `indicator_showing`, `start`, `pause`, `resume`, `stop`, `discard`, `mark_moment`, `request_confirmation`, `get_state`, `get_capabilities`. They are answered from local state and never wait behind anything on the network.
+- Every other command, including any added later, goes to one queue per connection and is run one at a time in the order it was sent, as every command was before. At most 16 wait behind the one running; one more is answered at once with `ok: false` and a "busy" sentence rather than read later. When the client disconnects, whatever is still waiting is dropped, not run.
+
+Before this a slow backend call (a publish, a ticket search) held up the HUD's `indicator_showing` past the indicator's grace, and the service dropped frames and typing as unindicated with the pill on screen (INV-4, INV-6). The wire format is unchanged and the version is not bumped: the client has always matched replies by `request_id`.
+
 ## Authentication
 
 Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
@@ -290,3 +299,4 @@ indicator unreachable rather than by touching capture.
 | 2026-09-26 | `get_settings` / `settings`, `set_settings`, `export_audit` / `audit` (ST-081) | 2 |
 | 2026-09-26 | `get_capture_settings` / `capture_settings`, `set_capture_settings` (ST-080) | 2 |
 | 2026-09-25 | `list_integrations` / `integration_details`, `store_integration`, `remove_integration`, `check_integration` / `integration_checked`, `unmap_company` (ST-082) | 2 |
+| 2026-10-14 | Two answering lanes per connection: the session's commands are answered on the read loop, the rest queue (16 at most) behind one worker (E-25) | 2 |
