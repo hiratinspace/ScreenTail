@@ -132,15 +132,12 @@ public sealed class PipeDevice(CaptureConnection connection) : IDeviceGateway
 
     public async Task<ActivationAnswer> ActivateAsync(string code, string deviceName, CancellationToken ct = default)
     {
-        var activated = await _connection.RequestAsync<DeviceActivated>(id => new ActivateDeviceCommand { RequestId = id, Code = code, DeviceName = deviceName }, ct).ConfigureAwait(false);
-        if (activated is not null)
-        {
-            return new ActivationAnswer(activated.TenantName, null);
-        }
-
-        // Refused: the plain send returns the failed result with the backend's words. The backend
-        // refuses a used code the second time, so the retry cannot activate twice.
-        var result = await _connection.SendAsync(id => new ActivateDeviceCommand { RequestId = id, Code = code, DeviceName = deviceName }, ct).ConfigureAwait(false);
-        return new ActivationAnswer(null, result.Error ?? "The capture service could not activate this device.");
+        // Asked once (S-36): the refusal's words come back on the same reply. A second ask would call
+        // the backend again, and one that went through after a timeout would enrol the device while
+        // the card said it had not.
+        var answer = await _connection.AskAsync<DeviceActivated>(id => new ActivateDeviceCommand { RequestId = id, Code = code, DeviceName = deviceName }, ct).ConfigureAwait(false);
+        return answer.Reply is { } activated
+            ? new ActivationAnswer(activated.TenantName, null)
+            : new ActivationAnswer(null, answer.Refusal ?? "The capture service could not activate this device.");
     }
 }

@@ -123,7 +123,8 @@ public sealed class IpcClient : ICaptureChannel
     ///
     /// The service answers a failure with a <see cref="CommandResult"/> even for these, so a refusal
     /// arrives as an exception carrying the service's own words rather than as a null the caller has to
-    /// remember to check.
+    /// remember to check. Asked for <see cref="IpcEvent"/> itself, the reply comes back as it is, a refusal
+    /// included.
     /// </summary>
     /// <exception cref="IpcProtocolException">The service refused, or answered with something else.</exception>
     public async Task<TReply> RequestAsync<TReply>(Func<int, IpcCommand> build, CancellationToken ct = default)

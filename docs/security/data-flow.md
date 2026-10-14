@@ -105,7 +105,9 @@ moments before, and it removes tokens as well as data; Settings → Privacy & Re
 ## What leaves the device
 
 **Only when the technician presses Publish** (INV-3). There is no automatic publishing path in v1 — not
-a scheduled one, not a "publish when confident" one.
+a scheduled one, not a "publish when confident" one. One press is one request: a refused publish is not
+sent again to learn why it was refused, and once anything has landed Publish is refused, so Retry (which
+sends only what failed) is the one way on.
 
 For drafting, the note can be produced two ways:
 

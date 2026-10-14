@@ -280,6 +280,80 @@ public sealed class PublishPanelTests
         Assert.False(attempted);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishingAgainAfterSomethingLandedIsRefused(bool partly)
+    {
+        // T-129: Ctrl+Enter reaches PublishAsync whatever the pane shows. Once a note or a time entry has
+        // landed, a second Publish posts it again (a duplicate the customer can see, and time billed
+        // twice). Retry, which sends only what failed, is the one way on.
+        var calls = 0;
+        var panel = Panel(publish: request =>
+        {
+            calls++;
+            return [.. request.Destinations.Select(d => new DestinationResult(d, !(partly && d == Destination.TimeEntry), null, partly && d == Destination.TimeEntry ? "ConnectWise refused the member" : null))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(panel.CanPublish);
+        Assert.NotNull(panel.BlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task ChangingTheDestinationsAfterALandingDoesNotReopenPublish()
+    {
+        // Ticking the KB article after the note landed would send the note again with it.
+        var panel = Panel();
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        panel.KbArticle = false;
+        await panel.PublishAsync(Draft(), []);
+
+        panel.KbArticle = true;
+        panel.TicketNote = false;
+        panel.TimeEntry = false;
+
+        Assert.False(panel.CanPublish);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+    }
+
+    [Fact]
+    public async Task WhenNothingLandedPublishIsStillOffered()
+    {
+        // Nothing reached the ticket, so asking again duplicates nothing; the technician may also change
+        // the destinations before trying.
+        var calls = 0;
+        var panel = Panel(publish: r => { calls++; return [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "The backend did not answer."))]; });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.True(panel.CanPublish);
+        await panel.PublishAsync(Draft(), []);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task RetryAfterAPartialPublishStillSendsWhatFailed()
+    {
+        var calls = new List<IReadOnlySet<Destination>>();
+        var panel = Panel(publish: r =>
+        {
+            calls.Add(r.Destinations);
+            return [.. r.Destinations.Select(d => new DestinationResult(d, d != Destination.TimeEntry || calls.Count > 1))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        await panel.RetryAsync(Draft(), []);
+
+        Assert.Equal([Destination.TimeEntry], calls[1]);
+        Assert.True(panel.Published);
+        Assert.False(panel.CanPublish);
+    }
+
     private static PublishPanel Panel(
         Session? session = null,
         IReadOnlyList<string>? integrations = null,
