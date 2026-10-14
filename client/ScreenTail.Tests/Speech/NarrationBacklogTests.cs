@@ -47,6 +47,49 @@ public sealed class NarrationBacklogTests
         Assert.Equal(0, backlog.Forget("a"));
     }
 
+    [Fact]
+    public void ASessionOnceForgottenIsOwedNothingMore()
+    {
+        // The recorder asks which session it is hearing, then queues what it heard. A finalize or a discard
+        // can fall between the two, and the segment then arrives for a session that has already been let
+        // go of. It must not bring the session back: that would have the model transcribe words nobody
+        // can store, and would be waited on by nothing.
+        var backlog = new NarrationBacklog();
+        backlog.Owe("a");
+        _ = backlog.Forget("a");
+
+        backlog.Owe("a");
+        Assert.Equal(0, backlog.DepthFor("a"));
+        Assert.False(backlog.Wants("a"));
+
+        // A session with nothing owed when it ended is just as finished.
+        _ = backlog.Forget("b");
+        backlog.Owe("b");
+        Assert.False(backlog.Wants("b"));
+
+        // And the next session is owed as usual.
+        backlog.Owe("c");
+        Assert.True(backlog.Wants("c"));
+        Assert.Equal(1, backlog.DepthFor("c"));
+    }
+
+    [Fact]
+    public void OnlyTheLastFewFinishedSessionsAreRemembered()
+    {
+        // Bounded: a service that runs for months forgets the ids of sessions long over. The race above is
+        // a few milliseconds wide, so only the most recent ones can still matter.
+        var backlog = new NarrationBacklog();
+        for (var i = 0; i < 1_000; i++)
+        {
+            _ = backlog.Forget($"s-{i}");
+        }
+
+        backlog.Owe("s-999");
+        Assert.False(backlog.Wants("s-999"));
+        backlog.Owe("s-0");
+        Assert.True(backlog.Wants("s-0"));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

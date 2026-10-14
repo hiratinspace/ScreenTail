@@ -233,7 +233,10 @@ This document describes what is enforced today. These are named here rather than
   was heard in and is written into that session or nowhere, so a segment the model finishes after one
   session ends cannot land in the next customer's transcript; discarding a session drops what was still
   queued for it. Stop waits, within the same grace as the last screenshots, for speech still being
-  transcribed, so the note includes the last things said.
+  transcribed, so the note includes the last things said. Nothing said during a pause or a
+  suppression is heard. A sentence said while recording and finished by the model after a pause or a
+  suppression began is still written (scrubbed like any other), as a screenshot taken before a pause
+  is redacted and written during it.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
   its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
   nothing is lost.

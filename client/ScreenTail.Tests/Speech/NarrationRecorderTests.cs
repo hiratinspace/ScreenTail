@@ -615,10 +615,10 @@ public sealed class NarrationRecorderTests
     }
 
     /// <summary>Frames of digital silence, at the gate's frame length.</summary>
-    private static short[][] Silence(int frames) => Frames(frames, _ => 0);
+    internal static short[][] Silence(int frames) => Frames(frames, _ => 0);
 
     /// <summary>Frames of a 200 Hz tone well above the floor: what a voice looks like to the detector.</summary>
-    private static short[][] Speech(int frames)
+    internal static short[][] Speech(int frames)
     {
         var n = 0;
         return Frames(frames, i =>
@@ -645,7 +645,7 @@ public sealed class NarrationRecorderTests
         return frames;
     }
 
-    private sealed class FakeMicrophone(params short[][][] runs) : IMicrophone
+    internal sealed class FakeMicrophone(params short[][][] runs) : IMicrophone
     {
         private readonly List<short[]> _frames = [.. runs.SelectMany(run => run)];
 
@@ -720,7 +720,7 @@ public sealed class NarrationRecorderTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class FakeRecogniser(string text) : ISpeechRecogniser
+    internal sealed class FakeRecogniser(string text) : ISpeechRecogniser
     {
         /// <summary>Held until a test lets go, standing in for a model that takes seconds to answer.</summary>
         public TaskCompletionSource? Blocked { get; set; }

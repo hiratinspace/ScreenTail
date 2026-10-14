@@ -14,20 +14,35 @@ namespace ScreenTail.Core.Speech;
 /// what is still queued for it is never transcribed: the model's time is not spent on words nobody can
 /// store, and the copy of the customer's call that each queued segment holds is let go of sooner.
 ///
+/// <b>A forgotten session stays forgotten.</b> The recorder asks which session it is hearing and queues what
+/// it heard a moment later, and a finalize or a discard can fall between the two. A segment owed to a
+/// session already let go of is not counted, so it is neither waited for nor transcribed.
+///
 /// Small by construction. The recorder's queue holds four segments and the model one more, so there are
-/// never more than a handful of entries, and an entry is removed when its count reaches zero.
+/// never more than a handful of entries, and an entry is removed when its count reaches zero. Only the
+/// last <see cref="Remembered"/> finished sessions are kept, which is far more than can end while one
+/// chunk of audio is between the question and the queue.
 /// </summary>
 public sealed class NarrationBacklog
 {
+    private const int Remembered = 16;
+
     private readonly Lock _gate = new();
     private readonly Dictionary<string, int> _owed = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _finished = new(StringComparer.Ordinal);
+    private readonly Queue<string> _finishedInOrder = new(Remembered);
 
-    /// <summary>A segment heard in this session is waiting for the model.</summary>
+    /// <summary>A segment heard in this session is waiting for the model. Not counted once the session is forgotten.</summary>
     public void Owe(string sessionId)
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
         lock (_gate)
         {
+            if (_finished.Contains(sessionId))
+            {
+                return;
+            }
+
             _owed[sessionId] = _owed.GetValueOrDefault(sessionId) + 1;
         }
     }
@@ -83,6 +98,15 @@ public sealed class NarrationBacklog
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
         lock (_gate)
         {
+            if (_finished.Add(sessionId))
+            {
+                _finishedInOrder.Enqueue(sessionId);
+                if (_finishedInOrder.Count > Remembered)
+                {
+                    _ = _finished.Remove(_finishedInOrder.Dequeue());
+                }
+            }
+
             return _owed.Remove(sessionId, out var owed) ? owed : 0;
         }
     }

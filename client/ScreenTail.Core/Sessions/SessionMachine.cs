@@ -285,6 +285,13 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
+            // Narration first, before anything is awaited: the session stays current and recording while
+            // the sources stop and the store deletes it, and nothing heard or finished in that time may
+            // be kept. Nothing more is heard for it, what it is still owed is not transcribed, and a
+            // segment that arrives is refused.
+            _session.CloseNarration();
+            _ = _options.Narration.Forget(_session.Id);
+
             if (State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed)
             {
                 await _sources.StopAsync(ct).ConfigureAwait(false);
@@ -293,10 +300,6 @@ public sealed class SessionMachine : IAsyncDisposable
             // Whatever is still queued for it goes too. Nobody has read those frames, so nobody can say
             // what is on them, and ADR-0004 is clear about such a frame.
             _options.Pending.Forget(_session.Id);
-
-            // And whatever narration it is still owed: refused if it arrives, and not transcribed at all
-            // if it has not reached the model yet.
-            _ = _options.Narration.Forget(_session.Id);
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
             _session = null;
             _holds.Clear();
@@ -412,7 +415,8 @@ public sealed class SessionMachine : IAsyncDisposable
 
     /// <summary>
     /// The session narration is being heard for right now, and how far into it: null unless recording
-    /// (INV-6). Asked by the recorder of every chunk of audio, so it is one lock and no allocation.
+    /// (INV-6), and null from the moment a discard begins. Asked by the recorder of every chunk of audio,
+    /// so it is one lock and no allocation.
     ///
     /// Read under the same lock as the state, which is what makes the pair agree: a session is only ever
     /// named here while it is the one recording, never the one before or the one after.
@@ -423,7 +427,7 @@ public sealed class SessionMachine : IAsyncDisposable
         {
             lock (_stateLock)
             {
-                return _state == SessionState.Recording && _session is { } session
+                return _state == SessionState.Recording && _session is { NarrationClosed: false } session
                     ? new NarrationSession(session.Id, session.BaseMs + (long)_time.GetElapsedTime(session.StartedAt).TotalMilliseconds)
                     : null;
             }
@@ -454,8 +458,14 @@ public sealed class SessionMachine : IAsyncDisposable
             : AppendTranscriptAsync(session, segment, ct);
     }
 
-    /// <summary>Writes a segment into the session recording right now. Refused unless one is (INV-6).</summary>
-    public Task<bool> TryAppendTranscriptAsync(TranscriptSegment segment, CancellationToken ct = default)
+    /// <summary>
+    /// Writes a segment into the session recording right now. Refused unless one is (INV-6).
+    ///
+    /// For tests only. It looks the session up when the segment arrives, which is how a segment came to
+    /// be stored in the session after the one it was heard in (2026-10-12 review): narration goes through
+    /// the stamped overload above.
+    /// </summary>
+    internal Task<bool> TryAppendTranscriptAsync(TranscriptSegment segment, CancellationToken ct = default)
     {
         var session = _session;
         return State != SessionState.Recording || session is null
@@ -594,7 +604,9 @@ public sealed class SessionMachine : IAsyncDisposable
         }
 
         // From here the note is drawn up, so nothing more is written into the transcript, and what the
-        // model has not reached is not transcribed at all.
+        // model has not reached is not transcribed at all. A chunk heard just before Stop but queued only
+        // after the wait looked is not counted once the session is forgotten: that sentence is lost, and
+        // the model is not given it.
         if (_session is { } closing && string.Equals(closing.Id, sessionId, StringComparison.Ordinal))
         {
             closing.CloseNarration();
