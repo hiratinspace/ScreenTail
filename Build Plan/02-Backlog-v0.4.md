@@ -629,7 +629,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Done 2026-09-13. On 2026-10-14 the scope gates for scene frames and mark-moment frames moved from the Windows service into Core (`SceneRecorder`, `ScopedCaptureSources`, beside `SessionRecorder`), and Mac tests now fail if either is removed (2026-10-12 review, T-10). All three frame paths also refuse a decision that names no window.
+- **Status:** Done 2026-09-13. On 2026-10-14 the scope gates for scene frames and mark-moment frames moved from the Windows service into Core (`SceneRecorder`, `ScopedCaptureSources`, beside `SessionRecorder`), and Mac tests now fail if either is removed (2026-10-12 review, T-10). All three frame paths also refuse a decision that names no window, and `ScopeGlueTests` on Windows pins the service glue that hands work to them.
 
 **Description:**
 1 fps sampling of the in-scope window; keep frames when perceptual-hash distance exceeds threshold.
