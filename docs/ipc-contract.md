@@ -218,7 +218,9 @@ the rectangle into the stored image's pixels and rounds outward before painting:
 that shows any part of it is covered. If the image the masker decodes is not the size the store
 recorded, the blur is refused rather than painted somewhere else. The frame's `ocr_text` is cleared in
 the same write, because it was read from the pixels just destroyed and nothing records which words were
-under the rectangle (ST-075). The UI used to flatten in WPF and hand the bytes back; that re-encoded a JPEG
+under the rectangle (ST-075). A blur that is written but whose new image is over the 700 KiB limit gets
+no `frame` reply; its result says it was written and that the session has to be opened again to show
+it. A refused blur's result gives the reason it stopped for. The UI used to flatten in WPF and hand the bytes back; that re-encoded a JPEG
 as PNG on the UI thread and made the stored name a lie (weaknesses P2-9).
 
 None of this bumps the version: an older client never sends these and never sees their replies.
