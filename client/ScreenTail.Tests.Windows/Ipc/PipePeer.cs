@@ -1,5 +1,9 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 
 namespace ScreenTail.Tests.Windows.Ipc;
 
@@ -58,6 +62,44 @@ internal sealed class PipePeer : IDisposable
     /// <summary>How long a pipe peer is given to notice the test's end has closed and leave by itself.</summary>
     private static readonly TimeSpan PipeGrace = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Leaves this account only the right to ask what the peer is and to wait for it.
+    ///
+    /// This is what tells the kernel's record of a process from <c>Process.MainModule</c>, which has to
+    /// read the peer's memory: with the peer's DACL cut down to PROCESS_QUERY_LIMITED_INFORMATION and
+    /// SYNCHRONIZE, the first still answers and the second is refused. The test keeps the handle the
+    /// peer was created with, which was granted before the DACL changed, so it can still end the process.
+    ///
+    /// Call it once the peer has shown it is running (a pipe peer has connected), so the change cannot
+    /// land in the middle of PowerShell starting up and end it for a reason that is not the test's.
+    ///
+    /// Returns whether the restriction holds. An account with an enabled debug privilege walks past a
+    /// DACL; on such a machine a revert to MainModule cannot be caught this way, and the test records
+    /// that in the run's measurements rather than passing as though it could.
+    /// </summary>
+    public bool RestrictToQueryLimited()
+    {
+        var me = WindowsIdentity.GetCurrent().User!;
+        var descriptor = new RawSecurityDescriptor(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"D:P(A;;0x{ProcessQueryLimitedInformation | Synchronize:X};;;{me.Value})"));
+        var bytes = new byte[descriptor.BinaryLength];
+        descriptor.GetBinaryForm(bytes, 0);
+        Assert.True(
+            SetKernelObjectSecurity(_process.SafeHandle, DaclSecurityInformation, bytes),
+            $"SetKernelObjectSecurity failed: {Marshal.GetLastPInvokeError()}");
+
+        using var wide = OpenProcess(ProcessQueryInformation | ProcessVmRead, inheritHandle: false, (uint)_process.Id);
+        return wide.IsInvalid;
+    }
+
+    /// <summary>
+    /// Fails, naming the cause, when the peer is gone. Asked after the checks it was needed for: still
+    /// running then means it was running throughout, so a refusal cannot be a process that had exited.
+    /// </summary>
+    public void AssertStillRunning() =>
+        Assert.False(_process.HasExited, $"The PowerShell peer exited early (code {(_process.HasExited ? _process.ExitCode : 0)}), so this run says nothing about the code under test.");
+
     public void Dispose()
     {
         try
@@ -98,6 +140,19 @@ internal sealed class PipePeer : IDisposable
 
         return new PipePeer(Process.Start(start) ?? throw new InvalidOperationException("PowerShell did not start."), grace);
     }
+
+    private const uint ProcessQueryInformation = 0x0400;
+    private const uint ProcessVmRead = 0x0010;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const uint Synchronize = 0x00100000;
+    private const uint DaclSecurityInformation = 0x00000004;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeProcessHandle OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetKernelObjectSecurity(SafeProcessHandle handle, uint securityInformation, byte[] securityDescriptor);
 
     /// <summary>
     /// The pipe names here are made by the tests from a GUID, but they go inside a quoted PowerShell

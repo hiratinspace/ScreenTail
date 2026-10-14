@@ -16,6 +16,10 @@ namespace ScreenTail.Tests.Windows.Ipc;
 /// the build is signed. Anchored at the peer's own executable, the peer passes (same publisher, or same
 /// directory for an unsigned file), and this process does not. Anchored at this process, the peer fails,
 /// and this process would pass.
+///
+/// Once connected, the peer's DACL is cut down to the right to ask what it is. A VerifyAsync that went
+/// back to <c>Process.MainModule</c> would read the same path off an ordinary peer; against this one it is
+/// refused, and the peer anchored at itself stops passing.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsVerifierPipeTests
@@ -32,10 +36,12 @@ public sealed class WindowsVerifierPipeTests
         using var peer = PipePeer.Serving(name);
         await using var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
         await pipe.ConnectAsync(Soon, TestContext.Current.CancellationToken);
+        Restrict(peer, nameof(TheUiAsksAboutTheServerAndNotAboutItself));
 
         var anchoredAtPeer = await new WindowsServerVerifier(PipePeer.Executable).VerifyAsync(pipe, TestContext.Current.CancellationToken);
         var anchoredHere = await new WindowsServerVerifier(Environment.ProcessPath!).VerifyAsync(pipe, TestContext.Current.CancellationToken);
 
+        peer.AssertStillRunning();
         Assert.Null(anchoredAtPeer);
         Assert.NotNull(anchoredHere);
     }
@@ -55,9 +61,12 @@ public sealed class WindowsVerifierPipeTests
             await pipe.WaitForConnectionAsync(waiting.Token);
         }
 
+        Restrict(peer, nameof(TheServiceAsksAboutTheClientAndNotAboutItself));
+
         var anchoredAtPeer = await new WindowsClientVerifier(PipePeer.Executable).VerifyAsync(pipe, TestContext.Current.CancellationToken);
         var anchoredHere = await new WindowsClientVerifier(Environment.ProcessPath!).VerifyAsync(pipe, TestContext.Current.CancellationToken);
 
+        peer.AssertStillRunning();
         Assert.Null(anchoredAtPeer);
         Assert.NotNull(anchoredHere);
     }
@@ -76,6 +85,14 @@ public sealed class WindowsVerifierPipeTests
 
         Assert.Equal("not_a_server_pipe", await new WindowsClientVerifier(Environment.ProcessPath!).VerifyAsync(client, TestContext.Current.CancellationToken));
         Assert.Equal("not_a_client_pipe", await new WindowsServerVerifier(Environment.ProcessPath!).VerifyAsync(server, TestContext.Current.CancellationToken));
+    }
+
+    private static void Restrict(PipePeer peer, string test)
+    {
+        if (!peer.RestrictToQueryLimited())
+        {
+            Measurements.Record($"{test}: the restricted DACL did not hold on this machine, so a VerifyAsync that read MainModule would not be caught here");
+        }
     }
 
     private static string PipeName() => IpcPipeNames.ForUser($"test-peer-{Guid.NewGuid():N}");
