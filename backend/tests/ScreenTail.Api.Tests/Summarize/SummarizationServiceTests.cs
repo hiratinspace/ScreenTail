@@ -292,7 +292,10 @@ public sealed class SummarizationServiceTests
     }
 
     [Theory]
-    [InlineData(100, 100)] // As Program.cs wires it: one setting for both, and the deadline is armed first.
+    // Program.cs sets both from one setting and arms the service's deadline first, so the deadline wins.
+    // The first case gives HttpClient.Timeout some slack so the deadline wins every time here as well:
+    // two equal timers race, and the old rule only went wrong when the deadline won.
+    [InlineData(100, 300)]
     [InlineData(100, -1)] // The service's deadline is the only one.
     [InlineData(5_000, 100)] // HttpClient.Timeout is the one that fires.
     public async Task ADraftTheDeadlineCutOffIsSettledAtTheEstimate(int deadlineMs, int httpTimeoutMs)
@@ -312,7 +315,7 @@ public sealed class SummarizationServiceTests
     }
 
     [Theory]
-    [InlineData(100, 100)]
+    [InlineData(100, 300)]
     [InlineData(100, -1)]
     [InlineData(5_000, 100)]
     public async Task ADraftThatNeverLeftCostsNothingHoweverItTimedOut(int deadlineMs, int httpTimeoutMs)

@@ -427,8 +427,8 @@ public sealed class GeminiProviderTests
 
         try
         {
-            var result = await OverSockets(((IPEndPoint)listener.LocalEndpoint).Port)
-                .DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+            using var http = SocketsClient(((IPEndPoint)listener.LocalEndpoint).Port);
+            var result = await OverSockets(http).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
 
             Assert.False(result.Ok);
             Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
@@ -451,24 +451,29 @@ public sealed class GeminiProviderTests
             port = ((IPEndPoint)listener.LocalEndpoint).Port;
         }
 
-        var result = await OverSockets(port).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+        using var http = SocketsClient(port);
+        var result = await OverSockets(http).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
         Assert.False(result.Error.MayHaveBeenBilled);
     }
 
-    /// <summary>The provider over the real socket transport, pointed at a loopback port.</summary>
-    private static GeminiProvider OverSockets(int port)
+    private static readonly SummarizationOptions SocketOptions =
+        new() { ApiKey = "test-key", Timeout = TimeSpan.FromMilliseconds(500) };
+
+    /// <summary>
+    /// A client over the real socket transport, pointed at a loopback port. The test disposes it, which
+    /// takes the handler's connection pool with it.
+    /// </summary>
+    private static HttpClient SocketsClient(int port) => new(new SocketsHttpHandler())
     {
-        var options = new SummarizationOptions { ApiKey = "test-key", Timeout = TimeSpan.FromMilliseconds(500) };
-        var http = new HttpClient(new SocketsHttpHandler())
-        {
-            BaseAddress = new Uri($"http://127.0.0.1:{port}/"),
-            Timeout = options.Timeout,
-        };
-        return new GeminiProvider(http, options, "the note prompt");
-    }
+        BaseAddress = new Uri($"http://127.0.0.1:{port}/"),
+        Timeout = SocketOptions.Timeout,
+    };
+
+    /// <summary>The provider over that client.</summary>
+    private static GeminiProvider OverSockets(HttpClient http) => new(http, SocketOptions, "the note prompt");
 
     /// <summary>Accepts one connection and reads everything sent on it, answering nothing.</summary>
     private static async Task DrainAsync(TcpListener listener, CancellationToken ct)

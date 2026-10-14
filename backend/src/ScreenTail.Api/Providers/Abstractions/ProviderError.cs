@@ -49,10 +49,12 @@ public sealed record ProviderError(ProviderErrorKind Kind, string What, string T
     /// <summary>
     /// Whether the provider may have done the work and billed for it anyway.
     ///
-    /// A refused connection and an expired deadline are both <see cref="ProviderErrorKind.Unavailable"/>
-    /// and are not the same fact about money. Nothing was sent in the first; in the second a request was
-    /// sent, the model very likely ran it, and hanging up does not un-bill it. The ledger settled both at
-    /// nothing, so the daily cap was blind to the requests that cost the most (2026-09-20 review).
+    /// Two <see cref="ProviderErrorKind.Unavailable"/> failures can be different facts about money. A
+    /// failure after the request body began to leave may have been billed, whatever ended it: a deadline,
+    /// the caller hanging up or a dropped connection. The model very likely ran it, and hanging up does
+    /// not un-bill it. A refused connection, or one that never opened, sent nothing and was not billed,
+    /// whatever timed out. The ledger once settled both at nothing, so the daily cap was blind to the
+    /// requests that cost the most (2026-09-20 and 2026-10-12 reviews).
     ///
     /// False by default: a provider that says nothing about this is assumed not to have charged, which
     /// keeps an outage from spending a tenant's day.
