@@ -44,7 +44,7 @@ public sealed class PolicyApplierTests : IAsyncDisposable
             new ClientSettingsStore(Path.Combine(_dir, "settings.json")),
             () => rig.Sync.Current,
             settings => rig.Applier.Apply(settings),
-            _ => Task.FromResult<(IReadOnlyList<AuditRecord>, AuditVerification)>(([], new AuditVerification(true, 0, 0, null))));
+            _ => Task.FromException<AuditExportResult>(new InvalidOperationException("Not under test.")));
         var metrics = new MetricsSender(rig.Http, () => "a-device-token");
 
         var before = await metrics.SendAsync(Item(OutboxKind.Metric), TestContext.Current.CancellationToken);
