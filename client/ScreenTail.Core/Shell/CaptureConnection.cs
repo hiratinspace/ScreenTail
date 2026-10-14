@@ -158,6 +158,47 @@ public sealed class CaptureConnection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Asks the service something whose answer is an event of its own, and keeps the service's words
+    /// when the answer is a refusal (S-36).
+    ///
+    /// For a command that acts as well as answers (publish, activate, test connection). Asking it a
+    /// second time to learn why the first was refused runs it a second time: a second note on the
+    /// customer's ticket if the first timed out after landing. So there is one exchange, and the reason
+    /// is the failed result that came back on it. Never throws for a missing or broken connection, for
+    /// the same reason as <see cref="SendAsync"/>.
+    /// </summary>
+    public async Task<ServiceAnswer<TReply>> AskAsync<TReply>(Func<int, IpcCommand> build, CancellationToken ct = default)
+        where TReply : IpcEvent
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        var channel = _channel;
+        if (channel is null || !channel.IsConnected)
+        {
+            return ServiceAnswer<TReply>.Refused("Not connected to the capture service.");
+        }
+
+        IpcEvent reply;
+        try
+        {
+            // Asked for any event, so a refusal arrives as the failed result it is, words included,
+            // instead of as an exception.
+            reply = await channel.RequestAsync<IpcEvent>(build, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or IpcProtocolException)
+        {
+            return ServiceAnswer<TReply>.Refused("The capture service disconnected.");
+        }
+
+        return reply switch
+        {
+            TReply typed => ServiceAnswer<TReply>.Of(typed),
+            CommandResult { Ok: false, Error: { Length: > 0 } error } => ServiceAnswer<TReply>.Refused(error),
+            CommandResult { Ok: false } => ServiceAnswer<TReply>.Refused("The capture service refused the request."),
+            _ => ServiceAnswer<TReply>.Refused($"The capture service answered with {reply.GetType().Name}, not {typeof(TReply).Name}."),
+        };
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _stopping.CancelAsync().ConfigureAwait(false);
@@ -309,4 +350,27 @@ public sealed class CaptureConnection : IAsyncDisposable
             await channel.DisposeAsync().ConfigureAwait(false);
         }
     }
+}
+
+/// <summary>
+/// The service's reply to a question, or its words for why there is none (<see cref="CaptureConnection.AskAsync{TReply}"/>).
+/// Exactly one of the two is set.
+/// </summary>
+public sealed class ServiceAnswer<TReply>
+    where TReply : IpcEvent
+{
+    private ServiceAnswer(TReply? reply, string? refusal)
+    {
+        Reply = reply;
+        Refusal = refusal;
+    }
+
+    public TReply? Reply { get; }
+
+    /// <summary>The service's (usually the backend's) own words. Null exactly when <see cref="Reply"/> is set.</summary>
+    public string? Refusal { get; }
+
+    internal static ServiceAnswer<TReply> Of(TReply reply) => new(reply, null);
+
+    internal static ServiceAnswer<TReply> Refused(string refusal) => new(null, refusal);
 }

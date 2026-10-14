@@ -78,6 +78,12 @@ public sealed class PublishPanel
 
     public const string ConnectPrompt = "Connect a PSA to publish";
 
+    /// <summary>Everything chosen landed. Publishing again would post it all a second time.</summary>
+    public const string AlreadyPublished = "Already published";
+
+    /// <summary>Some of it landed. Publishing again would post that part a second time; Retry sends the rest.</summary>
+    public const string PartlyPublished = "Already partly published. Retry sends only what failed";
+
     private readonly Session _session;
     private readonly Func<string, CancellationToken, Task<IReadOnlyList<TicketMatch>>> _search;
     private readonly Func<PublishRequest, CancellationToken, Task<IReadOnlyList<DestinationResult>>> _publish;
@@ -190,6 +196,13 @@ public sealed class PublishPanel
     {
         get
         {
+            // First, and whatever the toggles say now (T-129): once anything has landed, Publish would
+            // send it again, and Ctrl+Enter reaches here even while the result list hides the button.
+            if (_results.Values.Any(r => r.Ok))
+            {
+                return Published ? AlreadyPublished : PartlyPublished;
+            }
+
             if (!HasIntegrations)
             {
                 return ConnectPrompt;
@@ -286,7 +299,8 @@ public sealed class PublishPanel
 
     /// <summary>
     /// Publishes every chosen destination. Refused rather than attempted when blocked: the button is
-    /// disabled for a reason, and a shortcut must not get past it.
+    /// disabled for a reason, and a shortcut must not get past it. That includes after anything has
+    /// landed, when <see cref="RetryAsync"/> is the only way on.
     /// </summary>
     public Task<IReadOnlyList<DestinationResult>> PublishAsync(DraftNote note, IReadOnlyList<string> frameIds, CancellationToken ct = default)
     {
