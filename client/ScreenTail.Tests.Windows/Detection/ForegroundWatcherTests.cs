@@ -162,7 +162,10 @@ public sealed class ForegroundWatcherTests
         using var front = DesktopWindow.Create(frontTitle);
         front.RequireForeground();
 
-        await using var watcher = new WindowsForegroundWatcher();
+        // The safety-net poll pushed out of reach, so the control rename below can only arrive through
+        // the name-change hook. At the default interval the poll re-reads the front window every couple of
+        // seconds and would deliver it even with no name change delivered at all.
+        await using var watcher = new WindowsForegroundWatcher(pollInterval: TimeSpan.FromMinutes(10));
         var reported = new List<string?>();
         var renamed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         watcher.Changed += info =>
@@ -178,6 +181,10 @@ public sealed class ForegroundWatcherTests
             }
         };
         await watcher.StartAsync(ct);
+
+        // Without the hook nothing here is delivered by name change at all, and fifty silent renames
+        // would prove nothing. On a desktop the hook installs; when it does not, that is a failure.
+        Assert.True(watcher.UsingHook, "The foreground watcher's event hook was not installed, so name changes cannot be tested.");
         await Task.Delay(200, ct);
 
         for (var i = 0; i < 50; i++)
@@ -188,11 +195,17 @@ public sealed class ForegroundWatcherTests
 
         await Task.Delay(300, ct);
 
-        // The control. A rename of the window in front must still arrive, or the silence above proves
-        // only that no name change was delivered at all. Taken again first, because a window from an
+        // The control. A rename of the window in front must still arrive, through the name-change hook
+        // (the poll is out of reach), or the silence above proves only that no name change was delivered
+        // at all. Taken again first, because a window from an
         // earlier test closing can briefly move the foreground; when it cannot be had, this skips with
         // the marker rather than failing for a reason that is not the watcher's.
         front.RequireForeground();
+
+        // Longer than the 250 ms a same-window title is held to settle. Taking the foreground again may
+        // have just reported this window, and with the poll out of reach nothing would release a rename
+        // held back behind that report.
+        await Task.Delay(400, ct);
         front.Retitle(frontRenamed);
         await renamed.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
 
