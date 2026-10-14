@@ -31,6 +31,8 @@ it refused and nothing else from the response (`backend/src/ScreenTail.Api/Provi
    on the sign-in screen, lower case).
 4. **The site**: the base URL the tenant signs in to, for example `https://na.myconnectwise.net` or
    `https://eu.myconnectwise.net`, or an on-premises host. ScreenTail appends `/v4_6_release/apis/3.0/`.
+   It must be reachable at a public internet address: the backend refuses a site on its own machine or
+   a private network, when it is stored and again when it is called.
 
 Stored once, from Settings → Integrations (the card takes the three parts and joins them) or by hand
 over the device's authenticated connection to the backend, and never returned:

@@ -147,6 +147,16 @@ dotnet user-secrets set "Vault:MasterKey" "$(openssl rand -base64 32)"
 Rotation is a rewrap of the data keys under a new master key, with the secrets untouched; the steps are
 in `docs/security/key-rotation.md` and `--rotate-vault-keys` does the one that touches the database.
 
+A tenant's site is called by the backend, so it must be a public internet address. A site that is
+plainly this machine or a private network (`localhost`, a name under `.localhost`, or a loopback,
+private, link-local, carrier-grade NAT, unique-local or multicast address literal) is refused when
+stored with `400 private_site_url`. The ConnectWise and Hudu clients check again when they connect:
+the name is resolved once, the call is refused unless every address is public, and the socket goes to
+the addresses that were checked, so a name that changes its answer afterwards gains nothing. Those
+clients use no proxy and follow no redirects. To point them at a stand-in on your own machine, set
+`ProviderNetwork:AllowPrivateAddresses` to `true`; the service refuses to start with it outside
+Development.
+
 ## Authentication
 
 A device is activated once and holds a long-lived refresh token; the database keeps only its SHA-256. It

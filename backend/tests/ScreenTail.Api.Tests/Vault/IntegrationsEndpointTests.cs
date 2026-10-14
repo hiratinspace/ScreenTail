@@ -131,6 +131,66 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("https://127.0.0.1")]
+    [InlineData("https://127.1.2.3:8443")]
+    [InlineData("https://2130706433")]
+    [InlineData("https://0x7f.0.0.1")]
+    [InlineData("https://localhost")]
+    [InlineData("https://LOCALHOST.:8443")]
+    [InlineData("https://psa.localhost")]
+    [InlineData("https://10.0.0.5")]
+    [InlineData("https://172.16.4.4")]
+    [InlineData("https://192.168.1.10")]
+    [InlineData("https://100.64.0.1")]
+    [InlineData("https://169.254.169.254")]
+    [InlineData("https://0.0.0.0")]
+    [InlineData("https://[::1]")]
+    [InlineData("https://[::]")]
+    [InlineData("https://[fd00::1]")]
+    [InlineData("https://[fe80::1]")]
+    [InlineData("https://[::ffff:127.0.0.1]")]
+    [InlineData("https://[::ffff:169.254.169.254]")]
+    [InlineData("https://user@127.0.0.1")]
+    public async Task ASiteOnThisMachineOrAPrivateNetworkIsRefusedWhenStored(string site)
+    {
+        // Security check 2026-10-14: the backend calls the site a tenant stores, so a site that is
+        // plainly internal is refused here, in words, before anything is kept. A public name that answers
+        // with a private address is refused when the call connects (ProviderCallsStayPublicTests).
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var response = await client.PutAsJsonAsync(
+            new Uri("/v1/integrations/hudu", UriKind.Relative),
+            new StoreIntegrationRequest(site, "hudu-key-0001"),
+            TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var list = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("private_site_url", body, StringComparison.Ordinal);
+        Assert.Contains("public", body, StringComparison.Ordinal);
+        Assert.Empty(list!.Integrations);
+    }
+
+    [Theory]
+    [InlineData("https://na.myconnectwise.net")]
+    [InlineData("https://psa.acme-msp.example:8443")]
+    [InlineData("https://8.8.8.8")]
+    [InlineData("https://[2606:4700:4700::1111]")]
+    public async Task APublicSiteIsStoredAsBefore(string site)
+    {
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var response = await client.PutAsJsonAsync(
+            new Uri("/v1/integrations/connectwise", UriKind.Relative),
+            new StoreIntegrationRequest(site, Secret),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     [Fact]
     public async Task WithoutATokenNothingIsReachable()
     {

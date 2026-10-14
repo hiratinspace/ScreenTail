@@ -49,7 +49,7 @@ public static partial class IntegrationsEndpoint
         .WithName("ListIntegrations")
         .WithSummary("The tenant's integrations, with each credential's last four characters and nothing more.");
 
-        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, ClaimsPrincipal caller, ScreenTailContext db, IIntegrationVault vault, CancellationToken ct) =>
+        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, ClaimsPrincipal caller, ScreenTailContext db, IIntegrationVault vault, ProviderNetworkOptions network, CancellationToken ct) =>
         {
             if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
             {
@@ -64,6 +64,13 @@ public static partial class IntegrationsEndpoint
             if (!Uri.TryCreate(request.SiteUrl, UriKind.Absolute, out var site) || site.Scheme != Uri.UriSchemeHttps)
             {
                 return Results.BadRequest(new { error = "bad_site_url", message = "The site URL must be an absolute https address." });
+            }
+
+            // The backend calls this site, so one that is plainly this machine or a private network is
+            // refused here in words. A name that resolves to one is refused when the call connects.
+            if (!network.AllowPrivateAddresses && PublicNetwork.IsPlainlyPrivate(site))
+            {
+                return Results.BadRequest(new { error = "private_site_url", message = "The site URL must be the provider's public address. ScreenTail does not call this machine or a private network." });
             }
 
             if (string.IsNullOrWhiteSpace(request.Secret))

@@ -46,6 +46,14 @@ public static class ProviderHttp
                 using var request = build();
                 response = await http.SendAsync(request, ct).ConfigureAwait(false);
             }
+            catch (HttpRequestException ex) when (PublicNetwork.WasRefused(ex))
+            {
+                // Not an outage, so not retried: the site itself is the problem (security check 2026-10-14).
+                return ProviderResult.Failure<JsonElement>(new ProviderError(
+                    ProviderErrorKind.Invalid,
+                    $"The {providerName} site is on a private network, and ScreenTail only calls public addresses.",
+                    "Enter the provider's public address in Settings → Integrations."));
+            }
             catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
             {
                 last = new ProviderError(ProviderErrorKind.Unavailable, $"{providerName} did not answer.", "Try again in a minute.");

@@ -5,6 +5,7 @@ using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 using ScreenTail.Api.Logging;
+using ScreenTail.Api.Providers;
 using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Providers.Llm;
@@ -88,12 +89,20 @@ var vault = builder.Configuration.GetSection(VaultOptions.Section).Get<VaultOpti
 builder.Services.AddSingleton(vault);
 builder.Services.AddScoped<IIntegrationVault, IntegrationVault>();
 
+// Security check 2026-10-14. A tenant chooses its provider's site, so the PSA and documentation clients
+// connect only to public addresses, checked at connect time (PublicNetwork). The option that lifts this
+// is for Development and tests; anywhere else the service refuses to start with it on.
+var providerNetwork = builder.Configuration.GetSection(ProviderNetworkOptions.Section).Get<ProviderNetworkOptions>() ?? new ProviderNetworkOptions();
+providerNetwork.Validate(builder.Environment.IsDevelopment());
+builder.Services.AddSingleton(providerNetwork);
+
 // ST-091. The PSA is built per tenant from the vault, never resolved as one provider for everybody:
 // a provider without a tenant's credential would be a fake by definition. The named client carries the
 // timeout; the factory gives each one the tenant's own base address.
 var connectWise = builder.Configuration.GetSection(ConnectWiseOptions.Section).Get<ConnectWiseOptions>() ?? new ConnectWiseOptions();
 builder.Services.AddSingleton(connectWise);
-builder.Services.AddHttpClient(nameof(ConnectWiseProvider), client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddHttpClient(nameof(ConnectWiseProvider), client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 
 // ST-095. The documentation platform, the same way: per tenant from the vault, never as one provider
@@ -101,7 +110,8 @@ builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 var hudu = builder.Configuration.GetSection(HuduOptions.Section).Get<HuduOptions>() ?? new HuduOptions();
 builder.Services.AddSingleton(hudu);
 builder.Services.AddSingleton<HuduCompanyCache>();
-builder.Services.AddHttpClient(nameof(HuduProvider), client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddHttpClient(nameof(HuduProvider), client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();
 
 builder.Services.AddAuthorization();
