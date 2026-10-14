@@ -272,10 +272,11 @@ public sealed class ScopePolicyTests
     [Fact]
     public void ARegistryThatNamesTheShellAsARemoteToolStillCannotPhotographTheDesktop()
     {
-        // The refusal sits before every match, so no entry, shipped or edited, can reach the desktop.
+        // The refusal sits before every match, so no entry, shipped or edited, can reach the desktop. Naming
+        // the shell's process is refused on load, so this entry reaches the desktop by its class instead.
         var registry = RemoteToolRegistry.Load("""
             { "version": "t", "grace_seconds": 90,
-              "tools": [ { "id": "shell", "kind": "other", "display_name": "Shell", "processes": ["explorer"],
+              "tools": [ { "id": "shell", "kind": "other", "display_name": "Shell", "processes": ["wallpaper"],
                            "window_class_patterns": ["^Progman$"] } ] }
             """);
 
@@ -294,6 +295,37 @@ public sealed class ScopePolicyTests
         clock.Advance(TimeSpan.FromSeconds(91));
 
         Assert.True(trigger.Observe(Window("explorer", "Program Manager", "Progman")).Stop);
+    }
+
+    [Theory]
+    [InlineData("explorer")]
+    [InlineData("EXPLORER")]
+    public void ARemoteToolCannotBeTheShellsProcess(string process)
+    {
+        // A remote tool matches every window of its process and starts a session on it, whatever its class
+        // patterns say, so naming the shell would make every folder window a support session.
+        var problems = RemoteToolRegistry.Validate(new RegistryDocument
+        {
+            Tools =
+            [
+                new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] },
+                new ToolEntry { Id = "shell", DisplayName = "Shell", Processes = ["x", process], WindowClassPatterns = ["^CabinetWClass$"] },
+            ],
+        });
+
+        Assert.Contains(problems, p => p.Contains("shell", StringComparison.Ordinal) && p.Contains("shell's process", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ARegistryThatNamesTheShellAsARemoteToolIsRefusedOnLoad()
+    {
+        var load = () => RemoteToolRegistry.Load("""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "files", "kind": "other", "display_name": "Files", "processes": ["explorer"] } ] }
+            """);
+
+        var refused = Assert.Throws<InvalidOperationException>(load);
+        Assert.Contains("shell's process", refused.Message, StringComparison.Ordinal);
     }
 
     [Theory]
