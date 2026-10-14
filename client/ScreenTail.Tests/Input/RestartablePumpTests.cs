@@ -249,6 +249,7 @@ public sealed class RestartablePumpTests
         Assert.Equal(1, Volatile.Read(ref runs));
 
         release.Set();
+        Assert.True(SpinWait.SpinUntil(() => !pump.Running, TimeSpan.FromSeconds(5)));
         await pump.StopAsync(ct);
         release.Reset();
         await pump.StartAsync(ct);
