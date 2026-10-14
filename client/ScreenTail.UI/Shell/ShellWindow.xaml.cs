@@ -185,7 +185,9 @@ public partial class ShellWindow : Window
                 new Shared.Settings.ClientSettings { LocalOnly = true, RetentionDays = 3, CustomPatterns = [@"ACME-\d{6}"], ExcludedProcesses = ["keepass"] },
                 LocalOnlyLocked: true,
                 RetentionLocked: true,
-                PolicyVersion: "p20260925120000000"));
+                PolicyVersion: "p20260925120000000",
+                EffectiveLocalOnly: true,
+                EffectiveRetentionDays: 3));
 
         public Task<string?> SaveAsync(Shared.Settings.ClientSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
 

@@ -8,8 +8,12 @@ namespace ScreenTail.Shared.Ipc;
 /// capture stopped. Additive, but the framing rejects unknown members on purpose, so an older reader
 /// would fail on a newer snapshot rather than ignore the field. The handshake compares versions and
 /// refuses a mismatched pair, which is the behaviour that makes this safe to change at all.
+///
+/// 3: ST-081 adds <c>effective_local_only</c> and <c>effective_retention_days</c> to <c>settings</c>, so
+/// Privacy shows a locked field as the admin set it rather than the technician's own value. Same reason
+/// as 2: an older reader would fail on the new members.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 2;
+    public const int Version = 3;
 }

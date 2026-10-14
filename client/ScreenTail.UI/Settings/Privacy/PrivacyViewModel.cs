@@ -47,6 +47,10 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [ObservableProperty]
     public partial bool RetentionEditable { get; set; } = true;
 
+    /// <summary>The slider's top, so an admin's retention beyond 30 days is shown whole rather than clamped.</summary>
+    [ObservableProperty]
+    public partial int RetentionMaximum { get; set; } = Shared.Settings.ClientSettings.MaxRetentionDays;
+
     [ObservableProperty]
     public partial string RetentionLabel { get; set; } = string.Empty;
 
@@ -245,6 +249,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
     {
         LocalOnly = _panel.LocalOnly;
         LocalOnlyEditable = !_panel.LocalOnlyLocked;
+        RetentionMaximum = _panel.RetentionMaximum; // before the value, so the slider never clamps it
         RetentionDays = _panel.RetentionDays;
         RetentionEditable = !_panel.RetentionLocked;
         RetentionLabel = Describe(_panel.RetentionDays);
