@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -19,7 +20,7 @@ public sealed class RemoteToolRegistry
     public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(50);
 
     private readonly Dictionary<string, ToolEntry> _byProcess;
-    private readonly Dictionary<string, AdminToolEntry> _adminByProcess;
+    private readonly Dictionary<string, AdminToolMatch> _adminByProcess;
 
     private RemoteToolRegistry(RegistryDocument document)
     {
@@ -39,12 +40,15 @@ public sealed class RemoteToolRegistry
             }
         }
 
-        _adminByProcess = new Dictionary<string, AdminToolEntry>(StringComparer.OrdinalIgnoreCase);
+        // Each entry's window classes become a frozen set here, once, so a foreground change is one lookup
+        // and nothing is built lazily on a shared object. Null means the entry names no classes.
+        _adminByProcess = new Dictionary<string, AdminToolMatch>(StringComparer.OrdinalIgnoreCase);
         foreach (var tool in AdminTools)
         {
+            var classes = tool.WindowClasses.Count == 0 ? null : tool.WindowClasses.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
             foreach (var process in tool.Processes)
             {
-                _adminByProcess[process] = tool;
+                _adminByProcess[process] = new AdminToolMatch(tool, classes);
             }
         }
     }
@@ -99,6 +103,13 @@ public sealed class RemoteToolRegistry
             if (tool.Processes.Count == 0 && tool.WindowClassPatterns.Count == 0)
             {
                 problems.Add($"tool '{tool.Id}' matches nothing");
+            }
+
+            // A remote tool matches every window of its process, whatever its class patterns say, so naming
+            // the shell would make every folder window a support session (2026-10-12 review, S-2).
+            if (tool.Processes.Any(IsShellProcess))
+            {
+                problems.Add($"tool '{tool.Id}' names the shell's process, which would make every File Explorer window a session");
             }
 
             problems.AddRange(tool.WindowClassPatterns.SelectMany(p => PatternProblems(tool.Id, p)));
@@ -200,12 +211,12 @@ public sealed class RemoteToolRegistry
     public AdminToolEntry? MatchAdminTool(ForegroundWindowInfo window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        if (window.ProcessName is not { } process || !_adminByProcess.TryGetValue(process, out var tool))
+        if (window.ProcessName is not { } process || !_adminByProcess.TryGetValue(process, out var match))
         {
             return null;
         }
 
-        return tool.WindowClasses.Count == 0 || tool.ClassSet.Contains(window.ClassName) ? tool : null;
+        return match.Classes is null || match.Classes.Contains(window.ClassName) ? match.Tool : null;
     }
 
     /// <summary>A pattern that runs out of its budget matches nothing, rather than stalling the watcher.</summary>
@@ -239,14 +250,19 @@ public sealed class RemoteToolRegistry
             problems.Add($"admin tool '{admin.Id}' lists the shell's window class '{shell}'");
         }
 
-        if (admin.WindowClasses.Count == 0
-            && admin.Processes.Any(p => string.Equals(p, ShellWindows.ProcessName, StringComparison.OrdinalIgnoreCase)))
+        if (admin.WindowClasses.Count == 0 && admin.Processes.Any(IsShellProcess))
         {
             problems.Add($"admin tool '{admin.Id}' names the shell's process without window classes, which would include the desktop");
         }
 
         return problems;
     }
+
+    private static bool IsShellProcess(string process) =>
+        string.Equals(process, ShellWindows.ProcessName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>An admin tool as matched: the entry, and its window classes, or null when it names none.</summary>
+    private sealed record AdminToolMatch(AdminToolEntry Tool, FrozenSet<string>? Classes);
 
     private static string[] PatternProblems(string id, string pattern)
     {
@@ -364,7 +380,6 @@ public sealed class AdminToolEntry
     public IReadOnlyList<string> Processes { get; init; } = [];
 
     private readonly IReadOnlyList<string> _windowClasses = [];
-    private HashSet<string>? _classSet;
 
     /// <summary>
     /// When not empty, the window classes this tool's windows have; any other window of the same process is
@@ -377,7 +392,4 @@ public sealed class AdminToolEntry
         get => _windowClasses;
         init => _windowClasses = value ?? [];
     }
-
-    /// <summary>Built once, on first use, and reused for every foreground change afterwards.</summary>
-    internal HashSet<string> ClassSet => _classSet ??= new HashSet<string>(WindowClasses, StringComparer.OrdinalIgnoreCase);
 }
