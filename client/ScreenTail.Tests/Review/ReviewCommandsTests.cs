@@ -284,6 +284,71 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ABlurWrittenButTooLargeToHandBackSaysItWasWritten()
+    {
+        // The store is written before the reply is built, so a painted image too big for the pipe is
+        // already on disk, with its text gone. Saying only "too large" would read as "nothing happened".
+        var masker = new RecordingMasker { Painted = new byte[ReviewCommands.LargestFrameBytes + 1] };
+        var commands = await CommandsAsync(masker);
+        await SeedAsync(redacted: ["f1"], pending: []);
+        var blur = new BlurFrameCommand { RequestId = 4, FrameId = "f1", X = 10, Y = 20, Width = 300, Height = 40 };
+
+        Assert.Null(await commands.ReplyToAsync(blur));
+        var result = await commands.HandleAsync(blur);
+
+        Assert.False(result!.Ok);
+        Assert.Contains("written", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("too large", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(masker.Painted, await _store!.GetRedactedFrameImageAsync("f1"));
+        Assert.Null((await _store.LoadSessionAsync("s1"))!.Frames.Single(f => f.Id == "f1").OcrText);
+    }
+
+    [Fact]
+    public async Task ABlurRefusedForTheImagesSizeSaysSoEvenWhenTheImageIsAlsoTooLargeForThePipe()
+    {
+        // The reason is the one the blur stopped for, not one worked out again afterwards. Here nothing
+        // was written, so "too large for the pipe" (which means it was) would be the wrong thing to say.
+        var masker = new SizedMasker();
+        var commands = await CommandsAsync(masker);
+        await SeedAsync(redacted: [], pending: []);
+        var original = new byte[ReviewCommands.LargestFrameBytes + 1];
+        SizedMasker.Image(1280, 720).CopyTo(original, 0);
+        await _store!.SaveRedactedFrameAsync(
+            "s1",
+            new StagedFrame("odd", 1000, FrameTrigger.Click, 1920, 1080, null, new byte[] { 1 }),
+            new RedactionOutcome(original, "text", [], false, DateTimeOffset.UnixEpoch, 1600, 900));
+        var blur = new BlurFrameCommand { RequestId = 4, FrameId = "odd", X = 10, Y = 20, Width = 300, Height = 40 };
+
+        Assert.Null(await commands.ReplyToAsync(blur));
+        var result = await commands.HandleAsync(blur);
+
+        Assert.False(result!.Ok);
+        Assert.Contains("not the size", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("too large", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(original, await _store.GetRedactedFrameImageAsync("odd"));
+    }
+
+    [Fact]
+    public async Task AFrameDeletedWhileItIsBeingPaintedIsRefusedAndNotBroughtBack()
+    {
+        // Deleting is a plain command and does not wait for a blur. A frame that goes between the read and
+        // the write must stay gone, and the answer must say there is no frame rather than blame the image.
+        var masker = new RecordingMasker();
+        var commands = await CommandsAsync(masker);
+        await SeedAsync(redacted: ["f1"], pending: []);
+        masker.OnMask = () => Assert.True(_store!.DeleteFrameAsync("f1").GetAwaiter().GetResult());
+        var blur = new BlurFrameCommand { RequestId = 4, FrameId = "f1", X = 10, Y = 20, Width = 300, Height = 40 };
+
+        Assert.Null(await commands.ReplyToAsync(blur));
+        var result = await commands.HandleAsync(blur);
+
+        Assert.False(result!.Ok);
+        Assert.Contains("no such frame", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(await _store!.GetRedactedFrameImageAsync("f1"));
+        Assert.Single(masker.Regions);
+    }
+
+    [Fact]
     public async Task ABlurOnAFrameThatIsGoneIsRefused()
     {
         var commands = await CommandsAsync();
@@ -387,13 +452,17 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
     /// <summary>Paints nothing; remembers what it was asked to paint and hands back bytes of its own.</summary>
     private sealed class RecordingMasker : IFrameMasker
     {
-        public byte[] Painted { get; } = [0xCC, 0xCC, 0xCC];
+        public byte[] Painted { get; init; } = [0xCC, 0xCC, 0xCC];
 
         public List<MaskedRegion> Regions { get; } = [];
+
+        /// <summary>Run while painting, after the image was read and before it is written.</summary>
+        public Action? OnMask { get; set; }
 
         public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge)
         {
             Regions.AddRange(regions);
+            OnMask?.Invoke();
             return new MaskedImage(Painted, 1600, 900);
         }
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Data.Sqlite;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 
@@ -459,6 +460,60 @@ public sealed class SessionStoreTests : IAsyncDisposable
         // INV-1 holds on this read path as on every other.
         Assert.Null(await store.GetRedactedFrameForBlurAsync("pending"));
         Assert.Null(await store.GetRedactedFrameForBlurAsync("missing"));
+    }
+
+    [Fact]
+    public async Task AStoreWithFramesFromBeforeTheStoredSizeUpgradesAndTheyFallBackToTheirDownscale()
+    {
+        // Migration 0011 adds two columns to a table that already holds frames on every machine that has
+        // used Review. The store is put back to how version 10 left it, frames and all, and reopened.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.SaveRedactedFrameAsync(
+            "s1",
+            Staged("old", 1000, Bytes(0xAA, 10)) with { Width = 3840, Height = 2160 },
+            Outcome(Bytes(0xBB, 10), "Service status: Stopped"));
+        await store.DisposeAsync();
+        _stores.Remove(store);
+
+        await using (var raw = await OpenRawAsync())
+        {
+            await RawAsync(raw, "ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
+        }
+
+        var upgraded = await OpenAsync();
+
+        Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await upgraded.GetSchemaVersionAsync());
+        var legacy = await upgraded.GetRedactedFrameForBlurAsync("old");
+        Assert.Equal((3840, 2160, 1600, 900), (legacy!.Width, legacy.Height, legacy.StoredWidth, legacy.StoredHeight));
+        Assert.Equal(Bytes(0xBB, 10), legacy.Image);
+        Assert.Equal("Service status: Stopped", Assert.Single((await upgraded.LoadSessionAsync("s1"))!.Frames).OcrText);
+
+        // The columns the migration added still refuse a size no image can have.
+        await using var check = await OpenRawAsync();
+        var refused = await Assert.ThrowsAsync<SqliteException>(() => RawAsync(check, "UPDATE frames SET stored_width = 0 WHERE id = 'old';"));
+        Assert.Contains("CHECK", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The store's own file opened directly, for putting it back to an older schema.</summary>
+    private async Task<SqliteConnection> OpenRawAsync()
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _path,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        StoreKey.Apply(connection, _key.GetKey());
+        return connection;
+    }
+
+    private static async Task RawAsync(SqliteConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
