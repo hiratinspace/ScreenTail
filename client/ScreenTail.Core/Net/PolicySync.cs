@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ScreenTail.Shared.Settings;
 
 namespace ScreenTail.Core.Net;
@@ -9,6 +10,7 @@ namespace ScreenTail.Core.Net;
 /// <summary>
 /// The tenant's policy as the backend states it (ST-047): what the admin decided about this device.
 /// <paramref name="LocalOnlyLocked"/> is INV-11's word — locked, the technician cannot change it here.
+/// The wire shape is <c>shared/contracts/tenant-policy.v1.json</c>, which the backend's response is tested against too.
 /// </summary>
 public sealed record TenantPolicy(string Version, int RetentionDays, bool LocalOnly, bool LocalOnlyLocked, bool CaptureAllWindows)
 {
@@ -96,7 +98,17 @@ public sealed class PolicySync(HttpClient http, Func<string?> token, IPolicyCach
 
     public static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(10);
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // The wire shape is shared/contracts/tenant-policy.v1.json. A field missing from the answer would
+    // otherwise read as false or zero, and a locked local-only would arrive unlocked (INV-11), so every
+    // field is required and its type is read strictly (no number from a string): an answer that breaks
+    // either is refused and the last synced policy stands. To grow the policy, give a new TenantPolicy
+    // parameter a default (it is then optional), or make it required only in a v2 contract once every
+    // backend sends it; a new parameter without a default would refuse every older backend's answer.
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        RespectRequiredConstructorParameters = true,
+        NumberHandling = JsonNumberHandling.Strict,
+    };
 
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
     private readonly Func<string?> _token = token ?? throw new ArgumentNullException(nameof(token));

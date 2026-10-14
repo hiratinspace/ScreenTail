@@ -4,7 +4,11 @@ using ScreenTail.Api.Tenancy;
 
 namespace ScreenTail.Api.Endpoints;
 
-/// <summary>What the client applies (ST-047). The shape <c>client/ScreenTail.Core/Net/PolicySync.cs</c> reads.</summary>
+/// <summary>
+/// What the client applies (ST-047). The shape <c>client/ScreenTail.Core/Net/PolicySync.cs</c> reads:
+/// <c>shared/contracts/tenant-policy.v1.json</c>. The client refuses an answer with a field missing, so a
+/// renamed property here stops policy sync rather than unlocking a locked field (INV-11).
+/// </summary>
 public sealed record TenantPolicyResponse(string Version, int RetentionDays, bool LocalOnly, bool LocalOnlyLocked, bool CaptureAllWindows);
 
 public static class PolicyEndpoint

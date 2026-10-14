@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Net;
@@ -16,6 +18,8 @@ namespace ScreenTail.Tests.Net;
 /// </summary>
 public sealed class PolicySyncTests : IDisposable
 {
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "screentail-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
@@ -36,6 +40,93 @@ public sealed class PolicySyncTests : IDisposable
         Assert.Equal(sync.Current, Assert.Single(changed));
         Assert.EndsWith("/v1/policy", backend.Request!.RequestUri!.AbsolutePath, StringComparison.Ordinal);
         Assert.Equal("token", backend.Request.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
+    public async Task TheSharedPolicyContractDeserialises()
+    {
+        // shared/contracts/tenant-policy.v1.json is what the backend answers. Every value in it differs
+        // from the defaults, so a field this side stopped reading shows up as a wrong value, and the shape
+        // this side would write back has to be the same names and types.
+        var body = Contract("response");
+        var sync = new PolicySync(Client(new OneReply(Text(body))), () => "token", new FilePolicyCache(Path.Combine(_dir, "policy.json")));
+
+        Assert.True(await sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(new TenantPolicy("p20260925140200000", 3, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: true), sync.Current);
+        using var contract = JsonDocument.Parse(body);
+        using var read = JsonDocument.Parse(JsonSerializer.Serialize(sync.Current, WebJson));
+        Assert.Equal(Shape(contract.RootElement), Shape(read.RootElement));
+    }
+
+    [Theory]
+    [InlineData("version")]
+    [InlineData("retentionDays")]
+    [InlineData("localOnly")]
+    [InlineData("localOnlyLocked")]
+    [InlineData("captureAllWindows")]
+    public async Task APolicyWithAFieldMissingIsRefusedAndTheLastSyncedOneStands(string missing)
+    {
+        // A field the backend renamed or dropped would otherwise read as false or zero, and a locked
+        // local-only would arrive unlocked (INV-11). Refused instead, like a backend that did not answer.
+        var cache = new FilePolicyCache(Path.Combine(_dir, "policy.json"));
+        var synced = new TenantPolicy("p1", 3, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: false);
+        cache.Save(synced);
+        var body = JsonNode.Parse(Contract("response"))!.AsObject();
+        Assert.True(body.Remove(missing));
+        var sync = new PolicySync(Client(new OneReply(Text(body.ToJsonString()))), () => "token", cache);
+        var changed = 0;
+        sync.Changed += _ => changed++;
+
+        Assert.False(await sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(synced, sync.Current);
+        Assert.Equal(synced, cache.Load());
+        Assert.Null(sync.LastSyncedAt);
+        Assert.Equal(0, changed);
+    }
+
+    [Theory]
+    [InlineData("retentionDays", "\"3\"")]
+    [InlineData("retentionDays", "3.5")]
+    [InlineData("retentionDays", "null")]
+    [InlineData("localOnlyLocked", "\"true\"")]
+    [InlineData("localOnlyLocked", "1")]
+    [InlineData("localOnlyLocked", "null")]
+    [InlineData("version", "20260925")]
+    public async Task APolicyWithAFieldOfTheWrongTypeIsRefusedAndTheLastSyncedOneStands(string field, string value)
+    {
+        // The contract states the types too. A value of another type is drift as much as a missing field
+        // is, so it is refused the same way rather than read leniently.
+        var cache = new FilePolicyCache(Path.Combine(_dir, "policy.json"));
+        var synced = new TenantPolicy("p1", 3, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: false);
+        cache.Save(synced);
+        var body = JsonNode.Parse(Contract("response"))!.AsObject();
+        body[field] = JsonNode.Parse(value);
+        var sync = new PolicySync(Client(new OneReply(Text(body.ToJsonString()))), () => "token", cache);
+        var changed = 0;
+        sync.Changed += _ => changed++;
+
+        Assert.False(await sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(synced, sync.Current);
+        Assert.Equal(synced, cache.Load());
+        Assert.Null(sync.LastSyncedAt);
+        Assert.Equal(0, changed);
+    }
+
+    [Fact]
+    public async Task AFieldANewerBackendAddsIsIgnored()
+    {
+        // Adding to the contract stays compatible with a client that predates the field; only a field
+        // missing is refused.
+        var body = JsonNode.Parse(Contract("response"))!.AsObject();
+        body["exclusions"] = new JsonArray("keepass.exe");
+        var sync = new PolicySync(Client(new OneReply(Text(body.ToJsonString()))), () => "token", new FilePolicyCache(Path.Combine(_dir, "policy.json")));
+
+        Assert.True(await sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.True(sync.Current.LocalOnlyLocked);
     }
 
     [Fact]
@@ -117,6 +208,25 @@ public sealed class PolicySyncTests : IDisposable
     private static HttpClient Client(HttpMessageHandler handler) => new(handler) { BaseAddress = new Uri("https://api.screentail.example/") };
 
     private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body, options: new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+
+    private static HttpResponseMessage Text(string json) => new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static string Contract(string property)
+    {
+        using var stream = typeof(PolicySyncTests).Assembly.GetManifestResourceStream("ScreenTail.Tests.tenant-policy.v1.json")
+            ?? throw new InvalidOperationException("shared/contracts/tenant-policy.v1.json is not embedded in the test assembly");
+        using var document = JsonDocument.Parse(stream);
+        return document.RootElement.GetProperty(property).GetRawText();
+    }
+
+    private static string Shape(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Object => "{" + string.Join(",", element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal).Select(p => p.Name + ":" + Shape(p.Value))) + "}",
+        JsonValueKind.Array => "[" + (element.GetArrayLength() > 0 ? Shape(element[0]) : string.Empty) + "]",
+        JsonValueKind.Null => "null",
+        JsonValueKind.True or JsonValueKind.False => "bool",
+        _ => element.ValueKind.ToString().ToLowerInvariant(),
+    };
 
     public void Dispose()
     {

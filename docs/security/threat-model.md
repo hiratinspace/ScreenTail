@@ -64,8 +64,11 @@ than optional, so a `null` has to be typed on purpose — and the live shell pas
 **T15 is wired** (ST-047, 2026-09-25). The tenant's policy arrives at start and hourly, the last copy
 is kept on disk, and a locked local-only is applied to the egress guard's own settings — the object it
 decides with — rather than to a display flag. A technician's Settings shows the toggle read-only with
-the policy's version. What a policy cannot yet carry: exclusions, redaction patterns and telemetry as
-tenant fields (the model has retention, local-only, its lock and the capture scope).
+the policy's version. An answer that does not match `shared/contracts/tenant-policy.v1.json` (a field
+missing or of the wrong type) is refused like an unanswered fetch and the last synced policy stands, so
+a drifted field name cannot unlock a locked local-only (INV-11). What a policy cannot yet carry:
+exclusions, redaction patterns and telemetry as tenant fields (the model has retention, local-only, its
+lock and the capture scope).
 
 **The `netstat` evidence in ST-012's acceptance criteria** is a source-level guard here (T13, T14). A run
 of the service with no listening ports is worth adding to the laptop's hardware checks once the service
