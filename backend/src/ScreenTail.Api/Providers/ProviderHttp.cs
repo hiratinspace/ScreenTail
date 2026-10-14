@@ -68,6 +68,16 @@ public static class ProviderHttp
                     return ProviderResult.Success(Parse(body));
                 }
 
+                if ((int)response.StatusCode is >= 300 and <= 399)
+                {
+                    // Redirects are not followed (security check 2026-10-14), so a moved site lands here.
+                    // The stored site is what needs changing, which no provider's own mapping would say.
+                    return ProviderResult.Failure<JsonElement>(new ProviderError(
+                        ProviderErrorKind.Invalid,
+                        $"The {providerName} site answered with a redirect, and ScreenTail does not follow redirects.",
+                        "Check the site address in Settings → Integrations."));
+                }
+
                 last = failure(response.StatusCode, body, response.Headers.RetryAfter);
                 if (!last.Retryable)
                 {

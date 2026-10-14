@@ -14,6 +14,10 @@ namespace ScreenTail.Api.Providers;
 /// checked. A name that answers with a public address for a check and a private one a moment later (DNS
 /// rebinding) gets no second lookup to swap in. <see cref="IsPlainlyPrivate"/> is the store-time half,
 /// which only exists to say so early and in words.
+///
+/// The ranges below are the special-purpose ones that hold everywhere. A cloud also has platform
+/// endpoints inside public ranges (Azure's 168.63.129.16, for one), so when ST-007 chooses where the
+/// backend runs, that cloud's platform addresses must be added to <see cref="NotPublicV4"/>.
 /// </summary>
 public static class PublicNetwork
 {
