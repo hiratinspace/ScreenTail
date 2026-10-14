@@ -1,6 +1,4 @@
-using System.Security.Claims;
 using ScreenTail.Api.Auth;
-using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers;
 using ScreenTail.Api.Providers.ConnectWise;
 
@@ -21,13 +19,8 @@ public static class PsaEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapGet("/psa/tickets", async (string? q, ClaimsPrincipal caller, ScreenTailContext db, IPsaProviderFactory providers, CancellationToken ct) =>
+        group.MapGet("/psa/tickets", async (string? q, Caller who, IPsaProviderFactory providers, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             // Nothing typed is a different question from too little typed: the first is the recent
             // list, the second is a stray keystroke that would match half the PSA.
             var query = (q ?? string.Empty).Trim();

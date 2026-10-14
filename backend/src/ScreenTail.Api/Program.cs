@@ -114,7 +114,9 @@ builder.Services.AddHttpClient(nameof(HuduProvider), client => client.Timeout = 
     .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();
 
-builder.Services.AddAuthorization();
+// Revocation for every route under /v1, as a policy on the group rather than a line in each handler
+// (2026-10-12 review). A refused caller gets the same 401 as a bad token, before its body is read.
+builder.Services.AddCallerPolicy();
 builder.Services.AddOpenApi();
 
 // A request that has not finished in this long has stopped being a request and started being a held
@@ -247,7 +249,7 @@ if (app.Environment.IsDevelopment())
 // The two calls a device makes before it has a token (ST-010). Anonymous, and outside the group below.
 _ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 
-var v1 = app.MapGroup("/v1").RequireAuthorization();
+var v1 = app.MapGroup("/v1").RequireAuthorization(CallerPolicy.Name);
 _ = v1.MapMe();
 _ = v1.MapSummarize();
 _ = v1.MapIntegrations();

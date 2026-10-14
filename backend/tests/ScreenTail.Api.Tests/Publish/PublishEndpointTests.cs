@@ -201,6 +201,30 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARevokedDevicePublishesNothing(bool malformed)
+    {
+        // A revoked laptop still holds a signed token. Permission before shape, so a malformed bundle is
+        // a 401 too and the rules stay unread; nothing reaches the PSA either way.
+        var cw = new ScriptedConnectWise();
+        using var host = Host(cw);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+        _ = await api.UseAsync(db => db.Devices
+            .Where(d => d.Id == deviceId)
+            .ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+        var bundle = malformed ? Bundle() with { TicketId = string.Empty } : Bundle();
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), bundle, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(cw.Requests);
+    }
+
     private static PublishBundle Bundle() => new()
     {
         SessionId = "s-0001",

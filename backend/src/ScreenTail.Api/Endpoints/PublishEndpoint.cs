@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers.ConnectWise;
@@ -19,15 +18,8 @@ public static class PublishEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/sessions/publish", async (PublishBundle bundle, ClaimsPrincipal caller, ScreenTailContext db, IPsaProviderFactory providers, IDocProviderFactory docProviders, TimeProvider time, CancellationToken ct) =>
+        group.MapPost("/sessions/publish", async (PublishBundle bundle, Caller who, ScreenTailContext db, IPsaProviderFactory providers, IDocProviderFactory docProviders, TimeProvider time, CancellationToken ct) =>
         {
-            // Permission first, then shape, for the reason SummarizeEndpoint gives: a revoked device
-            // must not read the rules back out of the 400s.
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             if (PublishLimits.Check(bundle) is { } problem)
             {
                 return Results.BadRequest(new { error = "rejected", message = problem });

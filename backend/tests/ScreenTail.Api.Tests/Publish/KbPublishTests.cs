@@ -120,6 +120,33 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal("not_configured", kb.Kind);
     }
 
+    [Fact]
+    public async Task ARevokedDeviceCannotReadOrChangeCompanyMappings()
+    {
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var seeded = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, seeded.StatusCode);
+        var before = hudu.Requests.Count;
+        _ = await api.UseAsync(db => db.Devices
+            .Where(d => d.TenantId == tenantId)
+            .ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+
+        using var list = await client.GetAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var badPut = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), new MapCompanyRequest(string.Empty, string.Empty), TestContext.Current.CancellationToken);
+        using var delete = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, list.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, put.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, badPut.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, delete.StatusCode);
+        Assert.Equal(before, hudu.Requests.Count);
+        var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal("7", mapping.DocCompanyId);
+    }
+
     private static PublishBundle Bundle(string company) => new()
     {
         SessionId = "s-0001",

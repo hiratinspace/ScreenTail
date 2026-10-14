@@ -12,7 +12,26 @@ namespace ScreenTail.Api.Auth;
 /// satisfy the compiler.
 /// </param>
 /// <param name="Tenant">The MSP, likewise already proved to exist and not be disabled.</param>
-public sealed record Caller(Guid TenantId, Guid UserId, Guid DeviceId, Device Device, User User, Tenant Tenant);
+public sealed record Caller(Guid TenantId, Guid UserId, Guid DeviceId, Device Device, User User, Tenant Tenant)
+{
+    /// <summary>
+    /// How a handler asks for its caller: a <see cref="Caller"/> parameter, bound from what
+    /// <see cref="CallerPolicy"/> already proved for this request, so the database is asked once.
+    ///
+    /// A route mapped outside the policy still gets a checked caller, by asking here; one that may not act
+    /// binds to nothing and the handler never runs. Fail closed whichever way the route was mapped.
+    /// </summary>
+    public static async ValueTask<Caller?> BindAsync(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return CallerPolicy.Checked(context)
+            ?? await CallerCheck.ReadAsync(
+                context.User,
+                context.RequestServices.GetRequiredService<ScreenTailContext>(),
+                context.RequestAborted).ConfigureAwait(false);
+    }
+}
 
 /// <summary>
 /// Whether the holder of a valid token is still allowed to do anything (ST-008).
@@ -26,6 +45,9 @@ public sealed record Caller(Guid TenantId, Guid UserId, Guid DeviceId, Device De
 /// <c>/v1/sessions/summarize</c>, spending the tenant's budget, until its token expired. Both the README
 /// and the model's own comments claimed revocation was checked on every request. One implementation, so
 /// the next endpoint gets it by calling this rather than by remembering it.
+///
+/// Nor does an endpoint call it now. <see cref="CallerPolicy"/> runs it for every route under /v1, before
+/// anything is bound, and a handler takes the <see cref="Caller"/> it proved (2026-10-12 review).
 /// </summary>
 public static class CallerCheck
 {

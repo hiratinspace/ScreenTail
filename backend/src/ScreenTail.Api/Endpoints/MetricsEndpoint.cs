@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
@@ -30,13 +29,8 @@ public static class MetricsEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/metrics/sessions", async (SessionMetricRequest request, ClaimsPrincipal caller, ScreenTailContext db, CancellationToken ct) =>
+        group.MapPost("/metrics/sessions", async (SessionMetricRequest request, Caller who, ScreenTailContext db, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             if (string.IsNullOrWhiteSpace(request.SessionId) || request.SessionId.Length > 100)
             {
                 return Results.BadRequest(new { error = "bad_session_id", message = "A metric names its session by id." });

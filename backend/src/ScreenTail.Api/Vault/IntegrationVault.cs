@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Data;
@@ -51,11 +52,33 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
 {
     public bool IsConfigured => options.IsConfigured;
 
+    /// <summary>
+    /// Whether a credential may be stored for this site (boundary 3; 2026-10-12 review, T-177).
+    ///
+    /// The site is where the provider worker sends the credential, so anything but https puts a
+    /// ConnectWise Basic-auth string or a Hudu key on the wire in the clear. A user name or password in
+    /// the address is a second credential that would be stored unsealed and shown in full, so that is
+    /// refused too. Surrounding whitespace is forgiven because the stored value is trimmed.
+    /// </summary>
+    public static bool IsHttpsSite([NotNullWhen(true)] string? siteUrl) =>
+        Uri.TryCreate(siteUrl?.Trim(), UriKind.Absolute, out var site)
+        && site.Scheme == Uri.UriSchemeHttps
+        && site.Host.Length > 0
+        && site.UserInfo.Length == 0;
+
     public async Task StoreAsync(Guid tenantId, string provider, string siteUrl, string secret, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(siteUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(secret);
+
+        // The endpoint says why in words; this is the rule for every other way in. The address is left
+        // out of the message, since one that fails may be one with a password in it.
+        if (!IsHttpsSite(siteUrl))
+        {
+            throw new ArgumentException("A credential is stored only for an absolute https site with no user name or password in it.", nameof(siteUrl));
+        }
+
         if (!options.IsConfigured)
         {
             throw new VaultNotConfiguredException();
@@ -72,7 +95,8 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
             db.Integrations.Add(row);
         }
 
-        row.SiteUrl = siteUrl;
+        // The value the rule judged, trimmed, so what is stored cannot differ from what was checked.
+        row.SiteUrl = siteUrl.Trim();
         row.SecretHint = secret[^Math.Min(4, secret.Length)..];
         row.SecretCiphertext = sealed_.Ciphertext;
         row.SecretNonce = sealed_.Nonce;

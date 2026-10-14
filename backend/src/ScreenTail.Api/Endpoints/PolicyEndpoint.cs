@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Tenancy;
@@ -14,13 +13,8 @@ public static class PolicyEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapGet("/policy", async (ClaimsPrincipal caller, ScreenTailContext db, CancellationToken ct) =>
+        group.MapGet("/policy", async (Caller who, ScreenTailContext db, CancellationToken ct) =>
         {
-            if (await CallerCheck.ReadAsync(caller, db, ct).ConfigureAwait(false) is not { } who)
-            {
-                return Results.Unauthorized();
-            }
-
             var latest = await Policies.LatestAsync(db, who.TenantId, ct).ConfigureAwait(false);
             return Results.Ok(latest is null
                 ? new TenantPolicyResponse(Policies.DefaultVersion, 7, false, false, false)
