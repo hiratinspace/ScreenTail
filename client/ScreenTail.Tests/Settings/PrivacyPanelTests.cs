@@ -77,6 +77,63 @@ public sealed class PrivacyPanelTests
     }
 
     [Fact]
+    public async Task ALockedFieldKeepsShowingTheAdminsValueWhenTheScreenWritesToIt()
+    {
+        // A slider whose top shrinks under its value pushes the clamped value back through its binding;
+        // a locked field must still show what is in force, not what the screen wrote.
+        var gateway = new FakePrivacy
+        {
+            Snapshot = new SettingsSnapshot(new ClientSettings { LocalOnly = true, RetentionDays = 7 }, LocalOnlyLocked: true, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: false, EffectiveRetentionDays: 3),
+        };
+        var panel = new PrivacyPanel(gateway);
+        await panel.LoadAsync();
+
+        panel.LocalOnly = true;
+        panel.RetentionDays = 30;
+
+        Assert.False(panel.LocalOnly);
+        Assert.Equal(3, panel.RetentionDays);
+        Assert.Equal(ClientSettings.MaxRetentionDays, panel.RetentionMaximum);
+    }
+
+    [Fact]
+    public async Task ReloadingFollowsThePolicyAndLiftingTheLockBringsBackTheTechniciansOwnValues()
+    {
+        // The Settings pane is kept and reloaded on every visit, so one panel sees the policy change.
+        var own = new ClientSettings { LocalOnly = true, RetentionDays = 7 };
+        var gateway = new FakePrivacy
+        {
+            Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: true, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: false, EffectiveRetentionDays: 90),
+        };
+        var panel = new PrivacyPanel(gateway);
+        await panel.LoadAsync();
+        Assert.Equal(90, panel.RetentionDays);
+        Assert.Equal(90, panel.RetentionMaximum);
+        Assert.False(panel.LocalOnly);
+
+        gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: true, RetentionLocked: true, PolicyVersion: "p2", EffectiveLocalOnly: false, EffectiveRetentionDays: 3);
+        await panel.LoadAsync();
+        panel.RetentionDays = ClientSettings.MaxRetentionDays; // what a shrinking slider would push back
+        Assert.Equal(3, panel.RetentionDays);
+        Assert.Equal(ClientSettings.MaxRetentionDays, panel.RetentionMaximum);
+        Assert.Equal("Set by your admin (policy p2)", panel.LockedBecause);
+
+        gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 7);
+        await panel.LoadAsync();
+        Assert.False(panel.LocalOnlyLocked);
+        Assert.False(panel.RetentionLocked);
+        Assert.True(panel.LocalOnly);
+        Assert.Equal(7, panel.RetentionDays);
+        Assert.Equal(ClientSettings.MaxRetentionDays, panel.RetentionMaximum);
+        Assert.Null(panel.Problem);
+
+        panel.Telemetry = true;
+        Assert.True(await panel.SaveAsync());
+        Assert.True(gateway.Saved!.LocalOnly);
+        Assert.Equal(7, gateway.Saved.RetentionDays);
+    }
+
+    [Fact]
     public async Task ALockedRetentionLongerThanTheTechnicianMayChooseIsShownWholeAndDoesNotBlockSaving()
     {
         var gateway = new FakePrivacy

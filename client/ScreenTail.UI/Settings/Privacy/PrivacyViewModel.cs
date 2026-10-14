@@ -249,10 +249,17 @@ public sealed partial class PrivacyViewModel : ObservableObject
     {
         LocalOnly = _panel.LocalOnly;
         LocalOnlyEditable = !_panel.LocalOnlyLocked;
-        RetentionMaximum = _panel.RetentionMaximum; // before the value, so the slider never clamps it
-        RetentionDays = _panel.RetentionDays;
+
+        // The slider clamps its value to its top and pushes the clamped value back here. Read the panel
+        // first, widen the top to cover both the old value and the new, move the value, then settle the
+        // top: the value is never above the top, whether the top grows or shrinks between loads.
+        var days = _panel.RetentionDays;
+        var maximum = _panel.RetentionMaximum;
+        RetentionMaximum = Math.Max(RetentionMaximum, maximum);
+        RetentionDays = days;
+        RetentionMaximum = maximum;
         RetentionEditable = !_panel.RetentionLocked;
-        RetentionLabel = Describe(_panel.RetentionDays);
+        RetentionLabel = Describe(days);
         LockedBecause = _panel.LockedBecause;
         LocalOnlyLockVisibility = _panel.LocalOnlyLocked ? Visibility.Visible : Visibility.Collapsed;
         RetentionLockVisibility = _panel.RetentionLocked ? Visibility.Visible : Visibility.Collapsed;

@@ -47,6 +47,8 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
     private readonly List<string> _processes = [];
     private ClientSettings _loaded = new();
     private string? _refusal;
+    private bool _localOnly;
+    private int _retentionDays = 7;
 
     /// <summary>The exact field names usage telemetry sends: <c>shared/contracts/session-metric.v1.json</c>, read off the type.</summary>
     public static IReadOnlyList<string> TelemetryFields { get; } =
@@ -57,11 +59,24 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     public bool Loaded { get; private set; }
 
-    public bool LocalOnly { get; set; }
+    /// <summary>Local-only as shown. A write while the admin locked it is ignored, so the screen keeps showing what is in force.</summary>
+    public bool LocalOnly
+    {
+        get => _localOnly;
+        set => _localOnly = LocalOnlyLocked ? _localOnly : value;
+    }
 
     public bool LocalOnlyLocked { get; private set; }
 
-    public int RetentionDays { get; set; } = 7;
+    /// <summary>
+    /// Retention as shown. A write while the admin locked it is ignored: a slider whose top shrinks under
+    /// its value pushes the clamped value back, and that must not replace the admin's.
+    /// </summary>
+    public int RetentionDays
+    {
+        get => _retentionDays;
+        set => _retentionDays = RetentionLocked ? _retentionDays : value;
+    }
 
     public bool RetentionLocked { get; private set; }
 
@@ -164,9 +179,9 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
         _loaded = snapshot.Settings;
         LocalOnlyLocked = snapshot.LocalOnlyLocked;
-        LocalOnly = LocalOnlyLocked ? snapshot.EffectiveLocalOnly : _loaded.LocalOnly;
+        _localOnly = LocalOnlyLocked ? snapshot.EffectiveLocalOnly : _loaded.LocalOnly;
         RetentionLocked = snapshot.RetentionLocked;
-        RetentionDays = RetentionLocked ? snapshot.EffectiveRetentionDays : _loaded.RetentionDays;
+        _retentionDays = RetentionLocked ? snapshot.EffectiveRetentionDays : _loaded.RetentionDays;
         PolicyVersion = snapshot.PolicyVersion;
         Telemetry = _loaded.Telemetry;
         Ssn = _loaded.Ssn;
