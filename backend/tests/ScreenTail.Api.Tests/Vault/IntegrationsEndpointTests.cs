@@ -151,7 +151,6 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
     [InlineData("https://[fe80::1]")]
     [InlineData("https://[::ffff:127.0.0.1]")]
     [InlineData("https://[::ffff:169.254.169.254]")]
-    [InlineData("https://user@127.0.0.1")]
     public async Task ASiteOnThisMachineOrAPrivateNetworkIsRefusedWhenStored(string site)
     {
         // Security check 2026-10-14: the backend calls the site a tenant stores, so a site that is
@@ -174,6 +173,90 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
     }
 
     [Theory]
+    [InlineData("http://na.myconnectwise.net")]
+    [InlineData("HTTP://na.myconnectwise.net")]
+    [InlineData("ftp://na.myconnectwise.net")]
+    [InlineData("ws://na.myconnectwise.net")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("//na.myconnectwise.net")]
+    [InlineData("na.myconnectwise.net")]
+    [InlineData("/v4_6_release/apis/3.0")]
+    [InlineData("https://")]
+    [InlineData("https://acme:hunter2@na.myconnectwise.net")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ACredentialIsNeverStoredForASiteThatIsNotHttps(string siteUrl)
+    {
+        // Boundary 3 (2026-10-12 review, T-177). The site is where the provider worker sends the
+        // credential: a ConnectWise Basic-auth string or a Hudu key over plain http is a credential on
+        // the wire. A site with a user and password in it is a second credential, stored in the clear
+        // and shown in full on the card, so it is refused too.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var put = await client.PutAsJsonAsync(
+            new Uri("/v1/integrations/connectwise", UriKind.Relative),
+            new StoreIntegrationRequest(siteUrl, Secret),
+            TestContext.Current.CancellationToken);
+        var body = await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        Assert.Contains("bad_site_url", body, StringComparison.Ordinal);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task ARequestWithNoSiteAtAllIsRefusedTheSameWay()
+    {
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var put = await client.PutAsync(
+            new Uri("/v1/integrations/hudu", UriKind.Relative),
+            new StringContent("{\"secret\":\"hudu-key-0001\"}", Encoding.UTF8, "application/json"),
+            TestContext.Current.CancellationToken);
+        var body = await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        Assert.Contains("bad_site_url", body, StringComparison.Ordinal);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task AnHttpsCredentialIsNotReplacedByOneForAPlainHttpSite()
+    {
+        // The replace path, which is the one an attacker with a device would use: the stored site and
+        // secret stay exactly as they were.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var good = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", Secret), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, good.StatusCode);
+
+        using var downgrade = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("http://na.myconnectwise.net", "other-secret-0000"), TestContext.Current.CancellationToken);
+        var stored = await api.UseAsync(db => db.Integrations.SingleAsync(i => i.TenantId == tenantId));
+
+        Assert.Equal(HttpStatusCode.BadRequest, downgrade.StatusCode);
+        Assert.Equal("https://na.myconnectwise.net", stored.SiteUrl);
+        Assert.Equal("9876", stored.SecretHint);
+    }
+
+    [Theory]
+    [InlineData("http://na.myconnectwise.net")]
+    [InlineData("https://acme:hunter2@na.myconnectwise.net")]
+    [InlineData("na.myconnectwise.net")]
+    public async Task TheVaultItselfRefusesASiteThatIsNotHttps(string siteUrl)
+    {
+        // The endpoint is one way in; the vault is the only way to a stored credential. Refusing here
+        // too means the next caller, an operator command or an import, cannot forget the rule.
+        var (tenantId, _, _) = await SeedAsync();
+        using var scope = api.Services.CreateScope();
+        var vault = scope.ServiceProvider.GetRequiredService<IIntegrationVault>();
+
+        _ = await Assert.ThrowsAsync<ArgumentException>(() => vault.StoreAsync(tenantId, "connectwise", siteUrl, Secret, TestContext.Current.CancellationToken));
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
+    [Theory]
     [InlineData("https://na.myconnectwise.net")]
     [InlineData("https://psa.acme-msp.example:8443")]
     [InlineData("https://8.8.8.8")]
@@ -189,6 +272,23 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("https://na.myconnectwise.net")]
+    [InlineData("HTTPS://na.myconnectwise.net/")]
+    [InlineData("https://acme.huducloud.com:8443")]
+    [InlineData("  https://na.myconnectwise.net  ")]
+    public async Task AnHttpsSiteIsStored(string siteUrl)
+    {
+        // The control: the rule refuses the scheme, not the spelling.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest(siteUrl, Secret), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+        Assert.True(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
     }
 
     [Fact]

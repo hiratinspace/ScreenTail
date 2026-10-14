@@ -50,10 +50,12 @@ public static partial class IntegrationsEndpoint
                 return Results.BadRequest(new { error = "bad_provider", message = "A provider is a short lowercase name, like connectwise or hudu." });
             }
 
-            if (!Uri.TryCreate(request.SiteUrl, UriKind.Absolute, out var site) || site.Scheme != Uri.UriSchemeHttps)
+            if (!IntegrationVault.IsHttpsSite(request.SiteUrl))
             {
-                return Results.BadRequest(new { error = "bad_site_url", message = "The site URL must be an absolute https address." });
+                return Results.BadRequest(new { error = "bad_site_url", message = "The site URL must be an absolute https address, with no user name or password in it." });
             }
+
+            var site = new Uri(request.SiteUrl.Trim(), UriKind.Absolute);
 
             // The backend calls this site, so one that is plainly this machine or a private network is
             // refused here in words. A name that resolves to one is refused when the call connects.
