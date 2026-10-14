@@ -155,7 +155,11 @@ public sealed class IpcClient : ICaptureChannel
             await _writeLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                await IpcFraming.WriteAsync(_pipe, command, ct).ConfigureAwait(false);
+                // The caller's token may stop the wait for a turn and the wait for the answer, never a
+                // frame halfway out: the pipe is shared, and the service would read whatever came next as
+                // the rest of it (ST-070). Frames are small and the service reads continuously; only
+                // closing the client stops a write.
+                await IpcFraming.WriteAsync(_pipe, command, _closing.Token).ConfigureAwait(false);
             }
             finally
             {
