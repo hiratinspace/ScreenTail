@@ -98,8 +98,9 @@ password fields — and then, and only then, the frame becomes readable to the r
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).
 "Delete everything" exists as a command the service accepts only with a typed confirmation it issued
 moments before, and it removes tokens as well as data: everything under the data directory except the
-downloaded speech models, so the device has to be activated again; Settings → Privacy & Redaction offers it
-(ST-081), and exports the audit log with its verification beside it.
+downloaded speech models (and the program's own folder, if it was installed there), so the device has to
+be activated again; Settings → Privacy & Redaction offers it (ST-081), and exports the audit log with its
+verification beside it.
 
 ---
 

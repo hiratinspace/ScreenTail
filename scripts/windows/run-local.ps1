@@ -23,7 +23,8 @@
 
 .PARAMETER Output
     Where both processes are published. Anything outside the repository is fine; it is rewritten on every
-    run.
+    run. Not inside %LOCALAPPDATA%\ScreenTail: that is the product's data directory, and "Delete
+    everything" empties it.
 
 .PARAMETER Configuration
     Debug by default, because this exists to be looked at with a debugger attached.
@@ -40,7 +41,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Output = (Join-Path $env:LOCALAPPDATA 'ScreenTail\dev-run'),
+    [string]$Output = (Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\run'),
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug',
     [switch]$NoLaunch
 )

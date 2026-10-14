@@ -152,6 +152,68 @@ public sealed class EraseEverythingTests : IDisposable
     }
 
     [Fact]
+    public void TheFolderTheProductRunsFromIsNeverSwept()
+    {
+        // run-local.ps1 used to publish both executables into a folder inside this one, and a per-user
+        // installer may well do the same. Sweeping it removed whatever the running service had not
+        // loaded, failed on what it had, and so left the erasure owed: every start after that wiped the
+        // store again and still could not finish (2026-10-12 review, round 2).
+        Populate();
+        var app = Path.Combine(_directory, "dev-run");
+        Directory.CreateDirectory(Path.Combine(app, "runtimes"));
+        File.WriteAllText(Path.Combine(app, "ScreenTail.Service.exe"), "a program");
+        File.WriteAllText(Path.Combine(app, "ScreenTail.Service.deps.json"), "{}");
+        Directory.CreateDirectory(Path.Combine(_directory, "dev-run-old")); // a name that only starts the same
+
+        var result = LocalDataEraser.Erase(_directory, runningFrom: app + Path.DirectorySeparatorChar);
+
+        Assert.True(result.Complete);
+        Assert.Equal(["dev-run"], Directory.GetFileSystemEntries(_directory).Select(Path.GetFileName));
+        Assert.True(File.Exists(Path.Combine(app, "ScreenTail.Service.exe")));
+        Assert.True(File.Exists(Path.Combine(app, "ScreenTail.Service.deps.json")));
+        Assert.True(Directory.Exists(Path.Combine(app, "runtimes")));
+    }
+
+    [Fact]
+    public void AnInstallFurtherDownKeepsTheWholeFolderItSitsIn()
+    {
+        // The shape an updater uses: the program in a version folder, the updater beside it. The top
+        // folder that holds the running program stays whole. Windows paths ignore case, so the comparison
+        // does too.
+        var current = Path.Combine(_directory, "App", "current");
+        Directory.CreateDirectory(current);
+        File.WriteAllText(Path.Combine(current, "ScreenTail.Service.exe"), "a program");
+        File.WriteAllText(Path.Combine(_directory, "App", "Update.exe"), "an updater");
+        File.WriteAllText(Path.Combine(_directory, "device.cred"), "a refresh token");
+
+        var result = LocalDataEraser.Erase(_directory, runningFrom: Path.Combine(_directory, "app", "current"));
+
+        Assert.True(result.Complete);
+        Assert.Equal(["App"], Directory.GetFileSystemEntries(_directory).Select(Path.GetFileName));
+        Assert.True(File.Exists(Path.Combine(_directory, "App", "Update.exe")));
+    }
+
+    [Fact]
+    public void ANotFoundFromPartWayDownLeavesTheErasureOwed()
+    {
+        // A recursive delete can say "not found" about something inside the folder it was asked to
+        // remove. The folder is still there, so the delete was refused, not done, and the marker stays.
+        var crashes = new DirectoryInfo(Path.Combine(_directory, Crashes));
+        crashes.Create();
+        File.WriteAllText(Path.Combine(crashes.FullName, "report.txt"), "a stack");
+
+        var outcome = LocalDataEraser.TryRemove(crashes, () => throw new DirectoryNotFoundException("Something inside went missing."));
+
+        Assert.Equal(LocalDataEraser.Outcome.Refused, outcome);
+
+        // The control: gone before it could be removed, which is nothing owed.
+        var vanished = new DirectoryInfo(Path.Combine(_directory, "never-was"));
+        Assert.Equal(
+            LocalDataEraser.Outcome.AlreadyGone,
+            LocalDataEraser.TryRemove(vanished, () => throw new DirectoryNotFoundException("Gone already.")));
+    }
+
+    [Fact]
     public void SomethingThatSaysItIsMissingCountsAsGoneOnlyWhenItReallyIs()
     {
         // A recursive delete can say "not found" part way down, about something inside the folder rather

@@ -285,7 +285,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         }
     }
 
-    /// <summary>Saves the credential and holds the access token, unless everything was erased meanwhile.</summary>
+    /// <summary>Holds the access token and saves the credential, unless everything was erased meanwhile.</summary>
     private bool Keep(DeviceCredential credential, string access, DateTimeOffset expires)
     {
         lock (_gate)
@@ -295,9 +295,11 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
                 return false;
             }
 
-            _credentials.Save(credential);
+            // The token first, as a renewal always did: a save that throws (antivirus holding the file)
+            // still fails the call, but does not cost the token the backend has just issued.
             _access = access;
             _accessExpires = expires;
+            _credentials.Save(credential);
             return true;
         }
     }
