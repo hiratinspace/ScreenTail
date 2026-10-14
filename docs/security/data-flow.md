@@ -107,6 +107,12 @@ moments before, and it removes tokens as well as data; Settings → Privacy & Re
 **Only when the technician presses Publish** (INV-3). There is no automatic publishing path in v1 — not
 a scheduled one, not a "publish when confident" one.
 
+**Not every screenshot can go.** One that looked like a sign-in screen, or was taken while capture was
+paused or suppressed, stays on the device. Review shows it marked "withheld" and it cannot be switched
+on. At publish the service attaches only frames of that session that its own store says are included and
+not withheld, whatever the request names, so the drafting bundle and the ticket follow the same rule
+(ST-078).
+
 For drafting, the note can be produced two ways:
 
 - **On the device.** Local-only mode means **zero egress**, enforced by an allowlist that defaults closed

@@ -38,6 +38,100 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ASensitiveFrameIdIsNotSentEvenWhenNamed()
+    {
+        // session.v1: a sensitive_context frame is never sent or attached. The UI no longer names one, and
+        // the service does not take the UI's word for it either.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1", "f2"]);
+        await AddFrameAsync("s1", "login", 2000, sensitive: true);
+
+        await commands.ReplyToAsync(Publish(["f1", "login", "f2"]));
+
+        Assert.Equal(["f1", "f2"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public async Task AFrameFromAnotherSessionIsNotSentEvenWhenNamed()
+    {
+        // The ids are global in the store. A frame of some other customer's session must not ride along on
+        // this ticket because its id was in the list.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        await _store!.CreateSessionAsync(new NewSession("s2", DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
+        await AddFrameAsync("s2", "other", 1000);
+
+        await commands.ReplyToAsync(Publish(["f1", "other"]));
+
+        Assert.Equal(["f1"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public async Task AFrameTheTechnicianExcludedIsNotSentEvenWhenNamed()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1", "f2"]);
+        await _store!.SetFrameExcludedAsync("f2", excluded: true);
+
+        await commands.ReplyToAsync(Publish(["f1", "f2"]));
+
+        Assert.Equal(["f1"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public async Task AFrameTakenWhileCaptureWasOffIsNotSentEvenWhenNamed()
+    {
+        // The same rule the drafting bundle applies (INV-6), so the ticket never carries a frame the model
+        // was not allowed to see.
+        var commands = await CommandsAsync();
+        await _store!.CreateSessionAsync(new NewSession("s1", DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
+        await _store.AppendEventAsync("s1", new CaptureStateEvent { TsMs = 2000, State = CaptureState.Suppressed, Reason = CaptureStateReason.PasswordField });
+        await _store.AppendEventAsync("s1", new CaptureStateEvent { TsMs = 4000, State = CaptureState.Recording });
+        await AddFrameAsync("s1", "before", 1000);
+        await AddFrameAsync("s1", "during", 3000);
+        await AddFrameAsync("s1", "after", 5000);
+
+        await commands.ReplyToAsync(Publish(["before", "during", "after"]));
+
+        Assert.Equal(["before", "after"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public async Task APendingFrameIsNotSentEvenWhenNamed()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        await _store!.StageFrameAsync("s1", new StagedFrame("raw", 2000, FrameTrigger.Click, 1600, 900, null, new byte[] { 9 }));
+
+        await commands.ReplyToAsync(Publish(["raw", "f1"]));
+
+        Assert.Equal(["f1"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public async Task AFrameNamedTwiceIsAttachedOnce()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1", "f2"]);
+
+        await commands.ReplyToAsync(Publish(["f2", "f1", "f2"]));
+
+        Assert.Equal(["f2", "f1"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public async Task AnEmptyOrMissingIdIsIgnored()
+    {
+        // The list comes off the pipe, where a null in a string array is valid JSON.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+
+        await commands.ReplyToAsync(Publish([null!, string.Empty, "f1"]));
+
+        Assert.Equal(["f1"], Assert.Single(_gateway.Published).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
     public async Task ABackendRefusalIsAFailedResultWithItsWords()
     {
         var commands = await CommandsAsync();
@@ -151,6 +245,9 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         await _store.SaveDraftAsync("s1", Draft());
         await _store.FinalizeSessionAsync("s1", new FinalizeInfo(10_000, false));
     }
+
+    private Task AddFrameAsync(string sessionId, string id, long tsMs, bool sensitive = false) =>
+        _store!.SaveRedactedFrameAsync(sessionId, new StagedFrame(id, tsMs, FrameTrigger.Click, 1600, 900, null, new byte[] { 1 }), new RedactionOutcome(Bytes(id), "t", [], sensitive, DateTimeOffset.UnixEpoch));
 
     private static byte[] Bytes(string id) => System.Text.Encoding.ASCII.GetBytes("jpeg-" + id);
 

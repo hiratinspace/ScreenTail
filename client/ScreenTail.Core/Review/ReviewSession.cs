@@ -20,7 +20,11 @@ public interface IReviewFrames
     /// <summary>The redacted image, or null when the frame is gone. Never a pending one (INV-1).</summary>
     Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default);
 
-    Task SetIncludedAsync(string frameId, bool included, CancellationToken ct = default);
+    /// <summary>
+    /// False when the service did not record it. Publish attaches what the store says is included, so a
+    /// caller that put a frame in and got false must show it as out again (ST-078).
+    /// </summary>
+    Task<bool> SetIncludedAsync(string frameId, bool included, CancellationToken ct = default);
 
     /// <summary>Called when the 5 s undo window closes, never before it.</summary>
     Task<bool> DeleteAsync(string frameId, CancellationToken ct = default);

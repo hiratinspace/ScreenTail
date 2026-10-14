@@ -72,6 +72,7 @@ public interface ISessionStore : IAsyncDisposable
     /// </summary>
     Task<int> PurgePendingFramesAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>Throws <see cref="InvalidOperationException"/> when there is no such frame, so a caller never takes a write that changed nothing for one that landed.</summary>
     Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default);
 
     /// <summary>

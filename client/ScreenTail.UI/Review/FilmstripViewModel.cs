@@ -39,8 +39,11 @@ public sealed partial class FrameItem : StripItem
 
     public bool Included => Cell.Included;
 
-    /// <summary>Spec §5 S3: excluded frames are dimmed, and say so in a word as well (Spec §7).</summary>
-    public string StateLabel => Cell.Included ? "included" : "excluded";
+    /// <summary>
+    /// Spec §5 S3: excluded frames are dimmed, and say so in a word as well (Spec §7). A withheld frame
+    /// (it looked sensitive, or capture was off) says why `Space` does nothing to it.
+    /// </summary>
+    public string StateLabel => Cell.Withheld ? "withheld" : Cell.Included ? "included" : "excluded";
 
     public string? OcrText => Cell.Frame.OcrText;
 
@@ -191,16 +194,20 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ToggleIncludeAsync(FrameItem? item)
     {
-        if (item is null || _strip.Toggle(item.Id) is not { } included)
+        // A withheld frame cannot be put in, so there is nothing to change and nothing to tell the service.
+        if (item is null || item.Cell.Withheld || _strip.Toggle(item.Id) is not { } included)
         {
             return;
         }
 
         item.Refresh(_strip.Frames.First(cell => cell.Frame.Id == item.Id));
         OnPropertyChanged(nameof(Header));
-        if (_frames is not null)
+        // An inclusion the service did not record goes back to excluded (ST-078). Filmstrip.Answered decides.
+        if (_frames is not null
+            && _strip.Answered(item.Id, included, await _frames.SetIncludedAsync(item.Id, included).ConfigureAwait(true)))
         {
-            await _frames.SetIncludedAsync(item.Id, included).ConfigureAwait(true);
+            item.Refresh(_strip.Frames.First(cell => cell.Frame.Id == item.Id));
+            OnPropertyChanged(nameof(Header));
         }
     }
 

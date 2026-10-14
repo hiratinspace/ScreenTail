@@ -1392,7 +1392,7 @@ Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence 
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** Done 2026-09-13 (#43).
+- **Status:** Done 2026-09-13 (#43). Since 2026-10-14 a frame that looked like a sign-in screen, or was taken while capture was off, shows as withheld and cannot be switched on, and the service attaches only the session's frames that pass the bundle builder's rule, whatever ids it is sent (ST-078).
 
 **Description:**
 Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur with undo window, delete with undo toast, enlarge with OCR toggle, suppression/scope gap markers.

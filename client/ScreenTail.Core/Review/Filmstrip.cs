@@ -11,6 +11,16 @@ public abstract record FilmstripCell(long TsMs);
 public sealed record FrameCell(Frame Frame, int Number, bool Included) : FilmstripCell(Frame.TsMs)
 {
     public string Label => $"frame {Number}";
+
+    /// <summary>
+    /// Never goes out, whatever the technician does: it looked like a sign-in screen, or capture was off
+    /// when it was taken. The same rule the drafting bundle applies, so Review cannot offer the ticket a
+    /// frame the model was not allowed to see. That rule counts both ends of a paused or suppressed
+    /// stretch, including one that lasted no time at all, which the strip does not draw as a gap. So a
+    /// frame stamped in the very millisecond capture came back can be withheld with no gap beside it. It
+    /// fails closed on purpose.
+    /// </summary>
+    public bool Withheld { get; init; }
 }
 
 /// <summary>
@@ -50,6 +60,8 @@ public sealed record GapCell(long TsMs, long EndMs, CaptureStateReason? Reason) 
 public sealed class Filmstrip
 {
     private readonly Dictionary<string, bool> _included = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _withheld = new(StringComparer.Ordinal);
+    private readonly Func<Frame, bool> _isWithheld;
     private readonly List<FilmstripCell> _cells;
 
     public Filmstrip(Session session)
@@ -58,13 +70,23 @@ public sealed class Filmstrip
 
         // LoadSessionAsync returns redacted frames only, so everything here is safe to show (INV-1). Sorted
         // because the strip is ordered by time and the store's order is the store's business.
+        //
+        // Sensitive frames and frames taken while capture was off start excluded and stay that way: the
+        // schema promises they are never attached, and the service holds the publish to the same rule.
+        _isWithheld = Intel.BundleBuilder.Withheld(session);
         var frames = session.Frames.OrderBy(frame => frame.TsMs).ToList();
         foreach (var frame in frames)
         {
-            _included[frame.Id] = !frame.ExcludedByUser;
+            var withheld = _isWithheld(frame);
+            if (withheld)
+            {
+                _withheld.Add(frame.Id);
+            }
+
+            _included[frame.Id] = !withheld && !frame.ExcludedByUser;
         }
 
-        _cells = [.. frames.Select((frame, index) => (FilmstripCell)new FrameCell(frame, index + 1, _included[frame.Id]))];
+        _cells = [.. frames.Select((frame, index) => (FilmstripCell)new FrameCell(frame, index + 1, _included[frame.Id]) { Withheld = _withheld.Contains(frame.Id) })];
         _cells.AddRange(GapsIn(session));
         _cells.Sort((a, b) => a.TsMs.CompareTo(b.TsMs));
     }
@@ -82,7 +104,10 @@ public sealed class Filmstrip
 
     public bool IsIncluded(string frameId) => _included.GetValueOrDefault(frameId);
 
-    /// <summary>`Space`. Returns the new state, or null when the frame is not in the strip.</summary>
+    /// <summary>
+    /// `Space`. Returns the new state, or null when the frame is not in the strip. A withheld frame
+    /// answers false every time: it can be left out but never put in.
+    /// </summary>
     public bool? Toggle(string frameId)
     {
         if (!_included.TryGetValue(frameId, out var included))
@@ -100,10 +125,20 @@ public sealed class Filmstrip
             return null;
         }
 
+        included &= !_withheld.Contains(frameId);
         _included[frameId] = included;
         Replace(frameId, cell => cell with { Included = included });
         return included;
     }
+
+    /// <summary>
+    /// The service's answer to a <see cref="Set"/>. Publish attaches what the store says is included, not
+    /// what the strip shows (ST-078), so an inclusion the service did not record goes back to excluded
+    /// rather than promising a frame that will not go out. A failed exclusion needs nothing: the strip does
+    /// not name the frame at publish, so it is not sent either way. True when the strip changed.
+    /// </summary>
+    public bool Answered(string frameId, bool included, bool recorded) =>
+        !recorded && included && Set(frameId, false) is not null;
 
     /// <summary>
     /// What actually gets attached when the note is published. Excluded frames are absent, not marked —
@@ -120,6 +155,7 @@ public sealed class Filmstrip
             return;
         }
 
+        _withheld.Remove(frameId);
         _cells.RemoveAll(cell => cell is FrameCell frame && frame.Frame.Id == frameId);
         Renumber();
     }
@@ -128,12 +164,21 @@ public sealed class Filmstrip
     public void Restore(Frame frame, bool included)
     {
         ArgumentNullException.ThrowIfNull(frame);
+        // Judged again rather than trusted: the caller's flag came from a cell, and a withheld frame must
+        // not come back included whatever the flag says.
+        var withheld = _isWithheld(frame);
+        included &= !withheld;
         if (!_included.TryAdd(frame.Id, included))
         {
             return;
         }
 
-        _cells.Add(new FrameCell(frame, 0, included));
+        if (withheld)
+        {
+            _withheld.Add(frame.Id);
+        }
+
+        _cells.Add(new FrameCell(frame, 0, included) { Withheld = withheld });
         _cells.Sort((a, b) => a.TsMs.CompareTo(b.TsMs));
         Renumber();
     }
