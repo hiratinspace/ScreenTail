@@ -1,4 +1,5 @@
 using System.Reflection;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -132,10 +133,114 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
         var resume = machine.ResumeAsync(ct);
         gate.Open();
 
+        // The losing order relies on SemaphoreSlim handing the lock to queued async waiters first come,
+        // first served. That is how it behaves but not something it documents, so nothing here depends
+        // on the order for passing: whichever of the two goes first, the session has to end up Recording
+        // with nothing held. Only the order that used to lose can show the old bug.
         Assert.True(await pause);
-        Assert.False(await letGo);
+        await letGo;
         Assert.True(await resume);
         Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(machine.IsHeld(CaptureStateReason.PasswordField));
+    }
+
+    [Fact]
+    public async Task AHoldTakenDuringAPauseIsWhereResumeGoes()
+    {
+        // 2026-10-12 review, round 2. A condition that began, or came back, while the session was paused
+        // recorded no hold, so Resume went to Recording over it until the guard's next tick: one probe
+        // for a password field, up to 500 ms with no indicator on screen (INV-4, INV-6). The hold is
+        // recorded now, the session stays paused, and Resume goes straight to Suppressed.
+        var machine = await RecordingAsync();
+        var ct = TestContext.Current.CancellationToken;
+        Assert.True(await machine.PauseAsync(ct));
+
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.NoIndicator, ct));
+        Assert.Equal(SessionState.Paused, machine.State);
+        Assert.True(machine.IsHeld(CaptureStateReason.NoIndicator));
+
+        Assert.True(await machine.ResumeAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.False(await machine.TryStageFrameAsync(Frame("f-no-indicator"), ct));
+        var stored = (await _harness!.Store.LoadSessionAsync(machine.SessionId!, ct))!;
+        var last = stored.Events.OfType<CaptureStateEvent>().Last();
+        Assert.Equal(CaptureState.Suppressed, last.State);
+        Assert.Equal(CaptureStateReason.NoIndicator, last.Reason);
+    }
+
+    [Fact]
+    public async Task NoSessionMeansNoHold()
+    {
+        // The other edge of the same rule. With nothing running there is nothing to hold down, and a
+        // hold recorded here would suppress the next session, which nobody suppressed.
+        _harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.False(await _harness.Machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.False(_harness.Machine.IsHeld(CaptureStateReason.PasswordField));
+
+        Assert.True(await _harness.Machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, localOnly: false, policyVersion: null, ct: ct));
+        Assert.Equal(SessionState.Recording, _harness.Machine.State);
+    }
+
+    [Fact]
+    public async Task AStopThatWasNotSavedKeepsTheHoldsItHad()
+    {
+        // The holds were cleared before the move to Finalizing was written. When that write failed, the
+        // session stayed Suppressed with nothing holding it: a guard whose condition had ended saw nothing
+        // to let go of, and capture stayed off until Stop was tried again.
+        var ct = TestContext.Current.CancellationToken;
+        var (machine, gate) = await RecordingOverGateAsync(ct);
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => machine.StopAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(machine.IsHeld(CaptureStateReason.PasswordField));
+        Assert.True(await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+    }
+
+    [Fact]
+    public async Task ASuppressionThatWasNotSavedAddsNoActiveTime()
+    {
+        // The active-time accounting moved before the state write. A write that failed left the session
+        // Recording with the time since it began counted twice, and every retry counted it again.
+        var clock = new ManualTime(DateTimeOffset.UnixEpoch);
+        var ct = TestContext.Current.CancellationToken;
+        var (machine, gate) = await RecordingOverGateAsync(ct, clock);
+
+        clock.Advance(TimeSpan.FromMilliseconds(100));
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+        clock.Advance(TimeSpan.FromMilliseconds(50));
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.Equal(150, machine.Snapshot.ElapsedMs!.Value);
+    }
+
+    [Fact]
+    public async Task ASuppressedIntervalIsRecordedAtItsRealLengthWhenALetGoHadToBeTriedAgain()
+    {
+        // The interval's audit row was written, and its start forgotten, before the state write. When
+        // that write failed and the guard tried again, the row already said the hold had ended, and the
+        // real end was never recorded.
+        var clock = new ManualTime(DateTimeOffset.UnixEpoch);
+        var ct = TestContext.Current.CancellationToken;
+        var (machine, gate) = await RecordingOverGateAsync(ct, clock);
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+
+        clock.Advance(TimeSpan.FromMilliseconds(1_000));
+        gate.FailNext();
+        _ = await Assert.ThrowsAsync<IOException>(() => machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+        clock.Advance(TimeSpan.FromMilliseconds(500));
+        Assert.True(await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+
+        var rows = await _harness!.Store.GetAuditAsync(machine.SessionId!, ct);
+        var interval = Assert.Single(rows, r => r.Type == AuditTypes.CaptureSuppressed);
+        Assert.Equal(1_500, interval.Count);
     }
 
     [Fact]
@@ -226,11 +331,11 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
         Assert.Equal(SessionState.Suppressed, machine.State);
     }
 
-    private async Task<(SessionMachine Machine, GatedStore Gate)> RecordingOverGateAsync(CancellationToken ct)
+    private async Task<(SessionMachine Machine, GatedStore Gate)> RecordingOverGateAsync(CancellationToken ct, TimeProvider? time = null)
     {
         _harness = await MachineHarness.StartAsync();
         var (store, gate) = GatedStore.Over(_harness.Store);
-        var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter(), time);
         _gated = machine;
         Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, localOnly: false, policyVersion: null, ct: ct));
         return (machine, gate);
@@ -274,9 +379,17 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
         /// <summary>Completed once a state write has reached the closed gate.</summary>
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public static (ISessionStore Store, GatedStore Gate) Over(ISessionStore inner)
+        /// <summary>
+        /// The store's two faces at once, so the machine still finds the audit log behind the proxy and
+        /// a test can read the suppressed intervals it records.
+        /// </summary>
+        public interface IAuditedStore : ISessionStore, IAuditLog
         {
-            var store = Create<ISessionStore, GatedStore>();
+        }
+
+        public static (ISessionStore Store, GatedStore Gate) Over(SqliteSessionStore inner)
+        {
+            var store = Create<IAuditedStore, GatedStore>();
             var gate = (GatedStore)(object)store;
             gate._inner = inner;
             return (store, gate);
