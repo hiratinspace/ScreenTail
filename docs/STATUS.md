@@ -1,6 +1,6 @@
 # ScreenTail — project standing
 
-**Snapshot taken:** 2026-09-28
+**Snapshot taken:** 2026-09-28, with the 2026-10-12 review added on 2026-10-14
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -32,6 +32,16 @@ The four Partial tickets each say what they wait for: ST-027 (the WER number nee
 ST-042 (the recall gate needs ST-030's labelled frames), ST-085 (done on the Mac side and green on the
 laptop; the ticket's own Windows walk-through has not been done by a person), ST-114 (the security-lead
 review).
+
+**A third review, 2026-10-12 (efficiency, security and regression tests), is being fixed.** Sixteen
+subsystems were read by independent reviewers, every finding was checked by a second and third reviewer,
+and the fifteen highest were reproduced. It found nothing that blocks a real session and 42 findings to
+fix before the pilot. They are fixed on 21 branches, each test first with a sabotage check and an
+adversarial review, plus a 22nd for a provider-address check a background scan raised on 2026-10-14.
+Seven are merged (#173 to #179). Sixteen are open as #180 to #195 with the hosted Windows checks green or
+being made green, and each needs the laptop's hardware run before it can merge, because it touches capture,
+privacy, the store, the pipe or speech. The findings themselves stay in an untracked local file until the
+fixes are on main.
 
 **Two reviews have been worked through since the last snapshot.** The 2026-09-15 adversarial review
 (`docs/review/weaknesses.md`) is closed: thirteen of fourteen findings fixed, one (P1-7) tracked under
@@ -119,6 +129,9 @@ and policy in Settings (ST-081; the sync itself is in, ST-047), a signed install
 
 ## 5. Open items for the owner
 
+- [ ] **Turn the laptop on** so the hardware checks can run on PRs #180 to #195, the fixes from the
+      2026-10-12 review that touch capture, privacy, the store, the pipe or speech. They merge one at a
+      time once it is back; nothing else is needed from the owner for them.
 - [ ] **Run M1.** `docs/dev/first-draft-end-to-end.md`, top to bottom, on the laptop. Everything runs
       there, including the backend, because the client refuses a backend that is not HTTPS and the only
       certificate the laptop trusts without ceremony is its own. The Review pane is wired as of #140, so
@@ -167,6 +180,7 @@ and policy in Settings (ST-081; the sync itself is in, ST-047), a signed install
 | When | What | Who |
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop. The runbook. | Owner |
+| With the laptop on | Merge the 16 open fixes from the 2026-10-12 review (#180 to #195), one at a time, each on a green hardware run | Agent |
 | Right after | Write down what the first note got right and wrong; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
 | Then, no owner input needed | The publish path is built end to end: note, time and KB article with the mapping prompt (ST-097), the ticket pre-selected from the window (ST-077), recent tickets on focus — none of it against a real PSA yet. The timeline view (ST-076) and Settings → Integrations (ST-082) are in. Settings is complete bar the microphone picker, the onboarding wizard (ST-083) runs at first start, and the accessibility audit's static half is a test (ST-084; its Windows half is the owner's with Accessibility Insights). The style-feedback store (ST-067) learns from edits at publish and hints the next draft, and the draft-quality harness (ST-062) is built and waiting for a corpus. Next: nothing the agent can finish alone — ST-013 and ST-031 need the laptop, everything else needs the owner (ST-030's sessions, hosting, mail, SSO, signing, the pilot) | Agent |
 | Phase C proper | **ST-091/092** ConnectWise client and ticket search, **ST-077** ticket inference, **ST-095–097** Hudu | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
