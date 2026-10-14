@@ -85,6 +85,52 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
         Assert.Empty(session.Frames);
     }
 
+    [Fact]
+    public async Task ALongSessionOpensOverThePipeAndTheConnectionHolds()
+    {
+        // E-20 end to end. The service used to write the whole session, every frame's OCR text inside it,
+        // as one message; past 1 MiB the write threw, the server dropped the UI's connection, and the
+        // pane got null. Now the session crosses without the text and the same connection carries on.
+        var frames = await FramesAsync();
+        await SeedAsync("long", frames: 600, ocrChars: 2_000, segments: 200, segmentChars: 120);
+
+        var session = await frames.LoadSessionAsync("long");
+
+        Assert.NotNull(session);
+        Assert.Equal(600, session.Frames.Count);
+        Assert.Equal(RedactedBytes, await frames.ImageAsync(FrameNamed("f1")));
+
+        // And the text the session left behind is there for the frame that is opened.
+        Assert.Equal(new string('x', 2_000), await frames.OcrTextAsync(session.Frames[^1]));
+    }
+
+    [Fact]
+    public async Task AFramesTextCrossesOnItsOwnAndAMissingOneIsNull()
+    {
+        var frames = await FramesAsync();
+        var session = (await frames.LoadSessionAsync("s1"))!;
+
+        Assert.Null(session.Frames[0].OcrText);
+        Assert.Equal("t", await frames.OcrTextAsync(session.Frames[0]));
+        Assert.Null(await frames.OcrTextAsync(FrameNamed("nope")));
+    }
+
+    [Fact]
+    public async Task ASessionTooLargeForThePipeIsNullAndTheConnectionHolds()
+    {
+        // Refused with a reason on the service side, which is a null on this one, and the next question
+        // on the same connection is answered. Before, the oversized write closed the pipe under the UI.
+        var frames = await FramesAsync();
+        await SeedAsync("huge", frames: 1, ocrChars: 10, segments: 600, segmentChars: 2_000);
+
+        Assert.Null(await frames.LoadSessionAsync("huge"));
+
+        Assert.Equal(RedactedBytes, await frames.ImageAsync(FrameNamed("f1")));
+        var refusal = await _connection!.SendAsync(id => new GetSessionCommand { RequestId = id, SessionId = "huge" });
+        Assert.False(refusal.Ok);
+        Assert.Contains("too large", refusal.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static readonly byte[] RedactedBytes = [9, 8, 7, 6];
     private static readonly byte[] PaintedBytes = [0xCC, 0xCC];
 
@@ -113,6 +159,26 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
         }
 
         return new PipeReviewFrames(_connection);
+    }
+
+    private async Task SeedAsync(string sessionId, int frames, int ocrChars, int segments, int segmentChars)
+    {
+        var store = _store!;
+        await store.CreateSessionAsync(new NewSession(sessionId, DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
+        var ocr = new string('x', ocrChars);
+        for (var i = 0; i < frames; i++)
+        {
+            var staged = new StagedFrame(Guid.NewGuid().ToString(), i * 1_000L, FrameTrigger.Click, 1600, 900, null, new byte[] { 1 });
+            await store.SaveRedactedFrameAsync(sessionId, staged, new RedactionOutcome(new byte[] { 2 }, ocr, [], false, DateTimeOffset.UnixEpoch));
+        }
+
+        var words = new string('w', segmentChars);
+        for (var i = 0; i < segments; i++)
+        {
+            await store.AppendTranscriptAsync(sessionId, new TranscriptSegment { Id = Guid.NewGuid().ToString(), TsMs = i * 5_000L, EndMs = (i * 5_000L) + 4_000, Speaker = Speaker.Tech, Text = words });
+        }
+
+        await store.FinalizeSessionAsync(sessionId, new FinalizeInfo(frames * 1_000L, false));
     }
 
     private static Frame FrameNamed(string id) => new()

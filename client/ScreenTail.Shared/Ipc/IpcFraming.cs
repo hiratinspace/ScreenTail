@@ -30,6 +30,21 @@ public static class IpcFraming
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// How many bytes <see cref="WriteAsync{T}"/> would put in the frame for this message, without building
+    /// the frame. Serialized with the same options into a stream that only counts, so a reply can be
+    /// refused with a reason before the write would throw and the connection close.
+    ///
+    /// Pass the type the writer is given (for a reply, <see cref="IpcEvent"/>): the discriminator is only
+    /// written when the message is serialized through its polymorphic base.
+    /// </summary>
+    public static long MeasureBytes<T>(T message)
+    {
+        using var counter = new CountingStream();
+        JsonSerializer.Serialize(counter, message, Json);
+        return counter.Length;
+    }
+
     /// <returns>The message, or null when the stream ended before a new frame began.</returns>
     /// <exception cref="IpcProtocolException">The frame is oversized, truncated, or not valid JSON for <typeparamref name="T"/>.</exception>
     public static async Task<T?> ReadAsync<T>(Stream stream, CancellationToken ct = default)
@@ -94,6 +109,52 @@ public static class IpcFraming
         options.MakeReadOnly(populateMissingResolver: true);
         return options;
     }
+}
+
+/// <summary>A write-only stream that keeps nothing and remembers how much it was given.</summary>
+internal sealed class CountingStream : Stream
+{
+    private long _length;
+
+    public override bool CanRead => false;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => true;
+
+    public override long Length => _length;
+
+    public override long Position
+    {
+        get => _length;
+        set => throw new NotSupportedException();
+    }
+
+    public override void Write(byte[] buffer, int offset, int count) => _length += count;
+
+    public override void Write(ReadOnlySpan<byte> buffer) => _length += buffer.Length;
+
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        _length += count;
+        return Task.CompletedTask;
+    }
+
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        _length += buffer.Length;
+        return ValueTask.CompletedTask;
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
 }
 
 public sealed class IpcProtocolException : Exception

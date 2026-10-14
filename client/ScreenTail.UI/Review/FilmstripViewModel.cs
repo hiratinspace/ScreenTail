@@ -42,9 +42,15 @@ public sealed partial class FrameItem : StripItem
     /// <summary>Spec §5 S3: excluded frames are dimmed, and say so in a word as well (Spec §7).</summary>
     public string StateLabel => Cell.Included ? "included" : "excluded";
 
-    public string? OcrText => Cell.Frame.OcrText;
+    /// <summary>
+    /// What redaction read on the frame, held only while it is enlarged, like <see cref="Image"/>. The
+    /// session crosses the pipe without it (E-20), so it is asked for when the frame is opened.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOcrText))]
+    private string? _ocrText;
 
-    public bool HasOcrText => !string.IsNullOrWhiteSpace(Cell.Frame.OcrText);
+    public bool HasOcrText => !string.IsNullOrWhiteSpace(OcrText);
 
     /// <summary>Where the cursor was, for the marker in the enlarged view. Null when it was not recorded.</summary>
     public Point? Cursor => Cell.Frame.Cursor;
@@ -218,6 +224,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
         if (Enlarged == item)
         {
+            Release(item);
             Enlarged = null;
             OnPropertyChanged(nameof(IsEnlarged));
         }
@@ -259,6 +266,20 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
             item.Image = await _frames.ImageAsync(item.Cell.Frame).ConfigureAwait(true);
         }
 
+        if (item is not null && item.OcrText is null)
+        {
+            item.OcrText = _frames is not null
+                ? await _frames.OcrTextAsync(item.Cell.Frame).ConfigureAwait(true)
+                : item.Cell.Frame.OcrText;
+        }
+
+        // Enter on another frame while one is open moves the view without passing through Esc, so the
+        // frame being left lets go of what it held here, after the new one has loaded.
+        if (Enlarged is { } previous && previous != item)
+        {
+            Release(previous);
+        }
+
         Enlarged = item;
         ShowOcrText = false;
         OnPropertyChanged(nameof(IsEnlarged));
@@ -269,11 +290,18 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     {
         if (Enlarged is { } item)
         {
-            item.Image = null;
+            Release(item);
         }
 
         Enlarged = null;
         OnPropertyChanged(nameof(IsEnlarged));
+    }
+
+    /// <summary>Drops the full image and the OCR text, which a frame holds only while it is the enlarged one.</summary>
+    private static void Release(FrameItem item)
+    {
+        item.Image = null;
+        item.OcrText = null;
     }
 
     [RelayCommand]

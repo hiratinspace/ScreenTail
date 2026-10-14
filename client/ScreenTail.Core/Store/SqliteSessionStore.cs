@@ -701,6 +701,15 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ct,
             ("@id", frameId));
 
+    public Task<FrameText?> GetRedactedFrameTextAsync(string frameId, CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT ocr_text FROM frames WHERE id = @id AND redaction_pending = 0",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
+                ? new FrameText(reader.IsDBNull(0) ? null : reader.GetString(0))
+                : null,
+            ct,
+            ("@id", frameId));
+
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
