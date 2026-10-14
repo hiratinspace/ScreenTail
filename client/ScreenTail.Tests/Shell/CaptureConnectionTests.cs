@@ -338,6 +338,52 @@ public sealed class CaptureConnectionTests
         Assert.Single(channel.Sent);
     }
 
+    [Theory]
+    [InlineData("io")]
+    [InlineData("disposed")]
+    [InlineData("protocol")]
+    public async Task APipeThatBreaksMidQuestionSaysSoInsteadOfThrowing(string fault)
+    {
+        // A real dropped pipe fails the pending request with IOException (IpcClient's read loop), and a
+        // client torn down mid-ask with ObjectDisposedException. Either must come back as words on the
+        // Publish button, not as an exception out of it.
+        var shell = new ShellState();
+        var channel = new FakeChannel(Recording)
+        {
+            Fault = fault switch
+            {
+                "io" => new IOException("Pipe is broken."),
+                "disposed" => new ObjectDisposedException("IpcClient"),
+                _ => new IpcProtocolException("frame too large"),
+            },
+        };
+        await using var connection = Connect(shell, () => channel);
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+
+        var answer = await connection.AskAsync<SessionPublished>(
+            id => new PublishSessionCommand { RequestId = id, SessionId = "s1", TicketId = "1", NoteType = "internal", Minutes = 0, Destinations = ["ticket_note"], Note = ScreenTail.Tests.Review.ReviewFixture.Draft(), FrameIds = [] },
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(answer.Reply);
+        Assert.Equal("The capture service disconnected.", answer.Refusal);
+        Assert.Single(channel.Sent);
+    }
+
+    [Fact]
+    public async Task ACancelledQuestionIsCancelledNotRefused()
+    {
+        // Cancellation is the caller's own doing and keeps propagating, so it is never shown as a refusal.
+        var shell = new ShellState();
+        var channel = new FakeChannel(Recording) { Fault = new OperationCanceledException() };
+        await using var connection = Connect(shell, () => channel);
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => connection.AskAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task AQuestionWithNoConnectionSaysSoWithoutSending()
     {
@@ -414,6 +460,9 @@ public sealed class CaptureConnectionTests
         /// <summary>What a typed request is answered with, when a test sets one.</summary>
         public IpcEvent? Reply { get; set; }
 
+        /// <summary>What a typed request fails with instead, when a test sets one.</summary>
+        public Exception? Fault { get; set; }
+
         public Task<CommandResult> SendAsync(Func<int, IpcCommand> build, CancellationToken ct = default)
         {
             var command = build(1);
@@ -425,6 +474,11 @@ public sealed class CaptureConnectionTests
             where TReply : IpcEvent
         {
             Sent.Add(build(1));
+            if (Fault is not null)
+            {
+                return Task.FromException<TReply>(Fault);
+            }
+
             return Reply is TReply typed
                 ? Task.FromResult(typed)
                 : Task.FromException<TReply>(new IpcProtocolException("no reply set"));
