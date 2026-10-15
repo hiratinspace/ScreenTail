@@ -7,8 +7,10 @@ namespace ScreenTail.Tests.Windows.Detection;
 /// context, every process, on a thread that pumps messages), which keeps every event it is given.
 ///
 /// It is the control for the rename filter. Silence from the watcher means something only when the same
-/// renames are shown to have been delivered to a hook like the watcher's, and this shows that without
-/// depending on which window is in front, which a shared runner does not hold still for.
+/// renames are shown to have been delivered to a hook like the watcher's. They were not, at first: the
+/// test's windows were STATIC controls, which handle WM_SETTEXT themselves and raise no
+/// <c>EVENT_OBJECT_NAMECHANGE</c>, so the watcher's silence was guaranteed and proved nothing. This counts
+/// the deliveries, so a window that stops announcing its renames fails the test instead of passing it.
 /// </summary>
 internal sealed class NameChangeWitness : IDisposable
 {
