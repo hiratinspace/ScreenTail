@@ -70,11 +70,17 @@ public sealed class ForegroundWatcherTests
         // on a window that never raised a name change at all: a STATIC control, which handles WM_SETTEXT
         // itself. The window is an ordinary one, which announces its renames as an application's does.
         var ct = TestContext.Current.CancellationToken;
+        using var witness = NameChangeWitness.Start();
         await using var watcher = new WindowsForegroundWatcher(pollInterval: TimeSpan.FromMinutes(10));
+        var focused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var renamed = new TaskCompletionSource<ForegroundWindowInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         watcher.Changed += info =>
         {
-            if (info.Title == second)
+            if (info.Title == first)
+            {
+                focused.TrySetResult();
+            }
+            else if (info.Title == second)
             {
                 renamed.TrySetResult(info);
             }
@@ -84,7 +90,13 @@ public sealed class ForegroundWatcherTests
 
         using var window = DesktopWindow.CreateOrdinary(first);
         window.RequireForeground();
-        await Task.Delay(200, ct);
+
+        // A new title for the window already reported is held back for the change filter's settle time, and
+        // only the poll offers it again. So the rename waits until the focus change has been reported and
+        // that settle time has passed twice over; renamed sooner, it is the poll's to deliver, not the
+        // hook's. A hosted run that renamed 200 ms after taking the foreground never saw it reported.
+        await focused.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        await Task.Delay(new ForegroundChangeFilter().TitleSettle * 2, ct);
         var inFrontBefore = window.IsForeground;
         window.Retitle(second);
         var inFrontAfter = window.IsForeground;
@@ -96,7 +108,7 @@ public sealed class ForegroundWatcherTests
         }
         catch (TimeoutException)
         {
-            Assert.Fail($"The watcher never reported the window in front by its new title (in front before the rename: {inFrontBefore}, after: {inFrontAfter}, now: {window.IsForeground}).");
+            Assert.Fail($"The watcher never reported the window in front by its new title (in front before the rename: {inFrontBefore}, after: {inFrontAfter}, now: {window.IsForeground}; object ids the test's hook saw for it: {witness.ObjectIds(window.Handle)}).");
         }
     }
 
