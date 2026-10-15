@@ -16,7 +16,11 @@ internal sealed class DesktopWindow : IDisposable
 
     private DesktopWindow(string title, bool ordinary)
     {
-        _thread = new Thread(() => Run(title, ordinary)) { IsBackground = true, Name = "test window" };
+        // The class is resolved here, on the test's thread, so a registration failure fails the test that
+        // asked for the window. Thrown on the window's own thread it would take the test host down with it.
+        var className = ordinary ? OrdinaryClass.Value : "STATIC";
+        var instance = ordinary ? GetModuleHandle(null) : IntPtr.Zero;
+        _thread = new Thread(() => Run(title, className, instance)) { IsBackground = true, Name = "test window" };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
         Handle = _created.Task.GetAwaiter().GetResult();
@@ -252,14 +256,30 @@ internal sealed class DesktopWindow : IDisposable
         _thread.Join(TimeSpan.FromSeconds(2));
     }
 
-    private void Run(string title, bool ordinary)
+    private void Run(string title, string className, IntPtr instance)
     {
         // "STATIC" is a class Windows already registers, so there is none to register or clean up. The
-        // ordinary class is registered once for the process and lives as long as it does.
-        var window = ordinary
-            ? CreateWindowEx(0, OrdinaryClass.Value, title, WS_OVERLAPPEDWINDOW, 60, 60, 420, 220, IntPtr.Zero, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero)
-            : CreateWindowEx(0, "STATIC", title, WS_OVERLAPPEDWINDOW, 60, 60, 420, 220, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        _created.SetResult(window);
+        // ordinary class is registered once for the process and lives as long as it does. A window that
+        // cannot be created is handed back to the constructor as an exception, so the test fails instead of
+        // waiting on a handle that will never come.
+        IntPtr window;
+        try
+        {
+            window = CreateWindowEx(0, className, title, WS_OVERLAPPEDWINDOW, 60, 60, 420, 220, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
+        }
+        catch (Exception ex)
+        {
+            _created.TrySetException(ex);
+            return;
+        }
+
+        if (window == IntPtr.Zero)
+        {
+            _created.TrySetException(new InvalidOperationException($"CreateWindowEx for a \"{className}\" window failed with error {Marshal.GetLastPInvokeError()}."));
+            return;
+        }
+
+        _created.TrySetResult(window);
 
         while (!_closing && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
         {

@@ -64,7 +64,13 @@ public sealed class ForegroundWatcherTests
         Hardware.RequireDesktop();
         var first = $"ScreenTail before {Guid.NewGuid():N}";
         var second = $"ScreenTail after {Guid.NewGuid():N}";
-        await using var watcher = new WindowsForegroundWatcher();
+
+        // The safety-net poll is pushed out of reach, so the new title can only arrive through the watcher's
+        // name-change hook, which is what this test is named for. With the default two-second poll it passed
+        // on a window that never raised a name change at all: a STATIC control, which handles WM_SETTEXT
+        // itself. The window is an ordinary one, which announces its renames as an application's does.
+        var ct = TestContext.Current.CancellationToken;
+        await using var watcher = new WindowsForegroundWatcher(pollInterval: TimeSpan.FromMinutes(10));
         var renamed = new TaskCompletionSource<ForegroundWindowInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         watcher.Changed += info =>
         {
@@ -73,15 +79,25 @@ public sealed class ForegroundWatcherTests
                 renamed.TrySetResult(info);
             }
         };
-        await watcher.StartAsync(TestContext.Current.CancellationToken);
+        await watcher.StartAsync(ct);
+        Assert.True(watcher.UsingHook, "The foreground watcher's event hook was not installed, so a rename cannot reach it.");
 
-        using var window = DesktopWindow.Create(first);
+        using var window = DesktopWindow.CreateOrdinary(first);
         window.RequireForeground();
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await Task.Delay(200, ct);
+        var inFrontBefore = window.IsForeground;
         window.Retitle(second);
+        var inFrontAfter = window.IsForeground;
 
-        var reported = await renamed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        Assert.Equal(second, reported.Title);
+        try
+        {
+            var reported = await renamed.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+            Assert.Equal(second, reported.Title);
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail($"The watcher never reported the window in front by its new title (in front before the rename: {inFrontBefore}, after: {inFrontAfter}, now: {window.IsForeground}).");
+        }
     }
 
     [Fact]
@@ -205,8 +221,10 @@ public sealed class ForegroundWatcherTests
         // never held back.
         await Task.Delay(500, ct);
 
-        // Not asserted: what became of a rename of the window in front, which is what the earlier version
-        // waited on. Recorded so a run says why that wait could not be relied on.
+        // The other half of the control: the watcher does act on a name change, when it is the window in
+        // front that renames itself. Without this, a filter that dropped every name change would leave the
+        // count above at zero and every test here green, with tab switches left to a poll that is out of
+        // reach here.
         _ = front.TakeForeground(TimeSpan.FromSeconds(2));
         await Task.Delay(400, ct);
         var frontBefore = front.IsForeground;
@@ -221,11 +239,16 @@ public sealed class ForegroundWatcherTests
             seen = [.. reported.Where(t => t is not null).Select(t => t!)];
         }
 
-        Record($"A rename of the window in front (in front before: {frontBefore}, after: {frontAfter}) reached the test's hook with object ids {witness.ObjectIds(front.Handle)} and was reported by the watcher: {seen.Contains(frontRenamed)}");
-
         var leaked = seen.Count(t => t.StartsWith(noisyPrefix, StringComparison.Ordinal));
         Record($"50 background renames reached the test's hook {witness.Count(noisy.Handle, NameChangeWitness.WindowObject)} times and produced **{leaked}** foreground reports for the renaming window (must be 0; it was in front at the end: {noisy.IsForeground})");
+        Record($"A rename of the window in front (in front before: {frontBefore}, after: {frontAfter}) reached the test's hook with object ids {witness.ObjectIds(front.Handle)} and was reported by the watcher: {seen.Contains(frontRenamed)}");
         Assert.Equal(0, leaked);
+
+        // Assert.Contains(frontRenamed, seen) in effect. xUnit's Contains takes no message, and a failure here
+        // needs to say whether the window was in front and whether its rename was delivered at all.
+        Assert.True(
+            seen.Contains(frontRenamed),
+            $"The watcher did not report the window in front by its new title (in front before the rename: {frontBefore}, after: {frontAfter}; object ids the test's hook saw for it: {witness.ObjectIds(front.Handle)}).");
     }
 
     [Fact]
