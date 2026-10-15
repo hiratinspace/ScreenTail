@@ -236,6 +236,107 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AConfirmedDiscardThrowsAwayTheRunningSession()
+    {
+        // The control for the refusals below: the same machine, the same session, and a discard that
+        // carries what it should. Without this, "nothing was discarded" could mean discarding never works.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+        var session = await RecordingAsync(machine, ct);
+
+        var token = await TokenAsync(controller, "discard_session", ct);
+        var result = await controller.HandleAsync(new DiscardCommand { RequestId = 1, Confirmation = token }, Window, ct);
+
+        Assert.True(result.Ok);
+        Assert.Equal(SessionState.Idle, machine.State);
+        Assert.DoesNotContain(await store.ListSessionsAsync(ct: ct), s => s.Id == session);
+    }
+
+    [Fact]
+    public async Task ADiscardWithNoConfirmationDiscardsNothing()
+    {
+        // Boundary 1. The pipe proves only that the peer is the same user, and a same-user process that
+        // holds the pipe token is exactly what the confirmation is for: one frame on the pipe must not be
+        // enough to throw the running session away.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+        var session = await RecordingAsync(machine, ct);
+
+        var bare = await controller.HandleAsync(new DiscardCommand { RequestId = 1 }, Window, ct);
+        var empty = await controller.HandleAsync(new DiscardCommand { RequestId = 2, Confirmation = string.Empty }, Window, ct);
+        var madeUp = await controller.HandleAsync(new DiscardCommand { RequestId = 3, Confirmation = new string('0', 32) }, Window, ct);
+
+        Assert.False(bare.Ok);
+        Assert.False(empty.Ok);
+        Assert.False(madeUp.Ok);
+        await StillRecordingAsync(machine, store, session, ct);
+    }
+
+    [Fact]
+    public async Task ADiscardWithAnEraseTokenDiscardsNothing()
+    {
+        // A token is for one action. The technician confirming "delete everything" has not agreed to
+        // anything else, and a token that crossed over would make every confirmation a master key.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+        var session = await RecordingAsync(machine, ct);
+
+        var token = await TokenAsync(controller, "erase_everything", ct);
+        var result = await controller.HandleAsync(new DiscardCommand { RequestId = 1, Confirmation = token }, Window, ct);
+
+        Assert.False(result.Ok);
+        await StillRecordingAsync(machine, store, session, ct);
+    }
+
+    [Fact]
+    public async Task ADiscardConfirmedForAnotherConnectionDiscardsNothing()
+    {
+        // The token is bound to the window that asked for it. Any other authenticated client spending it
+        // would make the second round trip a bearer token.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+        var session = await RecordingAsync(machine, ct);
+
+        var token = await TokenAsync(controller, "discard_session", ct);
+        var result = await controller.HandleAsync(new DiscardCommand { RequestId = 1, Confirmation = token }, Guid.NewGuid(), ct);
+
+        Assert.False(result.Ok);
+        await StillRecordingAsync(machine, store, session, ct);
+    }
+
+    [Fact]
+    public async Task ADiscardTokenIsSpentEvenWhenTheDiscardIsRefused()
+    {
+        // In this order and no other. The token is spent on a discard the machine refuses because there
+        // is nothing to discard; a session then starts, and the same token comes back. If a refusal left
+        // the token alive, or if the machine were asked before the token was checked, the second attempt
+        // would throw away a session nobody confirmed discarding.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+
+        Assert.Equal(SessionState.Idle, machine.State);
+        var token = await TokenAsync(controller, "discard_session", ct);
+        var refused = await controller.HandleAsync(new DiscardCommand { RequestId = 1, Confirmation = token }, Window, ct);
+        Assert.False(refused.Ok);
+
+        var session = await RecordingAsync(machine, ct);
+        var again = await controller.HandleAsync(new DiscardCommand { RequestId = 2, Confirmation = token }, Window, ct);
+
+        Assert.False(again.Ok);
+        await StillRecordingAsync(machine, store, session, ct);
+    }
+
+    [Fact]
     public async Task TheServiceSaysWhatHasToBeTyped()
     {
         // The phrase comes from the service so that the words a customer is shown and the words the
@@ -263,6 +364,22 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             new RequestConfirmationCommand { RequestId = 1, Action = "erase_everything_please" },
             Window,
             ct));
+    }
+
+    /// <summary>Starts a session and says which, so a test can check it is still there afterwards.</summary>
+    private static async Task<string> RecordingAsync(SessionMachine machine, CancellationToken ct)
+    {
+        Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, ct: ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+        return Assert.IsType<string>(machine.SessionId);
+    }
+
+    /// <summary>Nothing was discarded: the machine is still recording the same session, and the store still has it.</summary>
+    private static async Task StillRecordingAsync(SessionMachine machine, SqliteSessionStore store, string session, CancellationToken ct)
+    {
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.Equal(session, machine.SessionId);
+        Assert.Contains(await store.ListSessionsAsync(ct: ct), s => s.Id == session);
     }
 
     private static async Task<string> TokenAsync(CaptureController controller, string action, CancellationToken ct)

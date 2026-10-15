@@ -14,9 +14,13 @@ internal sealed class DesktopWindow : IDisposable
     private readonly Queue<Action> _posted = new();
     private volatile bool _closing;
 
-    private DesktopWindow(string title)
+    private DesktopWindow(string title, bool ordinary)
     {
-        _thread = new Thread(() => Run(title)) { IsBackground = true, Name = "test window" };
+        // The class is resolved here, on the test's thread, so a registration failure fails the test that
+        // asked for the window. Thrown on the window's own thread it would take the test host down with it.
+        var className = ordinary ? OrdinaryClass.Value : "STATIC";
+        var instance = ordinary ? GetModuleHandle(null) : IntPtr.Zero;
+        _thread = new Thread(() => Run(title, className, instance)) { IsBackground = true, Name = "test window" };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
         Handle = _created.Task.GetAwaiter().GetResult();
@@ -30,7 +34,16 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>A text box that masks what is typed into it — a real one, with ES_PASSWORD (ST-040).</summary>
     public IntPtr PasswordField { get; private set; }
 
-    public static DesktopWindow Create(string title) => new(title);
+    public static DesktopWindow Create(string title) => new(title, ordinary: false);
+
+    /// <summary>
+    /// A window whose class leaves everything to DefWindowProc, as an application's main window does with
+    /// its title. Needed by any test that listens for a rename: <see cref="Create"/> builds on the STATIC
+    /// control class, which handles WM_SETTEXT itself and raises no <c>EVENT_OBJECT_NAMECHANGE</c>, so a
+    /// hook never hears of its renames. A hosted run showed a hook of the test's own receiving none of
+    /// fifty.
+    /// </summary>
+    public static DesktopWindow CreateOrdinary(string title) => new(title, ordinary: true);
 
     /// <summary>
     /// Adds the two edit controls the password-field tests need. They are created on the window's own
@@ -213,6 +226,9 @@ internal sealed class DesktopWindow : IDisposable
 
     public void Retitle(string title) => SetWindowText(Handle, title);
 
+    /// <summary>Whether Windows says this window is in front right now.</summary>
+    public bool IsForeground => GetForegroundWindow() == Handle;
+
     public void Resize(int width, int height) =>
         _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_SHOWWINDOW);
 
@@ -224,6 +240,12 @@ internal sealed class DesktopWindow : IDisposable
     public void Jiggle(int width, int height) =>
         _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 
+    /// <summary>
+    /// Shows the window without activating it, so it is on the desktop and behind whatever is in front.
+    /// What a background application looks like to the foreground watcher.
+    /// </summary>
+    public void ShowBehind() => _ = ShowWindow(Handle, SW_SHOWNOACTIVATE);
+
     /// <summary>Fills the screen, so a capture measurement has a realistically large window to work on.</summary>
     public void Maximize() => _ = ShowWindow(Handle, SW_MAXIMIZE);
 
@@ -234,11 +256,30 @@ internal sealed class DesktopWindow : IDisposable
         _thread.Join(TimeSpan.FromSeconds(2));
     }
 
-    private void Run(string title)
+    private void Run(string title, string className, IntPtr instance)
     {
-        // "STATIC" is a class Windows already registers, so there is none to register or clean up.
-        var window = CreateWindowEx(0, "STATIC", title, WS_OVERLAPPEDWINDOW, 60, 60, 420, 220, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        _created.SetResult(window);
+        // "STATIC" is a class Windows already registers, so there is none to register or clean up. The
+        // ordinary class is registered once for the process and lives as long as it does. A window that
+        // cannot be created is handed back to the constructor as an exception, so the test fails instead of
+        // waiting on a handle that will never come.
+        IntPtr window;
+        try
+        {
+            window = CreateWindowEx(0, className, title, WS_OVERLAPPEDWINDOW, 60, 60, 420, 220, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
+        }
+        catch (Exception ex)
+        {
+            _created.TrySetException(ex);
+            return;
+        }
+
+        if (window == IntPtr.Zero)
+        {
+            _created.TrySetException(new InvalidOperationException($"CreateWindowEx for a \"{className}\" window failed with error {Marshal.GetLastPInvokeError()}."));
+            return;
+        }
+
+        _created.TrySetResult(window);
 
         while (!_closing && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
         {
@@ -260,7 +301,33 @@ internal sealed class DesktopWindow : IDisposable
         _ = DestroyWindow(window);
     }
 
+    /// <summary>
+    /// A window class whose procedure is DefWindowProcW itself, so no managed callback has to be kept alive
+    /// and a rename takes the path every application window's rename takes.
+    /// </summary>
+    private static readonly Lazy<string> OrdinaryClass = new(() =>
+    {
+        const string name = "ScreenTail test window";
+        var user32 = NativeLibrary.Load("user32.dll");
+        var definition = new WndClassEx
+        {
+            Size = (uint)Marshal.SizeOf<WndClassEx>(),
+            WndProc = NativeLibrary.GetExport(user32, "DefWindowProcW"),
+            Instance = GetModuleHandle(null),
+            Background = COLOR_WINDOW + 1,
+            ClassName = name,
+        };
+
+        if (RegisterClassEx(ref definition) == 0)
+        {
+            throw new InvalidOperationException($"RegisterClassEx failed with error {Marshal.GetLastPInvokeError()}.");
+        }
+
+        return name;
+    });
+
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
+    private const int COLOR_WINDOW = 5;
     private const uint WS_CHILD = 0x40000000;
     private const uint WS_VISIBLE = 0x10000000;
     private const uint WS_TABSTOP = 0x00010000;
@@ -271,6 +338,7 @@ internal sealed class DesktopWindow : IDisposable
 
     private const int SW_SHOWNORMAL = 1;
     private const int SW_MAXIMIZE = 3;
+    private const int SW_SHOWNOACTIVATE = 4;
     private const uint WM_CLOSE = 0x0010;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
@@ -290,6 +358,29 @@ internal sealed class DesktopWindow : IDisposable
         public int PointX;
         public int PointY;
     }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WndClassEx
+    {
+        public uint Size;
+        public uint Style;
+        public IntPtr WndProc;
+        public int ClassExtra;
+        public int WindowExtra;
+        public IntPtr Instance;
+        public IntPtr Icon;
+        public IntPtr Cursor;
+        public IntPtr Background;
+        public string? MenuName;
+        public string ClassName;
+        public IntPtr SmallIcon;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "RegisterClassExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern ushort RegisterClassEx(ref WndClassEx definition);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetModuleHandleW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? moduleName);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
