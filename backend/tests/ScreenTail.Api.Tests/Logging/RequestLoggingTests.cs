@@ -65,11 +65,13 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         Assert.Equal(HttpStatusCode.OK, slashed.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, root.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, unmap.StatusCode);
-        var log = Read(sink);
+
+        // The host writes "Request finished" after the response has gone, so a client can have its answer
+        // before the line exists. Wait for all seven, then read everything that was written.
+        var log = await LoggedAsync(sink, "Request finished", 7, ct);
 
         // Not vacuous: the request lines and the PSA call were logged, just without what they carried.
         Assert.Contains("Request starting", log, StringComparison.Ordinal);
-        Assert.Contains("Request finished", log, StringComparison.Ordinal);
         Assert.Contains("HTTP request", log, StringComparison.Ordinal);
         Assert.Contains("GET http://localhost", log, StringComparison.Ordinal);
         Assert.Contains(" - 401 ", log, StringComparison.Ordinal);
@@ -96,9 +98,8 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
 
         Assert.Equal(HttpStatusCode.TemporaryRedirect, response.StatusCode);
         Assert.Equal("https://localhost/v1/psa/tickets?q=Acme%20Dental%20printer", response.Headers.Location?.AbsoluteUri);
-        var log = Read(sink);
+        var log = await LoggedAsync(sink, "Request finished", 1, TestContext.Current.CancellationToken);
         Assert.Contains("Redirecting to", log, StringComparison.Ordinal);
-        Assert.Contains("Request finished", log, StringComparison.Ordinal);
         foreach (var word in Content)
         {
             Assert.DoesNotContain(word, log, StringComparison.OrdinalIgnoreCase);
@@ -228,7 +229,8 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         return await reader.ReadToEndAsync(ct);
     }
 
-    // Kestrel writes its line on the connection's own thread, so the test waits for it, for a bounded time.
+    // Kestrel and the hosting diagnostics write their lines on their own threads, after the response, so
+    // the test waits for them, for a bounded time.
     private static async Task<string> LoggedAsync(StringWriter sink, string expected, int times, CancellationToken ct)
     {
         var log = Read(sink);
