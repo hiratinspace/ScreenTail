@@ -28,7 +28,15 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>The vault's master key for this host, or null for a host with none (ST-009).</summary>
     protected virtual string? VaultMasterKey { get; } = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
-    private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    // A database file of the fixture's own, opened by a new connection per scope. It used to be one
+    // in-memory connection shared by every request, and SqliteConnection is not thread-safe: tests that
+    // send requests at once (CostCapTests sends fifty) corrupted its bookkeeping, and closing it then
+    // threw from SqliteConnection.Close, reported as a class cleanup failure about one full run in
+    // forty. WAL lets readers run beside the one writer, and a writer waits for the lock as Postgres
+    // would make it wait for a row.
+    private readonly string _database = Path.Combine(Path.GetTempPath(), "screentail-api-tests", $"{Guid.NewGuid():N}.db");
+
+    private string ConnectionString => new SqliteConnectionStringBuilder { DataSource = _database, Pooling = true }.ToString();
 
     public JwtOptions Jwt { get; } = new()
     {
@@ -41,9 +49,15 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        // Held open for the life of the fixture: an in-memory SQLite database exists only while a
-        // connection to it does.
-        await _connection.OpenAsync();
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(_database)!);
+        await using (var connection = new SqliteConnection(ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var wal = connection.CreateCommand();
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            _ = await wal.ExecuteScalarAsync();
+        }
+
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScreenTailContext>();
         _ = await db.Database.EnsureCreatedAsync();
@@ -58,8 +72,26 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     public override async ValueTask DisposeAsync()
     {
-        await _connection.DisposeAsync();
+        // The host first, so the requests it is still serving finish; then the pooled connections, so the
+        // files can go.
         await base.DisposeAsync();
+        using (var connection = new SqliteConnection(ConnectionString))
+        {
+            SqliteConnection.ClearPool(connection);
+        }
+
+        foreach (var file in new[] { _database, _database + "-wal", _database + "-shm" })
+        {
+            try
+            {
+                File.Delete(file);
+            }
+            catch (IOException)
+            {
+                // A temp file left behind is not a test failure.
+            }
+        }
+
         GC.SuppressFinalize(this);
     }
 
@@ -112,7 +144,7 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 _ = services.Remove(registration);
             }
 
-            services.AddDbContext<ScreenTailContext>(options => options.UseSqlite(_connection));
+            services.AddDbContext<ScreenTailContext>(options => options.UseSqlite(ConnectionString));
         });
     }
 }
