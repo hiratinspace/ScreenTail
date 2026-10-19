@@ -18,6 +18,16 @@ internal static class DraftRules
     public static readonly IReadOnlyList<string> RedactionMarkers = ["[REDACTED]", "[CARD]", "[SSN]", "[SECRET]", "[EMAIL]"];
 
     /// <summary>
+    /// Characters a reader does not see: zero-width spaces and joiners, soft hyphens, direction marks and
+    /// overrides, and the byte order mark.
+    ///
+    /// Removed before the secret and instruction rules, so a rule reads the text as a person does.
+    /// "In\u200bstall the agent" is "Install the agent" on screen, and a card with zero-width spaces
+    /// between its groups is a card (2026-10-12 review, third round).
+    /// </summary>
+    public const string Invisible = "[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]";
+
+    /// <summary>
     /// An apostrophe inside a word: "don't", "the user's", "I've".
     ///
     /// Folded to a letter apostrophe before quotations are looked for, because a straight or curly
@@ -38,10 +48,14 @@ internal static class DraftRules
     /// The low-9 quotes German and Polish write, single guillemets and corner brackets count as well
     /// (2026-10-12 review, second round). A closing guillemet does not open a quotation, so a menu path
     /// written "File » Save As » PDF" is not one.
+    ///
+    /// The reversed guillemets German writes, »like this«, count when the closing « comes within the same
+    /// sentence, which no menu path has (third round).
     /// </summary>
     public const string Quoted =
         "[\"\u201c\u201e\u00ab\u300c\u300e]([^\"\u201c\u201d\u00bb\u300d\u300f]{4,})[\"\u201c\u201d\u00bb\u300d\u300f]"
-        + "|(?<!\\w)['\u2018\u201a\u2039]([^'\u2018\u2019\u203a]{4,})['\u2018\u2019\u203a](?!\\w)";
+        + "|(?<!\\w)['\u2018\u201a\u2039]([^'\u2018\u2019\u203a]{4,})['\u2018\u2019\u203a](?!\\w)"
+        + "|\u00bb([^\u00ab\u00bb\\n.!?]{4,}[.!?]?)\u00ab";
 
     /// <summary>Separated by hyphens, spaces or dots, as the client's pattern library masks them.</summary>
     public const string Ssn = @"\b(?!000|666|9\d\d)\d{3}[-. ](?!00)\d{2}[-. ](?!0000)\d{4}\b";
@@ -55,14 +69,21 @@ internal static class DraftRules
         + @"(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b";
 
     /// <summary>
-    /// A place a card number can be: digits, in groups of any length joined by a space, a hyphen or a dot.
+    /// A place a card number can be: digits, in groups of any length joined by one or two spaces
+    /// (non-breaking, figure, thin and narrow ones too), hyphens or dots, and touching anything but
+    /// another digit.
     ///
     /// A place to look, not the candidate. The card inside it is found by trying every window of whole
     /// groups, as the client's pattern library does, because a CVV or an expiry beside the card arrives
     /// in the same run and the run as a whole fails the checksum (2026-10-12 review, second round).
     /// ASCII digits only, so both validators and the checksum read the same characters.
+    ///
+    /// Wider than the client's separators, because the model rewrites what it reads and its output is not
+    /// bound to them: a card with non-breaking or doubled spaces, or with letters touching it, went
+    /// through (third round). Slashes and underscores are left out, because dates and timestamped file
+    /// names would give every run of them a chance at the checksum.
     /// </summary>
-    public const string CardRun = @"\b[0-9]+(?:[ .-][0-9]+)*\b";
+    public const string CardRun = "(?<![0-9])[0-9]+(?:[ \u00a0\u2007\u2009\u202f.-]{1,2}[0-9]+)*(?![0-9])";
 
     /// <summary>
     /// A credential's cue word, and only that.
@@ -145,30 +166,39 @@ internal static class DraftRules
 
     private const string Verbs = "download|install|run|execute|disable|uninstall|delete";
 
-    /// <summary>
-    /// Words that put an imperative off by a word or two without making it anything else, and short
-    /// openers that often stand before one with no comma ("Once done run ...", "If prompted disable ...").
-    /// </summary>
-    private const string Introducing =
-        @"please|then|now|next|first|second|third|finally|lastly|also|just|so|and|simply|afterwards"
-        + @"|after\s+that|make\s+sure\s+to|be\s+sure\s+to|remember\s+to|try\s+to|go\s+ahead\s+and"
-        + @"|once\s+done|when\s+done|if\s+(?:needed|necessary|prompted|so|not)|when\s+prompted|otherwise|instead|immediately";
+    /// <summary>A word that is not one of the <see cref="Verbs"/>, with the space before it, inside one clause.</summary>
+    private const string OtherWord = @"(?:\s+(?!(?:" + Verbs + @")\b)[^\s.!?;:,()]+)";
+
+    /// <summary>A negated auxiliary. "Don't" and "shouldn't" are left out: they are how a prohibition is written.</summary>
+    private const string Negation =
+        @"\b(?:did|does|was|were|is|are|has|have|had|would|could|will|can|might|may)\s+not|\bcannot"
+        + @"|\b(?:did|does|was|were|is|are|has|have|had|would|could|ca|wo)n['" + "\u2019\u02bc" + "]t";
 
     /// <summary>
-    /// A note is a record, not an instruction (prompt rule 5a). A web address, a command line, or a
-    /// direction to install, run, download or disable something.
+    /// The forms a record takes in front of one of the <see cref="Verbs"/>: a noun after an article, a
+    /// negation, an auxiliary, an attempt, a reporting verb with its object before "to", and a past tense
+    /// with its object before the verb.
     ///
-    /// A direction is a verb in the imperative. The verb anywhere at all used to count, so "the backup
-    /// did not run overnight" and "asked the user to install the driver" were refused as instructions
-    /// (2026-10-12 review). What counts now is the verb where an imperative stands: at the start of a
-    /// sentence, a clause (after a comma, a colon or a bracket) or a bulleted, numbered or lettered
-    /// item, perhaps after an introducing word with or without a comma ("Next, install"); or addressed
-    /// to "you", with or without a modal ("you will need to run", "you'll need to install").
+    /// Only reporting verbs that are rarely adjectives. "Required", "requested", "allowed" and "enabled"
+    /// were in the list and let "Use the required tool to install AnyDesk" through, because the record
+    /// form consumed the verb the instruction was about.
+    /// </summary>
+    private const string Record =
+        @"\b(?:the|a|an|its|their|his|our|my|your|each|every|any)"
+        + "|(?:" + Negation + @")(?:\s+(?:have|be|been|yet|ever|even))?"
+        + @"|\b(?:did|does|was|were|had|has|have|been|being|will)(?:\s+(?:never|already|also|only|still|just|first))?"
+        + @"|\b(?:failed|unable|refused|tried|attempted|managed|wanted|needed|began|started|continued|used|able|going|chose|decided|forgot|declined|offered|agreed|planned)\s+to"
+        + @"|\b(?:asked|told|advised|instructed|reminded|encouraged|prompted|got|invited|urged|warned|taught|showed|helped|caused|wanted)"
+        + OtherWord + @"{0,3}\s+to"
+        + @"|\b(?:helped|had|made|watched|saw)" + OtherWord + "{0,3}";
+
+    /// <summary>
+    /// A note is a record, not an instruction (prompt rule 5a). A web address, a command line, a
+    /// security control switched off, or a direction addressed to "you".
     ///
-    /// Clauses and introducing words are there because the first version of this rule counted only a
-    /// sentence's first word and let "If it fails, disable the service" through, which main refused.
-    /// This is a security rule, so where a phrasing could be either, it is read as an instruction: a
-    /// list such as "checked the logs, run history and services" is refused and costs a repair.
+    /// A note addressed to the reader at all is not how a record reads, so "you" with up to three words
+    /// and then one of the verbs is refused whatever the words are: "you should probably install", "you
+    /// really need to run", "you'll need to install".
     /// </summary>
     public static readonly IReadOnlyList<string> Directive =
     [
@@ -176,16 +206,32 @@ internal static class DraftRules
         @"\b(?:Set-ExecutionPolicy|powershell|cmd\.exe|regedit|curl|wget|iwr|irm|invoke-webrequest"
             + @"|invoke-restmethod|invoke-expression|iex|certutil|bitsadmin|mshta|rundll32)\b",
         @"\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
-        @"(?:^|(?<=[.!?;:,(\n]))\s*(?:(?:[-*" + "\u2022" + @"]|\d{1,3}[.)]|[a-z]\))\s*)?(?:(?:" + Introducing + @")\b,?\s+)*"
-            + "(?:" + Verbs + @")\b\s+\S+",
-        @"\byou(?:['" + "\u2019\u02bc" + @"](?:ll|d)|\s+(?:should|must|will|would|may|might|can|could|ought\s+to))?"
-            + @"(?:\s+(?:need|have|want)\s+to)?\s+(?:(?:just|also|then|now|first)\s+)?(?:" + Verbs + @")\b",
+        @"\byou(?:['" + "\u2019\u02bc" + @"](?:ll|d|re|ve))?" + OtherWord + @"{0,3}\s+(?:" + Verbs + @")\b",
     ];
+
+    /// <summary>
+    /// A direction to install, run, download, delete or disable something, which is refused wherever it
+    /// stands unless it is in one of the forms a record takes (<see cref="Record"/>).
+    ///
+    /// The first group is a record form together with its verb, and any verbs joined to it with "and",
+    /// "or" or "nor" ("did not download or install"). A match without that group is the instruction.
+    ///
+    /// Refusing by default is the point. Main's rule refused the verb anywhere, so "the backup did not
+    /// run overnight" was an instruction (2026-10-12 review). The rule that replaced it counted the verb
+    /// only where a clause starts, and every new way of writing an imperative needed a new entry before
+    /// it was refused: "Reboot and install the agent", "Have the user install", "Kindly install" all went
+    /// through (third round). Now an unlisted phrasing is refused and costs a repair, and an unlisted
+    /// record form is the thing that costs it.
+    /// </summary>
+    public const string Imperative =
+        "((?:" + Record + @")\s+(?:" + Verbs + @")\b(?:\s+(?:or|and|nor)\s+(?:" + Verbs + @")\b)*)"
+        + @"|\b(?:" + Verbs + @")\b\s+\S+";
 
     /// <summary>Every value above, under the name <c>shared-rules.json</c> gives it.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AsShared() => new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
     {
         ["redaction_markers"] = RedactionMarkers,
+        ["invisible"] = [Invisible],
         ["word_apostrophe"] = [WordApostrophe],
         ["quoted"] = [Quoted],
         ["ssn"] = [Ssn],
@@ -198,5 +244,6 @@ internal static class DraftRules
         ["pin_shaped"] = [PinShaped],
         ["key_shapes"] = KeyShapes,
         ["directive"] = Directive,
+        ["imperative"] = [Imperative],
     };
 }

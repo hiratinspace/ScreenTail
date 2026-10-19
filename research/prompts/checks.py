@@ -38,6 +38,12 @@ MAX_MINUTES = 1440
 # after one is still found: the walk used to stop at the marker and let it through.
 REDACTION_MARKERS = set(RULES["redaction_markers"])
 
+# Characters a reader does not see: zero-width spaces and joiners, soft hyphens, direction marks and
+# overrides, and the byte order mark. Removed before the secret and instruction rules, so a rule reads
+# the text as a person does. "In\u200bstall the agent" is "Install the agent" on screen, and a card with
+# zero-width spaces between its groups is a card.
+INVISIBLE = re.compile(RULES["invisible"])
+
 # Quoted phrases must be real quotations from the transcript. Every pair of marks a model might reach
 # for, not only straight doubles. An apostrophe inside a word is folded first, because it is the same
 # character as a closing single quote: "I've" ended a curly quotation after one letter, and two
@@ -50,9 +56,11 @@ SSN = re.compile(RULES["ssn"])
 # order or part number far more often, and masking every one of them would be its own kind of wrong.
 SSN_CUED = re.compile(RULES["ssn_cued"], re.IGNORECASE)
 
-# Where a card can be: digit groups of any length joined by a space, a hyphen or a dot. The card inside a
-# run is found by trying windows of whole groups, as the client's pattern library does, because a CVV
-# beside the card arrives in the same run and the run as a whole fails the checksum.
+# Where a card can be: digit groups of any length joined by one or two spaces (non-breaking ones too),
+# hyphens or dots, and touching anything but another digit. The card inside a run is found by trying
+# windows of whole groups, as the client's pattern library does, because a CVV beside the card arrives in
+# the same run and the run as a whole fails the checksum. The model rewrites what it reads, so its
+# separators are not bound to the ones the client masks.
 CARD_RUN = re.compile(RULES["card_run"])
 DIGIT_GROUP = re.compile(r"[0-9]+")
 CARD_DIGITS = range(13, 20)
@@ -93,6 +101,17 @@ KEY_SHAPE = re.compile("|".join(KEY_SHAPES))
 # thing a screen can say, and the model has no way to tell the difference.
 DIRECTIVE = re.compile("|".join(RULES["directive"]), re.IGNORECASE)
 
+# A verb that directs somebody to install, run, download, delete or disable something is an instruction
+# wherever it stands, unless it is in one of the forms a record takes: negated ("did not run"), after an
+# auxiliary ("has never run", "will run"), an attempt ("tried to run"), a reporting verb with its object
+# before "to" ("asked the user to install"), a past tense with its object before the verb ("had the
+# user run"), or a noun after an article ("the install failed"). Those are the first group, consumed
+# together with their verb; a match without it is the instruction. Refusing by default is the point: the
+# clause-start rule this replaced needed a new entry for every way of writing an imperative, and let
+# "Reboot and install the agent" through (2026-10-12 review, third round). DraftValidator.cs reads it the
+# same way.
+IMPERATIVE = re.compile(RULES["imperative"], re.IGNORECASE)
+
 
 def next_word(text, start):
     """The next word after start, or None at the end of the sentence or the text."""
@@ -113,9 +132,10 @@ def credential_after(text, start, digits_alone=False):
     ("the password on the router is Winter2026") and the walk continues. A credential said as two words
     ("Winter 2026") is judged on the pair, because neither half looks like a secret alone; only when the
     first half has a letter in it, or "12 characters" would be a password. After a PIN or passcode cue
-    (digits_alone), four digits are the credential.
+    (digits_alone), four digits are the credential, and a pair counts only after a joining word.
     """
     at = start
+    skipped = False
     for _ in range(MAX_STEPS):
         word = next_word(text, at)
         if word is None:
@@ -124,6 +144,7 @@ def credential_after(text, start, digits_alone=False):
         value = word.group()
         if value.lower() in CONNECTIVES:
             at = word.end()
+            skipped = True
             continue
 
         if SECRET_SHAPED.match(value) or (digits_alone and PIN_SHAPED.match(value)):
@@ -131,10 +152,10 @@ def credential_after(text, start, digits_alone=False):
 
         following = next_word(text, word.end())
         if following is not None:
-            # A PIN is one word of digits, so after a PIN cue there is no pair to judge: "the PIN pad 2041"
-            # is a pad with a number on it.
+            # After a PIN cue the pair is judged only once a joining word has been passed. "The passcode
+            # is Winter 2026" is a credential; "the PIN pad 2041" is a pad with a number on it.
             if (
-                not digits_alone
+                (skipped or not digits_alone)
                 and any(c.isalpha() for c in value)
                 and SECRET_SHAPED.match(value + following.group())
             ):
@@ -194,7 +215,9 @@ def carries_a_card(text: str) -> bool:
 
 
 def without_markers(text: str) -> str:
-    """The text with each redaction marker blanked, as the secret and instruction rules read it."""
+    """The text as the secret and instruction rules read it: invisible characters removed, and each
+    redaction marker blanked."""
+    text = INVISIBLE.sub("", text)
     for marker in REDACTION_MARKERS:
         text = text.replace(marker, " ")
     return text
@@ -298,7 +321,7 @@ def check_draft(draft: dict, session: dict) -> list[str]:
 def check_quotations(text: str, spoken: str) -> list[str]:
     """Rule 4. A phrase in quotation marks has to be one somebody actually said."""
     folded = WORD_APOSTROPHE.sub("\u02bc", text)
-    quotations = (double or single for double, single in QUOTE.findall(folded))
+    quotations = (double or single or reversed_ for double, single, reversed_ in QUOTE.findall(folded))
     return [
         f"quotes {quoted!r}, which nobody said in this session."
         for quoted in quotations
@@ -320,7 +343,10 @@ def check_not_directed(text: str) -> list[str]:
     or switch off a security control. Those are things a screen can say and a session cannot produce on
     its own, so their presence is a reason to refuse the draft rather than to show it.
     """
-    found = DIRECTIVE.search(without_markers(text))
+    text = without_markers(text)
+    found = DIRECTIVE.search(text)
+    if found is None:
+        found = next((verb for verb in IMPERATIVE.finditer(text) if verb.group(1) is None), None)
     return [] if found is None else [f"reads as an instruction rather than a record: {found.group(0)!r}."]
 
 

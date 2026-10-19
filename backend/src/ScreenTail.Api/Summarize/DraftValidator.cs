@@ -30,6 +30,8 @@ public static class DraftValidator
     /// <summary><c>suggested_time_minutes</c> in <c>schema.json</c>: a day at most, and never negative.</summary>
     private const long MaxMinutes = 1440;
 
+    private static readonly Regex Invisible = Rule(DraftRules.Invisible);
+
     private static readonly Regex WordApostrophe = Rule(DraftRules.WordApostrophe);
 
     private static readonly Regex Quoted = Rule(DraftRules.Quoted);
@@ -65,6 +67,9 @@ public static class DraftValidator
     private static readonly Regex KeyShape = Rule(string.Join("|", DraftRules.KeyShapes));
 
     private static readonly Regex Directive = Rule(string.Join("|", DraftRules.Directive), RegexOptions.IgnoreCase);
+
+    /// <summary>See <see cref="DraftRules.Imperative"/>: a match whose first group did not take part is an instruction.</summary>
+    private static readonly Regex Imperative = Rule(DraftRules.Imperative, RegexOptions.IgnoreCase);
 
     private static Regex Rule(string pattern, RegexOptions options = RegexOptions.None) =>
         new(pattern, options | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
@@ -343,7 +348,9 @@ public static class DraftValidator
         {
             // A quoted sentence in a ticket note is a claim about what somebody said, and a customer may
             // read it. Paraphrase is fine; invented speech is not.
-            var quoted = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+            var quoted = match.Groups[1].Success ? match.Groups[1].Value
+                : match.Groups[2].Success ? match.Groups[2].Value
+                : match.Groups[3].Value;
             if (!spoken.Contains(Normalise(quoted), StringComparison.Ordinal))
             {
                 yield return $"{where} quotes '{Echoed(quoted)}', which nobody said.";
@@ -352,8 +359,11 @@ public static class DraftValidator
 
         // The markers are deliberate and stay. What must not appear is the thing one of them replaced.
         // Blanked rather than treated as the end of the walk, so "the password is [REDACTED] Winter2026"
-        // is still refused. checks.py blanks them the same way.
-        var withoutMarkers = DraftRules.RedactionMarkers.Aggregate(text, (current, marker) => current.Replace(marker, " ", StringComparison.Ordinal));
+        // is still refused. Invisible characters go first, so the rules read what a person sees.
+        // checks.py does both the same way.
+        var withoutMarkers = DraftRules.RedactionMarkers.Aggregate(
+            Invisible.Replace(text, ""),
+            (current, marker) => current.Replace(marker, " ", StringComparison.Ordinal));
 
         if (CarriesACredential(withoutMarkers))
         {
@@ -373,6 +383,10 @@ public static class DraftValidator
         if (Directive.Match(withoutMarkers) is { Success: true } directive)
         {
             yield return $"{where} reads as an instruction rather than a record: '{Echoed(directive.Value.Trim())}'.";
+        }
+        else if (Imperative.Matches(withoutMarkers).FirstOrDefault(verb => !verb.Groups[1].Success) is { } imperative)
+        {
+            yield return $"{where} reads as an instruction rather than a record: '{Echoed(imperative.Value.Trim())}'.";
         }
     }
 
@@ -417,12 +431,15 @@ public static class DraftValidator
     /// an ordinary word with a joining word behind it, the cue was still naming what the credential is
     /// for ("the password on the router is Winter2026") and the walk goes on. A credential written as
     /// two words is judged on the pair, because neither half of "Winter 2026" looks like a secret alone;
-    /// only when the first half has a letter in it, or "12 characters" would be a password.
+    /// only when the first half has a letter in it, or "12 characters" would be a password, and after a
+    /// PIN cue only once a joining word has been passed: "the passcode is Winter 2026" is a credential
+    /// and "the PIN pad 2041" is a pad with a number on it.
     /// </summary>
     /// <param name="digitsAlone">After a PIN or passcode cue, where four digits are the credential.</param>
     private static bool CredentialAfter(string text, int start, bool digitsAlone)
     {
         var at = start;
+        var skipped = false;
         for (var step = 0; step < MaxSteps; step++)
         {
             if (NextWord(text, at) is not { } word)
@@ -434,6 +451,7 @@ public static class DraftValidator
             if (Connectives.Contains(value))
             {
                 at = word.Start + word.Length;
+                skipped = true;
                 continue;
             }
 
@@ -444,10 +462,8 @@ public static class DraftValidator
 
             if (NextWord(text, word.Start + word.Length) is { } following)
             {
-                // A PIN is one word of digits, so after a PIN cue there is no pair to judge: "the PIN pad
-                // 2041" is a pad with a number on it.
                 var next = text.Substring(following.Start, following.Length);
-                if (!digitsAlone && value.Any(char.IsLetter) && SecretShaped.IsMatch(value + next))
+                if ((skipped || !digitsAlone) && value.Any(char.IsLetter) && SecretShaped.IsMatch(value + next))
                 {
                     return true;
                 }

@@ -22,11 +22,12 @@
     "[SECRET]",
     "[EMAIL]"
   ],
+  "invisible": "[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]",
   "word_apostrophe": "(?<=\\w)['’](?=\\w)",
-  "quoted": "[\"“„«「『]([^\"“”»」』]{4,})[\"“”»」』]|(?<!\\w)['‘‚‹]([^'‘’›]{4,})['‘’›](?!\\w)",
+  "quoted": "[\"“„«「『]([^\"“”»」』]{4,})[\"“”»」』]|(?<!\\w)['‘‚‹]([^'‘’›]{4,})['‘’›](?!\\w)|»([^«»\\n.!?]{4,}[.!?]?)«",
   "ssn": "\\b(?!000|666|9\\d\\d)\\d{3}[-. ](?!00)\\d{2}[-. ](?!0000)\\d{4}\\b",
   "ssn_cued": "\\b(?:ssn|social\\s?security(?:\\s?(?:number|no|#))?)\\b\\s*(?:is|was)?\\s*[:=#]?\\s*(?!000|666|9\\d\\d)\\d{3}(?!00)\\d{2}(?!0000)\\d{4}\\b",
-  "card_run": "\\b[0-9]+(?:[ .-][0-9]+)*\\b",
+  "card_run": "(?<![0-9])[0-9]+(?:[ \u00a0\u2007\u2009\u202f.-]{1,2}[0-9]+)*(?![0-9])",
   "credential_cue": "\\b(?:password|passphrase|passwd|pwd|pass(?=\\s{0,3}[:=])|(?:api|access|secret|private|auth|account|client|consumer|signing|encryption|master|app|maps)[ _-]?key|secret|token|bearer)\\b",
   "pin_cue": "\\b(?:pass\\s?code|pin(?:\\s?number)?)\\b",
   "connectives": [
@@ -93,7 +94,7 @@
     "(?:https?://|www\\.)\\S+",
     "\\b(?:Set-ExecutionPolicy|powershell|cmd\\.exe|regedit|curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|invoke-expression|iex|certutil|bitsadmin|mshta|rundll32)\\b",
     "\\b(?:disable|turn\\s+off|uninstall|remove)\\s+(?:the\\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\\b",
-    "(?:^|(?<=[.!?;:,(\\n]))\\s*(?:(?:[-*•]|\\d{1,3}[.)]|[a-z]\\))\\s*)?(?:(?:please|then|now|next|first|second|third|finally|lastly|also|just|so|and|simply|afterwards|after\\s+that|make\\s+sure\\s+to|be\\s+sure\\s+to|remember\\s+to|try\\s+to|go\\s+ahead\\s+and|once\\s+done|when\\s+done|if\\s+(?:needed|necessary|prompted|so|not)|when\\s+prompted|otherwise|instead|immediately)\\b,?\\s+)*(?:download|install|run|execute|disable|uninstall|delete)\\b\\s+\\S+",
-    "\\byou(?:['’ʼ](?:ll|d)|\\s+(?:should|must|will|would|may|might|can|could|ought\\s+to))?(?:\\s+(?:need|have|want)\\s+to)?\\s+(?:(?:just|also|then|now|first)\\s+)?(?:download|install|run|execute|disable|uninstall|delete)\\b"
-  ]
+    "\\byou(?:['’ʼ](?:ll|d|re|ve))?(?:\\s+(?!(?:download|install|run|execute|disable|uninstall|delete)\\b)[^\\s.!?;:,()]+){0,3}\\s+(?:download|install|run|execute|disable|uninstall|delete)\\b"
+  ],
+  "imperative": "((?:\\b(?:the|a|an|its|their|his|our|my|your|each|every|any)|(?:\\b(?:did|does|was|were|is|are|has|have|had|would|could|will|can|might|may)\\s+not|\\bcannot|\\b(?:did|does|was|were|is|are|has|have|had|would|could|ca|wo)n['’ʼ]t)(?:\\s+(?:have|be|been|yet|ever|even))?|\\b(?:did|does|was|were|had|has|have|been|being|will)(?:\\s+(?:never|already|also|only|still|just|first))?|\\b(?:failed|unable|refused|tried|attempted|managed|wanted|needed|began|started|continued|used|able|going|chose|decided|forgot|declined|offered|agreed|planned)\\s+to|\\b(?:asked|told|advised|instructed|reminded|encouraged|prompted|got|invited|urged|warned|taught|showed|helped|caused|wanted)(?:\\s+(?!(?:download|install|run|execute|disable|uninstall|delete)\\b)[^\\s.!?;:,()]+){0,3}\\s+to|\\b(?:helped|had|made|watched|saw)(?:\\s+(?!(?:download|install|run|execute|disable|uninstall|delete)\\b)[^\\s.!?;:,()]+){0,3})\\s+(?:download|install|run|execute|disable|uninstall|delete)\\b(?:\\s+(?:or|and|nor)\\s+(?:download|install|run|execute|disable|uninstall|delete)\\b)*)|\\b(?:download|install|run|execute|disable|uninstall|delete)\\b\\s+\\S+"
 }
