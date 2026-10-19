@@ -29,6 +29,8 @@ namespace ScreenTail.Api.Tests.Publish;
 /// </summary>
 public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
+    private static readonly JsonSerializerOptions Strict = new(JsonSerializerDefaults.Web) { UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow };
+
     [Fact]
     public async Task TheContractIsWhatPublishAccepts()
     {
@@ -94,10 +96,9 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         // Both directions: nothing in the contract is ignored by the bundle, and nothing the bundle
         // reads is missing from the contract. The note inside is the draft, whose own contract
         // (summarize-request.v1.json) holds it to its fields.
-        var strict = new JsonSerializerOptions(JsonSerializerDefaults.Web) { UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow };
         var request = JsonDocument.Parse(Contract("request")).RootElement;
 
-        _ = JsonSerializer.Deserialize<PublishResponse>(Contract("response"), strict);
+        _ = JsonSerializer.Deserialize<PublishResponse>(Contract("response"), Strict);
 
         Assert.Equal(WireNames<PublishBundle>(), request.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.Equal(WireNames<PublishFrame>(), request.GetProperty("frames")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));

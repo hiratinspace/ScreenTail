@@ -12,8 +12,8 @@ namespace ScreenTail.Api.Providers.Hudu;
 ///
 /// The tenant's key goes in the <c>x-api-key</c> header and never in a URL. Companies are paged at
 /// Hudu's 25 and cached ten minutes per tenant. An article is created as a draft under its company, and
-/// each attachment is uploaded against it afterwards, so a reviewer finds the screenshots on the article
-/// whether or not the body's image links resolve. A company Hudu does not have is refused before
+/// each attachment is uploaded against it afterwards, a few at a time, so a reviewer finds the
+/// screenshots on the article whether or not the body's image links resolve. A company Hudu does not have is refused before
 /// anything is sent: publishing to the wrong company is one customer's runbook in another's knowledge
 /// base.
 ///
@@ -127,22 +127,16 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
 
         var (id, url) = created.Value!;
 
-        var attached = 0;
-        foreach (var attachment in article.Attachments)
-        {
-            var upload = await SendAsync(() => Upload(id, attachment), ct).ConfigureAwait(false);
-            if (!upload.Ok)
-            {
-                return ProviderResult.Failure<PublishedArticle>(upload.Error! with
-                {
-                    What = $"The article was created as {id}, but attachment {attached + 1} of {article.Attachments.Count} {(upload.Error.Kind == ProviderErrorKind.Unknown ? "was not confirmed" : "was refused")}: {upload.Error.What}",
-                });
-            }
+        // The article exists from here on: a screenshot that does not attach is named, not a failure,
+        // because a failure is what Retry sends again and that would be a second article (S-69).
+        var missing = await AttachmentUploads.UploadAsync(
+            article.Attachments,
+            (attachment, token) => SendAsync(() => Upload(id, attachment), token),
+            $"The article was published as {id}",
+            "The article stays as it is; add the missing screenshots to it by hand rather than publishing it again.",
+            ct).ConfigureAwait(false);
 
-            attached++;
-        }
-
-        return ProviderResult.Success(new PublishedArticle(id, url));
+        return ProviderResult.Success(new PublishedArticle(id, url, missing));
     }
 
     /// <summary>
@@ -173,7 +167,7 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
             { new StringContent("Article"), "uploadable_type" },
             { new StringContent(articleId), "uploadable_id" },
         };
-        var file = new ByteArrayContent(attachment.Bytes.ToArray());
+        var file = new ReadOnlyMemoryContent(attachment.Bytes);
         file.Headers.ContentType = new MediaTypeHeaderValue(attachment.ContentType);
         form.Add(file, "file", attachment.FileName);
         return Prepare(new HttpRequestMessage(HttpMethod.Post, "api/v1/uploads") { Content = form });

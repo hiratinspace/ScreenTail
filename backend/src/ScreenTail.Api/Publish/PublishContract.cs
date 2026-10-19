@@ -58,7 +58,13 @@ public sealed record PublishBundle
     public IReadOnlyList<PublishFrame> Frames { get; init; } = [];
 }
 
-/// <param name="Kind">The provider's error kind, lower case, or <c>not_configured</c>; null when it went.</param>
+/// <param name="Ok">It is there. True for <c>partial</c> too, because Retry sends everything that is not ok.</param>
+/// <param name="Kind">
+/// The provider's error kind, lower case, or <c>not_configured</c>, <c>needs_mapping</c> or <c>timed_out</c>
+/// (had not answered by the deadline, so it may have landed); <c>partial</c> when it landed and a
+/// screenshot did not; null when it all went.
+/// </param>
+/// <param name="Error">Why not, or for <c>partial</c>, what is missing.</param>
 public sealed record PublishResultJson(
     [property: JsonPropertyName("destination")] string Destination,
     [property: JsonPropertyName("ok")] bool Ok,

@@ -201,7 +201,10 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.Contains("1 of 3 screenshots", result.Value!.Incomplete!.What, StringComparison.Ordinal);
         Assert.Contains("screenshot-2.jpg", result.Value.Incomplete.What, StringComparison.Ordinal);
         Assert.DoesNotContain("screenshot-1.jpg", result.Value.Incomplete.What, StringComparison.Ordinal);
-        Assert.Equal(3, _api.Requests.Count(r => r.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)));
+        var reached = _api.Bodies.Where((_, i) => _api.Requests[i].RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, reached.Count);
+        Assert.Contains(reached, b => b!.Contains("screenshot-1.jpg", StringComparison.Ordinal));
+        Assert.Contains(reached, b => b!.Contains("screenshot-3.jpg", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -285,7 +288,7 @@ public sealed class ConnectWiseProviderTests : IDisposable
         // ST-094 AC1: 30 min → a 0.5 h entry with the note as description.
         var start = new DateTimeOffset(2026, 9, 24, 14, 2, 0, TimeSpan.Zero);
 
-        var result = await Provider().AddTimeEntryAsync(new TimeEntry("48213", start, 30, "Fixed the spooler.", Billable: true), TestContext.Current.CancellationToken);
+        var result = await Provider().AddTimeEntryAsync(new TimeEntry("48213", start, 30, "Fixed the spooler.", Billable: true, Internal: false), TestContext.Current.CancellationToken);
 
         Assert.True(result.Ok);
         Assert.Equal("70001", result.Value!.Id);

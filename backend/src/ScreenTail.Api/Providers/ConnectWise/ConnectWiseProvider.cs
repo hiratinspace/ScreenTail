@@ -33,7 +33,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
     /// <summary>How many screenshots go up at the same time.</summary>
-    public const int AttachmentsAtOnce = 4;
+    public const int AttachmentsAtOnce = AttachmentUploads.AtOnce;
 
     public string Name => "connectwise";
 
@@ -118,9 +118,11 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     }
 
     /// <summary>
-    /// The note, then its attachments as documents on the ticket. An attachment that fails after the
-    /// note landed is reported with the note's id in the message, because a retry that posts the note
-    /// again is the duplicate ST-094 forbids; ST-093 owns attaching to a note that already exists.
+    /// The note, then its attachments as documents on the ticket, private when the note is internal.
+    /// Once the note has landed it is a success, with its id, whatever happens to the screenshots: one
+    /// that did not attach is named in <see cref="PublishedNote.Incomplete"/>, because a failure is what
+    /// Retry sends again and a second note is the duplicate ST-094 forbids. ST-093 owns attaching to a
+    /// note that already exists.
     /// </summary>
     public async Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
     {
@@ -139,25 +141,23 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         }
 
         var id = posted.Value!;
-        var attached = 0;
-        foreach (var attachment in note.Attachments)
-        {
-            var document = await SendAsync(() => Document(note.TicketId, attachment), ct).ConfigureAwait(false);
-            if (!document.Ok)
-            {
-                return ProviderResult.Failure<PublishedNote>(document.Error! with
-                {
-                    What = $"The note was published as {id}, but attachment {attached + 1} of {note.Attachments.Count} {(document.Error.Kind == ProviderErrorKind.Unknown ? "was not confirmed" : "was refused")}: {document.Error.What}",
-                });
-            }
+        var missing = await AttachmentUploads.UploadAsync(
+            note.Attachments,
+            (attachment, token) => SendAsync(() => Document(note.TicketId, attachment, note.Internal), token),
+            $"The note was published as {id}",
+            "The note stays as it is; add the missing screenshots to the ticket by hand rather than publishing the note again.",
+            ct).ConfigureAwait(false);
 
-            attached++;
-        }
-
-        return ProviderResult.Success(new PublishedNote(id, null));
+        return ProviderResult.Success(new PublishedNote(id, null, missing));
     }
 
-    /// <summary>ST-094: minutes become a start and an end on the ticket, with the note as the description.</summary>
+    /// <summary>
+    /// ST-094: minutes become a start and an end on the ticket, with the note as the description. The
+    /// description of a time entry can reach the customer, on an invoice or in the portal, so an internal
+    /// note's text goes in the internal notes instead (2026-10-12 review, S-83). Nothing is copied onto
+    /// the ticket as another note, because the note destination already put it there, and nobody is
+    /// emailed, because the note itself does not email either.
+    /// </summary>
     public async Task<ProviderResult<PublishedNote>> AddTimeEntryAsync(TimeEntry entry, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -184,8 +184,15 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             chargeToType = "ServiceTicket",
             timeStart = start.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
             timeEnd = start.AddMinutes(entry.Minutes).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-            notes = entry.Notes,
+            notes = entry.Internal ? null : entry.Notes,
+            internalNotes = entry.Internal ? entry.Notes : null,
             billableOption = entry.Billable ? "Billable" : "DoNotBill",
+            addToDetailDescriptionFlag = false,
+            addToInternalAnalysisFlag = false,
+            addToResolutionFlag = false,
+            emailResourceFlag = false,
+            emailContactFlag = false,
+            emailCcFlag = false,
         };
         var posted = ProviderHttp.Read(await SendAsync(() => Post("time/entries", body), ct).ConfigureAwait(false), ProviderHttp.Id, "ConnectWise", written: true);
         return posted.Ok
@@ -198,15 +205,21 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     private HttpRequestMessage Post(string route, object body) =>
         Prepare(new HttpRequestMessage(HttpMethod.Post, route) { Content = JsonContent.Create(body, options: Wire) });
 
-    private HttpRequestMessage Document(string ticketId, NoteAttachment attachment)
+    /// <summary>
+    /// One screenshot as a document on the ticket. <c>privateFlag</c> follows the note type, so an internal
+    /// note's screenshots are not left to the board's default for portal visibility (S-163). The bytes
+    /// are sent from the buffer they were decoded into, not copied for each upload.
+    /// </summary>
+    private HttpRequestMessage Document(string ticketId, NoteAttachment attachment, bool isPrivate)
     {
         var form = new MultipartFormDataContent
         {
             { new StringContent("Ticket"), "recordType" },
             { new StringContent(ticketId), "recordId" },
             { new StringContent(attachment.FileName), "title" },
+            { new StringContent(isPrivate ? "true" : "false"), "privateFlag" },
         };
-        var file = new ByteArrayContent(attachment.Bytes.ToArray());
+        var file = new ReadOnlyMemoryContent(attachment.Bytes);
         file.Headers.ContentType = new MediaTypeHeaderValue(attachment.ContentType);
         form.Add(file, "file", attachment.FileName);
         return Prepare(new HttpRequestMessage(HttpMethod.Post, "system/documents") { Content = form });
