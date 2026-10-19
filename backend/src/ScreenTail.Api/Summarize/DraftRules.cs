@@ -34,10 +34,14 @@ internal static class DraftRules
     /// is the same fabrication, and a model writing prose reaches for curly ones more often than not.
     /// A single quote opens only where no word ends and closes only where no word begins, which is what
     /// keeps "the users' printers and the admins' laptops" from reading as a quotation.
+    ///
+    /// The low-9 quotes German and Polish write, single guillemets and corner brackets count as well
+    /// (2026-10-12 review, second round). A closing guillemet does not open a quotation, so a menu path
+    /// written "File » Save As » PDF" is not one.
     /// </summary>
     public const string Quoted =
-        "[\"\u201c\u00ab]([^\"\u201d\u00bb]{4,})[\"\u201d\u00bb]"
-        + "|(?<!\\w)['\u2018]([^'\u2019]{4,})['\u2019](?!\\w)";
+        "[\"\u201c\u201e\u00ab\u300c\u300e]([^\"\u201c\u201d\u00bb\u300d\u300f]{4,})[\"\u201c\u201d\u00bb\u300d\u300f]"
+        + "|(?<!\\w)['\u2018\u201a\u2039]([^'\u2018\u2019\u203a]{4,})['\u2018\u2019\u203a](?!\\w)";
 
     /// <summary>Separated by hyphens, spaces or dots, as the client's pattern library masks them.</summary>
     public const string Ssn = @"\b(?!000|666|9\d\d)\d{3}[-. ](?!00)\d{2}[-. ](?!0000)\d{4}\b";
@@ -49,6 +53,16 @@ internal static class DraftRules
     public const string SsnCued =
         @"\b(?:ssn|social\s?security(?:\s?(?:number|no|#))?)\b\s*(?:is|was)?\s*[:=#]?\s*"
         + @"(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b";
+
+    /// <summary>
+    /// A place a card number can be: digits, in groups of any length joined by a space, a hyphen or a dot.
+    ///
+    /// A place to look, not the candidate. The card inside it is found by trying every window of whole
+    /// groups, as the client's pattern library does, because a CVV or an expiry beside the card arrives
+    /// in the same run and the run as a whole fails the checksum (2026-10-12 review, second round).
+    /// ASCII digits only, so both validators and the checksum read the same characters.
+    /// </summary>
+    public const string CardRun = @"\b[0-9]+(?:[ .-][0-9]+)*\b";
 
     /// <summary>
     /// A credential's cue word, and only that.
@@ -132,12 +146,29 @@ internal static class DraftRules
     private const string Verbs = "download|install|run|execute|disable|uninstall|delete";
 
     /// <summary>
+    /// Words that put an imperative off by a word or two without making it anything else, and short
+    /// openers that often stand before one with no comma ("Once done run ...", "If prompted disable ...").
+    /// </summary>
+    private const string Introducing =
+        @"please|then|now|next|first|second|third|finally|lastly|also|just|so|and|simply|afterwards"
+        + @"|after\s+that|make\s+sure\s+to|be\s+sure\s+to|remember\s+to|try\s+to|go\s+ahead\s+and"
+        + @"|once\s+done|when\s+done|if\s+(?:needed|necessary|prompted|so|not)|when\s+prompted|otherwise|instead|immediately";
+
+    /// <summary>
     /// A note is a record, not an instruction (prompt rule 5a). A web address, a command line, or a
     /// direction to install, run, download or disable something.
     ///
-    /// A direction is a verb in the imperative: at the start of a sentence or a bullet, or addressed to
-    /// "you". The verb anywhere at all used to count, so "the backup did not run overnight" and "asked
-    /// the user to install the driver" were refused as instructions (2026-10-12 review).
+    /// A direction is a verb in the imperative. The verb anywhere at all used to count, so "the backup
+    /// did not run overnight" and "asked the user to install the driver" were refused as instructions
+    /// (2026-10-12 review). What counts now is the verb where an imperative stands: at the start of a
+    /// sentence, a clause (after a comma, a colon or a bracket) or a bulleted, numbered or lettered
+    /// item, perhaps after an introducing word with or without a comma ("Next, install"); or addressed
+    /// to "you", with or without a modal ("you will need to run", "you'll need to install").
+    ///
+    /// Clauses and introducing words are there because the first version of this rule counted only a
+    /// sentence's first word and let "If it fails, disable the service" through, which main refused.
+    /// This is a security rule, so where a phrasing could be either, it is read as an instruction: a
+    /// list such as "checked the logs, run history and services" is refused and costs a repair.
     /// </summary>
     public static readonly IReadOnlyList<string> Directive =
     [
@@ -145,9 +176,10 @@ internal static class DraftRules
         @"\b(?:Set-ExecutionPolicy|powershell|cmd\.exe|regedit|curl|wget|iwr|irm|invoke-webrequest"
             + @"|invoke-restmethod|invoke-expression|iex|certutil|bitsadmin|mshta|rundll32)\b",
         @"\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
-        @"(?:^|(?<=[.!?;:\n]))\s*(?:[-*" + "\u2022" + @"]\s*)?(?:(?:please|then|now|next|first|finally|also)\s+)?"
+        @"(?:^|(?<=[.!?;:,(\n]))\s*(?:(?:[-*" + "\u2022" + @"]|\d{1,3}[.)]|[a-z]\))\s*)?(?:(?:" + Introducing + @")\b,?\s+)*"
             + "(?:" + Verbs + @")\b\s+\S+",
-        @"\byou\s+(?:should|must|need\s+to|have\s+to|can)\s+(?:" + Verbs + @")\b",
+        @"\byou(?:['" + "\u2019\u02bc" + @"](?:ll|d)|\s+(?:should|must|will|would|may|might|can|could|ought\s+to))?"
+            + @"(?:\s+(?:need|have|want)\s+to)?\s+(?:(?:just|also|then|now|first)\s+)?(?:" + Verbs + @")\b",
     ];
 
     /// <summary>Every value above, under the name <c>shared-rules.json</c> gives it.</summary>
@@ -158,6 +190,7 @@ internal static class DraftRules
         ["quoted"] = [Quoted],
         ["ssn"] = [Ssn],
         ["ssn_cued"] = [SsnCued],
+        ["card_run"] = [CardRun],
         ["credential_cue"] = [CredentialCue],
         ["pin_cue"] = [PinCue],
         ["connectives"] = Connectives,

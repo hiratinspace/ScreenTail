@@ -524,6 +524,21 @@
       "text": "Went to Settings › Accounts › Email to check the profile.",
       "refuse": false,
       "why": "Likewise with single guillemets."
+    },
+    {
+      "text": "Once done run setup.exe on the other machines.",
+      "refuse": true,
+      "why": "An imperative after a short opener with no comma."
+    },
+    {
+      "text": "If prompted disable the print service.",
+      "refuse": true,
+      "why": "Likewise, 'If prompted'."
+    },
+    {
+      "text": "The user will run the update tonight.",
+      "refuse": false,
+      "why": "What somebody will do is a record, not an instruction to the reader."
     }
   ],
   "transcript": [

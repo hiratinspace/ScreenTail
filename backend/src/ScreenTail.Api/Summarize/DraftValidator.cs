@@ -38,8 +38,15 @@ public static class DraftValidator
 
     private static readonly Regex SsnCued = Rule(DraftRules.SsnCued, RegexOptions.IgnoreCase);
 
-    /// <summary>Spaces, hyphens or dots between the digits, as the client's pattern library reads a card.</summary>
-    private static readonly Regex LongDigits = Rule(@"\b(?:\d[ .-]?){13,19}\b");
+    /// <summary>Where a card can be. See <see cref="CarriesACard"/> for how one is found inside it.</summary>
+    private static readonly Regex CardRun = Rule(DraftRules.CardRun);
+
+    private static readonly Regex DigitGroup = Rule("[0-9]+");
+
+    /// <summary>How many digits a payment card has.</summary>
+    private const int MinCardDigits = 13;
+
+    private const int MaxCardDigits = 19;
 
     /// <summary><see cref="CarriesACredential"/> walks from these. The same walk is in <c>research/prompts/checks.py</c>.</summary>
     private static readonly Regex CredentialCue = Rule(DraftRules.CredentialCue, RegexOptions.IgnoreCase);
@@ -47,8 +54,6 @@ public static class DraftValidator
     private static readonly Regex PinCue = Rule(DraftRules.PinCue, RegexOptions.IgnoreCase);
 
     private static readonly HashSet<string> Connectives = new(DraftRules.Connectives, StringComparer.OrdinalIgnoreCase);
-
-    private static readonly HashSet<string> Markers = new(DraftRules.RedactionMarkers, StringComparer.Ordinal);
 
     /// <summary>How far past a cue to look before giving up on finding a credential.</summary>
     private const int MaxSteps = 6;
@@ -346,6 +351,8 @@ public static class DraftValidator
         }
 
         // The markers are deliberate and stay. What must not appear is the thing one of them replaced.
+        // Blanked rather than treated as the end of the walk, so "the password is [REDACTED] Winter2026"
+        // is still refused. checks.py blanks them the same way.
         var withoutMarkers = DraftRules.RedactionMarkers.Aggregate(text, (current, marker) => current.Replace(marker, " ", StringComparison.Ordinal));
 
         if (CarriesACredential(withoutMarkers))
@@ -358,7 +365,7 @@ public static class DraftValidator
             yield return $"{where} contains something shaped like a social security number.";
         }
 
-        if (LongDigits.IsMatch(withoutMarkers) && Luhn(withoutMarkers))
+        if (CarriesACard(withoutMarkers))
         {
             yield return $"{where} contains something shaped like a card number.";
         }
@@ -430,13 +437,6 @@ public static class DraftValidator
                 continue;
             }
 
-            // The redaction engine's own marker. Finding one means the rules upstream worked. Only the
-            // exact markers: any bracket used to count, so "[Winter2026!]" went through (2026-10-12).
-            if (Markers.Contains(value))
-            {
-                return false;
-            }
-
             if (SecretShaped.IsMatch(value) || (digitsAlone && PinShaped.IsMatch(value)))
             {
                 return true;
@@ -444,8 +444,10 @@ public static class DraftValidator
 
             if (NextWord(text, word.Start + word.Length) is { } following)
             {
+                // A PIN is one word of digits, so after a PIN cue there is no pair to judge: "the PIN pad
+                // 2041" is a pad with a number on it.
                 var next = text.Substring(following.Start, following.Length);
-                if (value.Any(char.IsLetter) && SecretShaped.IsMatch(value + next))
+                if (!digitsAlone && value.Any(char.IsLetter) && SecretShaped.IsMatch(value + next))
                 {
                     return true;
                 }
@@ -498,39 +500,80 @@ public static class DraftValidator
         !char.IsWhiteSpace(c) && c is not (',' or '.' or ';' or '!' or '?' or ':' or '=' or '"' or '\'');
 
     /// <summary>
-    /// Whether any long run of digits passes the card checksum.
+    /// Whether a card number is in this text: a run of digit groups that passes the card checksum, or a
+    /// window of whole groups inside one that does.
     ///
-    /// Without it every order number and serial in a session is a false positive, and a validator that
-    /// cries wolf is one somebody turns off.
+    /// The checksum is what keeps every order number and serial from being a false positive, and a
+    /// validator that cries wolf is one somebody turns off. Windows are what keep a card with its CVV
+    /// beside it from being read as one longer number that fails the checksum and goes through. That is
+    /// how the client's pattern library reads a card, and the same window rule: whole groups, 13 to 19
+    /// digits, starting with 2 to 6, the digits payment cards start with. <c>checks.py</c> does the same.
     /// </summary>
-    private static bool Luhn(string text)
+    private static bool CarriesACard(string text)
     {
-        foreach (Match match in LongDigits.Matches(text))
+        foreach (Match run in CardRun.Matches(text))
         {
-            var digits = match.Value.Where(char.IsDigit).Select(c => c - '0').Reverse().ToArray();
-            var total = 0;
-            for (var i = 0; i < digits.Length; i++)
-            {
-                var digit = digits[i];
-                if (i % 2 == 1)
-                {
-                    digit *= 2;
-                    if (digit > 9)
-                    {
-                        digit -= 9;
-                    }
-                }
-
-                total += digit;
-            }
-
-            if (digits.Length >= 13 && total % 10 == 0)
+            if (PassesLuhn(run.ValueSpan))
             {
                 return true;
+            }
+
+            var groups = DigitGroup.Matches(run.Value);
+            for (var first = 0; first < groups.Count; first++)
+            {
+                if (groups[first].Value[0] is < '2' or > '6')
+                {
+                    continue;
+                }
+
+                var digits = 0;
+                for (var last = first; last < groups.Count; last++)
+                {
+                    digits += groups[last].Length;
+                    if (digits > MaxCardDigits)
+                    {
+                        break;
+                    }
+
+                    var end = groups[last].Index + groups[last].Length;
+                    if (digits >= MinCardDigits && PassesLuhn(run.ValueSpan[groups[first].Index..end]))
+                    {
+                        return true;
+                    }
+                }
             }
         }
 
         return false;
+    }
+
+    /// <summary>The card checksum over the digits of a candidate, which has to have a card's length.</summary>
+    private static bool PassesLuhn(ReadOnlySpan<char> candidate)
+    {
+        var total = 0;
+        var digits = 0;
+        for (var i = candidate.Length - 1; i >= 0; i--)
+        {
+            if (!char.IsAsciiDigit(candidate[i]))
+            {
+                continue;
+            }
+
+            var digit = candidate[i] - '0';
+            if (digits % 2 == 1)
+            {
+                digit *= 2;
+                if (digit > 9)
+                {
+                    digit -= 9;
+                }
+            }
+
+            total += digit;
+            digits++;
+        }
+
+        return digits is >= MinCardDigits and <= MaxCardDigits && total % 10 == 0;
     }
 
     /// <summary>

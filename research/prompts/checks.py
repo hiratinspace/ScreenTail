@@ -33,7 +33,9 @@ SOURCES = {"cloud", "local"}
 MAX_MINUTES = 1440
 
 # The redaction engine's own markers. "the password is [REDACTED]" is the redaction working; any other
-# bracket is something the model wrote, and "[Winter2026!]" used to count as a marker.
+# bracket is something the model wrote, and "[Winter2026!]" used to count as a marker. They are blanked
+# before the secret and instruction rules run, as DraftValidator.cs blanks them, so a secret written
+# after one is still found: the walk used to stop at the marker and let it through.
 REDACTION_MARKERS = set(RULES["redaction_markers"])
 
 # Quoted phrases must be real quotations from the transcript. Every pair of marks a model might reach
@@ -47,7 +49,13 @@ SSN = re.compile(RULES["ssn"])
 # An unformatted nine-digit run is only an SSN where something says so. Nine digits on their own are an
 # order or part number far more often, and masking every one of them would be its own kind of wrong.
 SSN_CUED = re.compile(RULES["ssn_cued"], re.IGNORECASE)
-CARD_CANDIDATE = re.compile(r"\b(?:\d{13,19}|\d{3,6}(?:[ .-]\d{3,6}){2,4})\b")
+
+# Where a card can be: digit groups of any length joined by a space, a hyphen or a dot. The card inside a
+# run is found by trying windows of whole groups, as the client's pattern library does, because a CVV
+# beside the card arrives in the same run and the run as a whole fails the checksum.
+CARD_RUN = re.compile(RULES["card_run"])
+DIGIT_GROUP = re.compile(r"[0-9]+")
+CARD_DIGITS = range(13, 20)
 
 # Only the cue. Where the credential sits after it is a question about how somebody writes or speaks,
 # and a single regular expression answered it by assuming they are adjacent: "the password is, uh,
@@ -118,17 +126,18 @@ def credential_after(text, start, digits_alone=False):
             at = word.end()
             continue
 
-        # The redaction engine's own marker. Finding one means the rules upstream worked. Only the exact
-        # markers: any bracket used to count.
-        if value in REDACTION_MARKERS:
-            return False
-
         if SECRET_SHAPED.match(value) or (digits_alone and PIN_SHAPED.match(value)):
             return True
 
         following = next_word(text, word.end())
         if following is not None:
-            if any(c.isalpha() for c in value) and SECRET_SHAPED.match(value + following.group()):
+            # A PIN is one word of digits, so after a PIN cue there is no pair to judge: "the PIN pad 2041"
+            # is a pad with a number on it.
+            if (
+                not digits_alone
+                and any(c.isalpha() for c in value)
+                and SECRET_SHAPED.match(value + following.group())
+            ):
                 return True
             if following.group().lower() in CONNECTIVES:
                 at = word.end()
@@ -148,8 +157,8 @@ def prompt_version() -> str:
 
 
 def passes_luhn(candidate: str) -> bool:
-    digits = [int(c) for c in candidate if c.isdigit()]
-    if not 13 <= len(digits) <= 19:
+    digits = [int(c) for c in candidate if "0" <= c <= "9"]
+    if len(digits) not in CARD_DIGITS:
         return False
     total = 0
     for index, digit in enumerate(reversed(digits)):
@@ -159,6 +168,36 @@ def passes_luhn(candidate: str) -> bool:
                 digit -= 9
         total += digit
     return total % 10 == 0
+
+
+def carries_a_card(text: str) -> bool:
+    """A run of digit groups that passes the checksum, or a window of whole groups inside one that does.
+
+    Windows have 13 to 19 digits and start with 2 to 6, the digits payment cards start with, which is
+    the client's rule and the one DraftValidator.cs uses.
+    """
+    for run in CARD_RUN.finditer(text):
+        if passes_luhn(run.group()):
+            return True
+        groups = list(DIGIT_GROUP.finditer(run.group()))
+        for first, group in enumerate(groups):
+            if not "2" <= group.group()[0] <= "6":
+                continue
+            digits = 0
+            for last in groups[first:]:
+                digits += len(last.group())
+                if digits > CARD_DIGITS[-1]:
+                    break
+                if digits in CARD_DIGITS and passes_luhn(run.group()[group.start() : last.end()]):
+                    return True
+    return False
+
+
+def without_markers(text: str) -> str:
+    """The text with each redaction marker blanked, as the secret and instruction rules read it."""
+    for marker in REDACTION_MARKERS:
+        text = text.replace(marker, " ")
+    return text
 
 
 def normalise(text: str) -> str:
@@ -281,16 +320,17 @@ def check_not_directed(text: str) -> list[str]:
     or switch off a security control. Those are things a screen can say and a session cannot produce on
     its own, so their presence is a reason to refuse the draft rather than to show it.
     """
-    found = DIRECTIVE.search(text)
+    found = DIRECTIVE.search(without_markers(text))
     return [] if found is None else [f"reads as an instruction rather than a record: {found.group(0)!r}."]
 
 
 def check_no_secrets(text: str) -> list[str]:
     """Rule 5's backstop. Redaction happens upstream; a model must never put a secret back."""
     reasons = []
+    text = without_markers(text)
     if SSN.search(text) or SSN_CUED.search(text):
         reasons.append("contains something shaped like an SSN.")
-    if any(passes_luhn(match) for match in CARD_CANDIDATE.findall(text)):
+    if carries_a_card(text):
         reasons.append("contains something shaped like a card number.")
     if KEY_SHAPE.search(text):
         reasons.append("contains something shaped like a key or token.")

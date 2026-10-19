@@ -23,7 +23,7 @@
     "[EMAIL]"
   ],
   "word_apostrophe": "(?<=\\w)['’](?=\\w)",
-  "quoted": "[\"“«]([^\"”»]{4,})[\"”»]|(?<!\\w)['‘]([^'’]{4,})['’](?!\\w)",
+  "quoted": "[\"“„«「『]([^\"“”»」』]{4,})[\"“”»」』]|(?<!\\w)['‘‚‹]([^'‘’›]{4,})['‘’›](?!\\w)",
   "ssn": "\\b(?!000|666|9\\d\\d)\\d{3}[-. ](?!00)\\d{2}[-. ](?!0000)\\d{4}\\b",
   "ssn_cued": "\\b(?:ssn|social\\s?security(?:\\s?(?:number|no|#))?)\\b\\s*(?:is|was)?\\s*[:=#]?\\s*(?!000|666|9\\d\\d)\\d{3}(?!00)\\d{2}(?!0000)\\d{4}\\b",
   "card_run": "\\b[0-9]+(?:[ .-][0-9]+)*\\b",
@@ -93,7 +93,7 @@
     "(?:https?://|www\\.)\\S+",
     "\\b(?:Set-ExecutionPolicy|powershell|cmd\\.exe|regedit|curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|invoke-expression|iex|certutil|bitsadmin|mshta|rundll32)\\b",
     "\\b(?:disable|turn\\s+off|uninstall|remove)\\s+(?:the\\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\\b",
-    "(?:^|(?<=[.!?;:\\n]))\\s*(?:[-*•]\\s*)?(?:(?:please|then|now|next|first|finally|also)\\s+)?(?:download|install|run|execute|disable|uninstall|delete)\\b\\s+\\S+",
-    "\\byou\\s+(?:should|must|need\\s+to|have\\s+to|can)\\s+(?:download|install|run|execute|disable|uninstall|delete)\\b"
+    "(?:^|(?<=[.!?;:,(\\n]))\\s*(?:(?:[-*•]|\\d{1,3}[.)]|[a-z]\\))\\s*)?(?:(?:please|then|now|next|first|second|third|finally|lastly|also|just|so|and|simply|afterwards|after\\s+that|make\\s+sure\\s+to|be\\s+sure\\s+to|remember\\s+to|try\\s+to|go\\s+ahead\\s+and|once\\s+done|when\\s+done|if\\s+(?:needed|necessary|prompted|so|not)|when\\s+prompted|otherwise|instead|immediately)\\b,?\\s+)*(?:download|install|run|execute|disable|uninstall|delete)\\b\\s+\\S+",
+    "\\byou(?:['’ʼ](?:ll|d)|\\s+(?:should|must|will|would|may|might|can|could|ought\\s+to))?(?:\\s+(?:need|have|want)\\s+to)?\\s+(?:(?:just|also|then|now|first)\\s+)?(?:download|install|run|execute|disable|uninstall|delete)\\b"
   ]
 }
