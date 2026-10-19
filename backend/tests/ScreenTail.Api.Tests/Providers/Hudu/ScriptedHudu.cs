@@ -52,6 +52,12 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     /// <summary>One route fails with this status while set: the article is created and an upload is refused.</summary>
     public (string PathSuffix, HttpStatusCode Status)? FailingRoute { get; set; }
 
+    /// <summary>Requests to a path ending in this are never answered: they wait until the caller gives up.</summary>
+    public string? HangingRoute { get; set; }
+
+    /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns.</summary>
+    public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -83,12 +89,22 @@ internal sealed class ScriptedHudu : HttpMessageHandler
             }
         }
 
+        var path = request.RequestUri!.AbsolutePath;
+        if (HangingRoute is { } hanging && path.EndsWith(hanging, StringComparison.Ordinal))
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
         if (Failing is { } status)
         {
             return new HttpResponseMessage(status) { Content = JsonContent.Create(new { error = "The script said no" }, options: Json) };
         }
 
-        var path = request.RequestUri!.AbsolutePath;
+        if (UnreadableRoute is { } unreadable && path.EndsWith(unreadable.PathSuffix, StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(unreadable.Body) };
+        }
+
         if (FailingRoute is { } route && path.EndsWith(route.PathSuffix, StringComparison.Ordinal))
         {
             return new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { error = "The script said no" }, options: Json) };

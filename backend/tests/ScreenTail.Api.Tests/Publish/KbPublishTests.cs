@@ -169,6 +169,71 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task ADeadlineBeforeTheArticleWasSentSaysNothingWasWritten()
+    {
+        // The publish ran out of time while it was still looking up the company. No article was asked
+        // for, so the answer says nothing was written and the article may simply be published again,
+        // rather than telling the technician to go and look for one that cannot exist.
+        var hudu = new ScriptedHudu { HangingRoute = "/api/v1/companies" };
+        using var host = Host(new ScriptedConnectWise(), hudu, publish => publish.Deadline = TimeSpan.FromMilliseconds(500));
+        var (client, _) = await ConnectedClientAsync(host);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var kb = Assert.Single(published!.Results);
+        Assert.False(kb.Ok);
+        Assert.Equal("unavailable", kb.Kind);
+        Assert.True(kb.Retryable);
+        Assert.Contains("nothing was written", kb.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("may already", kb.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ACompanyListThatCannotBeReadWritesNothingAndTheNoteStillGoes()
+    {
+        // Hudu answered the company lookup with something that is not a list. Nothing was written, so
+        // the article may be published again, and the note beside it is answered with its id.
+        var hudu = new ScriptedHudu { UnreadableRoute = ("/api/v1/companies", "<html>Maintenance</html>") };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental") with { Destinations = ["ticket_note", "kb_article"] }, TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("90001", published!.Results.Single(r => r.Destination == "ticket_note").Id);
+        var kb = published.Results.Single(r => r.Destination == "kb_article");
+        Assert.False(kb.Ok);
+        Assert.Equal("unavailable", kb.Kind);
+        Assert.True(kb.Retryable);
+        Assert.Contains("nothing was written", kb.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnArticleWhoseAnswerCannotBeReadIsNotSentAgain()
+    {
+        // The article was asked for and Hudu's answer cannot be read, so it may exist. Not retryable,
+        // and the words say to look first: a second article is the duplicate ST-094 forbids.
+        var hudu = new ScriptedHudu { UnreadableRoute = ("/api/v1/articles", string.Empty) };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var kb = Assert.Single(published!.Results);
+        Assert.False(kb.Ok);
+        Assert.Equal("unconfirmed", kb.Kind);
+        Assert.False(kb.Retryable);
+        Assert.Contains("may already be written", kb.Error, StringComparison.Ordinal);
+        Assert.Single(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ARevokedDeviceCannotReadOrChangeCompanyMappings()
     {
         var hudu = new ScriptedHudu();
@@ -222,13 +287,17 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
 
     private static PublishFrame Frame(string id) => new(id, "/9j/4AAQSkZJRg==", "image/jpeg");
 
-    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(ScriptedConnectWise cw, ScriptedHudu hudu) => api.WithWebHostBuilder(builder =>
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(ScriptedConnectWise cw, ScriptedHudu hudu, Action<PublishOptions>? publish = null) => api.WithWebHostBuilder(builder =>
     {
         _ = builder.UseSetting("ConnectWise:ClientId", "11111111-2222-3333-4444-555555555555");
         _ = builder.ConfigureTestServices(services =>
         {
             services.Configure<HttpClientFactoryOptions>(nameof(ConnectWiseProvider), options => options.HttpMessageHandlerBuilderActions.Add(handler => handler.PrimaryHandler = cw));
             services.Configure<HttpClientFactoryOptions>(nameof(HuduProvider), options => options.HttpMessageHandlerBuilderActions.Add(handler => handler.PrimaryHandler = hudu));
+            if (publish is not null)
+            {
+                services.Configure(publish);
+            }
         });
     });
 

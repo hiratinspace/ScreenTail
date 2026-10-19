@@ -52,6 +52,27 @@ public sealed class PsaGatewayTests
     }
 
     [Fact]
+    public async Task ADestinationThatMayHaveLandedComesThroughAsNotRetryable()
+    {
+        // The contract's two answers for a destination that was sent and never confirmed: the deadline
+        // came first, or the PSA's answer could not be read. Each is not ok, has no id, and is not
+        // retryable, and its words (which say to check the ticket first) reach the technician unchanged.
+        using var handler = new RecordingHandler(Json(JsonDocument.Parse(Contract("response_uncertain")).RootElement));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.True(answer.Ok);
+        Assert.Equal(["unconfirmed", "timed_out"], answer.Value!.Select(r => r.Kind));
+        Assert.All(answer.Value, r =>
+        {
+            Assert.False(r.Ok);
+            Assert.Null(r.Id);
+            Assert.False(r.Retryable);
+            Assert.Contains("Check the ticket before you publish", r.Error, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public async Task ASearchAsksWithTheQueryAndMapsTheRows()
     {
         using var handler = new RecordingHandler(Json(new { tickets = new[] { new { id = "48213", summary = "Printer offline", company = "Acme Dental", status = "In Progress" } } }));

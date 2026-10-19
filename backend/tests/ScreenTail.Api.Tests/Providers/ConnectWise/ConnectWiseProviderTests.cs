@@ -228,17 +228,44 @@ public sealed class ConnectWiseProviderTests : IDisposable
     public async Task ADeadlineDuringTheAttachmentsStillReportsTheNote()
     {
         // The publish ran out of time while the screenshots were going up. The note had already landed,
-        // so it is reported with its id rather than lost in a cancellation.
+        // so it is reported with its id rather than lost in a cancellation. The four that were on their
+        // way may have attached, so the advice is to look before adding them; the two that never left
+        // did not, and are named as missing.
         _api.HangingRoute = "/system/documents";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(200));
-        var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 })]);
+        var note = new TicketNote("48213", "Body", Internal: true,
+            [.. Enumerable.Range(1, 6).Select(i => new NoteAttachment($"screenshot-{i}.jpg", "image/jpeg", new byte[] { (byte)i }))]);
 
         var result = await Provider().AddNoteAsync(note, deadline.Token);
 
         Assert.True(result.Ok);
         Assert.Equal("90001", result.Value!.Id);
-        Assert.Contains("1 of 1 screenshots", result.Value.Incomplete!.What, StringComparison.Ordinal);
+        var incomplete = result.Value.Incomplete!;
+        Assert.Contains("2 of 6 screenshots did not attach (screenshot-5.jpg, screenshot-6.jpg)", incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("4 may not have (screenshot-1.jpg, screenshot-2.jpg, screenshot-3.jpg, screenshot-4.jpg)", incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("Look for screenshot-1.jpg, screenshot-2.jpg, screenshot-3.jpg, screenshot-4.jpg before adding them", incomplete.Todo, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("<html>Bad gateway</html>")]
+    [InlineData("[1, 2")]
+    public async Task AnUploadWhoseAnswerCannotBeReadMayHaveAttached(string body)
+    {
+        // ConnectWise took the screenshot and answered with something that is not JSON. The note is
+        // still reported with its id, the other screenshot still goes, and the unreadable one is "may
+        // not have attached", because it may well be on the ticket.
+        _api.UnreadableRoute = ("/system/documents", body);
+        var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 })]);
+
+        var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Equal("90001", result.Value!.Id);
+        var incomplete = result.Value.Incomplete!;
+        Assert.Contains("1 of 1 screenshots may not have attached (screenshot-1.jpg)", incomplete.What, StringComparison.Ordinal);
+        Assert.DoesNotContain(body, incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("Look for screenshot-1.jpg before adding it", incomplete.Todo, StringComparison.Ordinal);
     }
 
     [Fact]

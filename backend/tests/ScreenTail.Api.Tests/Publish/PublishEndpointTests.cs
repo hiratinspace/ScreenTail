@@ -10,11 +10,14 @@ using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
+using ScreenTail.Api.Logging;
 using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Publish;
 using ScreenTail.Api.Summarize;
@@ -249,6 +252,90 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     }
 
     [Fact]
+    public async Task ASlowUploadStillGetsItsAnswerBeforeTheRequestTimesOut()
+    {
+        // S-68 from the start of the request: the deadline is counted from when the request arrived, not
+        // from when its body had finished arriving. Twenty screenshots over a slow uplink take a while to
+        // upload, and the request's own timeout and the client's are counting from the start too. Here
+        // the body takes 1.5 s of a 2 s publish deadline and a 3 s request timeout; counted from the end
+        // of the body, the deadline would come after the request's 504 and lose the note.
+        var cw = new ScriptedConnectWise { HangingRoute = "/time/entries" };
+        using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromSeconds(2), services =>
+            services.Configure<RequestTimeoutOptions>(timeouts => timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(3) }));
+        using var client = await ConnectedClientAsync(host, streamed: true);
+        using var body = new SlowContent(JsonSerializer.Serialize(Bundle(), JsonSerializerOptions.Web), TimeSpan.FromSeconds(1.5));
+
+        using var response = await client.PostAsync(new Uri("/v1/sessions/publish", UriKind.Relative), body, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var written = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList();
+        Assert.True(written[0].GetProperty("ok").GetBoolean());
+        Assert.Equal("90001", written[0].GetProperty("id").GetString());
+        AssertIsTheContractsRow(written[1], "timed_out");
+        Assert.Contains("may already be on the ticket", written[1].GetProperty("error").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnUploadThatUsedTheWholeDeadlineSendsNothing()
+    {
+        // The body took longer to arrive than the whole publish may take. Nothing is sent, so nothing
+        // can have landed, and each destination says so and may simply be published again.
+        var cw = new ScriptedConnectWise();
+        using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromMilliseconds(500));
+        using var client = await ConnectedClientAsync(host, streamed: true);
+        using var body = new SlowContent(JsonSerializer.Serialize(Bundle() with { Frames = [Frame("f-1")] }, JsonSerializerOptions.Web), TimeSpan.FromMilliseconds(900));
+
+        using var response = await client.PostAsync(new Uri("/v1/sessions/publish", UriKind.Relative), body, TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["ticket_note", "time_entry"], published!.Results.Select(r => r.Destination));
+        Assert.All(published.Results, r =>
+        {
+            Assert.False(r.Ok);
+            Assert.Equal("unavailable", r.Kind);
+            Assert.True(r.Retryable);
+            Assert.Contains("nothing was sent", r.Error, StringComparison.Ordinal);
+        });
+        Assert.DoesNotContain(cw.Requests, r => r.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("<html>Bad gateway from Acme Dental's proxy</html>")]
+    public async Task AnAnswerThatCannotBeReadDoesNotLoseWhatLanded(string unreadable)
+    {
+        // The time entry went, and ConnectWise answered 200 with something that is not a time entry. The
+        // destinations run together, so the note may have landed meanwhile: it is answered with its id,
+        // and the time entry is answered as possibly there, not as a 500 that loses the note and has the
+        // client send both again. The log names the kind of failure and nothing it carried.
+        var cw = new ScriptedConnectWise { UnreadableRoute = ("/time/entries", unreadable) };
+        using var sink = new StringWriter();
+        using var host = Host(cw, services: services =>
+        {
+            _ = services.RemoveAll<ILoggerProvider>();
+            _ = services.AddSingleton<ILoggerProvider>(new ScrubbingLoggerProvider(sink, LogLevel.Information));
+        });
+        using var client = await ConnectedClientAsync(host);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var written = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList();
+        Assert.True(written[0].GetProperty("ok").GetBoolean());
+        Assert.Equal("90001", written[0].GetProperty("id").GetString());
+        AssertIsTheContractsRow(written[1], "unconfirmed");
+        Assert.Contains("may already be on the ticket", written[1].GetProperty("error").GetString(), StringComparison.Ordinal);
+
+        var log = sink.ToString();
+        Assert.Contains("time_entry", log, StringComparison.Ordinal);
+        Assert.Contains("Exception", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bad gateway", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("Printer", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ThePublishDeadlineEndsBeforeTheRequestDoes()
     {
         // The request's own timeout is a 504 with nothing in it; the publish's deadline has to come
@@ -457,20 +544,66 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
 
     private static PublishFrame Frame(string id) => new(id, "/9j/4AAQSkZJRg==", "image/jpeg");
 
-    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(ScriptedConnectWise cw, Action<PublishOptions>? publish = null) => api.WithWebHostBuilder(builder =>
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(ScriptedConnectWise cw, Action<PublishOptions>? publish = null, Action<IServiceCollection>? services = null) => api.WithWebHostBuilder(builder =>
     {
         _ = builder.UseSetting("ConnectWise:ClientId", "11111111-2222-3333-4444-555555555555");
-        _ = builder.ConfigureTestServices(services =>
+        _ = builder.ConfigureTestServices(collection =>
         {
-            _ = services.Configure<HttpClientFactoryOptions>(
+            _ = collection.Configure<HttpClientFactoryOptions>(
                 nameof(ConnectWiseProvider),
                 options => options.HttpMessageHandlerBuilderActions.Add(handler => handler.PrimaryHandler = cw));
             if (publish is not null)
             {
-                _ = services.Configure(publish);
+                _ = collection.Configure(publish);
             }
+
+            services?.Invoke(collection);
         });
     });
+
+    /// <summary>
+    /// A written row is the contract's row of this kind, field for field in its names, and the same in
+    /// what the client acts on: whether it landed and whether Retry may send it again.
+    /// </summary>
+    private static void AssertIsTheContractsRow(JsonElement written, string kind)
+    {
+        var row = JsonDocument.Parse(Contract("response_uncertain")).RootElement.GetProperty("results").EnumerateArray()
+            .Single(r => r.GetProperty("kind").GetString() == kind);
+        Assert.Equal(row.EnumerateObject().Select(p => p.Name), written.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(kind, written.GetProperty("kind").GetString());
+        Assert.Equal(row.GetProperty("ok").GetBoolean(), written.GetProperty("ok").GetBoolean());
+        Assert.Equal(row.GetProperty("retryable").GetBoolean(), written.GetProperty("retryable").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, written.GetProperty("id").ValueKind);
+    }
+
+    /// <summary>A body that arrives in two halves with a pause between: a large upload over a slow uplink.</summary>
+    private sealed class SlowContent : HttpContent
+    {
+        private readonly byte[] _bytes;
+        private readonly TimeSpan _pause;
+
+        public SlowContent(string json, TimeSpan pause)
+        {
+            _bytes = Encoding.UTF8.GetBytes(json);
+            _pause = pause;
+            Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
+
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+        {
+            var half = _bytes.Length / 2;
+            await stream.WriteAsync(_bytes.AsMemory(0, half));
+            await stream.FlushAsync();
+            await Task.Delay(_pause);
+            await stream.WriteAsync(_bytes.AsMemory(half));
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = -1;
+            return false;
+        }
+    }
 
     /// <summary>The body of the one request whose path ends in this.</summary>
     private static string BodyOf(ScriptedConnectWise cw, string pathSuffix)
@@ -488,18 +621,19 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
             .Order(StringComparer.Ordinal);
 
     /// <summary>A device whose tenant has a ConnectWise credential in the vault.</summary>
-    private async Task<HttpClient> ConnectedClientAsync(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, string displayName = "A Technician")
+    /// <param name="streamed">Send each body as it is written. The default client buffers a body before sending it, so it can send it again after a redirect, and a slow body would then reach the service all at once.</param>
+    private async Task<HttpClient> ConnectedClientAsync(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, string displayName = "A Technician", bool streamed = false)
     {
         var (tenantId, userId, deviceId) = await SeedAsync(displayName);
-        var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token, streamed);
         using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         return client;
     }
 
-    private static HttpClient Bearer(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, string token)
+    private static HttpClient Bearer(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, string token, bool streamed = false)
     {
-        var client = host.CreateClient();
+        var client = streamed ? host.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { AllowAutoRedirect = false }) : host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }

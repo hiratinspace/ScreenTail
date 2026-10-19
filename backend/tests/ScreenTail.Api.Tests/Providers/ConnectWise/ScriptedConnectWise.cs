@@ -57,6 +57,9 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     /// <summary>Requests to a path ending in this are never answered: they wait until the caller gives up. The PSA that is too slow for the deadline.</summary>
     public string? HangingRoute { get; set; }
 
+    /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns: the PSA that took the request and sent back something that cannot be read.</summary>
+    public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -94,6 +97,11 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
         var path = request.RequestUri!.AbsolutePath;
         var query = request.RequestUri.Query;
+        if (UnreadableRoute is { } unreadable && path.EndsWith(unreadable.PathSuffix, StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(unreadable.Body) };
+        }
+
         if (FailingRoute is { } route && path.EndsWith(route.PathSuffix, StringComparison.Ordinal))
         {
             return new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { code = "Forced", message = "The script said no" }, options: Json) };
