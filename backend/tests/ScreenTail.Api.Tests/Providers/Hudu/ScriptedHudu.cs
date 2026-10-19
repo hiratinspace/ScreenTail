@@ -14,9 +14,33 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public List<HttpRequestMessage> Requests { get; } = [];
+    private readonly Lock _gate = new();
+    private readonly List<HttpRequestMessage> _requests = [];
+    private readonly List<string?> _bodies = [];
 
-    public List<string?> Bodies { get; } = [];
+    /// <summary>What was asked, in arrival order; a copy taken under the lock, because uploads go several at a time.</summary>
+    public List<HttpRequestMessage> Requests
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _requests];
+            }
+        }
+    }
+
+    /// <summary>Each request's body, at the same index as <see cref="Requests"/>.</summary>
+    public List<string?> Bodies
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _bodies];
+            }
+        }
+    }
 
     public Queue<HttpResponseMessage> Scripted { get; } = new();
 
@@ -24,6 +48,9 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     /// <summary>How many companies the site has. Twenty-eight by default; as many as an int holds for a site that never ends.</summary>
     public int CompanyCount { get; set; } = 28;
+
+    /// <summary>One route fails with this status while set: the article is created and an upload is refused.</summary>
+    public (string PathSuffix, HttpStatusCode Status)? FailingRoute { get; set; }
 
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
@@ -36,17 +63,21 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        // A provider that pages without end would hang the run; this ends it with the reason instead.
-        if (Requests.Count >= 1_000)
+        var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        lock (_gate)
         {
-            throw new InvalidOperationException("The provider kept asking: a thousand requests to one scripted Hudu.");
-        }
+            // A provider that pages without end would hang the run; this ends it with the reason instead.
+            if (_requests.Count >= 1_000)
+            {
+                throw new InvalidOperationException("The provider kept asking: a thousand requests to one scripted Hudu.");
+            }
 
-        Requests.Add(request);
-        Bodies.Add(request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken));
-        if (Scripted.Count > 0)
-        {
-            return Scripted.Dequeue();
+            _requests.Add(request);
+            _bodies.Add(body);
+            if (Scripted.Count > 0)
+            {
+                return Scripted.Dequeue();
+            }
         }
 
         if (Failing is { } status)
@@ -55,6 +86,11 @@ internal sealed class ScriptedHudu : HttpMessageHandler
         }
 
         var path = request.RequestUri!.AbsolutePath;
+        if (FailingRoute is { } route && path.EndsWith(route.PathSuffix, StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { error = "The script said no" }, options: Json) };
+        }
+
         var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
         return (request.Method.Method, path) switch
         {

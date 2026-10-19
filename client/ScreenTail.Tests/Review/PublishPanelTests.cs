@@ -206,6 +206,40 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public async Task ANoteThatLandedWithoutItsScreenshotsIsNotSentAgain()
+    {
+        // The backend says the note is on the ticket and a screenshot is not (kind "partial"). It is a
+        // success, so Retry sends only the time entry, and the line says which screenshot is missing
+        // instead of hiding it behind "Published" (2026-10-12 review, S-69 and E-39).
+        const string Missing = "The note was published as 90001, but 1 of 2 screenshots did not attach (screenshot-2.jpg): ConnectWise did not answer. The note stays as it is; add the missing screenshots to the ticket by hand rather than publishing the note again.";
+        var calls = new List<IReadOnlySet<Destination>>();
+        var failTime = true;
+        var panel = Panel(publish: request =>
+        {
+            calls.Add(request.Destinations);
+            return [.. request.Destinations.Select(d => d switch
+            {
+                Destination.TicketNote => new DestinationResult(d, true, new Uri("https://cw.example/note"), Missing, DestinationResult.Partial),
+                _ when failTime => new DestinationResult(d, false, null, "ConnectWise refused the member"),
+                _ => new DestinationResult(d, true),
+            })];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+
+        await panel.PublishAsync(Draft(), []);
+        Assert.Equal([Destination.TimeEntry], panel.Failed);
+        Assert.Equal($"Note published. Time entry failed: ConnectWise refused the member {Missing}", panel.Summary);
+
+        failTime = false;
+        await panel.RetryAsync(Draft(), []);
+
+        Assert.Equal([Destination.TimeEntry], calls[1]);
+        Assert.True(panel.Published);
+        Assert.Empty(panel.Failed);
+        Assert.Equal($"Published to ticket #48213 · 0:30 logged. {Missing}", panel.Summary);
+    }
+
+    [Fact]
     public async Task AKnowledgeBaseThatNeedsAMappingSaysWhichCompanyAndOffersTheChoices()
     {
         // ST-097 AC2: unmatched → prompt once at publish. The backend has said the ticket's company is

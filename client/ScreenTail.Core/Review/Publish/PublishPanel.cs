@@ -41,6 +41,9 @@ public sealed record PublishRequest(
 public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Link = null, string? Error = null, string? Kind = null)
 {
     public const string NeedsMapping = "needs_mapping";
+
+    /// <summary>It landed and something with it did not, usually a screenshot. <see cref="Ok"/> is true, so Retry leaves it alone; <see cref="Error"/> says what is missing.</summary>
+    public const string Partial = "partial";
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>

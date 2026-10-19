@@ -32,6 +32,9 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     private readonly ConnectWiseOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
+    /// <summary>How many screenshots go up at the same time.</summary>
+    public const int AttachmentsAtOnce = 4;
+
     public string Name => "connectwise";
 
     public async Task<ProviderResult<bool>> CheckAsync(CancellationToken ct = default)

@@ -14,7 +14,8 @@ public sealed record KbArticle(
     IReadOnlyList<NoteAttachment> Attachments,
     bool Draft = true);
 
-public sealed record PublishedArticle(string Id, Uri? Url);
+/// <param name="Incomplete">Null when everything went; otherwise the article exists and this says which screenshots did not attach to it.</param>
+public sealed record PublishedArticle(string Id, Uri? Url, ProviderError? Incomplete = null);
 
 /// <summary>
 /// A documentation platform: Hudu in v1, IT Glue later.

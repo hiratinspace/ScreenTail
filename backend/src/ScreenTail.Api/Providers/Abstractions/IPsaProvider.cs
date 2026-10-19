@@ -15,10 +15,20 @@ public sealed record TicketNote(string TicketId, string Body, bool Internal, IRe
 public sealed record NoteAttachment(string FileName, string ContentType, ReadOnlyMemory<byte> Bytes);
 
 /// <param name="Minutes">Unrounded active minutes. The client applies the tenant's rounding, so rounding here would round twice.</param>
-public sealed record TimeEntry(string TicketId, DateTimeOffset StartedAt, int Minutes, string Notes, bool Billable);
+/// <param name="Internal">
+/// The note type the technician chose, for where the text goes. A time entry's description can reach the
+/// customer (an invoice, the portal), so an internal note's text is kept internal. True unless said
+/// otherwise, for the same reason the note defaults to internal.
+/// </param>
+public sealed record TimeEntry(string TicketId, DateTimeOffset StartedAt, int Minutes, string Notes, bool Billable, bool Internal = true);
 
 /// <param name="Id">What the provider gave it, so a retry can tell "already published" from "not yet".</param>
-public sealed record PublishedNote(string Id, Uri? Url);
+/// <param name="Incomplete">
+/// Null when everything went. Otherwise the note landed and something that goes with it did not, usually
+/// a screenshot: the note is still a success, because sending it again is the duplicate ST-094 forbids,
+/// and this says what is missing in Spec §4's two sentences.
+/// </param>
+public sealed record PublishedNote(string Id, Uri? Url, ProviderError? Incomplete = null);
 
 /// <summary>
 /// A professional services automation platform: ConnectWise Manage in v1, HaloPSA in v1.1 (ST-121).

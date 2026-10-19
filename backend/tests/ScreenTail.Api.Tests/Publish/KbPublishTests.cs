@@ -73,6 +73,54 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task ALikelyMatchIsOfferedAndNeverAssumed()
+    {
+        // T-221: "Borough Legal, LLC" is very probably Hudu's "Borough Legal", and probably is not good
+        // enough to file one customer's runbook under. The name is offered, nothing is written, and
+        // nothing is remembered, so the next publish asks again.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Borough Legal, LLC"), TestContext.Current.CancellationToken);
+        using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Borough Legal, LLC"), TestContext.Current.CancellationToken);
+        var answers = new[]
+        {
+            await first.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken),
+            await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken),
+        };
+
+        Assert.All(answers, answer =>
+        {
+            var kb = Assert.Single(answer!.Results);
+            Assert.False(kb.Ok);
+            Assert.Equal("needs_mapping", kb.Kind);
+            Assert.Contains("It may be \"Borough Legal\"", kb.Error, StringComparison.Ordinal);
+        });
+        Assert.DoesNotContain(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task AnArticleWhoseScreenshotsWereRefusedIsReportedAsWritten()
+    {
+        // S-69's twin: the article exists in Hudu. Reported as failed, Retry wrote a second one.
+        var hudu = new ScriptedHudu { FailingRoute = ("/api/v1/uploads", HttpStatusCode.UnprocessableEntity) };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental") with { Frames = [Frame("f-1")] }, TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.True(kb.Ok);
+        Assert.Equal("5101", kb.Id);
+        Assert.Equal(new Uri("https://acme.huducloud.com/a/printer-offline-5101"), kb.Link);
+        Assert.Equal("partial", kb.Kind);
+        Assert.False(kb.Retryable);
+        Assert.Contains("1 of 1 screenshots", kb.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AMappingSetByHandIsUsedAndListed()
     {
         // ST-097 AC2 and AC3: the prompt's answer is remembered, and the list is what Settings edits.
