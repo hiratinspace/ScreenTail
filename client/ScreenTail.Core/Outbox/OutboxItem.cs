@@ -87,7 +87,10 @@ public readonly record struct SendOutcome
     /// <summary>Plain language for the technician. Spec §4's first half; never a stack trace.</summary>
     public string? Message { get; }
 
-    /// <summary>When the far end said to come back, for a retry it named a time for.</summary>
+    /// <summary>
+    /// When the far end said to come back, for a retry it named a time for. The outbox waits at least
+    /// this long, and never less than its own backoff.
+    /// </summary>
     public TimeSpan? RetryAfter { get; }
 
     /// <summary>It happened, and the far end called it this.</summary>
@@ -96,7 +99,7 @@ public readonly record struct SendOutcome
     /// <summary>It did not happen and could next time: no network, a timeout before sending, a rate limit.</summary>
     public static SendOutcome Retry(string message) => new(OutboxState.Pending, null, message);
 
-    /// <summary>A retry the far end named a time for.</summary>
+    /// <summary>A retry the far end named a time for, from its Retry-After. Null is the plain backoff.</summary>
     public static SendOutcome Retry(string message, TimeSpan? after) => new(OutboxState.Pending, null, message, after);
 
     /// <summary>It will not happen: a missing ticket, a rejected payload, credentials that are wrong.</summary>

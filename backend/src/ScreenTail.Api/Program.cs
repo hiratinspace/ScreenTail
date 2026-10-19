@@ -239,6 +239,7 @@ app.UseRequestStart();
 app.UseRequestTimeouts();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseDraftingConcurrency();
 
 // Liveness only: checks no dependencies and returns no data (INV-7, INV-10).
 app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")));

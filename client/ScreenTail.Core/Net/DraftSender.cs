@@ -113,8 +113,19 @@ public sealed class DraftSender(
     {
         var answer = await ReadAsync(response, ct).ConfigureAwait(false);
 
-        if (response.StatusCode == HttpStatusCode.OK && answer?.Draft is { } draft)
+        if (response.StatusCode == HttpStatusCode.OK
+            && answer is not null
+            && (answer.Draft is { ValueKind: not JsonValueKind.Null } || answer.Status == "ok"))
         {
+            // The backend's own answer, and it drafted: the model has been paid. A draft this version
+            // cannot read is not asked for again, because asking buys the same answer at the same price,
+            // and that loop is what a renamed field used to cost (2026-10-12 review). The technician is
+            // told, and can retry by hand once the device is updated.
+            if (Draft(answer.Draft) is not { } draft)
+            {
+                return SendOutcome.Failed("The backend drafted this session, but this version of ScreenTail could not read the draft.");
+            }
+
             await store.SaveDraftAsync(sessionId, draft, ct).ConfigureAwait(false);
             await store.SetSessionStateAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
             return SendOutcome.Done(sessionId);
@@ -130,10 +141,37 @@ public sealed class DraftSender(
             // sending the same bundle again with the same token is asking the same question.
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => SendOutcome.Failed(reason),
 
-            // The budget comes back at midnight; the model comes back on its own; a deployment gets a
-            // provider configured. All three are worth asking about again.
+            // The model answered twice and neither answer could be shown. Asking again costs a model call
+            // for the same answer, and this was retried until the outbox gave up (2026-10-12 review).
+            HttpStatusCode.UnprocessableEntity => SendOutcome.Failed(reason),
+
+            // The model is rate limited or down. The provider may have said when it reopens, and under a
+            // daily quota that is hours: the outbox waits at least that long rather than spending its
+            // attempts inside the hour.
+            HttpStatusCode.ServiceUnavailable => SendOutcome.Retry(reason, response.Headers.RetryAfter?.Delta),
+
+            // The budget comes back at midnight; this device's other drafts finish; a deployment gets a
+            // provider configured. All of them are worth asking about again.
             _ => SendOutcome.Retry(reason),
         };
+    }
+
+    /// <summary>The draft out of the answer, or null when this version cannot read it.</summary>
+    private static DraftNote? Draft(JsonElement? element)
+    {
+        if (element is not { ValueKind: JsonValueKind.Object } draft)
+        {
+            return null;
+        }
+
+        try
+        {
+            return draft.Deserialize<DraftNote>(Json);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Reads the answer, and treats one that cannot be read as no answer rather than as a crash.</summary>
@@ -208,6 +246,10 @@ public sealed class DraftSender(
         [property: JsonPropertyName("ts_ms")] long TsMs,
         [property: JsonPropertyName("text")] string Text);
 
-    /// <summary>What the backend answers. Its <c>status</c> is for a person; the status code decides.</summary>
-    private sealed record DraftAnswer(string? Status, string? Reason, DraftNote? Draft);
+    /// <summary>
+    /// What the backend answers, as <c>shared/contracts/summarize-response.v1.json</c> lists it. Its
+    /// <c>status</c> is for a person; the status code decides. The draft is read on its own, so a draft
+    /// this version cannot read is told apart from an answer that is not the backend's at all.
+    /// </summary>
+    private sealed record DraftAnswer(string? Status, string? Reason, JsonElement? Draft);
 }

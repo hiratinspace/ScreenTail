@@ -292,12 +292,17 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
 
         public void Release() => _release?.TrySetResult();
 
-        /// <summary>Until this many calls have reached the model, all of them still waiting.</summary>
+        /// <summary>
+        /// Until this many calls have reached the model, all of them still waiting. Bounded, so a gate that
+        /// lets nothing through fails the test rather than hanging the run.
+        /// </summary>
         public async Task WaitForAsync(int calls)
         {
+            using var patience = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            patience.CancelAfter(TimeSpan.FromSeconds(30));
             while (Volatile.Read(ref _entered) < calls)
             {
-                await _arrivals.WaitAsync(TestContext.Current.CancellationToken);
+                await _arrivals.WaitAsync(patience.Token);
             }
         }
 

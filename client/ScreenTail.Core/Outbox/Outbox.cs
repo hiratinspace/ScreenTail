@@ -31,7 +31,13 @@ public sealed class Outbox(
     /// </summary>
     public const int MaxAttempts = 8;
 
-    /// <summary>The longest a far end's Retry-After is honoured for.</summary>
+    /// <summary>
+    /// The longest a far end's Retry-After is honoured for.
+    ///
+    /// A provider's daily quota reopens within a day, and that is the longest wait anything has a reason
+    /// to name. One header saying a month is a far end having a bad day, and must not park a session
+    /// where nobody will look for it.
+    /// </summary>
     public static readonly TimeSpan MaxRetryAfter = TimeSpan.FromDays(1);
 
     /// <summary>
@@ -113,6 +119,26 @@ public sealed class Outbox(
     public static TimeSpan RetryAfter(int attempts) =>
         TimeSpan.FromSeconds(Math.Min(3600, 30L * (1L << Math.Min(Math.Max(attempts, 1) - 1, 20))));
 
+    /// <summary>
+    /// How long before the next attempt: the backoff, or the time the far end named when that is later.
+    ///
+    /// The backoff is the floor, so a far end that says "now" is not asked in a loop. What it names is
+    /// honoured up to <see cref="MaxRetryAfter"/>, because a session behind a daily quota that retries on
+    /// its own schedule spends every attempt before the quota reopens and is failed hours before it
+    /// would have worked (2026-10-12 review).
+    /// </summary>
+    private static TimeSpan Wait(int attempts, TimeSpan? named)
+    {
+        var backoff = RetryAfter(attempts);
+        if (named is not { } after)
+        {
+            return backoff;
+        }
+
+        var bounded = after > MaxRetryAfter ? MaxRetryAfter : after;
+        return bounded > backoff ? bounded : backoff;
+    }
+
     private async Task<bool> AttemptAsync(OutboxItem item, CancellationToken ct)
     {
         var now = _time.GetUtcNow();
@@ -169,7 +195,7 @@ public sealed class Outbox(
                 LastAttemptAt = now,
                 LastError = outcome.Message ?? item.LastError,
                 RemoteId = outcome.RemoteId ?? item.RemoteId,
-                DueAt = state == OutboxState.Pending ? now + RetryAfter(attempts) : item.DueAt,
+                DueAt = state == OutboxState.Pending ? now + Wait(attempts, outcome.RetryAfter) : item.DueAt,
             },
             ct).ConfigureAwait(false);
 
