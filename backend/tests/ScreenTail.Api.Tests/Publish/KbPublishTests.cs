@@ -419,6 +419,39 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task ARefusedReplacementForgetsNothing()
+    {
+        // A PUT that is turned away changed nothing, so it takes nothing with it either.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+
+        using var refused = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("http://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task ConnectingHuduWithNothingBeforeItStartsWithNoMappings()
+    {
+        // Mappings with no Hudu behind them were made on a site nobody can name any more; the first
+        // connection does not inherit them.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host, hudu: false);
+        _ = await api.UseAsync(async db =>
+        {
+            db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = "Acme Dental", DocCompanyId = "7", DocCompanyName = "Acme Dental", Confidence = "manual", CreatedAt = DateTimeOffset.UtcNow });
+            return await db.SaveChangesAsync();
+        });
+
+        using var connected = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, connected.StatusCode);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
     public async Task RemovingConnectWiseLeavesTheHuduMappingsAlone()
     {
         // The mappings belong to the documentation platform; the PSA coming and going is not a reason
