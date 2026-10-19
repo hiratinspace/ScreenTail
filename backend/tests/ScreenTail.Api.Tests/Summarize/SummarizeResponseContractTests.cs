@@ -68,6 +68,88 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
         }
     }
 
+    /// <summary>Google's answer to a key it does not recognise: a 400, not a 401.</summary>
+    private const string KeyNotValid = """
+        { "error": { "code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT",
+          "details": [ { "@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID", "domain": "googleapis.com" } ] } }
+        """;
+
+    /// <summary>Google's answer to an account that may not use the model from where it is asking.</summary>
+    private const string NotForThisAccount = """
+        { "error": { "code": 400, "message": "User location is not supported for the API use.", "status": "FAILED_PRECONDITION" } }
+        """;
+
+    [Theory]
+    [InlineData(401, "")]
+    [InlineData(403, "")]
+    [InlineData(404, "")]
+    [InlineData(400, KeyNotValid)]
+    [InlineData(400, NotForThisAccount)]
+    public async Task AProviderThatRefusesThisDeploymentLeavesTheSessionQueued(int status, string refusal)
+    {
+        // Review round 1 of the 2026-10-12 fixes. The client fails a 422 for good, and a wrong key, an
+        // account the model will not serve and a retired model all came back as one. Every session a
+        // device finished while an operator's setting was wrong was lost, with nothing to redraft once
+        // it was fixed. They are this deployment not being set up to draft, which the client queues.
+        var expected = Outcome("not_configured");
+        using var host = Host(Model.Refusing((HttpStatusCode)status, refusal));
+        using var client = await ClientAsync(host);
+
+        using var response = await PostAsync(client, Request());
+
+        Assert.Equal(expected["http_status"]!.GetValue<int>(), (int)response.StatusCode);
+        Assert.Equal("retry", expected["client"]!.GetValue<string>());
+        var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal(Shape(expected["body"]!), Shape(body));
+        Assert.Equal("not_configured", body["status"]!.GetValue<string>());
+
+        // The operator reading the technician's report is pointed at the setting.
+        Assert.Contains("Summarization__", body["reason"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ], "usageMetadata": { "promptTokenCount": 10, "candidatesTokenCount": 10 } }""")]
+    [InlineData("""{ "promptFeedback": { "blockReason": "OTHER" }, "usageMetadata": { "promptTokenCount": 10 } }""")]
+    [InlineData("""{ "candidates": [ { "finishReason": "MAX_TOKENS", "content": {} } ], "usageMetadata": { "promptTokenCount": 10, "candidatesTokenCount": 10 } }""")]
+    public async Task AModelThatAnsweredWithNothingIsFailedAndSaysSo(string envelope)
+    {
+        // The model ran, was paid, and said nothing that can be shown. Asking again buys the same answer,
+        // so it is the invalid outcome the client fails, and its reason must not tell the technician the
+        // session is queued.
+        var expected = Outcome("invalid");
+        using var host = Host(Model.Raw(envelope));
+        using var client = await ClientAsync(host);
+
+        using var response = await PostAsync(client, Request());
+
+        Assert.Equal(expected["http_status"]!.GetValue<int>(), (int)response.StatusCode);
+        Assert.Equal("failed", expected["client"]!.GetValue<string>());
+        var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal(Shape(expected["body"]!), Shape(body));
+        var reason = body["reason"]!.GetValue<string>();
+        Assert.DoesNotContain("queued", reason, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tried again", reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("0.5s", 1)]
+    [InlineData("26.656292589s", 27)]
+    [InlineData("86400s", 86400)]
+    [InlineData("100000s", 86400)]
+    public async Task ARetryAfterIsWholeSecondsRoundedUpAndNeverMoreThanADay(string retryDelay, int seconds)
+    {
+        // Rounded up, because a retry a fraction of a second early is the request that earned the rate
+        // limit. Held to a day, because a quota reopens within one and a longer wait parks the session
+        // where nobody looks.
+        using var host = Host(Model.RateLimited(retryDelay));
+        using var client = await ClientAsync(host);
+
+        using var response = await PostAsync(client, Request());
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(seconds), response.Headers.RetryAfter?.Delta);
+    }
+
     [Fact]
     public async Task ADeviceAlreadyDraftingAsManyAsItMayIsToldItIsBusyBeforeItsBundleIsRead()
     {
@@ -276,6 +358,16 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
 
         /// <summary>Answers with a good draft, but only once <see cref="Release"/> is called.</summary>
         public static Model Holding() => new(() => Envelope(OkDraft()), holds: true);
+
+        /// <summary>The provider refusing with this status and body, before any model ran.</summary>
+        public static Model Refusing(HttpStatusCode status, string body) => new(
+            () => new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") },
+            holds: false);
+
+        /// <summary>A 200 with this envelope, exactly as written.</summary>
+        public static Model Raw(string envelope) => new(
+            () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(envelope, Encoding.UTF8, "application/json") },
+            holds: false);
 
         public static Model RateLimited(string retryDelay) => new(
             () => new HttpResponseMessage(HttpStatusCode.TooManyRequests)

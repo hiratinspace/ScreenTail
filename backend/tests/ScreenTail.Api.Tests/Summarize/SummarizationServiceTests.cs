@@ -571,6 +571,34 @@ public sealed class SummarizationServiceTests
         Assert.Null(result.RetryAfter);
     }
 
+    [Theory]
+    [InlineData(ProviderErrorKind.Unauthenticated)]
+    [InlineData(ProviderErrorKind.Forbidden)]
+    [InlineData(ProviderErrorKind.NotFound)]
+    public async Task AProviderThatRefusesThisDeploymentIsASettingToFixNotADraftThatFailed(ProviderErrorKind kind)
+    {
+        // Review round 1 of the 2026-10-12 fixes. A wrong or rotated key, an account that may not call the
+        // model and a retired model are each one setting away from drafting the same session. They were
+        // answered as invalid, which the client now fails for good, so every session finished while an
+        // operator's key was wrong would have been lost. Not configured is what the client queues.
+        var provider = new FakeLlm
+        {
+            Failure = new ProviderError(kind, "The drafting model rejected this deployment's API key.", "Check the Summarization__ApiKey setting on the server."),
+        };
+        var fallback = new FakeLlm { Reply = Good() };
+        var ledger = new FakeLedger();
+        var service = Service(provider, fallback, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.NotConfigured, result.Status);
+        Assert.Contains("Summarization__ApiKey", result.Reason, StringComparison.Ordinal);
+
+        // Still not a reason to spend money at the other provider, and the request cost nothing.
+        Assert.Equal(0, fallback.Calls);
+        Assert.Equal(0m, ledger.Recorded);
+    }
+
     /// <summary>The draft with one top-level field's value swapped for raw JSON.</summary>
     private static string Replace(string draft, string field, string rawValue)
     {

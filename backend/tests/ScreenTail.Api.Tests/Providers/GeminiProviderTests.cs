@@ -48,7 +48,10 @@ public sealed class GeminiProviderTests
         var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
-        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+
+        // Not Invalid: a retired model is this deployment's setting to change, after which the same session
+        // drafts. Invalid is a draft the client gives up on (review round 1 of the 2026-10-12 fixes).
+        Assert.Equal(ProviderErrorKind.NotFound, result.Error!.Kind);
         Assert.Contains("gemini-2.0-flash", result.Error.What, StringComparison.Ordinal);
         Assert.Contains("Summarization__Model", result.Error.Todo, StringComparison.Ordinal);
     }
@@ -96,30 +99,103 @@ public sealed class GeminiProviderTests
 
     [Theory]
     [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ] }""")]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ], "usageMetadata": {} }""")]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ], "usageMetadata": { "promptTokenCount": "40000", "candidatesTokenCount": null } }""")]
+    [InlineData("""{ "promptFeedback": { "blockReason": "OTHER" }, "usageMetadata": { "promptTokenCount": -1 } }""")]
     [InlineData("""{ "candidates": "not what was documented" }""")]
     [InlineData("""not json at all""")]
     public async Task AnAnswerThatDoesNotSayWhatItCostIsChargedTheEstimate(string envelope)
     {
         // A 200 with no bill we can read is still a model that ran. When unsure, say billed: an
         // over-count costs a tenant one draft against the cap, an under-count is the cap not working.
+        // A usage block with no count in it that is a number is no bill either, not a bill of nothing.
         var provider = Provider(new RecordingHandler(Envelope(envelope)));
 
         var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.True(result.Error!.MayHaveBeenBilled);
+        Assert.Null(result.Error.CostUsd);
     }
 
-    [Fact]
-    public async Task ADraftThatDoesNotSayWhatItCostIsChargedTheEstimate()
+    [Theory]
+    [InlineData("")]
+    [InlineData(""", "usageMetadata": {}""")]
+    [InlineData(""", "usageMetadata": { "promptTokenCount": "many", "candidatesTokenCount": 1.5 }""")]
+    public async Task ADraftThatDoesNotSayWhatItCostIsChargedTheEstimate(string usage)
     {
         var provider = Provider(new RecordingHandler(Envelope(
-            $$"""{ "candidates": [ { "content": { "parts": [ { "text": {{JsonSerializer.Serialize(Draft())}} } ] } } ] }""")));
+            $$"""{ "candidates": [ { "content": { "parts": [ { "text": {{JsonSerializer.Serialize(Draft())}} } ] } } ]{{usage}} }""")));
 
         var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
 
         Assert.True(result.Ok, result.Error?.ToString());
         Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, result.Value!.CostUsd);
+    }
+
+    /// <summary>Google's answer to a key it does not recognise: a 400, not a 401.</summary>
+    private const string KeyNotValid = """
+        { "error": { "code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT",
+          "details": [ { "@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID", "domain": "googleapis.com" } ] } }
+        """;
+
+    /// <summary>Google's answer to an account that may not use the model from where it is asking.</summary>
+    private const string NotForThisAccount = """
+        { "error": { "code": 400, "message": "User location is not supported for the API use.", "status": "FAILED_PRECONDITION" } }
+        """;
+
+    /// <summary>A request Google refused for what was in it.</summary>
+    private const string BadRequest = """
+        { "error": { "code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT" } }
+        """;
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "", ProviderErrorKind.Unauthenticated)]
+    [InlineData(HttpStatusCode.Forbidden, "", ProviderErrorKind.Unauthenticated)]
+    [InlineData(HttpStatusCode.NotFound, "", ProviderErrorKind.NotFound)]
+    [InlineData(HttpStatusCode.BadRequest, KeyNotValid, ProviderErrorKind.Unauthenticated)]
+    [InlineData(HttpStatusCode.BadRequest, NotForThisAccount, ProviderErrorKind.Forbidden)]
+    [InlineData(HttpStatusCode.BadRequest, BadRequest, ProviderErrorKind.Invalid)]
+    [InlineData(HttpStatusCode.BadRequest, "not json", ProviderErrorKind.Invalid)]
+    public async Task ARefusalOfThisDeploymentIsToldApartFromARefusalOfTheRequest(
+        HttpStatusCode status,
+        string body,
+        ProviderErrorKind expected)
+    {
+        // Review round 1 of the 2026-10-12 fixes. A wrong key, an account that may not call the model and
+        // a retired model are this deployment's to fix, and the session drafts once they are. Google
+        // answers a key it does not know with a 400, so the status alone cannot say which it was. A
+        // request refused for what was in it is refused again, and is the only one left as Invalid.
+        var provider = Provider(new RecordingHandler(new HttpResponseMessage(status)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        }));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(expected, result.Error!.Kind);
+        Assert.False(result.Error.MayHaveBeenBilled);
+        if (expected != ProviderErrorKind.Invalid)
+        {
+            Assert.Contains("Summarization__", result.Error.Todo, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ], "usageMetadata": { "promptTokenCount": 10 } }""")]
+    [InlineData("""{ "promptFeedback": { "blockReason": "OTHER" }, "usageMetadata": { "promptTokenCount": 10 } }""")]
+    public async Task AnEmptyAnswerDoesNotPromiseToBeTriedAgain(string envelope)
+    {
+        // The model ran and said nothing. The session is not queued for that, so the message the
+        // technician reads must not say it is.
+        var provider = Provider(new RecordingHandler(Envelope(envelope)));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.DoesNotContain("queued", result.Error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tried again", result.Error.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static HttpResponseMessage Envelope(string json) =>
