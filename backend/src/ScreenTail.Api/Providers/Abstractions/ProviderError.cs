@@ -67,7 +67,14 @@ public sealed record ProviderError(ProviderErrorKind Kind, string What, string T
     /// </summary>
     public bool MayHaveBeenBilled { get; init; }
 
-    /// <summary>What the provider said this failed call cost, when it answered with a bill.</summary>
+    /// <summary>
+    /// What the provider said this failed call cost, when it answered with a bill.
+    ///
+    /// A model can answer, be paid, and still fail: an empty answer, a prompt it blocked, a completion cut
+    /// off before any text. Its usage block is the bill, and a caller settling a ledger should take this
+    /// over any estimate. Null when there was no bill to read, which leaves
+    /// <see cref="MayHaveBeenBilled"/> to decide (2026-10-12 review).
+    /// </summary>
     public decimal? CostUsd { get; init; }
 
     /// <summary>Spec §4's pattern: <c>&lt;What happened&gt;. &lt;What to do&gt;.</c></summary>

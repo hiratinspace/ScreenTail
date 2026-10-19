@@ -175,6 +175,15 @@ public static class DraftValidator
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(bundle);
 
+        // Whole before anything else is asked of it. Every rule below walks a list or reads a string, and
+        // a model can write null for either: that threw after the call was paid for, a 500 and no repair
+        // (2026-10-12 review). A value the client cannot store is the same draft broken another way, and
+        // was worse: a 200 the device could not read, retried and billed until the outbox gave up.
+        if (Shape(draft) is { Count: > 0 } broken)
+        {
+            return broken;
+        }
+
         var reasons = new List<string>();
         var frames = bundle.Frames.ToDictionary(frame => frame.Id, StringComparer.Ordinal);
         var segments = bundle.Transcript.ToDictionary(segment => segment.Id, StringComparer.Ordinal);
@@ -256,6 +265,99 @@ public static class DraftValidator
 
         return reasons;
     }
+
+    /// <summary>The values a step's confidence may take, as <c>research/prompts/schema.json</c> lists them.</summary>
+    private static readonly string[] Confidences = ["high", "low"];
+
+    /// <summary>The values a draft's source may take, as the schema lists them and the client's enum reads them.</summary>
+    private static readonly string[] Sources = ["cloud", "local"];
+
+    /// <summary>
+    /// Whether the draft is whole: every list the schema requires is a list with no holes in it, every
+    /// string it requires is there, and every value the client reads into an enum is one it knows.
+    ///
+    /// The deserializer cannot say this for us. <c>required</c> asks that a property be present, not that
+    /// it be anything but null, and a null inside a list is never checked at all. Each reason names the
+    /// field and none quotes the value, which came from a model that read a customer's screen.
+    /// </summary>
+    private static List<string> Shape(DraftJson draft)
+    {
+        var broken = new List<string>();
+
+        foreach (var (field, value) in new[]
+        {
+            ("problem", draft.Problem),
+            ("result", draft.Result),
+            ("suggested_title", draft.SuggestedTitle),
+            ("kb_reason", draft.KbReason),
+            ("source", draft.Source),
+            ("prompt_version", draft.PromptVersion),
+        })
+        {
+            if (value is null)
+            {
+                broken.Add($"{field} is missing; the schema requires it.");
+            }
+        }
+
+        if (draft.Source is not null && !OneOf(draft.Source, Sources))
+        {
+            broken.Add("source must be 'cloud' or 'local'.");
+        }
+
+        if (draft.FollowUps is null)
+        {
+            broken.Add("follow_ups must be a list, even when it is empty.");
+        }
+        else if (draft.FollowUps.Any(followUp => followUp is null))
+        {
+            broken.Add("follow_ups may not hold a null.");
+        }
+
+        if (draft.Steps is null)
+        {
+            broken.Add("steps must be a list, even when it is empty.");
+            return broken;
+        }
+
+        for (var i = 0; i < draft.Steps.Count; i++)
+        {
+            var where = $"steps[{i}]";
+            if (draft.Steps[i] is not { } step)
+            {
+                broken.Add($"{where} is null.");
+                continue;
+            }
+
+            if (step.Text is null)
+            {
+                broken.Add($"{where}.text is missing; the schema requires it.");
+            }
+
+            if (step.Confidence is null || !OneOf(step.Confidence, Confidences))
+            {
+                broken.Add($"{where}.confidence must be 'high' or 'low'.");
+            }
+
+            foreach (var (field, refs) in new[] { ("frame_refs", step.FrameRefs), ("transcript_refs", step.TranscriptRefs) })
+            {
+                if (refs is null)
+                {
+                    broken.Add($"{where}.{field} must be a list, even when it is empty.");
+                }
+                else if (refs.Any(id => id is null))
+                {
+                    broken.Add($"{where}.{field} may not hold a null.");
+                }
+            }
+        }
+
+        return broken;
+    }
+
+    /// <summary>Case aside, as the client's enum converter reads it.</summary>
+    private static bool OneOf(string value, string[] allowed) =>
+        Array.Exists(allowed, candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
 
     private static IEnumerable<string> CheckText(string where, string? text, string spoken)
     {

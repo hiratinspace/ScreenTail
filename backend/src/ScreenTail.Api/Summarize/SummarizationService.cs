@@ -72,6 +72,11 @@ public enum SummarizeStatus
 }
 
 /// <param name="Repaired">The first answer broke the rules and the second one did not. Logged, and worth watching.</param>
+/// <param name="RetryAfter">
+/// When the provider said to come back, for an <see cref="SummarizeStatus.Unavailable"/> it named a time
+/// for. The endpoint passes it on as the 503's Retry-After, so a session stuck behind a daily quota waits
+/// for the time Google named rather than spending its attempts inside the hour (2026-10-12 review).
+/// </param>
 public sealed record SummarizeResult(
     SummarizeStatus Status,
     DraftJson? Draft = null,
@@ -217,9 +222,9 @@ public sealed class SummarizationService(
         {
             // Nobody answered. The reservation was settled above: at nothing when the request never
             // left, at the estimate when it did and we gave up waiting.
-            return new SummarizeResult(
-                failure!.Kind == ProviderErrorKind.Unavailable ? SummarizeStatus.Unavailable : SummarizeStatus.Invalid,
-                Reason: failure.ToString());
+            return failure!.Kind == ProviderErrorKind.Unavailable
+                ? new SummarizeResult(SummarizeStatus.Unavailable, Reason: failure.ToString(), RetryAfter: failure.RetryAfter)
+                : new SummarizeResult(SummarizeStatus.Invalid, Reason: failure.ToString());
         }
 
         var provider = usedFallback ? fallback! : primary;
@@ -270,11 +275,14 @@ public sealed class SummarizationService(
     /// <summary>
     /// What a call that did not answer is settled at.
     ///
-    /// We stopped waiting; the model did not stop working. The estimate, because that is the honest guess,
-    /// and because a cap that ignores the calls it never saw the end of is a cap a slow afternoon walks
-    /// straight through (2026-09-20 review). Nothing, when the provider says the request never left.
+    /// What the provider billed, when it answered with a bill: a model that ran and returned nothing usable
+    /// is still on the invoice (2026-10-12 review). Otherwise the estimate when the call may have run,
+    /// because we stopped waiting and the model did not stop working, and a cap that ignores the calls it
+    /// never saw the end of is a cap a slow afternoon walks straight through (2026-09-20 review). Nothing,
+    /// when the provider says the request never left.
     /// </summary>
-    private decimal Owed(ProviderError error) => error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m;
+    private decimal Owed(ProviderError error) =>
+        error.CostUsd ?? (error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m);
 
     /// <summary>Parses what the model said and applies the post-conditions to it.</summary>
     private static (DraftJson? Draft, string Reason) Interpret(string json, SummarizeBundle bundle)
@@ -294,7 +302,18 @@ public sealed class SummarizationService(
             return (null, "The model returned nothing usable.");
         }
 
-        var reasons = DraftValidator.Check(draft, bundle);
+        IReadOnlyList<string> reasons;
+        try
+        {
+            reasons = DraftValidator.Check(draft, bundle);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            // Every rule has a match timeout, and a model can write the text that reaches one. That is a
+            // draft nobody could check, which is a draft that may not be shown, not a 500 after the bill.
+            return (null, "The draft could not be checked in time.");
+        }
+
         return reasons.Count == 0
             ? (draft, string.Empty)
             : (null, string.Join(" ", reasons));

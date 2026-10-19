@@ -44,7 +44,8 @@ public static partial class BundleLimits
     public const int MaxOcrChars = 100_000;
 
     /// <summary>
-    /// Every character of OCR and speech in the bundle, added up.
+    /// Every character of OCR and speech in the bundle, and of the frame and segment ids that label them,
+    /// added up. The ids are sent to the model too, so they are read and paid for like the text.
     ///
     /// The per-item limits never met each other: twenty-five frames of a hundred thousand characters
     /// each is two and a half million, and four thousand segments of ten thousand is forty million —
@@ -132,7 +133,7 @@ public static partial class BundleLimits
     }
 
     /// <summary>
-    /// What the whole bundle would cost to read, in characters.
+    /// What the whole bundle would cost to read, in characters: its text and the ids that travel with it.
     ///
     /// Last, so that a bundle which is wrong in a nameable way is told which way rather than told it is
     /// large. Counted here rather than inside the two loops because it is the sum that matters, and a
@@ -140,15 +141,17 @@ public static partial class BundleLimits
     /// </summary>
     private static string? Text(SummarizeBundle bundle)
     {
+        // The ids too: each one is sent to the model beside the text it labels, and four thousand
+        // segments of sixty-four characters is a quarter of a million that nobody had counted.
         var chars = 0L;
         foreach (var frame in bundle.Frames)
         {
-            chars += frame.OcrText?.Length ?? 0;
+            chars += frame.Id.Length + (frame.OcrText?.Length ?? 0);
         }
 
         foreach (var segment in bundle.Transcript)
         {
-            chars += segment.Text?.Length ?? 0;
+            chars += segment.Id.Length + (segment.Text?.Length ?? 0);
         }
 
         return chars > MaxTotalTextChars
@@ -166,6 +169,14 @@ public static partial class BundleLimits
             if (frame is null || string.IsNullOrWhiteSpace(frame.Id))
             {
                 return "Every frame needs an id.";
+            }
+
+            if (!Identifier().IsMatch(frame.Id))
+            {
+                // Every id goes to the model and comes back in a draft's citations and in its reasons.
+                // Only the session id was held to this, so a frame id could be a line break or a
+                // quarter of a million characters of anything (2026-10-12 review).
+                return "A frame id is not an identifier.";
             }
 
             if (frame.Excluded)
@@ -225,6 +236,11 @@ public static partial class BundleLimits
             if (segment is null || string.IsNullOrWhiteSpace(segment.Id))
             {
                 return "Every transcript segment needs an id.";
+            }
+
+            if (!Identifier().IsMatch(segment.Id))
+            {
+                return "A transcript segment id is not an identifier.";
             }
 
             if (!ids.Add(segment.Id))
