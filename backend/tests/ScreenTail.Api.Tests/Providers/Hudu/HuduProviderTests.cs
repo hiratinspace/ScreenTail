@@ -227,6 +227,42 @@ public sealed class HuduProviderTests : IDisposable
         Assert.Equal("The Hudu site answered with something that is not its API.", result.Error.What);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("")]
+    [InlineData("""{"articles":[]}""")]
+    [InlineData("""{"companies":null}""")]
+    public async Task AnAnswerWithNoCompanyListIsNotATenantWithNoCompanies(string body)
+    {
+        // A site that answers 200 with nothing to read is not Hudu, or not Hudu's API. Read as an empty
+        // list it would be cached as a tenant with no companies, and every article would ask for a
+        // mapping with nothing on offer to map it to.
+        var provider = Provider();
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") });
+
+        var result = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok, $"Read as a list of {result.Value?.Count} companies.");
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("The Hudu site answered with something that is not its API.", result.Error.What);
+
+        // Not remembered: the next call asks the site again and gets the real list.
+        var again = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        Assert.True(again.Ok, again.Error?.ToString());
+        Assert.Equal(28, again.Value!.Count);
+    }
+
+    [Fact]
+    public async Task AListThatIsSaidToBeEmptyIsStillAList()
+    {
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"companies":[]}""", System.Text.Encoding.UTF8, "application/json") });
+
+        var result = await Provider().ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Empty(result.Value!);
+    }
+
     [Fact]
     public async Task AnArticleHuduDidNotConfirmIsSentOnceAndSaysToCheckFirst()
     {

@@ -69,10 +69,28 @@ public sealed class PublisherIsolationTests(ApiFixture api) : IClassFixture<ApiF
     [Fact]
     public async Task ACallerWhoHungUpIsNotTurnedIntoAnAnswer()
     {
-        var psa = new Scripted { ThrowOnNote = new OperationCanceledException() };
+        using var hungUp = new CancellationTokenSource();
+        await hungUp.CancelAsync();
+        var psa = new Scripted { ThrowOnNote = new OperationCanceledException(hungUp.Token) };
 
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            Publisher.PublishAsync(psa, Bundle(["ticket_note", "time_entry"]), ct: TestContext.Current.CancellationToken));
+            Publisher.PublishAsync(psa, Bundle(["ticket_note", "time_entry"]), ct: hungUp.Token));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ACancellationNobodyAskedForIsAnsweredLikeAnyOtherThrow(bool asTimeout)
+    {
+        // The caller is still waiting, so this is a provider bug wearing a cancellation's clothes (an
+        // HttpClient timeout that escaped is a TaskCanceledException). Letting it through would drop the
+        // note already written from the answer, the same 500 the backstop is there to prevent.
+        var psa = new Scripted { ThrowOnTimeEntry = asTimeout ? new TaskCanceledException() : new OperationCanceledException() };
+
+        var response = await Publisher.PublishAsync(psa, Bundle(["ticket_note", "time_entry"]), ct: TestContext.Current.CancellationToken);
+
+        Assert.True(response.Results.Single(r => r.Destination == "ticket_note").Ok);
+        AssertMayHaveLanded(response.Results.Single(r => r.Destination == "time_entry"));
     }
 
     private static void AssertMayHaveLanded(PublishResultJson row)
