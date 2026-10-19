@@ -266,7 +266,10 @@ public static partial class BundleLimits
     /// <summary>
     /// Letters, digits and the punctuation an opaque id uses. No spaces, no separators, nothing that
     /// changes meaning in a path or a log line.
+    ///
+    /// Anchored with \A and \z rather than ^ and $: in .NET, $ also matches before a final line break,
+    /// so "f-0001" followed by a newline passed (review round 1 of the 2026-10-12 fixes).
     /// </summary>
-    [GeneratedRegex(@"^[A-Za-z0-9_\-.~:@+]{1,64}$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(@"\A[A-Za-z0-9_\-.~:@+]{1,64}\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex Identifier();
 }

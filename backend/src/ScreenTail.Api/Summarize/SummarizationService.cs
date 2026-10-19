@@ -58,7 +58,11 @@ public enum SummarizeStatus
 {
     Ok,
 
-    /// <summary>No provider is configured on this deployment. Actionable, and not a failure of the session.</summary>
+    /// <summary>
+    /// No provider is configured on this deployment, or the one configured refuses its key, its account
+    /// or its model. Actionable by an operator, and not a failure of the session: the client queues it
+    /// and the same session drafts once the setting is right.
+    /// </summary>
     NotConfigured,
 
     /// <summary>The tenant has spent its day. Spec §6: the client drafts on the device instead.</summary>
@@ -222,9 +226,19 @@ public sealed class SummarizationService(
         {
             // Nobody answered. The reservation was settled above: at nothing when the request never
             // left, at the estimate when it did and we gave up waiting.
-            return failure!.Kind == ProviderErrorKind.Unavailable
-                ? new SummarizeResult(SummarizeStatus.Unavailable, Reason: failure.ToString(), RetryAfter: failure.RetryAfter)
-                : new SummarizeResult(SummarizeStatus.Invalid, Reason: failure.ToString());
+            //
+            // A provider that refused this deployment (its key, its account, its model) is a setting an
+            // operator changes, after which the same session drafts. It was answered as invalid, which
+            // the client fails for good, so every session finished while a key was wrong was lost
+            // (review round 1 of the 2026-10-12 fixes). Invalid is left for an answer that could not be
+            // shown and a request refused for what was in it, which asking again does not change.
+            return failure!.Kind switch
+            {
+                ProviderErrorKind.Unavailable => new SummarizeResult(SummarizeStatus.Unavailable, Reason: failure.ToString(), RetryAfter: failure.RetryAfter),
+                ProviderErrorKind.Unauthenticated or ProviderErrorKind.Forbidden or ProviderErrorKind.NotFound =>
+                    new SummarizeResult(SummarizeStatus.NotConfigured, Reason: failure.ToString()),
+                _ => new SummarizeResult(SummarizeStatus.Invalid, Reason: failure.ToString()),
+            };
         }
 
         var provider = usedFallback ? fallback! : primary;

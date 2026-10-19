@@ -16,6 +16,12 @@
     "busy is the endpoint refusing a device or tenant already drafting as many sessions as it may at",
     "once. It is answered before the bundle is read.",
     "",
+    "not_configured is also the answer when the provider refuses this deployment's key, its account or",
+    "its model: an operator changes a setting and the queued sessions draft. invalid is only a model",
+    "that answered with nothing that can be shown, or a request the provider refused for what was in",
+    "it, which asking again does not change. AProviderThatRefusesThisDeploymentLeavesTheSessionQueued",
+    "and AModelThatAnsweredWithNothingIsFailedAndSaysSo (backend) pin which provider answers land where.",
+    "",
     "Change this file only when both sides change with it. EachOutcomeReachesTheClientAsItsOwnStatus",
     "(backend) and EachOutcomeIsWhatTheOutboxIsTold (client) are the pair that notice. The ok draft is",
     "written against summarize-request.v1.json's session, so the backend's rules accept it."

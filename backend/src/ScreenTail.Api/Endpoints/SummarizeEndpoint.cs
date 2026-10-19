@@ -90,12 +90,16 @@ public static class SummarizeEndpoint
                 // (2026-10-12 review).
                 SummarizeStatus.Unavailable => Unavailable(http, result),
 
+                // No provider, or one that refuses this deployment's key, account or model. An operator's
+                // setting, and the client queues the session until it is right; a 422 here would fail
+                // every session finished while a key was wrong (review round 1 of the 2026-10-12 fixes).
                 SummarizeStatus.NotConfigured => Results.Json(
                     new SummarizeResponse("not_configured", result.Reason),
                     statusCode: StatusCodes.Status501NotImplemented),
 
-                // The model answered and what it said could not be shown. Retrying costs money for the
-                // same answer, so the client is told rather than left to loop.
+                // The model answered and what it said could not be shown, or the provider refused the
+                // request for what was in it. Retrying costs money, or a refusal, for the same answer, so
+                // the client is told rather than left to loop.
                 _ => Results.Json(
                     new SummarizeResponse("invalid", result.Reason),
                     statusCode: StatusCodes.Status422UnprocessableEntity),
