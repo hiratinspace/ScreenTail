@@ -11,7 +11,11 @@ namespace ScreenTail.Api.Providers.Hudu;
 /// review, S-71 and T-214). Company ids are numbered per site, so a list from the old site would check
 /// an id against the wrong customers for up to ten minutes after the tenant moved. The site is kept
 /// beside the list rather than in the key, so one tenant holds one entry however often it moves, and a
-/// backend that did not serve the change still stops trusting the old list at its next lookup.
+/// backend that did not serve a move to another site still stops trusting the old list at its next
+/// lookup. A new key for the same site is not seen that way: another backend keeps the old key's list
+/// until the entry expires, and a fetch that began under the old key just before a forget can store
+/// it here again. That list is from the right site, and Hudu itself refuses an id the new key may not
+/// see, so the cost is a refusal rather than the wrong customer.
 /// </summary>
 public sealed class HuduCompanyCache(TimeProvider time)
 {

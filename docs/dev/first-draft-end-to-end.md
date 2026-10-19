@@ -254,6 +254,11 @@ curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d 
 The client does not do this itself yet; until it does, put the access token in `SCREENTAIL_DEVICE_TOKEN`
 as before. `--offboard-tenant <id>` deletes every row of a tenant.
 
+These operator commands (`--invite`, `--offboard-tenant`, `--set-policy`, `--rotate-vault-keys`) run with
+the service's own configuration, so they need `Jwt:SigningKey` as well as the connection string: the host
+checks the key before any command runs and stops with a message naming the setting when it is missing or
+shorter than 32 bytes.
+
 The tenant's policy (ST-047): `--set-policy <tenant-id> retention=3 local-only=true locked=true` writes
 a new versioned row; devices apply it within the hour, and the diagnostics panel shows the version.
 

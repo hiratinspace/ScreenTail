@@ -40,7 +40,9 @@ Every step is reversible until step 5, and a second run of step 4 is the check t
    ```bash
    dotnet run --project src/ScreenTail.Api -- --rotate-vault-keys
    ```
-   It prints how many rows changed hands and exits without listening. Run it again: it should print
+   It prints how many rows changed hands and exits without listening. "The same configuration" includes
+   `Jwt:SigningKey`: the host checks it before any command runs, so without it the rewrap stops with a
+   message naming the setting. Run it again: it should print
    `rotated 0`. If it does not, something wrote a row under the previous key between the two runs, which
    means a process is still holding the old configuration — find it before going on.
 5. **Drop the previous key.** Remove `Vault:PreviousMasterKey` and restart. Rows are now readable only

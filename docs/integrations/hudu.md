@@ -23,6 +23,12 @@ Update it in Settings → Integrations." A 422 carries Hudu's own words about th
 one customer's runbook in another customer's knowledge base, so the company id must be one of the
 tenant's.
 
+**A remembered company mapping is used only while the list still has its id under the same name.** A
+company id names a customer only on the site that issued it, so mappings are forgotten when Hudu is
+removed or connected to another site. A mapping that is still there but whose id now carries another
+name (saved while the tenant was moving, or the company renamed in Hudu) is forgotten at the next
+publish, which asks for a mapping once and writes nothing.
+
 ## What the tenant supplies
 
 1. **An API key**: Hudu → Admin → API Keys → New. Give it the permissions to read companies and to
