@@ -22,6 +22,11 @@
     "it, which asking again does not change. AProviderThatRefusesThisDeploymentLeavesTheSessionQueued",
     "and AModelThatAnsweredWithNothingIsFailedAndSaysSo (backend) pin which provider answers land where.",
     "",
+    "The same holds for the repair call. When the first answer broke a rule and the repair had an outage",
+    "or was refused for this deployment, the answer is unavailable or not_configured, never invalid: the",
+    "call that would have fixed the draft never ran.",
+    "ARepairThatWasRateLimitedLeavesTheSessionQueuedUntilTheTimeNamed (backend) pins it.",
+    "",
     "Change this file only when both sides change with it. EachOutcomeReachesTheClientAsItsOwnStatus",
     "(backend) and EachOutcomeIsWhatTheOutboxIsTold (client) are the pair that notice. The ok draft is",
     "written against summarize-request.v1.json's session, so the backend's rules accept it."

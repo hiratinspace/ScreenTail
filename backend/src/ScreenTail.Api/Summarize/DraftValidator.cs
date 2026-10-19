@@ -218,7 +218,7 @@ public static class DraftValidator
                 reasons.Add($"{where} cites transcript segment '{Echoed(segmentId)}', which does not exist.");
             }
 
-            if (step.TranscriptRefs.Count == 0 && !string.Equals(step.Confidence, "low", StringComparison.OrdinalIgnoreCase))
+            if (step.TranscriptRefs.Count == 0 && !string.Equals(step.Confidence, "low", StringComparison.Ordinal))
             {
                 reasons.Add($"{where} has no transcript evidence, so its confidence cannot be '{Echoed(step.Confidence)}'.");
             }
@@ -355,9 +355,13 @@ public static class DraftValidator
         return broken;
     }
 
-    /// <summary>Case aside, as the client's enum converter reads it.</summary>
+    /// <summary>
+    /// Exactly as the schema writes it. <c>research/prompts/schema.json</c> lists the values in lower case,
+    /// and a validator that let "HIGH" through would disagree with the schema it checks against and with
+    /// the Python checks that compare them as written (review round 2 of the 2026-10-12 fixes).
+    /// </summary>
     private static bool OneOf(string value, string[] allowed) =>
-        Array.Exists(allowed, candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+        Array.Exists(allowed, candidate => string.Equals(candidate, value, StringComparison.Ordinal));
 
     private static IEnumerable<string> CheckText(string where, string? text, string spoken)
     {
