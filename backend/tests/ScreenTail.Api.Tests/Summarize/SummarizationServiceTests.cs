@@ -363,18 +363,24 @@ public sealed class SummarizationServiceTests
 
         var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
 
-        Assert.Equal(SummarizeStatus.Invalid, result.Status);
-        Assert.Contains("f-invented", result.Reason, StringComparison.Ordinal);
+        // The repair never answered, so nothing was shown to be unfixable: an outage the client queues,
+        // not an invalid draft it fails for good (review round 2 of the 2026-10-12 fixes).
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
         Assert.Equal(0.03m + new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
     }
 
     [Fact]
-    public async Task ARepairThatFailsLeavesTheFirstReasonAndCountsWhatItMayHaveCost()
+    public async Task ARepairThatHadAnOutageIsAnOutageAndCountsWhatItMayHaveCost()
     {
+        // Review round 2 of the 2026-10-12 fixes. The first answer broke a rule and the call that would
+        // have fixed it never answered: a 429 under the free tier's per-minute limit, or the deadline. It
+        // was answered as invalid, which the client fails for good, so a transient outage on the second
+        // call lost the session. Nothing has shown the session cannot be drafted, so it is queued, and
+        // told when to come back when the provider named a time.
         var provider = new FakeLlm
         {
             Reply = WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
-            FailureOnRetry = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.")
+            FailureOnRetry = new ProviderError(ProviderErrorKind.Unavailable, "Too slow.", "Try again.", TimeSpan.FromSeconds(30))
             {
                 MayHaveBeenBilled = true,
             },
@@ -384,11 +390,14 @@ public sealed class SummarizationServiceTests
 
         var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
 
-        Assert.Equal(SummarizeStatus.Invalid, result.Status);
-        Assert.Contains("f-invented", result.Reason, StringComparison.Ordinal);
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(TimeSpan.FromSeconds(30), result.RetryAfter);
+        Assert.Contains("Too slow.", result.Reason, StringComparison.Ordinal);
+        Assert.Null(result.Draft);
         Assert.Equal(2, provider.Calls);
         Assert.Equal(0.04m + new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
         Assert.Equal(ledger.Recorded, result.CostUsd);
+        Assert.Equal(1, ledger.Settles);
     }
 
     [Fact]
@@ -404,7 +413,77 @@ public sealed class SummarizationServiceTests
 
         var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
 
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Null(result.RetryAfter);
+        Assert.Equal(0.04m, ledger.Recorded);
+    }
+
+    [Theory]
+    [InlineData(ProviderErrorKind.Unauthenticated)]
+    [InlineData(ProviderErrorKind.Forbidden)]
+    [InlineData(ProviderErrorKind.NotFound)]
+    public async Task ARepairThisDeploymentWasRefusedIsASettingToFix(ProviderErrorKind kind)
+    {
+        // A key rotated, or a model retired, between the two calls. The same setting as when the first
+        // call is refused, so the same answer: queued until an operator fixes it, with the first answer's
+        // bill still counted.
+        var provider = new FakeLlm
+        {
+            Reply = WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
+            FailureOnRetry = new ProviderError(kind, "The drafting model rejected this deployment's API key.", "Check the Summarization__ApiKey setting on the server."),
+        };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.NotConfigured, result.Status);
+        Assert.Contains("Summarization__ApiKey", result.Reason, StringComparison.Ordinal);
+        Assert.Equal(0.04m, ledger.Recorded);
+        Assert.Equal(0.04m, result.CostUsd);
+    }
+
+    [Fact]
+    public async Task ARepairTheProviderRefusedForWhatItHeldLeavesTheFirstReason()
+    {
+        // The provider read the repair and refused it for its content, which asking again does not
+        // change. That is the invalid outcome, and the first answer's reason is what went wrong.
+        var provider = new FakeLlm
+        {
+            Reply = WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
+            FailureOnRetry = new ProviderError(ProviderErrorKind.Invalid, "The model refused the request.", "Draft this note by hand."),
+        };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
         Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Contains("f-invented", result.Reason, StringComparison.Ordinal);
+        Assert.Null(result.RetryAfter);
+        Assert.Equal(0.04m, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task ARepairToTheFallbackThatHadAnOutageIsAnOutage()
+    {
+        // The primary was down, the fallback's first answer broke a rule, and the fallback did not answer
+        // the repair. Still an outage, and the fallback is named as the provider that was asked.
+        var primary = new FakeLlm { Failure = new ProviderError(ProviderErrorKind.Unavailable, "Down.", "Try again.") };
+        var fallback = new FakeLlm
+        {
+            Name = "fallback",
+            Reply = WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
+            FailureOnRetry = new ProviderError(ProviderErrorKind.Unavailable, "No answer.", "Try again."),
+        };
+        var ledger = new FakeLedger();
+        var service = Service(primary, fallback, ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.True(result.UsedFallback);
+        Assert.Equal("fallback", result.Provider);
         Assert.Equal(0.04m, ledger.Recorded);
     }
 
@@ -486,6 +565,8 @@ public sealed class SummarizationServiceTests
     [InlineData("source", "null")]
     [InlineData("prompt_version", "null")]
     [InlineData("source", "\"elsewhere\"")]
+    [InlineData("source", "\"Cloud\"")]
+    [InlineData("source", "\"LOCAL\"")]
     [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": null, "transcript_refs": ["t1"]}]""")]
     [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": [null], "transcript_refs": ["t1"]}]""")]
     [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": ["f1"], "transcript_refs": null}]""")]
@@ -493,6 +574,8 @@ public sealed class SummarizationServiceTests
     [InlineData("steps", """[{"text": null, "confidence": "high", "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
     [InlineData("steps", """[{"text": "Restarted it.", "confidence": null, "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
     [InlineData("steps", """[{"text": "Restarted it.", "confidence": "medium", "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "HIGH", "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "Low", "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
     public async Task ANullCollectionFromTheModelIsABrokenDraftNotACrash(string field, string value)
     {
         // 2026-10-12 review (T-205). A model can write null where the schema says a list, and the

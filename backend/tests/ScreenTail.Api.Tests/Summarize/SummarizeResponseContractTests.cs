@@ -151,6 +151,29 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
     }
 
     [Fact]
+    public async Task ARepairThatWasRateLimitedLeavesTheSessionQueuedUntilTheTimeNamed()
+    {
+        // Review round 2 of the 2026-10-12 fixes. The first answer cited a frame the session does not
+        // have, and the repair hit the free tier's per-minute limit. That was a 422, which the client
+        // fails for good, so a session was lost to a limit that reopens in seconds. Only one answer came
+        // back and the call that would have fixed it never ran, so it is the outage the client queues.
+        var expected = Outcome("unavailable");
+        var model = Model.InTurn(() => Model.Envelope(Broken()), () => Model.RateLimit("42s"));
+        using var host = Host(model);
+        using var client = await ClientAsync(host);
+
+        using var response = await PostAsync(client, Request());
+
+        Assert.Equal(expected["http_status"]!.GetValue<int>(), (int)response.StatusCode);
+        Assert.Equal("retry", expected["client"]!.GetValue<string>());
+        Assert.Equal(TimeSpan.FromSeconds(42), response.Headers.RetryAfter?.Delta);
+        var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal(Shape(expected["body"]!), Shape(body));
+        Assert.Equal("unavailable", body["status"]!.GetValue<string>());
+        Assert.Equal(2, model.Calls);
+    }
+
+    [Fact]
     public async Task ADeviceAlreadyDraftingAsManyAsItMayIsToldItIsBusyBeforeItsBundleIsRead()
     {
         // 2026-10-12 review (E-35). Each request bound up to 16 MB before anything looked at who was
@@ -369,18 +392,28 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
             () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(envelope, Encoding.UTF8, "application/json") },
             holds: false);
 
-        public static Model RateLimited(string retryDelay) => new(
-            () => new HttpResponseMessage(HttpStatusCode.TooManyRequests)
-            {
-                Content = new StringContent(
-                    $$"""
-                    { "error": { "code": 429, "status": "RESOURCE_EXHAUSTED", "details": [
-                        { "@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "{{retryDelay}}" } ] } }
-                    """,
-                    Encoding.UTF8,
-                    "application/json"),
-            },
-            holds: false);
+        public static Model RateLimited(string retryDelay) => new(() => RateLimit(retryDelay), holds: false);
+
+        /// <summary>Answers each call with the next of these, and the last one from then on.</summary>
+        public static Model InTurn(params Func<HttpResponseMessage>[] answers)
+        {
+            var next = -1;
+            return new(() => answers[Math.Min(Interlocked.Increment(ref next), answers.Length - 1)](), holds: false);
+        }
+
+        /// <summary>How many calls have reached the model.</summary>
+        public int Calls => Volatile.Read(ref _entered);
+
+        public static HttpResponseMessage RateLimit(string retryDelay) => new(HttpStatusCode.TooManyRequests)
+        {
+            Content = new StringContent(
+                $$"""
+                { "error": { "code": 429, "status": "RESOURCE_EXHAUSTED", "details": [
+                    { "@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "{{retryDelay}}" } ] } }
+                """,
+                Encoding.UTF8,
+                "application/json"),
+        };
 
         public void Release() => _release?.TrySetResult();
 
@@ -420,7 +453,7 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
             base.Dispose(disposing);
         }
 
-        private static HttpResponseMessage Envelope(string draft) => new(HttpStatusCode.OK)
+        public static HttpResponseMessage Envelope(string draft) => new(HttpStatusCode.OK)
         {
             Content = new StringContent(
                 $$"""
