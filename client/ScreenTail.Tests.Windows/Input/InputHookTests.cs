@@ -197,6 +197,20 @@ public sealed class InputHookTests
     }
 
     [Fact]
+    public async Task StartingTheHooksWritesNothingIntoTheSession()
+    {
+        // The hooks warm their callbacks before they go in, so the first key press is not the one that pays
+        // for compiling them. Warming must not leave a signal behind: a fake key or click in the buffer
+        // would be a keystroke the technician never made. Needs no injected input, so it runs everywhere.
+        var buffer = new InputRingBuffer(64);
+        await using var hooks = new WindowsInputHooks(buffer);
+        await hooks.StartAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(hooks.Installed);
+        Assert.Equal(0, buffer.Drain(new InputSignal[64]));
+    }
+
+    [Fact]
     public async Task TheCallbackStaysOutOfTheWayUnderSustainedTyping()
     {
         // The number that matters for the machine's feel: how long each callback holds the input path. The

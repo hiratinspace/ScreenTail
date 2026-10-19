@@ -41,6 +41,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
     private IntPtr _window;
     private long _installs;
     private long _worstCallbackTicks;
+    private bool _warmed;
 
     public WindowsInputHooks(InputRingBuffer? buffer = null)
     {
@@ -238,6 +239,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
                 _ = WTSRegisterSessionNotification(_window, NOTIFY_FOR_THIS_SESSION);
             }
 
+            Warm();
             if (!Install(out var error))
             {
                 // Not ready: the start fails with this, and the caller counts it rather than saying installed.
@@ -283,6 +285,48 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
         }
 
         return DefWindowProc(window, message, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Runs the callbacks' code once before the hooks go in, so the first real key press or click does not
+    /// pay for compiling it. On the laptop on 2026-10-19 the first line of typing cost one callback
+    /// 1,479 µs against ST-024's 1 ms budget, and every later line 116 µs at worst. Code below zero is the
+    /// pass-through branch, which records nothing; the classification and the buffer write are run against
+    /// a buffer of their own, so nothing reaches the session. Once per object: later sessions' runs find it
+    /// compiled. The warm-up's own cost is not a callback, so the worst callback starts again from zero.
+    /// </summary>
+    private void Warm()
+    {
+        if (_warmed)
+        {
+            return;
+        }
+
+        _ = OnKeyboard(-1, IntPtr.Zero, IntPtr.Zero);
+        _ = OnMouse(-1, IntPtr.Zero, IntPtr.Zero);
+
+        var scratch = new InputRingBuffer(4);
+        foreach (var key in (ReadOnlySpan<int>)[VK_RETURN, VK_SHIFT, 0x41])
+        {
+            if (Classify(key) is { } kind)
+            {
+                _ = scratch.Write(new InputSignal(kind, Stopwatch.GetTimestamp()));
+            }
+        }
+
+        var block = Marshal.AllocHGlobal(8);
+        try
+        {
+            Marshal.WriteInt64(block, 0);
+            _ = scratch.Write(new InputSignal(InputKind.Click, Stopwatch.GetTimestamp(), Marshal.ReadInt32(block, 0), Marshal.ReadInt32(block, 4), MouseButtonKind.Left));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(block);
+        }
+
+        ResetWorstCallback();
+        _warmed = true;
     }
 
     /// <summary>Takes the hooks out and puts them back. Called on lock/unlock and resume, and by tests.</summary>
