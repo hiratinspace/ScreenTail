@@ -120,6 +120,16 @@ public sealed class SummarizationService(
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// A place in the draft named only by <c>schema.json</c>'s own field names and by indexes, such as
+    /// <c>$.steps[0].text</c>. Any other name in a path is one the model made up.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex SchemaPath = new(
+        @"^\$(?:\.(?:problem|steps|text|confidence|frame_refs|transcript_refs|result|follow_ups|suggested_title"
+        + @"|suggested_time_minutes|kb_candidate|kb_reason|source|prompt_version)|\[\d{1,4}\]){0,4}$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
     public async Task<SummarizeResult> DraftAsync(Guid tenantId, SummarizeBundle bundle, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(bundle);
@@ -329,7 +339,12 @@ public sealed class SummarizationService(
         }
         catch (JsonException ex)
         {
-            return (null, $"The model did not return the agreed shape: {ex.Message}");
+            // Not the parser's message: it quotes the property it was reading, and the model chose that
+            // name. This reason is the repair prompt and the 422 body (2026-10-12 review). Where it
+            // tripped is said only when the place is one of the schema's own.
+            return (null, ex.Path is { } path && SchemaPath.IsMatch(path)
+                ? $"The model did not return the agreed shape, at {path}."
+                : "The model did not return the agreed shape.");
         }
 
         if (draft is null)

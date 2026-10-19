@@ -15,89 +15,51 @@ diagnostics and, trimmed, in the Review banner.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 PROMPT = Path(__file__).resolve().parent / "note_v1.md"
 
+# The patterns and word lists, shared with DraftValidator.cs. The C# side keeps them as constants and its
+# SharedRulesTests holds them to this file, so the two validators are built from one list rather than
+# from two that each claim to mirror the other (2026-09-19 and 2026-10-12 reviews).
+RULES = json.loads((Path(__file__).resolve().parent / "shared-rules.json").read_text(encoding="utf-8"))
+
+# The values schema.json allows, and the only ones the client can read. Anything else became a 200 the
+# client could not parse and retried, eight billed times (2026-10-12 review).
+CONFIDENCES = {"high", "low"}
+SOURCES = {"cloud", "local"}
+MAX_MINUTES = 1440
+
+# The redaction engine's own markers. "the password is [REDACTED]" is the redaction working; any other
+# bracket is something the model wrote, and "[Winter2026!]" used to count as a marker.
+REDACTION_MARKERS = set(RULES["redaction_markers"])
+
 # Quoted phrases must be real quotations from the transcript. Every pair of marks a model might reach
-# for, not only straight doubles: the rule says "quotation marks", and a fabricated line inside single
-# quotes or guillemets is the same fabrication.
-QUOTE = re.compile(r"[\"“'‘«]([^\"”'’»]{4,})[\"”'’»]")
-SSN = re.compile(r"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b")
+# for, not only straight doubles. An apostrophe inside a word is folded first, because it is the same
+# character as a closing single quote: "I've" ended a curly quotation after one letter, and two
+# possessives in one field read as a quotation nobody said.
+WORD_APOSTROPHE = re.compile(RULES["word_apostrophe"])
+QUOTE = re.compile(RULES["quoted"])
+SSN = re.compile(RULES["ssn"])
 
-# An unformatted nine-digit run is only an SSN where something says so. Python's lookbehind must be
-# fixed-width, so the cue is matched in front rather than behind — nine digits on their own are an order
-# or part number far more often, and masking every one of them would be its own kind of wrong.
-SSN_CUED = re.compile(
-    r"\b(?:ssn|social\s?security(?:\s?(?:number|no|#))?)\b\s*(?:is|was)?\s*[:=#]?\s*"
-    r"(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b",
-    re.IGNORECASE,
-)
-CARD_CANDIDATE = re.compile(r"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b")
+# An unformatted nine-digit run is only an SSN where something says so. Nine digits on their own are an
+# order or part number far more often, and masking every one of them would be its own kind of wrong.
+SSN_CUED = re.compile(RULES["ssn_cued"], re.IGNORECASE)
+CARD_CANDIDATE = re.compile(r"\b(?:\d{13,19}|\d{3,6}(?:[ .-]\d{3,6}){2,4})\b")
 
-# The C# pattern library masks these on the frame; this is the backstop for a model putting one back, or
-# for one that survived a redaction miss upstream and was read out of ocr_text.
-# The connective run is what took a while to get right. "the password was reset to Winter2026" is how a
-# technician actually writes it, and an alternation of whole phrases only caught the phrasings somebody
-# thought of: "was" matched, the value became "reset", and the credential after it went into the note.
-# Up to three linking words, then whatever follows.
 # Only the cue. Where the credential sits after it is a question about how somebody writes or speaks,
-# and a single regular expression answered it by assuming they are adjacent. On 2026-09-21 four of the
-# seven phrasings the client scrubber had just been fixed for still passed here untouched -- "the
-# password is, uh, Winter2026" matched nothing at all, because the connective run consumed " is" and
-# then the value could not begin on a comma. The walk below is CREDENTIAL_WALK, mirrored in
-# DraftValidator.cs.
-CREDENTIAL_CUE = re.compile(
-    r"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b",
-    re.IGNORECASE,
-)
+# and a single regular expression answered it by assuming they are adjacent: "the password is, uh,
+# Winter2026" matched nothing at all (2026-09-21). The walk below is mirrored in DraftValidator.cs.
+CREDENTIAL_CUE = re.compile(RULES["credential_cue"], re.IGNORECASE)
+
+# Cues for a credential that is usually only digits, after which four digits count as one.
+PIN_CUE = re.compile(RULES["pin_cue"], re.IGNORECASE)
 
 # Words that join a cue to the credential, or that somebody says while remembering one. Skipped rather
 # than treated as the value.
-CONNECTIVES = {
-    "is",
-    "was",
-    "to",
-    "set",
-    "reset",
-    "changed",
-    "change",
-    "now",
-    "will",
-    "be",
-    "equals",
-    "are",
-    "uh",
-    "um",
-    "er",
-    "ah",
-    "like",
-    "just",
-    "actually",
-    "currently",
-    "still",
-    "the",
-    "a",
-    "an",
-    "on",
-    "for",
-    "of",
-    "at",
-    "in",
-    "my",
-    "your",
-    "our",
-    "their",
-    "his",
-    "her",
-    "its",
-    "new",
-    "old",
-    "that",
-    "this",
-    "it",
-}
+CONNECTIVES = set(RULES["connectives"])
 
 # How far past the cue to look, and how the text is cut into words. A full stop ends the sentence and
 # with it any claim that what follows is the credential.
@@ -108,22 +70,20 @@ SENTENCE_END = set(".;!?")
 # What separates a credential from a sentence about one. "Outlook prompted for a password repeatedly"
 # and "the password is wrong" are notes a technician would write; "the password is Summer2024" is the
 # thing Rule 5 forbids. A failing check fails the whole draft, so a false positive here throws away a
-# correct note — the value has to look like a secret, not merely follow the word.
-SECRET_SHAPED = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7e]{6,}$|^[\x21-\x7e]{16,}$")
-KEY_SHAPE = re.compile(
-    r"AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}"
-    r"|-----BEGIN[ A-Z]*PRIVATE KEY-----"
-)
+# correct note: the value has to look like a secret, not merely follow the word. Letters and digits in
+# any script, since the ASCII-only version let a password with one accented letter through.
+SECRET_SHAPED = re.compile(RULES["secret_shaped"])
+PIN_SHAPED = re.compile(RULES["pin_shaped"])
+
+# The C# pattern library masks these on the frame; this is the backstop for a model putting one back, or
+# for one that survived a redaction miss upstream and was read out of ocr_text.
+KEY_SHAPES = RULES["key_shapes"]
+KEY_SHAPE = re.compile("|".join(KEY_SHAPES))
 
 # A note is read by a technician and may be published to a customer. An instruction to go and run
-# something, or an address to fetch it from, is not a thing a session produces on its own — it is a
+# something, or an address to fetch it from, is not a thing a session produces on its own: it is a
 # thing a screen can say, and the model has no way to tell the difference.
-DIRECTIVE = re.compile(
-    r"\b(?:https?://|www\.)\S+"
-    r"|\b(?:powershell|cmd\.exe|curl|wget|iwr|invoke-webrequest|invoke-expression|iex|certutil|bitsadmin)\b"
-    r"|\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
-    re.IGNORECASE,
-)
+DIRECTIVE = re.compile("|".join(RULES["directive"]), re.IGNORECASE)
 
 
 def next_word(text, start):
@@ -137,13 +97,15 @@ def next_word(text, start):
     return match if match else None
 
 
-def credential_after(text, start):
+def credential_after(text, start, digits_alone=False):
     """Whether a credential follows a cue, looking past the words that join the two.
 
     The first word that is not a joining word decides. If it looks like a secret, it is one. If it is an
     ordinary word with a joining word behind it, the cue was still naming what the credential is for
     ("the password on the router is Winter2026") and the walk continues. A credential said as two words
-    ("Winter 2026") is judged on the pair, because neither half looks like a secret alone.
+    ("Winter 2026") is judged on the pair, because neither half looks like a secret alone; only when the
+    first half has a letter in it, or "12 characters" would be a password. After a PIN or passcode cue
+    (digits_alone), four digits are the credential.
     """
     at = start
     for _ in range(MAX_STEPS):
@@ -156,16 +118,17 @@ def credential_after(text, start):
             at = word.end()
             continue
 
-        # The redaction engine's own marker. Finding one means the rules upstream worked.
-        if value.startswith("["):
+        # The redaction engine's own marker. Finding one means the rules upstream worked. Only the exact
+        # markers: any bracket used to count.
+        if value in REDACTION_MARKERS:
             return False
 
-        if SECRET_SHAPED.match(value):
+        if SECRET_SHAPED.match(value) or (digits_alone and PIN_SHAPED.match(value)):
             return True
 
         following = next_word(text, word.end())
         if following is not None:
-            if SECRET_SHAPED.match(value + following.group()):
+            if any(c.isalpha() for c in value) and SECRET_SHAPED.match(value + following.group()):
                 return True
             if following.group().lower() in CONNECTIVES:
                 at = word.end()
@@ -199,7 +162,8 @@ def passes_luhn(candidate: str) -> bool:
 
 
 def normalise(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip().lower()
+    """One space between words, lower case, and every apostrophe the same one."""
+    return re.sub(r"\s+", " ", text).replace("\u2019", "'").replace("\u02bc", "'").strip().lower()
 
 
 def check_draft(draft: dict, session: dict) -> list[str]:
@@ -236,6 +200,9 @@ def check_draft(draft: dict, session: dict) -> list[str]:
             if segment_id not in segments:
                 errors.append(f"{where} cites transcript segment {segment_id!r}, which does not exist.")
 
+        if step.get("confidence") not in CONFIDENCES:
+            errors.append(f"{where} has confidence {step.get('confidence')!r}; it must be high or low.")
+
         # Rule 3: nobody said it, so it can only have been read off the screen.
         if not step.get("transcript_refs") and step.get("confidence") != "low":
             errors.append(f"{where} has no transcript evidence, so it cannot be high confidence.")
@@ -259,6 +226,19 @@ def check_draft(draft: dict, session: dict) -> list[str]:
         errors.extend(f"follow_ups: {reason}" for reason in check_not_directed(follow_up))
         errors.extend(f"follow_ups: {reason}" for reason in check_quotations(follow_up, spoken))
 
+    if draft.get("source") not in SOURCES:
+        errors.append(f"The source is {draft.get('source')!r}; it must be cloud or local.")
+
+    minutes_allowed = draft.get("suggested_time_minutes")
+    if (
+        isinstance(minutes_allowed, bool)
+        or not isinstance(minutes_allowed, int)
+        or not 0 <= minutes_allowed <= MAX_MINUTES
+    ):
+        errors.append(
+            f"The suggested time is {minutes_allowed!r} minutes; it must be between 0 and {MAX_MINUTES}."
+        )
+
     if not str(draft.get("kb_reason", "")).strip():
         errors.append("kb_reason is empty; a person has to read it to decide about the article.")
 
@@ -278,9 +258,11 @@ def check_draft(draft: dict, session: dict) -> list[str]:
 
 def check_quotations(text: str, spoken: str) -> list[str]:
     """Rule 4. A phrase in quotation marks has to be one somebody actually said."""
+    folded = WORD_APOSTROPHE.sub("\u02bc", text)
+    quotations = (double or single for double, single in QUOTE.findall(folded))
     return [
         f"quotes {quoted!r}, which nobody said in this session."
-        for quoted in QUOTE.findall(text)
+        for quoted in quotations
         if normalise(quoted) not in spoken
     ]
 
@@ -315,7 +297,9 @@ def check_no_secrets(text: str) -> list[str]:
 
     # "the password is [REDACTED]" is the redaction working and must stay; "the password is Summer2024"
     # is the thing Rule 5 forbids.
-    if any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text)):
+    if any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text)) or any(
+        credential_after(text, cue.end(), digits_alone=True) for cue in PIN_CUE.finditer(text)
+    ):
         reasons.append("reproduces a credential.")
 
     return reasons

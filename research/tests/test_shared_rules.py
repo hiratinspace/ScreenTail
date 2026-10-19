@@ -73,12 +73,16 @@ def test_checks_uses_the_shared_file():
 
 def test_every_key_shape_the_client_masks_is_one_the_validators_know():
     known = RULES["key_shapes"]
-    for shape in alternatives(verbose(client_pattern("ApiKey"))):
+    client = alternatives(verbose(client_pattern("ApiKey")))
+    assert len(client) >= 10, "The client's key shapes did not parse, so this test would check nothing."
+    for shape in client:
         if shape.startswith("(?<="):
             # The client's cue-and-value rule. The validators answer it with the cue walk instead, so
             # what has to match is the list of words that introduce a key.
             group = re.match(r"\(\?<=\(\?i:(\(\?:[^)]*\))", shape).group(1)
-            assert group in RULES["credential_cue"], f"The client's key cues {group} are not all cue words here."
+            assert group in RULES["credential_cue"], (
+                f"The client's key cues {group} are not all cue words here."
+            )
             continue
         assert any(shape == ours or shape.startswith(ours) for ours in known), (
             f"The client masks {shape!r} and shared-rules.json has no key shape for it."
@@ -87,7 +91,9 @@ def test_every_key_shape_the_client_masks_is_one_the_validators_know():
 
 def test_every_password_cue_the_client_knows_is_one_the_validators_know():
     ours = alternatives(RULES["credential_cue"]) + alternatives(RULES["pin_cue"])
-    for cue in alternatives(client_pattern("PasswordCue")):
+    client = alternatives(client_pattern("PasswordCue"))
+    assert len(client) >= 5, "The client's password cues did not parse, so this test would check nothing."
+    for cue in client:
         assert cue in ours, f"The client treats {cue!r} as a password cue and the validators do not."
 
 

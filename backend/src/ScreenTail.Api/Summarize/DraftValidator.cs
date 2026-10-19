@@ -18,13 +18,19 @@ namespace ScreenTail.Api.Summarize;
 /// model to emit a command, and a note is where a person downstream would find it and run it.
 ///
 /// The same rules run in <c>research/prompts/checks.py</c> over the eval corpus. They are here as well
-/// because that harness runs offline and this runs in front of a technician. When one changes, both
-/// change; <c>DraftValidatorTests</c> and <c>test_prompt_hardening.py</c> are the pair that notice.
+/// because that harness runs offline and this runs in front of a technician. Both are built from
+/// <c>research/prompts/shared-rules.json</c> (see <see cref="DraftRules"/>), and
+/// <c>hardening-cases.json</c> says what both must answer.
 /// </summary>
 public static class DraftValidator
 {
     /// <summary>The prompt these rules were written against. A draft from another has been checked by nothing.</summary>
     public const string PromptVersion = "note_v1";
+
+    /// <summary><c>suggested_time_minutes</c> in <c>schema.json</c>: a day at most, and never negative.</summary>
+    private const long MaxMinutes = 1440;
+
+    private static readonly Regex WordApostrophe = Rule(DraftRules.WordApostrophe);
 
     private static readonly Regex Quoted = Rule(DraftRules.Quoted);
 
@@ -32,17 +38,24 @@ public static class DraftValidator
 
     private static readonly Regex SsnCued = Rule(DraftRules.SsnCued, RegexOptions.IgnoreCase);
 
-    private static readonly Regex LongDigits = Rule(@"\b(?:\d[ -]?){13,19}\b");
+    /// <summary>Spaces, hyphens or dots between the digits, as the client's pattern library reads a card.</summary>
+    private static readonly Regex LongDigits = Rule(@"\b(?:\d[ .-]?){13,19}\b");
 
-    /// <summary><see cref="CarriesACredential"/> walks from here. The same walk is in <c>research/prompts/checks.py</c>.</summary>
+    /// <summary><see cref="CarriesACredential"/> walks from these. The same walk is in <c>research/prompts/checks.py</c>.</summary>
     private static readonly Regex CredentialCue = Rule(DraftRules.CredentialCue, RegexOptions.IgnoreCase);
 
+    private static readonly Regex PinCue = Rule(DraftRules.PinCue, RegexOptions.IgnoreCase);
+
     private static readonly HashSet<string> Connectives = new(DraftRules.Connectives, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> Markers = new(DraftRules.RedactionMarkers, StringComparer.Ordinal);
 
     /// <summary>How far past a cue to look before giving up on finding a credential.</summary>
     private const int MaxSteps = 6;
 
     private static readonly Regex SecretShaped = Rule(DraftRules.SecretShaped);
+
+    private static readonly Regex PinShaped = Rule(DraftRules.PinShaped);
 
     private static readonly Regex KeyShape = Rule(string.Join("|", DraftRules.KeyShapes));
 
@@ -57,32 +70,46 @@ public static class DraftValidator
     /// <summary>
     /// A model-chosen string, made safe to put in a sentence.
     ///
-    /// Every reason below quotes something the model wrote, and those reasons go back to the client and
-    /// into the stored draft-failed reason. The model reads OCR of a customer's screen, so a screen can
-    /// suggest what it writes: a "frame id" carrying newlines forges log lines, and one carrying a
-    /// thousand characters pushes screen content into places INV-10 keeps it out of. Neither needs an
-    /// attacker — a model having a bad day writes long nonsense on its own.
+    /// Every reason below quotes something the model wrote, and those reasons go back to the client, into
+    /// the stored draft-failed reason, and into the repair prompt the model reads next. The model reads
+    /// OCR of a customer's screen, so a screen can suggest what it writes: a "frame id" carrying newlines
+    /// forges log lines, and one carrying a thousand characters pushes screen content into places INV-10
+    /// keeps it out of. Neither needs an attacker; a model having a bad day writes long nonsense on its
+    /// own.
     ///
     /// Kept recognisable rather than removed, because a reason that will not say which citation was
-    /// wrong does not help the technician reading it.
+    /// wrong does not help the technician reading it. Every site that repeats the model goes through
+    /// here: the 2026-10-12 review found three that did not.
     /// </summary>
-    private static string Echoed(string? value)
+    internal static string Echoed(string? value)
     {
         if (string.IsNullOrEmpty(value))
         {
             return "";
         }
 
-        var safe = new StringBuilder(Math.Min(value.Length, EchoedLength));
-        foreach (var c in value)
+        var safe = new StringBuilder(Math.Min(value.Length, EchoedLength) + 2);
+        Span<char> pair = stackalloc char[2];
+        foreach (var rune in value.EnumerateRunes())
         {
-            if (safe.Length == EchoedLength)
+            if (safe.Length >= EchoedLength)
             {
                 return safe.Append('…').ToString();
             }
 
-            // Printable, and nothing that ends a line or closes the quotation it sits inside.
-            _ = safe.Append(char.IsControl(c) || c == '\'' ? '.' : c);
+            // Printable, and nothing that ends a line, reorders the text around it, or closes the
+            // quotation it sits inside. Line and paragraph separators end a line as surely as a newline
+            // does, and a bidirectional override makes a reason read differently from what it says.
+            var shown = Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control
+                or UnicodeCategory.Format
+                or UnicodeCategory.LineSeparator
+                or UnicodeCategory.ParagraphSeparator
+                or UnicodeCategory.PrivateUse
+                or UnicodeCategory.OtherNotAssigned
+                || rune.Value == '\''
+                ? new Rune('.')
+                : rune;
+            _ = safe.Append(pair[..shown.EncodeToUtf16(pair)]);
         }
 
         return safe.ToString();
@@ -103,14 +130,15 @@ public static class DraftValidator
             return broken;
         }
 
-        var reasons = new List<string>();
+        var reasons = new List<string>(OutsideTheSchema(draft));
+
         var frames = bundle.Frames.ToDictionary(frame => frame.Id, StringComparer.Ordinal);
         var segments = bundle.Transcript.ToDictionary(segment => segment.Id, StringComparer.Ordinal);
         var spoken = Normalise(string.Join(" ", bundle.Transcript.Select(segment => segment.Text)));
 
         if (!string.Equals(draft.PromptVersion, PromptVersion, StringComparison.Ordinal))
         {
-            reasons.Add($"The draft came from prompt '{draft.PromptVersion}', not '{PromptVersion}'.");
+            reasons.Add($"The draft came from prompt '{Echoed(draft.PromptVersion)}', not '{PromptVersion}'.");
         }
 
         for (var i = 0; i < draft.Steps.Count; i++)
@@ -137,6 +165,7 @@ public static class DraftValidator
                 reasons.Add($"{where} cites transcript segment '{Echoed(segmentId)}', which does not exist.");
             }
 
+            // The exact word, as the client reads it. "LOW" used to count as low here.
             if (step.TranscriptRefs.Count == 0 && !string.Equals(step.Confidence, "low", StringComparison.Ordinal))
             {
                 reasons.Add($"{where} has no transcript evidence, so its confidence cannot be '{Echoed(step.Confidence)}'.");
@@ -282,6 +311,21 @@ public static class DraftValidator
     private static bool OneOf(string value, string[] allowed) =>
         Array.Exists(allowed, candidate => string.Equals(candidate, value, StringComparison.Ordinal));
 
+    /// <summary>
+    /// A number <c>schema.json</c> does not allow. <see cref="Shape"/> has already held the enums and
+    /// the required parts to the schema; this is the one bound it cannot see, because the deserializer
+    /// reads any whole number into it.
+    /// </summary>
+    private static IEnumerable<string> OutsideTheSchema(DraftJson draft)
+    {
+        if (draft.SuggestedTimeMinutes is < 0 or > MaxMinutes)
+        {
+            yield return string.Create(
+                CultureInfo.InvariantCulture,
+                $"The suggested time is {draft.SuggestedTimeMinutes} minutes; it must be between 0 and {MaxMinutes}.");
+        }
+    }
+
     private static IEnumerable<string> CheckText(string where, string? text, string spoken)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -289,13 +333,15 @@ public static class DraftValidator
             yield break;
         }
 
-        foreach (Match match in Quoted.Matches(text))
+        // An apostrophe is not a closing quote. Folded first, so "I've" inside a quotation does not end it.
+        foreach (Match match in Quoted.Matches(WordApostrophe.Replace(text, "ʼ")))
         {
             // A quoted sentence in a ticket note is a claim about what somebody said, and a customer may
             // read it. Paraphrase is fine; invented speech is not.
-            if (!spoken.Contains(Normalise(match.Groups[1].Value), StringComparison.Ordinal))
+            var quoted = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+            if (!spoken.Contains(Normalise(quoted), StringComparison.Ordinal))
             {
-                yield return $"{where} quotes \"{match.Groups[1].Value}\", which nobody said.";
+                yield return $"{where} quotes '{Echoed(quoted)}', which nobody said.";
             }
         }
 
@@ -319,21 +365,15 @@ public static class DraftValidator
 
         if (Directive.Match(withoutMarkers) is { Success: true } directive)
         {
-            yield return $"{where} reads as an instruction rather than a record: '{directive.Value}'.";
+            yield return $"{where} reads as an instruction rather than a record: '{Echoed(directive.Value.Trim())}'.";
         }
     }
 
     /// <summary>
-    /// Whether any long run of digits passes the card checksum.
-    ///
-    /// Without it every order number and serial in a session is a false positive, and a validator that
-    /// cries wolf is one somebody turns off.
-    /// </summary>
-    /// <summary>
     /// Whether this text puts a credential back into the note (prompt rule 5).
     ///
     /// Two ways in: a cue word followed by something secret-shaped, and a key whose shape needs no cue.
-    /// The shape test is what keeps "the password was wrong" out of it — a rejected draft costs a
+    /// The shape test is what keeps "the password was wrong" out of it. A rejected draft costs a
     /// technician a correct note, so the value has to look like a secret rather than merely follow the
     /// word.
     /// </summary>
@@ -346,7 +386,15 @@ public static class DraftValidator
 
         foreach (Match cue in CredentialCue.Matches(text))
         {
-            if (CredentialAfter(text, cue.Index + cue.Length))
+            if (CredentialAfter(text, cue.Index + cue.Length, digitsAlone: false))
+            {
+                return true;
+            }
+        }
+
+        foreach (Match cue in PinCue.Matches(text))
+        {
+            if (CredentialAfter(text, cue.Index + cue.Length, digitsAlone: true))
             {
                 return true;
             }
@@ -360,10 +408,12 @@ public static class DraftValidator
     ///
     /// The first word that is not a joining word decides. If it looks like a secret, it is one. If it is
     /// an ordinary word with a joining word behind it, the cue was still naming what the credential is
-    /// for — "the password on the router is Winter2026" — and the walk goes on. A credential written as
-    /// two words is judged on the pair, because neither half of "Winter 2026" looks like a secret alone.
+    /// for ("the password on the router is Winter2026") and the walk goes on. A credential written as
+    /// two words is judged on the pair, because neither half of "Winter 2026" looks like a secret alone;
+    /// only when the first half has a letter in it, or "12 characters" would be a password.
     /// </summary>
-    private static bool CredentialAfter(string text, int start)
+    /// <param name="digitsAlone">After a PIN or passcode cue, where four digits are the credential.</param>
+    private static bool CredentialAfter(string text, int start, bool digitsAlone)
     {
         var at = start;
         for (var step = 0; step < MaxSteps; step++)
@@ -380,13 +430,14 @@ public static class DraftValidator
                 continue;
             }
 
-            // The redaction engine's own marker. Finding one means the rules upstream worked.
-            if (value.StartsWith('['))
+            // The redaction engine's own marker. Finding one means the rules upstream worked. Only the
+            // exact markers: any bracket used to count, so "[Winter2026!]" went through (2026-10-12).
+            if (Markers.Contains(value))
             {
                 return false;
             }
 
-            if (SecretShaped.IsMatch(value))
+            if (SecretShaped.IsMatch(value) || (digitsAlone && PinShaped.IsMatch(value)))
             {
                 return true;
             }
@@ -394,7 +445,7 @@ public static class DraftValidator
             if (NextWord(text, word.Start + word.Length) is { } following)
             {
                 var next = text.Substring(following.Start, following.Length);
-                if (SecretShaped.IsMatch(value + next))
+                if (value.Any(char.IsLetter) && SecretShaped.IsMatch(value + next))
                 {
                     return true;
                 }
@@ -446,6 +497,12 @@ public static class DraftValidator
     private static bool IsWordChar(char c) =>
         !char.IsWhiteSpace(c) && c is not (',' or '.' or ';' or '!' or '?' or ':' or '=' or '"' or '\'');
 
+    /// <summary>
+    /// Whether any long run of digits passes the card checksum.
+    ///
+    /// Without it every order number and serial in a session is a false positive, and a validator that
+    /// cries wolf is one somebody turns off.
+    /// </summary>
     private static bool Luhn(string text)
     {
         foreach (Match match in LongDigits.Matches(text))
@@ -476,6 +533,15 @@ public static class DraftValidator
         return false;
     }
 
+    /// <summary>
+    /// Text as it is compared with the transcript: one space between words, lower case, and every kind of
+    /// apostrophe the same one, so a quotation typed with a curly apostrophe matches speech transcribed
+    /// with a straight one.
+    /// </summary>
     private static string Normalise(string text) =>
-        Regex.Replace(text, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(1)).Trim().ToLowerInvariant();
+        Regex.Replace(text, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(1))
+            .Replace('’', '\'')
+            .Replace('ʼ', '\'')
+            .Trim()
+            .ToLowerInvariant();
 }
