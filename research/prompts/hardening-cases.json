@@ -399,6 +399,131 @@
       "text": "The private key is stored in the vault, not on the laptop.",
       "refuse": false,
       "why": "Where a key is kept is not the key."
+    },
+    {
+      "text": "Next, install the agent from the share.",
+      "refuse": true,
+      "why": "An imperative after an introducing word and a comma. Main refused it, and the first version of the imperative rule did not."
+    },
+    {
+      "text": "First, run setup.exe as admin.",
+      "refuse": true,
+      "why": "Likewise, after 'First,'."
+    },
+    {
+      "text": "To finish, run fix.exe.",
+      "refuse": true,
+      "why": "An imperative at the start of a clause, after a comma."
+    },
+    {
+      "text": "If it fails, disable the service.",
+      "refuse": true,
+      "why": "An imperative after a conditional clause."
+    },
+    {
+      "text": "1) Install AnyDesk.",
+      "refuse": true,
+      "why": "An imperative in a numbered list."
+    },
+    {
+      "text": "a) Disable the print service on the server.",
+      "refuse": true,
+      "why": "An imperative in a lettered list."
+    },
+    {
+      "text": "You will need to install AnyDesk.",
+      "refuse": true,
+      "why": "Addressed to the reader, with 'will need to'."
+    },
+    {
+      "text": "You'll need to run setup.exe.",
+      "refuse": true,
+      "why": "Addressed to the reader, contracted."
+    },
+    {
+      "text": "You’ll need to run setup.exe.",
+      "refuse": true,
+      "why": "The same with a curly apostrophe."
+    },
+    {
+      "text": "Please, install AnyDesk.",
+      "refuse": true,
+      "why": "An imperative after 'Please,'."
+    },
+    {
+      "text": "Just run setup.exe.",
+      "refuse": true,
+      "why": "An imperative after 'Just'."
+    },
+    {
+      "text": "Make sure to install AnyDesk before the call.",
+      "refuse": true,
+      "why": "An imperative introduced by 'make sure to'."
+    },
+    {
+      "text": "Card 4111 1111 1111 1111 123 was read out.",
+      "refuse": true,
+      "why": "A card with its CVV beside it: the run fails the checksum, the card inside it does not."
+    },
+    {
+      "text": "Card 4111111111111111 123 was read out.",
+      "refuse": true,
+      "why": "The same, unspaced."
+    },
+    {
+      "text": "Card 4111 111111111111 was read out.",
+      "refuse": true,
+      "why": "A card written in two groups of unequal length."
+    },
+    {
+      "text": "Order 4111 1111 1111 1112 123 shipped on Tuesday.",
+      "refuse": false,
+      "why": "Neither the run nor any card-length window inside it passes the checksum."
+    },
+    {
+      "text": "The password is [REDACTED] Winter2026 for the guest account.",
+      "refuse": true,
+      "why": "A marker does not end the walk: what follows it is still a credential."
+    },
+    {
+      "text": "The PIN pad 2041 was replaced.",
+      "refuse": false,
+      "why": "A PIN pad with a number is not a PIN. After a PIN cue the credential is one word, never a pair."
+    },
+    {
+      "text": "The user said „the printer is haunted again“ before hanging up.",
+      "refuse": true,
+      "why": "Low-9 double quotes, as German writes them."
+    },
+    {
+      "text": "The user said ‚the printer is haunted again‘ before hanging up.",
+      "refuse": true,
+      "why": "Low-9 single quotes."
+    },
+    {
+      "text": "The user said ‹the printer is haunted again› before hanging up.",
+      "refuse": true,
+      "why": "Single guillemets."
+    },
+    {
+      "text": "The user said 「the printer is haunted again」 before hanging up.",
+      "refuse": true,
+      "why": "CJK corner brackets."
+    },
+    {
+      "text": "The user confirmed „that's why nothing is printing“ on the call.",
+      "refuse": false,
+      "why": "A real quotation in low-9 quotes is compared with the transcript and passes."
+    },
+    {
+      "text": "Opened File » Save As » PDF to keep a copy of the report.",
+      "refuse": false,
+      "why": "A menu path with guillemets is not a quotation."
+    },
+    {
+      "text": "Went to Settings › Accounts › Email to check the profile.",
+      "refuse": false,
+      "why": "Likewise with single guillemets."
     }
   ],
   "transcript": [

@@ -99,3 +99,43 @@ def test_every_password_cue_the_client_knows_is_one_the_validators_know():
 
 def test_the_ssn_shape_is_the_one_the_client_masks():
     assert client_pattern("Ssn").startswith(RULES["ssn"]), "The client's SSN shape and the shared one differ."
+
+
+# What the client's card rule has to find, written so the client's pattern can be compared with ours:
+# cards on their own, with their CVV or expiry beside them, and in each grouping a form or a person uses.
+CARD_SAMPLES = [
+    "4111 1111 1111 1111",
+    "4111-1111-1111-1111",
+    "4111.1111.1111.1111",
+    "4111111111111111",
+    "378282246310005",
+    "3782 822463 10005",
+    "4111 1111 1111 1111 123",
+    "4111 1111 1111 1111 123 0927",
+    "5555 5555 5555 4444 12 27",
+    "Order 1234 5678 9012 3456 7890 shipped",
+]
+
+
+def test_checks_reads_cards_with_the_shared_run():
+    assert checks.CARD_RUN.pattern == RULES["card_run"]
+
+
+def test_every_run_the_client_reads_for_a_card_is_one_the_validators_read():
+    # The client names its digit groups so it can try windows of them. Python spells a named group
+    # differently and neither side needs the name to find the run, so it is dropped before comparing.
+    client = re.compile(client_pattern("CardCandidate").replace("(?<g>", "(?:"))
+    ours = re.compile(RULES["card_run"])
+    for sample in CARD_SAMPLES:
+        found = [match.span() for match in client.finditer(sample)]
+        assert found, f"The client's card rule reads nothing in {sample!r}, so this compares nothing."
+        runs = [match.span() for match in ours.finditer(sample)]
+        for start, end in found:
+            assert any(s <= start and end <= e for s, e in runs), (
+                f"The client reads {sample[start:end]!r} as a place a card can be and the validators do not."
+            )
+
+
+def test_a_card_beside_another_number_is_found_by_its_window():
+    assert checks.check_no_secrets("Card 4111 1111 1111 1111 123 was read out.")
+    assert not checks.check_no_secrets("Order 4111 1111 1111 1112 123 shipped on Tuesday.")

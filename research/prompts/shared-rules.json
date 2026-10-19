@@ -26,6 +26,7 @@
   "quoted": "[\"“«]([^\"”»]{4,})[\"”»]|(?<!\\w)['‘]([^'’]{4,})['’](?!\\w)",
   "ssn": "\\b(?!000|666|9\\d\\d)\\d{3}[-. ](?!00)\\d{2}[-. ](?!0000)\\d{4}\\b",
   "ssn_cued": "\\b(?:ssn|social\\s?security(?:\\s?(?:number|no|#))?)\\b\\s*(?:is|was)?\\s*[:=#]?\\s*(?!000|666|9\\d\\d)\\d{3}(?!00)\\d{2}(?!0000)\\d{4}\\b",
+  "card_run": "\\b[0-9]+(?:[ .-][0-9]+)*\\b",
   "credential_cue": "\\b(?:password|passphrase|passwd|pwd|pass(?=\\s{0,3}[:=])|(?:api|access|secret|private|auth|account|client|consumer|signing|encryption|master|app|maps)[ _-]?key|secret|token|bearer)\\b",
   "pin_cue": "\\b(?:pass\\s?code|pin(?:\\s?number)?)\\b",
   "connectives": [
