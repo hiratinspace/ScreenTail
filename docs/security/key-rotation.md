@@ -58,4 +58,6 @@ finished; put the previous key back and repeat step 4.
 - **Who may store a credential.** Any device of the tenant may, until ST-010 brings roles.
 
 Exercised by `backend/tests/ScreenTail.Api.Tests/Vault/KeyRotationTests.cs`, which does steps 2 to 5 in
-memory and checks that every row opens after and none before.
+memory: a row under the previous key opens before the rewrap and a new one goes under the current key
+(step 3), every row opens under the current key alone after it (steps 4 and 5), and a row under a key the
+deployment no longer holds is refused with that key's id.
