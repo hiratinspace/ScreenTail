@@ -230,6 +230,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
+// Before the timeout, so the publish deadline counts from no later than the timeout does (S-68).
+app.UseRequestStart();
 app.UseRequestTimeouts();
 app.UseAuthentication();
 app.UseAuthorization();

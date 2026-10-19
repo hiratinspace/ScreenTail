@@ -12,8 +12,16 @@ it against a sandbox before a pilot.
 | Recent tickets | `GET /service/tickets?conditions=closedFlag = false&orderBy=_info/lastUpdated desc&pageSize=10&page=1` | The picker on focus, before anything is typed (Spec §5 S3). The API member is the tenant's, so this is the tenant's recent activity, not the technician's |
 | Test connection | `GET /system/info` | Settings → Integrations, and `POST /v1/integrations/connectwise/check`; the row records when and what went wrong |
 | Add a note | `POST /service/tickets/{id}/notes` with `internalAnalysisFlag` for Internal and `detailDescriptionFlag` for Discussion | Publish |
-| Attach screenshots | `POST /system/documents` with `recordType=Ticket`, one per included frame, after the note | Publish |
-| Log time | `POST /time/entries` with `chargeToType=ServiceTicket`, a start and an end, `billableOption` | Publish |
+| Attach screenshots | `POST /system/documents` with `recordType=Ticket` and `privateFlag` true for an Internal note, one per included frame, four at a time, after the note | Publish |
+| Log time | `POST /time/entries` with `chargeToType=ServiceTicket`, a start and an end, `billableOption`; the note's text in `internalNotes` for Internal and `notes` for Discussion; the `addTo…` and `email…` flags all false | Publish |
+
+A note that landed is reported with its id even when a screenshot did not attach (`kind: partial`), so
+the client's Retry does not post it again; a screenshot that was still uploading at the deadline is named
+as one to look for before adding it by hand. The destinations go together under a 75 s publish deadline,
+counted from when the request arrived, so the time the screenshots took to upload is part of it. One
+that has not answered by then comes back `timed_out`, and one whose answer could not be read comes back
+`unknown`: both may have landed, so neither is retryable. If the upload used the whole deadline,
+nothing is sent and each destination says so.
 
 Every request carries Basic auth with the tenant's `companyId+publicKey:privateKey` and the vendor
 `clientId` header. A 429 or an outage is retried with exponential backoff and jitter, three attempts
@@ -68,8 +76,11 @@ there is one:
    Expect open tickets whose summary contains the word, newest first, each with its company. A number
    returns that ticket first. `pr` is refused with `query_too_short`; a wrong key comes back as
    `psa_unauthenticated` with "Update it in Settings → Integrations."
-4. Publish (ST-093, ST-094): not wired to the client yet; when it is, the note, its attachments and the
-   time entry appear on the ticket and the response carries their ids.
+4. Publish (ST-093, ST-094): the note, its attachments and the time entry appear on the ticket and the
+   response carries their ids. Two field names are written from the API documentation and not yet
+   seen working: check that an Internal note's screenshots are not visible in the customer portal
+   (`privateFlag` on the document), and that an Internal time entry shows its text under internal
+   notes and is accepted with no `notes` (some boards require a description).
 
 Record what you saw in this file, dated, so the next person knows the recorded shapes in
 `ScriptedConnectWise` still match the real API.

@@ -38,11 +38,38 @@ public sealed class PsaGatewayTests
         var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
 
         Assert.True(answer.Ok);
-        Assert.Equal(2, answer.Value!.Count);
+        Assert.Equal(3, answer.Value!.Count);
         Assert.True(answer.Value[0].Ok);
         Assert.Equal("90001", answer.Value[0].Id);
         Assert.False(answer.Value[1].Ok);
         Assert.Equal("forbidden", answer.Value[1].Kind);
+
+        // Landed without a screenshot: a success, with its id and link, and the words about what is missing.
+        Assert.True(answer.Value[2].Ok);
+        Assert.Equal(("5101", "partial", false), (answer.Value[2].Id, answer.Value[2].Kind, answer.Value[2].Retryable));
+        Assert.Equal("https://acme.huducloud.com/a/printer-offline-5101", answer.Value[2].Link);
+        Assert.StartsWith("The article was published as 5101, but 1 of 1 screenshots did not attach", answer.Value[2].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ADestinationThatMayHaveLandedComesThroughAsNotRetryable()
+    {
+        // The contract's two answers for a destination that was sent and never confirmed: the deadline
+        // came first, or the PSA's answer could not be read. Each is not ok, has no id, and is not
+        // retryable, and its words (which say to check the ticket first) reach the technician unchanged.
+        using var handler = new RecordingHandler(Json(JsonDocument.Parse(Contract("response_uncertain")).RootElement));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.True(answer.Ok);
+        Assert.Equal(["unknown", "timed_out"], answer.Value!.Select(r => r.Kind));
+        Assert.All(answer.Value!, r =>
+        {
+            Assert.False(r.Ok);
+            Assert.Null(r.Id);
+            Assert.False(r.Retryable);
+            Assert.Matches("Check .+ before (you publish|publishing)", r.Error);
+        });
     }
 
     [Fact]

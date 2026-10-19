@@ -36,11 +36,14 @@ public sealed record PublishRequest(
     IReadOnlyList<string> FrameIds);
 
 /// <param name="Link">Where it landed, for "Open in ConnectWise". Null when it did not.</param>
-/// <param name="Error">The provider's own words, for the partial-publish line. Never content of the note.</param>
+/// <param name="Error">The provider's own words, for the partial-publish line, or for <see cref="Partial"/> what did not attach. Never content of the note.</param>
 /// <param name="Kind">The backend's name for the failure, when it gave one. <c>needs_mapping</c> is the one the pane acts on (ST-097).</param>
 public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Link = null, string? Error = null, string? Kind = null)
 {
     public const string NeedsMapping = "needs_mapping";
+
+    /// <summary>It landed and something with it did not, usually a screenshot. <see cref="Ok"/> is true, so Retry leaves it alone; <see cref="Error"/> says what is missing.</summary>
+    public const string Partial = "partial";
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
@@ -213,19 +216,25 @@ public sealed class PublishPanel
                 return null;
             }
 
+            // A destination that landed without a screenshot is published, and says what is missing
+            // rather than letting "Published" hide it (2026-10-12 review, S-69).
+            var missing = string.Join(' ', _results.Values.Where(r => r is { Ok: true, Kind: DestinationResult.Partial, Error.Length: > 0 }).OrderBy(r => r.Destination).Select(r => r.Error));
             if (Published)
             {
                 var time = _results.TryGetValue(Destination.TimeEntry, out var entry) && entry.Ok
                     ? $" · {Minutes / 60}:{Minutes % 60:00} logged"
                     : string.Empty;
-                return $"Published to ticket #{Ticket?.Id}{time}";
+                return missing.Length > 0
+                    ? $"Published to ticket #{Ticket?.Id}{time}. {missing}"
+                    : $"Published to ticket #{Ticket?.Id}{time}";
             }
 
             var failed = _results.Values.Where(r => !r.Ok).ToList();
             var landed = _results.Values.Where(r => r.Ok).Select(r => Name(r.Destination)).ToList();
             var first = failed[0];
             var prefix = landed.Count > 0 ? $"{Capitalise(landed[0])} published. " : string.Empty;
-            return $"{prefix}{Capitalise(Name(first.Destination))} failed: {first.Error ?? "no reason given"}";
+            var line = $"{prefix}{Capitalise(Name(first.Destination))} failed: {first.Error ?? "no reason given"}";
+            return missing.Length > 0 ? $"{line} {missing}" : line;
         }
     }
 

@@ -160,12 +160,163 @@ public sealed class ConnectWiseProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task AnAttachmentRefusedAfterTheNoteLandedNamesTheNote()
+    {
+        // The note is on the ticket. Reporting it as failed is what made Retry post it a second time,
+        // with every screenshot again (2026-10-12 review, T-211): it is a success that says what is missing.
+        _api.FailingRoute = ("/system/documents", HttpStatusCode.BadRequest);
+        var note = new TicketNote("48213", "Body", Internal: true,
+        [
+            new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 }),
+            new NoteAttachment("screenshot-2.jpg", "image/jpeg", new byte[] { 2 }),
+        ]);
+
+        var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Equal("90001", result.Value!.Id);
+        var missing = Assert.IsType<ProviderError>(result.Value.Incomplete);
+        Assert.Contains("90001", missing.What, StringComparison.Ordinal);
+        Assert.Contains("2 of 2 screenshots", missing.What, StringComparison.Ordinal);
+        Assert.Contains("The script said no", missing.What, StringComparison.Ordinal);
+        Assert.EndsWith(".", missing.Todo, StringComparison.Ordinal);
+        Assert.Single(_api.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/notes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task OneRefusedAttachmentDoesNotStopTheOthers()
+    {
+        // The second of three is refused; the first and third still go, and the note says which one is missing.
+        using var refusedOnce = new RefuseOne(_api, "screenshot-2.jpg");
+        var note = new TicketNote("48213", "Body", Internal: true,
+        [
+            new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 }),
+            new NoteAttachment("screenshot-2.jpg", "image/jpeg", new byte[] { 2 }),
+            new NoteAttachment("screenshot-3.jpg", "image/jpeg", new byte[] { 3 }),
+        ]);
+
+        var result = await Provider(refusedOnce).AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Contains("1 of 3 screenshots", result.Value!.Incomplete!.What, StringComparison.Ordinal);
+        Assert.Contains("screenshot-2.jpg", result.Value.Incomplete.What, StringComparison.Ordinal);
+        Assert.DoesNotContain("screenshot-1.jpg", result.Value.Incomplete.What, StringComparison.Ordinal);
+        var reached = _api.Bodies.Where((_, i) => _api.Requests[i].RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, reached.Count);
+        Assert.Contains(reached, b => b!.Contains("screenshot-1.jpg", StringComparison.Ordinal));
+        Assert.Contains(reached, b => b!.Contains("screenshot-3.jpg", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AttachmentsGoUpAFewAtATimeAndNeverMore()
+    {
+        // In parallel so twenty-five screenshots fit inside the publish deadline, and bounded so one
+        // publish is not a burst the PSA's rate limit answers.
+        using var counting = new CountingHandler(_api);
+        var note = new TicketNote("48213", "Body", Internal: true,
+            [.. Enumerable.Range(1, 12).Select(i => new NoteAttachment($"screenshot-{i}.jpg", "image/jpeg", new byte[] { (byte)i }))]);
+
+        var result = await Provider(counting).AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Null(result.Value!.Incomplete);
+        Assert.InRange(counting.MostAtOnce, 2, ConnectWiseProvider.AttachmentsAtOnce);
+        Assert.Equal(12, _api.Requests.Count(r => r.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task ADeadlineDuringTheAttachmentsStillReportsTheNote()
+    {
+        // The publish ran out of time while the screenshots were going up. The note had already landed,
+        // so it is reported with its id rather than lost in a cancellation. The four that were on their
+        // way may have attached, so the advice is to look before adding them; the two that never left
+        // did not, and are named as missing.
+        // The deadline comes the moment the fourth is on its way, so which ones had left is not a race.
+        _api.HangingRoute = "/system/documents";
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var fourth = new DeadlineWhenOnTheirWay(_api, ConnectWiseProvider.AttachmentsAtOnce, deadline);
+        var note = new TicketNote("48213", "Body", Internal: true,
+            [.. Enumerable.Range(1, 6).Select(i => new NoteAttachment($"screenshot-{i}.jpg", "image/jpeg", new byte[] { (byte)i }))]);
+
+        var result = await Provider(fourth).AddNoteAsync(note, deadline.Token);
+
+        Assert.True(result.Ok);
+        Assert.Equal("90001", result.Value!.Id);
+        var incomplete = result.Value.Incomplete!;
+        Assert.Contains("2 of 6 screenshots did not attach (screenshot-5.jpg, screenshot-6.jpg)", incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("4 may not have (screenshot-1.jpg, screenshot-2.jpg, screenshot-3.jpg, screenshot-4.jpg)", incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("Look for screenshot-1.jpg, screenshot-2.jpg, screenshot-3.jpg, screenshot-4.jpg before adding them", incomplete.Todo, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("<html>Bad gateway</html>")]
+    [InlineData("[1, 2")]
+    public async Task AnUploadWhoseAnswerCannotBeReadMayHaveAttached(string body)
+    {
+        // ConnectWise took the screenshot and answered with something that is not JSON. The note is
+        // still reported with its id, the other screenshot still goes, and the unreadable one is "may
+        // not have attached", because it may well be on the ticket.
+        _api.UnreadableRoute = ("/system/documents", body);
+        var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 })]);
+
+        var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Equal("90001", result.Value!.Id);
+        var incomplete = result.Value.Incomplete!;
+        Assert.Contains("1 of 1 screenshots may not have attached (screenshot-1.jpg)", incomplete.What, StringComparison.Ordinal);
+        Assert.DoesNotContain(body, incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("Look for screenshot-1.jpg before adding it", incomplete.Todo, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AttachmentsOnAnInternalNoteAreMarkedPrivate()
+    {
+        // S-163: without the flag, whether the screenshots show in the customer portal was ConnectWise's
+        // default rather than the note type the technician chose.
+        var attachment = new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 });
+
+        _ = await Provider().AddNoteAsync(new TicketNote("48213", "Body", Internal: true, [attachment]), TestContext.Current.CancellationToken);
+        _ = await Provider().AddNoteAsync(new TicketNote("48213", "Body", Internal: false, [attachment]), TestContext.Current.CancellationToken);
+
+        var documents = _api.Requests.Select((r, i) => (r, i)).Where(x => x.r.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)).Select(x => _api.Bodies[x.i]!).ToList();
+        Assert.Equal(2, documents.Count);
+        Assert.Equal("true", FormField(documents[0], "privateFlag"));
+        Assert.Equal("false", FormField(documents[1], "privateFlag"));
+    }
+
+    [Fact]
+    public async Task ATimeEntryForAnInternalNoteKeepsItsTextInternal()
+    {
+        // S-83: the description of a time entry can reach the customer (an invoice, the portal), so an
+        // internal note's text goes in the internal notes, and nothing is copied or emailed anywhere.
+        var start = new DateTimeOffset(2026, 9, 24, 14, 2, 0, TimeSpan.Zero);
+
+        _ = await Provider().AddTimeEntryAsync(new TimeEntry("48213", start, 30, "Internal words.", Billable: true, Internal: true), TestContext.Current.CancellationToken);
+        _ = await Provider().AddTimeEntryAsync(new TimeEntry("48213", start, 30, "Customer words.", Billable: true, Internal: false), TestContext.Current.CancellationToken);
+
+        var inside = JsonDocument.Parse(_api.Bodies[0]!).RootElement;
+        var outside = JsonDocument.Parse(_api.Bodies[1]!).RootElement;
+        Assert.Equal("Internal words.", inside.GetProperty("internalNotes").GetString());
+        Assert.False(inside.TryGetProperty("notes", out _));
+        Assert.Equal("Customer words.", outside.GetProperty("notes").GetString());
+        Assert.False(outside.TryGetProperty("internalNotes", out _));
+        foreach (var body in new[] { inside, outside })
+        {
+            foreach (var flag in new[] { "addToDetailDescriptionFlag", "addToInternalAnalysisFlag", "addToResolutionFlag", "emailResourceFlag", "emailContactFlag", "emailCcFlag" })
+            {
+                Assert.False(body.GetProperty(flag).GetBoolean(), flag);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ATimeEntryIsMinutesOnTheTicketAsAWindowWithTheBillingChoice()
     {
         // ST-094 AC1: 30 min → a 0.5 h entry with the note as description.
         var start = new DateTimeOffset(2026, 9, 24, 14, 2, 0, TimeSpan.Zero);
 
-        var result = await Provider().AddTimeEntryAsync(new TimeEntry("48213", start, 30, "Fixed the spooler.", Billable: true), TestContext.Current.CancellationToken);
+        var result = await Provider().AddTimeEntryAsync(new TimeEntry("48213", start, 30, "Fixed the spooler.", Billable: true, Internal: false), TestContext.Current.CancellationToken);
 
         Assert.True(result.Ok);
         Assert.Equal("70001", result.Value!.Id);
@@ -326,14 +477,37 @@ public sealed class ConnectWiseProviderTests : IDisposable
     [Fact]
     public async Task AnAttachmentThatWasNotConfirmedNamesTheNoteThatWasPublished()
     {
+        // A 504 after the upload left is the provider's Unknown: sent once, not again, and the note that
+        // landed is reported with its id. The screenshot may be on the ticket, so it is one to look for
+        // before adding it by hand, not one that is simply missing.
         _api.FailingRoute = ("/system/documents", HttpStatusCode.GatewayTimeout);
         var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("frame-1.jpg", "image/jpeg", new byte[] { 1 })]);
 
         var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, _api.Requests.Count);
-        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
-        Assert.StartsWith("The note was published as 90001, but attachment 1 of 1 was not confirmed: ", result.Error.What, StringComparison.Ordinal);
+        Assert.True(result.Ok);
+        Assert.Equal("90001", result.Value!.Id);
+        var incomplete = result.Value.Incomplete!;
+        Assert.Equal(ProviderErrorKind.Unknown, incomplete.Kind);
+        Assert.StartsWith("The note was published as 90001, but 1 of 1 screenshots may not have attached (frame-1.jpg): ", incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("Look for frame-1.jpg before adding it", incomplete.Todo, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnAttachmentThatWasRefusedIsMissingAndNotOneToLookFor()
+    {
+        // A 4xx is a refusal: the screenshot is not there, so it is named as missing and nothing says to
+        // look for it first.
+        _api.FailingRoute = ("/system/documents", HttpStatusCode.BadRequest);
+        var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("frame-1.jpg", "image/jpeg", new byte[] { 1 })]);
+
+        var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        var incomplete = result.Value!.Incomplete!;
+        Assert.NotEqual(ProviderErrorKind.Unknown, incomplete.Kind);
+        Assert.StartsWith("The note was published as 90001, but 1 of 1 screenshots did not attach (frame-1.jpg): ", incomplete.What, StringComparison.Ordinal);
+        Assert.DoesNotContain("Look for", incomplete.Todo, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -347,12 +521,89 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.Equal("The ConnectWise site answered with something that is not its API.", result.Error.What);
     }
 
-    private ConnectWiseProvider Provider(string clientId = "11111111-2222-3333-4444-555555555555", TimeProvider? time = null) =>
+    private ConnectWiseProvider Provider(string clientId = "11111111-2222-3333-4444-555555555555", TimeProvider? time = null) => Provider(_api, clientId, time);
+
+    private static ConnectWiseProvider Provider(HttpMessageHandler handler, string clientId = "11111111-2222-3333-4444-555555555555", TimeProvider? time = null) =>
         new(
-            new HttpClient(_api) { BaseAddress = new Uri("https://na.myconnectwise.net/v4_6_release/apis/3.0/") },
+            new HttpClient(handler, disposeHandler: false) { BaseAddress = new Uri("https://na.myconnectwise.net/v4_6_release/apis/3.0/") },
             Secret,
             new ConnectWiseOptions { ClientId = clientId, BackoffBase = TimeSpan.Zero },
             time);
+
+    /// <summary>The value of one field of a multipart form, as the scripted API recorded it.</summary>
+    private static string? FormField(string body, string name)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(body, $"name=\"?{name}\"?\r\n(?:[^\r\n]+\r\n)*\r\n([^\r\n]*)");
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Refuses the upload of one named file, once; everything else goes to the scripted API. The file is
+    /// found in the body, because the provider wraps each request's content to know when it left.
+    /// </summary>
+    private sealed class RefuseOne(HttpMessageHandler inner, string fileName) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)
+                && request.Content is not null
+                && (await request.Content.ReadAsStringAsync(cancellationToken)).Contains($"filename={fileName}", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { code = "Forced", message = "That file was refused" }) };
+            }
+
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    /// <summary>Counts how many uploads are in flight at once, holding each a moment so they can overlap.</summary>
+    /// <summary>Ends the publish's deadline as the given number of screenshots are on their way at once.</summary>
+    private sealed class DeadlineWhenOnTheirWay(HttpMessageHandler inner, int count, CancellationTokenSource deadline) : DelegatingHandler(inner)
+    {
+        private int _sent;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal) && Interlocked.Increment(ref _sent) == count)
+            {
+                await deadline.CancelAsync();
+            }
+
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    private sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        private int _now;
+        private int _most;
+
+        public int MostAtOnce => Volatile.Read(ref _most);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (!request.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal))
+            {
+                return await base.SendAsync(request, cancellationToken);
+            }
+
+            var now = Interlocked.Increment(ref _now);
+            int most;
+            while (now > (most = Volatile.Read(ref _most)) && Interlocked.CompareExchange(ref _most, now, most) != most)
+            {
+            }
+
+            try
+            {
+                await Task.Delay(30, cancellationToken);
+                return await base.SendAsync(request, cancellationToken);
+            }
+            finally
+            {
+                _ = Interlocked.Decrement(ref _now);
+            }
+        }
+    }
 
     private static HttpResponseMessage TooMany(int retryAfterSeconds)
     {

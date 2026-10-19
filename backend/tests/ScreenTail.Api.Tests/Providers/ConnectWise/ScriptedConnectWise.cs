@@ -14,9 +14,36 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public List<HttpRequestMessage> Requests { get; } = [];
+    private readonly Lock _gate = new();
+    private readonly List<HttpRequestMessage> _requests = [];
+    private readonly List<string?> _bodies = [];
 
-    public List<string?> Bodies { get; } = [];
+    /// <summary>
+    /// What was asked, in arrival order. A copy, taken under the lock: the publisher sends its
+    /// destinations and attachments at the same time, so the lists are written from several threads.
+    /// </summary>
+    public List<HttpRequestMessage> Requests
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _requests];
+            }
+        }
+    }
+
+    /// <summary>Each request's body, at the same index as <see cref="Requests"/>.</summary>
+    public List<string?> Bodies
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _bodies];
+            }
+        }
+    }
 
     /// <summary>Answers in order for the next requests, before the routes are consulted. For backoff tests.</summary>
     public Queue<HttpResponseMessage> Scripted { get; } = new();
@@ -26,6 +53,12 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
     /// <summary>One route fails with this status while set: the partial publish, where the note lands and the time entry does not.</summary>
     public (string PathSuffix, HttpStatusCode Status)? FailingRoute { get; set; }
+
+    /// <summary>Requests to a path ending in this are never answered: they wait until the caller gives up. The PSA that is too slow for the deadline.</summary>
+    public string? HangingRoute { get; set; }
+
+    /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns: the PSA that took the request and sent back something that cannot be read.</summary>
+    public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
 
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
@@ -38,12 +71,23 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        Requests.Add(request);
-        Bodies.Add(request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken));
-
-        if (Scripted.Count > 0)
+        // A real handler refuses a request whose caller has already given up; so does this one, or a
+        // call made after the publish deadline would land here and nowhere else.
+        cancellationToken.ThrowIfCancellationRequested();
+        var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        lock (_gate)
         {
-            return Scripted.Dequeue();
+            _requests.Add(request);
+            _bodies.Add(body);
+            if (Scripted.Count > 0)
+            {
+                return Scripted.Dequeue();
+            }
+        }
+
+        if (HangingRoute is { } hanging && request.RequestUri!.AbsolutePath.EndsWith(hanging, StringComparison.Ordinal))
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
         }
 
         if (Failing is { } status)
@@ -53,6 +97,11 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
         var path = request.RequestUri!.AbsolutePath;
         var query = request.RequestUri.Query;
+        if (UnreadableRoute is { } unreadable && path.EndsWith(unreadable.PathSuffix, StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(unreadable.Body) };
+        }
+
         if (FailingRoute is { } route && path.EndsWith(route.PathSuffix, StringComparison.Ordinal))
         {
             return new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { code = "Forced", message = "The script said no" }, options: Json) };

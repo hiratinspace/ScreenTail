@@ -13,7 +13,17 @@
     "order, each as base64 bytes -- already redacted on the device (INV-1) and held by the backend for this",
     "request only (INV-7). The image here is eight bytes of JPEG header: the shape is under test, not a",
     "picture. Destinations name what to publish; the response answers each one separately so a retry",
-    "can send only what failed."
+    "can send only what failed.",
+    "",
+    "A destination whose note or article landed but whose screenshots did not all attach is `ok: true` with",
+    "its id and `kind: partial`, and `error` says which screenshots are missing: it is on the ticket, so a",
+    "retry must not send it again. One that had not answered by the publish deadline is `ok: false` with",
+    "`kind: timed_out`, and may have landed, so `retryable` is false and `error` says to check first.",
+    "One that was sent and answered with something that could not be read is `kind: unknown`, the same",
+    "way and for the same reason: it is the kind a provider gives any write that may have been saved.",
+    "`response_uncertain` shows both. The deadline counts from when the request",
+    "arrived, so a body that took all of it to upload sends nothing: each destination is then `ok: false`",
+    "with `kind: unavailable` and `retryable: true`, and `error` says nothing was sent."
   ],
   "request": {
     "session_id": "s-0001",
@@ -48,7 +58,14 @@
   "response": {
     "results": [
       { "destination": "ticket_note", "ok": true, "id": "90001", "link": null, "error": null, "kind": null, "retryable": false },
-      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "ConnectWise says this API member may not do that. Ask your ConnectWise administrator for the permission.", "kind": "forbidden", "retryable": false }
+      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "ConnectWise says this API member may not do that. Ask your ConnectWise administrator for the permission.", "kind": "forbidden", "retryable": false },
+      { "destination": "kb_article", "ok": true, "id": "5101", "link": "https://acme.huducloud.com/a/printer-offline-5101", "error": "The article was published as 5101, but 1 of 1 screenshots did not attach (screenshot-1.jpg): Hudu did not answer. The article stays as it is; add the missing screenshots to it by hand rather than publishing it again.", "kind": "partial", "retryable": false }
+    ]
+  },
+  "response_uncertain": {
+    "results": [
+      { "destination": "ticket_note", "ok": false, "id": null, "link": null, "error": "ConnectWise accepted the request but its answer could not be read, so it may have been saved. Check ConnectWise before publishing again, so nothing is added twice.", "kind": "unknown", "retryable": false },
+      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "The PSA had not answered when the publish ran out of time, so the time entry may already be on the ticket. Check the ticket before you publish the time entry again.", "kind": "timed_out", "retryable": false }
     ]
   }
 }

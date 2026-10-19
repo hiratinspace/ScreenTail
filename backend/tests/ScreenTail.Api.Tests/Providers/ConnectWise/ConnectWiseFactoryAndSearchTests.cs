@@ -41,6 +41,33 @@ public sealed class ConnectWiseFactoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TwoTenantsGetTheirOwnSites()
+    {
+        // T-213: the scripted API matches routes by suffix, so a provider pointed at the wrong site, or
+        // with the API path dropped, would still have passed every other test. Each tenant's calls go
+        // to that tenant's site under the API path, with that tenant's key, and a trailing slash on the
+        // stored site changes nothing.
+        await using var db = await OpenAsync();
+        var (na, eu) = (Guid.NewGuid(), Guid.NewGuid());
+        var vault = new IntegrationVault(db, Options(), TimeProvider.System);
+        await vault.StoreAsync(na, "connectwise", "https://na.myconnectwise.net", "north+PUB:PRIV", TestContext.Current.CancellationToken);
+        await vault.StoreAsync(eu, "connectwise", "https://eu.myconnectwise.net/", "europe+PUB:PRIV", TestContext.Current.CancellationToken);
+        using var api = new ScriptedConnectWise();
+        var factory = new ConnectWiseProviderFactory(vault, new SharedHandlerFactory(api), new ConnectWiseOptions { ClientId = "id", BackoffBase = TimeSpan.Zero });
+
+        var north = await factory.ForTenantAsync(na, TestContext.Current.CancellationToken);
+        var europe = await factory.ForTenantAsync(eu, TestContext.Current.CancellationToken);
+        Assert.True((await north!.CheckAsync(TestContext.Current.CancellationToken)).Ok);
+        Assert.True((await europe!.CheckAsync(TestContext.Current.CancellationToken)).Ok);
+
+        var asked = api.Requests;
+        Assert.Equal(new Uri("https://na.myconnectwise.net/v4_6_release/apis/3.0/system/info"), asked[0].RequestUri);
+        Assert.Equal(new Uri("https://eu.myconnectwise.net/v4_6_release/apis/3.0/system/info"), asked[1].RequestUri);
+        Assert.Equal(Basic("north+PUB:PRIV"), asked[0].Headers.Authorization!.Parameter);
+        Assert.Equal(Basic("europe+PUB:PRIV"), asked[1].Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
     public async Task ATenantWithNoCredentialGetsNothing()
     {
         await using var db = await OpenAsync();
@@ -65,6 +92,14 @@ public sealed class ConnectWiseFactoryTests : IAsyncDisposable
     {
         public HttpClient CreateClient(string name) => new(new ScriptedConnectWise());
     }
+
+    /// <summary>A fresh client per provider, as the real factory gives, all over one recording API.</summary>
+    private sealed class SharedHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    private static string Basic(string credential) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(credential));
 }
 
 /// <summary>
