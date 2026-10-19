@@ -173,6 +173,124 @@ public sealed class HuduProviderTests : IDisposable
         Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
     }
 
+    [Fact]
+    public async Task ASiteThatNeverStopsListingCompaniesIsStoppedAtTheCap()
+    {
+        // 2026-10-12 review: a tenant sets the site, and a site that answers every page in full would
+        // be paged forever on the shared backend. The list stops at the cap and says so; nothing is
+        // cached, and no article can be filed against a list that was cut short.
+        _api.CompanyCount = int.MaxValue;
+        var options = new HuduOptions { BackoffBase = TimeSpan.Zero, MaxCompanies = 100 };
+        var cache = new HuduCompanyCache(_time);
+
+        var result = await Provider(cache, options: options).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.InRange(_api.Requests.Count, 1, 5);
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("Hudu listed more than 100 companies, which is more than ScreenTail reads.", result.Error.What);
+        _ = await Provider(cache, options: options).ListCompaniesAsync(TestContext.Current.CancellationToken);
+        Assert.InRange(_api.Requests.Count, 2, 10);
+    }
+
+    [Fact]
+    public async Task ExactlyTheCapIsStillAList()
+    {
+        _api.CompanyCount = 100;
+
+        var result = await Provider(options: new HuduOptions { BackoffBase = TimeSpan.Zero, MaxCompanies = 100 }).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(100, result.Value!.Count);
+    }
+
+    [Fact]
+    public async Task APageSizeOfNothingStillEnds()
+    {
+        // A misconfigured page size must not become a loop of empty pages that never reads short.
+        var result = await Provider(options: new HuduOptions { BackoffBase = TimeSpan.Zero, PageSize = 0 }).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(28, result.Value!.Count);
+    }
+
+    [Theory]
+    [InlineData("""{"companies":{"id":1}}""")]
+    [InlineData("""{"companies":[{"name":"No id"}]}""")]
+    [InlineData("""[]""")]
+    public async Task CompaniesInTheWrongShapeAreATypedErrorAndNotAnException(string body)
+    {
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") });
+
+        var result = await Provider().ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("The Hudu site answered with something that is not its API.", result.Error.What);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("")]
+    [InlineData("""{"articles":[]}""")]
+    [InlineData("""{"companies":null}""")]
+    public async Task AnAnswerWithNoCompanyListIsNotATenantWithNoCompanies(string body)
+    {
+        // A site that answers 200 with nothing to read is not Hudu, or not Hudu's API. Read as an empty
+        // list it would be cached as a tenant with no companies, and every article would ask for a
+        // mapping with nothing on offer to map it to.
+        var provider = Provider();
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") });
+
+        var result = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok, $"Read as a list of {result.Value?.Count} companies.");
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("The Hudu site answered with something that is not its API.", result.Error.What);
+
+        // Not remembered: the next call asks the site again and gets the real list.
+        var again = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        Assert.True(again.Ok, again.Error?.ToString());
+        Assert.Equal(28, again.Value!.Count);
+    }
+
+    [Fact]
+    public async Task AListThatIsSaidToBeEmptyIsStillAList()
+    {
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"companies":[]}""", System.Text.Encoding.UTF8, "application/json") });
+
+        var result = await Provider().ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Empty(result.Value!);
+    }
+
+    [Fact]
+    public async Task AnArticleHuduDidNotConfirmIsSentOnceAndSaysToCheckFirst()
+    {
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { article = new { id = 5102 } }) });
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+
+        Assert.Single(_api.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.Equal("Check Hudu before publishing again, so nothing is added twice.", result.Error.Todo);
+    }
+
+    [Fact]
+    public async Task AnArticleAcceptedWithoutAnIdIsNotCalledPublished()
+    {
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { article = new { name = "Title" } }) });
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.False(result.Error.Retryable);
+    }
+
     /// <summary>A clock the test moves. Enough for a cache's expiry; nothing here needs timers.</summary>
     private sealed class AdjustableTime(DateTimeOffset start) : TimeProvider
     {
@@ -183,11 +301,11 @@ public sealed class HuduProviderTests : IDisposable
         public void Advance(TimeSpan by) => _now += by;
     }
 
-    private HuduProvider Provider(HuduCompanyCache? cache = null, string tenant = "t-1") =>
+    private HuduProvider Provider(HuduCompanyCache? cache = null, string tenant = "t-1", HuduOptions? options = null) =>
         new(
             new HttpClient(_api) { BaseAddress = new Uri("https://acme.huducloud.com/") },
             "hudu-api-key-1234",
-            new HuduOptions { BackoffBase = TimeSpan.Zero },
+            options ?? new HuduOptions { BackoffBase = TimeSpan.Zero },
             cache ?? new HuduCompanyCache(_time),
             tenant,
             _time);

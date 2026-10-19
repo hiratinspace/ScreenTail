@@ -5,7 +5,7 @@ namespace ScreenTail.Api.Providers;
 ///
 /// The list is deliberately short. A taxonomy with thirty entries becomes thirty branches nobody writes,
 /// and every one that is not handled falls through to "something went wrong", which is the message Spec
-/// §4 exists to forbid. These five are the ones where the next step genuinely differs.
+/// §4 exists to forbid. These six are the ones where the next step genuinely differs.
 /// </summary>
 public enum ProviderErrorKind
 {
@@ -23,6 +23,12 @@ public enum ProviderErrorKind
 
     /// <summary>Rate limit, timeout, outage. Retry is the right answer, and only for this one.</summary>
     Unavailable,
+
+    /// <summary>
+    /// A write that may have been saved: the request left and no answer said whether it was taken.
+    /// Look before trying again, not retry, because sending it again is a second note on the ticket.
+    /// </summary>
+    Unknown,
 }
 
 /// <summary>

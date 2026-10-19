@@ -36,7 +36,7 @@ if (!result.Ok)
 
 ### The error kinds
 
-Five, and deliberately no more. A taxonomy with thirty entries becomes thirty branches nobody writes, and
+Six, and deliberately no more. A taxonomy with thirty entries becomes thirty branches nobody writes, and
 each unhandled one falls through to "something went wrong" — the message Spec §4 exists to forbid. These
 are the cases where the next step genuinely differs.
 
@@ -47,10 +47,16 @@ are the cases where the next step genuinely differs.
 | `NotFound` | Ticket, company or article is not there | Pick a different one |
 | `Invalid` | The provider refused what we sent | Nothing — it is our bug |
 | `Unavailable` | Rate limit, timeout, outage | Wait; this is the only retryable one |
+| `Unknown` | A write left and nothing said whether it was saved | Look in the PSA or platform before publishing again |
 
 **Only `Unavailable` is retryable**, and `ProviderError.Retryable` is the single place that is decided.
 Retrying a wrong API key is how an integration becomes an account lockout; retrying an invalid payload is
 the same rejection several hundred times.
+
+**A write that may have landed is `Unknown`, not `Unavailable`** (2026-10-12 review). A note, time
+entry, document or article that timed out, lost its connection or met a server error after its body left
+may already be saved, and sending it again is a second one on the ticket. `ProviderHttp` watches the
+request body: a write is tried again only when none of it left, or when the provider answered 429.
 
 ### Messages
 
@@ -109,7 +115,14 @@ against it; a company the tenant does not have is refused before anything is sen
 `docs/integrations/hudu.md` says what to verify against a real Hudu first — that `draft` is honoured.
 
 Both providers send through `ProviderHttp`, so they cannot disagree about what a 429 means: only an
-outage is retried, with exponential backoff and jitter, three attempts at most.
+outage is retried, three attempts at most, and a write only when nothing of it left or the answer was
+a 429. The wait is the exponential backoff with jitter, or the provider's Retry-After when that is
+longer; a Retry-After beyond `MaxRetryWait` (five seconds) is not waited out, and the error carries it
+instead. Each client holds at most `ProviderHttp.MaxResponseBytes` (4 MB) of an answer; a larger one is
+`Invalid` and not retried. A success that is not JSON, or lacks the id or list the provider reads, is
+`Invalid` for a read and `Unknown` for a write, never an exception, and the body is not quoted back.
+An empty success lacks the list too: Hudu without a `companies` key is not a tenant with no companies.
+Hudu's company list stops at `Hudu:MaxCompanies` (10,000) and is then an error, not a shorter list.
 
 ## Public addresses only
 

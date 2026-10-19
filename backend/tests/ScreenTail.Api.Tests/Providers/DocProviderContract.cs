@@ -63,7 +63,9 @@ public abstract class DocProviderContract
     [Fact]
     public async Task OnlyAnOutageIsWorthRetrying()
     {
-        foreach (var kind in Enum.GetValues<ProviderErrorKind>())
+        // Unknown is about a write that may have landed, and a check writes nothing; it has its own
+        // rule below.
+        foreach (var kind in Enum.GetValues<ProviderErrorKind>().Where(k => k != ProviderErrorKind.Unknown))
         {
             Break(new ProviderError(kind, "Something happened.", "Do something."));
             var result = await Provider.CheckAsync(TestContext.Current.CancellationToken);
@@ -71,6 +73,21 @@ public abstract class DocProviderContract
             Assert.Equal(kind == ProviderErrorKind.Unavailable, result.Error!.Retryable);
         }
 
+        Break(null);
+    }
+
+    [Fact]
+    public async Task AnArticleThatMayHaveLandedIsNotWorthRetrying()
+    {
+        // The company list is read first, while the provider works, so the failure lands on the article.
+        _ = await Provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        Break(new ProviderError(ProviderErrorKind.Unknown, "The platform did not confirm the article.", "Check it first."));
+
+        var result = await Provider.PublishArticleAsync(new KbArticle(KnownCompanyId, "Title", "Body", []), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.False(result.Error.Retryable);
         Break(null);
     }
 }

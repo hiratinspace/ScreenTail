@@ -46,23 +46,44 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         ProviderError? failed = null;
         var companies = await _cache.GetOrAddAsync(_tenantKey, _options.CompanyCacheFor, async token =>
         {
+            // Bounded twice over (2026-10-12 review): a site that answers every page in full would
+            // otherwise be paged for ever on the shared backend, and the pages are counted as well as
+            // the companies so a misconfigured page size cannot loop on empty ones.
+            var size = Math.Max(1, _options.PageSize);
+            var cap = Math.Max(0, _options.MaxCompanies);
             var all = new List<CompanyRef>();
-            for (var page = 1; ; page++)
+            for (var page = 1; page <= (cap / size) + 1; page++)
             {
-                var answer = await SendAsync(() => Get($"api/v1/companies?page={page}&page_size={_options.PageSize}"), token).ConfigureAwait(false);
-                if (!answer.Ok)
+                var batch = ProviderHttp.Read(
+                    await SendAsync(() => Get($"api/v1/companies?page={page}&page_size={size}"), token).ConfigureAwait(false),
+                    Companies,
+                    "Hudu",
+                    written: false);
+                if (!batch.Ok)
                 {
-                    failed = answer.Error;
+                    failed = batch.Error;
                     return null;
                 }
 
-                var batch = answer.Value!.TryGetProperty("companies", out var list) ? list.EnumerateArray().ToList() : [];
-                all.AddRange(batch.Select(c => new CompanyRef(c.GetProperty("id").GetRawText(), c.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty)));
-                if (batch.Count < _options.PageSize)
+                all.AddRange(batch.Value!);
+                if (all.Count > cap)
+                {
+                    break;
+                }
+
+                if (batch.Value!.Count < size)
                 {
                     return all;
                 }
             }
+
+            // Not cached and not cut short: a list missing companies would refuse an article for one
+            // that exists, and offer a mapping screen that cannot show it.
+            failed = new ProviderError(
+                ProviderErrorKind.Invalid,
+                $"Hudu listed more than {cap} companies, which is more than ScreenTail reads.",
+                "Check the site address in Settings → Integrations, or raise Hudu:MaxCompanies on the backend.");
+            return null;
         }, ct).ConfigureAwait(false);
 
         return companies is null
@@ -98,15 +119,13 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
                 draft = article.Draft,
             },
         };
-        var created = await SendAsync(() => Post("api/v1/articles", body), ct).ConfigureAwait(false);
+        var created = ProviderHttp.Read(await SendAsync(() => Post("api/v1/articles", body), ct).ConfigureAwait(false), Created, "Hudu", written: true);
         if (!created.Ok)
         {
             return ProviderResult.Failure<PublishedArticle>(created.Error!);
         }
 
-        var element = created.Value!.TryGetProperty("article", out var inner) ? inner : created.Value!;
-        var id = element.GetProperty("id").GetRawText();
-        var url = element.TryGetProperty("url", out var link) && Uri.TryCreate(link.GetString(), UriKind.Absolute, out var uri) ? uri : null;
+        var (id, url) = created.Value!;
 
         var attached = 0;
         foreach (var attachment in article.Attachments)
@@ -116,7 +135,7 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
             {
                 return ProviderResult.Failure<PublishedArticle>(upload.Error! with
                 {
-                    What = $"The article was created as {id}, but attachment {attached + 1} of {article.Attachments.Count} was refused: {upload.Error.What}",
+                    What = $"The article was created as {id}, but attachment {attached + 1} of {article.Attachments.Count} {(upload.Error.Kind == ProviderErrorKind.Unknown ? "was not confirmed" : "was refused")}: {upload.Error.What}",
                 });
             }
 
@@ -124,6 +143,22 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         }
 
         return ProviderResult.Success(new PublishedArticle(id, url));
+    }
+
+    /// <summary>
+    /// One page of companies. The list must be there: a page without it (an empty body, or JSON from
+    /// something that is not Hudu's API) throws for <see cref="ProviderHttp.Read{T}"/> to report, rather
+    /// than reading as a tenant with no companies and being remembered as one. An empty list is a list.
+    /// </summary>
+    private static List<CompanyRef> Companies(JsonElement page) =>
+        [.. page.GetProperty("companies").EnumerateArray().Select(c => new CompanyRef(ProviderHttp.Id(c), c.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty))];
+
+    /// <summary>The new article's id and link. Hudu wraps it in <c>article</c>; a bare object is read the same way.</summary>
+    private static (string Id, Uri? Url) Created(JsonElement answer)
+    {
+        var element = answer.TryGetProperty("article", out var inner) ? inner : answer;
+        var url = element.TryGetProperty("url", out var link) && link.ValueKind == JsonValueKind.String && Uri.TryCreate(link.GetString(), UriKind.Absolute, out var uri) ? uri : null;
+        return (ProviderHttp.Id(element), url);
     }
 
     private HttpRequestMessage Get(string route) => Prepare(new HttpRequestMessage(HttpMethod.Get, route));
@@ -155,7 +190,7 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         ProviderHttp.SendAsync(
             _http,
             build,
-            new RetryPolicy(_options.BackoffBase, _options.MaxAttempts),
+            new RetryPolicy(_options.BackoffBase, _options.MaxAttempts) { MaxWait = _options.MaxRetryWait },
             (status, body, retryAfter) => Failure(status, body, ProviderHttp.RetryAfter(retryAfter, _time)),
             "Hudu",
             _time,

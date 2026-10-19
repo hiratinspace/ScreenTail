@@ -19,6 +19,12 @@ public sealed class ConnectWiseOptions
     /// <summary>First wait after a rate limit; doubles each attempt, with jitter up to itself. Tests set it to zero.</summary>
     public TimeSpan BackoffBase { get; set; } = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// The longest wait for a rate limit before trying again. A provider that asks for longer is not
+    /// called again inside its window: the publish answers at once, and says when to come back.
+    /// </summary>
+    public TimeSpan MaxRetryWait { get; set; } = TimeSpan.FromSeconds(5);
+
     /// <summary>ST-091 AC2: max 3.</summary>
     public int MaxAttempts { get; set; } = 3;
 

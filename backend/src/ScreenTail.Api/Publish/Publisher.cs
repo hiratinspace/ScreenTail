@@ -23,34 +23,69 @@ public static class Publisher
 
         foreach (var destination in bundle.Destinations.Distinct(StringComparer.Ordinal))
         {
-            results.Add(destination switch
+            PublishResultJson row;
+            try
             {
-                Destinations.TicketNote => Answer(destination, await psa.AddNoteAsync(
-                    new TicketNote(
-                        bundle.TicketId,
-                        text,
-                        Internal: bundle.NoteType == "internal",
-                        [.. bundle.Frames.Select((frame, i) => new NoteAttachment(
-                            $"screenshot-{i + 1}{Extension(frame.MediaType)}",
-                            frame.MediaType,
-                            Convert.FromBase64String(frame.Image)))]),
-                    ct).ConfigureAwait(false)),
+                row = await DestinationAsync(destination, psa, bundle, text, docs, mappings, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
+            {
+                // Providers return their failures as values; this is the backstop for the bug that still
+                // throws (2026-10-12 review). Answered on its own, so the destinations already written
+                // stay written and are reported, rather than one 500 telling the client nothing went.
+                // Where it threw is not known, so it may have been saved; the exception's own words can
+                // quote what it failed on and are not passed on. Only the caller's own cancellation goes
+                // through: a cancellation with the caller still waiting is one more thing that threw.
+                row = Unconfirmed(destination);
+            }
 
-                Destinations.TimeEntry => Answer(destination, await psa.AddTimeEntryAsync(
-                    new TimeEntry(bundle.TicketId, bundle.StartedAt ?? DateTimeOffset.UtcNow, bundle.Minutes, text, bundle.Billable),
-                    ct).ConfigureAwait(false)),
-
-                // Said per destination rather than refusing the whole publish, so the note and the time
-                // still go whatever the knowledge base thinks.
-                Destinations.KbArticle => docs is null || mappings is null
-                    ? new PublishResultJson(destination, false, Error: "No documentation platform is connected, so no article was written. The note and the time entry are unaffected.", Kind: "not_configured")
-                    : await ArticleAsync(destination, docs, mappings, bundle, ct).ConfigureAwait(false),
-
-                _ => new PublishResultJson(destination, false, Error: "That is not a destination.", Kind: "invalid"),
-            });
+            results.Add(row);
         }
 
         return new PublishResponse(results);
+    }
+
+    private static async Task<PublishResultJson> DestinationAsync(string destination, IPsaProvider psa, PublishBundle bundle, string text, IDocProvider? docs, CompanyMappings? mappings, CancellationToken ct) => destination switch
+    {
+        Destinations.TicketNote => Answer(destination, await psa.AddNoteAsync(
+            new TicketNote(
+                bundle.TicketId,
+                text,
+                Internal: bundle.NoteType == "internal",
+                [.. bundle.Frames.Select((frame, i) => new NoteAttachment(
+                    $"screenshot-{i + 1}{Extension(frame.MediaType)}",
+                    frame.MediaType,
+                    Convert.FromBase64String(frame.Image)))]),
+            ct).ConfigureAwait(false)),
+
+        Destinations.TimeEntry => Answer(destination, await psa.AddTimeEntryAsync(
+            new TimeEntry(bundle.TicketId, bundle.StartedAt ?? DateTimeOffset.UtcNow, bundle.Minutes, text, bundle.Billable),
+            ct).ConfigureAwait(false)),
+
+        // Said per destination rather than refusing the whole publish, so the note and the time
+        // still go whatever the knowledge base thinks.
+        Destinations.KbArticle => docs is null || mappings is null
+            ? new PublishResultJson(destination, false, Error: "No documentation platform is connected, so no article was written. The note and the time entry are unaffected.", Kind: "not_configured")
+            : await ArticleAsync(destination, docs, mappings, bundle, ct).ConfigureAwait(false),
+
+        _ => new PublishResultJson(destination, false, Error: "That is not a destination.", Kind: "invalid"),
+    };
+
+    /// <summary>A destination whose outcome nobody can state. Not retryable: a second send may be a second note.</summary>
+    private static PublishResultJson Unconfirmed(string destination)
+    {
+        var (what, where) = destination switch
+        {
+            Destinations.TimeEntry => ("time entry", "the ticket"),
+            Destinations.KbArticle => ("article", "the documentation platform"),
+            _ => ("note", "the ticket"),
+        };
+        return new PublishResultJson(
+            destination,
+            false,
+            Error: $"ScreenTail could not tell whether the {what} was saved. Check {where} before publishing it again, so nothing is added twice.",
+            Kind: Kind(ProviderErrorKind.Unknown),
+            Retryable: false);
     }
 
     /// <summary>
@@ -71,7 +106,7 @@ public static class Publisher
             var companies = await docs.ListCompaniesAsync(ct).ConfigureAwait(false);
             if (!companies.Ok)
             {
-                return new PublishResultJson(destination, false, Error: companies.Error!.ToString(), Kind: companies.Error.Kind.ToString().ToLowerInvariant(), Retryable: companies.Error.Retryable);
+                return new PublishResultJson(destination, false, Error: companies.Error!.ToString(), Kind: Kind(companies.Error.Kind), Retryable: companies.Error.Retryable);
             }
 
             var match = CompanyMapper.Match(bundle.Company, companies.Value!);
@@ -96,12 +131,14 @@ public static class Publisher
         var result = await docs.PublishArticleAsync(article, ct).ConfigureAwait(false);
         return result.Ok
             ? new PublishResultJson(destination, true, result.Value!.Id, result.Value.Url)
-            : new PublishResultJson(destination, false, Error: result.Error!.ToString(), Kind: result.Error.Kind.ToString().ToLowerInvariant(), Retryable: result.Error.Retryable);
+            : new PublishResultJson(destination, false, Error: result.Error!.ToString(), Kind: Kind(result.Error.Kind), Retryable: result.Error.Retryable);
     }
 
     private static PublishResultJson Answer(string destination, ProviderResult<PublishedNote> result) => result.Ok
         ? new PublishResultJson(destination, true, result.Value!.Id, result.Value.Url)
-        : new PublishResultJson(destination, false, Error: result.Error!.ToString(), Kind: result.Error.Kind.ToString().ToLowerInvariant(), Retryable: result.Error.Retryable);
+        : new PublishResultJson(destination, false, Error: result.Error!.ToString(), Kind: Kind(result.Error.Kind), Retryable: result.Error.Retryable);
+
+    private static string Kind(ProviderErrorKind kind) => kind.ToString().ToLowerInvariant();
 
     private static string Extension(string mediaType) => mediaType == "image/png" ? ".png" : ".jpg";
 }

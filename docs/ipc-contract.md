@@ -76,7 +76,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `frame` | `frame_id`, `image` | Answers `get_frame` and `blur_frame`: one image, base64 |
 | `integrations` | `integrations[]` (`provider`, `site_url`, `secret` as last four) | Answers `get_integrations` |
 | `tickets` | `tickets[]` (`id`, `summary`, `company`, `status`) | Answers `search_tickets` |
-| `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed. `kind: needs_mapping` on `kb_article` is the one the pane acts on (below) |
+| `published` | `results[]` (`destination`, `ok`, `id`, `link`, `error`, `kind`, `retryable`) | Answers `publish_session`, each destination on its own, so Retry sends only what failed. `kind: needs_mapping` on `kb_article` is the one the pane acts on (below). `kind: unknown` means it may have been saved; its `error` says to check before publishing again, and `retryable` is false |
 | `company_mappings` | `companies[]` (`id`, `name`), `mappings[]` (`psa_company`, `doc_company_id`, `doc_company_name`, `confidence`) | Answers `get_company_mappings` |
 | `device_activated` | `tenant_name`, `device_id` | Answers `activate_device` |
 | `device` | `activated`, `tenant_name`, `device_id`, `days_offline`, `beyond_grace`, `revoked`, `standing` | Answers `get_device`: one sentence in `standing` for a screen |

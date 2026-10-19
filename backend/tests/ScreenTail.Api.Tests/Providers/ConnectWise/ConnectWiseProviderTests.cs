@@ -219,12 +219,19 @@ public sealed class ConnectWiseProviderTests : IDisposable
         _api.Scripted.Enqueue(TooMany(retryAfterSeconds: 2));
         _api.Scripted.Enqueue(TooMany(retryAfterSeconds: 7));
 
-        var result = await Provider().CheckAsync(TestContext.Current.CancellationToken);
+        var time = new RecordedWaits();
+
+        var result = await Provider(time: time).CheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(3, _api.Requests.Count);
         Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
         Assert.True(result.Error.Retryable);
         Assert.Equal(TimeSpan.FromSeconds(7), result.Error.RetryAfter);
+
+        // The wait ConnectWise asked for is the wait it gets (2026-10-12 review): a retry inside the
+        // window is another 429 against a limit the tenant's whole team shares.
+        Assert.Equal(2, time.Waits.Count);
+        Assert.All(time.Waits, wait => Assert.True(wait >= TimeSpan.FromSeconds(2), $"Waited {wait}."));
     }
 
     [Fact]
@@ -233,7 +240,7 @@ public sealed class ConnectWiseProviderTests : IDisposable
         _api.Scripted.Enqueue(TooMany(retryAfterSeconds: 1));
         _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.BadGateway));
 
-        var result = await Provider().CheckAsync(TestContext.Current.CancellationToken);
+        var result = await Provider(time: new RecordedWaits()).CheckAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Ok);
         Assert.Equal(3, _api.Requests.Count);
@@ -278,11 +285,74 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.Empty(_api.Requests);
     }
 
-    private ConnectWiseProvider Provider(string clientId = "11111111-2222-3333-4444-555555555555") =>
+    [Theory]
+    [InlineData("/notes")]
+    [InlineData("/time/entries")]
+    public async Task AWriteConnectWiseDidNotConfirmIsSentOnceAndSaysToCheckFirst(string route)
+    {
+        // 2026-10-12 review: a 5xx after the body left may be a note that was saved. Sending it again is
+        // the duplicate ST-094 forbids, so it is sent once and the technician is told to look first.
+        _api.FailingRoute = (route, HttpStatusCode.BadGateway);
+        var provider = Provider();
+
+        var result = route == "/notes"
+            ? await provider.AddNoteAsync(new TicketNote("48213", "Body", Internal: true, []), TestContext.Current.CancellationToken)
+            : await provider.AddTimeEntryAsync(new TimeEntry("48213", DateTimeOffset.UtcNow, 30, "Body", Billable: true), TestContext.Current.CancellationToken);
+
+        Assert.Single(_api.Requests);
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.False(result.Error.Retryable);
+        Assert.Equal("ConnectWise did not confirm the request, so it may have been saved.", result.Error.What);
+        Assert.Equal("Check ConnectWise before publishing again, so nothing is added twice.", result.Error.Todo);
+    }
+
+    [Theory]
+    [InlineData("""{"ticketId":48213}""", "application/json")]
+    [InlineData("[1,2,3]", "application/json")]
+    [InlineData("<html>Saved</html>", "text/html")]
+    public async Task ANoteAcceptedWithAnAnswerThatHasNoIdIsNotCalledPublishedAndIsNotAnException(string body, string mediaType)
+    {
+        // The contract says a published note comes back with its id; without one, a retry cannot tell
+        // "already there" from "not there". It is reported as perhaps saved, never thrown.
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent(body, Encoding.UTF8, mediaType) });
+
+        var result = await Provider().AddNoteAsync(new TicketNote("48213", "Body", Internal: true, []), TestContext.Current.CancellationToken);
+
+        Assert.Single(_api.Requests);
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.False(result.Error.Retryable);
+    }
+
+    [Fact]
+    public async Task AnAttachmentThatWasNotConfirmedNamesTheNoteThatWasPublished()
+    {
+        _api.FailingRoute = ("/system/documents", HttpStatusCode.GatewayTimeout);
+        var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("frame-1.jpg", "image/jpeg", new byte[] { 1 })]);
+
+        var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, _api.Requests.Count);
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.StartsWith("The note was published as 90001, but attachment 1 of 1 was not confirmed: ", result.Error.What, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ASearchAnsweredInTheWrongShapeIsATypedErrorAndNotAnException()
+    {
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { tickets = Array.Empty<object>() }) });
+
+        var result = await Provider().SearchTicketsAsync("printer", TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("The ConnectWise site answered with something that is not its API.", result.Error.What);
+    }
+
+    private ConnectWiseProvider Provider(string clientId = "11111111-2222-3333-4444-555555555555", TimeProvider? time = null) =>
         new(
             new HttpClient(_api) { BaseAddress = new Uri("https://na.myconnectwise.net/v4_6_release/apis/3.0/") },
             Secret,
-            new ConnectWiseOptions { ClientId = clientId, BackoffBase = TimeSpan.Zero });
+            new ConnectWiseOptions { ClientId = clientId, BackoffBase = TimeSpan.Zero },
+            time);
 
     private static HttpResponseMessage TooMany(int retryAfterSeconds)
     {

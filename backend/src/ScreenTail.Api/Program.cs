@@ -101,7 +101,7 @@ builder.Services.AddSingleton(providerNetwork);
 // timeout; the factory gives each one the tenant's own base address.
 var connectWise = builder.Configuration.GetSection(ConnectWiseOptions.Section).Get<ConnectWiseOptions>() ?? new ConnectWiseOptions();
 builder.Services.AddSingleton(connectWise);
-builder.Services.AddHttpClient(nameof(ConnectWiseProvider), client => client.Timeout = TimeSpan.FromSeconds(30))
+builder.Services.AddHttpClient(nameof(ConnectWiseProvider), ProviderHttp.Configure)
     .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 
@@ -110,7 +110,7 @@ builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 var hudu = builder.Configuration.GetSection(HuduOptions.Section).Get<HuduOptions>() ?? new HuduOptions();
 builder.Services.AddSingleton(hudu);
 builder.Services.AddSingleton<HuduCompanyCache>();
-builder.Services.AddHttpClient(nameof(HuduProvider), client => client.Timeout = TimeSpan.FromSeconds(30))
+builder.Services.AddHttpClient(nameof(HuduProvider), ProviderHttp.Configure)
     .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();
 

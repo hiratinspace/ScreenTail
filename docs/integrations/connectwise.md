@@ -17,7 +17,10 @@ it against a sandbox before a pilot.
 
 Every request carries Basic auth with the tenant's `companyId+publicKey:privateKey` and the vendor
 `clientId` header. A 429 or an outage is retried with exponential backoff and jitter, three attempts
-at most; a wrong key is not retried, because that is how an integration becomes an account lockout.
+at most, waiting at least as long as a Retry-After of up to five seconds; a wrong key is not retried,
+because that is how an integration becomes an account lockout. A note, time entry or document is sent
+again only when none of it left or ConnectWise answered 429: after a timeout or a server error it may be
+saved, so it comes back `unknown` and the technician is asked to check the ticket first.
 Every refusal reaches the technician as a kind and two sentences, with ConnectWise's own words about what
 it refused and nothing else from the response (`backend/src/ScreenTail.Api/Providers/README.md`).
 
