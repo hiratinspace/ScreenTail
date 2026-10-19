@@ -378,6 +378,97 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == bystanderTenant)));
     }
 
+    [Fact]
+    public async Task AMappingFromTheOldSiteThatSurvivedTheMoveIsNotTrusted()
+    {
+        // S-71, second review round. A publish that read the old site's list while the tenant was moving
+        // can remember company 7 after the move cleared the mappings. On the new site 7 is Zenith
+        // Accounting, so the remembered "Acme Dental" no longer names it: nothing is posted, and the stale
+        // row is forgotten so the next publish starts from the new site's own list.
+        var hudu = new ScriptedHudu { RenamedAt = (site, id) => site == "other.huducloud.com" && id == 7 ? "Zenith Accounting" : null };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental");
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
+        var kb = Assert.Single(published!.Results);
+        Assert.False(kb.Ok);
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.DoesNotContain(hudu.Requests, IsArticle);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Theory]
+    [InlineData("Acme Dental Group")]
+    [InlineData("acme dental")]
+    [InlineData("Acme Dental ")]
+    [InlineData("")]
+    public async Task AMappingWhoseCompanyNoLongerHasThatNameAsksOnceThenMatchesAgain(string remembered)
+    {
+        // The id is trusted only while it still carries the name the mapping was made with. A company
+        // renamed in Hudu is asked about once; after that the publish is a fresh one, and an exact match
+        // on today's list is remembered as usual.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", remembered);
+
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var asked = Assert.Single((await first.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+        var posted = hudu.Requests.Count(IsArticle);
+        using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var again = Assert.Single((await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.False(asked.Ok);
+        Assert.Equal("needs_mapping", asked.Kind);
+        Assert.Equal(0, posted);
+        Assert.True(again.Ok);
+        var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal(("7", "Acme Dental", "exact"), (mapping.DocCompanyId, mapping.DocCompanyName, mapping.Confidence));
+    }
+
+    [Fact]
+    public async Task AStaleMappingRewrittenSinceItWasReadIsKept()
+    {
+        // The stale row is forgotten as it was read. If a person or an exact match rewrote it in the
+        // meantime, the new decision is theirs and is not thrown away with the old one.
+        var (tenantId, _, _) = await SeedAsync();
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental Group");
+        var stale = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental"));
+        _ = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("12", "Acme Dental"), "manual"));
+
+        var forgot = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).ForgetIfUnchangedAsync(stale!));
+        var unchanged = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental"));
+        var gone = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).ForgetIfUnchangedAsync(unchanged!));
+
+        Assert.False(forgot);
+        Assert.Equal(("12", "Acme Dental"), (unchanged!.DocCompanyId, unchanged.DocCompanyName));
+        Assert.True(gone);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task AMappingStillNamingItsCompanyIsUsedWithoutAskingHuduAgain()
+    {
+        // The check reads the same cached list the article check reads, so a trusted mapping costs no
+        // extra request to Hudu.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        var asked = hudu.Requests.Count(IsCompanyList);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Nowhere Inc"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.True(kb.Ok);
+        Assert.Equal(asked, hudu.Requests.Count(IsCompanyList));
+    }
+
     [Theory]
     [InlineData("https://acme.huducloud.com")]
     [InlineData("https://ACME.huducloud.com/")]
@@ -525,6 +616,13 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         return (client, tenantId);
     }
+
+    /// <summary>A mapping written the way a publish racing a repoint would write it: straight in, after the move.</summary>
+    private Task<int> RememberDirectlyAsync(Guid tenantId, string psaCompany, string docCompanyId, string docCompanyName) => api.UseAsync(async db =>
+    {
+        db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = psaCompany, DocCompanyId = docCompanyId, DocCompanyName = docCompanyName, Confidence = "exact", CreatedAt = DateTimeOffset.UtcNow });
+        return await db.SaveChangesAsync();
+    });
 
     private async Task<(Guid TenantId, Guid UserId, Guid DeviceId)> SeedAsync()
     {

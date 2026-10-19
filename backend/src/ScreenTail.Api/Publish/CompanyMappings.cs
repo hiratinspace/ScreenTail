@@ -46,6 +46,18 @@ public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimePro
         await Mine.Where(m => m.PsaCompany == psaCompany.Trim()).ExecuteDeleteAsync(ct).ConfigureAwait(false) > 0;
 
     /// <summary>
+    /// Forgets this row only if it still says what it said when it was read: a mapping found stale is
+    /// dropped, but one a person or an exact match has rewritten in the meantime stays.
+    /// </summary>
+    public async Task<bool> ForgetIfUnchangedAsync(CompanyMapping stale, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(stale);
+        return await Mine
+            .Where(m => m.Id == stale.Id && m.DocCompanyId == stale.DocCompanyId && m.DocCompanyName == stale.DocCompanyName)
+            .ExecuteDeleteAsync(ct).ConfigureAwait(false) > 0;
+    }
+
+    /// <summary>
     /// Every mapping of this tenant, for when the documentation platform they point into is gone or is
     /// another one (2026-10-12 review, S-71). A company id means a customer only on the site that issued
     /// it; on another site the same number can be somebody else.
