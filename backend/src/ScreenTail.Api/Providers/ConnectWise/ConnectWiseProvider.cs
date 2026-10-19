@@ -59,10 +59,10 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         var found = new List<TicketRef>();
         if (numeric)
         {
-            var exact = await SendAsync(() => Get($"service/tickets/{trimmed}"), ct).ConfigureAwait(false);
+            var exact = ProviderHttp.Read(await SendAsync(() => Get($"service/tickets/{trimmed}"), ct).ConfigureAwait(false), Ticket, "ConnectWise", written: false);
             if (exact.Ok)
             {
-                found.Add(Ticket(exact.Value!));
+                found.Add(exact.Value!);
             }
             else if (exact.Error!.Kind != ProviderErrorKind.NotFound)
             {
@@ -80,15 +80,14 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             {
                 var conditions = $"summary contains '{safe}' and closedFlag = false";
                 var route = $"service/tickets?conditions={Uri.EscapeDataString(conditions)}&orderBy={Uri.EscapeDataString("dateEntered desc")}&pageSize={_options.PageSize}&page=1&fields={Uri.EscapeDataString("id,summary,company/name,status/name")}";
-                var page = await SendAsync(() => Get(route), ct).ConfigureAwait(false);
+                var page = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Tickets, "ConnectWise", written: false);
                 if (!page.Ok)
                 {
                     return ProviderResult.Failure<IReadOnlyList<TicketRef>>(page.Error!);
                 }
 
-                foreach (var element in page.Value!.EnumerateArray())
+                foreach (var ticket in page.Value!)
                 {
-                    var ticket = Ticket(element);
                     if (!found.Exists(f => f.Id == ticket.Id))
                     {
                         found.Add(ticket);
@@ -108,9 +107,9 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     public async Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default)
     {
         var route = $"service/tickets?conditions={Uri.EscapeDataString("closedFlag = false")}&orderBy={Uri.EscapeDataString("_info/lastUpdated desc")}&pageSize={_options.RecentCount}&page=1&fields={Uri.EscapeDataString("id,summary,company/name,status/name")}";
-        var page = await SendAsync(() => Get(route), ct).ConfigureAwait(false);
+        var page = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Tickets, "ConnectWise", written: false);
         return page.Ok
-            ? ProviderResult.Success<IReadOnlyList<TicketRef>>([.. page.Value!.EnumerateArray().Select(Ticket).Take(_options.RecentCount)])
+            ? ProviderResult.Success<IReadOnlyList<TicketRef>>([.. page.Value!.Take(_options.RecentCount)])
             : ProviderResult.Failure<IReadOnlyList<TicketRef>>(page.Error!);
     }
 
@@ -129,13 +128,13 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             detailDescriptionFlag = !note.Internal,
             customerUpdatedFlag = false,
         };
-        var posted = await SendAsync(() => Post($"service/tickets/{note.TicketId}/notes", body), ct).ConfigureAwait(false);
+        var posted = ProviderHttp.Read(await SendAsync(() => Post($"service/tickets/{note.TicketId}/notes", body), ct).ConfigureAwait(false), ProviderHttp.Id, "ConnectWise", written: true);
         if (!posted.Ok)
         {
             return ProviderResult.Failure<PublishedNote>(posted.Error!);
         }
 
-        var id = posted.Value!.GetProperty("id").GetRawText();
+        var id = posted.Value!;
         var attached = 0;
         foreach (var attachment in note.Attachments)
         {
@@ -144,7 +143,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             {
                 return ProviderResult.Failure<PublishedNote>(document.Error! with
                 {
-                    What = $"The note was published as {id}, but attachment {attached + 1} of {note.Attachments.Count} was refused: {document.Error.What}",
+                    What = $"The note was published as {id}, but attachment {attached + 1} of {note.Attachments.Count} {(document.Error.Kind == ProviderErrorKind.Unknown ? "was not confirmed" : "was refused")}: {document.Error.What}",
                 });
             }
 
@@ -184,9 +183,9 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             notes = entry.Notes,
             billableOption = entry.Billable ? "Billable" : "DoNotBill",
         };
-        var posted = await SendAsync(() => Post("time/entries", body), ct).ConfigureAwait(false);
+        var posted = ProviderHttp.Read(await SendAsync(() => Post("time/entries", body), ct).ConfigureAwait(false), ProviderHttp.Id, "ConnectWise", written: true);
         return posted.Ok
-            ? ProviderResult.Success(new PublishedNote(posted.Value!.GetProperty("id").GetRawText(), null))
+            ? ProviderResult.Success(new PublishedNote(posted.Value!, null))
             : ProviderResult.Failure<PublishedNote>(posted.Error!);
     }
 
@@ -230,15 +229,17 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         return ProviderHttp.SendAsync(
             _http,
             build,
-            new RetryPolicy(_options.BackoffBase, _options.MaxAttempts),
+            new RetryPolicy(_options.BackoffBase, _options.MaxAttempts) { MaxWait = _options.MaxRetryWait },
             (status, body, retryAfter) => Failure(status, body, ProviderHttp.RetryAfter(retryAfter, _time)),
             "ConnectWise",
             _time,
             ct);
     }
 
+    private static List<TicketRef> Tickets(JsonElement page) => [.. page.EnumerateArray().Select(Ticket)];
+
     private static TicketRef Ticket(JsonElement element) => new(
-        element.GetProperty("id").GetRawText(),
+        ProviderHttp.Id(element),
         element.TryGetProperty("summary", out var summary) ? summary.GetString() ?? string.Empty : string.Empty,
         element.TryGetProperty("company", out var company) && company.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
         element.TryGetProperty("status", out var status) && status.TryGetProperty("name", out var statusName) ? statusName.GetString() : null);
