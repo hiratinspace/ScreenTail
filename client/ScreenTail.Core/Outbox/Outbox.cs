@@ -31,6 +31,9 @@ public sealed class Outbox(
     /// </summary>
     public const int MaxAttempts = 8;
 
+    /// <summary>The longest a far end's Retry-After is honoured for.</summary>
+    public static readonly TimeSpan MaxRetryAfter = TimeSpan.FromDays(1);
+
     /// <summary>
     /// Asks the provider whether an uncertain piece of work actually landed.
     ///

@@ -1,0 +1,90 @@
+{
+  "_comment": [
+    "Every answer POST /v1/sessions/summarize gives, and what the client's outbox does with each.",
+    "",
+    "Read by both ends of the response, and by neither's production code: the request has",
+    "summarize-request.v1.json, and this is its other half. The backend's SummarizeResponse writes these",
+    "bodies; the client's DraftSender reads them. Nothing else binds the two, and a rename on either side",
+    "used to turn every 200 into a body the client could not read, which it retried, billed, until the",
+    "outbox gave up, with no note at the end of it (2026-10-12 review).",
+    "",
+    "Each outcome has its own HTTP status, and the status decides: `status` in the body is for a person.",
+    "`client` is what the outbox is told. done stores the draft. retry queues it and asks again later,",
+    "and waits at least `retry_after_seconds` when the backend sent a Retry-After. failed tells the",
+    "technician, because asking again would get the same answer at the same price.",
+    "",
+    "busy is the endpoint refusing a device or tenant already drafting as many sessions as it may at",
+    "once. It is answered before the bundle is read.",
+    "",
+    "Change this file only when both sides change with it. EachOutcomeReachesTheClientAsItsOwnStatus",
+    "(backend) and EachOutcomeIsWhatTheOutboxIsTold (client) are the pair that notice. The ok draft is",
+    "written against summarize-request.v1.json's session, so the backend's rules accept it."
+  ],
+  "outcomes": [
+    {
+      "name": "ok",
+      "http_status": 200,
+      "client": "done",
+      "body": {
+        "status": "ok",
+        "reason": null,
+        "draft": {
+          "problem": "Nothing would print from the reception workstation.",
+          "steps": [
+            {
+              "text": "Found the Print Spooler service stopped.",
+              "confidence": "high",
+              "frame_refs": ["f-0001"],
+              "transcript_refs": ["t-0001"]
+            }
+          ],
+          "result": "The spooler is running and printing works again.",
+          "follow_ups": ["Check whether the spooler stops again this week."],
+          "suggested_title": "Printer offline",
+          "suggested_time_minutes": 21,
+          "kb_candidate": false,
+          "kb_reason": "A routine fix with nothing new to write down.",
+          "source": "cloud",
+          "prompt_version": "note_v1"
+        }
+      }
+    },
+    {
+      "name": "rejected",
+      "http_status": 400,
+      "client": "failed",
+      "body": { "status": "rejected", "reason": "A frame id is not an identifier.", "draft": null }
+    },
+    {
+      "name": "cost_cap_reached",
+      "http_status": 402,
+      "client": "retry",
+      "body": { "status": "cost_cap_reached", "reason": "This tenant has reached its drafting budget for today.", "draft": null }
+    },
+    {
+      "name": "invalid",
+      "http_status": 422,
+      "client": "failed",
+      "body": { "status": "invalid", "reason": "Step 1 cites frame 'f-9999', which is not in this session.", "draft": null }
+    },
+    {
+      "name": "busy",
+      "http_status": 429,
+      "client": "retry",
+      "body": { "status": "busy", "reason": "This device is already drafting as many sessions as it may at once. The session is queued and will be drafted shortly.", "draft": null }
+    },
+    {
+      "name": "not_configured",
+      "http_status": 501,
+      "client": "retry",
+      "body": { "status": "not_configured", "reason": "No summarization provider is configured on this deployment.", "draft": null }
+    },
+    {
+      "name": "unavailable",
+      "http_status": 503,
+      "retry_after_seconds": 420,
+      "client": "retry",
+      "body": { "status": "unavailable", "reason": "The drafting model is rate limiting this deployment. The session is queued and will be drafted shortly.", "draft": null }
+    }
+  ]
+}

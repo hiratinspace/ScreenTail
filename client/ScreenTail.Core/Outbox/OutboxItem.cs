@@ -72,11 +72,12 @@ public sealed record OutboxItem(
 /// <summary>How a send ended. Four outcomes, because three of them are wrong for at least one caller.</summary>
 public readonly record struct SendOutcome
 {
-    private SendOutcome(OutboxState state, string? remoteId, string? message)
+    private SendOutcome(OutboxState state, string? remoteId, string? message, TimeSpan? retryAfter = null)
     {
         State = state;
         RemoteId = remoteId;
         Message = message;
+        RetryAfter = retryAfter;
     }
 
     public OutboxState State { get; }
@@ -86,11 +87,17 @@ public readonly record struct SendOutcome
     /// <summary>Plain language for the technician. Spec §4's first half; never a stack trace.</summary>
     public string? Message { get; }
 
+    /// <summary>When the far end said to come back, for a retry it named a time for.</summary>
+    public TimeSpan? RetryAfter { get; }
+
     /// <summary>It happened, and the far end called it this.</summary>
     public static SendOutcome Done(string? remoteId) => new(OutboxState.Done, remoteId, null);
 
     /// <summary>It did not happen and could next time: no network, a timeout before sending, a rate limit.</summary>
     public static SendOutcome Retry(string message) => new(OutboxState.Pending, null, message);
+
+    /// <summary>A retry the far end named a time for.</summary>
+    public static SendOutcome Retry(string message, TimeSpan? after) => new(OutboxState.Pending, null, message, after);
 
     /// <summary>It will not happen: a missing ticket, a rejected payload, credentials that are wrong.</summary>
     public static SendOutcome Failed(string message) => new(OutboxState.Failed, null, message);
