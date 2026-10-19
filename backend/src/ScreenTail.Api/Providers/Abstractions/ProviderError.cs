@@ -5,7 +5,7 @@ namespace ScreenTail.Api.Providers;
 ///
 /// The list is deliberately short. A taxonomy with thirty entries becomes thirty branches nobody writes,
 /// and every one that is not handled falls through to "something went wrong", which is the message Spec
-/// §4 exists to forbid. These five are the ones where the next step genuinely differs.
+/// §4 exists to forbid. These six are the ones where the next step genuinely differs.
 /// </summary>
 public enum ProviderErrorKind
 {

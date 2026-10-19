@@ -14,7 +14,8 @@ namespace ScreenTail.Api.Providers.ConnectWise;
 /// Basic auth with the tenant's <c>companyId+publicKey:privateKey</c> exactly as the vault holds it, the
 /// vendor <c>clientId</c> on every request, and the API's own words in every refusal. A 429 or an outage
 /// is retried with exponential backoff and jitter, three attempts at most; a wrong key is not retried,
-/// because that is how an integration becomes an account lockout.
+/// because that is how an integration becomes an account lockout. A note, time entry or document that
+/// may already be saved is not sent again (<see cref="ProviderHttp"/>).
 ///
 /// The base address is the tenant's site plus <c>/v4_6_release/apis/3.0/</c>; the factory sets it. Every
 /// route below is relative to that.
