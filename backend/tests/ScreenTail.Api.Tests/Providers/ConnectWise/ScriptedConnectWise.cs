@@ -68,6 +68,9 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        // A real handler refuses a request whose caller has already given up; so does this one, or a
+        // call made after the publish deadline would land here and nowhere else.
+        cancellationToken.ThrowIfCancellationRequested();
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
         lock (_gate)
         {
