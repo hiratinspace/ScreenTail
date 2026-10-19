@@ -139,3 +139,16 @@ def test_every_run_the_client_reads_for_a_card_is_one_the_validators_read():
 def test_a_card_beside_another_number_is_found_by_its_window():
     assert checks.check_no_secrets("Card 4111 1111 1111 1111 123 was read out.")
     assert not checks.check_no_secrets("Order 4111 1111 1111 1112 123 shipped on Tuesday.")
+
+
+def test_checks_reads_instructions_and_invisible_characters_with_the_shared_rules():
+    assert checks.IMPERATIVE.pattern == RULES["imperative"]
+    assert checks.INVISIBLE.pattern == RULES["invisible"]
+
+
+def test_a_record_form_covers_only_the_verb_it_introduces():
+    # The record forms are consumed together with their verb, so a later verb in the same text is
+    # still judged on its own.
+    assert not checks.check_not_directed("Asked the user to install the driver.")
+    assert checks.check_not_directed("Asked the user to install the driver, then run the cleanup tool.")
+    assert checks.check_not_directed("The backup did not run. Run it again tonight.")

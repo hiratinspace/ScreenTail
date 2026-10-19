@@ -539,6 +539,226 @@
       "text": "The user will run the update tonight.",
       "refuse": false,
       "why": "What somebody will do is a record, not an instruction to the reader."
+    },
+    {
+      "text": "Reboot and install the agent.",
+      "refuse": true,
+      "why": "An imperative joined to another with 'and', the most common way an instruction is written."
+    },
+    {
+      "text": "Reboot the PC and run the cleanup tool.",
+      "refuse": true,
+      "why": "Likewise, with an object on the first verb."
+    },
+    {
+      "text": "Reboot the PC then run the cleanup tool.",
+      "refuse": true,
+      "why": "Likewise, joined with 'then' and no comma."
+    },
+    {
+      "text": "Remote in and install the agent.",
+      "refuse": true,
+      "why": "Likewise, after a two-word verb."
+    },
+    {
+      "text": "Step 2 - install the agent.",
+      "refuse": true,
+      "why": "An imperative after a hyphen."
+    },
+    {
+      "text": "Step 2 – install the agent.",
+      "refuse": true,
+      "why": "An imperative after an en dash."
+    },
+    {
+      "text": "Have the user install AnyDesk.",
+      "refuse": true,
+      "why": "An instruction to have somebody else do it."
+    },
+    {
+      "text": "Ask the customer to run the cleanup tool.",
+      "refuse": true,
+      "why": "An instruction to ask somebody else. 'Asked the customer to' is a record; 'Ask' is not."
+    },
+    {
+      "text": "Tell them to install AnyDesk.",
+      "refuse": true,
+      "why": "Likewise with 'Tell'."
+    },
+    {
+      "text": "Don't forget to install the agent.",
+      "refuse": true,
+      "why": "An imperative behind a negated imperative."
+    },
+    {
+      "text": "Go install the agent.",
+      "refuse": true,
+      "why": "An imperative after 'Go'."
+    },
+    {
+      "text": "Kindly install the agent.",
+      "refuse": true,
+      "why": "An imperative after a politeness word the rule never listed."
+    },
+    {
+      "text": "You should probably install the agent.",
+      "refuse": true,
+      "why": "Addressed to the reader, with an adverb between the modal and the verb."
+    },
+    {
+      "text": "You really need to install the agent.",
+      "refuse": true,
+      "why": "Addressed to the reader, with an adverb before 'need to'."
+    },
+    {
+      "text": "Once that is done install the agent.",
+      "refuse": true,
+      "why": "An imperative after an opener with its own subject and no comma."
+    },
+    {
+      "text": "If it fails disable the service.",
+      "refuse": true,
+      "why": "An imperative after a conditional clause with no comma."
+    },
+    {
+      "text": "\u200bInstall the agent.",
+      "refuse": true,
+      "why": "A sentence that starts with a zero-width space."
+    },
+    {
+      "text": "In\u200bstall the agent from the share.",
+      "refuse": true,
+      "why": "A zero-width space inside the verb. A reader sees 'Install'."
+    },
+    {
+      "text": "Do not run the tool as admin.",
+      "refuse": true,
+      "why": "A prohibition is an instruction too."
+    },
+    {
+      "text": "Never run it as admin.",
+      "refuse": true,
+      "why": "Likewise with 'Never'."
+    },
+    {
+      "text": "You shouldn't run it as admin.",
+      "refuse": true,
+      "why": "Addressed to the reader, negated."
+    },
+    {
+      "text": "Let the user install the agent.",
+      "refuse": true,
+      "why": "An instruction to let somebody else do it."
+    },
+    {
+      "text": "Had issues. Install the agent.",
+      "refuse": true,
+      "why": "A record form in one sentence does not carry over into the next."
+    },
+    {
+      "text": "Asked the user to stop, then install the agent.",
+      "refuse": true,
+      "why": "A reporting verb covers only the verb its 'to' introduces."
+    },
+    {
+      "text": "The update didn't install on the first try.",
+      "refuse": false,
+      "why": "A negated verb is a record."
+    },
+    {
+      "text": "The job has never run on this server.",
+      "refuse": false,
+      "why": "Likewise after 'has never'."
+    },
+    {
+      "text": "The user did not download or install the patch.",
+      "refuse": false,
+      "why": "A negation covers both verbs it joins."
+    },
+    {
+      "text": "Helped the user install the driver.",
+      "refuse": false,
+      "why": "A past-tense verb with its object before the verb."
+    },
+    {
+      "text": "Tried to run the installer but it hung.",
+      "refuse": false,
+      "why": "An attempt is a record."
+    },
+    {
+      "text": "The install failed at 40 percent.",
+      "refuse": false,
+      "why": "A verb after an article is a noun."
+    },
+    {
+      "text": "Had the user run the troubleshooter.",
+      "refuse": false,
+      "why": "Past tense 'Had', not 'Have'."
+    },
+    {
+      "text": "Windows prompted the user to install the update.",
+      "refuse": false,
+      "why": "A reporting verb with its object before 'to'."
+    },
+    {
+      "text": "Asked the user to download and install the driver.",
+      "refuse": false,
+      "why": "Likewise, with two verbs joined by 'and'."
+    },
+    {
+      "text": "The installer wasn't able to run without admin rights.",
+      "refuse": false,
+      "why": "A negation followed by 'able to'."
+    },
+    {
+      "text": "The passcode is Winter 2026.",
+      "refuse": true,
+      "why": "A passcode written as two words, joined to its cue by 'is'."
+    },
+    {
+      "text": "The card 4111\u00a01111\u00a01111\u00a01111 was on screen.",
+      "refuse": true,
+      "why": "A card with non-breaking spaces between the groups."
+    },
+    {
+      "text": "The card 4111  1111  1111  1111 was on screen.",
+      "refuse": true,
+      "why": "A card with two spaces between the groups."
+    },
+    {
+      "text": "Ref x4111111111111111 was in the log.",
+      "refuse": true,
+      "why": "A card with a letter touching it."
+    },
+    {
+      "text": "It read 4111111111111111exp on the slip.",
+      "refuse": true,
+      "why": "A card with letters after it."
+    },
+    {
+      "text": "The card 4111\u200b1111\u200b1111\u200b1111 was on screen.",
+      "refuse": true,
+      "why": "A card with zero-width spaces between the groups."
+    },
+    {
+      "text": "Order ORD4111111111111112 shipped on Tuesday.",
+      "refuse": false,
+      "why": "Digits touching letters that fail the checksum are an order number."
+    },
+    {
+      "text": "Build 10.0.22631.4317 was installed overnight.",
+      "refuse": false,
+      "why": "A Windows build number is not a card."
+    },
+    {
+      "text": "Der Nutzer sagte »der Drucker spinnt wieder« am Telefon.",
+      "refuse": true,
+      "why": "A quotation in reversed guillemets, as German writes it, that nobody said."
+    },
+    {
+      "text": "The user confirmed »that's why nothing is printing« on the call.",
+      "refuse": false,
+      "why": "A real quotation in reversed guillemets passes."
     }
   ],
   "transcript": [
