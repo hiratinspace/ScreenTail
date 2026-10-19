@@ -5,7 +5,11 @@ using System.Text.Json;
 namespace ScreenTail.Api.Providers;
 
 /// <summary>How patient a provider is with a rate limit or an outage: the same rule for every one (ST-091 AC2).</summary>
-public sealed record RetryPolicy(TimeSpan BackoffBase, int MaxAttempts = 3);
+public sealed record RetryPolicy(TimeSpan BackoffBase, int MaxAttempts = 3)
+{
+    /// <summary>The longest single wait a caller will sit through before trying again.</summary>
+    public TimeSpan MaxWait { get; init; } = TimeSpan.FromSeconds(5);
+}
 
 /// <summary>
 /// Sends a request, retries what is worth retrying, and turns the answer into a value. Shared by every
@@ -17,6 +21,9 @@ public sealed record RetryPolicy(TimeSpan BackoffBase, int MaxAttempts = 3);
 /// </summary>
 public static class ProviderHttp
 {
+    /// <summary>The most of one answer a provider client holds in memory.</summary>
+    public const long MaxResponseBytes = 4 * 1024 * 1024;
+
     public static async Task<ProviderResult<JsonElement>> SendAsync(
         HttpClient http,
         Func<HttpRequestMessage> build,

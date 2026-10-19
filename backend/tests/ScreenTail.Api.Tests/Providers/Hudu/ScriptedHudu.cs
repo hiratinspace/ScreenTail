@@ -22,6 +22,9 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     public HttpStatusCode? Failing { get; set; }
 
+    /// <summary>How many companies the site has. Twenty-eight by default; as many as an int holds for a site that never ends.</summary>
+    public int CompanyCount { get; set; } = 28;
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -33,6 +36,12 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        // A provider that pages without end would hang the run; this ends it with the reason instead.
+        if (Requests.Count >= 1_000)
+        {
+            throw new InvalidOperationException("The provider kept asking: a thousand requests to one scripted Hudu.");
+        }
+
         Requests.Add(request);
         Bodies.Add(request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken));
         if (Scripted.Count > 0)
@@ -65,10 +74,11 @@ internal sealed class ScriptedHudu : HttpMessageHandler
         };
     }
 
-    private static object[] Companies(int page, int pageSize)
+    private object[] Companies(int page, int pageSize)
     {
-        var all = Enumerable.Range(1, 28).Select(i => new { id = i, name = i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}" }).ToList();
-        return [.. all.Skip((page - 1) * pageSize).Take(pageSize)];
+        var first = ((long)page - 1) * pageSize + 1;
+        var last = Math.Min(CompanyCount, first + pageSize - 1);
+        return [.. Enumerable.Range(0, (int)Math.Max(0, last - first + 1)).Select(offset => (int)(first + offset)).Select(i => new { id = i, name = i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}" })];
     }
 
     private static HttpResponseMessage Ok(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body, options: Json) };

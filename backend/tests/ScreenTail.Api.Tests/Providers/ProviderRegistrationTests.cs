@@ -23,6 +23,20 @@ public sealed class ProviderRegistrationTests(ApiFixture api) : IClassFixture<Ap
         Assert.Null(scope.ServiceProvider.GetService<IDocProvider>());
     }
 
+    [Theory]
+    [InlineData(nameof(ScreenTail.Api.Providers.ConnectWise.ConnectWiseProvider))]
+    [InlineData(nameof(ScreenTail.Api.Providers.Hudu.HuduProvider))]
+    public void EachProviderClientStopsReadingAnAnswerAtTheLimit(string name)
+    {
+        // 2026-10-12 review. A tenant chooses the site, and the backend is shared: without a limit an
+        // answer that never ends is held in memory until the server has none left for anybody.
+        var factory = api.Services.GetRequiredService<IHttpClientFactory>();
+        using var client = factory.CreateClient(name);
+
+        Assert.Equal(ProviderHttp.MaxResponseBytes, client.MaxResponseContentBufferSize);
+        Assert.Equal(TimeSpan.FromSeconds(30), client.Timeout);
+    }
+
     [Fact]
     public void TheFakesAreOnlyEverConstructedByTests()
     {

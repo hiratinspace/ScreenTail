@@ -52,7 +52,9 @@ public abstract class PsaProviderContract
     {
         // Retrying a wrong API key is how an integration becomes an account lockout, and retrying an
         // invalid payload is the same rejection several hundred times.
-        foreach (var kind in Enum.GetValues<ProviderErrorKind>())
+        // Unknown is about a write that may have landed, and a check writes nothing; it has its own
+        // rule below.
+        foreach (var kind in Enum.GetValues<ProviderErrorKind>().Where(k => k != ProviderErrorKind.Unknown))
         {
             Break(new ProviderError(kind, "Something happened.", "Do something."));
             var result = await Provider.CheckAsync(TestContext.Current.CancellationToken);
@@ -61,6 +63,21 @@ public abstract class PsaProviderContract
             Assert.Equal(kind == ProviderErrorKind.Unavailable, result.Error!.Retryable);
         }
 
+        Break(null);
+    }
+
+    [Fact]
+    public async Task ANoteThatMayHaveLandedIsNotWorthRetrying()
+    {
+        // The note may be on the ticket already. Sending it again is the duplicate ST-094 forbids, so
+        // the answer says to look first and is not marked for retry (2026-10-12 review).
+        Break(new ProviderError(ProviderErrorKind.Unknown, "The PSA did not confirm the note.", "Check the ticket first."));
+
+        var result = await Provider.AddNoteAsync(new TicketNote(KnownTicketId, "Body", Internal: true, []), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
+        Assert.False(result.Error.Retryable);
         Break(null);
     }
 

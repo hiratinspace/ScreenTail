@@ -12,6 +12,8 @@ public sealed class HuduOptions
     /// <summary>Hudu pages at 25; more is refused.</summary>
     public int PageSize { get; set; } = 25;
 
+    public int MaxCompanies { get; set; } = 10_000;
+
     /// <summary>ST-095 AC1: companies are cached ten minutes. The mapping screen asks often and the list rarely changes.</summary>
     public TimeSpan CompanyCacheFor { get; set; } = TimeSpan.FromMinutes(10);
 }
