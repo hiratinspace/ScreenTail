@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
@@ -92,6 +93,7 @@ public sealed class ActivationTests(ApiFixture api) : IClassFixture<ApiFixture>
         var early = await api.UseAsync(db => Invites.CreateAsync(db, tenantId, "lost@acme.example", "A Technician", TimeProvider.System));
         using var full = await client.PostAsJsonAsync(new Uri("/v1/devices/activate", UriKind.Relative), new ActivateDeviceRequest(early.Code, "NEW-LAPTOP"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Conflict, full.StatusCode);
+        Assert.Equal("seat_limit", (await full.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("error").GetString());
 
         _ = await api.UseAsync(db => db.Devices
             .Where(d => d.Id == lost.DeviceId)
