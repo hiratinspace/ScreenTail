@@ -14,7 +14,14 @@
     "Every 'text' goes into a draft's result field, which is prose a technician reads and may publish to a",
     "customer. 'refuse' says whether the post-conditions must reject it. 'why' is for whoever reads a",
     "failure, and is not asserted on: which rule fires is an implementation detail, and pinning it here",
-    "would make the two implementations agree about their internals rather than about their answers."
+    "would make the two implementations agree about their internals rather than about their answers.",
+    "",
+    "A case gives its text as 'text', or as 'parts' that are joined into it. The key-shaped cases use",
+    "parts: GitHub's push protection reads a committed key the way these rules do, and a corpus that",
+    "cannot be pushed is a corpus nobody runs. The parts join to the shapes the rules have to catch.",
+    "",
+    "'transcript' is what was said in the session every case is judged against, so a quotation case",
+    "means the same thing to both suites. It is the spooler fixture's transcript, ids included."
   ],
   "cases": [
     {
@@ -166,6 +173,246 @@
       "text": "The password field was blank on that profile.",
       "refuse": false,
       "why": "The other half: walking further to find a credential must not turn a sentence about one into a refusal."
+    },
+    {
+      "parts": [
+        "Found ",
+        "github_",
+        "pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz",
+        " in the build script."
+      ],
+      "refuse": true,
+      "why": "A fine-grained GitHub token, which the client masks and the server did not know."
+    },
+    {
+      "parts": [
+        "The page source had ",
+        "AIza",
+        "SyD-9tSrke72PouQMnMX-a7eZSW0jk",
+        " in it."
+      ],
+      "refuse": true,
+      "why": "A Google API key, recognisable without a cue."
+    },
+    {
+      "parts": [
+        "Pasted ",
+        "eyJ",
+        "hbGciOiJIUzI1NiJ9",
+        ".",
+        "eyJzdWIiOiIxMjM0In0",
+        ".",
+        "abcdefghijklmnop",
+        " into the ticket."
+      ],
+      "refuse": true,
+      "why": "A JSON web token is a session somebody can replay."
+    },
+    {
+      "parts": [
+        "Stripe had ",
+        "sk_",
+        "test_4eC39HqLyjWDarjtT1zd",
+        " in the config."
+      ],
+      "refuse": true,
+      "why": "A Stripe secret key."
+    },
+    {
+      "parts": [
+        "The ",
+        "npm_",
+        "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+        " value was in the file"
+      ],
+      "refuse": true,
+      "why": "An npm token."
+    },
+    {
+      "parts": [
+        "It held ",
+        "SG.",
+        "ngeVfQFYQlKU0ufo8x5d",
+        ".",
+        "TwL2iGABf9DHoTf09kqeF8tA",
+        " for mail"
+      ],
+      "refuse": true,
+      "why": "A SendGrid key."
+    },
+    {
+      "parts": [
+        "It held ",
+        "ya29",
+        ".a0AfH6SMBx1cQ5eXkTOmAgbKqRcvvZ5vGz2NGrLsq",
+        " for the mailbox"
+      ],
+      "refuse": true,
+      "why": "A Google OAuth access token."
+    },
+    {
+      "parts": [
+        "Alerts went to ",
+        "https://hooks.slack.com/",
+        "services/T0AB1CDEF/B0GH2IJKL/aBcDeFgHiJkLmNoPqRsTuVwX",
+        " all week"
+      ],
+      "refuse": true,
+      "why": "A Slack webhook is a key in the shape of an address."
+    },
+    {
+      "text": "The share held -----BEGIN PGP PRIVATE KEY BLOCK----- in a text file.",
+      "refuse": true,
+      "why": "A PGP private key block. The header rule wanted KEY----- and this one says KEY BLOCK-----."
+    },
+    {
+      "text": "The master key: Xy7pQ2rS9tU4vW1z for the vault.",
+      "refuse": true,
+      "why": "'master key' introduces a credential the way 'api key' does."
+    },
+    {
+      "text": "pass: hunter2 on the shared account",
+      "refuse": true,
+      "why": "'pass:' is how a config file or a chat message writes it."
+    },
+    {
+      "text": "Their passcode is 0791 for the door.",
+      "refuse": true,
+      "why": "A passcode is usually digits, so the shape rule alone would let it through."
+    },
+    {
+      "text": "Reset the PIN to 4821 for her.",
+      "refuse": true,
+      "why": "A PIN, likewise."
+    },
+    {
+      "text": "The password is Пароль2026 on that machine.",
+      "refuse": true,
+      "why": "A credential with a letter outside ASCII in it is still a credential."
+    },
+    {
+      "text": "The password is [Winter2026!] on that machine.",
+      "refuse": true,
+      "why": "Only the redaction engine's own markers mean the redaction worked. A bracket the model wrote is not one."
+    },
+    {
+      "text": "SSN 123.45.6789 was on the form.",
+      "refuse": true,
+      "why": "An SSN written with dots."
+    },
+    {
+      "text": "The card 4111.1111.1111.1111 was on screen.",
+      "refuse": true,
+      "why": "A card number written with dots."
+    },
+    {
+      "text": "The technician said “I’ve rebooted the print server” before the test page.",
+      "refuse": true,
+      "why": "Curly quotes with a curly apostrophe early on. The apostrophe closed the quotation after one letter."
+    },
+    {
+      "text": "The customer said 'it started this morning' when asked.",
+      "refuse": true,
+      "why": "Straight single quotes. Only the Python rules looked for them."
+    },
+    {
+      "text": "The customer said 'it’s been broken since Monday' when asked.",
+      "refuse": true,
+      "why": "Straight single quotes with an apostrophe inside the quotation."
+    },
+    {
+      "text": "The technician confirmed “that’s why nothing is printing” on the call.",
+      "refuse": false,
+      "why": "A real quotation in curly quotes, with a curly apostrophe where the transcript has a straight one."
+    },
+    {
+      "text": "Noted 'that's why nothing is printing' as the diagnosis.",
+      "refuse": false,
+      "why": "A real quotation in straight single quotes, with an apostrophe inside it."
+    },
+    {
+      "text": "The user's printer and the admin's laptop were both on the old driver.",
+      "refuse": false,
+      "why": "Two possessives are two apostrophes, not a quotation."
+    },
+    {
+      "text": "The users' printers and the admins' laptops were both on the old driver.",
+      "refuse": false,
+      "why": "Plural possessives, likewise."
+    },
+    {
+      "text": "Install the agent from the shared drive on every machine.",
+      "refuse": true,
+      "why": "An imperative at the start of a sentence is an instruction, URL or no URL."
+    },
+    {
+      "text": "Then run the cleanup tool on the other workstations.",
+      "refuse": true,
+      "why": "The same, after 'then'."
+    },
+    {
+      "text": "You should download the latest driver before the next visit.",
+      "refuse": true,
+      "why": "Addressed to the reader."
+    },
+    {
+      "text": "The scheduled backup did not run overnight, so it was started by hand.",
+      "refuse": false,
+      "why": "A base-form verb in a record of what happened. The server refused it."
+    },
+    {
+      "text": "Asked the user to install the printer driver from the vendor's site.",
+      "refuse": false,
+      "why": "What the technician asked somebody to do is a record, not an instruction to the reader."
+    },
+    {
+      "text": "The installer would not run until the old version was removed.",
+      "refuse": false,
+      "why": "Likewise, 'would not run'."
+    },
+    {
+      "text": "Ran the printer troubleshooter and deleted the stuck job.",
+      "refuse": false,
+      "why": "Past tense is how a note is written."
+    },
+    {
+      "text": "Order 4111 1111 1111 1112 shipped on Tuesday.",
+      "refuse": false,
+      "why": "Sixteen digits that fail the checksum are an order number."
+    },
+    {
+      "text": "Asset tag 1234567890123 is on the label.",
+      "refuse": false,
+      "why": "Thirteen digits that fail the checksum, likewise."
+    },
+    {
+      "text": "The PIN pad at reception was replaced.",
+      "refuse": false,
+      "why": "A PIN pad is not a PIN."
+    },
+    {
+      "text": "Token lifetime is 3600 seconds on this tenant.",
+      "refuse": false,
+      "why": "A token's lifetime is not a token."
+    },
+    {
+      "text": "The private key is stored in the vault, not on the laptop.",
+      "refuse": false,
+      "why": "Where a key is kept is not the key."
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0001",
+      "text": "Spooler service is stopped, that's why nothing is printing."
+    },
+    {
+      "id": "t-0002",
+      "text": "Started it again and set it to restart on failure."
+    },
+    {
+      "id": "t-0003",
+      "text": "Test page came out fine, so the queue is clear now."
     }
   ]
 }

@@ -6,12 +6,25 @@ using ScreenTail.Api.Summarize;
 namespace ScreenTail.Api.Tests.Summarize;
 
 /// <param name="Text">The draft's result field: prose a technician reads and may publish to a customer.</param>
+/// <param name="Parts">The same, in pieces, for a key shape that cannot be committed whole.</param>
 /// <param name="Refuse">Whether the post-conditions must reject it.</param>
 /// <param name="Why">For whoever reads a failure. Never asserted on.</param>
 public sealed record HardeningCase(
-    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("text")] string? Text,
+    [property: JsonPropertyName("parts")] IReadOnlyList<string>? Parts,
     [property: JsonPropertyName("refuse")] bool Refuse,
-    [property: JsonPropertyName("why")] string Why);
+    [property: JsonPropertyName("why")] string Why)
+{
+    /// <summary>What goes into the draft. A case with neither is a broken file, and says so.</summary>
+    public string Result => Text ?? (Parts is { Count: > 0 } ? string.Concat(Parts) : throw new InvalidOperationException($"A shared case has no text: {Why}"));
+
+    /// <summary>The xunit display name, so a failure says which case without printing a key shape.</summary>
+    public override string ToString() => Why;
+}
+
+public sealed record SpokenSegment(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("text")] string Text);
 
 /// <summary>
 /// The cases this validator and <c>research/prompts/checks.py</c> must answer the same way (ST-063).
@@ -32,7 +45,7 @@ public sealed class SharedHardeningCasesTests
     public static TheoryData<HardeningCase> Cases()
     {
         var data = new TheoryData<HardeningCase>();
-        foreach (var one in Load())
+        foreach (var one in Load().Cases)
         {
             data.Add(one);
         }
@@ -45,7 +58,7 @@ public sealed class SharedHardeningCasesTests
     public void ADraftIsJudgedTheWayTheSharedFileSaysItShouldBe(HardeningCase shared)
     {
         ArgumentNullException.ThrowIfNull(shared);
-        var refused = DraftValidator.Check(Draft(shared.Text), Bundle()).Count > 0;
+        var refused = DraftValidator.Check(Draft(shared.Result), Bundle()).Count > 0;
 
         Assert.True(
             refused == shared.Refuse,
@@ -56,20 +69,21 @@ public sealed class SharedHardeningCasesTests
     public void TheSharedFileIsNotEmptyAndHasBothAnswersInIt()
     {
         // A file that failed to load, or one that only says no, would make every case above vacuous.
-        var cases = Load();
+        var cases = Load().Cases;
 
         Assert.True(cases.Count >= 20, $"Only {cases.Count} shared cases were loaded.");
         Assert.Contains(cases, one => one.Refuse);
         Assert.Contains(cases, one => !one.Refuse);
+        Assert.NotEmpty(Load().Transcript);
     }
 
-    private static IReadOnlyList<HardeningCase> Load()
+    private static CaseFile Load()
     {
         using var stream = Assembly.GetExecutingAssembly()
             .GetManifestResourceStream("ScreenTail.Api.Tests.hardening-cases.json")
             ?? throw new InvalidOperationException("hardening-cases.json is not embedded in this test assembly.");
 
-        return JsonSerializer.Deserialize<CaseFile>(stream, Json)?.Cases
+        return JsonSerializer.Deserialize<CaseFile>(stream, Json)
             ?? throw new InvalidOperationException("hardening-cases.json could not be read.");
     }
 
@@ -87,14 +101,19 @@ public sealed class SharedHardeningCasesTests
         PromptVersion = DraftValidator.PromptVersion,
     };
 
+    /// <summary>
+    /// The session every case is judged against. Its transcript comes from the file, so a quotation case
+    /// means the same thing here as it does to <c>checks.py</c>.
+    /// </summary>
     private static SummarizeBundle Bundle() => new()
     {
         SessionId = "s1",
         DurationMs = 10 * 60 * 1000,
         Frames = [new BundleFrame("f1", 1_000, "Services Print Spooler Stopped")],
-        Transcript = [new BundleSegment("t1", 1_200, "clearing the queue now")],
+        Transcript = [.. Load().Transcript.Select((segment, i) => new BundleSegment(segment.Id, 1_000 * (i + 1), segment.Text))],
     };
 
     private sealed record CaseFile(
+        [property: JsonPropertyName("transcript")] IReadOnlyList<SpokenSegment> Transcript,
         [property: JsonPropertyName("cases")] IReadOnlyList<HardeningCase> Cases);
 }

@@ -142,7 +142,7 @@ def test_an_ordinary_draft_still_passes():
     assert check_draft(session["draft"], session) == []
 
 
-def shared_cases() -> list[dict]:
+def shared_file() -> dict:
     """The cases both implementations of the post-conditions have to agree on.
 
     The C# validator reads the same file. A comment saying two things agree is not a mechanism, and both
@@ -150,14 +150,60 @@ def shared_cases() -> list[dict]:
     download tools passing the C# one and caught by this one.
     """
     path = ROOT / "prompts" / "hardening-cases.json"
-    return json.loads(path.read_text(encoding="utf-8"))["cases"]
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("case", shared_cases(), ids=lambda c: c["text"][:48])
+def shared_cases() -> list[dict]:
+    return shared_file()["cases"]
+
+
+def case_text(case: dict) -> str:
+    """A case's text, or its parts joined. Key shapes are kept in parts so the file can be pushed."""
+    return case["text"] if "text" in case else "".join(case["parts"])
+
+
+def test_the_shared_file_has_a_transcript_and_both_answers():
+    shared = shared_file()
+
+    assert shared["transcript"]
+    assert any(case["refuse"] for case in shared["cases"])
+    assert any(not case["refuse"] for case in shared["cases"])
+
+
+@pytest.mark.parametrize("case", shared_cases(), ids=lambda c: c["why"][:48])
 def test_the_shared_cases_are_judged_the_way_they_say(case: dict):
-    errors = errors_with(result=case["text"])
-    refused = bool(errors)
+    # Judged against the file's transcript rather than the fixture's, so a quotation case means the same
+    # thing here as in the C# suite.
+    session = copy.deepcopy(session_with_draft())
+    session["transcript"] = [dict(segment) for segment in shared_file()["transcript"]]
+    session["draft"]["result"] = case_text(case)
+    refused = bool(check_draft(session["draft"], session))
 
     assert refused == case["refuse"], (
         f"{'expected a refusal' if case['refuse'] else 'expected this to pass'}: {case['why']}"
     )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"step": {"confidence": "medium"}},
+        {"step": {"confidence": "HIGH"}},
+        {"step": {"confidence": None}},
+        {"draft": {"source": "remote"}},
+        {"draft": {"source": "Cloud"}},
+        {"draft": {"suggested_time_minutes": -5}},
+        {"draft": {"suggested_time_minutes": 1441}},
+        {"draft": {"suggested_time_minutes": True}},
+    ],
+    ids=lambda change: repr(change),
+)
+def test_a_draft_outside_the_schema_is_refused(change: dict):
+    # 2026-10-12 review. The C# validator accepted values the client cannot read, and the client then
+    # retried a 200 it could not parse, eight billed times. The rules here have to say the same.
+    session = copy.deepcopy(session_with_draft())
+    session["duration_ms"] = 2 * 24 * 60 * 60 * 1000
+    session["draft"].update(change.get("draft", {}))
+    session["draft"]["steps"][0].update(change.get("step", {}))
+
+    assert check_draft(session["draft"], session)
