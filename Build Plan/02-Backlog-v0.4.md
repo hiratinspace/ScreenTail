@@ -579,7 +579,7 @@ JSON registry of remote-tool processes and browser title/URL patterns; auto-star
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done 2026-09-12.
+- **Status:** Done 2026-09-12. Corrected 2026-10-14 (T-33): once the hooks followed the session (#129), every session after the first in a service lifetime recorded no clicks and no typing, because the loop kept the first session's stop signal. Each start is now a fresh run (`RestartablePump`) with its own stop signal and window class, and a start succeeds only when both hooks are in. `HooksComeBackForEverySessionInOneServiceLifetime` (any OS) and `HooksComeBackForTheSecondSession` (laptop).
 
 **Description:**
 `WH_MOUSE_LL`/`WH_KEYBOARD_LL` on a dedicated thread; lock-free buffer; clicks record position/button/hwnd; keys record categories only (INV-2).

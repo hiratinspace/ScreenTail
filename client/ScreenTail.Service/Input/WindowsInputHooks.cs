@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -20,22 +21,27 @@ namespace ScreenTail.Service.Input;
 ///
 /// Hooks are re-installed on session lock/unlock and on resume from sleep, which is when Windows is most
 /// likely to have dropped them.
+///
+/// **Started and stopped once per session for the life of the service** (ST-031, T-33). Each start is a
+/// fresh run of <see cref="RestartablePump"/> with its own stop signal and its own window class, and it
+/// succeeds only once both hooks are in, so the caller never says "installed" about a loop that ended.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsInputHooks : IAsyncDisposable
 {
+    private static int _classSerial;
     private readonly InputRingBuffer _buffer;
     private readonly HookProc _mouseCallback;
     private readonly HookProc _keyboardCallback;
     private readonly WndProc _windowCallback;
-    private readonly CancellationTokenSource _stopping = new();
-    private Thread? _pump;
+    private readonly RestartablePump _pump;
     private uint _pumpThreadId;
     private IntPtr _mouseHook;
     private IntPtr _keyboardHook;
     private IntPtr _window;
     private long _installs;
     private long _worstCallbackTicks;
+    private bool _warmed;
 
     public WindowsInputHooks(InputRingBuffer? buffer = null)
     {
@@ -46,6 +52,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
         _mouseCallback = OnMouse;
         _keyboardCallback = OnKeyboard;
         _windowCallback = OnWindowMessage;
+        _pump = new RestartablePump("ScreenTail input hooks", Pump, thread => thread.SetApartmentState(ApartmentState.STA));
     }
 
     public InputRingBuffer Buffer => _buffer;
@@ -74,43 +81,16 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
 
     public static TimeSpan Elapsed(long from, long to) => Stopwatch.GetElapsedTime(from, to);
 
-    public Task StartAsync(CancellationToken ct = default)
-    {
-        if (_pump is not null)
-        {
-            return Task.CompletedTask;
-        }
+    /// <summary>
+    /// Installs the hooks on a fresh pump thread and returns once both are in. Throws when Windows would not
+    /// install them, so the caller counts a failure instead of announcing hooks that are not there.
+    /// </summary>
+    public Task StartAsync(CancellationToken ct = default) => _pump.StartAsync(ct);
 
-        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pump = new Thread(() => Pump(ready)) { IsBackground = true, Name = "ScreenTail input hooks" };
-        _pump.SetApartmentState(ApartmentState.STA);
-        _pump.Start();
-        return ready.Task.WaitAsync(ct);
-    }
+    /// <summary>Takes the hooks out and waits for the pump thread to end. Safe to call again, or first.</summary>
+    public Task StopAsync(CancellationToken ct = default) => _pump.StopAsync(ct);
 
-    public async Task StopAsync(CancellationToken ct = default)
-    {
-        if (_pump is null)
-        {
-            return;
-        }
-
-        await _stopping.CancelAsync().ConfigureAwait(false);
-        if (_pumpThreadId != 0)
-        {
-            _ = PostThreadMessage(_pumpThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-        }
-
-        var pump = _pump;
-        _pump = null;
-        await Task.Run(() => pump.Join(TimeSpan.FromSeconds(5)), ct).ConfigureAwait(false);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await StopAsync().ConfigureAwait(false);
-        _stopping.Dispose();
-    }
+    public ValueTask DisposeAsync() => _pump.DisposeAsync();
 
     // ---- the hot path ----------------------------------------------------------------------------------
 
@@ -231,30 +211,50 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
 
     // ---- pump, install, re-install ---------------------------------------------------------------------
 
-    private void Pump(TaskCompletionSource ready)
+    /// <summary>
+    /// One run, on its own thread: a window for session and power notifications, the hooks, and the message
+    /// loop the hooks are delivered through. Everything it makes it takes down again before it returns, so
+    /// the next session's run starts from nothing.
+    /// </summary>
+    private void Pump(PumpRun run)
     {
+        var threadId = GetCurrentThreadId();
+        _pumpThreadId = threadId;
+
+        // The thread's message queue exists before anything can post to it, so the stop's WM_QUIT is never lost.
+        _ = PeekMessage(out _, IntPtr.Zero, 0, 0, PM_NOREMOVE);
+
+        // A class of this run's own: the last session's was unregistered when its run ended, and a name
+        // still taken would cost this run its window and with it every lock, unlock and resume re-install.
+        var className = $"ScreenTailInput{Environment.ProcessId}.{Interlocked.Increment(ref _classSerial)}";
+        var instance = GetModuleHandle(null);
+        var registered = false;
         try
         {
-            _pumpThreadId = GetCurrentThreadId();
-            _window = CreateMessageWindow();
+            registered = RegisterMessageClass(className, instance);
+            _window = registered ? CreateMessageWindow(className, instance) : IntPtr.Zero;
             if (_window != IntPtr.Zero)
             {
                 // Lock, unlock and resume are when Windows is most likely to have dropped a hook.
                 _ = WTSRegisterSessionNotification(_window, NOTIFY_FOR_THIS_SESSION);
             }
 
-            Install();
-            ready.TrySetResult();
+            Warm();
+            if (!Install(out var error))
+            {
+                // Not ready: the start fails with this, and the caller counts it rather than saying installed.
+                throw new Win32Exception(error);
+            }
 
-            while (!_stopping.IsCancellationRequested && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
+            // Registered before Ready, and run at once if the stop came first.
+            using var wake = run.Stopping.Register(() => _ = PostThreadMessage(threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero));
+            run.Ready();
+
+            while (!run.Stopping.IsCancellationRequested && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
             {
                 _ = TranslateMessage(ref message);
                 _ = DispatchMessage(ref message);
             }
-        }
-        catch (Exception ex)
-        {
-            ready.TrySetException(ex);
         }
         finally
         {
@@ -266,7 +266,12 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
                 _window = IntPtr.Zero;
             }
 
-            ready.TrySetResult();
+            if (registered)
+            {
+                _ = UnregisterClass(className, instance);
+            }
+
+            _pumpThreadId = 0;
         }
     }
 
@@ -282,19 +287,83 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
         return DefWindowProc(window, message, wParam, lParam);
     }
 
+    /// <summary>
+    /// Runs the callbacks' code once before the hooks go in, so the first real key press or click does not
+    /// pay for compiling it. On the laptop on 2026-10-19 the first line of typing cost one callback
+    /// 1,479 µs against ST-024's 1 ms budget, and every later line 116 µs at worst. Code below zero is the
+    /// pass-through branch, which records nothing; the classification and the buffer write are run against
+    /// a buffer of their own, so nothing reaches the session. Once per object: later sessions' runs find it
+    /// compiled. The warm-up's own cost is not a callback, so the worst callback starts again from zero.
+    /// </summary>
+    private void Warm()
+    {
+        if (_warmed)
+        {
+            return;
+        }
+
+        _ = OnKeyboard(-1, IntPtr.Zero, IntPtr.Zero);
+        _ = OnMouse(-1, IntPtr.Zero, IntPtr.Zero);
+
+        var scratch = new InputRingBuffer(4);
+        foreach (var key in (ReadOnlySpan<int>)[VK_RETURN, VK_SHIFT, 0x41])
+        {
+            if (Classify(key) is { } kind)
+            {
+                _ = scratch.Write(new InputSignal(kind, Stopwatch.GetTimestamp()));
+            }
+        }
+
+        var block = Marshal.AllocHGlobal(8);
+        try
+        {
+            Marshal.WriteInt64(block, 0);
+            _ = scratch.Write(new InputSignal(InputKind.Click, Stopwatch.GetTimestamp(), Marshal.ReadInt32(block, 0), Marshal.ReadInt32(block, 4), MouseButtonKind.Left));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(block);
+        }
+
+        ResetWorstCallback();
+        _warmed = true;
+    }
+
     /// <summary>Takes the hooks out and puts them back. Called on lock/unlock and resume, and by tests.</summary>
     internal void Reinstall()
     {
         Uninstall();
-        Install();
+        _ = Install(out _);
     }
 
-    private void Install()
+    /// <summary>
+    /// Puts both hooks in. Counts an install only when both went in; otherwise takes out whichever did and
+    /// returns the Windows error, because one hook reported as two is worse than none reported honestly.
+    /// </summary>
+    private bool Install(out int error)
     {
         // idHook needs no module handle for a low-level hook in the installing process.
+        error = 0;
         _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseCallback, IntPtr.Zero, 0);
+        if (_mouseHook == IntPtr.Zero)
+        {
+            error = Marshal.GetLastPInvokeError();
+        }
+
         _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardCallback, IntPtr.Zero, 0);
-        Interlocked.Increment(ref _installs);
+        if (_keyboardHook == IntPtr.Zero && error == 0)
+        {
+            error = Marshal.GetLastPInvokeError();
+        }
+
+        if (_mouseHook == IntPtr.Zero || _keyboardHook == IntPtr.Zero)
+        {
+            Uninstall();
+            return false;
+        }
+
+        _ = Interlocked.Increment(ref _installs);
+        return true;
     }
 
     private void Uninstall()
@@ -312,22 +381,22 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
         }
     }
 
-    /// <summary>A message-only window: it never draws, and exists to receive session and power notifications.</summary>
-    private IntPtr CreateMessageWindow()
+    private bool RegisterMessageClass(string className, IntPtr instance)
     {
-        var className = $"ScreenTailInput{Environment.ProcessId}";
         var wndClass = new WndClassEx
         {
             Size = Marshal.SizeOf<WndClassEx>(),
             WndProc = _windowCallback,
-            Instance = GetModuleHandle(null),
+            Instance = instance,
             ClassName = className,
         };
 
-        return RegisterClassEx(ref wndClass) == 0
-            ? IntPtr.Zero
-            : CreateWindowEx(0, className, className, 0, 0, 0, 0, 0, HWND_MESSAGE, IntPtr.Zero, wndClass.Instance, IntPtr.Zero);
+        return RegisterClassEx(ref wndClass) != 0;
     }
+
+    /// <summary>A message-only window: it never draws, and exists to receive session and power notifications.</summary>
+    private static IntPtr CreateMessageWindow(string className, IntPtr instance) =>
+        CreateWindowEx(0, className, className, 0, 0, 0, 0, 0, HWND_MESSAGE, IntPtr.Zero, instance, IntPtr.Zero);
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
 
@@ -337,6 +406,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
     private const int WH_MOUSE_LL = 14;
     private const int HC_ACTION = 0;
     private const uint WM_QUIT = 0x0012;
+    private const uint PM_NOREMOVE = 0x0000;
     private const uint WM_KEYDOWN = 0x0100;
     private const uint WM_SYSKEYDOWN = 0x0104;
     private const uint WM_LBUTTONDOWN = 0x0201;
@@ -425,6 +495,10 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnregisterClass(string className, IntPtr instance);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -448,6 +522,10 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetMessage(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PeekMessage(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

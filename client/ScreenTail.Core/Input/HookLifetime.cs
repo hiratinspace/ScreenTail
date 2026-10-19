@@ -23,7 +23,9 @@ namespace ScreenTail.Core.Input;
 /// that starts one as pre-session.
 /// </summary>
 /// <param name="install">Installs the hooks. Throwing means the machine would not give us one.</param>
-/// <param name="remove">Removes them. Expected to succeed; a failure is counted like any other.</param>
+/// <param name="remove">Removes them. Expected to succeed; a failure is counted like any other. A
+/// <see cref="TimeoutException"/> means they were asked to come out and have not yet, so they are no
+/// longer counted as in.</param>
 public sealed class HookLifetime(
     SessionMachine machine,
     Func<CancellationToken, Task> install,
@@ -97,6 +99,15 @@ public sealed class HookLifetime(
 
             _installed = wanted;
             Changed?.Invoke(wanted);
+        }
+        catch (TimeoutException failure) when (!wanted)
+        {
+            // A stop that timed out has still asked the loop to end, and it takes the hooks out when it
+            // does. Believing them still in would make the next session skip installing and record no
+            // input; this way it tries, and is either given hooks or refused and counted (T-33).
+            _installed = false;
+            Failures++;
+            Failed?.Invoke(failure);
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
