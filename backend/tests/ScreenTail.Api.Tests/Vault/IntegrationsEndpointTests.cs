@@ -118,6 +118,48 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task AnotherTenantCannotRemoveOrReplaceMyCredential()
+    {
+        // 2026-10-12 review, T-189. The other tenant names the same provider: its DELETE finds nothing of
+        // its own and says so, and its PUT makes a row of its own. Mine is untouched by either, byte for
+        // byte, and still opens to my secret.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        var (otherTenant, otherUser, otherDevice) = await SeedAsync();
+        using var mine = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var theirs = Client(api.Issuer.ForDevice(otherTenant, otherUser, otherDevice).Token);
+        using var put = await mine.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", Secret), TestContext.Current.CancellationToken);
+        var before = await api.UseAsync(db => db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == tenantId));
+
+        using var removed = await theirs.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var replaced = await theirs.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://elsewhere.huducloud.com", "their-key-0000"), TestContext.Current.CancellationToken);
+        var after = await api.UseAsync(db => db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == tenantId));
+        using var scope = api.Services.CreateScope();
+        var vault = scope.ServiceProvider.GetRequiredService<IIntegrationVault>();
+
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, removed.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, replaced.StatusCode);
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal("https://acme.huducloud.com", after.SiteUrl);
+        Assert.Equal(before.SecretCiphertext, after.SecretCiphertext);
+        Assert.Equal(before.DataKeyWrapped, after.DataKeyWrapped);
+        Assert.Equal(before.ConnectedAt, after.ConnectedAt);
+        Assert.Equal(Secret, (await vault.RevealAsync(tenantId, "hudu", TestContext.Current.CancellationToken))?.Secret);
+        Assert.Equal("their-key-0000", (await vault.RevealAsync(otherTenant, "hudu", TestContext.Current.CancellationToken))?.Secret);
+    }
+
+    [Fact]
+    public async Task RemovingWhatWasNeverConnectedIsNotFound()
+    {
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var removed = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, removed.StatusCode);
+    }
+
+    [Fact]
     public async Task AProviderNameThatIsNotANameIsRefused()
     {
         var (tenantId, userId, deviceId) = await SeedAsync();

@@ -144,6 +144,33 @@ public sealed class MeEndpointTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.DoesNotContain("expired", header, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("expired")]
+    [InlineData("wrong-key")]
+    [InlineData("wrong-audience")]
+    [InlineData("wrong-issuer")]
+    public async Task AWellFormedTokenThatFailsACheckIsRefusedWithABareChallenge(string failing)
+    {
+        // 2026-10-12 review, T-192. A garbage token produces no error_description whatever the setting,
+        // so the test above cannot notice IncludeErrorDetails being turned on. These are the tokens that
+        // would be explained if it were: each parses, each fails one check, and the challenge names none.
+        var (tenantId, userId, deviceId) = await SeedAsync("Probed", $"{failing}@example.com");
+        var token = failing switch
+        {
+            "expired" => api.Issuer.ForDevice(tenantId, userId, deviceId, new FixedTime(DateTimeOffset.UtcNow - TimeSpan.FromDays(2))).Token,
+            "wrong-key" => IssuerWith(signingKey: "a-different-key-that-is-also-long-enough!").ForDevice(tenantId, userId, deviceId).Token,
+            "wrong-audience" => IssuerWith(audience: "somebody-elses-api").ForDevice(tenantId, userId, deviceId).Token,
+            "wrong-issuer" => IssuerWith(issuer: "somebody-else").ForDevice(tenantId, userId, deviceId).Token,
+            _ => throw new ArgumentOutOfRangeException(nameof(failing)),
+        };
+        using var client = Client(token);
+
+        using var response = await client.GetAsync(new Uri("/v1/me", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer", response.Headers.WwwAuthenticate.ToString());
+    }
+
     [Fact]
     public async Task AskingUpdatesWhenTheDeviceWasLastSeen()
     {
@@ -160,6 +187,13 @@ public sealed class MeEndpointTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         Assert.NotNull(lastSeen);
     }
+
+    private TokenIssuer IssuerWith(string? signingKey = null, string? audience = null, string? issuer = null) => new(new JwtOptions
+    {
+        Issuer = issuer ?? api.Jwt.Issuer,
+        Audience = audience ?? api.Jwt.Audience,
+        SigningKey = signingKey ?? ApiFixture.SigningKey,
+    });
 
     private HttpClient Client(string token)
     {

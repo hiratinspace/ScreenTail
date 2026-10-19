@@ -80,6 +80,31 @@ public sealed class ActivationTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task ARevokedDeviceGivesItsSeatBack()
+    {
+        // 2026-10-12 review, T-176. A seat is an active device: a lost laptop that is revoked must free
+        // its seat for the replacement, or the tenant pays for a machine that no longer exists.
+        var (tenantId, invite) = await InviteAsync(seats: 1, "lost@acme.example");
+        using var client = api.CreateClient();
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/devices/activate", UriKind.Relative), new ActivateDeviceRequest(invite.Code, "LOST-LAPTOP"), TestContext.Current.CancellationToken);
+        var lost = (await first.Content.ReadFromJsonAsync<ActivatedDevice>(TestContext.Current.CancellationToken))!;
+
+        var early = await api.UseAsync(db => Invites.CreateAsync(db, tenantId, "lost@acme.example", "A Technician", TimeProvider.System));
+        using var full = await client.PostAsJsonAsync(new Uri("/v1/devices/activate", UriKind.Relative), new ActivateDeviceRequest(early.Code, "NEW-LAPTOP"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, full.StatusCode);
+
+        _ = await api.UseAsync(db => db.Devices
+            .Where(d => d.Id == lost.DeviceId)
+            .ExecuteUpdateAsync(set => set.SetProperty(d => d.RevokedAt, DateTimeOffset.UtcNow)));
+        var replacement = await api.UseAsync(db => Invites.CreateAsync(db, tenantId, "lost@acme.example", "A Technician", TimeProvider.System));
+        using var seated = await client.PostAsJsonAsync(new Uri("/v1/devices/activate", UriKind.Relative), new ActivateDeviceRequest(replacement.Code, "NEW-LAPTOP"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, seated.StatusCode);
+        Assert.Equal(1, await api.UseAsync(db => db.Devices.CountAsync(d => d.TenantId == tenantId && d.RevokedAt == null)));
+    }
+
+    [Fact]
     public async Task ARefreshTokenBuysAccessTokensUntilTheDeviceIsRevoked()
     {
         var (_, invite) = await InviteAsync(seats: 1, "r@acme.example");
