@@ -145,9 +145,13 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         return ProviderResult.Success(new PublishedArticle(id, url));
     }
 
-    private static List<CompanyRef> Companies(JsonElement page) => page.TryGetProperty("companies", out var list)
-        ? [.. list.EnumerateArray().Select(c => new CompanyRef(ProviderHttp.Id(c), c.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty))]
-        : [];
+    /// <summary>
+    /// One page of companies. The list must be there: a page without it (an empty body, or JSON from
+    /// something that is not Hudu's API) throws for <see cref="ProviderHttp.Read{T}"/> to report, rather
+    /// than reading as a tenant with no companies and being remembered as one. An empty list is a list.
+    /// </summary>
+    private static List<CompanyRef> Companies(JsonElement page) =>
+        [.. page.GetProperty("companies").EnumerateArray().Select(c => new CompanyRef(ProviderHttp.Id(c), c.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty))];
 
     /// <summary>The new article's id and link. Hudu wraps it in <c>article</c>; a bare object is read the same way.</summary>
     private static (string Id, Uri? Url) Created(JsonElement answer)

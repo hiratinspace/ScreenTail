@@ -28,13 +28,14 @@ public static class Publisher
             {
                 row = await DestinationAsync(destination, psa, bundle, text, docs, mappings, ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
             {
                 // Providers return their failures as values; this is the backstop for the bug that still
                 // throws (2026-10-12 review). Answered on its own, so the destinations already written
                 // stay written and are reported, rather than one 500 telling the client nothing went.
                 // Where it threw is not known, so it may have been saved; the exception's own words can
-                // quote what it failed on and are not passed on.
+                // quote what it failed on and are not passed on. Only the caller's own cancellation goes
+                // through: a cancellation with the caller still waiting is one more thing that threw.
                 row = Unconfirmed(destination);
             }
 

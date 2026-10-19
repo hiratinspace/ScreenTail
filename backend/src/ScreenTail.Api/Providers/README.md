@@ -121,6 +121,7 @@ longer; a Retry-After beyond `MaxRetryWait` (five seconds) is not waited out, an
 instead. Each client holds at most `ProviderHttp.MaxResponseBytes` (4 MB) of an answer; a larger one is
 `Invalid` and not retried. A success that is not JSON, or lacks the id or list the provider reads, is
 `Invalid` for a read and `Unknown` for a write, never an exception, and the body is not quoted back.
+An empty success lacks the list too: Hudu without a `companies` key is not a tenant with no companies.
 Hudu's company list stops at `Hudu:MaxCompanies` (10,000) and is then an error, not a shorter list.
 
 ## Public addresses only
