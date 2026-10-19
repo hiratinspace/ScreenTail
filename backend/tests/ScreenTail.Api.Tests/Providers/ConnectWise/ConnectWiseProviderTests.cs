@@ -231,13 +231,14 @@ public sealed class ConnectWiseProviderTests : IDisposable
         // so it is reported with its id rather than lost in a cancellation. The four that were on their
         // way may have attached, so the advice is to look before adding them; the two that never left
         // did not, and are named as missing.
+        // The deadline comes the moment the fourth is on its way, so which ones had left is not a race.
         _api.HangingRoute = "/system/documents";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        deadline.CancelAfter(TimeSpan.FromMilliseconds(200));
+        using var fourth = new DeadlineWhenOnTheirWay(_api, ConnectWiseProvider.AttachmentsAtOnce, deadline);
         var note = new TicketNote("48213", "Body", Internal: true,
             [.. Enumerable.Range(1, 6).Select(i => new NoteAttachment($"screenshot-{i}.jpg", "image/jpeg", new byte[] { (byte)i }))]);
 
-        var result = await Provider().AddNoteAsync(note, deadline.Token);
+        var result = await Provider(fourth).AddNoteAsync(note, deadline.Token);
 
         Assert.True(result.Ok);
         Assert.Equal("90001", result.Value!.Id);
@@ -529,6 +530,22 @@ public sealed class ConnectWiseProviderTests : IDisposable
     }
 
     /// <summary>Counts how many uploads are in flight at once, holding each a moment so they can overlap.</summary>
+    /// <summary>Ends the publish's deadline as the given number of screenshots are on their way at once.</summary>
+    private sealed class DeadlineWhenOnTheirWay(HttpMessageHandler inner, int count, CancellationTokenSource deadline) : DelegatingHandler(inner)
+    {
+        private int _sent;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal) && Interlocked.Increment(ref _sent) == count)
+            {
+                await deadline.CancelAsync();
+            }
+
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+
     private sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
     {
         private int _now;

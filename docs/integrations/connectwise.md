@@ -16,8 +16,12 @@ it against a sandbox before a pilot.
 | Log time | `POST /time/entries` with `chargeToType=ServiceTicket`, a start and an end, `billableOption`; the note's text in `internalNotes` for Internal and `notes` for Discussion; the `addTo…` and `email…` flags all false | Publish |
 
 A note that landed is reported with its id even when a screenshot did not attach (`kind: partial`), so
-the client's Retry does not post it again. The destinations go together under a 75 s publish deadline;
-one that has not answered by then comes back `timed_out`, because it may have landed.
+the client's Retry does not post it again; a screenshot that was still uploading at the deadline is named
+as one to look for before adding it by hand. The destinations go together under a 75 s publish deadline,
+counted from when the request arrived, so the time the screenshots took to upload is part of it. One
+that has not answered by then comes back `timed_out`, and one whose answer could not be read comes back
+`unconfirmed`: both may have landed, so neither is retryable. If the upload used the whole deadline,
+nothing is sent and each destination says so.
 
 Every request carries Basic auth with the tenant's `companyId+publicKey:privateKey` and the vendor
 `clientId` header. A 429 or an outage is retried with exponential backoff and jitter, three attempts

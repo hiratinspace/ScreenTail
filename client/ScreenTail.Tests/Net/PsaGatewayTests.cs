@@ -63,7 +63,7 @@ public sealed class PsaGatewayTests
 
         Assert.True(answer.Ok);
         Assert.Equal(["unconfirmed", "timed_out"], answer.Value!.Select(r => r.Kind));
-        Assert.All(answer.Value, r =>
+        Assert.All(answer.Value!, r =>
         {
             Assert.False(r.Ok);
             Assert.Null(r.Id);

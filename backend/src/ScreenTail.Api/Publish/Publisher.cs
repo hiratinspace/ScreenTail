@@ -13,17 +13,23 @@ namespace ScreenTail.Api.Publish;
 /// The destinations go at the same time, under the publish's own deadline (2026-10-12 review, S-68 and
 /// E-42). One after another, a slow time entry held the note back, and the request's timeout answered
 /// with an empty 504 that threw away the destinations that had landed, which Retry then sent again.
-/// The deadline ends before the request's, so the answer always carries every destination: what
-/// landed, and for what had not answered, that it may have.
+/// The deadline counts from when the request arrived and ends before the request's timeout, so the
+/// answer always carries every destination: what landed, what was never sent, and for what was sent
+/// and never confirmed, that it may have landed.
 /// </summary>
-public static class Publisher
+public static partial class Publisher
 {
     public const string Partial = "partial";
     public const string TimedOut = "timed_out";
 
+    /// <summary>It was sent, and what came back could not be read, so it may have landed. Not retryable, like <see cref="TimedOut"/>.</summary>
+    public const string Unconfirmed = "unconfirmed";
+
     /// <param name="docs">The tenant's documentation platform, or null when none is connected: the KB destination then says so and the rest still goes.</param>
     /// <param name="mappings">Where a PSA company's Hudu company is remembered (ST-097). Null in tests that have no KB destination.</param>
     /// <param name="options">The publish deadline. Defaults when null.</param>
+    /// <param name="spent">How much of the deadline had gone before this was called: the request's arrival, its body and the lookups before it.</param>
+    /// <param name="log">Where a destination that ended in an exception is noted, by the exception's type and nothing it carried.</param>
     /// <param name="ct">The request's own token. When it ends, the caller has gone and nothing is answered.</param>
     public static async Task<PublishResponse> PublishAsync(
         IPsaProvider psa,
@@ -32,6 +38,8 @@ public static class Publisher
         CompanyMappings? mappings = null,
         PublishOptions? options = null,
         TimeProvider? time = null,
+        TimeSpan spent = default,
+        ILogger? log = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(psa);
@@ -46,9 +54,17 @@ public static class Publisher
             ? [.. bundle.Frames.Select((frame, i) => new NoteAttachment($"screenshot-{i + 1}{Extension(frame.MediaType)}", frame.MediaType, Convert.FromBase64String(frame.Image)))]
             : [];
 
-        using var timer = new CancellationTokenSource(options.Deadline, time ?? TimeProvider.System);
+        // A body that took the whole deadline to arrive leaves nothing to send with: the timer is spent
+        // already, and each destination says it was never sent rather than that it may have landed.
+        var left = options.Deadline - spent;
+        using var timer = left > TimeSpan.Zero ? new CancellationTokenSource(left, time ?? TimeProvider.System) : new CancellationTokenSource();
+        if (left <= TimeSpan.Zero)
+        {
+            await timer.CancelAsync().ConfigureAwait(false);
+        }
+
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, timer.Token);
-        var results = await Task.WhenAll(destinations.Select(destination => AnswerAsync(destination, psa, bundle, text, attachments, docs, mappings, deadline.Token, ct))).ConfigureAwait(false);
+        var results = await Task.WhenAll(destinations.Select(destination => AnswerAsync(destination, psa, bundle, text, attachments, docs, mappings, log, deadline.Token, ct))).ConfigureAwait(false);
         return new PublishResponse(results);
     }
 
@@ -60,35 +76,55 @@ public static class Publisher
         IReadOnlyList<NoteAttachment> attachments,
         IDocProvider? docs,
         CompanyMappings? mappings,
+        ILogger? log,
         CancellationToken deadline,
         CancellationToken request)
     {
+        var sent = new Sending();
         try
         {
             return destination switch
             {
                 Destinations.TicketNote => Answer(destination, await psa.AddNoteAsync(
                     new TicketNote(bundle.TicketId, text, Internal: bundle.NoteType == "internal", attachments),
-                    deadline).ConfigureAwait(false)),
+                    sent.From(deadline)).ConfigureAwait(false)),
 
                 Destinations.TimeEntry => Answer(destination, await psa.AddTimeEntryAsync(
                     new TimeEntry(bundle.TicketId, bundle.StartedAt ?? DateTimeOffset.UtcNow, bundle.Minutes, text, bundle.Billable, Internal: bundle.NoteType == "internal"),
-                    deadline).ConfigureAwait(false)),
+                    sent.From(deadline)).ConfigureAwait(false)),
 
                 // Said per destination rather than refusing the whole publish, so the note and the time
                 // still go whatever the knowledge base thinks.
                 Destinations.KbArticle => docs is null || mappings is null
                     ? new PublishResultJson(destination, false, Error: "No documentation platform is connected, so no article was written. The note and the time entry are unaffected.", Kind: "not_configured")
-                    : await ArticleAsync(destination, docs, mappings, bundle, attachments, deadline).ConfigureAwait(false),
+                    : await ArticleAsync(destination, docs, mappings, bundle, attachments, sent, deadline).ConfigureAwait(false),
 
                 _ => new PublishResultJson(destination, false, Error: "That is not a destination.", Kind: "invalid"),
             };
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !request.IsCancellationRequested)
         {
-            // The call was on its way and had not answered, so it may have landed. Not retryable: the
+            // Once the call was on its way and had not answered, it may have landed. Not retryable: the
             // technician looks before sending it again, which is the one way to avoid a second copy.
-            return new PublishResultJson(destination, false, Error: OutOfTime(destination), Kind: TimedOut);
+            return sent.Started
+                ? new PublishResultJson(destination, false, Error: OutOfTime(destination), Kind: TimedOut)
+                : NeverSent(destination, $"The publish ran out of time before the {Name(destination)} was sent");
+        }
+        catch (Exception ex) when (!request.IsCancellationRequested)
+        {
+            // An answer that could not be read, or a fault of our own. The destinations run together, so
+            // letting it escape would turn every other destination's answer, including one that landed,
+            // into a 500 that Retry answers by sending them all again. The type only: an exception's
+            // message can quote what the provider sent back.
+            var answer = sent.Started
+                ? new PublishResultJson(destination, false, Error: CouldNotRead(destination), Kind: Unconfirmed)
+                : NeverSent(destination, $"ScreenTail could not get the {Name(destination)} ready to send");
+            if (log is not null)
+            {
+                Ended(log, destination, ex.GetType().Name, answer.Kind!);
+            }
+
+            return answer;
         }
         catch (Exception) when (!request.IsCancellationRequested)
         {
@@ -117,6 +153,43 @@ public static class Publisher
             Retryable: false);
     }
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Publish destination {Destination} ended with {ExceptionType}; answered as {Kind}")]
+    private static partial void Ended(ILogger log, string destination, string exceptionType, string kind);
+
+    /// <summary>
+    /// Whether a destination's call has been made. Until then, a deadline or a fault means nothing was
+    /// sent and it may simply go again; from then on, it may have landed.
+    /// </summary>
+    private sealed class Sending
+    {
+        public bool Started { get; private set; }
+
+        /// <summary>The token to send with, once the deadline has been checked; from here on it counts as sent.</summary>
+        public CancellationToken From(CancellationToken deadline)
+        {
+            deadline.ThrowIfCancellationRequested();
+            Started = true;
+            return deadline;
+        }
+    }
+
+    private static string Name(string destination) => destination switch
+    {
+        Destinations.TicketNote => "note",
+        Destinations.TimeEntry => "time entry",
+        _ => "article",
+    };
+
+    /// <summary>Nothing left this service for it, so trying again is safe and is the advice.</summary>
+    private static PublishResultJson NeverSent(string destination, string why) => new(
+        destination,
+        false,
+        Error: destination == Destinations.KbArticle
+            ? $"{why}, so nothing was written. Publish the article again."
+            : $"{why}, so nothing was sent. Publish the {Name(destination)} again.",
+        Kind: "unavailable",
+        Retryable: true);
+
     private static string OutOfTime(string destination) => destination switch
     {
         Destinations.TicketNote => "The PSA had not answered when the publish ran out of time, so the note may already be on the ticket. Check the ticket before you publish the note again.",
@@ -124,12 +197,19 @@ public static class Publisher
         _ => "The documentation platform had not answered when the publish ran out of time, so the article may already be written. Check the knowledge base before you publish the article again.",
     };
 
+    private static string CouldNotRead(string destination) => destination switch
+    {
+        Destinations.TicketNote => "The PSA's answer to the note could not be read, so the note may already be on the ticket. Check the ticket before you publish the note again.",
+        Destinations.TimeEntry => "The PSA's answer to the time entry could not be read, so the time entry may already be on the ticket. Check the ticket before you publish the time entry again.",
+        _ => "The documentation platform's answer could not be read, so the article may already be written. Check the knowledge base before you publish the article again.",
+    };
+
     /// <summary>
     /// The article: the ticket's company mapped to the platform's — remembered, or exact and then
     /// remembered — or a mapping asked for. A likely match is offered in the message and never assumed:
     /// the wrong company is a customer's runbook in another customer's knowledge base.
     /// </summary>
-    private static async Task<PublishResultJson> ArticleAsync(string destination, IDocProvider docs, CompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, CancellationToken ct)
+    private static async Task<PublishResultJson> ArticleAsync(string destination, IDocProvider docs, CompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, Sending sent, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(bundle.Company))
         {
@@ -164,7 +244,7 @@ public static class Publisher
             bundle.Note.SuggestedTitle,
             KbArticleFormatter.Html(bundle.Note, bundle.TicketId, bundle.Frames.Count),
             attachments);
-        var result = await docs.PublishArticleAsync(article, ct).ConfigureAwait(false);
+        var result = await docs.PublishArticleAsync(article, sent.From(ct)).ConfigureAwait(false);
         return result.Ok
             ? Landed(destination, result.Value!.Id, result.Value.Url, result.Value.Incomplete)
             : Failed(destination, result.Error!);
