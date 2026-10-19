@@ -62,13 +62,13 @@ public sealed class PsaGatewayTests
         var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
 
         Assert.True(answer.Ok);
-        Assert.Equal(["unconfirmed", "timed_out"], answer.Value!.Select(r => r.Kind));
+        Assert.Equal(["unknown", "timed_out"], answer.Value!.Select(r => r.Kind));
         Assert.All(answer.Value!, r =>
         {
             Assert.False(r.Ok);
             Assert.Null(r.Id);
             Assert.False(r.Retryable);
-            Assert.Contains("Check the ticket before you publish", r.Error, StringComparison.Ordinal);
+            Assert.Matches("Check .+ before (you publish|publishing)", r.Error);
         });
     }
 

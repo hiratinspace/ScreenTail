@@ -22,9 +22,6 @@ public static partial class Publisher
     public const string Partial = "partial";
     public const string TimedOut = "timed_out";
 
-    /// <summary>It was sent, and what came back could not be read, so it may have landed. Not retryable, like <see cref="TimedOut"/>.</summary>
-    public const string Unconfirmed = "unconfirmed";
-
     /// <param name="docs">The tenant's documentation platform, or null when none is connected: the KB destination then says so and the rest still goes.</param>
     /// <param name="mappings">Where a PSA company's Hudu company is remembered (ST-097). Null in tests that have no KB destination.</param>
     /// <param name="options">The publish deadline. Defaults when null.</param>
@@ -112,12 +109,14 @@ public static partial class Publisher
         }
         catch (Exception ex) when (!request.IsCancellationRequested)
         {
-            // An answer that could not be read, or a fault of our own. The destinations run together, so
-            // letting it escape would turn every other destination's answer, including one that landed,
-            // into a 500 that Retry answers by sending them all again. The type only: an exception's
-            // message can quote what the provider sent back.
+            // An answer that could not be read, or a fault of our own: providers return their failures as
+            // values, and this is the backstop for the one that still throws. The destinations run
+            // together, so letting it escape would turn every other destination's answer, including one
+            // that landed, into a 500 that Retry answers by sending them all again. Once sent, it is the
+            // provider's own Unknown: it may have been saved, so it is not retryable. The type only: an
+            // exception's message can quote what the provider sent back.
             var answer = sent.Started
-                ? new PublishResultJson(destination, false, Error: CouldNotRead(destination), Kind: Unconfirmed)
+                ? new PublishResultJson(destination, false, Error: CouldNotRead(destination), Kind: Kind(ProviderErrorKind.Unknown), Retryable: false)
                 : NeverSent(destination, $"ScreenTail could not get the {Name(destination)} ready to send");
             if (log is not null)
             {
@@ -126,31 +125,6 @@ public static partial class Publisher
 
             return answer;
         }
-        catch (Exception) when (!request.IsCancellationRequested)
-        {
-            // Providers return their failures as values; this is the backstop for the bug that still
-            // throws (2026-10-12 review). Answered on its own, so the destinations already written
-            // stay written and are reported, rather than one 500 telling the client nothing went.
-            // The exception's own words can quote what it failed on and are not passed on.
-            return Unconfirmed(destination);
-        }
-    }
-
-    /// <summary>A destination whose outcome nobody can state. Not retryable: a second send may be a second note.</summary>
-    private static PublishResultJson Unconfirmed(string destination)
-    {
-        var (what, where) = destination switch
-        {
-            Destinations.TimeEntry => ("time entry", "the ticket"),
-            Destinations.KbArticle => ("article", "the documentation platform"),
-            _ => ("note", "the ticket"),
-        };
-        return new PublishResultJson(
-            destination,
-            false,
-            Error: $"ScreenTail could not tell whether the {what} was saved. Check {where} before publishing it again, so nothing is added twice.",
-            Kind: Kind(ProviderErrorKind.Unknown),
-            Retryable: false);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Publish destination {Destination} ended with {ExceptionType}; answered as {Kind}")]
@@ -264,7 +238,7 @@ public static partial class Publisher
         : new PublishResultJson(destination, true, id, link, Error: incomplete.ToString(), Kind: Partial);
 
     private static PublishResultJson Failed(string destination, ProviderError error) =>
-        new(destination, false, Error: error.ToString(), Kind: error.Kind.ToString().ToLowerInvariant(), Retryable: error.Retryable);
+        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable);
 
     private static string Kind(ProviderErrorKind kind) => kind.ToString().ToLowerInvariant();
 

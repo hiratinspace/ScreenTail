@@ -307,8 +307,8 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     {
         // The time entry went, and ConnectWise answered 200 with something that is not a time entry. The
         // destinations run together, so the note may have landed meanwhile: it is answered with its id,
-        // and the time entry is answered as possibly there, not as a 500 that loses the note and has the
-        // client send both again. The log names the kind of failure and nothing it carried.
+        // and the time entry is the provider's unknown, possibly there, not a 500 that loses the note and
+        // has the client send both again. Neither the answer nor the log carries what ConnectWise sent.
         var cw = new ScriptedConnectWise { UnreadableRoute = ("/time/entries", unreadable) };
         using var sink = new StringWriter();
         using var host = Host(cw, services: services =>
@@ -324,12 +324,12 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         var written = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList();
         Assert.True(written[0].GetProperty("ok").GetBoolean());
         Assert.Equal("90001", written[0].GetProperty("id").GetString());
-        AssertIsTheContractsRow(written[1], "unconfirmed");
-        Assert.Contains("may already be on the ticket", written[1].GetProperty("error").GetString(), StringComparison.Ordinal);
+        AssertIsTheContractsRow(written[1], "unknown");
+        var error = written[1].GetProperty("error").GetString()!;
+        Assert.Contains("may have been saved", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bad gateway", error, StringComparison.Ordinal);
 
         var log = sink.ToString();
-        Assert.Contains("time_entry", log, StringComparison.Ordinal);
-        Assert.Contains("Exception", log, StringComparison.Ordinal);
         Assert.DoesNotContain("Acme", log, StringComparison.Ordinal);
         Assert.DoesNotContain("Bad gateway", log, StringComparison.Ordinal);
         Assert.DoesNotContain("Printer", log, StringComparison.Ordinal);

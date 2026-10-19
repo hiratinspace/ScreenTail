@@ -14,8 +14,9 @@ namespace ScreenTail.Api.Providers;
 /// A few go at once so twenty-five screenshots fit inside the publish deadline; only a few, so one
 /// publish is not a burst that the provider's rate limit answers. One refused upload does not stop the
 /// others. When the publish runs out of time, the uploads still waiting are counted as missing rather
-/// than lost in a cancellation, and those already on their way, like one whose answer could not be read,
-/// as possibly there: the advice is to look for them before adding them by hand.
+/// than lost in a cancellation, and those already on their way, like one whose answer could not be read
+/// or that the provider answered as <see cref="ProviderErrorKind.Unknown"/>, as possibly there: the
+/// advice is to look for them before adding them by hand.
 /// </summary>
 internal static class AttachmentUploads
 {
@@ -53,7 +54,10 @@ internal static class AttachmentUploads
                 {
                     unsure[i] = true;
                     failed[i] = (await upload(attachment, ct).ConfigureAwait(false)).Error;
-                    unsure[i] = false;
+
+                    // An Unknown answer is the provider saying the upload left and nothing said whether it
+                    // was saved, so it may be there like one whose answer could not be read.
+                    unsure[i] = failed[i] is { Kind: ProviderErrorKind.Unknown };
                 }
                 finally
                 {

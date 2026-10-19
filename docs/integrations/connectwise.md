@@ -20,7 +20,7 @@ the client's Retry does not post it again; a screenshot that was still uploading
 as one to look for before adding it by hand. The destinations go together under a 75 s publish deadline,
 counted from when the request arrived, so the time the screenshots took to upload is part of it. One
 that has not answered by then comes back `timed_out`, and one whose answer could not be read comes back
-`unconfirmed`: both may have landed, so neither is retryable. If the upload used the whole deadline,
+`unknown`: both may have landed, so neither is retryable. If the upload used the whole deadline,
 nothing is sent and each destination says so.
 
 Every request carries Basic auth with the tenant's `companyId+publicKey:privateKey` and the vendor

@@ -156,6 +156,25 @@ public sealed class HuduProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task AnUploadHuduDidNotConfirmIsSentOnceAndIsOneToLookFor()
+    {
+        // A 502 after the upload left may be a screenshot Hudu saved. It is not sent again, the article
+        // is still reported with its id, and the screenshot is one to look for before adding it by hand.
+        _api.FailingRoute = ("/api/v1/uploads", HttpStatusCode.BadGateway);
+        var article = new KbArticle("7", "Printer offline", "Body", [new NoteAttachment("screenshot-1.jpg", "image/jpeg", new byte[] { 1 })]);
+
+        var result = await Provider().PublishArticleAsync(article, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Equal("5101", result.Value!.Id);
+        Assert.Single(_api.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/uploads", StringComparison.Ordinal));
+        var maybe = Assert.IsType<ProviderError>(result.Value.Incomplete);
+        Assert.Equal(ProviderErrorKind.Unknown, maybe.Kind);
+        Assert.Contains("1 of 1 screenshots may not have attached (screenshot-1.jpg)", maybe.What, StringComparison.Ordinal);
+        Assert.Contains("Look for screenshot-1.jpg before adding it", maybe.Todo, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AnArticleForACompanyHuduDoesNotHaveIsRefusedBeforeItIsSent()
     {
         // Publishing to the wrong company is a customer's runbook in another customer's knowledge base.

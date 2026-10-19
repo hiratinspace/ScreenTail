@@ -477,14 +477,37 @@ public sealed class ConnectWiseProviderTests : IDisposable
     [Fact]
     public async Task AnAttachmentThatWasNotConfirmedNamesTheNoteThatWasPublished()
     {
+        // A 504 after the upload left is the provider's Unknown: sent once, not again, and the note that
+        // landed is reported with its id. The screenshot may be on the ticket, so it is one to look for
+        // before adding it by hand, not one that is simply missing.
         _api.FailingRoute = ("/system/documents", HttpStatusCode.GatewayTimeout);
         var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("frame-1.jpg", "image/jpeg", new byte[] { 1 })]);
 
         var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, _api.Requests.Count);
-        Assert.Equal(ProviderErrorKind.Unknown, result.Error!.Kind);
-        Assert.StartsWith("The note was published as 90001, but attachment 1 of 1 was not confirmed: ", result.Error.What, StringComparison.Ordinal);
+        Assert.True(result.Ok);
+        Assert.Equal("90001", result.Value!.Id);
+        var incomplete = result.Value.Incomplete!;
+        Assert.Equal(ProviderErrorKind.Unknown, incomplete.Kind);
+        Assert.StartsWith("The note was published as 90001, but 1 of 1 screenshots may not have attached (frame-1.jpg): ", incomplete.What, StringComparison.Ordinal);
+        Assert.Contains("Look for frame-1.jpg before adding it", incomplete.Todo, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnAttachmentThatWasRefusedIsMissingAndNotOneToLookFor()
+    {
+        // A 4xx is a refusal: the screenshot is not there, so it is named as missing and nothing says to
+        // look for it first.
+        _api.FailingRoute = ("/system/documents", HttpStatusCode.BadRequest);
+        var note = new TicketNote("48213", "Body", Internal: true, [new NoteAttachment("frame-1.jpg", "image/jpeg", new byte[] { 1 })]);
+
+        var result = await Provider().AddNoteAsync(note, TestContext.Current.CancellationToken);
+
+        var incomplete = result.Value!.Incomplete!;
+        Assert.NotEqual(ProviderErrorKind.Unknown, incomplete.Kind);
+        Assert.StartsWith("The note was published as 90001, but 1 of 1 screenshots did not attach (frame-1.jpg): ", incomplete.What, StringComparison.Ordinal);
+        Assert.DoesNotContain("Look for", incomplete.Todo, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -514,13 +537,17 @@ public sealed class ConnectWiseProviderTests : IDisposable
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    /// <summary>Refuses the upload of one named file, once; everything else goes to the scripted API.</summary>
+    /// <summary>
+    /// Refuses the upload of one named file, once; everything else goes to the scripted API. The file is
+    /// found in the body, because the provider wraps each request's content to know when it left.
+    /// </summary>
     private sealed class RefuseOne(HttpMessageHandler inner, string fileName) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (request.Content is MultipartFormDataContent form
-                && form.Any(part => part.Headers.ContentDisposition?.FileName?.Trim('"') == fileName))
+            if (request.RequestUri!.AbsolutePath.EndsWith("/system/documents", StringComparison.Ordinal)
+                && request.Content is not null
+                && (await request.Content.ReadAsStringAsync(cancellationToken)).Contains($"filename={fileName}", StringComparison.Ordinal))
             {
                 return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { code = "Forced", message = "That file was refused" }) };
             }

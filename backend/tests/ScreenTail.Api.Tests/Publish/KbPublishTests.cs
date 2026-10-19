@@ -194,8 +194,9 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     [Fact]
     public async Task ACompanyListThatCannotBeReadWritesNothingAndTheNoteStillGoes()
     {
-        // Hudu answered the company lookup with something that is not a list. Nothing was written, so
-        // the article may be published again, and the note beside it is answered with its id.
+        // Hudu answered the company lookup with something that is not a list. That is a read, so it is
+        // the provider's invalid (the site is not answering as its API) and not one that may have landed:
+        // nothing was written, and the note beside it is answered with its id.
         var hudu = new ScriptedHudu { UnreadableRoute = ("/api/v1/companies", "<html>Maintenance</html>") };
         using var host = Host(new ScriptedConnectWise(), hudu);
         var (client, _) = await ConnectedClientAsync(host);
@@ -207,9 +208,10 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal("90001", published!.Results.Single(r => r.Destination == "ticket_note").Id);
         var kb = published.Results.Single(r => r.Destination == "kb_article");
         Assert.False(kb.Ok);
-        Assert.Equal("unavailable", kb.Kind);
-        Assert.True(kb.Retryable);
-        Assert.Contains("nothing was written", kb.Error, StringComparison.Ordinal);
+        Assert.Equal("invalid", kb.Kind);
+        Assert.DoesNotContain("may have been saved", kb.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Maintenance", kb.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -227,9 +229,10 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var kb = Assert.Single(published!.Results);
         Assert.False(kb.Ok);
-        Assert.Equal("unconfirmed", kb.Kind);
+        Assert.Equal("unknown", kb.Kind);
         Assert.False(kb.Retryable);
-        Assert.Contains("may already be written", kb.Error, StringComparison.Ordinal);
+        Assert.Contains("may have been saved", kb.Error, StringComparison.Ordinal);
+        Assert.Contains("before publishing again", kb.Error, StringComparison.Ordinal);
         Assert.Single(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
     }
 
