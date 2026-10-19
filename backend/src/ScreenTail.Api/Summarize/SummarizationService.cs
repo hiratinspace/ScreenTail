@@ -79,7 +79,8 @@ public sealed record SummarizeResult(
     decimal CostUsd = 0,
     string? Provider = null,
     bool UsedFallback = false,
-    bool Repaired = false)
+    bool Repaired = false,
+    TimeSpan? RetryAfter = null)
 {
     public bool Ok => Status == SummarizeStatus.Ok;
 }

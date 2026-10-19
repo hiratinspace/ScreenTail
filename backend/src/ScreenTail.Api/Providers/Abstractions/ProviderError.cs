@@ -67,6 +67,9 @@ public sealed record ProviderError(ProviderErrorKind Kind, string What, string T
     /// </summary>
     public bool MayHaveBeenBilled { get; init; }
 
+    /// <summary>What the provider said this failed call cost, when it answered with a bill.</summary>
+    public decimal? CostUsd { get; init; }
+
     /// <summary>Spec §4's pattern: <c>&lt;What happened&gt;. &lt;What to do&gt;.</c></summary>
     public override string ToString() => $"{What} {Todo}";
 }

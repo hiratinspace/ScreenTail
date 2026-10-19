@@ -474,6 +474,111 @@ public sealed class SummarizationServiceTests
         Assert.Equal(1, ledger.Settles);
     }
 
+    [Theory]
+    [InlineData("steps", "null")]
+    [InlineData("steps", "[null]")]
+    [InlineData("follow_ups", "null")]
+    [InlineData("follow_ups", "[null]")]
+    [InlineData("problem", "null")]
+    [InlineData("result", "null")]
+    [InlineData("suggested_title", "null")]
+    [InlineData("kb_reason", "null")]
+    [InlineData("source", "null")]
+    [InlineData("prompt_version", "null")]
+    [InlineData("source", "\"elsewhere\"")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": null, "transcript_refs": ["t1"]}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": [null], "transcript_refs": ["t1"]}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": ["f1"], "transcript_refs": null}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "high", "frame_refs": ["f1"], "transcript_refs": [null]}]""")]
+    [InlineData("steps", """[{"text": null, "confidence": "high", "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": null, "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
+    [InlineData("steps", """[{"text": "Restarted it.", "confidence": "medium", "frame_refs": ["f1"], "transcript_refs": ["t1"]}]""")]
+    public async Task ANullCollectionFromTheModelIsABrokenDraftNotACrash(string field, string value)
+    {
+        // 2026-10-12 review (T-205). A model can write null where the schema says a list, and the
+        // validator walked the list: a NullReferenceException after the call was paid for, a 500, and no
+        // repair. The same for a value the client cannot store, which made a 200 the client could not
+        // read and so retried, billed, eight times. Each is a draft that broke the rules, told to the
+        // model once like any other.
+        var broken = Replace(Good(), field, value);
+        var provider = new FakeLlm { Reply = broken, ReplyOnRetry = broken };
+        var ledger = new FakeLedger();
+        var service = Service(provider, ledger: ledger);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Contains(field, result.Reason, StringComparison.Ordinal);
+        Assert.Equal(2, provider.Calls);
+        Assert.Equal(0.08m, ledger.Recorded);
+    }
+
+    [Fact]
+    public async Task ABrokenFirstAnswerThatIsRepairedIsADraft()
+    {
+        var provider = new FakeLlm { Reply = Replace(Good(), "steps", "null"), ReplyOnRetry = Good() };
+        var service = Service(provider);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Reason);
+        Assert.True(result.Repaired);
+    }
+
+    [Fact]
+    public async Task ABilledAnswerWithNoTextIsChargedWhatItCost()
+    {
+        // 2026-10-12 review (S-58). A 200 the model ran and wrote nothing useful in is still on the bill.
+        using var handler = new HangingHandler(first: GeminiAnswer(string.Empty, promptTokens: 40_000));
+        var (service, ledger) = Real(handler, deadlineMs: 60_000, httpTimeoutMs: 60_000);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Equal(0.03m, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
+    }
+
+    [Fact]
+    public async Task AProviderThatNamesWhenToComeBackIsPassedOn()
+    {
+        // 2026-10-12 review (E-38). Google says when its quota reopens, and the 503 is the only way the
+        // client's outbox can hear it.
+        var provider = new FakeLlm
+        {
+            Failure = new ProviderError(ProviderErrorKind.Unavailable, "Rate limited.", "Later.", TimeSpan.FromMinutes(7)),
+        };
+        var service = Service(provider);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(TimeSpan.FromMinutes(7), result.RetryAfter);
+    }
+
+    [Fact]
+    public async Task AFailureThatIsNotAnOutageSaysNothingAboutWhenToComeBack()
+    {
+        var provider = new FakeLlm
+        {
+            Failure = new ProviderError(ProviderErrorKind.Invalid, "Refused.", "A bug.", TimeSpan.FromMinutes(7)),
+        };
+        var service = Service(provider);
+
+        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SummarizeStatus.Invalid, result.Status);
+        Assert.Null(result.RetryAfter);
+    }
+
+    /// <summary>The draft with one top-level field's value swapped for raw JSON.</summary>
+    private static string Replace(string draft, string field, string rawValue)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(draft)!.AsObject();
+        node[field] = System.Text.Json.Nodes.JsonNode.Parse(rawValue);
+        return node.ToJsonString();
+    }
+
     /// <summary>
     /// The production shape: a real <see cref="GeminiProvider"/> over an HttpClient with its own timeout,
     /// inside a service with its own deadline. -1 is no HttpClient timeout at all.

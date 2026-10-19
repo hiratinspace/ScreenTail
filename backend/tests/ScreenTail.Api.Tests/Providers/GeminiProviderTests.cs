@@ -75,6 +75,56 @@ public sealed class GeminiProviderTests
         Assert.True(quiet < loud, "Thinking tokens have to move the number or they are not being counted.");
     }
 
+    [Theory]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ], "usageMetadata": { "promptTokenCount": 40000, "candidatesTokenCount": 2000 } }""")]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "   " } ] } } ], "usageMetadata": { "promptTokenCount": 40000, "candidatesTokenCount": 2000 } }""")]
+    [InlineData("""{ "promptFeedback": { "blockReason": "OTHER" }, "usageMetadata": { "promptTokenCount": 40000, "candidatesTokenCount": 2000 } }""")]
+    [InlineData("""{ "candidates": [ { "finishReason": "MAX_TOKENS", "content": {} } ], "usageMetadata": { "promptTokenCount": 40000, "candidatesTokenCount": 2000 } }""")]
+    public async Task AnAnswerWithNothingInItIsStillChargedWhatItsUsageSays(string envelope)
+    {
+        // 2026-10-12 review (S-58). A 200 is a model that ran, and its usage block is the bill. The text
+        // was read first and the usage only after it, so an empty answer, a blocked prompt or a
+        // completion cut off before any text all settled at nothing, and the cap never saw them.
+        var provider = Provider(new RecordingHandler(Envelope(envelope)));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal(await CostOf(prompt: 40_000, output: 2_000, thoughts: 0), result.Error.CostUsd);
+    }
+
+    [Theory]
+    [InlineData("""{ "candidates": [ { "content": { "parts": [ { "text": "" } ] } } ] }""")]
+    [InlineData("""{ "candidates": "not what was documented" }""")]
+    [InlineData("""not json at all""")]
+    public async Task AnAnswerThatDoesNotSayWhatItCostIsChargedTheEstimate(string envelope)
+    {
+        // A 200 with no bill we can read is still a model that ran. When unsure, say billed: an
+        // over-count costs a tenant one draft against the cap, an under-count is the cap not working.
+        var provider = Provider(new RecordingHandler(Envelope(envelope)));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.True(result.Error!.MayHaveBeenBilled);
+    }
+
+    [Fact]
+    public async Task ADraftThatDoesNotSayWhatItCostIsChargedTheEstimate()
+    {
+        var provider = Provider(new RecordingHandler(Envelope(
+            $$"""{ "candidates": [ { "content": { "parts": [ { "text": {{JsonSerializer.Serialize(Draft())}} } ] } } ] }""")));
+
+        var result = await provider.DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, result.Value!.CostUsd);
+    }
+
+    private static HttpResponseMessage Envelope(string json) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
     [Fact]
     public async Task AFrameTravelsAsTheKindOfImageItActuallyIs()
     {
