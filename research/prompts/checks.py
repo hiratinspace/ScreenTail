@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 PROMPT = Path(__file__).resolve().parent / "note_v1.md"
@@ -77,6 +78,16 @@ PIN_CUE = re.compile(RULES["pin_cue"], re.IGNORECASE)
 # than treated as the value.
 CONNECTIVES = set(RULES["connectives"])
 
+# The client's password cues, and the client's own walk after one (PatternLibrary.SecretAfter). After an
+# asserting word ("is", "was set to") or a colon, the client masks any word that is not on its
+# not-secrets list, and a word with a digit, a symbol or a capital inside it without one. "The password
+# is sunshine." was masked on the device and accepted here (2026-10-19 parity check). The server refuses
+# at least what the client masks; test_shared_rules.py holds these lists to the client's source.
+PASSWORD_CUE = re.compile(RULES["password_cue"], re.IGNORECASE)
+NOT_SECRETS = set(RULES["not_secrets"])
+ASSERTING = set(RULES["asserting"])
+CLIENT_MAX_CONNECTIVES = int(RULES["password_walk_steps"])
+
 # How far past the cue to look, and how the text is cut into words. A full stop ends the sentence and
 # with it any claim that what follows is the credential.
 MAX_STEPS = 6
@@ -102,13 +113,14 @@ KEY_SHAPE = re.compile("|".join(KEY_SHAPES))
 DIRECTIVE = re.compile("|".join(RULES["directive"]), re.IGNORECASE)
 
 # A verb that directs somebody to install, run, download, delete or disable something is an instruction
-# wherever it stands, unless it is in one of the forms a record takes: negated ("did not run"), after an
-# auxiliary ("has never run", "will run"), an attempt ("tried to run"), a reporting verb with its object
-# before "to" ("asked the user to install"), a past tense with its object before the verb ("had the
-# user run"), or a noun after an article ("the install failed"). Those are the first group, consumed
-# together with their verb; a match without it is the instruction. Refusing by default is the point: the
-# clause-start rule this replaced needed a new entry for every way of writing an imperative, and let
-# "Reboot and install the agent" through (2026-10-12 review, third round). DraftValidator.cs reads it the
+# wherever it stands, on its own or with anything after it, unless it is in one of the forms T-204's
+# records take: negated ("the backup did not run", "has never run"), a reporting verb with the person
+# before "to" ("asked the user to install", "was asked to install"), or a failure or an attempt before
+# "to" ("the update failed to install"). Those are the first group, consumed together with their verb;
+# a match without it is the instruction. The forms are written with space inside a line only, so a line
+# break or a dash ends one. The wider forms this branch had (a noun after an article, a past tense with
+# any object, "will", "going to", "used to") each let an instruction through (2026-10-12 review, third
+# round), so a record written that way costs a repair, as it did on main. DraftValidator.cs reads it the
 # same way.
 IMPERATIVE = re.compile(RULES["imperative"], re.IGNORECASE)
 
@@ -165,6 +177,57 @@ def credential_after(text, start, digits_alone=False):
                 continue
 
         return False
+
+    return False
+
+
+def looks_like_secret(value: str) -> bool:
+    """The client's test for a word that is not English, as .NET reads it: twelve UTF-16 units, or a
+    digit, anything that is not a letter, or a capital after the first character."""
+    if len(value.encode("utf-16-le")) // 2 >= 12:
+        return True
+    for index, char in enumerate(value):
+        if ord(char) > 0xFFFF:
+            # Two UTF-16 units to .NET, and neither of them is a letter.
+            return True
+        category = unicodedata.category(char)
+        if category == "Nd" or not category.startswith("L") or (index > 0 and category == "Lu"):
+            return True
+    return False
+
+
+def password_after(text, start):
+    """Whether the client would have masked a word after this password cue, step for step.
+
+    The joining words are the shared ones, which hold the client's and three more ("that", "this",
+    "it"); passing one of those walks further than the client does, never less far. DraftValidator.cs
+    has the same walk.
+    """
+    asserted = any(char in ":=" for char in text[start : start + 4])
+    at = start
+    for _ in range(CLIENT_MAX_CONNECTIVES + 1):
+        word = next_word(text, at)
+        if word is None:
+            return False
+
+        value = word.group()
+        if value.lower() in CONNECTIVES:
+            asserted |= value.lower() in ASSERTING
+            at = word.end()
+            continue
+
+        if value.lower() in NOT_SECRETS:
+            return False
+
+        if not looks_like_secret(value):
+            following = next_word(text, word.end())
+            if following is not None and following.group().lower() in CONNECTIVES:
+                at = word.end()
+                continue
+            if not asserted:
+                return False
+
+        return True
 
     return False
 
@@ -363,8 +426,10 @@ def check_no_secrets(text: str) -> list[str]:
 
     # "the password is [REDACTED]" is the redaction working and must stay; "the password is Summer2024"
     # is the thing Rule 5 forbids.
-    if any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text)) or any(
-        credential_after(text, cue.end(), digits_alone=True) for cue in PIN_CUE.finditer(text)
+    if (
+        any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text))
+        or any(credential_after(text, cue.end(), digits_alone=True) for cue in PIN_CUE.finditer(text))
+        or any(password_after(text, cue.end()) for cue in PASSWORD_CUE.finditer(text))
     ):
         reasons.append("reproduces a credential.")
 

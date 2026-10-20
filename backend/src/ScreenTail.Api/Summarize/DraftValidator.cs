@@ -57,6 +57,13 @@ public static class DraftValidator
 
     private static readonly HashSet<string> Connectives = new(DraftRules.Connectives, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The client's password cues. <see cref="PasswordAfter"/> walks from these the way the client does.</summary>
+    private static readonly Regex PasswordCue = Rule(DraftRules.PasswordCue, RegexOptions.IgnoreCase);
+
+    private static readonly HashSet<string> NotSecrets = new(DraftRules.NotSecrets, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> Asserting = new(DraftRules.Asserting, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>How far past a cue to look before giving up on finding a credential.</summary>
     private const int MaxSteps = 6;
 
@@ -416,6 +423,94 @@ public static class DraftValidator
         foreach (Match cue in PinCue.Matches(text))
         {
             if (CredentialAfter(text, cue.Index + cue.Length, digitsAlone: true))
+            {
+                return true;
+            }
+        }
+
+        foreach (Match cue in PasswordCue.Matches(text))
+        {
+            if (PasswordAfter(text, cue.Index + cue.Length))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the client would have masked a word after this password cue: its own walk
+    /// (<c>PatternLibrary.SecretAfter</c>), step for step.
+    ///
+    /// The walk above wants the value to look like a secret, and the client's is looser. After an
+    /// asserting word ("is", "was set to") or a colon, any word not on its not-secrets list is the
+    /// secret, and a word with a digit, a symbol or a capital inside it is one without that. "The
+    /// password is sunshine." was masked on the device and accepted here (2026-10-19 parity check). The
+    /// server refuses at least what the client masks, because a word the client masked can only be in a
+    /// draft if the model guessed it back or redaction missed it upstream.
+    ///
+    /// The joining words are this validator's, which hold the client's and three more ("that", "this",
+    /// "it"); passing one of those walks further than the client does, never less far.
+    /// </summary>
+    private static bool PasswordAfter(string text, int start)
+    {
+        var window = text.AsSpan(start, Math.Min(4, text.Length - start));
+        var asserted = window.IndexOfAny(':', '=') >= 0;
+        var at = start;
+        for (var step = 0; step <= DraftRules.PasswordWalkSteps; step++)
+        {
+            if (NextWord(text, at) is not { } word)
+            {
+                return false;
+            }
+
+            var value = text.Substring(word.Start, word.Length);
+            if (Connectives.Contains(value))
+            {
+                asserted |= Asserting.Contains(value);
+                at = word.Start + word.Length;
+                continue;
+            }
+
+            if (NotSecrets.Contains(value))
+            {
+                return false;
+            }
+
+            if (!LooksLikeSecret(value))
+            {
+                if (NextWord(text, word.Start + word.Length) is { } following
+                    && Connectives.Contains(text.Substring(following.Start, following.Length)))
+                {
+                    at = word.Start + word.Length;
+                    continue;
+                }
+
+                if (!asserted)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The client's test for a word that is not English: a digit, a symbol, a capital inside it, or twelve characters.</summary>
+    private static bool LooksLikeSecret(string value)
+    {
+        if (value.Length >= 12)
+        {
+            return true;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (char.IsDigit(c) || !char.IsLetter(c) || (i > 0 && char.IsUpper(c)))
             {
                 return true;
             }

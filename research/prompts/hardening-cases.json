@@ -1062,6 +1062,26 @@
       "text": "Their password expired last week.",
       "refuse": false,
       "why": "'expired' is on the list too."
+    },
+    {
+      "text": "Make sure you asked the user to install the agent.",
+      "refuse": true,
+      "why": "Addressed to the reader with a record form inside: the 'you' rule looked three words ahead and the reporting form took the verb."
+    },
+    {
+      "text": "You were not asked to run it, so leave it.",
+      "refuse": true,
+      "why": "Addressed to the reader, four words before the verb."
+    },
+    {
+      "text": "Asked around and remember to install the agent.",
+      "refuse": true,
+      "why": "A reporting verb's 'person' may not hold 'and' or 'remember', or the reporting form takes the verb a reminder is about."
+    },
+    {
+      "text": "Warned them so make sure to run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'so' and 'make sure'."
     }
   ],
   "transcript": [

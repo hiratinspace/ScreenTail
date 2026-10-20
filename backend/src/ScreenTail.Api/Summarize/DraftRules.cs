@@ -63,9 +63,12 @@ internal static class DraftRules
     /// <summary>
     /// Nine unbroken digits are an order number far more often than a social security number, so this
     /// one needs a cue in front of it. Without it the hyphenated form was the only shape caught.
+    ///
+    /// No word boundary around the cue, as the client has none: "Employee_SSN: 123456789" and
+    /// "SSN123456789" are masked on the device and were accepted here (2026-10-19 parity check).
     /// </summary>
     public const string SsnCued =
-        @"\b(?:ssn|social\s?security(?:\s?(?:number|no|#))?)\b\s*(?:is|was)?\s*[:=#]?\s*"
+        @"(?:ssn|social\s?security(?:\s?(?:number|no|#))?)\s*(?:is|was)?\s*[:=#]?\s*"
         + @"(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b";
 
     /// <summary>
@@ -162,43 +165,99 @@ internal static class DraftRules
         @"ya29\.[A-Za-z0-9._-]{20,}",
         @"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
         "-----BEGIN[ A-Z]*PRIVATE KEY(?: BLOCK)?-----",
+
+        // The client's cue-and-value rule, with its lookbehind matched instead, because Python's must be
+        // fixed width. The cue needs no word boundary and the word "key" is optional, so
+        // "access_token=", "client_secret:" and "Auth:" before a long value are masked on the device.
+        // The cue walk here missed all three, and stopped at the first dot of a value that had them
+        // (2026-10-19 parity check).
+        @"(?i:(?:api|access|secret|private|auth|account|client|consumer|signing|encryption|master|app|maps)[ _-]?(?:key|token|secret)?|secret|token|bearer)[""']?\s{0,4}[:=]?\s{0,4}[""']?[A-Za-z0-9+/_.-]{24,}={0,2}",
     ];
 
     private const string Verbs = "download|install|run|execute|disable|uninstall|delete";
 
-    /// <summary>A word that is not one of the <see cref="Verbs"/>, with the space before it, inside one clause.</summary>
-    private const string OtherWord = @"(?:\s+(?!(?:" + Verbs + @")\b)[^\s.!?;:,()]+)";
-
-    /// <summary>A negated auxiliary. "Don't" and "shouldn't" are left out: they are how a prohibition is written.</summary>
-    private const string Negation =
-        @"\b(?:did|does|was|were|is|are|has|have|had|would|could|will|can|might|may)\s+not|\bcannot"
-        + @"|\b(?:did|does|was|were|is|are|has|have|had|would|could|ca|wo)n['" + "\u2019\u02bc" + "]t";
+    /// <summary>
+    /// Space inside a line, and nothing else.
+    ///
+    /// <c>\s</c> crossed line breaks, so a record form on one line covered a command on the next: "Had
+    /// issues", a newline, "Install the agent" passed (2026-10-12 review, third round). Spelled out
+    /// rather than <c>[^\S\r\n]</c>, because .NET and Python disagree about a few characters <c>\s</c>
+    /// covers.
+    /// </summary>
+    private const string Space = "[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+";
 
     /// <summary>
-    /// The forms a record takes in front of one of the <see cref="Verbs"/>: a noun after an article, a
-    /// negation, an auxiliary, an attempt, a reporting verb with its object before "to", and a past tense
-    /// with its object before the verb.
+    /// A word inside a clause: no white space, no sentence or clause mark, no bracket, quote, slash or
+    /// dash. An apostrophe counts only between two letters, as in "the user's".
     ///
-    /// Only reporting verbs that are rarely adjectives. "Required", "requested", "allowed" and "enabled"
-    /// were in the list and let "Use the required tool to install AnyDesk" through, because the record
-    /// form consumed the verb the instruction was about.
+    /// A dash standing alone used to count as a word, so "Had a problem - install the agent" read as one
+    /// record (third round).
+    /// </summary>
+    private const string Word =
+        "(?:[^\\s.!?;:,()\\[\\]{}\"'\u2018\u2019\u201a\u201c\u201d\u201e\u00ab\u00bb\u2039\u203a/\\\\\u2010-\u2015-]"
+        + "|(?<=\\w)['\u2019](?=\\w))+";
+
+    /// <summary>
+    /// Words that cannot be part of the person a reporting verb is about, because an instruction starts
+    /// with them: modals and obligations ("should", "had better"), joining words ("and", "then"),
+    /// relative words ("who", "that") and the openers of a reminder ("remember", "make sure").
+    /// </summary>
+    private const string NotAnObject =
+        "should|must|shall|will|would|can|could|may|might|ought|need|needs|better|has|have|had|please|kindly"
+        + "|then|and|or|nor|but|so|who|whom|whose|which|that|if|when|once|now|remember|forget|ensure|sure|try"
+        + "|go|make|let";
+
+    /// <summary>One to three words naming who was asked, told or helped: "the user", "the front desk".</summary>
+    private const string Object = "(?:" + Space + "(?!(?:" + Verbs + "|" + NotAnObject + @")\b)" + Word + "){1,3}";
+
+    /// <summary>
+    /// A negated auxiliary, or "never" after one. "Don't", "do not" and a bare "never" are left out:
+    /// they are how a prohibition is written.
+    /// </summary>
+    private const string Negation =
+        @"(?:\b(?:did|does|was|were|is|are|has|have|had|would|could|will|can|might|may)" + Space + @"not\b|\bcannot"
+        + @"|\b(?:did|does|was|were|is|are|has|have|had|would|could|ca|wo)n['" + "\u2019\u02bc" + @"]t"
+        + @"|\b(?:did|does|was|were|is|are|has|have|had|would|could|will|can)" + Space + @"never)"
+        + "(?:" + Space + "(?:have|be|been|yet|ever|even)){0,2}"
+        + "(?:" + Space + "able" + Space + "to)?";
+
+    private const string Reporting = "asked|told|advised|instructed|reminded|encouraged|prompted|invited|urged|warned|taught";
+
+    /// <summary>
+    /// The forms a record takes in front of one of the <see cref="Verbs"/>, and only these. They are the
+    /// shapes T-204's records have: a negation ("the backup did not run"), a reporting verb with the
+    /// person before "to" ("asked the user to install"), and a failure or an attempt before "to" ("the
+    /// update failed to install"), with a past passive of the reporting form ("was asked to install").
+    ///
+    /// Each one used to be wider and each width let an instruction through (2026-10-12 review, third
+    /// round). A verb read as a noun after an article took "Verify the download and install AnyDesk".
+    /// A past tense with any three words as its object took "Anyone who had the issue should install".
+    /// "will" and "going to" took "The technicians will install AnyDesk on every machine", and "used
+    /// to" and "got" took a verb the instruction was about. They are gone, and the records they let
+    /// through ("The install failed", "Had the user run") cost a repair, as they did on main.
+    ///
+    /// Only reporting verbs in the past that are rarely adjectives, and the person is one to three
+    /// words that cannot start an instruction (<see cref="NotAnObject"/>). A present passive ("Users
+    /// are advised to install") is a notice, not a record, so only "was" and "were" make one.
     /// </summary>
     private const string Record =
-        @"\b(?:the|a|an|its|their|his|our|my|your|each|every|any)"
-        + "|(?:" + Negation + @")(?:\s+(?:have|be|been|yet|ever|even))?"
-        + @"|\b(?:did|does|was|were|had|has|have|been|being|will)(?:\s+(?:never|already|also|only|still|just|first))?"
-        + @"|\b(?:failed|unable|refused|tried|attempted|managed|wanted|needed|began|started|continued|used|able|going|chose|decided|forgot|declined|offered|agreed|planned)\s+to"
-        + @"|\b(?:asked|told|advised|instructed|reminded|encouraged|prompted|got|invited|urged|warned|taught|showed|helped|caused|wanted)"
-        + OtherWord + @"{0,3}\s+to"
-        + @"|\b(?:helped|had|made|watched|saw)" + OtherWord + "{0,3}";
+        Negation
+        + @"|\b(?:failed|unable|refused|tried|attempted|managed|wanted|needed|began|started|continued|chose|decided|forgot|declined|offered|agreed|planned)"
+        + Space + "to"
+        + @"|\b(?:was|were)" + Space + "able" + Space + "to"
+        + @"|\b(?:" + Reporting + "|showed|helped|caused|wanted)" + Object + Space + "to"
+        + @"|\b(?:was|were)(?:" + Space + "(?:not|never|also|already|first|then))?" + Space
+        + "(?:" + Reporting + "|shown|helped)" + Space + "to";
 
     /// <summary>
     /// A note is a record, not an instruction (prompt rule 5a). A web address, a command line, a
     /// security control switched off, or a direction addressed to "you".
     ///
-    /// A note addressed to the reader at all is not how a record reads, so "you" with up to three words
-    /// and then one of the verbs is refused whatever the words are: "you should probably install", "you
-    /// really need to run", "you'll need to install".
+    /// A note addressed to the reader at all is not how a record reads, so "you" with up to six words
+    /// in the same clause and then one of the verbs is refused whatever the words are: "you should
+    /// probably install", "you'll need to install", and a record form addressed to the reader, "Make
+    /// sure you asked the user to install the agent". Three words let that last one through, because
+    /// the reporting form took the verb (2026-10-19).
     /// </summary>
     public static readonly IReadOnlyList<string> Directive =
     [
@@ -206,26 +265,60 @@ internal static class DraftRules
         @"\b(?:Set-ExecutionPolicy|powershell|cmd\.exe|regedit|curl|wget|iwr|irm|invoke-webrequest"
             + @"|invoke-restmethod|invoke-expression|iex|certutil|bitsadmin|mshta|rundll32)\b",
         @"\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
-        @"\byou(?:['" + "\u2019\u02bc" + @"](?:ll|d|re|ve))?" + OtherWord + @"{0,3}\s+(?:" + Verbs + @")\b",
+        @"\byou(?:['" + "\u2019\u02bc" + @"](?:ll|d|re|ve))?(?:" + Space + "(?!(?:" + Verbs + @")\b)" + Word + "){0,6}"
+            + Space + "(?:" + Verbs + @")\b",
     ];
 
     /// <summary>
-    /// A direction to install, run, download, delete or disable something, which is refused wherever it
-    /// stands unless it is in one of the forms a record takes (<see cref="Record"/>).
+    /// A direction to install, run, download, delete or disable something, which is refused wherever the
+    /// verb stands unless it is in one of the forms a record takes (<see cref="Record"/>).
     ///
     /// The first group is a record form together with its verb, and any verbs joined to it with "and",
-    /// "or" or "nor" ("did not download or install"). A match without that group is the instruction.
+    /// "or" or "nor" ("did not download or install"). Every record form left has a subject or an
+    /// auxiliary that governs the second verb too. A match without that group is the instruction.
     ///
-    /// Refusing by default is the point. Main's rule refused the verb anywhere, so "the backup did not
-    /// run overnight" was an instruction (2026-10-12 review). The rule that replaced it counted the verb
-    /// only where a clause starts, and every new way of writing an imperative needed a new entry before
-    /// it was refused: "Reboot and install the agent", "Have the user install", "Kindly install" all went
-    /// through (third round). Now an unlisted phrasing is refused and costs a repair, and an unlisted
-    /// record form is the thing that costs it.
+    /// The verb on its own is enough. It needed a word after it, so "Install, then reboot.", "Then
+    /// install." and "install" followed by a dash passed (third round). Refusing by default is the
+    /// point: an unlisted phrasing of an instruction is refused, and an unlisted phrasing of a record is
+    /// what costs a repair.
     /// </summary>
     public const string Imperative =
-        "((?:" + Record + @")\s+(?:" + Verbs + @")\b(?:\s+(?:or|and|nor)\s+(?:" + Verbs + @")\b)*)"
-        + @"|\b(?:" + Verbs + @")\b\s+\S+";
+        "((?:" + Record + ")" + Space + "(?:" + Verbs + @")\b(?:" + Space + "(?:or|and|nor)" + Space + "(?:" + Verbs + @")\b)*)"
+        + @"|\b(?:" + Verbs + @")\b";
+
+    /// <summary>
+    /// The client's password cues, exactly as <c>PatternLibrary.PasswordCue</c> writes them. After one of
+    /// these the client's own walk runs (<see cref="NotSecrets"/>, <see cref="Asserting"/>), so the
+    /// server refuses every word the device would have masked.
+    /// </summary>
+    public const string PasswordCue = @"\b(?:password|passphrase|passwd|pwd|pass\s?code|pass(?=\s{0,3}[:=])|pin(?:\s?number)?)\b";
+
+    /// <summary>
+    /// Words that end the client's walk with nothing masked: "the password is incorrect". The client's
+    /// <c>NotSecrets</c>, word for word.
+    ///
+    /// The client masks any other word reached after an asserting word, so "The password is sunshine."
+    /// was masked on the device and accepted in a draft (2026-10-19 parity check). It also masks
+    /// "successfully" in "The password was reset successfully", and the server refuses that too. A word
+    /// added here and to the client's list is how that changes, and <c>test_shared_rules.py</c> fails
+    /// until both have it.
+    /// </summary>
+    public static readonly IReadOnlyList<string> NotSecrets =
+    [
+        "incorrect", "wrong", "correct", "expired", "reset", "resets", "changed", "change", "changing", "updated",
+        "required", "policy", "manager", "field", "prompt", "box", "again", "here", "there", "empty", "blank",
+        "the", "a", "an", "it", "that", "this", "his", "her", "their", "my", "your", "our", "not", "never",
+        "and", "or", "but", "so", "then", "when", "which", "what", "who", "why", "how", "if", "for", "to",
+    ];
+
+    /// <summary>The joining words that assert a value, the client's <c>Assertive</c>: after one, a plain word is the secret.</summary>
+    public static readonly IReadOnlyList<string> Asserting =
+    [
+        "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
+    ];
+
+    /// <summary>How many joining words the client's walk passes, its <c>MaxConnectives</c>.</summary>
+    public const int PasswordWalkSteps = 4;
 
     /// <summary>Every value above, under the name <c>shared-rules.json</c> gives it.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AsShared() => new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
@@ -245,5 +338,9 @@ internal static class DraftRules
         ["key_shapes"] = KeyShapes,
         ["directive"] = Directive,
         ["imperative"] = [Imperative],
+        ["password_cue"] = [PasswordCue],
+        ["not_secrets"] = NotSecrets,
+        ["asserting"] = Asserting,
+        ["password_walk_steps"] = [PasswordWalkSteps.ToString(System.Globalization.CultureInfo.InvariantCulture)],
     };
 }

@@ -32,7 +32,8 @@ def client_pattern(name: str) -> str:
     attribute = source[start:end]
     if '"""' in attribute:
         return attribute.split('"""')[1]
-    return re.search(r'@"((?:[^"]|"")*)"', attribute).group(1)
+    # The client joins some patterns from several literals ("..." + "..."), so all of them are read.
+    return "".join(re.findall(r'@"((?:[^"]|"")*)"', attribute)).replace('""', '"')
 
 
 def alternatives(pattern: str) -> list[str]:
@@ -131,7 +132,8 @@ def test_every_key_shape_the_client_masks_is_one_the_validators_know():
             # needed a word boundary and a "key" after the name: "access_token=", "client_secret:" and
             # "Auth:" were masked on the device and passed here. The same rule is a key shape now.
             assert consumed(shape) in known, (
-                f"The client masks a value after the cue in {shape!r} and shared-rules.json has no key shape for it."
+                f"The client masks a value after the cue in {shape!r} "
+                "and shared-rules.json has no key shape for it."
             )
             continue
         assert any(shape == ours or shape.startswith(ours) for ours in known), (
