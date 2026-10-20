@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers;
 using ScreenTail.Api.Publish;
 using ScreenTail.Api.Summarize;
@@ -76,6 +77,39 @@ public sealed class PublisherIsolationTests(ApiFixture api) : IClassFixture<ApiF
         Assert.Equal("unavailable", kb.Kind);
         Assert.True(kb.Retryable);
         Assert.Contains("nothing was written", kb.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARememberedMappingStillWaitsForTheCompanyLookupAndAThrowThereWroteNothing()
+    {
+        // A remembered mapping is checked against the platform's list before every article (S-71), so
+        // the lookup that throws comes before the article here too: still never sent, still safe to
+        // publish again, and the mapping is not forgotten for a list that never arrived.
+        var psa = new Scripted();
+        var docs = new ThrowingDocs();
+        var tenantId = Guid.NewGuid();
+        _ = await api.UseAsync(async db =>
+        {
+            db.Tenants.Add(new Tenant { Id = tenantId, Name = "Acme IT", Seats = 5, CreatedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return await new CompanyMappings(db, tenantId, TimeProvider.System).RememberAsync("Acme Dental", new CompanyRef("7", "Acme Dental"), "manual", TestContext.Current.CancellationToken);
+        });
+
+        var response = await api.UseAsync(db => Publisher.PublishAsync(
+            psa,
+            Bundle(["ticket_note", "kb_article"]) with { Company = "Acme Dental" },
+            docs,
+            new CompanyMappings(db, tenantId, TimeProvider.System),
+            ct: TestContext.Current.CancellationToken));
+
+        Assert.True(response.Results.Single(r => r.Destination == "ticket_note").Ok);
+        var kb = response.Results.Single(r => r.Destination == "kb_article");
+        Assert.False(kb.Ok);
+        Assert.Equal("unavailable", kb.Kind);
+        Assert.True(kb.Retryable);
+        Assert.Contains("nothing was written", kb.Error, StringComparison.Ordinal);
+        var kept = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental", TestContext.Current.CancellationToken));
+        Assert.Equal("7", kept?.DocCompanyId);
     }
 
     [Fact]
