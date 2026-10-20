@@ -57,7 +57,7 @@ not do is listed in §6.
 | Client | `client/` | `.Shared` (schema + IPC), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`. **1,095 tests** on macOS, plus the Windows-only suite |
 | Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, the summarize endpoint, the Gemini provider, the cost ledger. **181 tests.** Runs locally on Postgres; not deployed (ST-007) |
 | Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the WER script. **130 tests** |
-| Shared contracts | `shared/` | The session schema, the design tokens, and the summarize-request wire contract both sides test against |
+| Shared contracts | `shared/` | The session schema, the design tokens, and the summarize request and response wire contracts both sides test against |
 | Windows test loop | Hosted Windows VM + spare laptop `SCREENTRAIL` | Both run on every PR that touches capture. The laptop's two jobs were green on the last PR that needed them (2026-09-22) |
 | Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion. The repository is public; three GitHub settings keep strangers' code off the laptop (`docs/dev/windows-test-loop.md` § Security) |
 

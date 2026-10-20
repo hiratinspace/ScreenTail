@@ -171,6 +171,103 @@ public sealed class DraftSenderTests : IAsyncDisposable
         Assert.Equal(Shape(contract), Shape(sent));
     }
 
+    [Theory]
+    [InlineData("ok")]
+    [InlineData("rejected")]
+    [InlineData("cost_cap_reached")]
+    [InlineData("invalid")]
+    [InlineData("busy")]
+    [InlineData("not_configured")]
+    [InlineData("unavailable")]
+    public async Task EachOutcomeIsWhatTheOutboxIsTold(string name)
+    {
+        // 2026-10-12 review (T-196, T-197). shared/contracts/summarize-response.v1.json lists every answer
+        // the endpoint gives; the backend's EachOutcomeReachesTheClientAsItsOwnStatus drives the real
+        // endpoint into each one. This reads the same bodies and asserts what the outbox is told. A 422
+        // was retried here, at the price of a model call each time, for an answer that does not change.
+        var expected = ResponseOutcome(name);
+        var store = await SessionAsync();
+        var reply = Answer((HttpStatusCode)expected.GetProperty("http_status").GetInt32(), expected.GetProperty("body").GetRawText());
+        var waits = expected.TryGetProperty("retry_after_seconds", out var seconds) ? TimeSpan.FromSeconds(seconds.GetInt32()) : (TimeSpan?)null;
+        if (waits is { } delta)
+        {
+            reply.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(delta);
+        }
+
+        var outcome = await Sender(store, new RecordingHandler(reply)).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        var state = expected.GetProperty("client").GetString() switch
+        {
+            "done" => OutboxState.Done,
+            "retry" => OutboxState.Pending,
+            "failed" => OutboxState.Failed,
+            var other => throw new InvalidOperationException($"The contract names an outcome this test does not know: {other}"),
+        };
+        Assert.Equal(state, outcome.State);
+        Assert.Equal(waits, outcome.RetryAfter);
+
+        if (state == OutboxState.Done)
+        {
+            var draft = (await store.LoadSessionAsync("s1"))!.Draft!;
+            var sent = expected.GetProperty("body").GetProperty("draft");
+            Assert.Equal(sent.GetProperty("suggested_title").GetString(), draft.SuggestedTitle);
+            Assert.Equal(sent.GetProperty("steps")[0].GetProperty("text").GetString(), draft.Steps[0].Text);
+        }
+    }
+
+    [Theory]
+    [InlineData("\"source\":\"cloud\"", "\"source\":\"elsewhere\"")]
+    [InlineData("\"suggested_title\":\"Printer offline\",", "")]
+    public async Task ADraftThisVersionCannotReadIsNotAskedForAgain(string from, string to)
+    {
+        // The backend drafted it and was paid. Asking again buys the same answer this version still
+        // cannot read; the technician is told instead, and can retry by hand after an update.
+        var store = await SessionAsync();
+        var body = Ok().Replace("\n", string.Empty, StringComparison.Ordinal).Replace(from, to, StringComparison.Ordinal);
+        Assert.NotEqual(Ok().Replace("\n", string.Empty, StringComparison.Ordinal), body);
+
+        var outcome = await Sender(store, new RecordingHandler(Answer(HttpStatusCode.OK, body))).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Failed, outcome.State);
+        Assert.Null((await store.LoadSessionAsync("s1"))!.Draft);
+    }
+
+    [Fact]
+    public async Task APageThatIsNotTheBackendsIsStillRetried()
+    {
+        // A captive portal answers 200 with a page of its own. That is not a paid draft; it is a network
+        // that is not there yet.
+        var store = await SessionAsync();
+        using var reply = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>Sign in to the hotel wifi</html>", Encoding.UTF8, "text/html") };
+
+        var outcome = await Sender(store, new RecordingHandler(reply)).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Pending, outcome.State);
+    }
+
+    [Fact]
+    public async Task AnOutageThatNamesNoTimeLeavesTheBackoffAlone()
+    {
+        var store = await SessionAsync();
+        var reply = Answer(HttpStatusCode.ServiceUnavailable, """{"status":"unavailable","reason":"Down.","draft":null}""");
+
+        var outcome = await Sender(store, new RecordingHandler(reply)).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Pending, outcome.State);
+        Assert.Null(outcome.RetryAfter);
+    }
+
+    /// <summary>One outcome out of the shared response contract, by name.</summary>
+    private static JsonElement ResponseOutcome(string name)
+    {
+        using var stream = typeof(DraftSenderTests).Assembly.GetManifestResourceStream("ScreenTail.Tests.summarize-response.v1.json")
+            ?? throw new InvalidOperationException("The shared response contract is not embedded in this assembly.");
+        using var document = JsonDocument.Parse(stream);
+        return document.RootElement.GetProperty("outcomes").EnumerateArray()
+            .Single(outcome => outcome.GetProperty("name").GetString() == name)
+            .Clone();
+    }
+
     /// <summary>
     /// The field names and nesting, as a sorted list of paths. Values are deliberately left out: the
     /// fixture describes a different session than the one this test records, and what has to agree is

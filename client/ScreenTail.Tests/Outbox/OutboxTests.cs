@@ -186,6 +186,53 @@ public sealed class OutboxTests
     }
 
     [Fact]
+    public async Task ARetryTheFarEndNamedATimeForWaitsUntilThen()
+    {
+        // 2026-10-12 review (E-38). Under a daily quota the provider says when it reopens. Ignoring that
+        // spent all eight attempts inside the hour and then failed, a few hours before it would have
+        // worked.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var network = new FakeNetwork { Outcome = SendOutcome.Retry("Rate limited.", TimeSpan.FromHours(5)) };
+        var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time);
+
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(At + TimeSpan.FromHours(5), store.Items[0].DueAt);
+    }
+
+    [Fact]
+    public async Task ARetryAfterShorterThanTheBackoffKeepsTheBackoff()
+    {
+        // The backoff is the floor. A far end that says "now" does not get asked in a loop.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var network = new FakeNetwork { Outcome = SendOutcome.Retry("Rate limited.", TimeSpan.FromSeconds(1)) };
+        var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time);
+
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(At + Core.Outbox.Outbox.RetryAfter(1), store.Items[0].DueAt);
+    }
+
+    [Fact]
+    public async Task ARetryAfterLongerThanADayIsHeldToADay()
+    {
+        // Whatever the far end says, a session is not parked for a week by one header.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var network = new FakeNetwork { Outcome = SendOutcome.Retry("Rate limited.", TimeSpan.FromDays(30)) };
+        var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time);
+
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(At + Core.Outbox.Outbox.MaxRetryAfter, store.Items[0].DueAt);
+    }
+
+    [Fact]
     public async Task NothingIsAttemptedBeforeItIsDue()
     {
         var store = new FakeOutboxStore();

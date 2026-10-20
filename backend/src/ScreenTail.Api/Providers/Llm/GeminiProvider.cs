@@ -103,7 +103,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
             return response.IsSuccessStatusCode
                 ? Read(body)
                 : ProviderResult.Failure<LlmDraft>(
-                    Failure(response.StatusCode, options.Model) with { RetryAfter = RetryAfter(body) });
+                    Failure(response.StatusCode, options.Model, body) with { RetryAfter = RetryAfter(body) });
         }
     }
 
@@ -124,21 +124,36 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     ///
     /// Only 5xx and 429 are worth a second provider. A 401 means the key is wrong, and spending money
     /// somewhere else does not make it right.
+    ///
+    /// <b>This deployment's refusals are told apart from the request's.</b> A wrong key, an account the
+    /// model will not serve and a retired model are an operator's setting, and the same session drafts
+    /// once it is changed; the service answers those as not configured, which the client queues. Only a
+    /// request refused for what was in it is <see cref="ProviderErrorKind.Invalid"/>, which the client
+    /// fails, because sending it again is refused again (review round 1 of the 2026-10-12 fixes).
     /// </summary>
-    private static ProviderError Failure(HttpStatusCode status, string model) => status switch
+    private static ProviderError Failure(HttpStatusCode status, string model, string body) => status switch
     {
         // A retired model. Google announces these months ahead and answers with a 404 naming the
         // replacement, so whoever reads this can end the outage with one setting rather than waiting for
         // a release. The first build of this provider asked for gemini-2.0-flash and found out this way.
         HttpStatusCode.NotFound => new ProviderError(
-            ProviderErrorKind.Invalid,
+            ProviderErrorKind.NotFound,
             $"The drafting model \"{model}\" is not available to this deployment.",
             "Set Summarization__Model to a model the provider still serves."),
 
-        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new ProviderError(
-            ProviderErrorKind.Unauthenticated,
-            "The drafting model rejected this deployment's API key.",
-            "Check the Summarization__ApiKey setting on the server."),
+        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => KeyRejected(),
+
+        // Google answers a key it does not recognise with a 400, not a 401, and an account it will not
+        // serve from where it is asking with a 400 too. Both are this deployment's to fix.
+        HttpStatusCode.BadRequest => Refusal(body) switch
+        {
+            BadRequestKind.Key => KeyRejected(),
+            BadRequestKind.Account => new ProviderError(
+                ProviderErrorKind.Forbidden,
+                "The drafting model will not serve this deployment's account.",
+                "Check that the account behind Summarization__ApiKey may use this model from where the server runs."),
+            _ => Refused(status),
+        },
 
         HttpStatusCode.TooManyRequests => new ProviderError(
             ProviderErrorKind.Unavailable,
@@ -150,58 +165,164 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
             "The drafting model returned an error.",
             "The session is queued and will be drafted when it recovers."),
 
-        _ => new ProviderError(
-            ProviderErrorKind.Invalid,
-            $"The drafting model refused the request ({(int)status}).",
-            "This is a bug in ScreenTail rather than something you can fix."),
+        _ => Refused(status),
     };
 
-    /// <summary>Pulls the text and the usage out of Gemini's envelope.</summary>
-    private ProviderResult<LlmDraft> Read(string body)
+    private static ProviderError KeyRejected() => new(
+        ProviderErrorKind.Unauthenticated,
+        "The drafting model rejected this deployment's API key.",
+        "Check the Summarization__ApiKey setting on the server.");
+
+    private static ProviderError Refused(HttpStatusCode status) => new(
+        ProviderErrorKind.Invalid,
+        $"The drafting model refused the request ({(int)status}).",
+        "This is a bug in ScreenTail rather than something you can fix.");
+
+    private enum BadRequestKind
+    {
+        Request,
+        Key,
+        Account,
+    }
+
+    /// <summary>
+    /// What a 400 was about, from the error body: the key (an <c>ErrorInfo</c> whose reason starts
+    /// <c>API_KEY_</c>), the account (<c>FAILED_PRECONDITION</c>), or otherwise the request. Read only on
+    /// a refusal, and nothing in it is passed on: the technician sees our own sentence.
+    /// </summary>
+    private static BadRequestKind Refusal(string body)
     {
         try
         {
             using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-
-            var text = root.GetProperty("candidates")[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString();
-
-            if (string.IsNullOrWhiteSpace(text))
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("error", out var error)
+                || error.ValueKind != JsonValueKind.Object)
             {
-                return ProviderResult.Failure<LlmDraft>(new ProviderError(
-                    ProviderErrorKind.Invalid,
-                    "The drafting model returned an empty answer.",
-                    "The session is queued and will be tried again."));
+                return BadRequestKind.Request;
             }
 
-            var cost = 0m;
-            if (root.TryGetProperty("usageMetadata", out var usage))
+            if (error.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Array)
             {
-                cost = Cost(
-                    Tokens(usage, "promptTokenCount"),
-
-                    // Thinking is billed at the output rate and is *not* part of the answer's own count:
-                    // the provider documents totalTokenCount as prompt plus thoughts plus candidates,
-                    // three separate addends. A one-word question on 2026-09-19 was charged 92 thinking
-                    // tokens against a single token of answer, so counting only the answer under-reports
-                    // by most of the bill — and the daily cap reading it would be a cap on nothing.
-                    Tokens(usage, "candidatesTokenCount") + Tokens(usage, "thoughtsTokenCount"));
+                foreach (var detail in details.EnumerateArray())
+                {
+                    if (detail.ValueKind == JsonValueKind.Object
+                        && detail.TryGetProperty("reason", out var reason)
+                        && reason.ValueKind == JsonValueKind.String
+                        && reason.GetString()!.StartsWith("API_KEY_", StringComparison.Ordinal))
+                    {
+                        return BadRequestKind.Key;
+                    }
+                }
             }
 
-            return ProviderResult.Success(new LlmDraft(text, cost));
+            return error.TryGetProperty("status", out var status)
+                && status.ValueKind == JsonValueKind.String
+                && status.GetString() == "FAILED_PRECONDITION"
+                    ? BadRequestKind.Account
+                    : BadRequestKind.Request;
         }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
+        catch (JsonException)
         {
-            return ProviderResult.Failure<LlmDraft>(new ProviderError(
-                ProviderErrorKind.Invalid,
-                "The drafting model's answer was not in the shape it documents.",
-                "This is a bug in ScreenTail rather than something you can fix."));
+            return BadRequestKind.Request;
         }
     }
+
+    /// <summary>
+    /// Pulls the usage and the text out of Gemini's envelope, in that order.
+    ///
+    /// <b>The bill is read first.</b> A 200 is a model that ran, and the usage block is what it cost
+    /// whether or not anything usable came back: an empty answer, a prompt the provider blocked and a
+    /// completion cut off before its first word are all on the invoice. This used to read the text first
+    /// and give up before it reached the usage, so each of those settled at nothing (2026-10-12 review).
+    /// A 200 whose bill cannot be read is charged the estimate, the same rule as a call we stopped
+    /// waiting for: an over-count costs a tenant one draft against the cap, an under-count is the cap
+    /// not working.
+    /// </summary>
+    private ProviderResult<LlmDraft> Read(string body)
+    {
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            return ProviderResult.Failure<LlmDraft>(Unreadable(cost: null));
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return ProviderResult.Failure<LlmDraft>(Unreadable(cost: null));
+            }
+
+            var cost = Bill(root);
+
+            if (!root.TryGetProperty("candidates", out var candidates) || candidates.ValueKind != JsonValueKind.Array)
+            {
+                // No candidates at all is how a blocked prompt is answered; anything else here is a shape
+                // nobody documented. Either way the model was asked and may have been paid.
+                return ProviderResult.Failure<LlmDraft>(root.TryGetProperty("promptFeedback", out _)
+                    ? Empty(cost)
+                    : Unreadable(cost));
+            }
+
+            var text = FirstText(candidates);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return ProviderResult.Failure<LlmDraft>(Empty(cost));
+            }
+
+            return ProviderResult.Success(new LlmDraft(text, cost ?? options.MaxSessionCostUsd));
+        }
+    }
+
+    /// <summary>The first candidate's first part's text, or null when the answer has none.</summary>
+    private static string? FirstText(JsonElement candidates)
+    {
+        if (candidates.GetArrayLength() == 0
+            || candidates[0] is not { ValueKind: JsonValueKind.Object } candidate
+            || !candidate.TryGetProperty("content", out var content)
+            || content.ValueKind != JsonValueKind.Object
+            || !content.TryGetProperty("parts", out var parts)
+            || parts.ValueKind != JsonValueKind.Array
+            || parts.GetArrayLength() == 0
+            || parts[0] is not { ValueKind: JsonValueKind.Object } part
+            || !part.TryGetProperty("text", out var text)
+            || text.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return text.GetString();
+    }
+
+    /// <summary>
+    /// The model answered with nothing to show. Billed, at what its usage says when it said. Not queued:
+    /// a prompt the provider blocked, or a completion that ran out before its first word, is the same
+    /// answer at the same price the next time, so the client fails it and says so.
+    /// </summary>
+    private static ProviderError Empty(decimal? cost) => new(
+        ProviderErrorKind.Invalid,
+        "The drafting model returned an empty answer.",
+        "Asking again would most likely get the same answer, so this note needs writing by hand.")
+    {
+        MayHaveBeenBilled = true,
+        CostUsd = cost,
+    };
+
+    /// <summary>The model answered in a shape we cannot read. Billed all the same: it was a 200.</summary>
+    private static ProviderError Unreadable(decimal? cost) => new(
+        ProviderErrorKind.Invalid,
+        "The drafting model's answer was not in the shape it documents.",
+        "This is a bug in ScreenTail rather than something you can fix.")
+    {
+        MayHaveBeenBilled = true,
+        CostUsd = cost,
+    };
 
     /// <summary>
     /// When the provider said to come back, if it did.
@@ -259,8 +380,50 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
                 : null;
     }
 
-    private static int Tokens(JsonElement usage, string name) =>
-        usage.TryGetProperty(name, out var value) && value.TryGetInt32(out var count) ? count : 0;
+    /// <summary>
+    /// What the usage block says the call cost, or null when there is no bill in it to read.
+    ///
+    /// No block, a block that is not an object, and a block with no count in it that is a whole
+    /// non-negative number are all no bill, which the caller settles at the estimate. Reading them as zero
+    /// settled an unreadable bill at nothing, the under-count the estimate exists to prevent (review round
+    /// 1 of the 2026-10-12 fixes). A count that cannot be read beside one that can is taken as none.
+    /// </summary>
+    private decimal? Bill(JsonElement root)
+    {
+        if (!root.TryGetProperty("usageMetadata", out var usage) || usage.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var prompt = Tokens(usage, "promptTokenCount");
+        var answer = Tokens(usage, "candidatesTokenCount");
+
+        // Thinking is billed at the output rate and is *not* part of the answer's own count: the provider
+        // documents totalTokenCount as prompt plus thoughts plus candidates, three separate addends. A
+        // one-word question on 2026-09-19 was charged 92 thinking tokens against a single token of
+        // answer, so counting only the answer under-reports by most of the bill, and the daily cap
+        // reading it would be a cap on nothing.
+        var thoughts = Tokens(usage, "thoughtsTokenCount");
+
+        if (prompt is null && answer is null && thoughts is null)
+        {
+            return null;
+        }
+
+        return Cost(prompt ?? 0, (answer ?? 0) + (thoughts ?? 0));
+    }
+
+    /// <summary>
+    /// One count out of the usage block, or null when it is missing or not a whole non-negative number.
+    /// Never thrown on, because the call has already been paid for.
+    /// </summary>
+    private static int? Tokens(JsonElement usage, string name) =>
+        usage.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var count)
+            && count >= 0
+                ? count
+                : null;
 
     /// <summary>
     /// What the call cost, at this deployment's configured rates.

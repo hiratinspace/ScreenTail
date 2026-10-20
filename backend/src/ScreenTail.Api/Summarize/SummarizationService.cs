@@ -58,7 +58,11 @@ public enum SummarizeStatus
 {
     Ok,
 
-    /// <summary>No provider is configured on this deployment. Actionable, and not a failure of the session.</summary>
+    /// <summary>
+    /// No provider is configured on this deployment, or the one configured refuses its key, its account
+    /// or its model. Actionable by an operator, and not a failure of the session: the client queues it
+    /// and the same session drafts once the setting is right.
+    /// </summary>
     NotConfigured,
 
     /// <summary>The tenant has spent its day. Spec §6: the client drafts on the device instead.</summary>
@@ -72,6 +76,11 @@ public enum SummarizeStatus
 }
 
 /// <param name="Repaired">The first answer broke the rules and the second one did not. Logged, and worth watching.</param>
+/// <param name="RetryAfter">
+/// When the provider said to come back, for an <see cref="SummarizeStatus.Unavailable"/> it named a time
+/// for. The endpoint passes it on as the 503's Retry-After, so a session stuck behind a daily quota waits
+/// for the time Google named rather than spending its attempts inside the hour (2026-10-12 review).
+/// </param>
 public sealed record SummarizeResult(
     SummarizeStatus Status,
     DraftJson? Draft = null,
@@ -79,7 +88,8 @@ public sealed record SummarizeResult(
     decimal CostUsd = 0,
     string? Provider = null,
     bool UsedFallback = false,
-    bool Repaired = false)
+    bool Repaired = false,
+    TimeSpan? RetryAfter = null)
 {
     public bool Ok => Status == SummarizeStatus.Ok;
 }
@@ -165,6 +175,7 @@ public sealed class SummarizationService(
         var usedFallback = false;
         LlmDraft? model;
         ProviderError? failure;
+        ProviderError? repairFailure = null;
         (DraftJson? Draft, string Reason) outcome = (null, string.Empty);
 
         try
@@ -190,9 +201,10 @@ public sealed class SummarizationService(
                 }
                 else
                 {
-                    // The first answer's reason stands. The repair is a second call, and one that was
-                    // sent and never came back is a second call the model may have run (2026-10-12 review).
-                    cost += Owed(second.Error!);
+                    // The repair is a second call, and one that was sent and never came back is a second
+                    // call the model may have run (2026-10-12 review).
+                    repairFailure = second.Error!;
+                    cost += Owed(repairFailure);
                 }
             }
         }
@@ -215,17 +227,46 @@ public sealed class SummarizationService(
         if (model is null)
         {
             // Nobody answered. The reservation was settled above: at nothing when the request never
-            // left, at the estimate when it did and we gave up waiting.
-            return new SummarizeResult(
-                failure!.Kind == ProviderErrorKind.Unavailable ? SummarizeStatus.Unavailable : SummarizeStatus.Invalid,
-                Reason: failure.ToString());
+            // left, at the estimate when it did and we gave up waiting. Invalid is left for an answer
+            // that could not be shown and a request refused for what was in it.
+            return Unanswered(failure!) ?? new SummarizeResult(SummarizeStatus.Invalid, Reason: failure!.ToString());
         }
 
         var provider = usedFallback ? fallback! : primary;
-        return outcome.Draft is null
-            ? new SummarizeResult(SummarizeStatus.Invalid, Reason: outcome.Reason, CostUsd: cost, Provider: provider.Name, UsedFallback: usedFallback)
-            : new SummarizeResult(SummarizeStatus.Ok, outcome.Draft, null, cost, provider.Name, usedFallback, repaired);
+        if (outcome.Draft is not null)
+        {
+            return new SummarizeResult(SummarizeStatus.Ok, outcome.Draft, null, cost, provider.Name, usedFallback, repaired);
+        }
+
+        // The first answer broke a rule and the repair did not answer. Nothing has shown this session
+        // cannot be drafted: the call that would have fixed it never ran, so it is the outage or the
+        // setting the repair's failure says it is, and the client queues it. Answered as invalid, a 429
+        // on the second call lost the session for good (review round 2 of the 2026-10-12 fixes). The
+        // first answer's bill and whatever the repair may have cost are already settled above.
+        if (repairFailure is not null && Unanswered(repairFailure) is { } unanswered)
+        {
+            return unanswered with { CostUsd = cost, Provider = provider.Name, UsedFallback = usedFallback };
+        }
+
+        return new SummarizeResult(SummarizeStatus.Invalid, Reason: outcome.Reason, CostUsd: cost, Provider: provider.Name, UsedFallback: usedFallback);
     }
+
+    /// <summary>
+    /// What a call that did not answer means for the session, or null when the provider refused the
+    /// request for what was in it, which asking again does not change.
+    ///
+    /// A provider that refused this deployment (its key, its account, its model) is a setting an operator
+    /// changes, after which the same session drafts. It was answered as invalid, which the client fails
+    /// for good, so every session finished while a key was wrong was lost (review round 1 of the
+    /// 2026-10-12 fixes).
+    /// </summary>
+    private static SummarizeResult? Unanswered(ProviderError failure) => failure.Kind switch
+    {
+        ProviderErrorKind.Unavailable => new SummarizeResult(SummarizeStatus.Unavailable, Reason: failure.ToString(), RetryAfter: failure.RetryAfter),
+        ProviderErrorKind.Unauthenticated or ProviderErrorKind.Forbidden or ProviderErrorKind.NotFound =>
+            new SummarizeResult(SummarizeStatus.NotConfigured, Reason: failure.ToString()),
+        _ => null,
+    };
 
     /// <summary>
     /// Asks the primary, and the fallback only when the primary was unreachable.
@@ -269,11 +310,14 @@ public sealed class SummarizationService(
     /// <summary>
     /// What a call that did not answer is settled at.
     ///
-    /// We stopped waiting; the model did not stop working. The estimate, because that is the honest guess,
-    /// and because a cap that ignores the calls it never saw the end of is a cap a slow afternoon walks
-    /// straight through (2026-09-20 review). Nothing, when the provider says the request never left.
+    /// What the provider billed, when it answered with a bill: a model that ran and returned nothing usable
+    /// is still on the invoice (2026-10-12 review). Otherwise the estimate when the call may have run,
+    /// because we stopped waiting and the model did not stop working, and a cap that ignores the calls it
+    /// never saw the end of is a cap a slow afternoon walks straight through (2026-09-20 review). Nothing,
+    /// when the provider says the request never left.
     /// </summary>
-    private decimal Owed(ProviderError error) => error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m;
+    private decimal Owed(ProviderError error) =>
+        error.CostUsd ?? (error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m);
 
     /// <summary>Parses what the model said and applies the post-conditions to it.</summary>
     private static (DraftJson? Draft, string Reason) Interpret(string json, SummarizeBundle bundle)
@@ -293,7 +337,18 @@ public sealed class SummarizationService(
             return (null, "The model returned nothing usable.");
         }
 
-        var reasons = DraftValidator.Check(draft, bundle);
+        IReadOnlyList<string> reasons;
+        try
+        {
+            reasons = DraftValidator.Check(draft, bundle);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            // Every rule has a match timeout, and a model can write the text that reaches one. That is a
+            // draft nobody could check, which is a draft that may not be shown, not a 500 after the bill.
+            return (null, "The draft could not be checked in time.");
+        }
+
         return reasons.Count == 0
             ? (draft, string.Empty)
             : (null, string.Join(" ", reasons));
