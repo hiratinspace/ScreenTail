@@ -15,89 +15,78 @@ diagnostics and, trimmed, in the Review banner.
 
 from __future__ import annotations
 
+import json
 import re
+import unicodedata
 from pathlib import Path
 
 PROMPT = Path(__file__).resolve().parent / "note_v1.md"
 
+# The patterns and word lists, shared with DraftValidator.cs. The C# side keeps them as constants and its
+# SharedRulesTests holds them to this file, so the two validators are built from one list rather than
+# from two that each claim to mirror the other (2026-09-19 and 2026-10-12 reviews).
+RULES = json.loads((Path(__file__).resolve().parent / "shared-rules.json").read_text(encoding="utf-8"))
+
+# The values schema.json allows, and the only ones the client can read. Anything else became a 200 the
+# client could not parse and retried, eight billed times (2026-10-12 review).
+CONFIDENCES = {"high", "low"}
+SOURCES = {"cloud", "local"}
+MAX_MINUTES = 1440
+
+# The redaction engine's own markers. "the password is [REDACTED]" is the redaction working; any other
+# bracket is something the model wrote, and "[Winter2026!]" used to count as a marker. They are blanked
+# before the secret and instruction rules run, as DraftValidator.cs blanks them, so a secret written
+# after one is still found: the walk used to stop at the marker and let it through.
+REDACTION_MARKERS = set(RULES["redaction_markers"])
+
+# Characters a reader does not see: zero-width spaces and joiners, soft hyphens, direction marks and
+# overrides, and the byte order mark. Removed before the secret and instruction rules, so a rule reads
+# the text as a person does. "In\u200bstall the agent" is "Install the agent" on screen, and a card with
+# zero-width spaces between its groups is a card.
+INVISIBLE = re.compile(RULES["invisible"])
+
 # Quoted phrases must be real quotations from the transcript. Every pair of marks a model might reach
-# for, not only straight doubles: the rule says "quotation marks", and a fabricated line inside single
-# quotes or guillemets is the same fabrication.
-QUOTE = re.compile(r"[\"“'‘«]([^\"”'’»]{4,})[\"”'’»]")
-SSN = re.compile(r"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b")
+# for, not only straight doubles. An apostrophe inside a word is folded first, because it is the same
+# character as a closing single quote: "I've" ended a curly quotation after one letter, and two
+# possessives in one field read as a quotation nobody said.
+WORD_APOSTROPHE = re.compile(RULES["word_apostrophe"])
+QUOTE = re.compile(RULES["quoted"])
+SSN = re.compile(RULES["ssn"])
 
-# An unformatted nine-digit run is only an SSN where something says so. Python's lookbehind must be
-# fixed-width, so the cue is matched in front rather than behind — nine digits on their own are an order
-# or part number far more often, and masking every one of them would be its own kind of wrong.
-SSN_CUED = re.compile(
-    r"\b(?:ssn|social\s?security(?:\s?(?:number|no|#))?)\b\s*(?:is|was)?\s*[:=#]?\s*"
-    r"(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b",
-    re.IGNORECASE,
-)
-CARD_CANDIDATE = re.compile(r"\b(?:\d{13,19}|\d{3,6}(?:[ -]\d{3,6}){2,4})\b")
+# An unformatted nine-digit run is only an SSN where something says so. Nine digits on their own are an
+# order or part number far more often, and masking every one of them would be its own kind of wrong.
+SSN_CUED = re.compile(RULES["ssn_cued"], re.IGNORECASE)
 
-# The C# pattern library masks these on the frame; this is the backstop for a model putting one back, or
-# for one that survived a redaction miss upstream and was read out of ocr_text.
-# The connective run is what took a while to get right. "the password was reset to Winter2026" is how a
-# technician actually writes it, and an alternation of whole phrases only caught the phrasings somebody
-# thought of: "was" matched, the value became "reset", and the credential after it went into the note.
-# Up to three linking words, then whatever follows.
+# Where a card can be: digit groups of any length joined by one or two spaces (non-breaking ones too),
+# hyphens or dots, and touching anything but another digit. The card inside a run is found by trying
+# windows of whole groups, as the client's pattern library does, because a CVV beside the card arrives in
+# the same run and the run as a whole fails the checksum. The model rewrites what it reads, so its
+# separators are not bound to the ones the client masks.
+CARD_RUN = re.compile(RULES["card_run"])
+DIGIT_GROUP = re.compile(r"[0-9]+")
+CARD_DIGITS = range(13, 20)
+
 # Only the cue. Where the credential sits after it is a question about how somebody writes or speaks,
-# and a single regular expression answered it by assuming they are adjacent. On 2026-09-21 four of the
-# seven phrasings the client scrubber had just been fixed for still passed here untouched -- "the
-# password is, uh, Winter2026" matched nothing at all, because the connective run consumed " is" and
-# then the value could not begin on a comma. The walk below is CREDENTIAL_WALK, mirrored in
-# DraftValidator.cs.
-CREDENTIAL_CUE = re.compile(
-    r"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b",
-    re.IGNORECASE,
-)
+# and a single regular expression answered it by assuming they are adjacent: "the password is, uh,
+# Winter2026" matched nothing at all (2026-09-21). The walk below is mirrored in DraftValidator.cs.
+CREDENTIAL_CUE = re.compile(RULES["credential_cue"], re.IGNORECASE)
+
+# Cues for a credential that is usually only digits, after which four digits count as one.
+PIN_CUE = re.compile(RULES["pin_cue"], re.IGNORECASE)
 
 # Words that join a cue to the credential, or that somebody says while remembering one. Skipped rather
 # than treated as the value.
-CONNECTIVES = {
-    "is",
-    "was",
-    "to",
-    "set",
-    "reset",
-    "changed",
-    "change",
-    "now",
-    "will",
-    "be",
-    "equals",
-    "are",
-    "uh",
-    "um",
-    "er",
-    "ah",
-    "like",
-    "just",
-    "actually",
-    "currently",
-    "still",
-    "the",
-    "a",
-    "an",
-    "on",
-    "for",
-    "of",
-    "at",
-    "in",
-    "my",
-    "your",
-    "our",
-    "their",
-    "his",
-    "her",
-    "its",
-    "new",
-    "old",
-    "that",
-    "this",
-    "it",
-}
+CONNECTIVES = set(RULES["connectives"])
+
+# The client's password cues, and the client's own walk after one (PatternLibrary.SecretAfter). After an
+# asserting word ("is", "was set to") or a colon, the client masks any word that is not on its
+# not-secrets list, and a word with a digit, a symbol or a capital inside it without one. "The password
+# is sunshine." was masked on the device and accepted here (2026-10-19 parity check). The server refuses
+# at least what the client masks; test_shared_rules.py holds these lists to the client's source.
+PASSWORD_CUE = re.compile(RULES["password_cue"], re.IGNORECASE)
+NOT_SECRETS = set(RULES["not_secrets"])
+ASSERTING = set(RULES["asserting"])
+CLIENT_MAX_CONNECTIVES = int(RULES["password_walk_steps"])
 
 # How far past the cue to look, and how the text is cut into words. A full stop ends the sentence and
 # with it any claim that what follows is the credential.
@@ -108,22 +97,32 @@ SENTENCE_END = set(".;!?")
 # What separates a credential from a sentence about one. "Outlook prompted for a password repeatedly"
 # and "the password is wrong" are notes a technician would write; "the password is Summer2024" is the
 # thing Rule 5 forbids. A failing check fails the whole draft, so a false positive here throws away a
-# correct note — the value has to look like a secret, not merely follow the word.
-SECRET_SHAPED = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7e]{6,}$|^[\x21-\x7e]{16,}$")
-KEY_SHAPE = re.compile(
-    r"AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}"
-    r"|-----BEGIN[ A-Z]*PRIVATE KEY-----"
-)
+# correct note: the value has to look like a secret, not merely follow the word. Letters and digits in
+# any script, since the ASCII-only version let a password with one accented letter through.
+SECRET_SHAPED = re.compile(RULES["secret_shaped"])
+PIN_SHAPED = re.compile(RULES["pin_shaped"])
+
+# The C# pattern library masks these on the frame; this is the backstop for a model putting one back, or
+# for one that survived a redaction miss upstream and was read out of ocr_text.
+KEY_SHAPES = RULES["key_shapes"]
+KEY_SHAPE = re.compile("|".join(KEY_SHAPES))
 
 # A note is read by a technician and may be published to a customer. An instruction to go and run
-# something, or an address to fetch it from, is not a thing a session produces on its own — it is a
+# something, or an address to fetch it from, is not a thing a session produces on its own: it is a
 # thing a screen can say, and the model has no way to tell the difference.
-DIRECTIVE = re.compile(
-    r"\b(?:https?://|www\.)\S+"
-    r"|\b(?:powershell|cmd\.exe|curl|wget|iwr|invoke-webrequest|invoke-expression|iex|certutil|bitsadmin)\b"
-    r"|\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b",
-    re.IGNORECASE,
-)
+DIRECTIVE = re.compile("|".join(RULES["directive"]), re.IGNORECASE)
+
+# A verb that directs somebody to install, run, download, delete or disable something is an instruction
+# wherever it stands, on its own or with anything after it, unless it is in one of the forms T-204's
+# records take: negated ("the backup did not run", "has never run"), a reporting verb with the person
+# before "to" ("asked the user to install", "was asked to install"), or a failure or an attempt before
+# "to" ("the update failed to install"). Those are the first group, consumed together with their verb;
+# a match without it is the instruction. The forms are written with space inside a line only, so a line
+# break or a dash ends one. The wider forms this branch had (a noun after an article, a past tense with
+# any object, "will", "going to", "used to") each let an instruction through (2026-10-12 review, third
+# round), so a record written that way costs a repair, as it did on main. DraftValidator.cs reads it the
+# same way.
+IMPERATIVE = re.compile(RULES["imperative"], re.IGNORECASE)
 
 
 def next_word(text, start):
@@ -137,15 +136,18 @@ def next_word(text, start):
     return match if match else None
 
 
-def credential_after(text, start):
+def credential_after(text, start, digits_alone=False):
     """Whether a credential follows a cue, looking past the words that join the two.
 
     The first word that is not a joining word decides. If it looks like a secret, it is one. If it is an
     ordinary word with a joining word behind it, the cue was still naming what the credential is for
     ("the password on the router is Winter2026") and the walk continues. A credential said as two words
-    ("Winter 2026") is judged on the pair, because neither half looks like a secret alone.
+    ("Winter 2026") is judged on the pair, because neither half looks like a secret alone; only when the
+    first half has a letter in it, or "12 characters" would be a password. After a PIN or passcode cue
+    (digits_alone), four digits are the credential, and a pair counts only after a joining word.
     """
     at = start
+    skipped = False
     for _ in range(MAX_STEPS):
         word = next_word(text, at)
         if word is None:
@@ -154,24 +156,78 @@ def credential_after(text, start):
         value = word.group()
         if value.lower() in CONNECTIVES:
             at = word.end()
+            skipped = True
             continue
 
-        # The redaction engine's own marker. Finding one means the rules upstream worked.
-        if value.startswith("["):
-            return False
-
-        if SECRET_SHAPED.match(value):
+        if SECRET_SHAPED.match(value) or (digits_alone and PIN_SHAPED.match(value)):
             return True
 
         following = next_word(text, word.end())
         if following is not None:
-            if SECRET_SHAPED.match(value + following.group()):
+            # After a PIN cue the pair is judged only once a joining word has been passed. "The passcode
+            # is Winter 2026" is a credential; "the PIN pad 2041" is a pad with a number on it.
+            if (
+                (skipped or not digits_alone)
+                and any(c.isalpha() for c in value)
+                and SECRET_SHAPED.match(value + following.group())
+            ):
                 return True
             if following.group().lower() in CONNECTIVES:
                 at = word.end()
                 continue
 
         return False
+
+    return False
+
+
+def looks_like_secret(value: str) -> bool:
+    """The client's test for a word that is not English, as .NET reads it: twelve UTF-16 units, or a
+    digit, anything that is not a letter, or a capital after the first character."""
+    if len(value.encode("utf-16-le")) // 2 >= 12:
+        return True
+    for index, char in enumerate(value):
+        if ord(char) > 0xFFFF:
+            # Two UTF-16 units to .NET, and neither of them is a letter.
+            return True
+        category = unicodedata.category(char)
+        if category == "Nd" or not category.startswith("L") or (index > 0 and category == "Lu"):
+            return True
+    return False
+
+
+def password_after(text, start):
+    """Whether the client would have masked a word after this password cue, step for step.
+
+    The joining words are the shared ones, which hold the client's and three more ("that", "this",
+    "it"); passing one of those walks further than the client does, never less far. DraftValidator.cs
+    has the same walk.
+    """
+    asserted = any(char in ":=" for char in text[start : start + 4])
+    at = start
+    for _ in range(CLIENT_MAX_CONNECTIVES + 1):
+        word = next_word(text, at)
+        if word is None:
+            return False
+
+        value = word.group()
+        if value.lower() in CONNECTIVES:
+            asserted |= value.lower() in ASSERTING
+            at = word.end()
+            continue
+
+        if value.lower() in NOT_SECRETS:
+            return False
+
+        if not looks_like_secret(value):
+            following = next_word(text, word.end())
+            if following is not None and following.group().lower() in CONNECTIVES:
+                at = word.end()
+                continue
+            if not asserted:
+                return False
+
+        return True
 
     return False
 
@@ -185,8 +241,8 @@ def prompt_version() -> str:
 
 
 def passes_luhn(candidate: str) -> bool:
-    digits = [int(c) for c in candidate if c.isdigit()]
-    if not 13 <= len(digits) <= 19:
+    digits = [int(c) for c in candidate if "0" <= c <= "9"]
+    if len(digits) not in CARD_DIGITS:
         return False
     total = 0
     for index, digit in enumerate(reversed(digits)):
@@ -198,8 +254,41 @@ def passes_luhn(candidate: str) -> bool:
     return total % 10 == 0
 
 
+def carries_a_card(text: str) -> bool:
+    """A run of digit groups that passes the checksum, or a window of whole groups inside one that does.
+
+    Windows have 13 to 19 digits and start with 2 to 6, the digits payment cards start with, which is
+    the client's rule and the one DraftValidator.cs uses.
+    """
+    for run in CARD_RUN.finditer(text):
+        if passes_luhn(run.group()):
+            return True
+        groups = list(DIGIT_GROUP.finditer(run.group()))
+        for first, group in enumerate(groups):
+            if not "2" <= group.group()[0] <= "6":
+                continue
+            digits = 0
+            for last in groups[first:]:
+                digits += len(last.group())
+                if digits > CARD_DIGITS[-1]:
+                    break
+                if digits in CARD_DIGITS and passes_luhn(run.group()[group.start() : last.end()]):
+                    return True
+    return False
+
+
+def without_markers(text: str) -> str:
+    """The text as the secret and instruction rules read it: invisible characters removed, and each
+    redaction marker blanked."""
+    text = INVISIBLE.sub("", text)
+    for marker in REDACTION_MARKERS:
+        text = text.replace(marker, " ")
+    return text
+
+
 def normalise(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip().lower()
+    """One space between words, lower case, and every apostrophe the same one."""
+    return re.sub(r"\s+", " ", text).replace("\u2019", "'").replace("\u02bc", "'").strip().lower()
 
 
 def check_draft(draft: dict, session: dict) -> list[str]:
@@ -236,6 +325,9 @@ def check_draft(draft: dict, session: dict) -> list[str]:
             if segment_id not in segments:
                 errors.append(f"{where} cites transcript segment {segment_id!r}, which does not exist.")
 
+        if step.get("confidence") not in CONFIDENCES:
+            errors.append(f"{where} has confidence {step.get('confidence')!r}; it must be high or low.")
+
         # Rule 3: nobody said it, so it can only have been read off the screen.
         if not step.get("transcript_refs") and step.get("confidence") != "low":
             errors.append(f"{where} has no transcript evidence, so it cannot be high confidence.")
@@ -259,6 +351,19 @@ def check_draft(draft: dict, session: dict) -> list[str]:
         errors.extend(f"follow_ups: {reason}" for reason in check_not_directed(follow_up))
         errors.extend(f"follow_ups: {reason}" for reason in check_quotations(follow_up, spoken))
 
+    if draft.get("source") not in SOURCES:
+        errors.append(f"The source is {draft.get('source')!r}; it must be cloud or local.")
+
+    minutes_allowed = draft.get("suggested_time_minutes")
+    if (
+        isinstance(minutes_allowed, bool)
+        or not isinstance(minutes_allowed, int)
+        or not 0 <= minutes_allowed <= MAX_MINUTES
+    ):
+        errors.append(
+            f"The suggested time is {minutes_allowed!r} minutes; it must be between 0 and {MAX_MINUTES}."
+        )
+
     if not str(draft.get("kb_reason", "")).strip():
         errors.append("kb_reason is empty; a person has to read it to decide about the article.")
 
@@ -278,9 +383,11 @@ def check_draft(draft: dict, session: dict) -> list[str]:
 
 def check_quotations(text: str, spoken: str) -> list[str]:
     """Rule 4. A phrase in quotation marks has to be one somebody actually said."""
+    folded = WORD_APOSTROPHE.sub("\u02bc", text)
+    quotations = (double or single or reversed_ for double, single, reversed_ in QUOTE.findall(folded))
     return [
         f"quotes {quoted!r}, which nobody said in this session."
-        for quoted in QUOTE.findall(text)
+        for quoted in quotations
         if normalise(quoted) not in spoken
     ]
 
@@ -299,23 +406,31 @@ def check_not_directed(text: str) -> list[str]:
     or switch off a security control. Those are things a screen can say and a session cannot produce on
     its own, so their presence is a reason to refuse the draft rather than to show it.
     """
+    text = without_markers(text)
     found = DIRECTIVE.search(text)
+    if found is None:
+        found = next((verb for verb in IMPERATIVE.finditer(text) if verb.group(1) is None), None)
     return [] if found is None else [f"reads as an instruction rather than a record: {found.group(0)!r}."]
 
 
 def check_no_secrets(text: str) -> list[str]:
     """Rule 5's backstop. Redaction happens upstream; a model must never put a secret back."""
     reasons = []
+    text = without_markers(text)
     if SSN.search(text) or SSN_CUED.search(text):
         reasons.append("contains something shaped like an SSN.")
-    if any(passes_luhn(match) for match in CARD_CANDIDATE.findall(text)):
+    if carries_a_card(text):
         reasons.append("contains something shaped like a card number.")
     if KEY_SHAPE.search(text):
         reasons.append("contains something shaped like a key or token.")
 
     # "the password is [REDACTED]" is the redaction working and must stay; "the password is Summer2024"
     # is the thing Rule 5 forbids.
-    if any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text)):
+    if (
+        any(credential_after(text, cue.end()) for cue in CREDENTIAL_CUE.finditer(text))
+        or any(credential_after(text, cue.end(), digits_alone=True) for cue in PIN_CUE.finditer(text))
+        or any(password_after(text, cue.end()) for cue in PASSWORD_CUE.finditer(text))
+    ):
         reasons.append("reproduces a credential.")
 
     return reasons

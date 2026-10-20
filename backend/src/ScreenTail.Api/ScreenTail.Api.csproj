@@ -19,6 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- SharedRulesTests compares DraftRules with research/prompts/shared-rules.json. The rules stay
+         internal: they are the validator's ingredients, not an API. -->
+    <InternalsVisibleTo Include="ScreenTail.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <!-- A build-time tool: dotnet-ef reads it to create migrations. PrivateAssets keeps it out of the
          published image, where a design-time assembly is surface nobody asked for (2026-09-19 review). -->

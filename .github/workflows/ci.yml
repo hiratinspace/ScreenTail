@@ -75,9 +75,13 @@ jobs:
           }
           {
             flag '^client/' client
-            flag '^(backend/|\.dockerignore)' backend
+            # research/prompts is embedded in the backend (the note prompt in the service, the shared
+            # rules and cases in its tests), so a change there is a backend change too. The research
+            # tests read the client's pattern library to check the validators know its shapes. The
+            # workflows job below checks both against the files that actually do the reading.
+            flag '^(backend/|\.dockerignore|research/prompts/)' backend
             flag '^(web/|\.nvmrc)' web
-            flag '^research/' research
+            flag '^(research/|client/ScreenTail\.Core/Privacy/PatternLibrary\.cs)' research
             flag '^(shared/schema/|client/ScreenTail\.Shared/Generated/|web/src/generated/)' schema
             flag '^(shared/design/|client/ScreenTail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
             # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
@@ -540,6 +544,52 @@ jobs:
 
           for line in bad:
               print(f"::error file=.github/workflows/ci.yml::{line}")
+          sys.exit(1 if bad else 0)
+          EOF
+
+      # 2026-10-12 review. The backend embeds files from research/prompts, and backend CI did not run
+      # when they changed, so a new shared case or a prompt edit could break the backend suite on main
+      # with nothing having run it. Read from the project files rather than listed here by hand.
+      - name: Every file a job reads from outside its folder turns that job on
+        run: |
+          python3 - <<'EOF'
+          import pathlib, re, sys
+
+          ci = open('.github/workflows/ci.yml').read()
+          common = re.search(r"common='(\^\([^']+\))'", ci)
+          if not common:
+              sys.exit("Could not find the paths every flag() shares in ci.yml.")
+
+          # flag() matches its own pattern or the shared one, as grep -E does with "$1|$common".
+          def area(name):
+              match = re.search(r"flag '(\^\([^']+\))' " + name + r"\n", ci)
+              if not match:
+                  sys.exit(f"Could not find the {name} flag() filter in ci.yml.")
+              return re.compile(match.group(1) + "|" + common.group(1))
+
+          backend, research = area('backend'), area('research')
+          bad = []
+
+          root = pathlib.Path('.').resolve()
+          for project in sorted(pathlib.Path('backend').rglob('*.csproj')):
+              for include in re.findall(r'Include="([^"]+)"', project.read_text()):
+                  if not include.startswith('..'):
+                      continue
+                  target = (project.parent / include.replace('\\', '/')).resolve()
+                  path = target.relative_to(root).as_posix()
+                  if path.startswith('backend/'):
+                      continue
+                  if not backend.match(path):
+                      bad.append(f"{project} reads {path}, and a change to it does not run the backend job.")
+
+          # Read by research/tests/test_shared_rules.py.
+          for path in ['client/ScreenTail.Core/Privacy/PatternLibrary.cs']:
+              if not research.match(path):
+                  bad.append(f"The research tests read {path}, and a change to it does not run the research job.")
+
+          for line in bad:
+              print(f"::error file=.github/workflows/ci.yml::{line}")
+          print("\n".join(bad) if bad else "every file read from outside its folder turns its job on")
           sys.exit(1 if bad else 0)
           EOF
 

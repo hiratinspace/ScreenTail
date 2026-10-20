@@ -14,7 +14,14 @@
     "Every 'text' goes into a draft's result field, which is prose a technician reads and may publish to a",
     "customer. 'refuse' says whether the post-conditions must reject it. 'why' is for whoever reads a",
     "failure, and is not asserted on: which rule fires is an implementation detail, and pinning it here",
-    "would make the two implementations agree about their internals rather than about their answers."
+    "would make the two implementations agree about their internals rather than about their answers.",
+    "",
+    "A case gives its text as 'text', or as 'parts' that are joined into it. The key-shaped cases use",
+    "parts: GitHub's push protection reads a committed key the way these rules do, and a corpus that",
+    "cannot be pushed is a corpus nobody runs. The parts join to the shapes the rules have to catch.",
+    "",
+    "'transcript' is what was said in the session every case is judged against, so a quotation case",
+    "means the same thing to both suites. It is the spooler fixture's transcript, ids included."
   ],
   "cases": [
     {
@@ -166,6 +173,934 @@
       "text": "The password field was blank on that profile.",
       "refuse": false,
       "why": "The other half: walking further to find a credential must not turn a sentence about one into a refusal."
+    },
+    {
+      "parts": [
+        "Found ",
+        "github_",
+        "pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz",
+        " in the build script."
+      ],
+      "refuse": true,
+      "why": "A fine-grained GitHub token, which the client masks and the server did not know."
+    },
+    {
+      "parts": [
+        "The page source had ",
+        "AIza",
+        "SyD-9tSrke72PouQMnMX-a7eZSW0jk",
+        " in it."
+      ],
+      "refuse": true,
+      "why": "A Google API key, recognisable without a cue."
+    },
+    {
+      "parts": [
+        "Pasted ",
+        "eyJ",
+        "hbGciOiJIUzI1NiJ9",
+        ".",
+        "eyJzdWIiOiIxMjM0In0",
+        ".",
+        "abcdefghijklmnop",
+        " into the ticket."
+      ],
+      "refuse": true,
+      "why": "A JSON web token is a session somebody can replay."
+    },
+    {
+      "parts": [
+        "Stripe had ",
+        "sk_",
+        "test_4eC39HqLyjWDarjtT1zd",
+        " in the config."
+      ],
+      "refuse": true,
+      "why": "A Stripe secret key."
+    },
+    {
+      "parts": [
+        "The ",
+        "npm_",
+        "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+        " value was in the file"
+      ],
+      "refuse": true,
+      "why": "An npm token."
+    },
+    {
+      "parts": [
+        "It held ",
+        "SG.",
+        "ngeVfQFYQlKU0ufo8x5d",
+        ".",
+        "TwL2iGABf9DHoTf09kqeF8tA",
+        " for mail"
+      ],
+      "refuse": true,
+      "why": "A SendGrid key."
+    },
+    {
+      "parts": [
+        "It held ",
+        "ya29",
+        ".a0AfH6SMBx1cQ5eXkTOmAgbKqRcvvZ5vGz2NGrLsq",
+        " for the mailbox"
+      ],
+      "refuse": true,
+      "why": "A Google OAuth access token."
+    },
+    {
+      "parts": [
+        "Alerts went to ",
+        "https://hooks.slack.com/",
+        "services/T0AB1CDEF/B0GH2IJKL/aBcDeFgHiJkLmNoPqRsTuVwX",
+        " all week"
+      ],
+      "refuse": true,
+      "why": "A Slack webhook is a key in the shape of an address."
+    },
+    {
+      "text": "The share held -----BEGIN PGP PRIVATE KEY BLOCK----- in a text file.",
+      "refuse": true,
+      "why": "A PGP private key block. The header rule wanted KEY----- and this one says KEY BLOCK-----."
+    },
+    {
+      "text": "The master key: Xy7pQ2rS9tU4vW1z for the vault.",
+      "refuse": true,
+      "why": "'master key' introduces a credential the way 'api key' does."
+    },
+    {
+      "text": "pass: hunter2 on the shared account",
+      "refuse": true,
+      "why": "'pass:' is how a config file or a chat message writes it."
+    },
+    {
+      "text": "Their passcode is 0791 for the door.",
+      "refuse": true,
+      "why": "A passcode is usually digits, so the shape rule alone would let it through."
+    },
+    {
+      "text": "Reset the PIN to 4821 for her.",
+      "refuse": true,
+      "why": "A PIN, likewise."
+    },
+    {
+      "text": "The password is Пароль2026 on that machine.",
+      "refuse": true,
+      "why": "A credential with a letter outside ASCII in it is still a credential."
+    },
+    {
+      "text": "The password is [Winter2026!] on that machine.",
+      "refuse": true,
+      "why": "Only the redaction engine's own markers mean the redaction worked. A bracket the model wrote is not one."
+    },
+    {
+      "text": "SSN 123.45.6789 was on the form.",
+      "refuse": true,
+      "why": "An SSN written with dots."
+    },
+    {
+      "text": "The card 4111.1111.1111.1111 was on screen.",
+      "refuse": true,
+      "why": "A card number written with dots."
+    },
+    {
+      "text": "The technician said “I’ve rebooted the print server” before the test page.",
+      "refuse": true,
+      "why": "Curly quotes with a curly apostrophe early on. The apostrophe closed the quotation after one letter."
+    },
+    {
+      "text": "The customer said 'it started this morning' when asked.",
+      "refuse": true,
+      "why": "Straight single quotes. Only the Python rules looked for them."
+    },
+    {
+      "text": "The customer said 'it’s been broken since Monday' when asked.",
+      "refuse": true,
+      "why": "Straight single quotes with an apostrophe inside the quotation."
+    },
+    {
+      "text": "The technician confirmed “that’s why nothing is printing” on the call.",
+      "refuse": false,
+      "why": "A real quotation in curly quotes, with a curly apostrophe where the transcript has a straight one."
+    },
+    {
+      "text": "Noted 'that's why nothing is printing' as the diagnosis.",
+      "refuse": false,
+      "why": "A real quotation in straight single quotes, with an apostrophe inside it."
+    },
+    {
+      "text": "The user's printer and the admin's laptop were both on the old driver.",
+      "refuse": false,
+      "why": "Two possessives are two apostrophes, not a quotation."
+    },
+    {
+      "text": "The users' printers and the admins' laptops were both on the old driver.",
+      "refuse": false,
+      "why": "Plural possessives, likewise."
+    },
+    {
+      "text": "Install the agent from the shared drive on every machine.",
+      "refuse": true,
+      "why": "An imperative at the start of a sentence is an instruction, URL or no URL."
+    },
+    {
+      "text": "Then run the cleanup tool on the other workstations.",
+      "refuse": true,
+      "why": "The same, after 'then'."
+    },
+    {
+      "text": "You should download the latest driver before the next visit.",
+      "refuse": true,
+      "why": "Addressed to the reader."
+    },
+    {
+      "text": "The scheduled backup did not run overnight, so it was started by hand.",
+      "refuse": false,
+      "why": "A base-form verb in a record of what happened. The server refused it."
+    },
+    {
+      "text": "Asked the user to install the printer driver from the vendor's site.",
+      "refuse": false,
+      "why": "What the technician asked somebody to do is a record, not an instruction to the reader."
+    },
+    {
+      "text": "The installer would not run until the old version was removed.",
+      "refuse": false,
+      "why": "Likewise, 'would not run'."
+    },
+    {
+      "text": "Ran the printer troubleshooter and deleted the stuck job.",
+      "refuse": false,
+      "why": "Past tense is how a note is written."
+    },
+    {
+      "text": "Order 4111 1111 1111 1112 shipped on Tuesday.",
+      "refuse": false,
+      "why": "Sixteen digits that fail the checksum are an order number."
+    },
+    {
+      "text": "Asset tag 1234567890123 is on the label.",
+      "refuse": false,
+      "why": "Thirteen digits that fail the checksum, likewise."
+    },
+    {
+      "text": "The PIN pad at reception was replaced.",
+      "refuse": true,
+      "why": "The client masks 'replaced' here: after a PIN cue and an asserting word ('was'), any word outside its not-secrets list is the secret. The server refuses what the client masks. Adding the word to both not-secrets lists is how this changes."
+    },
+    {
+      "text": "Token lifetime is 3600 seconds on this tenant.",
+      "refuse": false,
+      "why": "A token's lifetime is not a token."
+    },
+    {
+      "text": "The private key is stored in the vault, not on the laptop.",
+      "refuse": false,
+      "why": "Where a key is kept is not the key."
+    },
+    {
+      "text": "Next, install the agent from the share.",
+      "refuse": true,
+      "why": "An imperative after an introducing word and a comma. Main refused it, and the first version of the imperative rule did not."
+    },
+    {
+      "text": "First, run setup.exe as admin.",
+      "refuse": true,
+      "why": "Likewise, after 'First,'."
+    },
+    {
+      "text": "To finish, run fix.exe.",
+      "refuse": true,
+      "why": "An imperative at the start of a clause, after a comma."
+    },
+    {
+      "text": "If it fails, disable the service.",
+      "refuse": true,
+      "why": "An imperative after a conditional clause."
+    },
+    {
+      "text": "1) Install AnyDesk.",
+      "refuse": true,
+      "why": "An imperative in a numbered list."
+    },
+    {
+      "text": "a) Disable the print service on the server.",
+      "refuse": true,
+      "why": "An imperative in a lettered list."
+    },
+    {
+      "text": "You will need to install AnyDesk.",
+      "refuse": true,
+      "why": "Addressed to the reader, with 'will need to'."
+    },
+    {
+      "text": "You'll need to run setup.exe.",
+      "refuse": true,
+      "why": "Addressed to the reader, contracted."
+    },
+    {
+      "text": "You’ll need to run setup.exe.",
+      "refuse": true,
+      "why": "The same with a curly apostrophe."
+    },
+    {
+      "text": "Please, install AnyDesk.",
+      "refuse": true,
+      "why": "An imperative after 'Please,'."
+    },
+    {
+      "text": "Just run setup.exe.",
+      "refuse": true,
+      "why": "An imperative after 'Just'."
+    },
+    {
+      "text": "Make sure to install AnyDesk before the call.",
+      "refuse": true,
+      "why": "An imperative introduced by 'make sure to'."
+    },
+    {
+      "text": "Card 4111 1111 1111 1111 123 was read out.",
+      "refuse": true,
+      "why": "A card with its CVV beside it: the run fails the checksum, the card inside it does not."
+    },
+    {
+      "text": "Card 4111111111111111 123 was read out.",
+      "refuse": true,
+      "why": "The same, unspaced."
+    },
+    {
+      "text": "Card 4111 111111111111 was read out.",
+      "refuse": true,
+      "why": "A card written in two groups of unequal length."
+    },
+    {
+      "text": "Order 4111 1111 1111 1112 123 shipped on Tuesday.",
+      "refuse": false,
+      "why": "Neither the run nor any card-length window inside it passes the checksum."
+    },
+    {
+      "text": "The password is [REDACTED] Winter2026 for the guest account.",
+      "refuse": true,
+      "why": "A marker does not end the walk: what follows it is still a credential."
+    },
+    {
+      "text": "The PIN pad 2041 was replaced.",
+      "refuse": false,
+      "why": "A PIN pad with a number is not a PIN. After a PIN cue the credential is one word, never a pair."
+    },
+    {
+      "text": "The user said „the printer is haunted again“ before hanging up.",
+      "refuse": true,
+      "why": "Low-9 double quotes, as German writes them."
+    },
+    {
+      "text": "The user said ‚the printer is haunted again‘ before hanging up.",
+      "refuse": true,
+      "why": "Low-9 single quotes."
+    },
+    {
+      "text": "The user said ‹the printer is haunted again› before hanging up.",
+      "refuse": true,
+      "why": "Single guillemets."
+    },
+    {
+      "text": "The user said 「the printer is haunted again」 before hanging up.",
+      "refuse": true,
+      "why": "CJK corner brackets."
+    },
+    {
+      "text": "The user confirmed „that's why nothing is printing“ on the call.",
+      "refuse": false,
+      "why": "A real quotation in low-9 quotes is compared with the transcript and passes."
+    },
+    {
+      "text": "Opened File » Save As » PDF to keep a copy of the report.",
+      "refuse": false,
+      "why": "A menu path with guillemets is not a quotation."
+    },
+    {
+      "text": "Went to Settings › Accounts › Email to check the profile.",
+      "refuse": false,
+      "why": "Likewise with single guillemets."
+    },
+    {
+      "text": "Once done run setup.exe on the other machines.",
+      "refuse": true,
+      "why": "An imperative after a short opener with no comma."
+    },
+    {
+      "text": "If prompted disable the print service.",
+      "refuse": true,
+      "why": "Likewise, 'If prompted'."
+    },
+    {
+      "text": "The user will run the update tonight.",
+      "refuse": true,
+      "why": "A plan with 'will' is how an instruction to a third party is written ('The technicians will install AnyDesk on every machine'), and main refuses it. Not one of the record forms T-204 names, so it is refused and costs one repair."
+    },
+    {
+      "text": "Reboot and install the agent.",
+      "refuse": true,
+      "why": "An imperative joined to another with 'and', the most common way an instruction is written."
+    },
+    {
+      "text": "Reboot the PC and run the cleanup tool.",
+      "refuse": true,
+      "why": "Likewise, with an object on the first verb."
+    },
+    {
+      "text": "Reboot the PC then run the cleanup tool.",
+      "refuse": true,
+      "why": "Likewise, joined with 'then' and no comma."
+    },
+    {
+      "text": "Remote in and install the agent.",
+      "refuse": true,
+      "why": "Likewise, after a two-word verb."
+    },
+    {
+      "text": "Step 2 - install the agent.",
+      "refuse": true,
+      "why": "An imperative after a hyphen."
+    },
+    {
+      "text": "Step 2 \u2013 install the agent.",
+      "refuse": true,
+      "why": "An imperative after an en dash."
+    },
+    {
+      "text": "Have the user install AnyDesk.",
+      "refuse": true,
+      "why": "An instruction to have somebody else do it."
+    },
+    {
+      "text": "Ask the customer to run the cleanup tool.",
+      "refuse": true,
+      "why": "An instruction to ask somebody else. 'Asked the customer to' is a record; 'Ask' is not."
+    },
+    {
+      "text": "Tell them to install AnyDesk.",
+      "refuse": true,
+      "why": "Likewise with 'Tell'."
+    },
+    {
+      "text": "Don't forget to install the agent.",
+      "refuse": true,
+      "why": "An imperative behind a negated imperative."
+    },
+    {
+      "text": "Go install the agent.",
+      "refuse": true,
+      "why": "An imperative after 'Go'."
+    },
+    {
+      "text": "Kindly install the agent.",
+      "refuse": true,
+      "why": "An imperative after a politeness word the rule never listed."
+    },
+    {
+      "text": "You should probably install the agent.",
+      "refuse": true,
+      "why": "Addressed to the reader, with an adverb between the modal and the verb."
+    },
+    {
+      "text": "You really need to install the agent.",
+      "refuse": true,
+      "why": "Addressed to the reader, with an adverb before 'need to'."
+    },
+    {
+      "text": "Once that is done install the agent.",
+      "refuse": true,
+      "why": "An imperative after an opener with its own subject and no comma."
+    },
+    {
+      "text": "If it fails disable the service.",
+      "refuse": true,
+      "why": "An imperative after a conditional clause with no comma."
+    },
+    {
+      "text": "\u200bInstall the agent.",
+      "refuse": true,
+      "why": "A sentence that starts with a zero-width space."
+    },
+    {
+      "text": "In\u200bstall the agent from the share.",
+      "refuse": true,
+      "why": "A zero-width space inside the verb. A reader sees 'Install'."
+    },
+    {
+      "text": "Do not run the tool as admin.",
+      "refuse": true,
+      "why": "A prohibition is an instruction too."
+    },
+    {
+      "text": "Never run it as admin.",
+      "refuse": true,
+      "why": "Likewise with 'Never'."
+    },
+    {
+      "text": "You shouldn't run it as admin.",
+      "refuse": true,
+      "why": "Addressed to the reader, negated."
+    },
+    {
+      "text": "Let the user install the agent.",
+      "refuse": true,
+      "why": "An instruction to let somebody else do it."
+    },
+    {
+      "text": "Had issues. Install the agent.",
+      "refuse": true,
+      "why": "A record form in one sentence does not carry over into the next."
+    },
+    {
+      "text": "Asked the user to stop, then install the agent.",
+      "refuse": true,
+      "why": "A reporting verb covers only the verb its 'to' introduces."
+    },
+    {
+      "text": "The update didn't install on the first try.",
+      "refuse": false,
+      "why": "A negated verb is a record."
+    },
+    {
+      "text": "The job has never run on this server.",
+      "refuse": false,
+      "why": "Likewise after 'has never'."
+    },
+    {
+      "text": "The user did not download or install the patch.",
+      "refuse": false,
+      "why": "A negation covers both verbs it joins."
+    },
+    {
+      "text": "Helped the user install the driver.",
+      "refuse": true,
+      "why": "A past tense with its object before a bare verb cannot be told from 'Anyone who had the issue install the patch'. Main refuses it. 'Helped the user to install' still passes."
+    },
+    {
+      "text": "Tried to run the installer but it hung.",
+      "refuse": false,
+      "why": "An attempt is a record."
+    },
+    {
+      "text": "The install failed at 40 percent.",
+      "refuse": true,
+      "why": "A verb read as a noun after an article let 'Verify the download and install AnyDesk' through. Main refuses this one, and it is not a record form T-204 names."
+    },
+    {
+      "text": "Had the user run the troubleshooter.",
+      "refuse": true,
+      "why": "Same shape as 'Users who saw the warning run the cleanup tool', a direction to a third party. Main refuses it, so it is refused and costs one repair."
+    },
+    {
+      "text": "Windows prompted the user to install the update.",
+      "refuse": false,
+      "why": "A reporting verb with its object before 'to'."
+    },
+    {
+      "text": "Asked the user to download and install the driver.",
+      "refuse": false,
+      "why": "Likewise, with two verbs joined by 'and'."
+    },
+    {
+      "text": "The installer wasn't able to run without admin rights.",
+      "refuse": false,
+      "why": "A negation followed by 'able to'."
+    },
+    {
+      "text": "The passcode is Winter 2026.",
+      "refuse": true,
+      "why": "A passcode written as two words, joined to its cue by 'is'."
+    },
+    {
+      "text": "The card 4111\u00a01111\u00a01111\u00a01111 was on screen.",
+      "refuse": true,
+      "why": "A card with non-breaking spaces between the groups."
+    },
+    {
+      "text": "The card 4111  1111  1111  1111 was on screen.",
+      "refuse": true,
+      "why": "A card with two spaces between the groups."
+    },
+    {
+      "text": "Ref x4111111111111111 was in the log.",
+      "refuse": true,
+      "why": "A card with a letter touching it."
+    },
+    {
+      "text": "It read 4111111111111111exp on the slip.",
+      "refuse": true,
+      "why": "A card with letters after it."
+    },
+    {
+      "text": "The card 4111\u200b1111\u200b1111\u200b1111 was on screen.",
+      "refuse": true,
+      "why": "A card with zero-width spaces between the groups."
+    },
+    {
+      "text": "Order ORD4111111111111112 shipped on Tuesday.",
+      "refuse": false,
+      "why": "Digits touching letters that fail the checksum are an order number."
+    },
+    {
+      "text": "Build 10.0.22631.4317 was installed overnight.",
+      "refuse": false,
+      "why": "A Windows build number is not a card."
+    },
+    {
+      "text": "Der Nutzer sagte »der Drucker spinnt wieder« am Telefon.",
+      "refuse": true,
+      "why": "A quotation in reversed guillemets, as German writes it, that nobody said."
+    },
+    {
+      "text": "The user confirmed »that's why nothing is printing« on the call.",
+      "refuse": false,
+      "why": "A real quotation in reversed guillemets passes."
+    },
+    {
+      "text": "Use the required tool to install AnyDesk.",
+      "refuse": true,
+      "why": "A participle that is usually an adjective ('required', 'requested', 'allowed') is not a reporting verb."
+    },
+    {
+      "text": "Grab the requested installer to run on every machine.",
+      "refuse": true,
+      "why": "Likewise with 'requested'."
+    },
+    {
+      "text": "The update is going to install tonight.",
+      "refuse": true,
+      "why": "'going to' is 'will' in other words. Main refuses it, and it is not a record form T-204 names."
+    },
+    {
+      "text": "To fix it, run setup.bat from the share.",
+      "refuse": true,
+      "why": "A command after an introducing clause and a comma (security note, 2026-10-19)."
+    },
+    {
+      "text": "The share is back; run the cleanup tool tonight.",
+      "refuse": true,
+      "why": "A command after a semicolon."
+    },
+    {
+      "text": "Run: cleanup.exe",
+      "refuse": true,
+      "why": "A command followed by a colon, with no space-separated word after the verb."
+    },
+    {
+      "text": "Next step: install the agent.",
+      "refuse": true,
+      "why": "A command after a colon."
+    },
+    {
+      "text": "Reboot, then run fix.bat.",
+      "refuse": true,
+      "why": "Two commands joined by a comma and 'then' (security note, 2026-10-19)."
+    },
+    {
+      "text": "Open Settings and run the cleanup tool.",
+      "refuse": true,
+      "why": "Two commands joined by 'and' (security note, 2026-10-19)."
+    },
+    {
+      "text": "Reboot and then run fix.bat.",
+      "refuse": true,
+      "why": "Two commands joined by 'and then'."
+    },
+    {
+      "text": "Reboot or run fix.bat if it hangs.",
+      "refuse": true,
+      "why": "Two commands joined by 'or'."
+    },
+    {
+      "text": "You need to install the agent before Monday.",
+      "refuse": true,
+      "why": "Addressed to the reader."
+    },
+    {
+      "text": "Verify the download and install AnyDesk.",
+      "refuse": true,
+      "why": "The and/or chain hung off the noun-after-article form and covered the second verb (review, third round, blocker 1)."
+    },
+    {
+      "text": "Finish the download and run the installer.",
+      "refuse": true,
+      "why": "Same: 'the download and run' read as one record."
+    },
+    {
+      "text": "Check the install and run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'install' as the noun."
+    },
+    {
+      "text": "Cancel any download and install the agent instead.",
+      "refuse": true,
+      "why": "Same, after 'any'."
+    },
+    {
+      "text": "Approve each install and run the agent as admin.",
+      "refuse": true,
+      "why": "Same, after 'each'."
+    },
+    {
+      "text": "Anyone who had the issue should install the patch.",
+      "refuse": true,
+      "why": "A modal inside the 'object' of 'had' (review, third round, blocker 2)."
+    },
+    {
+      "text": "Users who saw the warning must run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'saw' and 'must'."
+    },
+    {
+      "text": "Everyone who made changes should run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'made' and 'should'."
+    },
+    {
+      "text": "Users had better install the agent.",
+      "refuse": true,
+      "why": "'had better' is an obligation, not a record."
+    },
+    {
+      "text": "Anyone who had the issue install the patch.",
+      "refuse": true,
+      "why": "No modal at all: the past-tense form cannot tell a third-party direction from a record, so it is not a record form any more."
+    },
+    {
+      "text": "Had issues\nInstall the agent.",
+      "refuse": true,
+      "why": "A line break ends a record form (review, third round, blocker 3)."
+    },
+    {
+      "text": "The task did not\nInstall the agent.",
+      "refuse": true,
+      "why": "A line break between a negation and a verb on the next line."
+    },
+    {
+      "text": "Had a problem - install the agent from the portal.",
+      "refuse": true,
+      "why": "A hyphen standing alone is not a word of the record."
+    },
+    {
+      "text": "Had a problem \u2013 install the agent from the portal.",
+      "refuse": true,
+      "why": "Same with an en dash."
+    },
+    {
+      "text": "Saw the error \u2014 install AnyDesk now.",
+      "refuse": true,
+      "why": "Same with an em dash."
+    },
+    {
+      "text": "Install, then reboot.",
+      "refuse": true,
+      "why": "A command needs no word after it to be one (review, third round, minor)."
+    },
+    {
+      "text": "Then install.",
+      "refuse": true,
+      "why": "Same, at the end of the text."
+    },
+    {
+      "text": "Next, install\u2014AnyDesk from the portal.",
+      "refuse": true,
+      "why": "A verb followed by a dash."
+    },
+    {
+      "text": "The technicians will install AnyDesk on every machine.",
+      "refuse": true,
+      "why": "A third-party plan written with 'will' (review, third round, minor)."
+    },
+    {
+      "text": "Every machine will run the cleanup tool tonight.",
+      "refuse": true,
+      "why": "Same."
+    },
+    {
+      "text": "The technicians are going to install AnyDesk on every machine.",
+      "refuse": true,
+      "why": "'going to' is the same plan."
+    },
+    {
+      "text": "Users are advised to install the patch today.",
+      "refuse": true,
+      "why": "A present passive notice is a direction, though 'advised' is a reporting verb."
+    },
+    {
+      "text": "Got the files remember to install AnyDesk.",
+      "refuse": true,
+      "why": "'got' with three words as its object swallowed an imperative."
+    },
+    {
+      "text": "Open the tool used to install AnyDesk.",
+      "refuse": true,
+      "why": "'used to' read as an attempt (review, third round, risks)."
+    },
+    {
+      "text": "Re-run the backup tonight.",
+      "refuse": true,
+      "why": "A hyphenated verb is still the verb."
+    },
+    {
+      "text": "The backup did not run overnight.",
+      "refuse": false,
+      "why": "T-204: a negation is a record."
+    },
+    {
+      "text": "Asked the user to install the driver.",
+      "refuse": false,
+      "why": "T-204: a reporting verb with its object before 'to'."
+    },
+    {
+      "text": "The update failed to install.",
+      "refuse": false,
+      "why": "T-204: a failure followed by 'to'."
+    },
+    {
+      "text": "The user was asked to install the driver.",
+      "refuse": false,
+      "why": "A past passive with a reporting verb is the same record without its subject."
+    },
+    {
+      "text": "Warned the user not to run the old installer.",
+      "refuse": false,
+      "why": "A reporting verb whose object carries 'not'."
+    },
+    {
+      "text": "Helped the user to install the driver.",
+      "refuse": false,
+      "why": "The reporting form of 'Helped the user install'."
+    },
+    {
+      "parts": [
+        "access_tok",
+        "en=abcdefghijklmno",
+        "pqrstuvwxyz0123"
+      ],
+      "refuse": true,
+      "why": "The client masks a long value after a cue joined to it by an underscore; the server's cue words needed a word boundary."
+    },
+    {
+      "parts": [
+        "client_sec",
+        "ret: abcdefghijklmn",
+        "opqrstuvwxyzAB"
+      ],
+      "refuse": true,
+      "why": "Same, with 'client_secret'."
+    },
+    {
+      "parts": [
+        "refresh_to",
+        "ken=abcdefghijklmno",
+        "pqrstuvwxyz12"
+      ],
+      "refuse": true,
+      "why": "The client's cue has no word boundary in front, so 'refresh_token' is cued by 'token'."
+    },
+    {
+      "parts": [
+        "Auth: abcdefghijkl",
+        "mnopqrstuvwxyzabcd"
+      ],
+      "refuse": true,
+      "why": "The client's cue words stand alone too: 'auth', 'api', 'access', 'client', 'app' and the rest, with or without 'key'."
+    },
+    {
+      "parts": [
+        "token abcdefghij.",
+        "klmnopqrst.uvwxyz"
+      ],
+      "refuse": true,
+      "why": "A cued value with dots in it: the server's word walk stopped at the first dot."
+    },
+    {
+      "text": "The password is sunshine.",
+      "refuse": true,
+      "why": "The client masks any word after an asserting joining word that is not on its not-secrets list."
+    },
+    {
+      "text": "pass: hunter",
+      "refuse": true,
+      "why": "A colon after the cue asserts as much as 'is' does, on the client."
+    },
+    {
+      "text": "The pwd was set to tuesday.",
+      "refuse": true,
+      "why": "Same rule, after 'was set to'."
+    },
+    {
+      "text": "password P@ss",
+      "refuse": true,
+      "why": "The client takes a word with a symbol in it as a secret even with nothing asserting it."
+    },
+    {
+      "text": "The password was reset successfully.",
+      "refuse": true,
+      "why": "The client masks 'successfully' here, so the server refuses it. This one is common and costs a repair; adding the word to both not-secrets lists is how it changes."
+    },
+    {
+      "text": "Employee_SSN: 123456789",
+      "refuse": true,
+      "why": "The client's SSN cue has no word boundary, so an underscore in front of it does not hide it."
+    },
+    {
+      "text": "SSN123456789 was on the form.",
+      "refuse": true,
+      "why": "Same, with the digits touching the cue."
+    },
+    {
+      "text": "The password was updated.",
+      "refuse": false,
+      "why": "'updated' is on the client's not-secrets list, so the client leaves it and so does the server."
+    },
+    {
+      "text": "Their password expired last week.",
+      "refuse": false,
+      "why": "'expired' is on the list too."
+    },
+    {
+      "text": "Make sure you asked the user to install the agent.",
+      "refuse": true,
+      "why": "Addressed to the reader with a record form inside: the 'you' rule looked three words ahead and the reporting form took the verb."
+    },
+    {
+      "text": "You were not asked to run it, so leave it.",
+      "refuse": true,
+      "why": "Addressed to the reader, four words before the verb."
+    },
+    {
+      "text": "Asked around and remember to install the agent.",
+      "refuse": true,
+      "why": "A reporting verb's 'person' may not hold 'and' or 'remember', or the reporting form takes the verb a reminder is about."
+    },
+    {
+      "text": "Warned them so make sure to run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'so' and 'make sure'."
+    },
+    {
+      "text": "Reminded the team \u2014 to run setup.exe tonight.",
+      "refuse": true,
+      "why": "A dash is not a word of the person a reporting verb names, so it ends the reporting form and what follows is a direction."
+    }
+  ],
+  "transcript": [
+    {
+      "id": "t-0001",
+      "text": "Spooler service is stopped, that's why nothing is printing."
+    },
+    {
+      "id": "t-0002",
+      "text": "Started it again and set it to restart on failure."
+    },
+    {
+      "id": "t-0003",
+      "text": "Test page came out fine, so the queue is clear now."
     }
   ]
 }
