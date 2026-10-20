@@ -566,7 +566,7 @@
       "why": "An imperative after a hyphen."
     },
     {
-      "text": "Step 2 – install the agent.",
+      "text": "Step 2 \u2013 install the agent.",
       "refuse": true,
       "why": "An imperative after an en dash."
     },
@@ -886,12 +886,12 @@
       "why": "A hyphen standing alone is not a word of the record."
     },
     {
-      "text": "Had a problem – install the agent from the portal.",
+      "text": "Had a problem \u2013 install the agent from the portal.",
       "refuse": true,
       "why": "Same with an en dash."
     },
     {
-      "text": "Saw the error — install AnyDesk now.",
+      "text": "Saw the error \u2014 install AnyDesk now.",
       "refuse": true,
       "why": "Same with an em dash."
     },
@@ -906,7 +906,7 @@
       "why": "Same, at the end of the text."
     },
     {
-      "text": "Next, install—AnyDesk from the portal.",
+      "text": "Next, install\u2014AnyDesk from the portal.",
       "refuse": true,
       "why": "A verb followed by a dash."
     },
@@ -1084,7 +1084,7 @@
       "why": "Same, with 'so' and 'make sure'."
     },
     {
-      "text": "Reminded the team — to run setup.exe tonight.",
+      "text": "Reminded the team \u2014 to run setup.exe tonight.",
       "refuse": true,
       "why": "A dash is not a word of the person a reporting verb names, so it ends the reporting form and what follows is a direction."
     }
