@@ -19,7 +19,7 @@ namespace ScreenTail.Api.Tests;
 /// the data layer is taken on trust.
 ///
 /// The signing key here is a test key and exists only in this file. The service has no default one and
-/// refuses to start without it, which is the behaviour <c>StartupRefusesAWeakSigningKey</c> asserts.
+/// refuses to start without it, which is the behaviour <c>TheHostWillNotServeWithoutASigningKey</c> asserts.
 /// </summary>
 public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {

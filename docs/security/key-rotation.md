@@ -40,7 +40,9 @@ Every step is reversible until step 5, and a second run of step 4 is the check t
    ```bash
    dotnet run --project src/ScreenTail.Api -- --rotate-vault-keys
    ```
-   It prints how many rows changed hands and exits without listening. Run it again: it should print
+   It prints how many rows changed hands and exits without listening. "The same configuration" includes
+   `Jwt:SigningKey`: the host checks it before any command runs, so without it the rewrap stops with a
+   message naming the setting. Run it again: it should print
    `rotated 0`. If it does not, something wrote a row under the previous key between the two runs, which
    means a process is still holding the old configuration — find it before going on.
 5. **Drop the previous key.** Remove `Vault:PreviousMasterKey` and restart. Rows are now readable only
@@ -58,4 +60,6 @@ finished; put the previous key back and repeat step 4.
 - **Who may store a credential.** Any device of the tenant may, until ST-010 brings roles.
 
 Exercised by `backend/tests/ScreenTail.Api.Tests/Vault/KeyRotationTests.cs`, which does steps 2 to 5 in
-memory and checks that every row opens after and none before.
+memory: a row under the previous key opens before the rewrap and a new one goes under the current key
+(step 3), every row opens under the current key alone after it (steps 4 and 5), and a row under a key the
+deployment no longer holds is refused with that key's id.

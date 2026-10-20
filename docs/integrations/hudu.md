@@ -8,7 +8,7 @@ Hudu before a pilot. Written from Hudu's API documentation; the real check has n
 | Call | Route | When |
 |---|---|---|
 | Check the key | `GET /api/v1/api_info` | Settings → Integrations' Test connection, through `POST /v1/integrations/hudu/check`; the row records when and what went wrong |
-| List companies | `GET /api/v1/companies?page=n&page_size=25`, until a short page; cached ten minutes per tenant | Mapping a PSA company to a Hudu one (ST-097), and before every article |
+| List companies | `GET /api/v1/companies?page=n&page_size=25`, until a short page; cached ten minutes per tenant, for the site it came from, and forgotten when the credential is stored or removed | Mapping a PSA company to a Hudu one (ST-097), and before every article |
 | Create an article | `POST /api/v1/articles` with `{"article": {"name", "content", "company_id", "draft": true}}` | Publish, KB destination on |
 | Attach screenshots | `POST /api/v1/uploads` with `uploadable_type=Article`, `uploadable_id`, `file`, one per included frame, after the article | Publish |
 
@@ -22,6 +22,12 @@ Update it in Settings → Integrations." A 422 carries Hudu's own words about th
 **A company Hudu does not have is refused before anything is sent.** Publishing to the wrong company is
 one customer's runbook in another customer's knowledge base, so the company id must be one of the
 tenant's.
+
+**A remembered company mapping is used only while the list still has its id under the same name.** A
+company id names a customer only on the site that issued it, so mappings are forgotten when Hudu is
+removed or connected to another site. A mapping that is still there but whose id now carries another
+name (saved while the tenant was moving, or the company renamed in Hudu) is forgotten at the next
+publish, which asks for a mapping once and writes nothing.
 
 ## What the tenant supplies
 

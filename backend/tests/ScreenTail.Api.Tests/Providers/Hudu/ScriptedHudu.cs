@@ -58,6 +58,12 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns.</summary>
     public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
 
+    /// <summary>
+    /// The name a site gives a company id, when it is not the recorded one. Two Hudu sites number their
+    /// companies independently, so the same id can be a different customer on each (S-71).
+    /// </summary>
+    public Func<string, int, string?>? RenamedAt { get; set; }
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -117,7 +123,7 @@ internal sealed class ScriptedHudu : HttpMessageHandler
                 Ok(new { version = "2.27.1", date = "2026-09-01" }),
 
             ("GET", var p) when p.EndsWith("/api/v1/companies", StringComparison.Ordinal) =>
-                Ok(new { companies = Companies(int.Parse(query["page"] ?? "1", System.Globalization.CultureInfo.InvariantCulture), int.Parse(query["page_size"] ?? "25", System.Globalization.CultureInfo.InvariantCulture)) }),
+                Ok(new { companies = Companies(request.RequestUri.Host, int.Parse(query["page"] ?? "1", System.Globalization.CultureInfo.InvariantCulture), int.Parse(query["page_size"] ?? "25", System.Globalization.CultureInfo.InvariantCulture)) }),
 
             ("POST", var p) when p.EndsWith("/api/v1/articles", StringComparison.Ordinal) =>
                 Ok(new { article = new { id = 5101, name = "Printer offline", url = "https://acme.huducloud.com/a/printer-offline-5101", draft = true, company_id = 7 } }),
@@ -129,11 +135,11 @@ internal sealed class ScriptedHudu : HttpMessageHandler
         };
     }
 
-    private object[] Companies(int page, int pageSize)
+    private object[] Companies(string host, int page, int pageSize)
     {
         var first = ((long)page - 1) * pageSize + 1;
         var last = Math.Min(CompanyCount, first + pageSize - 1);
-        return [.. Enumerable.Range(0, (int)Math.Max(0, last - first + 1)).Select(offset => (int)(first + offset)).Select(i => new { id = i, name = i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}" })];
+        return [.. Enumerable.Range(0, (int)Math.Max(0, last - first + 1)).Select(offset => (int)(first + offset)).Select(i => new { id = i, name = RenamedAt?.Invoke(host, i) ?? (i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}") })];
     }
 
     private static HttpResponseMessage Ok(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body, options: Json) };

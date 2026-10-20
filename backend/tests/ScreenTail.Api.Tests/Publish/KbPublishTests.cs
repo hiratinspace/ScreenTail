@@ -26,6 +26,8 @@ namespace ScreenTail.Api.Tests.Publish;
 /// </summary>
 public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
+    private static readonly Uri Companies = new("/v1/integrations/hudu/companies", UriKind.Relative);
+
     [Fact]
     public async Task AnExactCompanyMatchPublishesADraftArticleAndIsRemembered()
     {
@@ -263,6 +265,303 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal("7", mapping.DocCompanyId);
     }
 
+    [Fact]
+    public async Task ForgettingAMappingRemovesOnlyThisTenantsRow()
+    {
+        // 2026-10-12 review, T-174 (boundary 7). Both tenants file "Acme Dental" under Hudu company 7;
+        // one forgets it, and the other's mapping is exactly where it was.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (mine, myTenant) = await ConnectedClientAsync(host);
+        var (theirs, theirTenant) = await ConnectedClientAsync(host);
+        using var a = await mine.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        using var b = await mine.PutAsJsonAsync(Companies, new MapCompanyRequest("Borough Legal", "8"), TestContext.Current.CancellationToken);
+        using var c = await theirs.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+
+        using var forgotten = await theirs.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var again = await theirs.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var notTheirs = await theirs.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Borough%20Legal", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, forgotten.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, notTheirs.StatusCode);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == theirTenant)));
+        var kept = await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == myTenant).OrderBy(m => m.PsaCompany).Select(m => m.PsaCompany + "=" + m.DocCompanyId).ToListAsync());
+        Assert.Equal(["Acme Dental=7", "Borough Legal=8"], kept);
+    }
+
+    [Fact]
+    public async Task AnotherTenantsMappingIsNeverUsed()
+    {
+        // T-174. "Nowhere Inc" matches nothing in Hudu, so only a mapping can file it. One tenant has
+        // mapped it by hand; the other publishes the same name and is asked for its own mapping.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (mine, _) = await ConnectedClientAsync(host);
+        var (theirs, theirTenant) = await ConnectedClientAsync(host);
+        using var mapped = await mine.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+
+        using var response = await theirs.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Nowhere Inc"), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+        var list = await theirs.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        var kb = Assert.Single(published!.Results);
+        Assert.False(kb.Ok);
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.DoesNotContain(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal));
+        Assert.Empty(list!.Mappings);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == theirTenant)));
+    }
+
+    [Fact]
+    public async Task ReplacingTheHuduConnectionForgetsItsCompanies()
+    {
+        // 2026-10-12 review, T-214. The list is cached ten minutes. Pointed at another site, the next
+        // list must be that site's, not the old one's served from memory.
+        var hudu = new ScriptedHudu { RenamedAt = (site, id) => site == "other.huducloud.com" && id == 7 ? "Zenith Accounting" : null };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+        var before = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        var after = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
+        Assert.Contains(before!.Companies, c => c.Id == "7" && c.Name == "Acme Dental");
+        Assert.Contains(after!.Companies, c => c.Id == "7" && c.Name == "Zenith Accounting");
+        Assert.Contains(hudu.Requests, r => r.RequestUri!.Host == "other.huducloud.com" && r.RequestUri.AbsolutePath.EndsWith("/api/v1/companies", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ANewKeyForTheSameSiteAsksForTheCompaniesAgain()
+    {
+        // T-214's other half: the key changed and the site did not. The list may differ with what the
+        // new key can see, so it is asked for again rather than served from memory.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+        _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+        var asked = hudu.Requests.Count(IsCompanyList);
+
+        using var rotated = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0000"), TestContext.Current.CancellationToken);
+        _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, rotated.StatusCode);
+        Assert.True(hudu.Requests.Count(IsCompanyList) > asked);
+    }
+
+    [Fact]
+    public async Task RepointingHuduForgetsTheMappingsMadeOnTheOldSite()
+    {
+        // 2026-10-12 review, S-71. Company 7 is Acme Dental on the old site and somebody else entirely on
+        // the new one. A mapping that survived the move would file Acme Dental's article under that other
+        // customer; instead the publish asks for a mapping on the new site, and nothing is posted.
+        var hudu = new ScriptedHudu { RenamedAt = (site, id) => site == "other.huducloud.com" && id == 7 ? "Zenith Accounting" : null };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        var (bystander, bystanderTenant) = await ConnectedClientAsync(host);
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        using var theirs = await bystander.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        Assert.Equal("7", (await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId))).DocCompanyId);
+
+        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        var posted = hudu.Requests.Count(IsArticle);
+        using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var published = await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
+        var kb = Assert.Single(published!.Results);
+        Assert.False(kb.Ok);
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.Equal(posted, hudu.Requests.Count(IsArticle));
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+        Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == bystanderTenant)));
+    }
+
+    [Fact]
+    public async Task AMappingFromTheOldSiteThatSurvivedTheMoveIsNotTrusted()
+    {
+        // S-71, second review round. A publish that read the old site's list while the tenant was moving
+        // can remember company 7 after the move cleared the mappings. On the new site 7 is Zenith
+        // Accounting, so the remembered "Acme Dental" no longer names it: nothing is posted, and the stale
+        // row is forgotten so the next publish starts from the new site's own list.
+        var hudu = new ScriptedHudu { RenamedAt = (site, id) => site == "other.huducloud.com" && id == 7 ? "Zenith Accounting" : null };
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental");
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
+        var kb = Assert.Single(published!.Results);
+        Assert.False(kb.Ok);
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.DoesNotContain(hudu.Requests, IsArticle);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Theory]
+    [InlineData("Acme Dental Group")]
+    [InlineData("acme dental")]
+    [InlineData("Acme Dental ")]
+    [InlineData("")]
+    public async Task AMappingWhoseCompanyNoLongerHasThatNameAsksOnceThenMatchesAgain(string remembered)
+    {
+        // The id is trusted only while it still carries the name the mapping was made with. A company
+        // renamed in Hudu is asked about once; after that the publish is a fresh one, and an exact match
+        // on today's list is remembered as usual.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", remembered);
+
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var asked = Assert.Single((await first.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+        var posted = hudu.Requests.Count(IsArticle);
+        using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var again = Assert.Single((await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.False(asked.Ok);
+        Assert.Equal("needs_mapping", asked.Kind);
+        Assert.Equal(0, posted);
+        Assert.True(again.Ok);
+        var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal(("7", "Acme Dental", "exact"), (mapping.DocCompanyId, mapping.DocCompanyName, mapping.Confidence));
+    }
+
+    [Fact]
+    public async Task AStaleMappingRewrittenSinceItWasReadIsKept()
+    {
+        // The stale row is forgotten as it was read. If a person or an exact match rewrote it in the
+        // meantime, the new decision is theirs and is not thrown away with the old one.
+        var (tenantId, _, _) = await SeedAsync();
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental Group");
+        var stale = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental"));
+        _ = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("12", "Acme Dental"), "manual"));
+
+        var forgot = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).ForgetIfUnchangedAsync(stale!));
+        var unchanged = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental"));
+        var gone = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).ForgetIfUnchangedAsync(unchanged!));
+
+        Assert.False(forgot);
+        Assert.Equal(("12", "Acme Dental"), (unchanged!.DocCompanyId, unchanged.DocCompanyName));
+        Assert.True(gone);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task AMappingStillNamingItsCompanyIsUsedWithoutAskingHuduAgain()
+    {
+        // The check reads the same cached list the article check reads, so a trusted mapping costs no
+        // extra request to Hudu.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, _) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        var asked = hudu.Requests.Count(IsCompanyList);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Nowhere Inc"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.True(kb.Ok);
+        Assert.Equal(asked, hudu.Requests.Count(IsCompanyList));
+    }
+
+    [Theory]
+    [InlineData("https://acme.huducloud.com")]
+    [InlineData("https://ACME.huducloud.com/")]
+    [InlineData("  https://acme.huducloud.com/  ")]
+    public async Task ANewKeyForTheSameSiteKeepsTheMappings(string sameSite)
+    {
+        // The same Hudu numbers its companies the same way whatever key reads them, so rotating the key
+        // keeps what a person decided. The spelling of the site does not make it another site.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+
+        using var rotated = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest(sameSite, "hudu-key-0000"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, rotated.StatusCode);
+        Assert.Equal("9", (await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId))).DocCompanyId);
+    }
+
+    [Fact]
+    public async Task RemovingHuduForgetsItsMappingsAndItsCompanies()
+    {
+        // S-71 and T-214 on DELETE. Connecting again afterwards, even to the same site, starts from
+        // nothing: the removal is the person saying these decisions no longer hold.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        var asked = hudu.Requests.Count(IsCompanyList);
+
+        using var removed = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        var left = await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId));
+        using var back = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+        var list = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        Assert.Equal(0, left);
+        Assert.Empty(list!.Mappings);
+        Assert.True(hudu.Requests.Count(IsCompanyList) > asked);
+    }
+
+    [Fact]
+    public async Task ARefusedReplacementForgetsNothing()
+    {
+        // A PUT that is turned away changed nothing, so it takes nothing with it either.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+
+        using var refused = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("http://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task ConnectingHuduWithNothingBeforeItStartsWithNoMappings()
+    {
+        // Mappings with no Hudu behind them were made on a site nobody can name any more; the first
+        // connection does not inherit them.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host, hudu: false);
+        _ = await api.UseAsync(async db =>
+        {
+            db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = "Acme Dental", DocCompanyId = "7", DocCompanyName = "Acme Dental", Confidence = "manual", CreatedAt = DateTimeOffset.UtcNow });
+            return await db.SaveChangesAsync();
+        });
+
+        using var connected = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, connected.StatusCode);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task RemovingConnectWiseLeavesTheHuduMappingsAlone()
+    {
+        // The mappings belong to the documentation platform; the PSA coming and going is not a reason
+        // to throw away what a person decided about Hudu.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+
+        using var removed = await client.DeleteAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var back = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://eu.myconnectwise.net", "acme+PUB:PRIV-0000"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    private static bool IsCompanyList(HttpRequestMessage request) => request.RequestUri!.AbsolutePath.EndsWith("/api/v1/companies", StringComparison.Ordinal);
+
+    private static bool IsArticle(HttpRequestMessage request) => request.RequestUri!.AbsolutePath.EndsWith("/api/v1/articles", StringComparison.Ordinal);
+
     private static PublishBundle Bundle(string company) => new()
     {
         SessionId = "s-0001",
@@ -317,6 +616,13 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         return (client, tenantId);
     }
+
+    /// <summary>A mapping written the way a publish racing a repoint would write it: straight in, after the move.</summary>
+    private Task<int> RememberDirectlyAsync(Guid tenantId, string psaCompany, string docCompanyId, string docCompanyName) => api.UseAsync(async db =>
+    {
+        db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = psaCompany, DocCompanyId = docCompanyId, DocCompanyName = docCompanyName, Confidence = "exact", CreatedAt = DateTimeOffset.UtcNow });
+        return await db.SaveChangesAsync();
+    });
 
     private async Task<(Guid TenantId, Guid UserId, Guid DeviceId)> SeedAsync()
     {

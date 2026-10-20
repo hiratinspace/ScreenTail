@@ -49,6 +49,51 @@ public sealed class KeyRotationTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ARowUnderThePreviousKeyStillOpensBeforeTheRewrap()
+    {
+        // 2026-10-12 review, T-190. Step 3 of docs/security/key-rotation.md: restarted with both keys and
+        // not yet rewrapped, a row under the previous key opens as before, and a credential stored now
+        // goes under the new one. Nothing is unreadable at any point.
+        var tenant = Guid.NewGuid();
+        await using (var db = await OpenAsync())
+        {
+            var before = new IntegrationVault(db, Options(current: _old), TimeProvider.System);
+            await before.StoreAsync(tenant, "connectwise", "https://na", "cw-secret-0001", TestContext.Current.CancellationToken);
+        }
+
+        await using (var db = await OpenAsync())
+        {
+            var during = new IntegrationVault(db, Options(current: _new, previous: _old), TimeProvider.System);
+            Assert.Equal("cw-secret-0001", (await during.RevealAsync(tenant, "connectwise", TestContext.Current.CancellationToken))?.Secret);
+
+            await during.StoreAsync(tenant, "hudu", "https://h", "hudu-key-0002", TestContext.Current.CancellationToken);
+            Assert.Equal("hudu-key-0002", (await during.RevealAsync(tenant, "hudu", TestContext.Current.CancellationToken))?.Secret);
+
+            var keys = await db.Integrations.AsNoTracking().OrderBy(i => i.Provider).Select(i => i.KeyId).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Equal([Envelope.KeyIdOf(_old), Envelope.KeyIdOf(_new)], keys);
+        }
+    }
+
+    [Fact]
+    public async Task ARowUnderAKeyThisDeploymentDoesNotHoldSaysWhichKey()
+    {
+        // Step 5 run before step 4 finished: the previous key is gone and a row still needs it. The vault
+        // names the key id rather than handing a provider garbage.
+        var tenant = Guid.NewGuid();
+        await using (var db = await OpenAsync())
+        {
+            await new IntegrationVault(db, Options(current: _old), TimeProvider.System).StoreAsync(tenant, "connectwise", "https://na", "cw-secret-0001", TestContext.Current.CancellationToken);
+        }
+
+        await using (var db = await OpenAsync())
+        {
+            var dropped = new IntegrationVault(db, Options(current: _new), TimeProvider.System);
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => dropped.RevealAsync(tenant, "connectwise", TestContext.Current.CancellationToken));
+            Assert.Contains(Envelope.KeyIdOf(_old), thrown.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task ARowAlreadyUnderTheCurrentKeyIsLeftAlone()
     {
         var tenant = Guid.NewGuid();

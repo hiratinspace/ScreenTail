@@ -195,7 +195,7 @@ Terraform for staging/production: API hosting, managed Postgres, KMS, secrets ma
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** **Done 2026-09-18 (#63).** EF model and migrations for all six tables, JWT device tokens pinned to HS256 with no default signing key, `GET /v1/me`, and a summarization endpoint that exists so INV-7 can be tested against it. 20 tests. Runs on local Docker Postgres; ST-007 remains a deployment gate (Part D, D-2).
+- **Status:** **Done 2026-09-18 (#63).** EF model and migrations for all six tables, JWT device tokens pinned to HS256 with no default signing key, `GET /v1/me`, and a summarization endpoint that exists so INV-7 can be tested against it. 20 tests. Runs on local Docker Postgres; ST-007 remains a deployment gate (Part D, D-2). Since the 2026-10-12 review (T-183) the host refuses to start without a signing key of at least 32 bytes, where before it started and failed at the first token.
 
 **Description:**
 ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integrations/policies/metrics; JWT tenant and device tokens; never persists raw captures.
@@ -1812,7 +1812,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Done against recorded shapes 2026-09-25; the real check is owed.** `HuduProvider`: the key as a header, companies paged at 25 and cached ten minutes per tenant (AC1), "Hudu rejected the API key." for a 401 (AC2), a draft article under its company with each attachment uploaded against it, a company the tenant does not have refused before anything is sent; passes `DocProviderContract`. AC3's document, `docs/integrations/hudu.md`, says what to verify first against a real Hudu: that `draft` is honoured, and how uploads appear. Needs a Hudu key (owner).
+- **Status:** **Done against recorded shapes 2026-09-25; the real check is owed.** `HuduProvider`: the key as a header, companies paged at 25 and cached ten minutes per tenant (AC1), each list tied to the site it came from and forgotten when the Hudu credential is stored or removed (2026-10-12 review, T-214), "Hudu rejected the API key." for a 401 (AC2), a draft article under its company with each attachment uploaded against it, a company the tenant does not have refused before anything is sent; passes `DocProviderContract`. AC3's document, `docs/integrations/hudu.md`, says what to verify first against a real Hudu: that `draft` is honoured, and how uploads appear. Needs a Hudu key (owner).
 
 **Description:**
 `IDocProvider` for Hudu: companies, connection check, create/update articles, self-hosted URLs; verify image upload support and record approach.
@@ -1862,7 +1862,7 @@ Note → draft article scoped to mapped company/central KB; images inline if sup
 - **Epic/Feature:** INTEG
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). **Client half done 2026-09-25:** the publish pane acts on `needs_mapping` — the platform's companies in a picker beside the result, the choice sent with `map_company` and remembered, the article sent again on its own (AC2: unmatched → prompt once at publish). **Owed:** the Settings screen (AC3, ST-081), which reads the same endpoints.
+- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). Since the 2026-10-12 review (S-71) a tenant's mappings are forgotten when Hudu is removed or connected to another site, since a company id names a customer only on its own site; a new key for the same site keeps them. A remembered mapping is used only while Hudu's list still has its id under the name it was made with; otherwise it is forgotten and the publish asks again, so a mapping saved during a move cannot file an article under the new site's holder of that number. **Client half done 2026-09-25:** the publish pane acts on `needs_mapping` — the platform's companies in a picker beside the result, the choice sent with `map_company` and remembered, the article sent again on its own (AC2: unmatched → prompt once at publish). **Owed:** the Settings screen (AC3, ST-081), which reads the same endpoints.
 
 **Description:**
 Per-tenant mapping auto-matched by name with confidence, user-correctable in Settings.

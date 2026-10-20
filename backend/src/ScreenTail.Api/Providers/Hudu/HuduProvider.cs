@@ -44,7 +44,9 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
     public async Task<ProviderResult<IReadOnlyList<CompanyRef>>> ListCompaniesAsync(CancellationToken ct = default)
     {
         ProviderError? failed = null;
-        var companies = await _cache.GetOrAddAsync(_tenantKey, _options.CompanyCacheFor, async token =>
+        // The site is the client's base address, which the factory set from the vault's row: a list from
+        // any other site is not this one's.
+        var companies = await _cache.GetOrAddAsync(_tenantKey, _http.BaseAddress?.AbsoluteUri ?? string.Empty, _options.CompanyCacheFor, async token =>
         {
             // Bounded twice over (2026-10-12 review): a site that answers every page in full would
             // otherwise be paged for ever on the shared backend, and the pages are counted as well as

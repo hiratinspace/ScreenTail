@@ -42,11 +42,15 @@ var connection = builder.Configuration.GetConnectionString("Postgres")
 
 builder.Services.AddDbContext<ScreenTailContext>(options => options.UseNpgsql(connection));
 
+// Built here rather than inside AddJwtBearer, whose callback runs at the first authenticated request: a
+// host with no key used to start, answer /health and fail only when a token arrived (2026-10-12 review).
+var tokenValidation = TokenIssuer.Validation(jwt);
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.TokenValidationParameters = TokenIssuer.Validation(jwt);
+        options.TokenValidationParameters = tokenValidation;
 
         // No token details in the response. A 401 that explains which check failed is a 401 that helps
         // whoever is guessing (INV-10 in spirit: say nothing an attacker can use, and nothing a customer

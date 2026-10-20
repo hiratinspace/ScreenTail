@@ -104,6 +104,40 @@ public sealed class HuduProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task AListFromAnotherSiteIsNotServed()
+    {
+        // S-71 and T-214. The same tenant, moved to another site, with nothing told to forget: the entry
+        // names the site it came from, so a backend that never saw the change still asks the new site.
+        var cache = new HuduCompanyCache(_time);
+        _ = await Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken);
+        var moved = new HuduProvider(
+            new HttpClient(_api) { BaseAddress = new Uri("https://other.huducloud.com/") },
+            "hudu-api-key-1234",
+            new HuduOptions { BackoffBase = TimeSpan.Zero },
+            cache,
+            "t-1",
+            _time);
+
+        _ = await moved.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _ = await Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(6, _api.Requests.Count);
+        Assert.Equal(2, _api.Requests.Count(r => r.RequestUri!.Host == "other.huducloud.com"));
+    }
+
+    [Fact]
+    public async Task AForgottenTenantIsAskedAgain()
+    {
+        var cache = new HuduCompanyCache(_time);
+        _ = await Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        cache.Forget("t-1");
+        _ = await Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, _api.Requests.Count);
+    }
+
+    [Fact]
     public async Task AnArticleIsADraftUnderItsCompanyWithItsAttachmentsUploaded()
     {
         // ST-096 AC1 and the image-upload half of ST-095 AC3: the article is created as a draft under the

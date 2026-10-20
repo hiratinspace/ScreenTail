@@ -5,6 +5,7 @@ using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers;
 using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Hudu;
+using ScreenTail.Api.Publish;
 using ScreenTail.Api.Vault;
 
 namespace ScreenTail.Api.Endpoints;
@@ -28,6 +29,9 @@ public sealed record IntegrationCheckResponse(bool Ok, string Message, DateTimeO
 /// </summary>
 public static partial class IntegrationsEndpoint
 {
+    /// <summary>The documentation platform, whose company mappings and cached list belong to the site it is connected to.</summary>
+    private const string Hudu = "hudu";
+
     [GeneratedRegex("^[a-z][a-z0-9-]{1,49}$")]
     private static partial Regex ProviderName();
 
@@ -43,7 +47,7 @@ public static partial class IntegrationsEndpoint
         .WithName("ListIntegrations")
         .WithSummary("The tenant's integrations, with each credential's last four characters and nothing more.");
 
-        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ProviderNetworkOptions network, CancellationToken ct) =>
+        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, ProviderNetworkOptions network, TimeProvider time, CancellationToken ct) =>
         {
             if (!ProviderName().IsMatch(provider))
             {
@@ -76,17 +80,65 @@ public static partial class IntegrationsEndpoint
                 return Results.Json(new { error = "not_configured", message = "This deployment has no vault master key, so credentials cannot be stored." }, statusCode: StatusCodes.Status501NotImplemented);
             }
 
-            await vault.StoreAsync(who.TenantId, provider, request.SiteUrl.Trim(), request.Secret, ct).ConfigureAwait(false);
+            if (provider != Hudu)
+            {
+                await vault.StoreAsync(who.TenantId, provider, request.SiteUrl.Trim(), request.Secret, ct).ConfigureAwait(false);
+                return Results.NoContent();
+            }
+
+            // Hudu's company ids mean a customer only on the site that issued them. Moved to another site
+            // (or connected with nothing before it), the mappings made on the old one are forgotten in the
+            // same transaction as the new credential, so no publish can see the new site with the old
+            // decisions. A new key for the same site keeps them: the same Hudu numbers its companies the
+            // same way whoever asks (2026-10-12 review, S-71).
+            await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
+            {
+                var previous = await db.Integrations.AsNoTracking()
+                    .Where(i => i.TenantId == who.TenantId && i.Provider == Hudu)
+                    .Select(i => i.SiteUrl)
+                    .SingleOrDefaultAsync(ct)
+                    .ConfigureAwait(false);
+                if (previous is null || HuduProviderFactory.BaseAddressFor(previous) != HuduProviderFactory.BaseAddressFor(request.SiteUrl))
+                {
+                    _ = await new CompanyMappings(db, who.TenantId, time).ForgetAllAsync(ct).ConfigureAwait(false);
+                }
+
+                await vault.StoreAsync(who.TenantId, provider, request.SiteUrl.Trim(), request.Secret, ct).ConfigureAwait(false);
+                await transaction.CommitAsync(ct).ConfigureAwait(false);
+            }
+
+            // The list is asked for again with the new key, whatever the site (T-214).
+            companies.Forget(HuduCompanyCache.KeyFor(who.TenantId));
             return Results.NoContent();
         })
         .WithName("StoreIntegration")
         .WithSummary("Stores or replaces the tenant's credential for a provider. It is never returned.");
 
-        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, CancellationToken ct) =>
+        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, TimeProvider time, CancellationToken ct) =>
         {
-            return await vault.RemoveAsync(who.TenantId, provider, ct).ConfigureAwait(false)
-                ? Results.NoContent()
-                : Results.NotFound();
+            if (provider != Hudu)
+            {
+                return await vault.RemoveAsync(who.TenantId, provider, ct).ConfigureAwait(false)
+                    ? Results.NoContent()
+                    : Results.NotFound();
+            }
+
+            // Removing Hudu is the person saying these decisions no longer hold: the mappings go with the
+            // credential, in one transaction, and the cached list with them (S-71, T-214).
+            bool removed;
+            await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
+            {
+                removed = await vault.RemoveAsync(who.TenantId, provider, ct).ConfigureAwait(false);
+                if (removed)
+                {
+                    _ = await new CompanyMappings(db, who.TenantId, time).ForgetAllAsync(ct).ConfigureAwait(false);
+                }
+
+                await transaction.CommitAsync(ct).ConfigureAwait(false);
+            }
+
+            companies.Forget(HuduCompanyCache.KeyFor(who.TenantId));
+            return removed ? Results.NoContent() : Results.NotFound();
         })
         .WithName("RemoveIntegration")
         .WithSummary("Forgets the tenant's credential for a provider.");

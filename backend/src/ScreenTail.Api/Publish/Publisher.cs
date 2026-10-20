@@ -182,6 +182,13 @@ public static partial class Publisher
     /// The article: the ticket's company mapped to the platform's — remembered, or exact and then
     /// remembered — or a mapping asked for. A likely match is offered in the message and never assumed:
     /// the wrong company is a customer's runbook in another customer's knowledge base.
+    ///
+    /// A remembered mapping is trusted only while the platform's list still holds its id under the name
+    /// it was made with (2026-10-12 review, S-71). An id names a customer only on the site that issued
+    /// it, and nothing else in the row says which site that was: a mapping saved by a publish that was
+    /// still reading the old site while the tenant moved, or one left from before mappings were cleared
+    /// on a move, would otherwise file the article under whoever holds that number on the new site. The
+    /// list is the one the platform checks the article against anyway, so this asks it for nothing more.
     /// </summary>
     private static async Task<PublishResultJson> ArticleAsync(string destination, IDocProvider docs, CompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, Sending sent, CancellationToken ct)
     {
@@ -191,26 +198,29 @@ public static partial class Publisher
         }
 
         var mapped = await mappings.FindAsync(bundle.Company, ct).ConfigureAwait(false);
+        var companies = await docs.ListCompaniesAsync(ct).ConfigureAwait(false);
+        if (!companies.Ok)
+        {
+            return Failed(destination, companies.Error!);
+        }
+
+        if (mapped is not null && !companies.Value!.Any(c => c.Id == mapped.DocCompanyId && string.Equals(c.Name, mapped.DocCompanyName, StringComparison.Ordinal)))
+        {
+            // Stale: forgotten, so the next publish starts from today's list. Only this row as it was
+            // read goes; one a person or a match has rewritten since is theirs and stays.
+            _ = await mappings.ForgetIfUnchangedAsync(mapped, ct).ConfigureAwait(false);
+            return NeedsMapping(destination, bundle.Company, CompanyMapper.Match(bundle.Company, companies.Value!), $"The mapping to \"{mapped.DocCompanyName}\" no longer matches the documentation platform's companies, so it was forgotten and nothing was written. ");
+        }
+
         if (mapped is null)
         {
-            var companies = await docs.ListCompaniesAsync(ct).ConfigureAwait(false);
-            if (!companies.Ok)
+            var match = CompanyMapper.Match(bundle.Company, companies.Value!);
+            if (match is not { Confidence: MatchConfidence.Exact })
             {
-                return Failed(destination, companies.Error!);
+                return NeedsMapping(destination, bundle.Company, match, string.Empty);
             }
 
-            var match = CompanyMapper.Match(bundle.Company, companies.Value!);
-            if (match is { Confidence: MatchConfidence.Exact })
-            {
-                mapped = await mappings.RememberAsync(bundle.Company, match.Company, "exact", ct).ConfigureAwait(false);
-            }
-            else
-            {
-                var hint = match is null
-                    ? "Map it in Settings → Integrations, then publish the article again."
-                    : $"It may be \"{match.Company.Name}\"; confirm the mapping in Settings → Integrations, then publish the article again.";
-                return new PublishResultJson(destination, false, Error: $"\"{bundle.Company}\" is not mapped to a company in the documentation platform. {hint}", Kind: "needs_mapping");
-            }
+            mapped = await mappings.RememberAsync(bundle.Company, match.Company, "exact", ct).ConfigureAwait(false);
         }
 
         var article = new KbArticle(
@@ -222,6 +232,14 @@ public static partial class Publisher
         return result.Ok
             ? Landed(destination, result.Value!.Id, result.Value.Url, result.Value.Incomplete)
             : Failed(destination, result.Error!);
+    }
+
+    private static PublishResultJson NeedsMapping(string destination, string company, CompanyMatch? match, string why)
+    {
+        var hint = match is null
+            ? "Map it in Settings → Integrations, then publish the article again."
+            : $"It may be \"{match.Company.Name}\"; confirm the mapping in Settings → Integrations, then publish the article again.";
+        return new PublishResultJson(destination, false, Error: $"{why}\"{company}\" is not mapped to a company in the documentation platform. {hint}", Kind: "needs_mapping");
     }
 
     private static PublishResultJson Answer(string destination, ProviderResult<PublishedNote> result) => result.Ok
