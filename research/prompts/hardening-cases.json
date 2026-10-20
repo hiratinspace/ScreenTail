@@ -1082,6 +1082,11 @@
       "text": "Warned them so make sure to run the cleanup tool.",
       "refuse": true,
       "why": "Same, with 'so' and 'make sure'."
+    },
+    {
+      "text": "Reminded the team — to run setup.exe tonight.",
+      "refuse": true,
+      "why": "A dash is not a word of the person a reporting verb names, so it ends the reporting form and what follows is a direction."
     }
   ],
   "transcript": [
