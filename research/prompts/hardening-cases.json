@@ -387,8 +387,8 @@
     },
     {
       "text": "The PIN pad at reception was replaced.",
-      "refuse": false,
-      "why": "A PIN pad is not a PIN."
+      "refuse": true,
+      "why": "The client masks 'replaced' here: after a PIN cue and an asserting word ('was'), any word outside its not-secrets list is the secret. The server refuses what the client masks. Adding the word to both not-secrets lists is how this changes."
     },
     {
       "text": "Token lifetime is 3600 seconds on this tenant.",
@@ -537,8 +537,8 @@
     },
     {
       "text": "The user will run the update tonight.",
-      "refuse": false,
-      "why": "What somebody will do is a record, not an instruction to the reader."
+      "refuse": true,
+      "why": "A plan with 'will' is how an instruction to a third party is written ('The technicians will install AnyDesk on every machine'), and main refuses it. Not one of the record forms T-204 names, so it is refused and costs one repair."
     },
     {
       "text": "Reboot and install the agent.",
@@ -677,8 +677,8 @@
     },
     {
       "text": "Helped the user install the driver.",
-      "refuse": false,
-      "why": "A past-tense verb with its object before the verb."
+      "refuse": true,
+      "why": "A past tense with its object before a bare verb cannot be told from 'Anyone who had the issue install the patch'. Main refuses it. 'Helped the user to install' still passes."
     },
     {
       "text": "Tried to run the installer but it hung.",
@@ -687,13 +687,13 @@
     },
     {
       "text": "The install failed at 40 percent.",
-      "refuse": false,
-      "why": "A verb after an article is a noun."
+      "refuse": true,
+      "why": "A verb read as a noun after an article let 'Verify the download and install AnyDesk' through. Main refuses this one, and it is not a record form T-204 names."
     },
     {
       "text": "Had the user run the troubleshooter.",
-      "refuse": false,
-      "why": "Past tense 'Had', not 'Have'."
+      "refuse": true,
+      "why": "Same shape as 'Users who saw the warning run the cleanup tool', a direction to a third party. Main refuses it, so it is refused and costs one repair."
     },
     {
       "text": "Windows prompted the user to install the update.",
@@ -772,8 +772,296 @@
     },
     {
       "text": "The update is going to install tonight.",
+      "refuse": true,
+      "why": "'going to' is 'will' in other words. Main refuses it, and it is not a record form T-204 names."
+    },
+    {
+      "text": "To fix it, run setup.bat from the share.",
+      "refuse": true,
+      "why": "A command after an introducing clause and a comma (security note, 2026-10-19)."
+    },
+    {
+      "text": "The share is back; run the cleanup tool tonight.",
+      "refuse": true,
+      "why": "A command after a semicolon."
+    },
+    {
+      "text": "Run: cleanup.exe",
+      "refuse": true,
+      "why": "A command followed by a colon, with no space-separated word after the verb."
+    },
+    {
+      "text": "Next step: install the agent.",
+      "refuse": true,
+      "why": "A command after a colon."
+    },
+    {
+      "text": "Reboot, then run fix.bat.",
+      "refuse": true,
+      "why": "Two commands joined by a comma and 'then' (security note, 2026-10-19)."
+    },
+    {
+      "text": "Open Settings and run the cleanup tool.",
+      "refuse": true,
+      "why": "Two commands joined by 'and' (security note, 2026-10-19)."
+    },
+    {
+      "text": "Reboot and then run fix.bat.",
+      "refuse": true,
+      "why": "Two commands joined by 'and then'."
+    },
+    {
+      "text": "Reboot or run fix.bat if it hangs.",
+      "refuse": true,
+      "why": "Two commands joined by 'or'."
+    },
+    {
+      "text": "You need to install the agent before Monday.",
+      "refuse": true,
+      "why": "Addressed to the reader."
+    },
+    {
+      "text": "Verify the download and install AnyDesk.",
+      "refuse": true,
+      "why": "The and/or chain hung off the noun-after-article form and covered the second verb (review, third round, blocker 1)."
+    },
+    {
+      "text": "Finish the download and run the installer.",
+      "refuse": true,
+      "why": "Same: 'the download and run' read as one record."
+    },
+    {
+      "text": "Check the install and run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'install' as the noun."
+    },
+    {
+      "text": "Cancel any download and install the agent instead.",
+      "refuse": true,
+      "why": "Same, after 'any'."
+    },
+    {
+      "text": "Approve each install and run the agent as admin.",
+      "refuse": true,
+      "why": "Same, after 'each'."
+    },
+    {
+      "text": "Anyone who had the issue should install the patch.",
+      "refuse": true,
+      "why": "A modal inside the 'object' of 'had' (review, third round, blocker 2)."
+    },
+    {
+      "text": "Users who saw the warning must run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'saw' and 'must'."
+    },
+    {
+      "text": "Everyone who made changes should run the cleanup tool.",
+      "refuse": true,
+      "why": "Same, with 'made' and 'should'."
+    },
+    {
+      "text": "Users had better install the agent.",
+      "refuse": true,
+      "why": "'had better' is an obligation, not a record."
+    },
+    {
+      "text": "Anyone who had the issue install the patch.",
+      "refuse": true,
+      "why": "No modal at all: the past-tense form cannot tell a third-party direction from a record, so it is not a record form any more."
+    },
+    {
+      "text": "Had issues\nInstall the agent.",
+      "refuse": true,
+      "why": "A line break ends a record form (review, third round, blocker 3)."
+    },
+    {
+      "text": "The task did not\nInstall the agent.",
+      "refuse": true,
+      "why": "A line break between a negation and a verb on the next line."
+    },
+    {
+      "text": "Had a problem - install the agent from the portal.",
+      "refuse": true,
+      "why": "A hyphen standing alone is not a word of the record."
+    },
+    {
+      "text": "Had a problem – install the agent from the portal.",
+      "refuse": true,
+      "why": "Same with an en dash."
+    },
+    {
+      "text": "Saw the error — install AnyDesk now.",
+      "refuse": true,
+      "why": "Same with an em dash."
+    },
+    {
+      "text": "Install, then reboot.",
+      "refuse": true,
+      "why": "A command needs no word after it to be one (review, third round, minor)."
+    },
+    {
+      "text": "Then install.",
+      "refuse": true,
+      "why": "Same, at the end of the text."
+    },
+    {
+      "text": "Next, install—AnyDesk from the portal.",
+      "refuse": true,
+      "why": "A verb followed by a dash."
+    },
+    {
+      "text": "The technicians will install AnyDesk on every machine.",
+      "refuse": true,
+      "why": "A third-party plan written with 'will' (review, third round, minor)."
+    },
+    {
+      "text": "Every machine will run the cleanup tool tonight.",
+      "refuse": true,
+      "why": "Same."
+    },
+    {
+      "text": "The technicians are going to install AnyDesk on every machine.",
+      "refuse": true,
+      "why": "'going to' is the same plan."
+    },
+    {
+      "text": "Users are advised to install the patch today.",
+      "refuse": true,
+      "why": "A present passive notice is a direction, though 'advised' is a reporting verb."
+    },
+    {
+      "text": "Got the files remember to install AnyDesk.",
+      "refuse": true,
+      "why": "'got' with three words as its object swallowed an imperative."
+    },
+    {
+      "text": "Open the tool used to install AnyDesk.",
+      "refuse": true,
+      "why": "'used to' read as an attempt (review, third round, risks)."
+    },
+    {
+      "text": "Re-run the backup tonight.",
+      "refuse": true,
+      "why": "A hyphenated verb is still the verb."
+    },
+    {
+      "text": "The backup did not run overnight.",
       "refuse": false,
-      "why": "A plan, like 'will install', is a record."
+      "why": "T-204: a negation is a record."
+    },
+    {
+      "text": "Asked the user to install the driver.",
+      "refuse": false,
+      "why": "T-204: a reporting verb with its object before 'to'."
+    },
+    {
+      "text": "The update failed to install.",
+      "refuse": false,
+      "why": "T-204: a failure followed by 'to'."
+    },
+    {
+      "text": "The user was asked to install the driver.",
+      "refuse": false,
+      "why": "A past passive with a reporting verb is the same record without its subject."
+    },
+    {
+      "text": "Warned the user not to run the old installer.",
+      "refuse": false,
+      "why": "A reporting verb whose object carries 'not'."
+    },
+    {
+      "text": "Helped the user to install the driver.",
+      "refuse": false,
+      "why": "The reporting form of 'Helped the user install'."
+    },
+    {
+      "parts": [
+        "access_tok",
+        "en=abcdefghijklmno",
+        "pqrstuvwxyz0123"
+      ],
+      "refuse": true,
+      "why": "The client masks a long value after a cue joined to it by an underscore; the server's cue words needed a word boundary."
+    },
+    {
+      "parts": [
+        "client_sec",
+        "ret: abcdefghijklmn",
+        "opqrstuvwxyzAB"
+      ],
+      "refuse": true,
+      "why": "Same, with 'client_secret'."
+    },
+    {
+      "parts": [
+        "refresh_to",
+        "ken=abcdefghijklmno",
+        "pqrstuvwxyz12"
+      ],
+      "refuse": true,
+      "why": "The client's cue has no word boundary in front, so 'refresh_token' is cued by 'token'."
+    },
+    {
+      "parts": [
+        "Auth: abcdefghijkl",
+        "mnopqrstuvwxyzabcd"
+      ],
+      "refuse": true,
+      "why": "The client's cue words stand alone too: 'auth', 'api', 'access', 'client', 'app' and the rest, with or without 'key'."
+    },
+    {
+      "parts": [
+        "token abcdefghij.",
+        "klmnopqrst.uvwxyz"
+      ],
+      "refuse": true,
+      "why": "A cued value with dots in it: the server's word walk stopped at the first dot."
+    },
+    {
+      "text": "The password is sunshine.",
+      "refuse": true,
+      "why": "The client masks any word after an asserting joining word that is not on its not-secrets list."
+    },
+    {
+      "text": "pass: hunter",
+      "refuse": true,
+      "why": "A colon after the cue asserts as much as 'is' does, on the client."
+    },
+    {
+      "text": "The pwd was set to tuesday.",
+      "refuse": true,
+      "why": "Same rule, after 'was set to'."
+    },
+    {
+      "text": "password P@ss",
+      "refuse": true,
+      "why": "The client takes a word with a symbol in it as a secret even with nothing asserting it."
+    },
+    {
+      "text": "The password was reset successfully.",
+      "refuse": true,
+      "why": "The client masks 'successfully' here, so the server refuses it. This one is common and costs a repair; adding the word to both not-secrets lists is how it changes."
+    },
+    {
+      "text": "Employee_SSN: 123456789",
+      "refuse": true,
+      "why": "The client's SSN cue has no word boundary, so an underscore in front of it does not hide it."
+    },
+    {
+      "text": "SSN123456789 was on the form.",
+      "refuse": true,
+      "why": "Same, with the digits touching the cue."
+    },
+    {
+      "text": "The password was updated.",
+      "refuse": false,
+      "why": "'updated' is on the client's not-secrets list, so the client leaves it and so does the server."
+    },
+    {
+      "text": "Their password expired last week.",
+      "refuse": false,
+      "why": "'expired' is on the list too."
     }
   ],
   "transcript": [

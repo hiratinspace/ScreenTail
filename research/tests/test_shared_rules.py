@@ -61,8 +61,58 @@ def alternatives(pattern: str) -> list[str]:
 
 
 def verbose(pattern: str) -> str:
-    """The client writes its key shapes with IgnorePatternWhitespace; this undoes it."""
-    return re.sub(r"(?<!\\)\s+", "", pattern).replace("\\ ", " ")
+    """The client writes its key shapes with IgnorePatternWhitespace; this undoes it.
+
+    .NET drops unescaped white space outside a character class and keeps it inside one, so the space in
+    the client's "[ _-]" is a space. Stripping it as well read "maps key" as a cue the client lacks.
+    """
+    out, in_class, escaped = [], False, False
+    for char in pattern:
+        if escaped:
+            out.append(" " if char == " " else "\\" + char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif in_class:
+            out.append(char)
+            in_class = char != "]"
+        elif char == "[":
+            out.append(char)
+            in_class = True
+        elif not char.isspace():
+            out.append(char)
+    return "".join(out)
+
+
+def consumed(shape: str) -> str:
+    """A client shape that starts with a lookbehind, with the lookbehind matched instead of looked at.
+
+    Python allows only fixed-width lookbehind, so the validators match the cue in front of the value.
+    Whether a value is found does not change.
+    """
+    assert shape.startswith("(?<=")
+    depth = 0
+    for index, char in enumerate(shape):
+        if char == "(" and shape[index - 1 : index] != "\\":
+            depth += 1
+        elif char == ")" and shape[index - 1 : index] != "\\":
+            depth -= 1
+            if depth == 0:
+                return shape[4:index] + shape[index + 1 :]
+    raise AssertionError(f"Unbalanced lookbehind in {shape!r}")
+
+
+def client_words(name: str) -> set[str]:
+    """One of the client's word lists, as written in the source."""
+    source = LIBRARY.read_text(encoding="utf-8")
+    start = source.index(f"HashSet<string> {name} =")
+    body = source[source.index("{", start) : source.index("};", start)]
+    return set(re.findall(r'"([^"]*)"', body))
+
+
+def client_number(name: str) -> int:
+    source = LIBRARY.read_text(encoding="utf-8")
+    return int(re.search(rf"const int {name} = ([0-9_]+);", source).group(1).replace("_", ""))
 
 
 def test_checks_uses_the_shared_file():
@@ -77,11 +127,11 @@ def test_every_key_shape_the_client_masks_is_one_the_validators_know():
     assert len(client) >= 10, "The client's key shapes did not parse, so this test would check nothing."
     for shape in client:
         if shape.startswith("(?<="):
-            # The client's cue-and-value rule. The validators answer it with the cue walk instead, so
-            # what has to match is the list of words that introduce a key.
-            group = re.match(r"\(\?<=\(\?i:(\(\?:[^)]*\))", shape).group(1)
-            assert group in RULES["credential_cue"], (
-                f"The client's key cues {group} are not all cue words here."
+            # The client's cue-and-value rule. It used to be answered by the cue walk, whose cue words
+            # needed a word boundary and a "key" after the name: "access_token=", "client_secret:" and
+            # "Auth:" were masked on the device and passed here. The same rule is a key shape now.
+            assert consumed(shape) in known, (
+                f"The client masks a value after the cue in {shape!r} and shared-rules.json has no key shape for it."
             )
             continue
         assert any(shape == ours or shape.startswith(ours) for ours in known), (
@@ -152,3 +202,27 @@ def test_a_record_form_covers_only_the_verb_it_introduces():
     assert not checks.check_not_directed("Asked the user to install the driver.")
     assert checks.check_not_directed("Asked the user to install the driver, then run the cleanup tool.")
     assert checks.check_not_directed("The backup did not run. Run it again tonight.")
+
+
+def test_the_password_walk_is_the_clients():
+    # The client masks a plain word after a password cue once something has asserted a value ("is",
+    # "was set to", a colon), unless the word is on its not-secrets list. The validators let "The
+    # password is sunshine." through, which the device would have masked.
+    assert RULES["password_cue"] == client_pattern("PasswordCue")
+    assert set(RULES["not_secrets"]) == client_words("NotSecrets")
+    assert set(RULES["asserting"]) == client_words("Assertive")
+    assert client_words("Connectives") <= set(RULES["connectives"])
+    assert checks.CLIENT_MAX_CONNECTIVES == client_number("MaxConnectives")
+
+
+def test_checks_reads_the_password_walk_from_the_shared_file():
+    assert checks.PASSWORD_CUE.pattern == RULES["password_cue"]
+    assert checks.NOT_SECRETS == set(RULES["not_secrets"])
+    assert checks.ASSERTING == set(RULES["asserting"])
+
+
+def test_the_ssn_cue_is_the_clients():
+    # The client's cue is a lookbehind with no word boundary, so "Employee_SSN: 123456789" and
+    # "SSN123456789" are masked there. The validators needed a boundary on both sides of it.
+    cue = re.search(r"\(\?<=\(\?i:(.*?)\)\\s\{0,3\}", client_pattern("Ssn")).group(1)
+    assert RULES["ssn_cued"].startswith("(?:" + cue + ")"), "The client's SSN cue and the shared one differ."
