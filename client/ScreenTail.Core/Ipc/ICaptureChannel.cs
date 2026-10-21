@@ -24,7 +24,11 @@ public interface ICaptureChannel : IAsyncDisposable
 
     Task<CommandResult> SendAsync(Func<int, IpcCommand> build, CancellationToken ct = default);
 
-    /// <summary>Sends a command whose answer is an event of its own, and waits for it.</summary>
+    /// <summary>
+    /// Sends a command whose answer is an event of its own, and waits for it. Asked for
+    /// <see cref="IpcEvent"/> itself, it hands back whatever the service answered, a failed
+    /// <see cref="CommandResult"/> included, which is how <c>CaptureConnection.AskAsync</c> keeps a refusal's words.
+    /// </summary>
     Task<TReply> RequestAsync<TReply>(Func<int, IpcCommand> build, CancellationToken ct = default)
         where TReply : IpcEvent;
 }

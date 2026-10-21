@@ -222,7 +222,9 @@ ST-093 (2026-09-25). The UI never talks to the backend and never learns which PS
 asks the service, which holds the device token and the egress guard, and the service asks the backend,
 which holds the tenant's credential in its vault. The backend's per-destination answer comes back as it
 is. A refusal — no PSA connected, a revoked device, a backend that did not answer — arrives as a failed
-`result` carrying the backend's own words, which the pane shows beside the button.
+`result` carrying the backend's own words, which the pane shows beside the button. The UI reads the
+reason off that one reply. It never sends `publish_session` again to learn it, because a second send is a
+second publish; `activate_device` and `check_integration` are read the same way (2026-10-14, S-36).
 
 ```json
 { "type": "publish_session", "request_id": 21, "session_id": "s1", "ticket_id": "48213", "note_type": "internal",
