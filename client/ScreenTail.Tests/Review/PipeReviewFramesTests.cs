@@ -103,9 +103,12 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
         _connection = new CaptureConnection(
             new ShellState(),
             async ct => await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1", ct: ct),
-            CaptureConnection.Never);
+            // Keep trying until the server is listening. IpcServer.Start creates its pipe on a background
+            // task, and with CaptureConnection.Never a first attempt that ran ahead of it on a busy runner
+            // was the only attempt: both pipe test classes failed together, about one hosted run in ten.
+            _ => TimeSpan.FromMilliseconds(50));
         await _connection.StartAsync();
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
         while (!_connection.IsConnected)
         {
             Assert.True(DateTime.UtcNow < deadline, "the connection did not come up");
