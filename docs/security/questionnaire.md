@@ -96,8 +96,12 @@ drafted note survives. *(INV-12)*
 **2.8 Is there a delete-everything option?**
 Yes: Settings → Privacy & Redaction → Your data → "Delete everything on this device…" (ST-081). The
 service accepts the command only with a typed confirmation it issued moments before ("DELETE
-EVERYTHING"), and it removes the device's tokens as well as its data. The same screen exports the audit
-log with its chain verification.
+EVERYTHING"), and it removes the device's tokens as well as its data: everything ScreenTail keeps under
+`%LOCALAPPDATA%\ScreenTail`, which is the encrypted store and its key, the device's refresh token, the
+settings, the cached policy and the crash reports. Only the downloaded speech models stay, since they
+hold nothing about anybody, and the program's own files if it was installed inside that folder. The
+device has to be activated again afterwards; its seat stays counted on the backend until an admin revokes
+it. The same screen exports the audit log with its chain verification.
 
 **2.9 Is deleted data recoverable?**
 No. Deletion is a hard delete followed by a vacuum. A blurred region is flattened to solid colour and the

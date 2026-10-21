@@ -82,9 +82,10 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
 }
 
 /// <summary>
-/// "Delete everything now" (Spec S6, INV-12): the store, its key, this run's IPC token and any saved
-/// credentials under the data directory. Downloaded models stay; they hold no user data. The store must
-/// be closed first: on Windows an open database file cannot be deleted.
+/// "Delete everything now" (Spec S6, INV-12): everything under the data directory, which is the store, its
+/// key, the device's refresh token, this run's IPC token, the settings and the crash reports. Downloaded
+/// models stay; they hold no user data. The store must be closed first: on Windows an open database file
+/// cannot be deleted.
 /// </summary>
 /// <param name="Deleted">What went, in the order it went. The key is first on purpose.</param>
 /// <param name="Complete">
@@ -95,30 +96,30 @@ public sealed record ErasureResult(IReadOnlyList<string> Deleted, bool Complete)
 public static class LocalDataEraser
 {
     /// <summary>
-    /// Everything "delete everything" has to remove (INV-12).
+    /// What goes before anything else, in this order (INV-12).
     ///
     /// <b>The key is first.</b> The store is encrypted, so removing the key makes all of it unreadable
-    /// in one step — which is the most that can be promised when the step after it might fail. The
+    /// in one step, which is the most that can be promised when the step after it might fail. The
     /// database used to be first, so a database held open by antivirus left a readable store and a key
     /// beside it, and the technician had been told it was gone.
     ///
-    /// The two with -journal and .tmp are not hypothetical: SQLite falls back to a rollback journal
-    /// wherever WAL cannot be enabled, which is any redirected or network profile, and the token's
-    /// temporary file survives a failure between writing it and restricting it. Both would otherwise be
-    /// left holding real data after the user asked for all of it to go.
+    /// <b>The device's refresh token is next</b> (DpapiDeviceCredentials), with the temporary file a save
+    /// writes before moving it into place. Without it the device can ask the backend for nothing, and
+    /// the next start finds it not activated. It used to be left behind altogether.
     /// </summary>
-    public static readonly string[] DataFiles =
-    [
-        "store.key",
-        "store.db",
-        "store.db-wal",
-        "store.db-shm",
-        "store.db-journal",
-        "ipc.token",
-        "ipc.token.tmp",
-    ];
+    private static readonly string[] SecretsFirst = ["store.key", "device.cred", "device.cred.tmp"];
 
-    public const string TokensDirectory = "tokens";
+    /// <summary>
+    /// The one thing kept: the downloaded speech models. Nothing about anybody is in them, and they are
+    /// hundreds of megabytes to fetch again.
+    ///
+    /// Everything else under the data directory goes, whatever its name. This used to be a list of the
+    /// files the eraser knew about, and it did not know about the refresh token, the settings, the
+    /// cached policy, the UI's preferences or the crash reports (2026-10-12 review). A file a later
+    /// version writes is erased without anybody having to remember to add it here: keeping is the
+    /// exception that has to be named, and deleting is the default.
+    /// </summary>
+    public const string KeptDirectory = "models";
 
     /// <summary>
     /// Says that an erasure has been asked for, before anybody is told it happened.
@@ -159,41 +160,56 @@ public static class LocalDataEraser
     /// Aborting on the first failure left everything after it on disk, and the list began with the
     /// database. A file held open by antivirus or a backup agent is the ordinary case, not a rare one.
     /// </summary>
-    public static ErasureResult Erase(string dataDirectory)
+    public static ErasureResult Erase(string dataDirectory) => Erase(dataDirectory, AppContext.BaseDirectory);
+
+    /// <param name="dataDirectory">The folder to empty.</param>
+    /// <param name="runningFrom">
+    /// Where this program's own files are. A folder in the data directory that holds them is kept whole,
+    /// like the models: deleting a running program fails part way, leaves a copy that will not start, and
+    /// keeps the erasure owed on every start after, which wipes each new session too.
+    /// </param>
+    internal static ErasureResult Erase(string dataDirectory, string? runningFrom)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         var deleted = new List<string>();
         var complete = true;
+        var program = FolderHolding(dataDirectory, runningFrom);
 
-        foreach (var name in DataFiles)
+        foreach (var name in SecretsFirst)
         {
             var path = Path.Combine(dataDirectory, name);
-            if (!File.Exists(path))
+            if (File.Exists(path))
+            {
+                Count(path, Remove(new FileInfo(path)));
+            }
+        }
+
+        // Read in full before anything is removed, rather than deleting from under an enumeration.
+        FileSystemInfo[] entries;
+        try
+        {
+            entries = new DirectoryInfo(dataDirectory).GetFileSystemInfos();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            entries = [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing can be listed, so nothing can be said to be gone. Owed until the next start.
+            return new ErasureResult(deleted, Complete: false);
+        }
+
+        foreach (var entry in entries)
+        {
+            if (entry.Name.Equals(KeptDirectory, StringComparison.OrdinalIgnoreCase)
+                || entry.Name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase)
+                || entry.Name.Equals(program, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (TryDelete(() => File.Delete(path)))
-            {
-                deleted.Add(path);
-            }
-            else
-            {
-                complete = false;
-            }
-        }
-
-        var tokens = Path.Combine(dataDirectory, TokensDirectory);
-        if (Directory.Exists(tokens))
-        {
-            if (TryDelete(() => Directory.Delete(tokens, recursive: true)))
-            {
-                deleted.Add(tokens);
-            }
-            else
-            {
-                complete = false;
-            }
+            Count(Path.Combine(dataDirectory, entry.Name), Remove(entry));
         }
 
         // Last, and only when there is nothing left to owe. While it is there, the next start finishes
@@ -201,28 +217,169 @@ public static class LocalDataEraser
         if (complete && IsPending(dataDirectory))
         {
             var marker = Path.Combine(dataDirectory, PendingMarker);
-            if (TryDelete(() => File.Delete(marker)))
-            {
-                deleted.Add(marker);
-            }
+            Count(marker, Remove(new FileInfo(marker)));
         }
 
         return new ErasureResult(deleted, complete);
+
+        void Count(string path, Outcome outcome)
+        {
+            if (outcome == Outcome.Removed)
+            {
+                deleted.Add(path);
+            }
+            else if (outcome == Outcome.Refused)
+            {
+                complete = false;
+            }
+        }
     }
 
-    private static bool TryDelete(Action delete)
+    /// <summary>
+    /// The name of the folder directly in the data directory that the program runs from, or null when it
+    /// runs from somewhere else. Paths are compared as Windows compares them, ignoring case.
+    /// </summary>
+    private static string? FolderHolding(string dataDirectory, string? runningFrom)
+    {
+        if (string.IsNullOrEmpty(runningFrom))
+        {
+            return null;
+        }
+
+        var data = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDirectory)) + Path.DirectorySeparatorChar;
+        var running = Path.GetFullPath(runningFrom);
+        if (running.Length <= data.Length || !running.StartsWith(data, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return running[data.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], 2)[0];
+    }
+
+    internal enum Outcome
+    {
+        Removed,
+        AlreadyGone,
+        Refused,
+    }
+
+    /// <summary>
+    /// Whether an entry is still in the folder, asked afresh. A link counts while it is there, whether or
+    /// not what it points at is. When the answer cannot be had, it is "still there", so the erasure stays
+    /// owed rather than being called done.
+    /// </summary>
+    internal static bool IsStillThere(FileSystemInfo entry)
+    {
+        try
+        {
+            entry.Refresh();
+            return entry.Exists || entry.LinkTarget is not null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Removes one entry, and never anything outside the data directory: a folder goes with everything in
+    /// it, and a link goes as a link. .NET removes a link to a folder without following it, at the top
+    /// and on the way down, on Windows and on Unix alike, so whatever it points at is left alone.
+    /// </summary>
+    private static Outcome Remove(FileSystemInfo entry)
+    {
+        var outcome = TryRemove(entry);
+
+        // Windows will not delete anything marked read-only, and a restore from backup or a copy off
+        // removable media can leave that mark on anything. Refused over it, the erasure would stay owed
+        // and run again on every start, after a new activation too. The mark is this account's own to
+        // clear, so it is cleared and the delete tried once more. Only after a refusal: the usual erase
+        // pays nothing for it. Unix has no such mark, and a folder without write permission is a refusal.
+        if (outcome == Outcome.Refused && OperatingSystem.IsWindows() && ClearReadOnly(entry))
+        {
+            outcome = TryRemove(entry);
+        }
+
+        return outcome;
+    }
+
+    private static Outcome TryRemove(FileSystemInfo entry) => TryRemove(entry, () =>
+    {
+        if (entry is DirectoryInfo folder)
+        {
+            folder.Delete(recursive: true);
+        }
+        else
+        {
+            entry.Delete();
+        }
+    });
+
+    internal static Outcome TryRemove(FileSystemInfo entry, Action delete)
     {
         try
         {
             delete();
-            return true;
+            return Outcome.Removed;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Usually gone between being listed and being removed, and then nothing is owed for it. But a
+            // recursive delete can say this part way down, about something inside, so it counts as gone
+            // only when it really is.
+            return IsStillThere(entry) ? Outcome.Refused : Outcome.AlreadyGone;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Held open, or not ours to remove. Counted rather than thrown: the caller's job is to keep
             // going and to leave the erasure owed.
-            return false;
+            return Outcome.Refused;
+        }
+    }
+
+    /// <summary>
+    /// Clears the read-only mark on an entry and on everything inside it. Links are neither changed nor
+    /// followed, so nothing outside the data directory is touched.
+    /// </summary>
+    /// <returns>Whether anything was cleared, which is whether another try can go differently.</returns>
+    private static bool ClearReadOnly(FileSystemInfo entry)
+    {
+        var cleared = false;
+        try
+        {
+            entry.Refresh();
+            cleared = ClearOne(entry);
+            if (entry is DirectoryInfo folder && !entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                var inside = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint,
+                    IgnoreInaccessible = true,
+                };
+                foreach (var item in folder.EnumerateFileSystemInfos("*", inside))
+                {
+                    cleared |= ClearOne(item);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // What could be cleared was; the retry says whether it was enough.
+        }
+
+        return cleared;
+
+        static bool ClearOne(FileSystemInfo item)
+        {
+            var attributes = item.Attributes;
+            if ((attributes & (FileAttributes.ReadOnly | FileAttributes.ReparsePoint)) != FileAttributes.ReadOnly)
+            {
+                return false;
+            }
+
+            item.Attributes = attributes & ~FileAttributes.ReadOnly;
+            return true;
         }
     }
 }
-
