@@ -136,12 +136,7 @@ public static class BundleBuilder
 
         long Weigh(Frame frame) => imageBytes.TryGetValue(frame.Id, out var length) ? length : 0;
 
-        var blocked = SuppressedIntervals(session.Events);
-        var eligible = session.Frames
-            .Where(frame => !frame.RedactionPending)
-            .Where(frame => !frame.SensitiveContext)
-            .Where(frame => !frame.ExcludedByUser)
-            .Where(frame => !blocked.Any(interval => interval.Covers(frame.TsMs)))
+        var eligible = Eligible(session)
 
             // Sorted before scoring so every tie breaks the same way: a bundle that varies between runs
             // makes a draft that varies between runs, and nobody can review a note that keeps changing.
@@ -182,6 +177,32 @@ public static class BundleBuilder
             // can act on before the call rather than a bill after it.
             EstimatedTokens = (text / 4) + (chosen.Count * budget.TokensPerFrame),
         };
+    }
+
+    /// <summary>
+    /// The frames of this session that may leave the machine at all, in the session's order: the four
+    /// rules in the class summary, and nothing about budget. Publishing attaches from this set too
+    /// (ST-078), so a ticket never carries a frame the drafting model was not allowed to see.
+    /// </summary>
+    public static IEnumerable<Frame> Eligible(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var withheld = Withheld(session);
+        return session.Frames.Where(frame => !frame.ExcludedByUser && !withheld(frame));
+    }
+
+    /// <summary>
+    /// The three rules the technician cannot override in Review: pending, sensitive context, and taken
+    /// while capture was paused or suppressed. Excluded-by-user is the fourth rule and is theirs to
+    /// change, so it is not here. The returned test is built once per session and is cheap per frame.
+    /// </summary>
+    public static Func<Frame, bool> Withheld(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var blocked = SuppressedIntervals(session.Events);
+        return frame => frame.RedactionPending
+            || frame.SensitiveContext
+            || blocked.Exists(interval => interval.Covers(frame.TsMs));
     }
 
     /// <summary>

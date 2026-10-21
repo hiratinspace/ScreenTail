@@ -200,6 +200,17 @@ public sealed class SessionStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ExcludingAFrameThatIsNotThereIsRefusedRatherThanIgnored()
+    {
+        // Review reads success as "this frame is now in the ticket" (ST-078). A write that changed nothing
+        // must not say it landed.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SetFrameExcludedAsync("nope", false));
+    }
+
+    [Fact]
     public async Task DeleteRemovesEverythingAndAudits()
     {
         var store = await OpenAsync();

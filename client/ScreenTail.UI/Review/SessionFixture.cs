@@ -46,7 +46,7 @@ internal sealed class FixtureFrames(string directory) : IReviewFrames
         return File.Exists(path) ? await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false) : null;
     }
 
-    public Task SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<bool> SetIncludedAsync(string frameId, bool included, CancellationToken ct = default) => Task.FromResult(true);
 
     public Task<bool> DeleteAsync(string frameId, CancellationToken ct = default) => Task.FromResult(true);
 

@@ -123,6 +123,12 @@ a scheduled one, not a "publish when confident" one. One press is one request: a
 sent again to learn why it was refused, and once anything has landed Publish is refused, so Retry (which
 sends only what failed) is the one way on.
 
+**Not every screenshot can go.** One that looked like a sign-in screen, or was taken while capture was
+paused or suppressed, stays on the device. Review shows it marked "withheld" and it cannot be switched
+on. At publish the service attaches only frames of that session that its own store says are included and
+not withheld, whatever the request names, so the drafting bundle and the ticket follow the same rule
+(ST-078).
+
 For drafting, the note can be produced two ways:
 
 - **On the device.** Local-only mode means **zero egress**, enforced by an allowlist that defaults closed
