@@ -159,6 +159,100 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         Assert.False(guard.Holding);
     }
 
+    [Fact]
+    public async Task AHoldWhoseConditionEndsDuringAPauseDoesNotOutliveTheResume()
+    {
+        // 2026-10-12 review, T-41. The UI came back while the technician had the session paused. The
+        // guard forgot its hold instead of letting go of it, and Resume went back to a suppression that
+        // nothing would ever lift.
+        var clock = new ManualTime(At);
+        var machine = await RecordingAsync();
+        var showing = false;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        await GraceOutAsync(guard, clock, ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        Assert.True(await machine.PauseAsync(ct));
+        showing = true;
+        await guard.TickAsync(ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.True(await machine.TryStageFrameAsync(Frame("after"), ct));
+    }
+
+    [Fact]
+    public async Task AnIndicatorStillMissingAfterAPauseKeepsItsHold()
+    {
+        var clock = new ManualTime(At);
+        var machine = await RecordingAsync();
+        var guard = new IndicatorGuard(machine, () => false, clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        await GraceOutAsync(guard, clock, ct);
+        Assert.True(await machine.PauseAsync(ct));
+        await guard.TickAsync(ct);
+        Assert.True(guard.Holding);
+
+        Assert.True(await machine.ResumeAsync(ct));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.Equal(1, guard.Holds);
+    }
+
+    [Fact]
+    public async Task AnIndicatorLostDuringAPauseIsHeldTheMomentItResumes()
+    {
+        // 2026-10-12 review, round 2. The UI went away during a pause and nothing was held, so Resume went
+        // to Recording with no indicator on screen until the next tick, up to 500 ms later (INV-4). The
+        // hold is taken during the pause now, and Resume goes straight to Suppressed.
+        var clock = new ManualTime(At);
+        var machine = await RecordingAsync();
+        var ct = TestContext.Current.CancellationToken;
+        Assert.True(await machine.PauseAsync(ct));
+        var guard = new IndicatorGuard(machine, () => false, clock);
+
+        await GraceOutAsync(guard, clock, ct);
+        Assert.True(guard.Holding);
+        Assert.Equal(SessionState.Paused, machine.State);
+
+        Assert.True(await machine.ResumeAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.False(await machine.TryStageFrameAsync(Frame("f-invisible"), ct));
+    }
+
+    [Fact]
+    public async Task AnIndicatorThatComesBackAndGoesAgainDuringAPauseIsHeldTheMomentItResumes()
+    {
+        // The route the T-41 fix opened: the UI comes back during the pause and the hold is let go, then
+        // it goes away again for longer than the grace before the technician resumes.
+        var clock = new ManualTime(At);
+        var machine = await RecordingAsync();
+        var showing = false;
+        var guard = new IndicatorGuard(machine, () => showing, clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        await GraceOutAsync(guard, clock, ct);
+        Assert.True(await machine.PauseAsync(ct));
+        showing = true;
+        await guard.TickAsync(ct);
+        Assert.False(guard.Holding);
+        showing = false;
+        await GraceOutAsync(guard, clock, ct);
+
+        Assert.True(await machine.ResumeAsync(ct));
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.Equal(2, guard.Holds);
+    }
+
     /// <summary>
     /// Ticks once to notice the indicator is gone, waits past the grace, and ticks again.
     ///
