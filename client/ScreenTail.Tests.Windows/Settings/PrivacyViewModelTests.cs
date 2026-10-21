@@ -69,37 +69,50 @@ public sealed class PrivacyViewModelTests
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         OnUiThread(async () =>
         {
-            WithTheAppsStyles();
-
-            // The technician's own 12 days, unlocked: above the slider's default top.
-            var own = new ClientSettings { LocalOnly = true, RetentionDays = 12 };
-            var gateway = new FakePrivacy
+            var app = WithTheAppsStyles();
+            try
             {
-                Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 12),
-            };
-            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
-            await screen.LoadAsync();
-            var slider = await ShownAsync(screen);
-            Assert.Equal(ClientSettings.MaxRetentionDays, (int)slider.Maximum);
-            Assert.Equal(12, (int)slider.Value);
-            Assert.Equal(12, screen.RetentionDays);
-            screen.Telemetry = true;
-            await screen.SaveCommand.ExecuteAsync(null);
-            Assert.Equal(12, gateway.Saved!.RetentionDays);
+                await FirstShowAsync();
+            }
+            finally
+            {
+                await ShutDownAsync(app);
+            }
 
-            // The admin's 90 days, locked: shown whole, and the technician's own 12 is what a save keeps.
-            gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: true, EffectiveRetentionDays: 90);
-            var locked = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
-            await locked.LoadAsync();
-            slider = await ShownAsync(locked);
-            Assert.Equal(90, (int)slider.Maximum);
-            Assert.Equal(90, (int)slider.Value);
-            Assert.Equal(90, locked.RetentionDays);
-            Assert.False(slider.IsEnabled);
-            locked.Telemetry = true;
-            await locked.SaveCommand.ExecuteAsync(null);
-            Assert.Equal(12, gateway.Saved!.RetentionDays);
+            Assert.Null(Application.Current);
         });
+    }
+
+    private static async Task FirstShowAsync()
+    {
+        // The technician's own 12 days, unlocked: above the slider's default top.
+        var own = new ClientSettings { LocalOnly = true, RetentionDays = 12 };
+        var gateway = new FakePrivacy
+        {
+            Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 12),
+        };
+        var screen = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
+        await screen.LoadAsync();
+        var slider = await ShownAsync(screen);
+        Assert.Equal(ClientSettings.MaxRetentionDays, (int)slider.Maximum);
+        Assert.Equal(12, (int)slider.Value);
+        Assert.Equal(12, screen.RetentionDays);
+        screen.Telemetry = true;
+        await screen.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(12, gateway.Saved!.RetentionDays);
+
+        // The admin's 90 days, locked: shown whole, and the technician's own 12 is what a save keeps.
+        gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: true, EffectiveRetentionDays: 90);
+        var locked = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
+        await locked.LoadAsync();
+        slider = await ShownAsync(locked);
+        Assert.Equal(90, (int)slider.Maximum);
+        Assert.Equal(90, (int)slider.Value);
+        Assert.Equal(90, locked.RetentionDays);
+        Assert.False(slider.IsEnabled);
+        locked.Telemetry = true;
+        await locked.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(12, gateway.Saved!.RetentionDays);
     }
 
     /// <summary>
@@ -132,15 +145,31 @@ public sealed class PrivacyViewModelTests
     /// <summary>
     /// The pane's styles are the application's, as App.xaml merges them. Plain <see cref="Application"/>,
     /// not the app's own subclass, so nothing of the app's start-up runs. One per process, so only this test
-    /// makes one.
+    /// makes one, and <see cref="ShutDownAsync"/> takes it away again.
     /// </summary>
-    private static void WithTheAppsStyles()
+    private static Application WithTheAppsStyles()
     {
-        var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        Assert.Null(Application.Current);
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         foreach (var file in new[] { "Tokens.Common.g.xaml", "Components.xaml" })
         {
             app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/ScreenTail.UI;component/Theme/{file}") });
         }
+
+        return app;
+    }
+
+    /// <summary>
+    /// The application is process-wide and outlives this test's thread. Left behind, it keeps a dispatcher
+    /// that stops with this thread, and every later model that hands its changes to
+    /// <c>Application.Current</c>'s dispatcher (ShellViewModel, LiveShell, the tray) queues them there for
+    /// nobody: the shell lifetime tests then see no change arrive at all. Shutting it down on its own
+    /// thread, before that thread ends, clears <c>Application.Current</c>.
+    /// </summary>
+    private static async Task ShutDownAsync(Application app)
+    {
+        app.Shutdown();
+        await Dispatcher.Yield(DispatcherPriority.Background);
     }
 
     /// <summary>Runs the body on an STA thread with a dispatcher, as WPF controls and bindings require.</summary>
