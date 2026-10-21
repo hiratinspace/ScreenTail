@@ -488,7 +488,7 @@ Moderated sessions on the prototype measuring time-to-publish, errors and confus
 
 **Acceptance Criteria:**
 - [ ] `start()` → session row + `recording` within 200 ms with IPC event
-- [ ] `pause()` and `suppressed` write no events/frames/transcript (INV-6)
+- [ ] `pause()` and `suppressed` write no events/frames/transcript (INV-6). Amended 2026-10-14 (ST-027): nothing heard during them is kept, but a segment heard while recording and finished by the model after they began is still written, as a frame staged before a pause is.
 - [ ] `stop()` → `finalizing`, waits ≤ 20 s for pending redactions, deletes stragglers, then `draft_ready`/`draft_failed(reason)`
 - [ ] Crash mid-session → recovered as `finalizing` with `partial_capture: true`
 
@@ -654,7 +654,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** Partial. The pipeline is complete as of 2026-09-16 (#60): microphone capture, voice-activity detection, the gate, local transcription with hash-checked models, the hallucination filter, and the whole of it wired into the capture service. **AC1 (WER) and AC4 (lag) are unmeasured** and both are one command away — `--transcribe` runs a recording through the real pipeline and prints the transcript and the real-time ratio. They need the owner's ten-minute narration (`research/fixtures/audio/README.md`). The ticket closes when that number exists.
+- **Status:** Partial. The pipeline is complete as of 2026-09-16 (#60): microphone capture, voice-activity detection, the gate, local transcription with hash-checked models, the hallucination filter, and the whole of it wired into the capture service. **AC1 (WER) and AC4 (lag) are unmeasured** and both are one command away — `--transcribe` runs a recording through the real pipeline and prints the transcript and the real-time ratio. They need the owner's ten-minute narration (`research/fixtures/audio/README.md`). The ticket closes when that number exists. Since 2026-10-14 speech is dropped while the window in front may not be photographed. **Not built:** the pill still reads Recording then; an excluded-window suppress hold or a HUD hint needs its own ticket (2026-10-12 review, S-24).
 
 **Description:**
 NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), timestamped `speaker: "tech"` segments (INV-9); lazy resumable model download.

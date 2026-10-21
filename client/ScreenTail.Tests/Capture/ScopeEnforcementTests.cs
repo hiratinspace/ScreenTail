@@ -170,6 +170,38 @@ public sealed class ScopeEnforcementTests
         Assert.False(excluded.MayRecord(new TypingBurstEvent { TsMs = 1, CharCount = 9 }));
     }
 
+    [Theory]
+    [InlineData(CaptureScope.RemoteTool, true)]
+    [InlineData(CaptureScope.AdminTool, true)]
+    [InlineData(CaptureScope.OutOfScope, false)]
+    [InlineData(CaptureScope.Excluded, false)]
+    public void NarrationIsHeardOnlyWhereAScreenshotMayBeTaken(CaptureScope scope, bool heard)
+    {
+        // 2026-10-12 review. With a password manager in front, frames and keystrokes were dropped and
+        // speech was transcribed and stored. Speech now follows the screenshots, which is the line that
+        // already fails closed: an excluded app, an elevated window and anything else out of scope.
+        Assert.Equal(heard, new ScopeDecision(scope, null, null, "reason").MayHearNarration);
+    }
+
+    [Fact]
+    public void NothingIsHeardWhileAnElevatedWindowIsInFront()
+    {
+        // The policy folds an elevated window into out-of-scope, so this is where that is pinned: even a
+        // remote tool running as administrator hears nothing.
+        var elevated = new ForegroundWindowInfo(5, 42, "mstsc", "a window", "Window", null, true, DateTimeOffset.UnixEpoch);
+
+        Assert.False(new ScopePolicy(Registry).Decide(elevated).MayHearNarration);
+    }
+
+    [Fact]
+    public void NothingIsHeardWhileAnExcludedApplicationIsInFront()
+    {
+        var policy = new ScopePolicy(Registry, new ScopeOptions { Exclusions = Exclusions });
+
+        Assert.False(policy.Decide(Window("1Password", handle: 7)).MayHearNarration);
+        Assert.True(policy.Decide(Window("mstsc", handle: 8)).MayHearNarration);
+    }
+
     private static ExclusionList Exclusions => ExclusionList.Load(File.ReadAllText(Path.GetFullPath(
         Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "shared", "registry", "exclusions-default.json"))));
 

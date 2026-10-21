@@ -60,7 +60,8 @@ hidden. Detection is by UI Automation, verified on real hardware. *(INV-6)*
 
 **1.10 What other conditions stop capture?**
 An excluded application in front, a window running elevated, or a screen that matches sensitive-context
-heuristics. All drop data the same way.
+heuristics. All drop data the same way. The technician's speech follows the screenshots: while an excluded,
+elevated or out-of-scope window is in front, nothing said is transcribed or stored.
 
 ---
 

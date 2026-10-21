@@ -38,6 +38,21 @@ public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToo
     public bool MayCaptureFrames => Scope is CaptureScope.RemoteTool or CaptureScope.AdminTool;
 
     /// <summary>
+    /// Whether what the technician says may be kept while this window is in front: exactly where a
+    /// screenshot may be taken.
+    ///
+    /// INV-6 drops data, not just frames, for an excluded app, an elevated window and anything out of
+    /// scope. Speech was the gap: with a password manager in front, frames and keystrokes were dropped
+    /// and a credential read aloud off it was transcribed, stored and quotable in the draft (2026-10-12
+    /// review). Following the frame rule rather than naming the excluded case alone is the closed choice.
+    /// An elevated window is folded into out-of-scope by the policy and has no flag of its own to read,
+    /// and a window outside the session can be another customer's (INV-5). What it costs is narration
+    /// while the technician has stepped outside the remote tool, which "All windows" gives back to a
+    /// tenant that wants it.
+    /// </summary>
+    public bool MayHearNarration => MayCaptureFrames;
+
+    /// <summary>
     /// Whether this event may be written while the window in front is the one this decision is about.
     ///
     /// INV-6: "excluded app, elevated window, out-of-scope → no frames, <b>no typing events written</b>."
