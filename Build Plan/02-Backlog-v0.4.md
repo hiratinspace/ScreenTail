@@ -553,7 +553,7 @@ Verify mic privacy permission, capture ability, hook installation, elevated-wind
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done 2026-09-12.
+- **Status:** Done 2026-09-12. Corrected 2026-10-14 (2026-10-12 review, S-2): File Explorer was an admin tool by process name alone, so the desktop, taskbar and Task View were in scope, and a frame of the desktop held every window on screen. Admin-tool entries can now name window classes (explorer is `CabinetWClass` only), the shell's own surfaces (and any shell window whose class cannot be read) are refused before any match and in "all windows" mode too, and the registry refuses the shell's process as a remote tool.
 
 **Description:**
 JSON registry of remote-tool processes and browser title/URL patterns; auto-start on focus, stop after grace; capture scope default = remote-tool windows + admin-tool allowlist (INV-5); records client versions.
