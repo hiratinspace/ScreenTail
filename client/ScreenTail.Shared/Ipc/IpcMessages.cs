@@ -436,7 +436,7 @@ public sealed record DeviceReported : IpcEvent
 // Settings → Privacy & Redaction reads and writes the technician's own settings through the service,
 // which keeps them on disk, applies them in place and says which fields the admin's policy locked.
 
-/// <summary>The settings and their locks. Answered by a <see cref="SettingsReported"/>.</summary>
+/// <summary>The settings, their locks and what is in force. Answered by a <see cref="SettingsReported"/>.</summary>
 public sealed record GetSettingsCommand : IpcCommand;
 
 public sealed record SettingsReported : IpcEvent
@@ -452,6 +452,14 @@ public sealed record SettingsReported : IpcEvent
 
     [JsonPropertyName("policy_version")]
     public required string PolicyVersion { get; init; }
+
+    /// <summary>Local-only as it is in force: the admin's when locked, otherwise the technician's own (INV-8, INV-11).</summary>
+    [JsonPropertyName("effective_local_only")]
+    public required bool EffectiveLocalOnly { get; init; }
+
+    /// <summary>Retention in days as it is in force: the admin's under a policy (up to 365), otherwise the technician's own.</summary>
+    [JsonPropertyName("effective_retention_days")]
+    public required int EffectiveRetentionDays { get; init; }
 }
 
 /// <summary>The whole document, every time. Refused with the first problem as a failed <c>result</c>.</summary>

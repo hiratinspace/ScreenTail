@@ -28,6 +28,17 @@ namespace ScreenTail.Tests.Windows.Shell;
 [SupportedOSPlatform("windows")]
 public sealed class ShellViewModelLifetimeTests
 {
+    public ShellViewModelLifetimeTests()
+    {
+        // The model hands a change to Application.Current's dispatcher when there is one. An application
+        // left over from another test, with its dispatcher gone, would swallow every change, and each test
+        // below would fail as if the model had never listened.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(System.Windows.Application.Current is null, "another test left a WPF Application behind; this model would queue every change on its dispatcher");
+        }
+    }
+
     [Fact]
     public void AClosedWindowStopsListening()
     {
