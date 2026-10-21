@@ -45,12 +45,13 @@ public sealed class OcrTests
         var text = await recogniser.ReadAsync(image, TestContext.Current.CancellationToken);
 
         var read = string.Join(' ', text.Words.Select(w => w.Text));
-        var found = DialogLabels.Count(label => read.Contains(label, StringComparison.OrdinalIgnoreCase));
+        var missed = DialogLabels.Where(label => !read.Contains(label, StringComparison.OrdinalIgnoreCase)).ToList();
+        var found = DialogLabels.Length - missed.Count;
         var rate = found / (double)DialogLabels.Length;
 
         Measurements.Save("ocr-dialog.jpg", image);
         Measurements.Record($"OCR read **{found}/{DialogLabels.Length}** dialog labels ({rate:P0}) in {recogniser.Language}");
-        Assert.True(rate >= 0.9, $"only {rate:P0} of the labels were recognised; the redaction engine can only mask text it can read");
+        Assert.True(rate >= 0.9, $"only {rate:P0} of the labels were recognised (missed: {string.Join(", ", missed)}; read: {read}); the redaction engine can only mask text it can read");
     }
 
     /// <summary>
@@ -270,6 +271,12 @@ public sealed class OcrTests
     private static byte[] RenderDialog(int width, int height, string? secret = null)
     {
         using var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+
+        // A new bitmap can take the screen's DPI as the process sees it, and the fonts below are in points.
+        // Once something in this process is DPI aware, a scaled laptop screen would draw every label larger
+        // and crowd the column together. The laptop read 16 of 18 here only once the WPF Settings tests ran
+        // earlier in the same process. Pinned, the pixels are the same whatever ran before.
+        bitmap.SetResolution(96, 96);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.FromArgb(243, 243, 243));
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
@@ -305,6 +312,7 @@ public sealed class OcrTests
     private static byte[] RenderDigitProbes()
     {
         using var bitmap = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
+        bitmap.SetResolution(96, 96);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.FromArgb(243, 243, 243));
         using var ink = new SolidBrush(Color.FromArgb(28, 28, 28));
@@ -328,6 +336,7 @@ public sealed class OcrTests
     private static byte[] RenderLoginPrompt()
     {
         using var bitmap = new Bitmap(900, 600, PixelFormat.Format24bppRgb);
+        bitmap.SetResolution(96, 96);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.FromArgb(243, 243, 243));
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;

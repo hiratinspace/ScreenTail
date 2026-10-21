@@ -171,6 +171,7 @@ public sealed class RedactionThroughputTests : IAsyncDisposable
     private static byte[] RenderFrame(int index)
     {
         using var bitmap = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
+        bitmap.SetResolution(96, 96); // the fonts are in points; see OcrTests.RenderDialog
         using var graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.FromArgb(243, 243, 243));
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
