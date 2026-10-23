@@ -593,6 +593,65 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AnAnswerTooLargeForThePipeIsRefusedOnTheReadLoopToo()
+    {
+        // E-2 met E-25 in the rebase. The too-large refusal was written for the one loop there was; a
+        // reply sent from the read loop, with the worker busy on a slow command, must be refused the
+        // same way rather than end the connection under the command still running.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        _controller.AnswersTo = typeof(RequestConfirmationCommand);
+        _controller.Answer = new ConfirmationIssued { Token = "t", Phrase = new string('x', IpcFraming.MaxMessageBytes) };
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+
+        var refused = await Assert.ThrowsAsync<IpcProtocolException>(
+            () => ui.RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = "discard_session" }, ct)
+                .WaitAsync(Soon, ct));
+
+        Assert.Contains("too large", refused.Message, StringComparison.Ordinal);
+        Assert.False(slow.IsCompleted, "the refusal waited for the slow command");
+        Assert.True(ui.IsConnected);
+
+        _controller.Release.TrySetResult();
+        Assert.True((await slow.WaitAsync(Soon, ct)).Ok);
+        Assert.True((await ui.SendAsync(id => new GetStateCommand { RequestId = id }, ct)).Ok);
+        Assert.Equal(1, _server!.ConnectedClients);
+    }
+
+    [Fact]
+    public async Task TheReviewCommandsAddedSinceTheLanesWereSplitQueue()
+    {
+        // get_frame_text (#192) and set_frame_included (#190) are not on the read loop's list, so they
+        // wait their turn behind a slow command like every other command off it. A frame's text can be
+        // most of a megabyte, which is no thing for the indicator to wait behind.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var slow = ui.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var text = ui.SendAsync(id => new GetFrameTextCommand { RequestId = id, FrameId = "f1" }, ct);
+        var included = ui.SendAsync(id => new SetFrameIncludedCommand { RequestId = id, FrameId = "f1", Included = false }, ct);
+        await ui.SendAsync(id => new IndicatorShowingCommand { RequestId = id, X = 0, Y = 0, Width = 1, Height = 1 }, ct).WaitAsync(Soon, ct);
+
+        Assert.False(text.IsCompleted);
+        Assert.False(included.IsCompleted);
+        Assert.DoesNotContain(_controller.Received, c => c is GetFrameTextCommand or SetFrameIncludedCommand);
+
+        _controller.Release.TrySetResult();
+        await Task.WhenAll(slow, text, included).WaitAsync(Soon, ct);
+
+        Assert.Equal(
+            [typeof(GetIntegrationsCommand), typeof(GetFrameTextCommand), typeof(SetFrameIncludedCommand)],
+            _controller.Received.Where(c => c is not IndicatorShowingCommand).Select(c => c.GetType()));
+    }
+
+    [Fact]
     public async Task StoppingTheServiceDoesNotWaitForASlowCommand()
     {
         _controller.Holds = typeof(GetIntegrationsCommand);
@@ -745,6 +804,9 @@ public sealed class IpcServerTests : IAsyncDisposable
         /// <summary>What a question is answered with, when a test sets one.</summary>
         public IpcEvent? Answer { get; set; }
 
+        /// <summary>The question <see cref="Answer"/> answers. A list of sessions unless a test says otherwise.</summary>
+        public Type AnswersTo { get; set; } = typeof(ListSessionsCommand);
+
         /// <summary>
         /// A command of this type waits inside the handler until <see cref="Release"/> is set, the way a
         /// publish waits on the backend.
@@ -782,7 +844,7 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         public Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
         {
-            if (Answer is null || command is not ListSessionsCommand)
+            if (Answer is null || command.GetType() != AnswersTo)
             {
                 return Task.FromResult<IpcEvent?>(null);
             }
