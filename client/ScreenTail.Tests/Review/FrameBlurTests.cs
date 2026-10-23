@@ -59,6 +59,16 @@ public sealed class FrameBlurTests
     }
 
     [Fact]
+    public async Task TheReturnedFrameNoLongerCarriesTheTextReadFromIt()
+    {
+        // S-18, on the pane's side. The service drops the text with the pixels; the frame the filmstrip
+        // keeps must drop it too, or the OCR toggle goes on showing what the technician has just blurred.
+        var result = await Blur().ApplyAsync(Frame() with { OcrText = "Password: hunter2" }, [0xAA], Drawn, Displayed);
+
+        Assert.Null(result!.Frame.OcrText);
+    }
+
+    [Fact]
     public async Task AFrameWhoseImageNeverLoadedIsNotTouched()
     {
         // There is nothing to flatten and no way to check what was flattened. Writing anyway would replace

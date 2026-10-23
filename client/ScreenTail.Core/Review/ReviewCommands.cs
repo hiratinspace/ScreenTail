@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -18,10 +19,29 @@ namespace ScreenTail.Core.Review;
 /// Both return null for a command that is not theirs, so the controller can chain this ahead of its own
 /// switch without a "not mine" ever reading as "refused".
 /// </summary>
+#pragma warning disable CA1001 // _blurring never hands out its wait handle, so there is nothing for a Dispose to release.
 public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
+#pragma warning restore CA1001
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IFrameMasker _masker = masker ?? throw new ArgumentNullException(nameof(masker));
+
+    /// <summary>
+    /// One blur at a time. Each reads the image, paints it and writes it back; two interleaved would start
+    /// from the same picture, and the later write would put back pixels the earlier one destroyed while
+    /// masked_regions kept both. Blurs are a keypress each, so waiting costs nothing anyone can see.
+    /// </summary>
+    private readonly SemaphoreSlim _blurring = new(1, 1);
+
+    /// <summary>
+    /// Why a blur had no answer, kept against the command itself until <see cref="HandleAsync"/> is asked
+    /// about that same command. The reason is the one the blur stopped for, never one worked out again
+    /// from a second read: "too large for the pipe" means the blur was written, and must not be said of
+    /// one that was not. Weak keys, so a command whose result is never asked for takes its entry with it.
+    /// </summary>
+    private readonly ConditionalWeakTable<BlurFrameCommand, string> _refusals = [];
+
+    private const string NoFrame = "There is no such frame, or it has not been redacted yet.";
 
     /// <summary>
     /// The largest image that fits in one message once it is base64 in JSON, with room to spare under
@@ -55,7 +75,7 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
                 ? (true, null)
                 : (false, "There is no such session."),
             GetFrameCommand get => await WhyNotAsync(get.FrameId, ct).ConfigureAwait(false),
-            BlurFrameCommand blur => await WhyNotAsync(blur.FrameId, ct).ConfigureAwait(false),
+            BlurFrameCommand blur => await WhyNotBlurredAsync(blur, ct).ConfigureAwait(false),
             SetFrameIncludedCommand set => await IncludeAsync(set, ct).ConfigureAwait(false),
             DeleteFrameCommand delete => await _store.DeleteFrameAsync(delete.FrameId, ct).ConfigureAwait(false)
                 ? (true, null)
@@ -73,41 +93,106 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
     /// Paints the rectangle with the masker redaction uses, writes it, and only then hands the new bytes
     /// back. The order is the guarantee: a crash between the write and the reply leaves the disk ahead of
     /// the screen, never behind it. Destructive, and meant to be (Spec §5 S3).
+    ///
+    /// The rectangle arrives in the frame's own pixels, which is what the row's size and every recorded
+    /// region are in. The stored image is smaller, so it is painted scaled into that image's pixels, and
+    /// recorded as it arrived (S-38).
     /// </summary>
     private async Task<FrameLoaded?> BlurAsync(BlurFrameCommand blur, CancellationToken ct)
     {
-        var image = await _store.GetRedactedFrameImageAsync(blur.FrameId, ct).ConfigureAwait(false);
-        if (image is null)
+        var (reply, refusal) = await PaintAsync(blur, ct).ConfigureAwait(false);
+        if (refusal is not null)
         {
-            return null;
+            _refusals.AddOrUpdate(blur, refusal);
         }
 
-        var region = new MaskedRegion { X = blur.X, Y = blur.Y, Width = blur.Width, Height = blur.Height, Kind = MaskKind.UserBlur };
+        return reply;
+    }
 
-        // The stored frame is already at its final size, so the masker's downscale is asked for nothing:
-        // an edge no image reaches means the plan is identity and only the paint happens.
-        var painted = _masker.Mask(image, [region], int.MaxValue);
+    private async Task<(FrameLoaded? Reply, string? Refusal)> PaintAsync(BlurFrameCommand blur, CancellationToken ct)
+    {
+        await _blurring.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await _store.ApplyUserBlurAsync(blur.FrameId, painted.Image, region, ct).ConfigureAwait(false);
+            var frame = await _store.GetRedactedFrameForBlurAsync(blur.FrameId, ct).ConfigureAwait(false);
+            var region = Region(blur);
+            if (frame is null)
+            {
+                return (null, NoFrame);
+            }
+
+            if (!BlurRegion.IsInside(region, frame.Width, frame.Height))
+            {
+                return (null, NotInside(frame.Width, frame.Height));
+            }
+
+            // The stored frame is already at its final size, so the masker's downscale is asked for nothing:
+            // an edge no image reaches means the plan is identity and only the paint happens.
+            var painted = _masker.Mask(
+                frame.Image,
+                [BlurRegion.InStoredImage(region, frame.Width, frame.Height, frame.StoredWidth, frame.StoredHeight)],
+                int.MaxValue);
+
+            // The masker decoded the image, so it knows its real size. If that is not the size the scale
+            // was worked out from, the paint is somewhere else, and writing it would record a covered
+            // region over pixels that are still there. Nothing is written.
+            if (painted.Width != frame.StoredWidth || painted.Height != frame.StoredHeight)
+            {
+                return (null, "The frame's image is not the size it was stored at, so nothing was blurred.");
+            }
+
+            try
+            {
+                await _store.ApplyUserBlurAsync(blur.FrameId, painted.Image, region, ct).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException)
+            {
+                // Gone, or not redacted, between the read above and the write.
+                return (null, NoFrame);
+            }
+
+            // Written, text and all, but the new image cannot cross the pipe. The pane keeps showing what
+            // it had until the session is opened again; the words say the disk has moved on.
+            return Fits(painted.Image) is { } image
+                ? (new FrameLoaded { RequestId = blur.RequestId, FrameId = blur.FrameId, Image = image }, null)
+                : (null, $"The blur was written, but the frame is now too large for the pipe: {painted.Image.Length} bytes against a limit of {LargestFrameBytes}. Open the session again to see it.");
         }
-        catch (InvalidOperationException)
+        finally
         {
-            // Gone, or not redacted, between the read above and the write. HandleAsync says so.
-            return null;
+            _blurring.Release();
+        }
+    }
+
+    private async Task<(bool, string?)> WhyNotBlurredAsync(BlurFrameCommand blur, CancellationToken ct)
+    {
+        // The pipe asks this about the very command ReplyToAsync just refused, so the reason is waiting.
+        if (_refusals.TryGetValue(blur, out var refusal))
+        {
+            _refusals.Remove(blur);
+            return (false, refusal);
         }
 
-        return Fits(painted.Image) is { } image2
-            ? new FrameLoaded { RequestId = blur.RequestId, FrameId = blur.FrameId, Image = image2 }
-            : null;
+        // Asked about a blur that was never tried: say what a read can, and paint nothing.
+        var frame = await _store.GetRedactedFrameForBlurAsync(blur.FrameId, ct).ConfigureAwait(false);
+        return frame is null
+            ? (false, NoFrame)
+            : (false, BlurRegion.IsInside(Region(blur), frame.Width, frame.Height)
+                ? "The blur was not tried, so nothing was blurred."
+                : NotInside(frame.Width, frame.Height));
     }
+
+    private static string NotInside(int width, int height) =>
+        $"The rectangle is not inside the {width}x{height} frame, so nothing was blurred.";
+
+    private static MaskedRegion Region(BlurFrameCommand blur) =>
+        new() { X = blur.X, Y = blur.Y, Width = blur.Width, Height = blur.Height, Kind = MaskKind.UserBlur };
 
     private async Task<(bool, string?)> WhyNotAsync(string frameId, CancellationToken ct)
     {
         var image = await _store.GetRedactedFrameImageAsync(frameId, ct).ConfigureAwait(false);
         return image switch
         {
-            null => (false, "There is no such frame, or it has not been redacted yet."),
+            null => (false, NoFrame),
             { Length: > LargestFrameBytes } => (false, $"The frame is too large for the pipe: {image.Length} bytes against a limit of {LargestFrameBytes}."),
             _ => (true, null),
         };

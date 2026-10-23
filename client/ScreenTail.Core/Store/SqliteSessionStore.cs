@@ -187,9 +187,11 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         return RunAsync(
             """
             INSERT INTO frames (id, session_id, ts_ms, trigger, width, height, cursor_x, cursor_y,
-                                redaction_pending, image, ocr_text, masked_regions_json, sensitive_context, redacted_at)
+                                redaction_pending, image, ocr_text, masked_regions_json, sensitive_context, redacted_at,
+                                stored_width, stored_height)
             VALUES (@id, @session, @ts, @trigger, @w, @h, @cx, @cy,
-                    0, @image, @ocr, @regions, @sensitive, @at)
+                    0, @image, @ocr, @regions, @sensitive, @at,
+                    @sw, @sh)
             """,
             ct,
             ("@id", frame.Id),
@@ -204,7 +206,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@ocr", outcome.OcrText),
             ("@regions", JsonSerializer.Serialize(outcome.MaskedRegions, SessionJson.Options)),
             ("@sensitive", outcome.SensitiveContext ? 1 : 0),
-            ("@at", Iso(outcome.RedactedAt)));
+            ("@at", Iso(outcome.RedactedAt)),
+            ("@sw", StoredSize(outcome)?.Width),
+            ("@sh", StoredSize(outcome)?.Height));
     }
 
     public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) =>
@@ -242,7 +246,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             """
             UPDATE frames
             SET image = @image, ocr_text = @ocr, masked_regions_json = @regions, sensitive_context = @sensitive,
-                redacted_at = @at, redaction_pending = 0
+                redacted_at = @at, redaction_pending = 0, stored_width = @sw, stored_height = @sh
             WHERE id = @id AND redaction_pending = 1
             """,
             ct,
@@ -251,7 +255,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@ocr", outcome.OcrText),
             ("@regions", JsonSerializer.Serialize(outcome.MaskedRegions, SessionJson.Options)),
             ("@sensitive", outcome.SensitiveContext ? 1 : 0),
-            ("@at", Iso(outcome.RedactedAt))).ConfigureAwait(false);
+            ("@at", Iso(outcome.RedactedAt)),
+            ("@sw", StoredSize(outcome)?.Width),
+            ("@sh", StoredSize(outcome)?.Height)).ConfigureAwait(false);
 
         if (changed != 1)
         {
@@ -442,10 +448,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
             // The blurred bytes replace the original in the same statement that records the region. There
             // is no moment where the frame is on disk unblurred but claiming to be blurred, and none where
-            // it claims a region it does not have.
+            // it claims a region it does not have. The OCR text goes in the same statement: it was read
+            // from the pixels being destroyed, and nothing says which words were under the rectangle, so
+            // keeping any of it would keep what the technician blurred for Review and the next draft.
             await ExecuteAsync(
                 _connection,
-                "UPDATE frames SET image = @image, masked_regions_json = @regions WHERE id = @id",
+                "UPDATE frames SET image = @image, masked_regions_json = @regions, ocr_text = NULL WHERE id = @id",
                 ct,
                 ("@id", frameId),
                 ("@image", image.ToArray()),
@@ -704,6 +712,33 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         QueryAsync(
             "SELECT image FROM frames WHERE id = @id AND redaction_pending = 0",
             async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? (byte[])reader[0] : null,
+            ct,
+            ("@id", frameId));
+
+    public Task<StoredFrameImage?> GetRedactedFrameForBlurAsync(string frameId, CancellationToken ct = default) =>
+        QueryAsync<StoredFrameImage?>(
+            "SELECT image, width, height, stored_width, stored_height FROM frames WHERE id = @id AND redaction_pending = 0",
+            async reader =>
+            {
+                if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    return null;
+                }
+
+                var width = reader.GetInt32(1);
+                var height = reader.GetInt32(2);
+
+                // A row from before the stored size was recorded. Every one of those was downscaled by this
+                // rule at its default edge, which nothing has ever overridden; and a guess that turns out
+                // wrong is caught before anything is written, because the masker reports the size it found.
+                if (reader.IsDBNull(3) || reader.IsDBNull(4))
+                {
+                    var plan = Capture.Downscale.For(width, height);
+                    return new StoredFrameImage((byte[])reader[0], width, height, plan.Width, plan.Height);
+                }
+
+                return new StoredFrameImage((byte[])reader[0], width, height, reader.GetInt32(3), reader.GetInt32(4));
+            },
             ct,
             ("@id", frameId));
 
@@ -1458,6 +1493,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         await using var command = Command(connection, sql, parameters);
         return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>Both edges of the stored image, or neither: half a size is no size.</summary>
+    private static (int Width, int Height)? StoredSize(RedactionOutcome outcome) =>
+        outcome is { StoredWidth: int width and > 0, StoredHeight: int height and > 0 } ? (width, height) : null;
 
     private static SqliteCommand Command(SqliteConnection connection, string sql, params (string Name, object? Value)[] parameters)
     {

@@ -64,6 +64,25 @@ public sealed class DraftSenderTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AFrameBlurredBeforeTheDraftIsSentGoesWithoutItsText()
+    {
+        // S-18. The first draft usually goes before Review, but one that failed waits in the outbox and
+        // is rebuilt from the store when it is retried. A blur in between has destroyed the pixels; the
+        // text read from them must not then reach the backend and the model anyway.
+        var store = await SessionAsync();
+        await store.ApplyUserBlurAsync("f1", Picture, new MaskedRegion { X = 0, Y = 0, Width = 400, Height = 40, Kind = MaskKind.UserBlur }, TestContext.Current.CancellationToken);
+        var handler = new RecordingHandler(Answer(HttpStatusCode.OK, Ok()));
+
+        _ = await Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        var frame = Assert.Single(Sent(handler).GetProperty("frames").EnumerateArray());
+        Assert.True(
+            !frame.TryGetProperty("ocr_text", out var text) || text.ValueKind == JsonValueKind.Null,
+            $"the blurred frame was sent with its text: {text}");
+        Assert.DoesNotContain("stopped", handler.Body!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ADraftThatComesBackIsWhatTheSessionShows()
     {
         // The point of the whole path: Review has something to show, and the session says so.

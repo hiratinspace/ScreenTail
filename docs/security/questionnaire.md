@@ -106,7 +106,9 @@ it. The same screen exports the audit log with its chain verification.
 
 **2.9 Is deleted data recoverable?**
 No. Deletion is a hard delete followed by a vacuum. A blurred region is flattened to solid colour and the
-original bytes are overwritten in the same transaction — nothing retains a pre-blur copy.
+original bytes are overwritten in the same transaction: nothing retains a pre-blur copy. The text read
+from that screenshot is deleted in the same statement, so it is not shown in Review or sent with a later
+draft either.
 
 **2.10 Can a technician delete an individual screenshot?**
 Yes, with a five-second undo. After that it is permanent and an audit row records it.
