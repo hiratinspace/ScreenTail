@@ -282,6 +282,18 @@ under the same purpose as the publish.
 { "type": "result", "request_id": 23, "ok": true }
 ```
 
+## Answering order
+
+E-25, 2026-10-12 review. A connection's commands are answered on two lanes, so replies can arrive in a different order from the commands, and the client matches them by `request_id`.
+
+- The session's own commands are answered as soon as they are read, in the order they arrive: `indicator_showing`, `start`, `pause`, `resume`, `stop`, `discard`, `mark_moment`, `request_confirmation`, `get_state`, `get_capabilities`. They are answered from local state and never wait behind anything on the network.
+- So are the two settings writes, `set_settings` and `set_capture_settings`, which are a local file and an in-memory apply. A session command sent after a setting change on the same connection (the tray and the hotkey send Start without waiting) is therefore always handled after that change, never under the settings it replaced.
+- Every other command, including any added later, goes to one queue per connection and is run one at a time in the order it was sent, as every command was before. At most 16 wait behind the one running; one more is answered at once with `ok: false` and a "busy" sentence rather than read later. When the client disconnects, whatever is still waiting is dropped, not run.
+- If a command on either lane fails, the service closes the connection at once, even while a queued command is still running, so the client sees the pipe end and reconnects. The running command finishes, but its reply goes nowhere.
+- An answer too large for one frame is not such a failure, on either lane: it is refused before a byte is written, with a failed `result` that gives its size, and the connection stays up (E-2). `get_session`, `get_frame` and `get_frame_text`, the replies most likely to be large, all queue.
+
+Before this a slow backend call (a publish, a ticket search) held up the HUD's `indicator_showing` past the indicator's grace, and the service dropped frames and typing as unindicated with the pill on screen (INV-4, INV-6). The wire format is unchanged and the version is not bumped: the client has always matched replies by `request_id`.
+
 ## Authentication
 
 Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
@@ -320,3 +332,4 @@ indicator unreachable rather than by touching capture.
 | 2026-10-14 | `effective_local_only`, `effective_retention_days` on `settings` (ST-081) | **3** |
 | 2026-10-14 | `get_frame_text` / `frame_text`; `session` leaves out every frame's `ocr_text` and is refused with its size when it would not fit (E-20). An older client reads the session as before and shows no OCR text | 3 |
 | 2026-10-23 | `audit` carries `path`, `rows`, `intact`, `note` instead of `json`; an answer too large for one frame is a failed `result` (2026-10-12 review, E-2) | **4** |
+| 2026-10-14 | Two answering lanes per connection: the session's commands and the two settings writes are answered on the read loop, the rest queue (16 at most) behind one worker (E-25) | 4 |
