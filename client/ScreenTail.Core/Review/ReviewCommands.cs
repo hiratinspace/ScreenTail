@@ -11,8 +11,8 @@ namespace ScreenTail.Core.Review;
 ///
 /// The UI has no store, and the one process that reads a frame is this one. So every question and
 /// command the Review pane has is answered here: the session as the store hands it out (redacted frames
-/// only, INV-1), one frame's bytes at a time, and the edits — include, delete, blur, save — written before
-/// the UI is told anything.
+/// only, INV-1) less its OCR text, one frame's bytes or text at a time, and the edits (include, delete,
+/// blur, save) written before the UI is told anything.
 ///
 /// Two entry points, matching <see cref="Ipc.IIpcCommandHandler"/>: a question is answered with its own
 /// event by <see cref="ReplyToAsync"/>, and when there is no answer <see cref="HandleAsync"/> says why.
@@ -55,8 +55,11 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
         ArgumentNullException.ThrowIfNull(command);
         return command switch
         {
-            GetSessionCommand get => await _store.LoadSessionAsync(get.SessionId, ct).ConfigureAwait(false) is { } session
-                ? new SessionLoaded { RequestId = command.RequestId, Session = session }
+            GetSessionCommand get => await SessionAsync(get, ct).ConfigureAwait(false) is ({ } session, <= IpcFraming.MaxMessageBytes)
+                ? session
+                : null,
+            GetFrameTextCommand get => await FrameTextAsync(get, ct).ConfigureAwait(false) is ({ } text, <= IpcFraming.MaxMessageBytes)
+                ? text
                 : null,
             GetFrameCommand get => Fits(await _store.GetRedactedFrameImageAsync(get.FrameId, ct).ConfigureAwait(false)) is { } image
                 ? new FrameLoaded { RequestId = command.RequestId, FrameId = get.FrameId, Image = image }
@@ -71,9 +74,18 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
         ArgumentNullException.ThrowIfNull(command);
         var (ok, error) = command switch
         {
-            GetSessionCommand get => await _store.LoadSessionAsync(get.SessionId, ct).ConfigureAwait(false) is not null
-                ? (true, null)
-                : (false, "There is no such session."),
+            GetSessionCommand get => await SessionAsync(get, ct).ConfigureAwait(false) switch
+            {
+                (null, _) => (false, "There is no such session."),
+                (_, var bytes and > IpcFraming.MaxMessageBytes) => (false, $"The session is too large to open in Review: {bytes} bytes against the pipe's limit of {IpcFraming.MaxMessageBytes}."),
+                _ => (true, null),
+            },
+            GetFrameTextCommand get => await FrameTextAsync(get, ct).ConfigureAwait(false) switch
+            {
+                (null, _) => (false, NoFrame),
+                (_, var bytes and > IpcFraming.MaxMessageBytes) => (false, $"The frame's text is too large for the pipe: {bytes} bytes against a limit of {IpcFraming.MaxMessageBytes}."),
+                _ => (true, null),
+            },
             GetFrameCommand get => await WhyNotAsync(get.FrameId, ct).ConfigureAwait(false),
             BlurFrameCommand blur => await WhyNotBlurredAsync(blur, ct).ConfigureAwait(false),
             SetFrameIncludedCommand set => await IncludeAsync(set, ct).ConfigureAwait(false),
@@ -186,6 +198,40 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
 
     private static MaskedRegion Region(BlurFrameCommand blur) =>
         new() { X = blur.X, Y = blur.Y, Width = blur.Width, Height = blur.Height, Kind = MaskKind.UserBlur };
+
+    /// <summary>
+    /// The session as it would cross the pipe, and how many bytes that is (E-20). Every frame's OCR text is
+    /// left out: on a long, text-heavy session it was most of the message, and the pane shows it for one
+    /// enlarged frame at a time, which <see cref="FrameTextAsync"/> answers. What remains is measured, not
+    /// estimated, because the one thing worse than refusing is writing a message the framing throws on,
+    /// which closes the UI's only connection.
+    /// </summary>
+    private async Task<(SessionLoaded? Reply, long Bytes)> SessionAsync(GetSessionCommand get, CancellationToken ct)
+    {
+        if (await _store.LoadSessionAsync(get.SessionId, ct).ConfigureAwait(false) is not { } session)
+        {
+            return (null, 0);
+        }
+
+        var reply = new SessionLoaded
+        {
+            RequestId = get.RequestId,
+            Session = session with { Frames = [.. session.Frames.Select(frame => frame.OcrText is null ? frame : frame with { OcrText = null })] },
+        };
+        return (reply, IpcFraming.MeasureBytes<IpcEvent>(reply));
+    }
+
+    /// <summary>One redacted frame's OCR text and its size on the wire; null for a pending or missing frame (INV-1).</summary>
+    private async Task<(FrameTextLoaded? Reply, long Bytes)> FrameTextAsync(GetFrameTextCommand get, CancellationToken ct)
+    {
+        if (await _store.GetRedactedFrameTextAsync(get.FrameId, ct).ConfigureAwait(false) is not { } text)
+        {
+            return (null, 0);
+        }
+
+        var reply = new FrameTextLoaded { RequestId = get.RequestId, FrameId = get.FrameId, OcrText = text.OcrText };
+        return (reply, IpcFraming.MeasureBytes<IpcEvent>(reply));
+    }
 
     private async Task<(bool, string?)> WhyNotAsync(string frameId, CancellationToken ct)
     {

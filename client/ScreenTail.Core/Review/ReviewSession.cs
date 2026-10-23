@@ -21,6 +21,16 @@ public interface IReviewFrames
     Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default);
 
     /// <summary>
+    /// What the redaction engine read on the frame, for `T` in the enlarged view, or null when it read
+    /// nothing or the frame is gone. Asked one frame at a time, when the frame is enlarged: over the pipe
+    /// the session arrives without any frame's text, because on a long session the text alone would not
+    /// fit in one message (E-20). A source that holds the whole session, like the render harness's
+    /// fixture, already has it on the frame.
+    /// </summary>
+    Task<string?> OcrTextAsync(Frame frame, CancellationToken ct = default) =>
+        Task.FromResult(frame?.OcrText);
+
+    /// <summary>
     /// False when the service did not record it. Publish attaches what the store says is included, so a
     /// caller that put a frame in and got false must show it as out again (ST-078).
     /// </summary>
