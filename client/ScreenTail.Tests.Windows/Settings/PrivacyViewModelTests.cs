@@ -29,7 +29,7 @@ public sealed class PrivacyViewModelTests
         {
             var own = new ClientSettings { LocalOnly = true, RetentionDays = 7 };
             var gateway = new FakePrivacy();
-            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
+            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.CompletedTask);
             var slider = new Slider { Minimum = 1, TickFrequency = 1, IsSnapToTickEnabled = true };
             _ = slider.SetBinding(RangeBase.MaximumProperty, new Binding(nameof(PrivacyViewModel.RetentionMaximum)) { Source = screen });
             _ = slider.SetBinding(RangeBase.ValueProperty, new Binding(nameof(PrivacyViewModel.RetentionDays)) { Source = screen });
@@ -91,7 +91,7 @@ public sealed class PrivacyViewModelTests
         {
             Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 12),
         };
-        var screen = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
+        var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.CompletedTask);
         await screen.LoadAsync();
         var slider = await ShownAsync(screen);
         Assert.Equal(ClientSettings.MaxRetentionDays, (int)slider.Maximum);
@@ -103,7 +103,7 @@ public sealed class PrivacyViewModelTests
 
         // The admin's 90 days, locked: shown whole, and the technician's own 12 is what a save keeps.
         gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: true, EffectiveRetentionDays: 90);
-        var locked = new PrivacyViewModel(new PrivacyPanel(gateway), _ => Task.CompletedTask, () => Task.CompletedTask);
+        var locked = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.CompletedTask);
         await locked.LoadAsync();
         slider = await ShownAsync(locked);
         Assert.Equal(90, (int)slider.Maximum);
@@ -212,6 +212,7 @@ public sealed class PrivacyViewModelTests
             return Task.FromResult<string?>(null);
         }
 
-        public Task<string?> ExportAuditAsync(CancellationToken ct = default) => Task.FromResult<string?>("{}");
+        public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
+            throw new InvalidOperationException("not under test");
     }
 }

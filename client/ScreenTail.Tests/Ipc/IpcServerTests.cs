@@ -174,6 +174,37 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AnAnswerTooLargeForThePipeIsRefusedAndTheConnectionStaysUp()
+    {
+        // 2026-10-12 review, E-2. Writing a reply over the frame limit threw out of the serve loop and the
+        // server dropped the connection: the UI's only pipe, the one that carries the indicator heartbeat.
+        // An answer that cannot be sent is a refusal with a reason, and the pipe carries on.
+        _controller.Answer = new SessionsListed
+        {
+            Sessions = [.. Enumerable.Range(0, 12_000).Select(i => new SessionRow
+            {
+                Id = $"session-{i:D8}-{new string('x', 40)}",
+                StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero),
+                DurationMs = 61_000,
+                Status = "draft",
+                Frames = 7,
+                FramesPurged = 0,
+            })],
+        };
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var refused = await Assert.ThrowsAsync<IpcProtocolException>(
+            () => ui.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct));
+
+        Assert.Contains("too large", refused.Message, StringComparison.Ordinal);
+        Assert.True(ui.IsConnected);
+        Assert.True((await ui.SendAsync(id => new GetStateCommand { RequestId = id }, ct)).Ok);
+        Assert.Equal(1, _server!.ConnectedClients);
+    }
+
+    [Fact]
     public async Task UnverifiedClientIsRejectedAndAudited()
     {
         await StartServerAsync(new FakeVerifier("unsigned"));
