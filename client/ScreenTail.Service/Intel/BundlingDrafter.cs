@@ -23,8 +23,8 @@ namespace ScreenTail.Service.Intel;
 /// <param name="canSend">
 /// Whether a drafting request could ever leave this machine: a backend is configured and the egress
 /// guard would let a summarisation request through. False means local-only mode or no backend, and
-/// the session is drafted here instead (ST-065 AC3); a backend that is merely offline is not this —
-/// the outbox waits for it.
+/// the session is drafted here instead (ST-065 AC3). A backend that is merely offline is not this:
+/// the outbox waits for it. A session whose own record says local-only is drafted here whatever this says.
 /// </param>
 internal sealed partial class BundlingDrafter(
     ISessionStore store,
@@ -76,7 +76,10 @@ internal sealed partial class BundlingDrafter(
         // the machine comes back. The queue holds the request, not the bundle: frames are re-selected when
         // it is finally sent, from a store that retention may have thinned in the meantime, so a queued
         // draft can never resurrect a frame the tenant's window has already removed (INV-12).
-        if (canSend is not null && !canSend())
+        //
+        // A session recorded under local-only is drafted here even if the mode has been lifted since: its
+        // record says nothing from it leaves the device, and Review's banner says so (INV-8).
+        if (session.LocalOnly || (canSend is not null && !canSend()))
         {
             // Nothing to queue: a request that policy will never let out is not "pending", and a session
             // stuck at "draft failed" for a choice the technician made is the thing ST-065 AC3 removes.

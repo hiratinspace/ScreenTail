@@ -67,6 +67,49 @@ public sealed class BundlingDrafterTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ASessionRecordedLocalOnlyIsDraftedHereEvenAfterTheModeIsLifted()
+    {
+        // The session's own record says nothing from it leaves the device, and Review's banner says so.
+        // Local-only switched off between Stop and the draft does not change what was promised for it.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        await store.CreateSessionAsync(new NewSession("s1", At, new RemoteTool { Kind = RemoteToolKind.Rdp }, true, null), ct);
+        await store.SaveRedactedFrameAsync("s1", new StagedFrame("f1", 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), new RedactionOutcome(new byte[] { 9 }, "Services", [], false, At), ct);
+        await store.FinalizeSessionAsync("s1", new FinalizeInfo(60_000, false), ct);
+        var sent = 0;
+        var outbox = new Core.Outbox.Outbox(store, (_, _) => { sent++; return Task.FromResult(SendOutcome.Done(null)); });
+        var drafter = new BundlingDrafter(store, NullLogger.Instance, outbox, canSend: () => true);
+
+        var outcome = await drafter.DraftAsync("s1", ct);
+        _ = await outbox.DrainAsync(ct);
+
+        Assert.True(outcome.Succeeded, outcome.Reason);
+        Assert.Equal(DraftSource.Local, outcome.Draft!.Source);
+        Assert.Equal(0, sent);
+    }
+
+    [Fact]
+    public async Task WhenADraftCanBeSentItIsQueuedAndNotWrittenHere()
+    {
+        // The other half: the fallback is for a request that can never leave, not for every session.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        await store.CreateSessionAsync(new NewSession("s1", At, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null), ct);
+        await store.SaveRedactedFrameAsync("s1", new StagedFrame("f1", 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), new RedactionOutcome(new byte[] { 9 }, "Services", [], false, At), ct);
+        await store.FinalizeSessionAsync("s1", new FinalizeInfo(60_000, false), ct);
+        var sent = 0;
+        var outbox = new Core.Outbox.Outbox(store, (_, _) => { sent++; return Task.FromResult(SendOutcome.Done(null)); });
+        var drafter = new BundlingDrafter(store, NullLogger.Instance, outbox, canSend: () => true);
+
+        var outcome = await drafter.DraftAsync("s1", ct);
+        _ = await outbox.DrainAsync(ct);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(BundlingDrafter.NoProviderReason, outcome.Reason);
+        Assert.Equal(1, sent);
+    }
+
+    [Fact]
     public async Task ASessionThatIsGoneIsReportedRatherThanThrowing()
     {
         // Retention can purge a session between finalize and drafting. A throw here would fault the

@@ -72,7 +72,7 @@ public static class FallbackDraft
             : showable.Count > 0
                 ? $"A {tool} session with {showable.Count} screenshot{(showable.Count == 1 ? string.Empty : "s")} and no narration."
                 : $"A {tool} session in which nothing was captured.";
-        var result = "Not recorded — add the outcome before publishing."
+        var result = "Not recorded. Add the outcome before publishing."
             + (left > 0 ? $" {left} more {(said.Count > 0 ? "things were said" : "screenshots were taken")} than fit here; see the timeline." : string.Empty);
 
         return new DraftNote

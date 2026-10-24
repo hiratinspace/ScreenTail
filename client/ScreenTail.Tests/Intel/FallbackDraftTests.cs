@@ -1,10 +1,13 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using ScreenTail.Core.Intel;
 using ScreenTail.Shared.Schema;
+using ScreenTail.Tests.Schema;
 
 namespace ScreenTail.Tests.Intel;
 
 /// <summary>
-/// ST-065 AC3: when no model can be reached — local-only mode, or no backend configured — the session
+/// ST-065 AC3: when no model can be reached (local-only mode, or no backend configured), the session
 /// is still drafted, on this device, from what it holds: one step per thing the technician said, each
 /// pointing at the screenshot the aligner tied it to, or one per screenshot when nothing was said.
 /// Nothing is invented (every reference names something in the session), everything is marked low
@@ -104,6 +107,28 @@ public sealed class FallbackDraftTests
 
         Assert.Equal(FallbackDraft.MaxSteps, draft.Steps.Count);
         Assert.Contains($"{80 - FallbackDraft.MaxSteps} more", draft.Result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheDraftIsOneTheSharedContractAccepts()
+    {
+        // The note is stored and read back like any other, and the client parses it against
+        // shared/schema/session.v1.json: "local" and "low" are the contract's own words, and a step's
+        // text is never empty, including a segment of only whitespace.
+        var session = Session(
+            frames: [Frame("f1", 10_000)],
+            transcript: [Said("t1", 9_500, "printer is offline", frameId: "f1"), Said("t2", 12_000, "   ")]);
+        var drafted = session with { Draft = FallbackDraft.Build(session) };
+
+        var json = SessionJson.Serialize(drafted);
+        using var document = JsonDocument.Parse(json);
+        var results = SessionSchema.Instance.Evaluate(document.RootElement, SessionSchema.Options);
+
+        Assert.True(results.IsValid, JsonSerializer.Serialize(results));
+        var draft = JsonNode.Parse(json)!["draft"]!;
+        Assert.Equal("local", draft["source"]!.GetValue<string>());
+        Assert.All(draft["steps"]!.AsArray(), step => Assert.Equal("low", step!["confidence"]!.GetValue<string>()));
+        Assert.Equal(DraftSource.Local, SessionJson.Deserialize(json).Draft!.Source);
     }
 
     private static Session Session(IReadOnlyList<Frame> frames, IReadOnlyList<TranscriptSegment>? transcript = null, IReadOnlyList<SessionEvent>? events = null, long durationMs = 120_000) => new()
