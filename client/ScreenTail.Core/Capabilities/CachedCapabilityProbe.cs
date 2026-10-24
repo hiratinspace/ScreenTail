@@ -7,8 +7,8 @@ namespace ScreenTail.Core.Capabilities;
 /// install, and the controller ran it on every request. That cost nothing while no live screen asked;
 /// the onboarding wizard's Permissions step asks on arrival and on every "Check again" (ST-083), and a
 /// hook per click is felt by everything else on the machine. Five seconds is long enough that a burst
-/// of requests pays once and short enough that "Check again" after a fix in Windows Settings — which
-/// takes a person longer than that — sees the fix.
+/// of requests pays once and short enough that "Check again" after a fix in Windows Settings (which
+/// takes a person longer than that) sees the fix.
 /// </summary>
 public sealed class CachedCapabilityProbe(ICapabilityProbe inner, TimeProvider? time = null, TimeSpan? window = null) : ICapabilityProbe
 {
