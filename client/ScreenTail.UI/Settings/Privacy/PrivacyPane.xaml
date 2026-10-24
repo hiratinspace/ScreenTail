@@ -19,7 +19,7 @@
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
                 <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" Foreground="{DynamicResource Brush.text.primary}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here. Notes are drafted on this device from what was said and shown — plainer than the model's, and marked as such in Review." />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here. Notes are drafted on this device from what was said and shown: plainer than the model's, and marked as such in Review." />
             </StackPanel>
         </Border>
 

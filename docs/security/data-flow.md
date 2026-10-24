@@ -171,7 +171,7 @@ exception types and frames — never the message, which is where a path or a tit
 opt-in nothing is written.
 
 **A local-only session is drafted on the device** (ST-065 AC3). When the egress guard would refuse the
-drafting request — local-only mode, or no backend at all — nothing is queued and the note is written
+drafting request (local-only mode, or no backend at all), nothing is queued and the note is written
 here from the transcript and the screenshots: one step per thing said, low confidence, marked local.
 No model runs, so no model is contacted; the note says what it is.
 
