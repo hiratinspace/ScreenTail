@@ -153,9 +153,14 @@ def shared_cases() -> list[dict]:
     return json.loads(path.read_text(encoding="utf-8"))["cases"]
 
 
-@pytest.mark.parametrize("case", shared_cases(), ids=lambda c: c["text"][:48])
+def case_text(case: dict) -> str:
+    """A case's text, or its parts joined. Key shapes are kept in parts so the file can be pushed."""
+    return case["text"] if "text" in case else "".join(case["parts"])
+
+
+@pytest.mark.parametrize("case", shared_cases(), ids=lambda c: case_text(c)[:48])
 def test_the_shared_cases_are_judged_the_way_they_say(case: dict):
-    errors = errors_with(result=case["text"])
+    errors = errors_with(result=case_text(case))
     refused = bool(errors)
 
     assert refused == case["refuse"], (
