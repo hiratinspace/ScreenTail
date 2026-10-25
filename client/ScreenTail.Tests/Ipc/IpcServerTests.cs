@@ -250,26 +250,45 @@ public sealed class IpcServerTests : IAsyncDisposable
         var hudGot = new TaskCompletionSource<CaptureStateSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         hud.StateChanged += s => hudGot.TrySetResult(s);
 
-        // Authenticated, then deaf: it never reads another byte.
-        await using var deaf = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await deaf.ConnectAsync((int)Soon.TotalMilliseconds, ct);
-        await IpcFraming.WriteAsync<IpcCommand>(deaf, new HelloCommand { RequestId = 0, ContractVersion = IpcContract.Version, Token = IpcToken.Encode(_token), ClientName = "deaf" }, ct);
-        Assert.IsType<HelloAck>(await IpcFraming.ReadAsync<IpcEvent>(deaf, ct));
-        await WaitUntilAsync(() => _server!.ConnectedClients == 2);
+        // Authenticated, then deaf: they never read another byte. Two of them, because the set is not
+        // walked in any order a test can choose: one at a time, two stuck peers cost two deadlines
+        // whichever side of the HUD they fall, and all at once they cost one.
+        await using var deaf = await DeafPeerAsync(ct);
+        await using var deafer = await DeafPeerAsync(ct);
+        await WaitUntilAsync(() => _server!.ConnectedClients == 3);
 
-        // Far more than any pipe or socket buffers, so the deaf peer's write is stuck for its whole deadline.
+        // Far more than any pipe or socket buffers, so a deaf peer's write is stuck for its whole deadline.
         var large = Recording(new string('s', 768 * 1024));
         var started = Stopwatch.GetTimestamp();
         var broadcast = _server!.BroadcastAsync(new StateChanged { State = large }, ct);
 
         var seen = await hudGot.Task.WaitAsync(TimeSpan.FromSeconds(2), ct);
         Assert.Equal(large.SessionId, seen.SessionId);
-        Assert.False(broadcast.IsCompleted, "the deaf peer did not block its write, so this run proves nothing about waiting");
+        Assert.False(broadcast.IsCompleted, "the deaf peers did not block their writes, so this run proves nothing about waiting");
 
-        // The broadcast still ends, within the per-client deadline, and the HUD is still being served.
-        await broadcast.WaitAsync(TimeSpan.FromSeconds(10), ct);
-        Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(8), "the broadcast was held past its deadline");
+        // The broadcast still ends, within one per-client deadline rather than one per deaf peer, and
+        // the HUD is still being served.
+        await broadcast.WaitAsync(TimeSpan.FromSeconds(9), ct);
+        Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(8), "the broadcast waited on the deaf peers one after another");
         Assert.True((await hud.SendAsync(id => new GetStateCommand { RequestId = id }, ct).WaitAsync(Soon, ct)).Ok);
+    }
+
+    /// <summary>A peer that completes the handshake and then stops reading.</summary>
+    private async Task<NamedPipeClientStream> DeafPeerAsync(CancellationToken ct)
+    {
+        var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        try
+        {
+            await pipe.ConnectAsync((int)Soon.TotalMilliseconds, ct);
+            await IpcFraming.WriteAsync<IpcCommand>(pipe, new HelloCommand { RequestId = 0, ContractVersion = IpcContract.Version, Token = IpcToken.Encode(_token), ClientName = "deaf" }, ct);
+            Assert.IsType<HelloAck>(await IpcFraming.ReadAsync<IpcEvent>(pipe, ct));
+            return pipe;
+        }
+        catch
+        {
+            await pipe.DisposeAsync();
+            throw;
+        }
     }
 
     [Fact]
