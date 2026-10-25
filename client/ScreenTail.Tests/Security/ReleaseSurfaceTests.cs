@@ -92,10 +92,15 @@ public sealed class ReleaseSurfaceTests
         // comment called itself "the handler every HttpClient in the client is built with" while nothing
         // constructed one anywhere (weaknesses P1-1), which is precisely the convention it was written to
         // replace. The first bare client is the one that gets it wrong, so there are none.
+        //
+        // 2026-10-12 review (T-120): "bare" used to mean `new HttpClient()` and nothing else, so a client
+        // built around a SocketsHttpHandler, a raw web socket or the old WebRequest family bypassed the
+        // guard with the test still green. The handler, socket and request types are named instead:
+        // EgressGuard.cs is the one file allowed to build the handler underneath.
         var offenders = Projects
             .SelectMany(SourceFiles)
             .Where(file => !file.EndsWith("EgressGuard.cs", StringComparison.Ordinal))
-            .Where(file => BareHttpClient.IsMatch(File.ReadAllText(file)))
+            .Where(file => BuildsUnguardedHttp(File.ReadAllText(file)))
             .Select(Path.GetFileName)
             .ToList();
 
@@ -104,21 +109,70 @@ public sealed class ReleaseSurfaceTests
             $"Build HttpClient through EgressGuard so INV-8 is enforced rather than remembered. Found in: {string.Join(", ", offenders)}");
     }
 
-    [Fact]
-    public void TheDiagnosticsPanelsSampleIsOnlyForTheRenderHarness()
+    [Theory]
+    [InlineData("var c = new HttpClient();", true)]
+    [InlineData("var c = new HttpClient( );", true)]
+    [InlineData("var c = new HttpClient(new SocketsHttpHandler());", true)]
+    [InlineData("var h = new HttpClientHandler { AllowAutoRedirect = false };", true)]
+    [InlineData("var h = new WinHttpHandler();", true)]
+    [InlineData("using var socket = new ClientWebSocket();", true)]
+    [InlineData("var r = WebRequest.Create(uri);", true)]
+    [InlineData("var r = (HttpWebRequest)WebRequest.Create(uri);", true)]
+    [InlineData("using var w = new WebClient();", true)]
+    [InlineData("services.AddHttpClient<Foo>();", true)]
+    [InlineData("var c = new HttpClient(egress) { BaseAddress = backend };", false)]
+    [InlineData("var c = new HttpClient(new EgressGuard(new EgressPolicy()));", false)]
+    [InlineData("// a comment that mentions SocketsHttpHandler is not a handler", false)]
+    [InlineData("/// <summary>Not a WebClient either.</summary>", false)]
+    [InlineData("HttpClientHandlerSettings x;", false)]
+    [InlineData("var request = new HttpRequestMessage(HttpMethod.Get, uri);", false)]
+    public void TheUnguardedHttpCheckKnowsTheShapesItIsFor(string snippet, bool offends)
     {
-        // The panel is what a technician turns the screen round and shows a customer. It rendered a
-        // literal in production — "local-only: yes" from a constant — which is worse than no panel at all
-        // (weaknesses P1-2). The sample stays for the CI render; nothing that runs may reach it.
+        // The check above is only as good as this list. A self-test over snippets is what stops a regex
+        // edit from quietly matching nothing.
+        Assert.Equal(offends, BuildsUnguardedHttp(snippet));
+    }
+
+    [Fact]
+    public void NothingThatRunsBuildsASampleWindow()
+    {
+        // The diagnostics panel is what a technician turns the screen round and shows a customer. It
+        // rendered a literal in production — "local-only: yes" from a constant — which is worse than no
+        // panel at all (weaknesses P1-2). The sample stays for the CI render; nothing that runs may reach
+        // it.
+        //
+        // 2026-10-12 review (T-149): the old check looked for `DiagnosticsWindow.Sample` and missed the
+        // parameterless DiagnosticsWindow() and ShellWindow() constructors, which build the same sample
+        // and are what a hurried `new ShellWindow()` in the tray would call. Each window may build its
+        // own sample; nothing else may ask for one.
         var offenders = SourceFiles("ScreenTail.UI")
-            .Where(file => !Path.GetFileName(file).StartsWith("DiagnosticsWindow", StringComparison.Ordinal))
-            .Where(file => File.ReadAllText(file).Contains("DiagnosticsWindow.Sample", StringComparison.Ordinal))
-            .Select(Path.GetFileName)
+            .Where(file => Path.GetFileName(file) is not ("DiagnosticsWindow.xaml.cs" or "ShellWindow.xaml.cs"))
+            .SelectMany(file => SampleWindow.Matches(File.ReadAllText(file))
+                .Select(match => $"{Path.GetFileName(file)}: {match.Value}"))
             .ToList();
 
         Assert.True(
             offenders.Count == 0,
-            $"The diagnostics panel shows what the service said, never a sample. Found in: {string.Join(", ", offenders)}");
+            $"The shell and the diagnostics panel show what the service said, never a sample. Found: {string.Join(", ", offenders)}");
+
+        // And WPF's own way of building a window nobody constructed in code.
+        var app = Path.Combine(Path.GetDirectoryName(ProjectFile("ScreenTail.UI"))!, "App.xaml");
+        Assert.DoesNotContain("StartupUri", File.ReadAllText(app), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("var w = new DiagnosticsWindow();", true)]
+    [InlineData("var w = new ShellWindow();", true)]
+    [InlineData("var w = new ShellWindow( );", true)]
+    [InlineData("var w = new ShellWindow((string?)null);", true)]
+    [InlineData("var w = new ShellWindow(null);", true)]
+    [InlineData("var d = DiagnosticsWindow.Sample;", true)]
+    [InlineData("var w = new ShellWindow(state, loadReview, history, settings);", false)]
+    [InlineData("var w = new DiagnosticsWindow(From(reported));", false)]
+    [InlineData("var w = new ShellWindow(directory);", false)]
+    public void TheSampleWindowCheckKnowsTheShapesItIsFor(string snippet, bool offends)
+    {
+        Assert.Equal(offends, SampleWindow.IsMatch(snippet));
     }
 
     [Fact]
@@ -156,10 +210,37 @@ public sealed class ReleaseSurfaceTests
     }
 
     /// <summary>
-    /// <c>new HttpClient(</c> with no handler, or <c>new HttpClient()</c>. A client built around the
-    /// guard passes one in, which is the whole distinction.
+    /// <c>new HttpClient()</c> with no handler: a client built around the guard passes one in, which is
+    /// the whole distinction.
     /// </summary>
     private static readonly Regex BareHttpClient = new(@"new\s+HttpClient\s*\(\s*\)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The types that make a request without going through a handler somebody chose: the handlers an
+    /// <c>HttpClient</c> can be built around, the raw socket, the old request family, and the factory
+    /// that builds clients behind a caller's back. Whole words, so a type that merely contains one of
+    /// these names is not an offender.
+    /// </summary>
+    private static readonly Regex UnguardedHttpType = new(
+        @"\b(SocketsHttpHandler|HttpClientHandler|WinHttpHandler|HttpMessageInvoker|ClientWebSocket|HttpWebRequest|WebRequest|WebClient|IHttpClientFactory|AddHttpClient)\b",
+        RegexOptions.Compiled);
+
+    /// <summary>Line comments, so a comment that names a type is not read as code that uses it.</summary>
+    private static readonly Regex LineComment = new(@"//.*$", RegexOptions.Compiled | RegexOptions.Multiline);
+
+    /// <summary>
+    /// The sample constructors and the sample itself: <c>new DiagnosticsWindow()</c>, <c>new ShellWindow()</c>,
+    /// a ShellWindow built on a null screenshot directory, and <c>DiagnosticsWindow.Sample</c>.
+    /// </summary>
+    private static readonly Regex SampleWindow = new(
+        @"new\s+(?:DiagnosticsWindow|ShellWindow)\s*\(\s*(?:\(\s*string\??\s*\)\s*)?(?:null\s*)?\)|DiagnosticsWindow\.Sample\b",
+        RegexOptions.Compiled);
+
+    private static bool BuildsUnguardedHttp(string source)
+    {
+        var code = LineComment.Replace(source, string.Empty);
+        return BareHttpClient.IsMatch(code) || UnguardedHttpType.IsMatch(code);
+    }
 
     private static string ProjectFile(string project)
     {

@@ -137,31 +137,104 @@ public sealed class OutboxTests
     }
 
     [Fact]
-    public async Task ARetryWaitsLongerEachTimeAndThenGivesUp()
+    public async Task TheBackoffDoublesFromThirtySecondsToAnHour()
     {
-        // A provider that is down stays down for minutes, not milliseconds. Retrying every second wastes
-        // a technician's battery and looks like an attack from the far end.
+        // 2026-10-12 review (T-107). The old test counted attempts over forty half-hours and passed with
+        // a flat schedule and with an uncapped one. A provider that is down stays down for minutes, not
+        // milliseconds, so the first waits are short; it does not want asking every thirty seconds all
+        // afternoon, so they stop growing at an hour.
+        Assert.Equal(TimeSpan.FromSeconds(30), Core.Outbox.Outbox.RetryAfter(0));
+        Assert.Equal(TimeSpan.FromSeconds(30), Core.Outbox.Outbox.RetryAfter(1));
+        Assert.Equal(TimeSpan.FromMinutes(1), Core.Outbox.Outbox.RetryAfter(2));
+        Assert.Equal(TimeSpan.FromMinutes(2), Core.Outbox.Outbox.RetryAfter(3));
+        Assert.Equal(TimeSpan.FromMinutes(32), Core.Outbox.Outbox.RetryAfter(7));
+        Assert.Equal(TimeSpan.FromHours(1), Core.Outbox.Outbox.RetryAfter(8));
+        Assert.Equal(TimeSpan.FromHours(1), Core.Outbox.Outbox.RetryAfter(9));
+        Assert.Equal(TimeSpan.FromHours(1), Core.Outbox.Outbox.RetryAfter(400));
+
+        // And the outbox schedules by it: each attempt is due exactly one step after the last.
         var store = new FakeOutboxStore();
         var time = new ManualTime(At);
         var network = new FakeNetwork { Outcome = SendOutcome.Retry("The PSA did not answer.") };
         var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time);
-
         await outbox.EnqueueAsync(Work("s1", OutboxKind.PublishNote));
 
-        var attempts = 0;
-        for (var i = 0; i < 40; i++)
+        var expected = new[] { 30, 60, 120, 240, 480, 960, 1920, 3600, 3600 };
+        for (var attempt = 1; attempt <= expected.Length; attempt++)
         {
-            if (await outbox.DrainAsync(TestContext.Current.CancellationToken))
+            Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(attempt, network.Sent);
+            Assert.Equal(time.GetUtcNow() + TimeSpan.FromSeconds(expected[attempt - 1]), store.Items[0].DueAt);
+
+            // One second early is not due; on the second it is.
+            time.Advance(TimeSpan.FromSeconds(expected[attempt - 1] - 1));
+            Assert.False(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+            time.Advance(TimeSpan.FromSeconds(1));
+        }
+    }
+
+    [Fact]
+    public async Task AnItemIsStillPendingAfterAnHourOfRetriesAndFailsOnlyAfterADay()
+    {
+        // 2026-10-12 review (T-103, E-13). The comment promised "about a day" and the code gave up after
+        // eight attempts, which the schedule above reaches in sixty-three minutes. A draft owed while the
+        // technician was offline for an afternoon, or a 402 that clears at midnight, was failed for good
+        // with no path to retry it. The bound is elapsed time since the work was queued.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var network = new FakeNetwork { Outcome = SendOutcome.Retry("The backend did not answer.") };
+        var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time);
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+
+        DateTimeOffset? failedAt = null;
+        var step = TimeSpan.FromMinutes(30);
+        for (var elapsed = TimeSpan.Zero; elapsed <= TimeSpan.FromHours(27); elapsed += step)
+        {
+            _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+            if (store.Items[0].State == OutboxState.Failed)
             {
-                attempts++;
+                failedAt ??= time.GetUtcNow();
+            }
+            else if (elapsed < Core.Outbox.Outbox.MaxAge)
+            {
+                Assert.Equal(OutboxState.Pending, store.Items[0].State);
             }
 
-            time.Advance(TimeSpan.FromMinutes(30));
+            time.Advance(step);
         }
 
         Assert.Equal(OutboxState.Failed, store.Items[0].State);
-        Assert.True(attempts <= Core.Outbox.Outbox.MaxAttempts, $"{attempts} attempts is more than the ceiling");
-        Assert.NotNull(store.Items[0].LastError);
+        Assert.NotNull(failedAt);
+        Assert.True(failedAt >= At + Core.Outbox.Outbox.MaxAge, $"gave up at {failedAt - At}, before a day had passed");
+        Assert.True(failedAt <= At + Core.Outbox.Outbox.MaxAge + TimeSpan.FromHours(1) + step, $"gave up at {failedAt - At}, long after the day");
+        Assert.True(network.Sent >= 24, $"only {network.Sent} attempts in a day; the hourly cap should have allowed more");
+        Assert.Equal("The backend did not answer.", store.Items[0].LastError);
+    }
+
+    [Fact]
+    public async Task WorkQueuedLongAgoStillGetsAnHourOfAttemptsBeforeItIsFailed()
+    {
+        // The laptop was shut on Friday with a draft owed and opened on Monday. A day has long passed,
+        // but nothing was ever tried: the first attempt alone is not grounds to give up, so the item gets
+        // the full backoff run before the age bound applies.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var network = new FakeNetwork { Up = false };
+        var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time);
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+        time.Advance(TimeSpan.FromDays(3));
+
+        Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(OutboxState.Pending, store.Items[0].State);
+
+        for (var attempt = 2; attempt <= Core.Outbox.Outbox.MinAttempts; attempt++)
+        {
+            time.Advance(Core.Outbox.Outbox.RetryAfter(attempt - 1));
+            Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+        }
+
+        Assert.Equal(OutboxState.Failed, store.Items[0].State);
+        Assert.Equal(Core.Outbox.Outbox.MinAttempts, store.Items[0].Attempts);
     }
 
     [Fact]

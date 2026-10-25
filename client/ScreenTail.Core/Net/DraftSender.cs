@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Intel;
 using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Store;
@@ -41,8 +42,13 @@ public sealed class DraftSender(
     ISessionStore store,
     Func<string?> token,
     BundleOptions? options = null,
-    Func<IReadOnlyList<string>>? styleHints = null)
+    Func<IReadOnlyList<string>>? styleHints = null,
+    IAuditLog? audit = null,
+    TimeProvider? time = null)
 {
+    private readonly IAuditLog? _audit = audit ?? store as IAuditLog;
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
     /// <summary>Where the backend drafts. Relative, so the host's base address decides the deployment.</summary>
     private static readonly Uri Endpoint = new("v1/sessions/summarize", UriKind.Relative);
 

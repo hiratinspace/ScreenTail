@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -143,6 +144,94 @@ public sealed class DraftSenderTests : IAsyncDisposable
         var outcome = await Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken);
 
         Assert.Equal(OutboxState.Pending, outcome.State);
+    }
+
+    [Theory]
+    // The budget is spent for the day and comes back at UTC midnight (the backend's CostLedger). From
+    // 10:00Z that is fourteen hours; thirty minutes later, thirteen and a half.
+    [InlineData(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"This tenant has reached its drafting budget for today."}""", 13.5)]
+    // Nobody has configured a provider. An operator fixes that in hours, not seconds; the hold is the
+    // outbox's own longest wait.
+    [InlineData(HttpStatusCode.NotImplemented, """{"status":"not_configured","reason":"No summarization provider is configured on this deployment."}""", 0.5)]
+    public async Task AfterARefusalThatHoldsForTheDayNothingIsRebuiltOrUploadedUntilItPasses(HttpStatusCode status, string body, double remainingHours)
+    {
+        // 2026-10-12 review (E-11). After a 402 or a 501 every retry rebuilt the ~6 MB bundle and uploaded
+        // it again, because the sender kept no "blocked until" and the backend refuses only after reading
+        // the body. The hold is the sender's, so every queued draft shares it, and it is checked before
+        // the store is opened.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var handler = new RecordingHandler(Answer(status, body));
+        var sender = Sender(store, handler, time: time);
+
+        var first = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(OutboxState.Pending, first.State);
+        Assert.Equal(1, handler.Requests);
+
+        time.Advance(TimeSpan.FromMinutes(30));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Pending, held.State);
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal(TimeSpan.FromHours(remainingHours), held.RetryAfter);
+        Assert.Contains("budget", held.Message + first.Message, StringComparison.OrdinalIgnoreCase);
+
+        // A session the store has never heard of would be Failed if the store were asked. It is not asked.
+        var other = await sender.SendAsync(Item() with { SessionId = "nobody" }, TestContext.Current.CancellationToken);
+        Assert.Equal(OutboxState.Pending, other.State);
+
+        time.Advance(TimeSpan.FromHours(remainingHours));
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARefusalThatNamesATimeIsHeldUntilThen()
+    {
+        // When the backend says when, that is the hold: the quota it is standing behind may reopen before
+        // midnight, or after an hour, and the header is the better guess.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"Budget."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromHours(2));
+        var sender = Sender(store, new RecordingHandler(reply), time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        time.Advance(TimeSpan.FromMinutes(15));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(TimeSpan.FromMinutes(105), held.RetryAfter);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.BadRequest)]
+    public async Task ASendWritesTheBundleSentRowWithItsBytesAndHost(HttpStatusCode status)
+    {
+        // 2026-10-12 review (S-15). The audit export has a "bytes sent, and to which host" section and
+        // nothing in the product wrote to it: the only test wrote the row itself. A refused bundle left
+        // the machine just as surely as an accepted one, so both are recorded.
+        var store = await SessionAsync();
+        var handler = new RecordingHandler(Answer(status, status == HttpStatusCode.OK ? Ok() : """{"status":"rejected","reason":"No."}"""));
+
+        _ = await Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        var sent = Assert.Single(await store.GetAuditRecordsAsync("s1"), r => r.Type == AuditTypes.BundleSent);
+        Assert.Equal(Encoding.UTF8.GetByteCount(handler.Body!), sent.Count);
+        Assert.Equal("api.screentail.example", sent.Detail);
+    }
+
+    [Fact]
+    public async Task NothingIsRecordedAsSentWhenNothingWasSent()
+    {
+        // No token and no network are the two ways a send ends without bytes leaving. An audit row for
+        // either would be a claim about egress that did not happen.
+        var store = await SessionAsync();
+
+        _ = await Sender(store, new RecordingHandler(Answer(HttpStatusCode.OK, Ok())), token: null).SendAsync(Item(), TestContext.Current.CancellationToken);
+        _ = await Sender(store, new BrokenHandler()).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(await store.GetAuditRecordsAsync("s1"), r => r.Type == AuditTypes.BundleSent);
     }
 
     [Fact]
@@ -334,11 +423,12 @@ public sealed class DraftSenderTests : IAsyncDisposable
     private static JsonElement Sent(RecordingHandler handler) =>
         JsonDocument.Parse(handler.Body ?? throw new InvalidOperationException("nothing was sent")).RootElement;
 
-    private static DraftSender Sender(ISessionStore store, HttpMessageHandler handler, string? token = "a-device-token") =>
+    private static DraftSender Sender(ISessionStore store, HttpMessageHandler handler, string? token = "a-device-token", TimeProvider? time = null) =>
         new(
             new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") },
             store,
-            () => token);
+            () => token,
+            time: time ?? new ManualTime(At));
 
     private static OutboxItem Item() => new(
         "o1", "s1", OutboxKind.Draft, "draft:s1", "{}", OutboxState.Pending, 0, At, At, null, null, null);

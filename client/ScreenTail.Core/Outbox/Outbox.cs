@@ -31,6 +31,10 @@ public sealed class Outbox(
     /// </summary>
     public const int MaxAttempts = 8;
 
+    public const int MinAttempts = 8;
+
+    public static readonly TimeSpan MaxAge = TimeSpan.FromDays(1);
+
     /// <summary>
     /// The longest a far end's Retry-After is honoured for.
     ///
