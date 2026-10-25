@@ -240,13 +240,40 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AFrameRefusedAsTheCaptureLoopIsCancelledIsStillCounted()
+    {
+        // 2026-10-12 review, second pass. The refusal is a fact the moment the queue says no, and the
+        // count is what makes the draft hedge for it. Written on the capture loop's token, a refusal that
+        // landed as Stop cancelled that loop threw before the count was written, and the frame was lost
+        // with nothing to say so. A token that is already cancelled is that race with the timing taken out.
+        var machine = await MachineAsync(pendingDepth: 1);
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        Assert.True(await machine.TryStageFrameAsync(Frame("kept", machine.NowMs)));
+
+        using var stopping = new CancellationTokenSource();
+        await stopping.CancelAsync();
+        Assert.False(await machine.TryStageFrameAsync(Frame("refused", machine.NowMs), stopping.Token));
+
+        Assert.Equal(1, (await _store!.LoadSessionAsync(id))!.FramesPurgedUnredacted);
+        Assert.Contains(await _store.GetAuditAsync(id), a => a.Type == AuditTypes.FramesPurgedUnredacted && a.Count == 1);
+    }
+
+    [Fact]
     public async Task StopWaitsForAFrameAWorkerIsHolding()
     {
         // 2026-10-12 review (T-1). The queue holds two states, waiting and taken-but-unwritten, and
         // finalize must wait for both: a DepthFor that counted only the waiting half would draft the
         // note while the worker was still writing the last frame, and that frame would land after the
         // line was drawn.
-        var machine = await MachineAsync(grace: TimeSpan.FromSeconds(5));
+        //
+        // On a clock that moves only by hand, as the recovery test above does it, with one addition: the
+        // clock says when the machine asks it for a timer, which is the machine deciding to wait. The
+        // grace can never run out, so a Stop that has asked for a timer cannot finish until the frame is
+        // handed back; a Stop that did not think it owed anything never asks, and finishes on its own.
+        // No sleeping and no polling, so the answer does not depend on how busy the runner is.
+        var clock = new HeldClock(new DateTimeOffset(2026, 10, 25, 9, 0, 0, TimeSpan.Zero));
+        var machine = await MachineAsync(grace: TimeSpan.FromSeconds(5), time: clock);
         await machine.StartAsync(ScreenConnect);
         var id = machine.SessionId!;
         Assert.True(await machine.TryStageFrameAsync(Frame("held", machine.NowMs)));
@@ -254,18 +281,15 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.Equal(id, held.SessionId);
 
         var stopping = machine.StopAsync();
-        for (var i = 0; i < 100 && machine.State != SessionState.Finalizing; i++)
-        {
-            await Task.Delay(10);
-        }
-
-        await Task.Delay(200);
+        _ = await Task.WhenAny(clock.Waiting, stopping).WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(stopping.IsCompleted, "Stop drafted the note while a worker was still holding a frame of the session.");
+        Assert.Equal(SessionState.Finalizing, machine.State);
 
         await _store!.SaveRedactedFrameAsync(
             held.SessionId, held.Frame, new RedactionOutcome(new byte[] { 1 }, "ok", [], false, DateTimeOffset.UtcNow));
         _pending.Done(held);
-        Assert.True(await stopping);
+        clock.Release();
+        Assert.True(await stopping.WaitAsync(TimeSpan.FromSeconds(10)));
 
         Assert.Equal(SessionState.DraftReady, machine.State);
         var stored = (await _store.LoadSessionAsync(id))!;
@@ -842,6 +866,87 @@ public sealed class StateMachineTests : IAsyncDisposable
 
         var session = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
         Assert.Equal("48213", session.SuggestedTicket);
+    }
+
+    /// <summary>
+    /// A clock that stands still, like <see cref="ManualTime"/>, and holds every timer it is asked for
+    /// until <see cref="Release"/>. <see cref="Waiting"/> completes the first time one is asked for, which
+    /// is the machine deciding there is something to wait for. After Release a timer fires at once.
+    /// </summary>
+    private sealed class HeldClock(DateTimeOffset now) : TimeProvider
+    {
+        private readonly TaskCompletionSource _waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<HeldTimer> _held = [];
+        private bool _released;
+
+        public Task Waiting => _waiting.Task;
+
+        public override DateTimeOffset GetUtcNow() => now;
+
+        public override long GetTimestamp() => now.UtcTicks;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new HeldTimer(callback, state);
+            bool fire;
+            lock (_held)
+            {
+                fire = _released;
+                if (!fire)
+                {
+                    _held.Add(timer);
+                }
+            }
+
+            _ = _waiting.TrySetResult();
+            if (fire)
+            {
+                _ = ThreadPool.QueueUserWorkItem(_ => timer.Fire());
+            }
+
+            return timer;
+        }
+
+        public void Release()
+        {
+            HeldTimer[] due;
+            lock (_held)
+            {
+                _released = true;
+                due = [.. _held];
+                _held.Clear();
+            }
+
+            foreach (var timer in due)
+            {
+                timer.Fire();
+            }
+        }
+
+        private sealed class HeldTimer(TimerCallback callback, object? state) : ITimer
+        {
+            private int _done;
+
+            public void Fire()
+            {
+                if (Interlocked.Exchange(ref _done, 1) == 0)
+                {
+                    callback(state);
+                }
+            }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+            public void Dispose() => _ = Interlocked.Exchange(ref _done, 1);
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 
     private sealed class FixedKeyProvider(byte[] key) : IStoreKeyProvider

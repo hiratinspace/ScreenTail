@@ -498,9 +498,17 @@ public sealed class SessionMachine : IAsyncDisposable
         // diagnostics said 0 (2026-10-12 review, S-1). It is the same loss as a straggler purged at
         // finalize, nobody having read the frame (ADR-0004), and it is recorded the same way; the
         // store writes the audit row with the count.
+        //
+        // Not on the caller's token. The refusal has already happened, and the capture loop's token is
+        // the one Stop cancels: a refusal that lands as Stop begins would throw before the count was
+        // written and the draft would not hedge for a frame it never saw.
+        //
+        // A refused frame gets this purged row and no FrameCaptured row, because ST-045 counts frames
+        // that were accepted. So in an audit export "purged unredacted" includes frames refused before
+        // they were staged, and can be larger than "captured" for a session that lost frames this way.
         if (!_options.Pending.TryEnqueue(session.Id, frame))
         {
-            await _store.RecordPurgedFramesAsync(session.Id, 1, ct).ConfigureAwait(false);
+            await _store.RecordPurgedFramesAsync(session.Id, 1, CancellationToken.None).ConfigureAwait(false);
             return false;
         }
 
