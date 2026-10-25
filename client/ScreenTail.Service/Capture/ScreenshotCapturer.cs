@@ -37,6 +37,16 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private int _bitmapWidth;
     private int _bitmapHeight;
     private bool _disposed;
+    private long _skippedCovered;
+
+    /// <summary>Samples skipped because a topmost window lay over the one in front. A count, for diagnostics.</summary>
+    internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
+
+    /// <summary>
+    /// A test seam, null in production: runs inside the lock before the foreground is read, where a capture
+    /// that waited for a slow one finds itself. Nothing is read before it runs, so nothing read is stale.
+    /// </summary>
+    internal Action? BeforeGrab { get; set; }
 
     // No size argument: the frame is captured at the window's own size and the downscale belongs to
     // the redaction worker, after the text has been read (ADR-0001 finding 2a). A parameter here that
@@ -66,6 +76,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
         lock (_gate)
         {
+            BeforeGrab?.Invoke();
             if (_disposed || !Prepare(width, height))
             {
                 return null;

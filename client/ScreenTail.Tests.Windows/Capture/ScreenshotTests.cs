@@ -143,30 +143,185 @@ public sealed class ScreenshotTests
     }
 
     [Fact]
-    public void CapturingRepeatedlyDoesNotLeakHandles()
+    public void GdiObjectsDoNotGrowAcrossCapturesAndResizes()
     {
-        // Every capture creates a DC, a bitmap and a GDI object. Leaking any of them exhausts the desktop
-        // heap within a working day, and the symptom would be windows failing to draw rather than a crash here.
+        // Every capture selects a bitmap into a DC, and a resize throws the bitmap away and makes another.
+        // Leaking any of them exhausts the desktop heap within a working day, and the symptom would be
+        // windows failing to draw rather than a crash here. GDI objects are not kernel handles, so the
+        // process handle count this used to watch could not see one leak, and a window that never changed
+        // size never took the path that frees the old bitmap (2026-10-12 review, T-15).
         Hardware.RequireScreenCapture();
         using var window = DesktopWindow.Create("ScreenTail handle target");
         window.RequireForeground();
         using var capturer = new ScreenshotCapturer();
 
         using var self = System.Diagnostics.Process.GetCurrentProcess();
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 6; i++)
         {
-            capturer.CaptureForegroundWindow();
+            CaptureResized(window, capturer, i);
         }
 
         self.Refresh();
-        var before = self.HandleCount;
+        var gdiBefore = GetGuiResources(self.Handle, GR_GDIOBJECTS);
+        var handlesBefore = self.HandleCount;
         for (var i = 0; i < 50; i++)
         {
-            capturer.CaptureForegroundWindow();
+            CaptureResized(window, capturer, i);
         }
 
         self.Refresh();
-        var growth = self.HandleCount - before;
-        Assert.True(growth < 50, $"handle count grew by {growth} over 50 captures");
+        var gdiGrowth = (long)GetGuiResources(self.Handle, GR_GDIOBJECTS) - gdiBefore;
+        var handleGrowth = self.HandleCount - handlesBefore;
+        Measurements.Record($"50 captures across 50 resizes grew GDI objects by **{gdiGrowth}** and kernel handles by {handleGrowth}");
+        Assert.True(gdiGrowth < 10, $"GDI object count grew by {gdiGrowth} over 50 captures across resizes");
+        Assert.True(handleGrowth < 50, $"handle count grew by {handleGrowth} over 50 captures across resizes");
     }
+
+    /// <summary>One capture of each kind at a size that differs from the last call's.</summary>
+    private static void CaptureResized(DesktopWindow window, ScreenshotCapturer capturer, int turn)
+    {
+        window.Resize(turn % 2 == 0 ? 420 : 520, turn % 2 == 0 ? 220 : 300);
+        capturer.CaptureForegroundWindow();
+        capturer.CaptureSceneGrid();
+    }
+
+    [Fact]
+    public void TheSceneGridSeesWhatIsInTheWindow()
+    {
+        // ST-026 lives on this grid: a flat one would say the screen never changes and the sampler would
+        // never take a frame, with nothing to say so (2026-10-12 review, T-11). The window is painted light
+        // on the left and dark on the right, and the grid has to say the same.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail scene target");
+        window.RequireForeground();
+        window.ShowContrast(ContrastLayout.SideBySide);
+        Thread.Sleep(150);
+        using var capturer = new ScreenshotCapturer();
+
+        // The same scope rule as a full capture: the grid is of the window that was judged, or nothing.
+        Assert.Null(capturer.CaptureSceneGrid(expected: window.Handle + 1));
+        var grid = capturer.CaptureSceneGrid(expected: window.Handle);
+
+        Assert.NotNull(grid);
+        Assert.Equal(PerceptualHash.GridLength, grid.Length);
+        var left = Average(grid, rows: (5, 15), columns: (1, 7));
+        var right = Average(grid, rows: (5, 15), columns: (10, 16));
+        Measurements.Record($"Scene grid of a window painted light left, dark right: left **{left:F0}**, right **{right:F0}** (0 black, 255 white)");
+        Assert.True(left > 160, $"the light half of the window averaged {left:F0} in the grid");
+        Assert.True(right < 96, $"the dark half of the window averaged {right:F0} in the grid");
+    }
+
+    [Fact]
+    public void TheSceneGridChangesWhenTheWindowDoesAndNotOtherwise()
+    {
+        // The sampler's own question, asked of real pixels: two looks at a still window are the same scene,
+        // and the window repainting is a change past the threshold it acts on.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail scene change target");
+        window.RequireForeground();
+        window.ShowContrast(ContrastLayout.SideBySide);
+        Thread.Sleep(150);
+        using var capturer = new ScreenshotCapturer();
+
+        var first = capturer.CaptureSceneGrid(expected: window.Handle);
+        var again = capturer.CaptureSceneGrid(expected: window.Handle);
+        window.ShowContrast(ContrastLayout.Stacked);
+        Thread.Sleep(150);
+        var repainted = capturer.CaptureSceneGrid(expected: window.Handle);
+
+        Assert.NotNull(first);
+        Assert.NotNull(again);
+        Assert.NotNull(repainted);
+        var threshold = new SceneSamplerOptions().Threshold;
+        var still = PerceptualHash.OfGrid(first).DistanceTo(PerceptualHash.OfGrid(again));
+        var changed = PerceptualHash.OfGrid(first).DistanceTo(PerceptualHash.OfGrid(repainted));
+        var cellsChanged = first.Zip(repainted, (a, b) => Math.Abs(a - b) > 64).Count(c => c);
+        Measurements.Record($"Scene hash distance: still window **{still}**, repainted window **{changed}** ({cellsChanged} of {first.Length} cells changed; threshold {threshold})");
+        Assert.True(still < threshold, $"two looks at a still window were {still} bits apart, threshold {threshold}");
+        Assert.True(changed >= threshold, $"a repainted window was only {changed} bits away, threshold {threshold}");
+        Assert.True(cellsChanged >= first.Length / 6, $"only {cellsChanged} of {first.Length} cells changed when half the window was repainted");
+    }
+
+    [Fact]
+    public void NothingIsCapturedWhileATopmostWindowCoversTheWindowInFront()
+    {
+        // The grab is of the screen over the window's rectangle, so a toast, a popup or any topmost window
+        // lying over an in-scope window is stored with it (2026-10-12 review, S-4; the topmost half of
+        // P-6). Until the grab is of the window itself, a sample with something on top is skipped.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail covered target");
+        window.RequireForeground();
+        using var capturer = new ScreenshotCapturer();
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+
+        var bounds = window.Bounds;
+        using var toast = DesktopWindow.Create("ScreenTail toast");
+        toast.ShowTopmostAt(bounds.Left + 40, bounds.Top + 40, 160, 80);
+        Thread.Sleep(150);
+        Assert.True(window.IsForeground || window.TakeForeground(TimeSpan.FromSeconds(2)), "the topmost window took the foreground, so a null here would prove nothing about covering");
+
+        Assert.Null(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedCovered);
+
+        // Beside the window rather than over it, the same topmost window is no reason to skip.
+        toast.MoveTo(bounds.Right + 20, bounds.Top, 160, 80);
+        Thread.Sleep(150);
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedCovered);
+    }
+
+    [Fact]
+    public void AQueuedCaptureDoesNotPhotographTheWindowThatHasSinceLeftTheForeground()
+    {
+        // The capturer's lock is held for the whole of a grab, about 300 ms at 4K, and the foreground and
+        // the rectangle used to be read before waiting for it. A capture queued behind a slow one then
+        // photographed the old rectangle after an Alt+Tab, whatever was there by then (2026-10-12 review,
+        // S-5). The seam stands in for the wait: the foreground moves while this capture holds the lock
+        // and before it reads anything.
+        Hardware.RequireScreenCapture();
+        using var first = DesktopWindow.Create("ScreenTail first target");
+        using var second = DesktopWindow.Create("ScreenTail second target");
+        first.RequireForeground();
+        using var capturer = new ScreenshotCapturer();
+        var moved = false;
+        capturer.BeforeGrab = () =>
+        {
+            if (!moved)
+            {
+                moved = second.TakeForeground(TimeSpan.FromSeconds(2));
+            }
+        };
+
+        var frame = capturer.CaptureForegroundWindow(expected: first.Handle);
+
+        Assert.True(moved, "the second window could not take the foreground, so nothing moved and a frame here proves nothing");
+        Assert.Null(frame);
+
+        // The control: with the judged window back in front, the same capture takes its picture.
+        capturer.BeforeGrab = null;
+        Assert.True(first.TakeForeground(TimeSpan.FromSeconds(2)));
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: first.Handle));
+    }
+
+    /// <summary>Mean luma of the cells in a block of the grid; both ranges are end-exclusive.</summary>
+    private static double Average(byte[] grid, (int From, int To) rows, (int From, int To) columns)
+    {
+        var total = 0.0;
+        var count = 0;
+        for (var row = rows.From; row < rows.To; row++)
+        {
+            for (var column = columns.From; column < columns.To; column++)
+            {
+                total += grid[(row * PerceptualHash.Columns) + column];
+                count++;
+            }
+        }
+
+        return total / count;
+    }
+
+    private const uint GR_GDIOBJECTS = 0;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetGuiResources(IntPtr process, uint flags);
 }

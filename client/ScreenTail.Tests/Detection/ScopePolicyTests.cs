@@ -592,6 +592,102 @@ public sealed class ScopePolicyTests
         Assert.True(clock.ElapsedMilliseconds < 1_000, $"took {clock.ElapsedMilliseconds} ms");
     }
 
+    [Fact]
+    public void ARegistryThatWouldCaptureEverythingDoesNotLoad()
+    {
+        // Validate reporting the problem is proved above; this is the other half, that Load refuses the
+        // document rather than handing back a registry with the problem in it (2026-10-12 review, T-19).
+        var load = () => RemoteToolRegistry.Load("""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "bad", "kind": "other", "display_name": "Bad", "window_class_patterns": [".*"] } ] }
+            """);
+
+        var refused = Assert.Throws<InvalidOperationException>(load);
+        Assert.Contains("matches everything", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(".*")]
+    [InlineData(".+")]
+    [InlineData("(?i)^.")]
+    public void ABrowserPatternThatMatchesEveryTabIsRejected(string pattern)
+    {
+        // A browser entry with no url_pattern matches on the tab title alone, so a title pattern that
+        // matches any title makes every tab a remote tool (2026-10-12 review, T-20). Refused by Validate
+        // and so by Load, which a tenant's policy sync goes through too.
+        var document = new RegistryDocument
+        {
+            Tools = [new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] }],
+            BrowserPatterns = [new BrowserPatternEntry { Id = "web", DisplayName = "Web", TitlePattern = pattern }],
+        };
+
+        var problems = RemoteToolRegistry.Validate(document);
+
+        Assert.Contains(problems, p => p.Contains("web", StringComparison.Ordinal) && p.Contains("matches everything", StringComparison.Ordinal));
+        var refused = Assert.Throws<InvalidOperationException>(() => RemoteToolRegistry.Load($$"""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "t", "kind": "other", "display_name": "T", "processes": ["x"] } ],
+              "browser_patterns": [ { "id": "web", "display_name": "Web", "title_pattern": {{System.Text.Json.JsonSerializer.Serialize(pattern)}} } ] }
+            """));
+        Assert.Contains("matches everything", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABrowserPatternThatNamesItsToolIsAccepted()
+    {
+        // The control for the test above: the check is for patterns that match anything, not for every
+        // title-only entry. One that names the tool, as the shipped entries do, loads.
+        var problems = RemoteToolRegistry.Validate(new RegistryDocument
+        {
+            Tools = [new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] }],
+            BrowserPatterns = [new BrowserPatternEntry { Id = "web", DisplayName = "Web", TitlePattern = @"(?i)\bsplashtop (business|web)\b" }],
+        });
+
+        Assert.Empty(problems);
+    }
+
+    // ---- WSLg is not a remote desktop ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData("RAIL_WINDOW")]
+    [InlineData("Window")]
+    public void AWslgWindowIsNotARemoteDesktopSession(string className)
+    {
+        // WSLg shows Linux GUI apps through its own copy of msrdc, in RAIL_WINDOW windows exactly like a
+        // RemoteApp, so a Linux terminal used to auto-start an RDP session (2026-10-12 review, S-10). The
+        // watcher reports that copy by the name "wslg"; the registry must not reach it by process or by
+        // window class either.
+        var decision = new ScopePolicy(Shipped).Decide(Window("wslg", "Terminal", className));
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
+        Assert.Null(decision.ToolId);
+        Assert.False(decision.MayCaptureFrames);
+    }
+
+    [Fact]
+    public void AWslgWindowCanBeExcludedByItsOwnName()
+    {
+        // Told apart, it can be excluded without excluding Azure Virtual Desktop's msrdc with it.
+        var options = new ScopeOptions { ExcludedProcesses = new HashSet<string>(["wslg"], StringComparer.OrdinalIgnoreCase) };
+        var policy = new ScopePolicy(Shipped, options);
+
+        Assert.Equal(CaptureScope.Excluded, policy.Decide(Window("wslg", "Files", "RAIL_WINDOW")).Scope);
+        Assert.Equal(CaptureScope.RemoteTool, policy.Decide(Window("msrdc", "Acme desktop", "RAIL_WINDOW")).Scope);
+    }
+
+    [Theory]
+    [InlineData("msrdc", "RAIL_WINDOW")]
+    [InlineData("msrdc", "TscShellContainerClass")]
+    [InlineData("RdClient", "Windows.UI.Core.CoreWindow")]
+    [InlineData("mstsc", "RAIL_WINDOW")]
+    public void AzureVirtualDesktopAndWindows365AreStillRemoteDesktop(string process, string className)
+    {
+        var decision = new ScopePolicy(Shipped).Decide(Window(process, "Acme desktop", className));
+
+        Assert.Equal(CaptureScope.RemoteTool, decision.Scope);
+        Assert.Equal("rdp", decision.ToolId);
+    }
+
     private static ForegroundWindowInfo Window(string process, string title, string className = "Window") =>
         new(1, 100, process, title, className, BrowserTitles.ActiveTab(process, title), false, At);
 

@@ -255,7 +255,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     /// A process we can't open is an elevated one, and that's the answer rather than an error: Spec §5 S2
     /// has the technician told "elevated window — screen not captured" instead of capture going quiet.
     /// </summary>
-    private static (string? Name, bool Elevated) ReadProcess(uint processId)
+    internal static (string? Name, bool Elevated) ReadProcess(uint processId)
     {
         if (processId == 0)
         {
@@ -274,7 +274,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             var buffer = new char[capacity];
             if (QueryFullProcessImageName(handle, 0, buffer, ref capacity))
             {
-                return (Path.GetFileNameWithoutExtension(new string(buffer, 0, capacity)), false);
+                return (ProcessNameFor(new string(buffer, 0, capacity)), false);
             }
 
             return (NameWithoutOpening(processId), false);
@@ -284,6 +284,9 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             _ = CloseHandle(handle);
         }
     }
+
+    /// <summary>The name a process is reported under, from the path of its image.</summary>
+    internal static string ProcessNameFor(string imagePath) => Path.GetFileNameWithoutExtension(imagePath);
 
     /// <summary>The name of a process we couldn't open. Often available anyway, and worth having in the note.</summary>
     private static string? NameWithoutOpening(uint processId)

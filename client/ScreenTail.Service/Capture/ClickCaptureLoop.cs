@@ -54,6 +54,9 @@ internal sealed partial class ClickCaptureLoop
     /// <summary>Keyboard events dropped because the window was out of scope (INV-6). Counts only.</summary>
     public long DroppedOutOfScope => _recorder.DroppedOutOfScope;
 
+    /// <summary>Batches that could not be recorded and were let go. Counts only.</summary>
+    internal long FailedDrains => Interlocked.Read(ref _failedDrains);
+
     /// <summary>A new session starts with no history, so its first click is captured (ST-029).</summary>
     public void Reset() => _recorder.Reset();
 
@@ -116,7 +119,22 @@ internal sealed partial class ClickCaptureLoop
 
 /// <summary>Lets the capture loop read the hook buffer without owning the hooks' lifetime.</summary>
 [SupportedOSPlatform("windows")]
-internal sealed class WindowsInputHooksAccessor(WindowsInputHooks hooks)
+internal sealed class WindowsInputHooksAccessor
 {
-    public InputRingBuffer Buffer => hooks.Buffer;
+    private readonly Func<InputRingBuffer> _buffer;
+
+    public WindowsInputHooksAccessor(WindowsInputHooks hooks)
+    {
+        ArgumentNullException.ThrowIfNull(hooks);
+        _buffer = () => hooks.Buffer;
+    }
+
+    /// <summary>A buffer with no hooks behind it, for a test that writes the signals itself.</summary>
+    internal WindowsInputHooksAccessor(InputRingBuffer buffer)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        _buffer = () => buffer;
+    }
+
+    public InputRingBuffer Buffer => _buffer();
 }

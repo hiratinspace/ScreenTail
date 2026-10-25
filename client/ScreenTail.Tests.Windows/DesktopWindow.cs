@@ -117,7 +117,14 @@ internal sealed class DesktopWindow : IDisposable
         Assert.Skip($"Could not take the foreground. {why}");
     }
 
-    /// <summary>What Windows says is in the way, for a run nobody is sitting in front of.</summary>
+    /// <summary>
+    /// What Windows says is in the way, for a run nobody is sitting in front of.
+    ///
+    /// The process and the window class, never the title. This line goes to public logs, job summaries
+    /// and uploaded artifacts, and it used to quote whatever the laptop's foreground window was showing
+    /// (2026-10-12 review, S-77). The class says what kind of thing is in the way, which is all a run
+    /// needs to know, and INV-10 holds for the suite's own output as it does for the product's.
+    /// </summary>
     public static string Why()
     {
         var foreground = GetForegroundWindow();
@@ -129,9 +136,9 @@ internal sealed class DesktopWindow : IDisposable
         }
 
         var thread = GetWindowThreadProcessId(foreground, out var processId);
-        var title = new char[256];
-        var length = GetWindowText(foreground, title, title.Length);
-        var name = length > 0 ? new string(title, 0, length) : "(no title)";
+        var buffer = new char[256];
+        var length = GetClassName(foreground, buffer, buffer.Length);
+        var className = length > 0 ? new string(buffer, 0, length) : "(unknown)";
 
         string owner;
         try
@@ -145,7 +152,7 @@ internal sealed class DesktopWindow : IDisposable
 
         return string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"The foreground is held by {owner} (pid {processId}, thread {thread}): \"{name}\", and it did not give it up within five seconds.");
+            $"The foreground is held by {owner} (pid {processId}, thread {thread}), a window of class {className}, and it did not give it up within five seconds.");
     }
 
     /// <summary>
@@ -232,6 +239,69 @@ internal sealed class DesktopWindow : IDisposable
     public void Resize(int width, int height) =>
         _ = SetWindowPos(Handle, HWND_TOP, 60, 60, width, height, SWP_SHOWWINDOW);
 
+    /// <summary>Where the window is on the screen, as Windows reports it.</summary>
+    public (int Left, int Top, int Right, int Bottom) Bounds
+    {
+        get
+        {
+            _ = GetWindowRect(Handle, out var rect);
+            return (rect.Left, rect.Top, rect.Right, rect.Bottom);
+        }
+    }
+
+    /// <summary>Moves and resizes the window without activating it or changing its place in the z-order.</summary>
+    public void MoveTo(int x, int y, int width, int height) =>
+        _ = SetWindowPos(Handle, HWND_TOP, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    /// <summary>
+    /// Shows the window on top of everything, without taking the foreground: what a toast, a call
+    /// notification or an always-on-top tool looks like to a capture of the window underneath.
+    /// </summary>
+    public void ShowTopmostAt(int x, int y, int width, int height) =>
+        _ = SetWindowPos(Handle, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    /// <summary>
+    /// Paints the client area in two halves, light first and dark second, so a capture of the window has
+    /// something to be right or wrong about. Calling it again with the other layout repaints in place,
+    /// which is what a window changing looks like to the scene sampler (ST-026).
+    /// </summary>
+    public void ShowContrast(ContrastLayout layout)
+    {
+        var done = new ManualResetEventSlim();
+        Post(() =>
+        {
+            _ = GetClientRect(Handle, out var client);
+            var width = client.Right - client.Left;
+            var height = client.Bottom - client.Top;
+            if (_light == IntPtr.Zero)
+            {
+                // Children of the two registered classes: each is erased with its class brush and nothing
+                // else is ever drawn on it, so the pixels are exactly the brush.
+                _light = CreateWindowEx(0, OrdinaryClass.Value, string.Empty, WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, Handle, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
+                _dark = CreateWindowEx(0, DarkClass.Value, string.Empty, WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, Handle, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
+            }
+
+            if (layout == ContrastLayout.SideBySide)
+            {
+                _ = MoveWindow(_light, 0, 0, width / 2, height, true);
+                _ = MoveWindow(_dark, width / 2, 0, width - (width / 2), height, true);
+            }
+            else
+            {
+                _ = MoveWindow(_light, 0, 0, width, height / 2, true);
+                _ = MoveWindow(_dark, 0, height / 2, width, height - (height / 2), true);
+            }
+
+            _ = UpdateWindow(_light);
+            _ = UpdateWindow(_dark);
+            done.Set();
+        });
+        done.Wait(TimeSpan.FromSeconds(5));
+    }
+
+    private IntPtr _light;
+    private IntPtr _dark;
+
     /// <summary>
     /// Moves and resizes the window without touching the z-order or the foreground, which is what a
     /// window redrawing in the background does. Each call fires <c>EVENT_OBJECT_LOCATIONCHANGE</c> — one
@@ -305,16 +375,20 @@ internal sealed class DesktopWindow : IDisposable
     /// A window class whose procedure is DefWindowProcW itself, so no managed callback has to be kept alive
     /// and a rename takes the path every application window's rename takes.
     /// </summary>
-    private static readonly Lazy<string> OrdinaryClass = new(() =>
+    private static readonly Lazy<string> OrdinaryClass = new(() => Register("ScreenTail test window", COLOR_WINDOW + 1));
+
+    /// <summary>The same class with a black background, for the dark half of <see cref="ShowContrast"/>.</summary>
+    private static readonly Lazy<string> DarkClass = new(() => Register("ScreenTail dark test window", GetStockObject(BLACK_BRUSH)));
+
+    private static string Register(string name, IntPtr background)
     {
-        const string name = "ScreenTail test window";
         var user32 = NativeLibrary.Load("user32.dll");
         var definition = new WndClassEx
         {
             Size = (uint)Marshal.SizeOf<WndClassEx>(),
             WndProc = NativeLibrary.GetExport(user32, "DefWindowProcW"),
             Instance = GetModuleHandle(null),
-            Background = COLOR_WINDOW + 1,
+            Background = background,
             ClassName = name,
         };
 
@@ -324,10 +398,11 @@ internal sealed class DesktopWindow : IDisposable
         }
 
         return name;
-    });
+    }
 
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const int COLOR_WINDOW = 5;
+    private const int BLACK_BRUSH = 4;
     private const uint WS_CHILD = 0x40000000;
     private const uint WS_VISIBLE = 0x10000000;
     private const uint WS_TABSTOP = 0x00010000;
@@ -346,6 +421,16 @@ internal sealed class DesktopWindow : IDisposable
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
     private static readonly IntPtr HWND_TOP = IntPtr.Zero;
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Msg
@@ -429,7 +514,26 @@ internal sealed class DesktopWindow : IDisposable
     private static extern bool SetWindowText(IntPtr hWnd, string text);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowText(IntPtr hWnd, [Out] char[] text, int count);
+    private static extern int GetClassName(IntPtr hWnd, [Out] char[] className, int count);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Rect rect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr hWnd, out Rect rect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, [MarshalAs(UnmanagedType.Bool)] bool repaint);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UpdateWindow(IntPtr hWnd);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr GetStockObject(int index);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -444,4 +548,14 @@ internal sealed class DesktopWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr DispatchMessage(ref Msg lpMsg);
+}
+
+/// <summary>How <see cref="DesktopWindow.ShowContrast"/> splits the client area: light first, dark second.</summary>
+internal enum ContrastLayout
+{
+    /// <summary>Light on the left, dark on the right.</summary>
+    SideBySide,
+
+    /// <summary>Light on top, dark below.</summary>
+    Stacked,
 }

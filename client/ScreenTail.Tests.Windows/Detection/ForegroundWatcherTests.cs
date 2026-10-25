@@ -362,6 +362,136 @@ public sealed class ForegroundWatcherTests
         }
     }
 
+    [Fact]
+    public async Task ARetitleJustAfterTakingTheForegroundIsReportedWithoutWaitingForThePoll()
+    {
+        // A same-window retitle inside the change filter's settle time is held, and until now only the poll
+        // offered it again: two seconds with the hook, which is how long a tab retitled into a banking site
+        // stayed in scope (2026-10-12 review, S-7). The poll is pushed out of reach here, so the rename can
+        // only arrive through the watcher's own one-shot settle timer.
+        Hardware.RequireDesktop();
+        var ct = TestContext.Current.CancellationToken;
+        var first = $"ScreenTail before {Guid.NewGuid():N}";
+        var second = $"ScreenTail after {Guid.NewGuid():N}";
+        using var witness = NameChangeWitness.Start();
+        await using var watcher = new WindowsForegroundWatcher(pollInterval: TimeSpan.FromMinutes(10));
+        var focused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var renamed = new TaskCompletionSource<ForegroundWindowInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        watcher.Changed += info =>
+        {
+            if (info.Title == first)
+            {
+                focused.TrySetResult();
+            }
+            else if (info.Title == second)
+            {
+                renamed.TrySetResult(info);
+            }
+        };
+        await watcher.StartAsync(ct);
+        Assert.True(watcher.UsingHook, "The foreground watcher's event hook was not installed, so a rename cannot reach it.");
+
+        using var window = DesktopWindow.CreateOrdinary(first);
+        window.RequireForeground();
+        await focused.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        // Renamed at once, well inside the settle time.
+        var clock = Stopwatch.StartNew();
+        window.Retitle(second);
+        _ = await witness.WaitForAsync(window.Handle, NameChangeWitness.WindowObject, TimeSpan.FromSeconds(2), ct);
+
+        try
+        {
+            var reported = await renamed.Task.WaitAsync(TimeSpan.FromSeconds(3), ct);
+            clock.Stop();
+            Assert.Equal(second, reported.Title);
+            Record($"A retitle inside the settle time was reported after **{clock.ElapsedMilliseconds} ms** (settle {new ForegroundChangeFilter().TitleSettle.TotalMilliseconds:F0} ms, poll out of reach)");
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail($"The watcher held the rename for the poll instead of re-offering it after the settle time (in front now: {window.IsForeground}; object ids the test's hook saw: {witness.ObjectIds(window.Handle)}).");
+        }
+    }
+
+    [Fact]
+    public void ElevationComesFromTheProcessItselfNotFromWhetherItCouldBeOpened()
+    {
+        // Elevation used to be inferred from OpenProcess failing, which a same-user elevated process does
+        // not cause: regedit run as administrator opened fine and was captured as an admin tool while INV-6
+        // and the HUD said elevated windows are not (2026-10-12 review, S-8). A process running as SYSTEM
+        // sits above any technician's session, elevated or not, and can usually be opened for limited
+        // information, which is exactly the case the inference missed.
+        var own = WindowsForegroundWatcher.ReadProcess((uint)Environment.ProcessId);
+        Assert.Equal(Path.GetFileNameWithoutExtension(Environment.ProcessPath), own.Name);
+        Assert.False(own.Elevated, "a window of this process is never above this process");
+
+        var system = Process.GetProcesses()
+            .Where(p => p.ProcessName is "lsass" or "winlogon" or "csrss" or "services" or "wininit")
+            .ToList();
+        try
+        {
+            Assert.NotEmpty(system);
+            var read = system.Select(p => (p.ProcessName, Result: WindowsForegroundWatcher.ReadProcess((uint)p.Id))).ToList();
+            Record($"{read.Count} SYSTEM processes read; **{read.Count(r => r.Result.Elevated)}** reported elevated (must be all)");
+            Assert.All(read, r => Assert.True(r.Result.Elevated, $"{r.ProcessName} runs as SYSTEM and was read as not elevated"));
+        }
+        finally
+        {
+            system.ForEach(p => p.Dispose());
+        }
+    }
+
+    [Fact]
+    public void AProcessThatCannotBeOpenedAtAllIsStillTreatedAsElevated()
+    {
+        // The kernel's System process (pid 4) cannot be opened even for limited information. Blind is the
+        // closed answer: a window we know nothing about is not one we photograph.
+        var read = WindowsForegroundWatcher.ReadProcess(4);
+
+        Assert.True(read.Elevated);
+        Assert.Equal("System", read.Name);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Program Files\WSL\msrdc.exe", "wslg")]
+    [InlineData(@"c:\program files\wsl\MSRDC.EXE", "wslg")]
+    [InlineData(@"C:\Windows\System32\lxss\wslg\msrdc.exe", "wslg")]
+    [InlineData(@"C:\Program Files\Remote Desktop\msrdc.exe", "msrdc")]
+    [InlineData(@"C:\Users\tech\AppData\Local\Apps\Remote Desktop\msrdc.exe", "msrdc")]
+    [InlineData(@"C:\Windows\System32\mstsc.exe", "mstsc")]
+    [InlineData(@"C:\Program Files\WSL\wsl.exe", "wsl")]
+    public void WslgsCopyOfTheRemoteDesktopClientIsReportedUnderItsOwnName(string imagePath, string expected) =>
+        // WSLg shows Linux GUI apps through its own msrdc.exe, installed with WSL rather than with the
+        // Remote Desktop client. Reported as "wslg", it is not a remote tool and can be excluded by that
+        // name without touching Azure Virtual Desktop (2026-10-12 review, S-10).
+        Assert.Equal(expected, WindowsForegroundWatcher.ProcessNameFor(imagePath));
+
+    [Fact]
+    public void WhatTheRunSaysAboutTheWindowInTheWayNamesNoTitle()
+    {
+        // The NO-DESKTOP message is written to public logs, summaries and artifacts, and it used to quote
+        // the title of whatever held the laptop's foreground (2026-10-12 review, S-77). It names the process
+        // and the window class, which say what kind of thing is in the way without saying what it shows.
+        Hardware.RequireDesktop();
+        var title = $"Acme Dental patient records {Guid.NewGuid():N}";
+        using var window = DesktopWindow.Create(title);
+        var inFront = window.TakeForeground(TimeSpan.FromSeconds(2));
+
+        var why = DesktopWindow.Why();
+
+        Assert.DoesNotContain(title, why, StringComparison.Ordinal);
+        Assert.DoesNotContain("Acme", why, StringComparison.Ordinal);
+        if (inFront)
+        {
+            Assert.Contains(Path.GetFileNameWithoutExtension(Environment.ProcessPath)!, why, StringComparison.Ordinal);
+            Assert.Contains("class", why, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.True(why.Contains("held by", StringComparison.Ordinal) || why.Contains("Nothing holds", StringComparison.Ordinal), why);
+        }
+    }
+
     private static void Record(string measurement) => Measurements.Record(measurement);
 
     /// <summary>CPU time used by one OS thread, or null when it has gone.</summary>

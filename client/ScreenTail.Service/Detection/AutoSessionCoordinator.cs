@@ -20,26 +20,51 @@ namespace ScreenTail.Service.Detection;
 /// oldest observation, not the watcher's responsiveness.
 /// </summary>
 [SupportedOSPlatform("windows")]
-/// <param name="indicated">
-/// Whether anything is on screen saying capture is happening. A session that starts with no indicator is
-/// a recording nobody was told about (INV-4), and one that should never have begun is worse than one
-/// suppressed a moment later: it leaves a start time in the timeline that nobody witnessed.
-/// </param>
-internal sealed partial class AutoSessionCoordinator(
-    SessionMachine machine,
-    ScopePolicy policy,
-    SessionTrigger trigger,
-    Func<bool> indicated,
-    ILogger logger,
-    Func<string?>? clipboard = null,
-    Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null,
-    Func<bool>? autoStart = null)
+internal sealed partial class AutoSessionCoordinator
 {
     private readonly Channel<ForegroundWindowInfo> _windows = Channel.CreateBounded<ForegroundWindowInfo>(
         new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
 
+    private readonly SessionMachine machine;
+    private readonly ScopePolicy policy;
+    private readonly SessionTrigger trigger;
+    private readonly Func<bool> indicated;
+    private readonly ILogger logger;
+    private readonly Func<string?>? clipboard;
+    private readonly Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy;
+    private readonly Func<bool>? autoStart;
+    private readonly TimeProvider _time;
+
     private ScopeDecision? _lastReported;
     private ForegroundWindowInfo? _lastWindow;
+
+    /// <param name="indicated">
+    /// Whether anything is on screen saying capture is happening. A session that starts with no indicator is
+    /// a recording nobody was told about (INV-4), and one that should never have begun is worse than one
+    /// suppressed a moment later: it leaves a start time in the timeline that nobody witnessed.
+    /// </param>
+    /// <param name="time">The clock the auto-stop timer runs on, so a test can run the grace out without waiting for it.</param>
+    public AutoSessionCoordinator(
+        SessionMachine machine,
+        ScopePolicy policy,
+        SessionTrigger trigger,
+        Func<bool> indicated,
+        ILogger logger,
+        Func<string?>? clipboard = null,
+        Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null,
+        Func<bool>? autoStart = null,
+        TimeProvider? time = null)
+    {
+        this.machine = machine ?? throw new ArgumentNullException(nameof(machine));
+        this.policy = policy ?? throw new ArgumentNullException(nameof(policy));
+        this.trigger = trigger ?? throw new ArgumentNullException(nameof(trigger));
+        this.indicated = indicated ?? throw new ArgumentNullException(nameof(indicated));
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.clipboard = clipboard;
+        this.sessionPolicy = sessionPolicy;
+        this.autoStart = autoStart;
+        _time = time ?? TimeProvider.System;
+    }
 
     /// <summary>What the HUD shows about scope right now (Spec §5 S2).</summary>
     public ScopeDecision? CurrentScope => _lastReported;
@@ -92,7 +117,7 @@ internal sealed partial class AutoSessionCoordinator(
     public async Task RunAsync(CancellationToken ct)
     {
         // The grace has to expire on a timer: a technician who walks away produces no window changes at all.
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5), _time);
         var ticking = TickAsync(timer, ct);
 
         // One window that cannot be handled costs that window. If this loop ends, the last scope decision
@@ -209,17 +234,20 @@ internal sealed partial class AutoSessionCoordinator(
         // A session nobody is attending has to be able to stop even after one attempt to stop it failed.
         await ResilientLoop.RunAsync(
             next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
-            step: async token =>
-            {
-                if (trigger.Tick() is { Stop: true } stopped
-                    && machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed)
-                {
-                    LogAutoStop(logger, stopped.Reason);
-                    await machine.StopAsync(token).ConfigureAwait(false);
-                }
-            },
+            step: TickOnceAsync,
             onFailure: failure => LogLoopFailed(logger, "auto-stop", failure.GetType().Name),
             ct).ConfigureAwait(false);
+    }
+
+    /// <summary>One turn of the auto-stop timer. Internal so a test can run the grace out on its own clock.</summary>
+    internal async Task TickOnceAsync(CancellationToken ct)
+    {
+        if (trigger.Tick() is { Stop: true } stopped
+            && machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed)
+        {
+            LogAutoStop(logger, stopped.Reason);
+            await machine.StopAsync(ct).ConfigureAwait(false);
+        }
     }
 
     [LoggerMessage(
