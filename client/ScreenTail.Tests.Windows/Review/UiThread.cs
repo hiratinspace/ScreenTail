@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -13,8 +14,11 @@ namespace ScreenTail.Tests.Windows.Review;
 /// Nothing here touches <see cref="Application"/> or shows a <see cref="Window"/>. WPF allows one
 /// Application per process for its whole life, and <c>PrivacyViewModelTests</c> makes it and shuts it
 /// down; a window shown after that may never get a presentation source, which would make these tests
-/// depend on the order the assembly runs in. A bare control laid out by hand generates its item
-/// containers, and a routed event raised on it travels its tree the same way, with or without a window.
+/// depend on the order the assembly runs in. A routed event raised on a control travels its tree the same
+/// way with or without a window. An items control is different: a control that belongs to no presentation
+/// source is never visible, and a virtualizing panel makes no item containers for a control that is not
+/// visible, so <see cref="Hosted"/> gives it an <see cref="HwndSource"/> of its own, which needs no
+/// Application and is never shown.
 /// </summary>
 internal static class UiThread
 {
@@ -54,6 +58,19 @@ internal static class UiThread
     }
 
     /// <summary>
+    /// Makes the element the root of a hidden window of a window's size and lays it out, so it is visible to
+    /// WPF and an items control generates its containers. Dispose the source before the test body ends.
+    /// </summary>
+    public static HwndSource Hosted(FrameworkElement element)
+    {
+        // WS_POPUP without WS_VISIBLE: a real presentation source that never appears or takes focus.
+        var parameters = new HwndSourceParameters("review ui test", 640, 480) { WindowStyle = unchecked((int)0x80000000) };
+        var source = new HwndSource(parameters) { RootVisual = element };
+        element.UpdateLayout();
+        return source;
+    }
+
+    /// <summary>
     /// What one keypress does to an element, the way the input manager does it: the tunnelling preview
     /// event first, then the bubbling one unless the preview was handled, in which case WPF marks the
     /// bubbling one handled too and no class or instance handler sees it. Class handlers run on both, as
@@ -61,20 +78,21 @@ internal static class UiThread
     /// </summary>
     public static bool Press(UIElement target, Key key)
     {
-        var preview = new KeyEventArgs(Keyboard.PrimaryDevice, Detached.Source, Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+        var source = PresentationSource.FromVisual(target) ?? Detached.Source;
+        var preview = new KeyEventArgs(Keyboard.PrimaryDevice, source, Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
         target.RaiseEvent(preview);
         if (preview.Handled)
         {
             return true;
         }
 
-        var down = new KeyEventArgs(Keyboard.PrimaryDevice, Detached.Source, Environment.TickCount, key) { RoutedEvent = Keyboard.KeyDownEvent };
+        var down = new KeyEventArgs(Keyboard.PrimaryDevice, source, Environment.TickCount, key) { RoutedEvent = Keyboard.KeyDownEvent };
         target.RaiseEvent(down);
         return down.Handled;
     }
 
     /// <summary>
-    /// The presentation source a key event has to name. It is attached to nothing: routing follows the
+    /// The presentation source a key event names when the element has none. It is attached to nothing: routing follows the
     /// element tree the event is raised on, not the source, so no window or Application is involved.
     /// </summary>
     private sealed class Detached : PresentationSource

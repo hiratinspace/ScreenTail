@@ -26,7 +26,7 @@ public sealed class FilmstripKeysTests
             var strip = new FilmstripViewModel(Session(Frames(2)), frames);
             var list = new ListBox { ItemsSource = strip.Items };
             list.PreviewKeyDown += (_, e) => FilmstripKeys.Handle(strip, list.SelectedItem as FrameItem, e, () => { });
-            UiThread.Laid(list);
+            using var host = UiThread.Hosted(list);
             var first = strip.Items.OfType<FrameItem>().First();
             list.SelectedItem = first;
             var cell = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromItem(first));
@@ -69,7 +69,7 @@ public sealed class FilmstripKeysTests
                 sawSpace |= e.Key == Key.Space;
                 FilmstripKeys.Handle(strip, list.SelectedItem as FrameItem, e, () => { });
             };
-            UiThread.Laid(list);
+            using var host = UiThread.Hosted(list);
             var first = strip.Items.OfType<FrameItem>().First();
             list.SelectedItem = first;
             var cell = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromItem(first));
