@@ -158,6 +158,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         switch (step.Action)
         {
             case PaneAction.NothingToReview:
+                // A load still under way is for a session no longer to be shown.
+                _loads++;
                 _reviewPane = null;
                 Content = NothingToReview;
                 break;
