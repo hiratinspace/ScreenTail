@@ -223,3 +223,29 @@ def test_a_draft_from_another_prompt_version_is_rejected():
 )
 def test_luhn(number: str, expected: bool):
     assert passes_luhn(number) is expected
+
+
+@pytest.mark.parametrize(
+    "where,value",
+    [
+        ("confidence", "medium"),
+        ("confidence", "HIGH"),
+        ("confidence", ""),
+        ("confidence", None),
+        ("source", "remote"),
+        ("source", "Cloud"),
+        ("source", None),
+    ],
+)
+def test_a_draft_outside_the_schema_is_refused(where: str, value):
+    # 2026-10-12 review (S-65, T-201). The client reads confidence and source into enums, so any other
+    # value is a 200 it cannot deserialize, which it retries, billed, until the outbox gives up. The
+    # backend has refused these since #202; the checks the eval corpus is scored with did not.
+    name, session = sessions_with_drafts()[0]
+    draft = copy.deepcopy(session["draft"])
+    if where == "confidence":
+        draft["steps"][0]["confidence"] = value
+    else:
+        draft["source"] = value
+
+    assert check_draft(draft, session), f"a draft with {where} {value!r} was accepted"

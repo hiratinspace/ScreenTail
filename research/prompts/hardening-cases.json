@@ -14,7 +14,11 @@
     "Every 'text' goes into a draft's result field, which is prose a technician reads and may publish to a",
     "customer. 'refuse' says whether the post-conditions must reject it. 'why' is for whoever reads a",
     "failure, and is not asserted on: which rule fires is an implementation detail, and pinning it here",
-    "would make the two implementations agree about their internals rather than about their answers."
+    "would make the two implementations agree about their internals rather than about their answers.",
+    "",
+    "A case gives its text as 'text', or as 'parts' that are joined into it. The key-shaped cases use",
+    "parts: GitHub's push protection reads a committed key the way these rules do, and a corpus that cannot",
+    "be pushed is a corpus nobody runs. The parts join to the shapes the rules have to catch."
   ],
   "cases": [
     {
@@ -166,6 +170,262 @@
       "text": "The password field was blank on that profile.",
       "refuse": false,
       "why": "The other half: walking further to find a credential must not turn a sentence about one into a refusal."
+    },
+    {
+      "text": "Password reset completed for jsmith.",
+      "refuse": false,
+      "why": "Option A: a sentence about a reset, with an ordinary word where a value would be. Not a credential shape."
+    },
+    {
+      "text": "The password was reset successfully.",
+      "refuse": false,
+      "why": "Option A: 'successfully' is a word, not a credential."
+    },
+    {
+      "text": "The password was accepted after the reset.",
+      "refuse": false,
+      "why": "Option A: no value follows the cue."
+    },
+    {
+      "text": "The password was changed by the user at 10:40.",
+      "refuse": false,
+      "why": "Option A: a time is not a credential, and neither is 'by the user'."
+    },
+    {
+      "text": "The PIN pad at reception was replaced.",
+      "refuse": false,
+      "why": "Option A: hardware, not a PIN."
+    },
+    {
+      "text": "The new password is Winter2026!",
+      "refuse": true,
+      "why": "Letters and digits after the cue: a credential shape."
+    },
+    {
+      "text": "password: Tr0ub4dor&3",
+      "refuse": true,
+      "why": "A credential shape straight after the cue."
+    },
+    {
+      "text": "The password is, uh, Winter2026",
+      "refuse": true,
+      "why": "A filler word and a comma between the cue and the value, with no full stop after it."
+    },
+    {
+      "parts": [
+        "API key AIza",
+        "SyA1b2C3d4E5f6G7h8I9j0KlmNOPqrstuv"
+      ],
+      "refuse": true,
+      "why": "A Google API key, which the client masks by shape."
+    },
+    {
+      "text": "The password has been reset to Winter2026!",
+      "refuse": true,
+      "why": "'has been' joins the cue to the value as 'was' does."
+    },
+    {
+      "text": "The password is [Winter2026!]",
+      "refuse": true,
+      "why": "S-63: only the redaction engine's exact markers are skipped, not anything in brackets."
+    },
+    {
+      "text": "Employee_SSN: 123456789 was on the form.",
+      "refuse": true,
+      "why": "An SSN after a cue word that follows an underscore, as the client masks it."
+    },
+    {
+      "text": "SSN123456789 was on the form.",
+      "refuse": true,
+      "why": "An SSN touching its cue word, as the client masks it."
+    },
+    {
+      "text": "The master key: Xy7pQ2rS9tU4vW1zAb3Cd5Ef7Gh opens the vault.",
+      "refuse": true,
+      "why": "A long value after a named key cue, as the client masks it."
+    },
+    {
+      "text": "client_key=abcdefghijklmnopqrstuvwxyz0123",
+      "refuse": true,
+      "why": "A long value after a named key cue, with no space."
+    },
+    {
+      "text": "The passcode is Gate4821x for the side door.",
+      "refuse": true,
+      "why": "'passcode' is a cue word, and the value has letters and digits."
+    },
+    {
+      "text": "The api  key is Xy7pQ2rS9t",
+      "refuse": true,
+      "why": "Two spaces inside the cue. Runs of spaces are one space before any rule."
+    },
+    {
+      "text": "The api\u00a0key is Xy7pQ2rS9t",
+      "refuse": true,
+      "why": "A no-break space inside the cue is a space."
+    },
+    {
+      "text": "The password is Win\u200bter2026!",
+      "refuse": true,
+      "why": "A zero-width space inside the value is not seen, so it is not there."
+    },
+    {
+      "parts": [
+        "The script held github_pat_",
+        "11ABCDEFG0123456789_abcdefghij."
+      ],
+      "refuse": true,
+      "why": "A GitHub fine-grained token, which the client masks by shape."
+    },
+    {
+      "parts": [
+        "The config held eyJ",
+        "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U."
+      ],
+      "refuse": true,
+      "why": "A JWT, which the client masks by shape."
+    },
+    {
+      "parts": [
+        "The .npmrc held npm_",
+        "abcdefghijklmnopqrstuvwxyz0123456789."
+      ],
+      "refuse": true,
+      "why": "An npm token, which the client masks by shape."
+    },
+    {
+      "parts": [
+        "The mailer used SG.",
+        "abcdefghijklmnopqrstuv.abcdefghijklmnopqrstuvwxyz0123 for sending."
+      ],
+      "refuse": true,
+      "why": "A SendGrid key, which the client masks by shape."
+    },
+    {
+      "parts": [
+        "The browser had ya29.",
+        "a0AfH6SMBabcdefghijklmnopqrstuv stored."
+      ],
+      "refuse": true,
+      "why": "A Google OAuth token, which the client masks by shape."
+    },
+    {
+      "parts": [
+        "The checkout used sk_live_",
+        "abcdefghijklmnop1234 for charges."
+      ],
+      "refuse": true,
+      "why": "A Stripe key, which the client masks by shape."
+    },
+    {
+      "text": "The share held -----BEGIN PGP PRIVATE KEY BLOCK----- in a text file.",
+      "refuse": true,
+      "why": "A PGP private key header, which the client masks by shape."
+    },
+    {
+      "text": "In\u200bstall the agent from the share.",
+      "refuse": true,
+      "why": "A zero-width space inside the verb is not seen. Main let this through."
+    },
+    {
+      "text": "Install\u001cthe agent from the share.",
+      "refuse": true,
+      "why": "U+001C is a separator, read as a space. Main let this through."
+    },
+    {
+      "text": "Ｉｎｓｔａｌｌ the agent from the share.",
+      "refuse": true,
+      "why": "Fullwidth letters are letters after NFKC. Main let this through."
+    },
+    {
+      "text": "Download\u2060 the installer before the visit.",
+      "refuse": true,
+      "why": "A word joiner after the verb is not seen. Main let this through."
+    },
+    {
+      "text": "Then power\u00adshell -c the fix.",
+      "refuse": true,
+      "why": "A soft hyphen inside a tool name is not seen. Main let this through."
+    },
+    {
+      "text": "See www․example․invalid for the steps.",
+      "refuse": true,
+      "why": "A one-dot leader is a full stop after NFKC. Main let this through."
+    },
+    {
+      "text": "The fix is curl² against the share.",
+      "refuse": true,
+      "why": "Refused as written, as main refuses it, though NFKC reads it as 'curl2'."
+    },
+    {
+      "text": "The customer said “I’ve never seen this error before” on the call.",
+      "refuse": true,
+      "why": "T-203: a curly apostrophe early in a curly quotation used to end it after one letter."
+    },
+    {
+      "text": "The customer said 'nobody touched the printer' on the call.",
+      "refuse": true,
+      "why": "T-230: a quotation in straight single quotes is a quotation."
+    },
+    {
+      "text": "The user's printer and the admin's laptop were both offline.",
+      "refuse": false,
+      "why": "T-230: two apostrophes inside words are not a quotation."
+    },
+    {
+      "text": "The users' printers and the admins' laptops were updated.",
+      "refuse": false,
+      "why": "T-230: apostrophes after a word are not a quotation."
+    },
+    {
+      "text": "The technician said “that’s why nothing is printing” when he arrived.",
+      "refuse": false,
+      "why": "A real quotation with a curly apostrophe inside it."
+    },
+    {
+      "text": "The technician said 'that's why nothing is printing' when he arrived.",
+      "refuse": false,
+      "why": "A real quotation in straight single quotes, with an apostrophe inside it."
+    },
+    {
+      "text": "Der Kunde sagte „Das habe ich nie gesagt“ am Telefon.",
+      "refuse": true,
+      "why": "German low-9 quotation marks are quotation marks."
+    },
+    {
+      "text": "Der Kunde sagte »Das habe ich nie gesagt« am Telefon.",
+      "refuse": true,
+      "why": "German reversed guillemets, closed in the same sentence, are quotation marks."
+    },
+    {
+      "text": "Opened File » Save As » PDF and printed the page.",
+      "refuse": false,
+      "why": "A menu path written with guillemets is not a quotation."
+    },
+    {
+      "text": "The customer wrote 「nobody said these words」 in the chat.",
+      "refuse": true,
+      "why": "Corner brackets are quotation marks."
+    },
+    {
+      "text": "The customer said ‚never again‘ when asked.",
+      "refuse": true,
+      "why": "A single low-9 quotation is a quotation."
+    },
+    {
+      "text": "Then Invo\u212ae-WebRequest² the fix.",
+      "refuse": true,
+      "why": "A Kelvin sign is a k to .NET's IgnoreCase, so main refuses this as written; Python has to read it as K to agree. NFKC alone would read 'WebRequest2' and miss it."
+    },
+    {
+      "text": "The card 4111 1111٩ 1111 1111 was on screen.",
+      "refuse": true,
+      "why": "Main refused this because its checksum read the Arabic-Indic nine as its code minus '0'. Nothing main refused may pass now, so the checksum is tried that way too."
+    },
+    {
+      "text": "The customer replied “\ud83d\ude00\ud83d\ude00” and hung up.",
+      "refuse": true,
+      "why": "Two emoji are four UTF-16 code units, which is how .NET counts them, so this is a quotation nobody said. Python has to count the same way."
     }
   ]
 }

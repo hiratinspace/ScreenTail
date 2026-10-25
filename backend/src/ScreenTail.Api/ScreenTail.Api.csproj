@@ -16,6 +16,16 @@
     <!-- ST-063: the prompt ships with the service, so a deployment cannot drift from the version its
          post-conditions were written against. -->
     <EmbeddedResource Include="..\..\..\research\prompts\note_v1.md" LogicalName="ScreenTail.Api.Prompts.note_v1.md" />
+    <!-- ST-061: the character data DraftValidator reads text with, shared with research/prompts/checks.py.
+         Embedded because the API runs with InvariantGlobalization, where string.Normalize does nothing
+         to non-ASCII text, so the NFKC tables have to travel with the service. -->
+    <EmbeddedResource Include="..\..\..\research\prompts\unicode-tables.json" LogicalName="ScreenTail.Api.Summarize.unicode-tables.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharedRulesTests compares DraftRules with research/prompts/shared-rules.json. The rules stay
+         internal: they are the validator's ingredients, not an API. -->
+    <InternalsVisibleTo Include="ScreenTail.Api.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -13,6 +13,8 @@ research/*
 !research/prompts/
 research/prompts/*
 !research/prompts/note_v1.md
+# ST-061: and the character data DraftValidator reads text with, which is embedded beside it.
+!research/prompts/unicode-tables.json
 
 !backend/
 backend/**/bin/

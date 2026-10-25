@@ -5,13 +5,20 @@ using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Tests.Summarize;
 
-/// <param name="Text">The draft's result field: prose a technician reads and may publish to a customer.</param>
+/// <param name="Given">The draft's result field: prose a technician reads and may publish to a customer.</param>
+/// <param name="Parts">Or the same, in parts to be joined: a key shape is kept in parts so the file can be pushed.</param>
 /// <param name="Refuse">Whether the post-conditions must reject it.</param>
 /// <param name="Why">For whoever reads a failure. Never asserted on.</param>
 public sealed record HardeningCase(
-    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("text")] string? Given,
+    [property: JsonPropertyName("parts")] IReadOnlyList<string>? Parts,
     [property: JsonPropertyName("refuse")] bool Refuse,
-    [property: JsonPropertyName("why")] string Why);
+    [property: JsonPropertyName("why")] string Why)
+{
+    /// <summary>The text the case is about, whichever way the file gives it.</summary>
+    [JsonIgnore]
+    public string Text => Given ?? string.Concat(Parts ?? throw new InvalidOperationException($"A shared case has neither text nor parts: {Why}"));
+}
 
 /// <summary>
 /// The cases this validator and <c>research/prompts/checks.py</c> must answer the same way (ST-063).
@@ -92,7 +99,14 @@ public sealed class SharedHardeningCasesTests
         SessionId = "s1",
         DurationMs = 10 * 60 * 1000,
         Frames = [new BundleFrame("f1", 1_000, "Services Print Spooler Stopped")],
-        Transcript = [new BundleSegment("t1", 1_200, "clearing the queue now")],
+        // What research/fixtures/handcrafted/spooler-stopped-screenconnect says, which is the session
+        // checks.py judges these cases against, so a quotation that is real there is real here.
+        Transcript =
+        [
+            new BundleSegment("t-0001", 9_500, "Spooler service is stopped, that's why nothing is printing."),
+            new BundleSegment("t-0002", 19_000, "Started it again and set it to restart on failure."),
+            new BundleSegment("t-0003", 34_000, "Test page came out fine, so the queue is clear now."),
+        ],
     };
 
     private sealed record CaseFile(
