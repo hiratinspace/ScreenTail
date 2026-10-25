@@ -26,11 +26,12 @@ internal sealed class Hotkeys : IAsyncDisposable
     private readonly List<HotkeyConflict> _conflicts = [];
 
     /// <summary>
-    /// Which registration id Windows will name in WM_HOTKEY for which action. Filled by the pump before
-    /// <see cref="StartAsync"/> completes and emptied when it stops; read by the pump for every message
-    /// and by <see cref="Press"/>.
+    /// What Windows was asked to register under each id, and for which action, written at the moment
+    /// <c>RegisterHotKey</c> said yes with exactly the arguments it was given. Filled by the pump before
+    /// <see cref="StartAsync"/> completes and emptied when it stops; read by the pump for every message,
+    /// by <see cref="Press"/> and by <see cref="Registrations"/>.
     /// </summary>
-    private readonly Dictionary<int, HotkeyAction> _registered = [];
+    private readonly Dictionary<int, Registration> _registered = [];
     private Thread? _pump;
     private uint _pumpThreadId;
 
@@ -97,21 +98,49 @@ internal sealed class Hotkeys : IAsyncDisposable
     }
 
     /// <summary>
-    /// Presses a chord without a keyboard: posts to this pump the message Windows posts when the chord is
-    /// struck, so a test can check which action each message becomes and that it becomes it once. False
-    /// when the chord is not registered or the pump is not running. For tests; the product has no
+    /// One successful <c>RegisterHotKey</c> call: the id, the flags and the key it was given, and the
+    /// action a WM_HOTKEY naming that id becomes.
+    /// </summary>
+    internal readonly record struct Registration(int Id, HotkeyAction Action, uint Flags, uint VirtualKey);
+
+    /// <summary>
+    /// Every registration Windows accepted, as it was made. For tests: what the flags were is a fact
+    /// about the call, and a helper that computes them proves nothing about what was passed.
+    /// </summary>
+    internal IReadOnlyList<Registration> Registrations
+    {
+        get
+        {
+            lock (_registered)
+            {
+                return [.. _registered.Values];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Strikes a chord without a keyboard: finds the registration Windows holds for these modifiers and
+    /// this key, and posts to this pump the message Windows posts when the chord is struck, so a test can
+    /// check which action each chord becomes and that it becomes it once. By chord rather than by
+    /// action, because a lookup by action would go through the same mapping it is meant to check. False
+    /// when no registration holds the chord or the pump is not running. For tests; the product has no
     /// reason to press its own chords.
     /// </summary>
-    internal bool Press(HotkeyAction action)
+    internal bool Press(Hotkey chord)
     {
+        if (chord.VirtualKey is not { } key)
+        {
+            return false;
+        }
+
         var id = 0;
         lock (_registered)
         {
-            foreach (var (candidate, bound) in _registered)
+            foreach (var registration in _registered.Values)
             {
-                if (bound == action)
+                if (registration.VirtualKey == (uint)key && (registration.Flags & ~MOD_NOREPEAT) == (uint)chord.Modifiers)
                 {
-                    id = candidate;
+                    id = registration.Id;
                     break;
                 }
             }
@@ -124,8 +153,7 @@ internal sealed class Hotkeys : IAsyncDisposable
         }
 
         // What Windows puts in the message: the modifiers in the low word and the key in the high word.
-        var hotkey = _bindings.For(action);
-        var lParam = hotkey is { VirtualKey: { } key } ? ((long)key << 16) | (uint)hotkey.Value.Modifiers : 0L;
+        var lParam = ((long)key << 16) | (uint)chord.Modifiers;
         return PostThreadMessage(thread, WM_HOTKEY, new IntPtr(id), new IntPtr(lParam));
     }
 
@@ -134,7 +162,26 @@ internal sealed class Hotkeys : IAsyncDisposable
     /// down is one press. Without it, leaning on Ctrl+Alt+M would mark a moment every few milliseconds
     /// for as long as the keys were held.
     /// </summary>
-    internal static uint RegistrationFlags(Hotkey hotkey) => (uint)hotkey.Modifiers | MOD_NOREPEAT;
+    private static uint RegistrationFlags(Hotkey hotkey) => (uint)hotkey.Modifiers | MOD_NOREPEAT;
+
+    /// <summary>
+    /// Asks Windows for one chord and, when it says yes, writes down exactly what it was asked, so what
+    /// <see cref="Registrations"/> reports is the call and not a second computation of it.
+    /// </summary>
+    private bool Register(int id, HotkeyAction action, uint flags, uint virtualKey)
+    {
+        if (!RegisterHotKey(IntPtr.Zero, id, flags, virtualKey))
+        {
+            return false;
+        }
+
+        lock (_registered)
+        {
+            _registered[id] = new Registration(id, action, flags, virtualKey);
+        }
+
+        return true;
+    }
 
     private void Pump(TaskCompletionSource ready)
     {
@@ -157,13 +204,8 @@ internal sealed class Hotkeys : IAsyncDisposable
                     continue;   // already reported by Validate
                 }
 
-                if (RegisterHotKey(IntPtr.Zero, id, RegistrationFlags(hotkey), (uint)key))
+                if (Register(id, action, RegistrationFlags(hotkey), (uint)key))
                 {
-                    lock (_registered)
-                    {
-                        _registered[id] = action;
-                    }
-
                     id++;
                 }
                 else
@@ -212,7 +254,9 @@ internal sealed class Hotkeys : IAsyncDisposable
     {
         lock (_registered)
         {
-            return _registered.TryGetValue(id, out action);
+            var found = _registered.TryGetValue(id, out var registration);
+            action = registration.Action;
+            return found;
         }
     }
 

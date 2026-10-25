@@ -53,8 +53,10 @@ public sealed class HotkeyHostTests
             Assert.Equal(after.Count, clash.Conflicts.Count);
         }
 
-        // The handler came along: a press of a new chord reaches it, as the action it was bound to.
-        Assert.True(host.Press(HotkeyAction.PauseOrResume));
+        // The handler came along: a press of a new chord reaches it, as the action it was bound to. The
+        // old chord is nobody's now, so striking it reaches nothing.
+        Assert.False(host.Press(before[HotkeyAction.PauseOrResume]));
+        Assert.True(host.Press(after[HotkeyAction.PauseOrResume]));
         Assert.True(await arrived.WaitAsync(TimeSpan.FromSeconds(5), ct), "The rebound chord was pressed and the handler never heard of it.");
         Assert.True(pressed.TryDequeue(out var action));
         Assert.Equal(HotkeyAction.PauseOrResume, action);
