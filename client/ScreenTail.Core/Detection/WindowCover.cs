@@ -19,7 +19,10 @@ public readonly record struct ScreenRect(int Left, int Top, int Right, int Botto
 /// <param name="Bounds">Where it is drawn, without the invisible resize border Windows adds around it.</param>
 /// <param name="Visible">Shown, and not minimized.</param>
 /// <param name="Cloaked">Hidden by the compositor (a suspended app, another virtual desktop), so not on screen.</param>
-/// <param name="Topmost">Kept above every ordinary window, as toasts, popups and always-on-top tools are.</param>
+/// <param name="Topmost">
+/// Kept above every ordinary window, as toasts, popups and always-on-top tools are. Not part of the rule: a
+/// window that is not topmost covers just as well once it lies above the one in front.
+/// </param>
 /// <param name="SameProcess">Owned by the process of the window in front: its own menu or toolbar.</param>
 /// <param name="ExcludedFromCapture">Set to stay out of screen capture, as the HUD is, so absent from the frame anyway.</param>
 /// <param name="Taskbar">The shell's taskbar on one of the monitors.</param>
@@ -37,9 +40,10 @@ public readonly record struct WindowAbove(
 /// would hold another application's pixels (ST-025).
 ///
 /// The capturer copies the screen, not the window, so a toast, a call notification or an always-on-top tool
-/// over an in-scope window is in the frame with it. Until the grab is of the window itself (PrintWindow or
-/// Windows.Graphics.Capture), a sample with another application's topmost window over it is skipped rather
-/// than stored. Kept apart from the Windows plumbing so the rule is testable without a desktop.
+/// over an in-scope window is in the frame with it, and so is any other application's window that lies
+/// above it in z-order, topmost or not: one shown without taking the foreground, or raised by its own app.
+/// Until the grab is of the window itself (PrintWindow or Windows.Graphics.Capture), a sample with another
+/// application's window over it is skipped rather than stored. Kept apart from the Windows plumbing so the rule is testable without a desktop.
 /// </summary>
 public static class WindowCover
 {
@@ -52,7 +56,7 @@ public static class WindowCover
     /// <summary>Whether this window, lying above the target in z-order, puts foreign pixels into the target's frame.</summary>
     public static bool Covers(ScreenRect target, WindowAbove above)
     {
-        if (!above.Visible || above.Cloaked || !above.Topmost)
+        if (!above.Visible || above.Cloaked)
         {
             return false;
         }

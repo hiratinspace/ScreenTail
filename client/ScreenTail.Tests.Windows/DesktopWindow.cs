@@ -261,6 +261,13 @@ internal sealed class DesktopWindow : IDisposable
         _ = SetWindowPos(Handle, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
     /// <summary>
+    /// Raises the window to the top of the ordinary (not topmost) windows without activating it, so it lies
+    /// over the window in front while that one keeps the foreground.
+    /// </summary>
+    public void ShowAboveAt(int x, int y, int width, int height) =>
+        _ = SetWindowPos(Handle, HWND_TOP, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    /// <summary>
     /// Leaves the window out of screen capture, as the HUD does with itself. Set on the window's own
     /// thread; false when Windows refused it.
     /// </summary>

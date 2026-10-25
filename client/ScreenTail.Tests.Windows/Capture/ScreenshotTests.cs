@@ -271,6 +271,40 @@ public sealed class ScreenshotTests
     }
 
     [Fact]
+    public void NothingIsCapturedWhileAnOrdinaryWindowLiesOverTheWindowInFront()
+    {
+        // Only topmost windows used to count as cover. A window that is not topmost lies above the one in
+        // front when it is shown without taking the foreground, and its pixels are in a frame copied off the
+        // screen all the same (c8 review). Beside the window, the same one is no reason to skip.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail ordinary target");
+        window.RequireForeground();
+        using var capturer = new ScreenshotCapturer { JudgeOwnWindowsAsForeign = true };
+        var bounds = window.Bounds;
+
+        using var cover = DesktopWindow.Create("ScreenTail ordinary cover");
+        cover.ShowAboveAt(bounds.Left + 40, bounds.Top + 40, 160, 80);
+        Thread.Sleep(150);
+        if (!window.IsForeground)
+        {
+            // Taking the foreground back raises the target over the cover, so the cover goes back on top.
+            Assert.True(window.TakeForeground(TimeSpan.FromSeconds(2)), "the target could not take the foreground back");
+            cover.ShowAboveAt(bounds.Left + 40, bounds.Top + 40, 160, 80);
+            Thread.Sleep(150);
+        }
+
+        Assert.True(window.IsForeground, "the cover took the foreground, so a null here would prove nothing about covering");
+        Assert.Null(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedCovered);
+
+        cover.MoveTo(bounds.Right + 20, bounds.Top, 160, 80);
+        Thread.Sleep(150);
+        Assert.True(window.IsForeground, "moving the cover took the foreground");
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedCovered);
+    }
+
+    [Fact]
     public void ATopmostWindowBesideTheWindowInFrontOrOfItsOwnAppIsNoReasonToSkip()
     {
         // The controls for the test above. Beside the window rather than over it, a topmost window is not

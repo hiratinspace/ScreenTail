@@ -27,6 +27,13 @@ public sealed class CaptureTargetTests
         // A toast in the corner of the window is in a frame copied off the screen (2026-10-12 review, S-4).
         Assert.True(WindowCover.Covers(Target, Toast()));
 
+    [Fact]
+    public void AnOrdinaryWindowOfAnotherAppOverTheWindowInFrontCoversItToo() =>
+        // Only topmost windows used to count. A window that is not topmost can still lie above the one in
+        // front: shown without taking the foreground, or put there by its own app, and its pixels are in
+        // a frame copied off the screen all the same (c8 review). Whatever is above and foreign is cover.
+        Assert.True(WindowCover.Covers(Target, Toast() with { Topmost = false }));
+
     [Theory]
     [InlineData(900, 100, 1200, 300)]
     [InlineData(100, 700, 900, 900)]
@@ -40,7 +47,6 @@ public sealed class CaptureTargetTests
     {
         Assert.False(WindowCover.Covers(Target, Toast() with { Visible = false }));
         Assert.False(WindowCover.Covers(Target, Toast() with { Cloaked = true }));
-        Assert.False(WindowCover.Covers(Target, Toast() with { Topmost = false }));
 
         // The HUD is topmost over every window, and sets itself out of capture: it is not in the frame.
         Assert.False(WindowCover.Covers(Target, Toast() with { ExcludedFromCapture = true }));

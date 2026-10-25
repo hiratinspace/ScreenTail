@@ -44,7 +44,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private readonly List<WindowAbove> _above = new(64);
     private readonly char[] _className = new char[64];
 
-    /// <summary>Samples skipped because a topmost window lay over the one in front. A count, for diagnostics.</summary>
+    /// <summary>Samples skipped because another application's window lay over the one in front. A count, for diagnostics.</summary>
     internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
 
     /// <summary>
@@ -77,7 +77,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             }
 
             // The interim half of capturing the window rather than the screen: another application's
-            // topmost window over this one would be in the frame, so the sample is skipped.
+            // window over this one, topmost or not, would be in the frame, so the sample is skipped.
             if (IsCovered(window, rect))
             {
                 _ = Interlocked.Increment(ref _skippedCovered);
@@ -198,7 +198,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     }
 
     /// <summary>
-    /// Whether another application's topmost window lies over the window in front (<see cref="WindowCover"/>).
+    /// Whether another application's window lies over the window in front (<see cref="WindowCover"/>).
     /// Walks up the z-order from the window, so only what is above it is looked at, and reads window
     /// properties only. Measured against the window's visible frame rather than its rectangle, which on a
     /// maximized window reaches a few pixels under the taskbar.
@@ -214,17 +214,17 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
         {
             walked++;
 
-            // The style first: most windows above an ordinary one are not topmost, and for those nothing
-            // else needs asking.
-            var topmost = ((long)GetWindowLongPtr(above, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-            if (topmost && IsWindowVisible(above) && !IsIconic(above) && GetWindowRect(above, out var aboveRect))
+            // Visibility first: most windows above the one in front are hidden ones (tooltips, message
+            // windows, things not shown yet), and for those nothing else needs asking. Any shown window
+            // above counts, topmost or not: an ordinary window over this one is in the frame too.
+            if (IsWindowVisible(above) && !IsIconic(above) && GetWindowRect(above, out var aboveRect))
             {
                 _ = GetWindowThreadProcessId(above, out var aboveOwner);
                 _above.Add(new WindowAbove(
                     VisibleBounds(above, aboveRect),
                     Visible: true,
                     Cloaked: IsCloaked(above),
-                    Topmost: true,
+                    Topmost: ((long)GetWindowLongPtr(above, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0,
                     SameProcess: aboveOwner == owner && !JudgeOwnWindowsAsForeign,
                     ExcludedFromCapture: GetWindowDisplayAffinity(above, out var affinity) && affinity != WDA_NONE,
                     Taskbar: IsTaskbar(above)));
