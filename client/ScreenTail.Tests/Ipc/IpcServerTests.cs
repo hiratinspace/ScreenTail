@@ -296,15 +296,15 @@ public sealed class IpcServerTests : IAsyncDisposable
     {
         // T-73. The handshake's deadline is for a peer that has not said hello. A client that has must
         // be served on the server's own lifetime, or every UI would be cut off two seconds in. The
-        // deadline is shortened here so the test does not have to sit through the real two seconds.
-        var deadline = TimeSpan.FromMilliseconds(300);
+        // deadline is shortened here, but kept long enough for a busy runner to finish the handshake.
+        var deadline = TimeSpan.FromSeconds(1);
         await StartServerAsync(handshakeTimeout: deadline);
         var ct = TestContext.Current.CancellationToken;
         await using var ui = await ConnectAsync();
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         ui.Disconnected += () => disconnected.TrySetResult();
 
-        await Task.Delay(deadline * 4, ct);
+        await Task.Delay(deadline * 3, ct);
 
         Assert.False(disconnected.Task.IsCompleted, "the server dropped an authenticated client at the handshake deadline");
         Assert.True(ui.IsConnected);
