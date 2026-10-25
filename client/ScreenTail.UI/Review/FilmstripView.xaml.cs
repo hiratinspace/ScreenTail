@@ -9,7 +9,9 @@ namespace ScreenTail.UI.Review;
 /// The centre pane (ST-075, Spec §5 S3). Routing only: what each chord does is a call into
 /// <see cref="FilmstripViewModel"/>, and from there into <c>ScreenTail.Core.Review</c>.
 /// </summary>
+#pragma warning disable CA1001 // _showing is cancelled and disposed on every Unloaded, which is a control's end of life; a control has no Dispose to call.
 public partial class FilmstripView : UserControl
+#pragma warning restore CA1001
 {
     private readonly System.Windows.Threading.DispatcherTimer _tick = new()
     {
@@ -18,6 +20,9 @@ public partial class FilmstripView : UserControl
         Interval = TimeSpan.FromMilliseconds(250),
     };
 
+    /// <summary>The thumbnail load's lifetime: one per Loaded, cancelled on Unloaded (E-105).</summary>
+    private CancellationTokenSource? _showing;
+
     public FilmstripView()
     {
         InitializeComponent();
@@ -25,19 +30,42 @@ public partial class FilmstripView : UserControl
         Loaded += async (_, _) =>
         {
             _tick.Start();
-            if (Model is { } model)
+            if (Model is not { } model)
             {
-                await model.LoadImagesAsync();
+                return;
+            }
+
+            StopLoading();
+            _showing = new CancellationTokenSource();
+            try
+            {
+                await model.LoadImagesAsync(_showing.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // The pane went before every thumbnail arrived. Nothing is owed to a view that is gone.
             }
         };
 
-        // Not merely stopping the timer: anything still inside an undo window is committed, because a
-        // frame the technician deleted must not survive because they closed the pane quickly.
+        // Not merely stopping the timer: the thumbnail load stops pulling pictures over the shared pipe,
+        // and anything still inside an undo window is committed, because a frame the technician deleted
+        // must not survive because they closed the pane quickly.
         Unloaded += (_, _) =>
         {
             _tick.Stop();
+            StopLoading();
             Model?.Dispose();
         };
+    }
+
+    private void StopLoading()
+    {
+        if (_showing is { } showing)
+        {
+            _showing = null;
+            showing.Cancel();
+            showing.Dispose();
+        }
     }
 
     private FilmstripViewModel? Model => DataContext as FilmstripViewModel;
@@ -122,66 +150,119 @@ public partial class FilmstripView : UserControl
         }
     }
 
+    /// <summary>On PreviewKeyDown, so the ListBox's own handling of Space cannot swallow it (T-167).</summary>
     private void OnStripKeyDown(object sender, KeyEventArgs e)
     {
-        if (Model is not { } model)
+        if (Model is { } model)
         {
-            return;
+            FilmstripKeys.Handle(model, Strip.SelectedItem as FrameItem, e, () => BlurMode.IsChecked = BlurMode.IsChecked != true);
+        }
+    }
+}
+
+/// <summary>What one keypress in the strip does.</summary>
+public enum FilmstripKey
+{
+    None,
+    CloseEnlarged,
+    ToggleOcrText,
+    ToggleInclude,
+    Enlarge,
+    Delete,
+    ToggleBlur,
+    Undo,
+}
+
+/// <summary>
+/// The strip's chords (Spec §5 S3), as one pure routing function and the one place that acts on it, so
+/// the rules are tested without a window and the view only says which frame is selected.
+/// </summary>
+public static class FilmstripKeys
+{
+    /// <param name="key">The key, already read through <see cref="KeyEventArgs.SystemKey"/> when WPF reports <see cref="Key.System"/>.</param>
+    public static FilmstripKey Route(Key key, ModifierKeys modifiers, bool enlarged, bool frameSelected)
+    {
+        // Esc closes the enlarged view whatever is selected, and takes priority: it is the way out.
+        if (key == Key.Escape)
+        {
+            return enlarged ? FilmstripKey.CloseEnlarged : FilmstripKey.None;
         }
 
-        // Esc closes the enlarged view whatever is selected, and takes priority: it is the way out.
-        if (e.Key == Key.Escape && model.IsEnlarged)
+        // Ctrl+Z as well as the toast's button: the toast is reachable by keyboard, but nobody tabs to a
+        // control that is about to disappear. Not tied to a selection, because the delete it takes back
+        // has just removed the selected frame.
+        if (key == Key.Z)
         {
-            model.CloseEnlargedCommand.Execute(null);
-            e.Handled = true;
-            return;
+            return modifiers == ModifierKeys.Control ? FilmstripKey.Undo : FilmstripKey.None;
+        }
+
+        // Every other chord is a bare key. Ctrl+Enter in particular is Publish (Spec §5 S3) and must reach
+        // the pane's binding rather than enlarge a frame.
+        if (modifiers != ModifierKeys.None)
+        {
+            return FilmstripKey.None;
         }
 
         // T is the OCR toggle and only means anything over an enlarged frame. Everywhere else it is a
         // letter, and a letter that silently did something would be a trap once this pane gets a search box.
-        if (e.Key == Key.T && model.IsEnlarged)
+        if (key == Key.T)
         {
-            model.ToggleOcrTextCommand.Execute(null);
-            e.Handled = true;
-            return;
+            return enlarged ? FilmstripKey.ToggleOcrText : FilmstripKey.None;
         }
 
-        if (Strip.SelectedItem is not FrameItem frame)
+        if (!frameSelected)
         {
-            return;
+            return FilmstripKey.None;
         }
 
-        switch (e.Key)
+        return key switch
         {
-            case Key.Space:
-                model.ToggleIncludeCommand.Execute(frame);
-                e.Handled = true;
-                break;
+            Key.Space => FilmstripKey.ToggleInclude,
+            Key.Enter => FilmstripKey.Enlarge,
+            Key.Delete => FilmstripKey.Delete,
+            Key.B when enlarged => FilmstripKey.ToggleBlur,
+            _ => FilmstripKey.None,
+        };
+    }
 
-            case Key.Enter:
-                model.EnlargeCommand.Execute(frame);
-                e.Handled = true;
-                break;
+    /// <summary>Routes the keypress and does what it says, marking it handled when it did anything.</summary>
+    /// <param name="toggleBlur">Arms or disarms the blur surface, which belongs to the view.</param>
+    public static void Handle(FilmstripViewModel model, FrameItem? selected, KeyEventArgs e, Action toggleBlur)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(e);
+        ArgumentNullException.ThrowIfNull(toggleBlur);
 
-            case Key.Delete:
-                model.DeleteCommand.Execute(frame);
-                e.Handled = true;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var route = Route(key, e.KeyboardDevice.Modifiers, model.IsEnlarged, selected is not null);
+        switch (route)
+        {
+            case FilmstripKey.CloseEnlarged:
+                model.CloseEnlargedCommand.Execute(null);
                 break;
-
-            case Key.B when model.IsEnlarged:
-                BlurMode.IsChecked = BlurMode.IsChecked != true;
-                e.Handled = true;
+            case FilmstripKey.ToggleOcrText:
+                model.ToggleOcrTextCommand.Execute(null);
                 break;
-
-            // Ctrl+Z as well as the toast's button: the toast is reachable by keyboard, but nobody tabs to
-            // a control that is about to disappear.
-            case Key.Z when e.KeyboardDevice.Modifiers.HasFlag(ModifierKeys.Control):
+            case FilmstripKey.ToggleInclude:
+                model.ToggleIncludeCommand.Execute(selected);
+                break;
+            case FilmstripKey.Enlarge:
+                model.EnlargeCommand.Execute(selected);
+                break;
+            case FilmstripKey.Delete:
+                model.DeleteCommand.Execute(selected);
+                break;
+            case FilmstripKey.ToggleBlur:
+                toggleBlur();
+                break;
+            case FilmstripKey.Undo:
                 model.UndoCommand.Execute(null);
-                e.Handled = true;
                 break;
-
+            case FilmstripKey.None:
             default:
-                break;
+                return;
         }
+
+        e.Handled = true;
     }
 }

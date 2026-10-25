@@ -60,12 +60,25 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AThumbnailCrossesInsteadOfTheFullImageAndTheFullImageIsStillThere()
+    {
+        // E-30. The strip asks for the small picture; Enlarge still gets the whole one.
+        var frames = await FramesAsync();
+        var frame = FrameNamed("f1");
+
+        Assert.Equal(PaintedBytes, await frames.ThumbnailAsync(frame));
+        Assert.Equal(RedactedBytes, await frames.ImageAsync(frame));
+        Assert.Equal(RedactedBytes, await _store!.GetRedactedFrameImageAsync("f1"));
+    }
+
+    [Fact]
     public async Task AFrameThatIsGoneIsNullNotAnException()
     {
         // The screen is already open when this is asked; a throw here takes the window with it.
         var frames = await FramesAsync();
 
         Assert.Null(await frames.ImageAsync(FrameNamed("nope")));
+        Assert.Null(await frames.ThumbnailAsync(FrameNamed("nope")));
         Assert.Null(await frames.BlurAsync("nope", new MaskedRegion { X = 0, Y = 0, Width = 1, Height = 1, Kind = MaskKind.UserBlur }));
         Assert.Null(await frames.LoadSessionAsync("nope"));
     }

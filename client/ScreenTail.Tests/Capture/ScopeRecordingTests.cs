@@ -258,6 +258,32 @@ public sealed class ScopeRecordingTests
     }
 
     [Fact]
+    public async Task AClickFrameTheMachineRefusesIsNotReportedAsStaged()
+    {
+        // The click recorder's twin of the scene case above (2026-10-12 review, second pass). The host logs
+        // what a frame cost on FrameStaged, and a refused click frame went nowhere: it is counted against
+        // the session as purged, and announcing it as staged as well would describe it twice, once wrongly.
+        await using var harness = await MachineHarness.StartAsync(pendingDepth: 1);
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var capturer = new CountingCapturer();
+        // No debounce window, so the second click is a picture of its own and the test needs no clock.
+        var recorder = new SessionRecorder(harness.Machine, capturer, InScope, new ClickDebouncer(window: TimeSpan.Zero));
+        var staged = 0;
+        recorder.FrameStaged += _ => staged++;
+
+        var now = harness.Machine.NowMs;
+        await recorder.RecordAsync([Click(now)], ct);       // kept, and fills the queue
+        await recorder.RecordAsync([Click(now + 1)], ct);   // taken, and refused
+
+        Assert.Equal(2, capturer.Captures);
+        Assert.Equal(1, staged);
+        Assert.Equal(1, harness.Pending.DepthFor(harness.Machine.SessionId!));
+        Assert.Equal(1, harness.Pending.Dropped);
+        Assert.Equal(1, (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!.FramesPurgedUnredacted);
+    }
+
+    [Fact]
     public async Task ASceneWhoseWindowIsGoneByThePictureIsAMissingFrameNotABlankOne()
     {
         // The technician moved to another window between the look and the picture, so the capturer found
