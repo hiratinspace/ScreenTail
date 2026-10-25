@@ -63,6 +63,10 @@ public sealed partial class StyleHintsBindingTests
     [GeneratedRegex(@"\bHintIds\s*\{\s*get;\s*\}\s*=\s*\[(?<ids>[^\]]*)\]")]
     private static partial Regex ClientHintList();
 
-    [GeneratedRegex(@"""(?<id>[a-z_]+)""")]
+    /// <summary>
+    /// Every quoted entry, whatever it holds. Narrower would drop an id it did not expect (a digit, a
+    /// hyphen) from the client's list, and an id this side never sees is one it is never checked against.
+    /// </summary>
+    [GeneratedRegex(@"""(?<id>[^""\\]*)""")]
     private static partial Regex HintId();
 }
