@@ -342,6 +342,26 @@ public sealed class DraftSenderTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ThePaidDraftIsKeptBeforeItsAuditRowIsWritten()
+    {
+        // Order, not only survival: a row that hangs, or a service stopped between the two, must find
+        // the note already in the store. The audit log here looks for it as the row is written.
+        var store = await SessionAsync();
+        var audit = new DraftCheckingAudit(store);
+        var sender = new DraftSender(
+            new HttpClient(new RecordingHandler(Answer(HttpStatusCode.OK, Ok()))) { BaseAddress = new Uri("https://api.screentail.example/") },
+            store,
+            () => "a-device-token",
+            audit: audit,
+            time: new ManualTime(At));
+
+        var outcome = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, outcome.State);
+        Assert.Equal([true], audit.DraftKeptAtRow);
+    }
+
+    [Fact]
     public async Task AnAuditLogThatFailsDoesNotCostADraftTheBackendAlreadyMade()
     {
         // The draft is paid for once the backend answers. The row is written after the draft is kept,
@@ -694,6 +714,18 @@ public sealed class DraftSenderTests : IAsyncDisposable
             }
 
             base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>Notes, as each row is written, whether the session's draft was already kept.</summary>
+    private sealed class DraftCheckingAudit(SqliteSessionStore store) : IAuditLog
+    {
+        public List<bool> DraftKeptAtRow { get; } = [];
+
+        public async Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
+        {
+            var session = sessionId is null ? null : await store.LoadSessionAsync(sessionId, ct);
+            DraftKeptAtRow.Add(session?.Draft is not null);
         }
     }
 
