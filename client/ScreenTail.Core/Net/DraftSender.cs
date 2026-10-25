@@ -55,6 +55,21 @@ public sealed class DraftSender(
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     /// <summary>
+    /// How long drafting is held after the backend says no provider is configured and names no time.
+    /// An operator fixes that in hours rather than seconds, and this is the outbox's own longest wait,
+    /// so nothing is parked longer than it would have been anyway.
+    /// </summary>
+    public static readonly TimeSpan NotConfiguredHold = TimeSpan.FromHours(1);
+
+    // "Drafting is blocked until": set by a 402 or a 501, read before anything else on every send. One
+    // sender serves every queued draft, so the hold is process-wide, which is the point: after the
+    // budget is spent every other session's retry used to rebuild and upload its ~6 MB bundle for the
+    // backend to refuse after reading it (2026-10-12 review, E-11). UTC ticks under Interlocked, because
+    // the outbox drains on one thread today and nothing here should depend on that.
+    private long _holdUntilTicks;
+    private volatile string? _holdReason;
+
+    /// <summary>
     /// Sends one queued draft and says what the outbox should do with it.
     ///
     /// The three answers are different promises. <c>Done</c> means the note is in the store. <c>Pending</c>
@@ -65,6 +80,15 @@ public sealed class DraftSender(
     public async Task<SendOutcome> SendAsync(OutboxItem item, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
+
+        // Before the token and before the store. A hold means the backend has already said, for every
+        // session on this device, that it will refuse; nothing is built for it to refuse again.
+        var now = _time.GetUtcNow();
+        var holdUntil = new DateTimeOffset(Interlocked.Read(ref _holdUntilTicks), TimeSpan.Zero);
+        if (holdUntil > now)
+        {
+            return SendOutcome.Retry(_holdReason ?? "The backend is not drafting at the moment.", holdUntil - now);
+        }
 
         if (token() is not { Length: > 0 } bearer)
         {
@@ -82,9 +106,13 @@ public sealed class DraftSender(
         var bundle = BundleBuilder.Build(session, sizes, options);
         var wire = await WireAsync(bundle, ct).ConfigureAwait(false);
 
+        // Serialised here rather than by JsonContent, so the audit row below says how many bytes left
+        // rather than what a length header happened to claim.
+        var body = JsonSerializer.SerializeToUtf8Bytes(wire, Json);
         using var request = EgressRequest.For(HttpMethod.Post, Endpoint, EgressPurpose.Summarisation);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-        request.Content = JsonContent.Create(wire, options: Json);
+        request.Content = new ByteArrayContent(body);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
         HttpResponseMessage response;
         try
@@ -111,9 +139,49 @@ public sealed class DraftSender(
 
         using (response)
         {
+            // An answer came back, so the bytes left, whatever the answer was: a refused bundle crossed
+            // the network as surely as an accepted one. This is the row the audit export's "bytes sent,
+            // to which host" section is made of, and nothing wrote it before (2026-10-12 review, S-15).
+            // The host and the count, never the body (INV-10). A request that threw above is not
+            // recorded: whether its bytes left is unknown, and the audit log does not guess.
+            await RecordSentAsync(item.SessionId, body.Length, response.RequestMessage?.RequestUri ?? request.RequestUri, ct).ConfigureAwait(false);
             return await InterpretAsync(response, item.SessionId, ct).ConfigureAwait(false);
         }
     }
+
+    private async Task RecordSentAsync(string sessionId, long bytes, Uri? destination, CancellationToken ct)
+    {
+        if (_audit is null)
+        {
+            return;
+        }
+
+        // HttpClient resolves the relative endpoint against its base address before sending, so the
+        // request's own URI is absolute by now; the base address is the fallback for a handler that
+        // did not keep it.
+        var absolute = destination is { IsAbsoluteUri: true } ? destination
+            : http.BaseAddress is { } @base ? new Uri(@base, Endpoint)
+            : null;
+        if (absolute is null)
+        {
+            return;
+        }
+
+        await _audit.RecordAsync(AuditTypes.BundleSent, sessionId, bytes, AuditDetail.Destination(absolute), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Holds every send until <paramref name="until"/>. The reason travels with the holds that follow,
+    /// so the outbox's last error still says why rather than only that it waited.
+    /// </summary>
+    private void Hold(DateTimeOffset until, string reason)
+    {
+        _holdReason = reason;
+        _ = Interlocked.Exchange(ref _holdUntilTicks, until.UtcTicks);
+    }
+
+    /// <summary>The next UTC midnight: the backend's cost ledger counts the day in UTC, and that is when a spent budget reopens.</summary>
+    private static DateTimeOffset NextUtcMidnight(DateTimeOffset now) => new(now.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
 
     private async Task<SendOutcome> InterpretAsync(HttpResponseMessage response, string sessionId, CancellationToken ct)
     {
@@ -138,6 +206,23 @@ public sealed class DraftSender(
         }
 
         var reason = answer?.Reason ?? $"The backend answered {(int)response.StatusCode}.";
+        var named = response.Headers.RetryAfter?.Delta;
+        var now = _time.GetUtcNow();
+        switch (response.StatusCode)
+        {
+            // The tenant's budget is spent for the day. It reopens at UTC midnight, or when the backend
+            // says if it says; until then every draft on this device would be refused the same way, so
+            // none is built (E-11, paired with E-13's bound on the outbox).
+            case HttpStatusCode.PaymentRequired:
+                Hold(named is { } wait ? now + wait : NextUtcMidnight(now), reason);
+                break;
+
+            // No provider is configured. A deployment problem an operator fixes in hours.
+            case HttpStatusCode.NotImplemented:
+                Hold(now + (named ?? NotConfiguredHold), reason);
+                break;
+        }
+
         return response.StatusCode switch
         {
             // The bundle is wrong, and it will be just as wrong in an hour.

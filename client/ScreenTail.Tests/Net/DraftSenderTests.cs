@@ -174,7 +174,9 @@ public sealed class DraftSenderTests : IAsyncDisposable
         Assert.Equal(OutboxState.Pending, held.State);
         Assert.Equal(1, handler.Requests);
         Assert.Equal(TimeSpan.FromHours(remainingHours), held.RetryAfter);
-        Assert.Contains("budget", held.Message + first.Message, StringComparison.OrdinalIgnoreCase);
+
+        // The hold repeats the backend's own reason, so the outbox's last error still says why.
+        Assert.Equal(first.Message, held.Message);
 
         // A session the store has never heard of would be Failed if the store were asked. It is not asked.
         var other = await sender.SendAsync(Item() with { SessionId = "nobody" }, TestContext.Current.CancellationToken);
@@ -463,21 +465,36 @@ public sealed class DraftSenderTests : IAsyncDisposable
             Path.Combine(_dir, "store.db"),
             new FixedKey(RandomNumberGenerator.GetBytes(32)));
 
-    /// <summary>Keeps the request rather than sending it, so a test can read what would have gone.</summary>
+    /// <summary>
+    /// Keeps the request rather than sending it, so a test can read what would have gone. Every request
+    /// gets its own copy of the reply: the sender disposes what it is given, and a test that sends twice
+    /// is a test about the second send.
+    /// </summary>
     private sealed class RecordingHandler(HttpResponseMessage reply) : HttpMessageHandler
     {
+        private readonly string _body = reply.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
         public int Requests { get; private set; }
 
         public string? Body { get; private set; }
 
-        public System.Net.Http.Headers.AuthenticationHeaderValue? Authorization { get; private set; }
+        public AuthenticationHeaderValue? Authorization { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
             Authorization = request.Headers.Authorization;
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
-            return reply;
+            var copy = new HttpResponseMessage(reply.StatusCode)
+            {
+                Content = new StringContent(_body, Encoding.UTF8, reply.Content.Headers.ContentType?.MediaType ?? "application/json"),
+            };
+            foreach (var header in reply.Headers)
+            {
+                copy.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            return copy;
         }
 
         protected override void Dispose(bool disposing)

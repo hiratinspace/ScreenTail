@@ -24,16 +24,27 @@ public sealed class Outbox(
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
     /// <summary>
-    /// How many times a retryable failure is tried before a technician is told instead.
+    /// How long a retryable failure is retried before a technician is told instead, measured from when
+    /// the work was queued.
     ///
-    /// Eight attempts over the schedule below is about a day. Past that the thing is not coming back on
-    /// its own, and a queue that retries forever is a battery drain and a log nobody reads.
+    /// A day, because that is the longest anything has a reason to wait: a drafting budget reopens at
+    /// midnight, a provider's outage is over by morning, a laptop shut on a train is open again at the
+    /// next desk. Past that the thing is not coming back on its own, and a queue that retries forever is
+    /// a battery drain and a log nobody reads.
+    ///
+    /// Time rather than a count. The ceiling used to be eight attempts, which the schedule below reaches
+    /// in sixty-three minutes while this comment said "about a day"; a draft owed through an afternoon
+    /// offline, or a 402 that clears at midnight, was failed for good with nothing to retry it
+    /// (2026-10-12 review, T-103 and E-13).
     /// </summary>
-    public const int MaxAttempts = 8;
-
-    public const int MinAttempts = 8;
-
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// The fewest attempts an item gets before the age bound may fail it: the whole backoff run, about an
+    /// hour. Work queued on Friday and first tried on Monday is already a day old on its first attempt,
+    /// and one failed attempt is not grounds to give up on it.
+    /// </summary>
+    public const int MinAttempts = 8;
 
     /// <summary>
     /// The longest a far end's Retry-After is honoured for.
@@ -118,7 +129,9 @@ public sealed class Outbox(
     ///
     /// Thirty seconds doubling to an hour. Quick at the start because the common case is a network that
     /// came back a moment ago, and capped because the other common case is a provider that is down for
-    /// the afternoon and does not want to be asked every thirty seconds until it returns.
+    /// the afternoon and does not want to be asked every thirty seconds until it returns. The cap is
+    /// reached on the eighth attempt, about an hour in; from there the item is asked about hourly until
+    /// <see cref="MaxAge"/>.
     /// </summary>
     public static TimeSpan RetryAfter(int attempts) =>
         TimeSpan.FromSeconds(Math.Min(3600, 30L * (1L << Math.Min(Math.Max(attempts, 1) - 1, 20))));
@@ -185,7 +198,7 @@ public sealed class Outbox(
         }
 
         var state = outcome.State;
-        if (state == OutboxState.Pending && attempts >= MaxAttempts)
+        if (state == OutboxState.Pending && attempts >= MinAttempts && now - item.CreatedAt >= MaxAge)
         {
             // Out of patience rather than out of hope. A technician is told, and can retry by hand.
             state = OutboxState.Failed;
