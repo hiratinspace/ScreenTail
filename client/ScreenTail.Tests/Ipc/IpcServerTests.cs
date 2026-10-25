@@ -90,7 +90,10 @@ public sealed class IpcServerTests : IAsyncDisposable
         // refill every slot as the timeout reaped them. The real UI then saw the pipe closed during its
         // handshake, could not see or change capture state, and INV-4's indicator became unreachable
         // without touching capture at all.
-        await StartServerAsync();
+        //
+        // Patient, so the squatters are still squatting when the UI arrives: on a busy runner the real
+        // deadline could reap them first and this test would be proving nothing.
+        await StartServerAsync(handshakeTimeout: Patient);
         var ct = TestContext.Current.CancellationToken;
 
         // Twenty silent peers: more than the global limit, all from one process.
@@ -158,19 +161,195 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AQuestionTheServiceWillNotAnswerFailsRatherThanHanging()
+    public async Task AQuestionAnsweredWithOnlyAResultFailsRatherThanHanging()
     {
-        // No answer set, so the handler treats it as an instruction and returns a plain result. The
-        // client must turn that into an error the caller can show, not wait for an event that is never
-        // coming: a screen that hangs on open is worse than one that says it could not ask.
+        // No answer set, so the handler treats the question as an instruction and returns a plain
+        // result. The client must turn that into an error the caller can show, not wait for an event
+        // that is never coming: a screen that hangs on open is worse than one that says it could not
+        // ask. The earlier version of this test sent the question through SendAsync, which wants a
+        // result and so could never have seen RequestAsync hang (2026-10-12 review, T-81).
         await StartServerAsync();
         await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
 
-        var reply = await ui.SendAsync(
-            id => new ListSessionsCommand { RequestId = id },
-            TestContext.Current.CancellationToken);
+        var refused = await Assert.ThrowsAsync<IpcProtocolException>(
+            () => ui.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct).WaitAsync(Soon, ct));
 
-        Assert.True(reply.Ok);
+        Assert.Contains(nameof(SessionsListed), refused.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(CommandResult), refused.Message, StringComparison.Ordinal);
+        Assert.True(ui.IsConnected);
+    }
+
+    [Fact]
+    public async Task AStateChangeDuringTheHandshakeStillReachesTheUi()
+    {
+        // 2026-10-12 review, S-20 and T-74. The HelloAck's state was read before the connection joined
+        // the broadcast set, so a transition in that gap was broadcast to everyone but the client that
+        // was connecting. It then showed the old state until the next transition: idle while the
+        // service recorded (INV-4). Here the service starts recording the instant the snapshot for the
+        // ack is taken, and broadcasts it, exactly as the host does.
+        var recording = Recording("s1");
+        _controller.AfterStateIsRead = () =>
+        {
+            _controller.State = recording;
+            _ = _server!.BroadcastAsync(new StateChanged { State = recording });
+        };
+        await StartServerAsync();
+
+        await using var ui = await ConnectAsync();
+
+        Assert.True(_controller.StateHookFired, "the handshake never read the state, so the gap was not exercised");
+        await WaitUntilAsync(() => ui.State.State == CaptureStates.Recording);
+        Assert.Equal("s1", ui.State.SessionId);
+        Assert.Equal(1, _server!.ConnectedClients);
+    }
+
+    [Fact]
+    public async Task TheServerKeepsItsOwnCopyOfTheToken()
+    {
+        // T-70. CaptureHost clears its array as soon as the server has it, so a server that kept the
+        // caller's array would compare every hello against zeroes and lock every UI out.
+        var handed = (byte[])_token.Clone();
+        _server = new IpcServer(IpcServer.DefaultPipeFactory(_pipeName), handed, new FakeVerifier(null), _controller, _audit, "0.0.1-test");
+        Array.Clear(handed);
+        _server.Start();
+
+        await using var ui = await ConnectAsync();
+
+        Assert.True(ui.IsConnected);
+        Assert.Equal(1, _server.ConnectedClients);
+    }
+
+    [Fact]
+    public async Task AFailedPipeInstanceIsRetriedRatherThanEndingTheServer()
+    {
+        // T-71. The accept loop is an unobserved Task.Run; a pipe factory that throws on resource
+        // pressure must cost one retry, not the service's ability to accept the UI ever again.
+        var calls = 0;
+        var real = IpcServer.DefaultPipeFactory(_pipeName);
+        await StartServerAsync(pipeFactory: () => ++calls == 1 ? throw new IOException("out of handles") : real());
+
+        await using var ui = await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1", Soon);
+
+        Assert.True(ui.IsConnected);
+        Assert.True(calls >= 2, $"the factory was called {calls} time(s)");
+        Assert.Equal(1, _server!.RefusedConnections);
+        Assert.True((await ui.SendAsync(id => new GetStateCommand { RequestId = id })).Ok);
+    }
+
+    [Fact]
+    public async Task AClientThatStopsReadingDoesNotHoldUpTheOthers()
+    {
+        // T-72. A broadcast goes to every client at once, each with its own deadline. One at a time, a
+        // peer that had stopped reading held every state change to every other window, and the pipe has
+        // no output buffer to speak of: "stopped reading" blocks the write rather than filling a queue.
+        // The HUD's pill is one of those other windows (INV-4).
+        await StartServerAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await using var hud = await ConnectAsync();
+        var hudGot = new TaskCompletionSource<CaptureStateSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hud.StateChanged += s => hudGot.TrySetResult(s);
+
+        // Authenticated, then deaf: it never reads another byte.
+        await using var deaf = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await deaf.ConnectAsync((int)Soon.TotalMilliseconds, ct);
+        await IpcFraming.WriteAsync<IpcCommand>(deaf, new HelloCommand { RequestId = 0, ContractVersion = IpcContract.Version, Token = IpcToken.Encode(_token), ClientName = "deaf" }, ct);
+        Assert.IsType<HelloAck>(await IpcFraming.ReadAsync<IpcEvent>(deaf, ct));
+        await WaitUntilAsync(() => _server!.ConnectedClients == 2);
+
+        // Far more than any pipe or socket buffers, so the deaf peer's write is stuck for its whole deadline.
+        var large = Recording(new string('s', 768 * 1024));
+        var started = Stopwatch.GetTimestamp();
+        var broadcast = _server!.BroadcastAsync(new StateChanged { State = large }, ct);
+
+        var seen = await hudGot.Task.WaitAsync(TimeSpan.FromSeconds(2), ct);
+        Assert.Equal(large.SessionId, seen.SessionId);
+        Assert.False(broadcast.IsCompleted, "the deaf peer did not block its write, so this run proves nothing about waiting");
+
+        // The broadcast still ends, within the per-client deadline, and the HUD is still being served.
+        await broadcast.WaitAsync(TimeSpan.FromSeconds(10), ct);
+        Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(8), "the broadcast was held past its deadline");
+        Assert.True((await hud.SendAsync(id => new GetStateCommand { RequestId = id }, ct).WaitAsync(Soon, ct)).Ok);
+    }
+
+    [Fact]
+    public async Task AnAuthenticatedClientOutlivesTheHandshakeDeadline()
+    {
+        // T-73. The handshake's deadline is for a peer that has not said hello. A client that has must
+        // be served on the server's own lifetime, or every UI would be cut off two seconds in. The
+        // deadline is shortened here so the test does not have to sit through the real two seconds.
+        var deadline = TimeSpan.FromMilliseconds(300);
+        await StartServerAsync(handshakeTimeout: deadline);
+        var ct = TestContext.Current.CancellationToken;
+        await using var ui = await ConnectAsync();
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ui.Disconnected += () => disconnected.TrySetResult();
+
+        await Task.Delay(deadline * 4, ct);
+
+        Assert.False(disconnected.Task.IsCompleted, "the server dropped an authenticated client at the handshake deadline");
+        Assert.True(ui.IsConnected);
+        Assert.True((await ui.SendAsync(id => new GetStateCommand { RequestId = id }, ct).WaitAsync(Soon, ct)).Ok);
+        Assert.Equal(1, _server!.ConnectedClients);
+    }
+
+    [Fact]
+    public async Task EachConnectionIsItsOwnCallerForItsWholeLife()
+    {
+        // T-69. Confirmation tokens are bound to the caller the handler is given. Guid.Empty for every
+        // connection would make a token a bearer token; a fresh id per command would mean no token
+        // could ever be spent by the window that asked for it, on either lane.
+        _controller.Answer = new ConfirmationIssued { Token = "t", Phrase = "DISCARD" };
+        _controller.AnswersTo = typeof(RequestConfirmationCommand);
+        await StartServerAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await using var tray = await ConnectAsync();
+        await using var hud = await ConnectAsync();
+
+        // Read-loop lane, worker lane and a question, from each.
+        await tray.SendAsync(id => new StartCommand { RequestId = id }, ct);
+        await tray.SendAsync(id => new GetSettingsCommand { RequestId = id }, ct);
+        await tray.RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = "discard_session" }, ct);
+        await hud.SendAsync(id => new PauseCommand { RequestId = id }, ct);
+        await hud.SendAsync(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await hud.RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = "discard_session" }, ct);
+
+        var calls = _controller.Calls;
+        var trayCallers = calls.Where(c => c.Command is StartCommand or GetSettingsCommand).Select(c => c.Caller).Distinct().ToList();
+        var hudCallers = calls.Where(c => c.Command is PauseCommand or GetIntegrationsCommand).Select(c => c.Caller).Distinct().ToList();
+        var askers = calls.Where(c => c.Command is RequestConfirmationCommand).Select(c => c.Caller).Distinct().ToList();
+
+        var trayId = Assert.Single(trayCallers);
+        var hudId = Assert.Single(hudCallers);
+        Assert.NotEqual(Guid.Empty, trayId);
+        Assert.NotEqual(Guid.Empty, hudId);
+        Assert.NotEqual(trayId, hudId);
+        Assert.Equal(2, askers.Count);
+        Assert.Contains(trayId, askers);
+        Assert.Contains(hudId, askers);
+    }
+
+    [Fact]
+    public async Task ARequestInFlightFailsWhenTheServiceGoesAway()
+    {
+        // T-68. A request the service never answers because it went away has to fail, not wait: the
+        // Review and Settings screens await these, and a screen that waits for ever is a window that
+        // never opens. Both kinds are in flight here, one inside its handler and one queued behind it.
+        _controller.Holds = typeof(GetIntegrationsCommand);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var held = ui.RequestAsync<IntegrationsListed>(id => new GetIntegrationsCommand { RequestId = id }, ct);
+        await _controller.Holding.Task.WaitAsync(Soon, ct);
+        var queued = ui.SendAsync(id => new GetSettingsCommand { RequestId = id }, ct);
+
+        await _server!.DisposeAsync();
+        _server = null;
+
+        await Assert.ThrowsAsync<IOException>(() => held.WaitAsync(Soon, ct));
+        await Assert.ThrowsAsync<IOException>(() => queued.WaitAsync(Soon, ct));
+        Assert.False(ui.IsConnected);
     }
 
     [Fact]
@@ -277,8 +456,11 @@ public sealed class IpcServerTests : IAsyncDisposable
         // So the genuine UI counted as "silent" during its own verification, and a same-user process
         // opening connections in a loop could evict it. The table exists to stop exactly that lockout,
         // and it was the thing causing it.
+        //
+        // Patient, because the UI's own handshake is under way while twenty peers connect, and on a
+        // busy runner that can take longer than the real deadline.
         var slow = new SlowVerifier(TimeSpan.FromMilliseconds(400));
-        await StartServerAsync(slow);
+        await StartServerAsync(slow, handshakeTimeout: Patient);
         var ct = TestContext.Current.CancellationToken;
 
         var squatters = new List<NamedPipeClientStream>();
@@ -743,9 +925,21 @@ public sealed class IpcServerTests : IAsyncDisposable
         }
     }
 
-    private async Task StartServerAsync(IClientVerifier? verifier = null)
+    /// <summary>
+    /// Long enough that a busy runner cannot reap a silent peer, or time out the UI's own handshake,
+    /// before a test has made its point. The product default stays two seconds.
+    /// </summary>
+    private static readonly TimeSpan Patient = TimeSpan.FromSeconds(60);
+
+    private async Task StartServerAsync(
+        IClientVerifier? verifier = null,
+        Func<NamedPipeServerStream>? pipeFactory = null,
+        TimeSpan? handshakeTimeout = null)
     {
-        _server = new IpcServer(IpcServer.DefaultPipeFactory(_pipeName), _token, verifier ?? new FakeVerifier(null), _controller, _audit, "0.0.1-test");
+        _server = new IpcServer(pipeFactory ?? IpcServer.DefaultPipeFactory(_pipeName), _token, verifier ?? new FakeVerifier(null), _controller, _audit, "0.0.1-test")
+        {
+            HandshakeTimeout = handshakeTimeout ?? IpcServer.DefaultHandshakeTimeout,
+        };
         _server.Start();
         await Task.Yield();
     }
@@ -785,21 +979,49 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         public CaptureStateSnapshot State { get; set; } = CaptureStateSnapshot.Idle;
 
-        private readonly List<IpcCommand> _received = [];
+        private readonly List<(IpcCommand Command, Guid Caller)> _calls = [];
+        private Action? _afterStateIsRead;
 
         /// <summary>What reached the handler, in the order it arrived. A copy: two lanes add to it at once.</summary>
-        public IReadOnlyList<IpcCommand> Received
+        public IReadOnlyList<IpcCommand> Received => [.. Calls.Select(c => c.Command)];
+
+        /// <summary>Each command with the caller the server named for it.</summary>
+        public IReadOnlyList<(IpcCommand Command, Guid Caller)> Calls
         {
             get
             {
-                lock (_received)
+                lock (_calls)
                 {
-                    return [.. _received];
+                    return [.. _calls];
                 }
             }
         }
 
-        public CaptureStateSnapshot CurrentState => State;
+        /// <summary>
+        /// Runs once, the first time the server reads the state, after the snapshot it will use has been
+        /// taken: a transition landing the instant after the handshake looked.
+        /// </summary>
+        public Action? AfterStateIsRead
+        {
+            set => _afterStateIsRead = value;
+        }
+
+        public bool StateHookFired { get; private set; }
+
+        public CaptureStateSnapshot CurrentState
+        {
+            get
+            {
+                var snapshot = State;
+                if (Interlocked.Exchange(ref _afterStateIsRead, null) is { } hook)
+                {
+                    StateHookFired = true;
+                    hook();
+                }
+
+                return snapshot;
+            }
+        }
 
         /// <summary>What a question is answered with, when a test sets one.</summary>
         public IpcEvent? Answer { get; set; }
@@ -823,9 +1045,9 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         public async Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
         {
-            lock (_received)
+            lock (_calls)
             {
-                _received.Add(command);
+                _calls.Add((command, caller));
             }
 
             if (command.GetType() == Holds)
@@ -849,9 +1071,9 @@ public sealed class IpcServerTests : IAsyncDisposable
                 return Task.FromResult<IpcEvent?>(null);
             }
 
-            lock (_received)
+            lock (_calls)
             {
-                _received.Add(command);
+                _calls.Add((command, caller));
             }
 
             return Task.FromResult<IpcEvent?>(Answer);

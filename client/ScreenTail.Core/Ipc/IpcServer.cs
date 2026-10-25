@@ -67,7 +67,14 @@ public sealed class IpcServer : IAsyncDisposable
     /// breath as connecting; two seconds is generous for a local pipe and short enough that holding one
     /// open costs an attacker something.
     /// </summary>
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan DefaultHandshakeTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The handshake deadline this server applies. Settable only by a test, which may need it short to
+    /// watch an authenticated client outlive it, or long so that a busy runner cannot reap the peers a
+    /// test is holding before the test has made its point. The service never changes it.
+    /// </summary>
+    internal TimeSpan HandshakeTimeout { get; init; } = DefaultHandshakeTimeout;
 
     /// <summary>One row per reason per minute, however fast the rejections arrive.</summary>
     private static readonly TimeSpan RejectionWindow = TimeSpan.FromMinutes(1);
