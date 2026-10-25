@@ -233,7 +233,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
-        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, null, null, null);
+        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, machine, pending, null, null, null);
         // What the UI reports about the pill being on screen, and what the indicator guard reads. A
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
@@ -562,6 +562,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             version,
             egress,
             egressPolicy,
+            machine,
+            pending,
             coordinator.CurrentScope?.Reason,
             redaction.Progress,
             capture.DroppedOutOfScope,
@@ -686,36 +688,35 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     private static partial void LogNoModel(ILogger logger, string model, string reason);
 
     /// <summary>
-    /// What the diagnostics panel shows, assembled from the things only this process can see.
-    ///
-    /// Every field is a state, a count or a device name. The active window appears as the scope decision's
-    /// own words — a process name and what is being done about it — because this text goes on a clipboard
-    /// and into tickets, and a window title there is a customer's business in someone's ticket (INV-10).
+    /// What the diagnostics panel shows: this process's live sources, mapped by
+    /// <see cref="ServiceDiagnostics.Report"/> in Core, where the Mac suite holds each field to its source.
+    /// The suppression comes from the machine's state and holds, and the backlog from the queue of frames
+    /// waiting to be read.
     /// </summary>
     private static DiagnosticsReported Diagnostics(
         string version,
         EgressGuard egress,
         EgressPolicy egressPolicy,
+        SessionMachine machine,
+        PendingFrames pending,
         string? scope,
         RedactionProgress? redaction,
         long? keystrokesDropped,
         string? microphone = null)
     {
         using var self = System.Diagnostics.Process.GetCurrentProcess();
-        return new DiagnosticsReported
-        {
-            Scope = scope ?? "Not capturing — no remote session in front",
-            Microphone = microphone, // A device name, never audio (INV-10).
-            Suppression = null, // The HUD carries this from the capture state; the panel echoes it in ST-081.
-            RedactionBacklog = 0,
-            FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0),
-            KeystrokesDropped = keystrokesDropped ?? 0,
-            EgressBlocked = egress.Blocked,
-            LocalOnly = egressPolicy.Settings.LocalOnly,
-            PolicyVersion = _policySync?.Current.Version ?? TenantPolicy.Default.Version,
-            CpuPercent = 0,
-            WorkingSetBytes = self.WorkingSet64,
-            ServiceVersion = version,
-        };
+        return ServiceDiagnostics.Report(
+            serviceVersion: version,
+            scope: scope,
+            microphone: microphone,
+            state: machine.Snapshot,
+            isHeld: machine.IsHeld,
+            redactionBacklog: pending.Depth,
+            redaction: redaction,
+            keystrokesDropped: keystrokesDropped,
+            egressBlocked: egress.Blocked,
+            localOnly: egressPolicy.Settings.LocalOnly,
+            policyVersion: _policySync?.Current.Version ?? TenantPolicy.Default.Version,
+            workingSetBytes: self.WorkingSet64);
     }
 }
