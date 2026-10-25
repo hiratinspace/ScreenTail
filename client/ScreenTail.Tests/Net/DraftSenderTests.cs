@@ -304,6 +304,26 @@ public sealed class DraftSenderTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AHoldIsNeverReadBackLongerThanADay()
+    {
+        // Bounded when it is set, and bounded again when it is read. A timestamp source that steps back
+        // (a host's own TimeProvider, a resumed virtual machine) must not stretch a day's hold into a
+        // longer one, because the outbox parks the item for whatever this says.
+        var store = await SessionAsync();
+        var time = new JumpingTime(At);
+        var reply = Answer(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"Budget."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromDays(30));
+        var sender = Sender(store, new RecordingHandler(reply), time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        time.StepMonotonicBack(TimeSpan.FromDays(2));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.True(held.NothingSent);
+        Assert.Equal(Core.Outbox.Outbox.MaxRetryAfter, held.RetryAfter);
+    }
+
+    [Fact]
     public async Task AHeldOrUnenrolledSendSaysNothingWasSent()
     {
         // The outbox counts an attempt only when something was tried, so a device left unactivated over a
@@ -684,7 +704,7 @@ public sealed class DraftSenderTests : IAsyncDisposable
             throw new InvalidOperationException("the audit table is locked");
     }
 
-    /// <summary>A wall clock that can be set anywhere, over a monotonic one that only moves forward.</summary>
+    /// <summary>A wall clock that can be set anywhere, over a monotonic one that moves forward unless a test steps it back.</summary>
     private sealed class JumpingTime(DateTimeOffset start) : TimeProvider
     {
         private DateTimeOffset _wall = start;
@@ -697,6 +717,8 @@ public sealed class DraftSenderTests : IAsyncDisposable
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
         public void SetWallClock(DateTimeOffset to) => _wall = to;
+
+        public void StepMonotonicBack(TimeSpan by) => _monotonic -= by.Ticks;
 
         public void Elapse(TimeSpan by)
         {
