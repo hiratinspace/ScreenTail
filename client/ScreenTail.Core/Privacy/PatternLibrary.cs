@@ -41,7 +41,6 @@ internal static partial class PatternLibrary
     /// router is Winter2026" masked "on", and "the password was reset to Spring2027" masked "reset" and
     /// then dropped it for being an ordinary word. Each of those wrote an audit row saying a redaction
     /// had happened (2026-09-20 review).
-    ///
     /// </summary>
     private static readonly HashSet<string> Connectives = new(StringComparer.OrdinalIgnoreCase)
     {

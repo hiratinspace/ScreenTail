@@ -66,7 +66,7 @@ public static class LoginScreenHeuristic
     ];
 
     /// <summary>
-    /// Weaker on their own — a form asking for a name is not a login — but they add up. The localised
+    /// Weaker on their own, since a form asking for a name is not a login, but they add up. The localised
     /// words are the labels and buttons that sit beside a password box in the same four languages.
     /// </summary>
     private static readonly string[] Supporting =
