@@ -319,6 +319,70 @@ public sealed class EraseEverythingTests : IDisposable
     }
 
     [Fact]
+    public void AStoreWrittenAfterAnUnfinishedErasureIsNotErasedByIt()
+    {
+        // T-59 (INV-12, the other direction). An erasure is of what existed when it was asked for. The
+        // marker used to mean "everything, whenever you next start", so a sweep that could not remove one
+        // folder left the next start deleting every session recorded since. Now a sweep that cannot
+        // finish narrows the marker to what it still owes, and the next start takes only that.
+        Populate();
+        LocalDataEraser.MarkPending(_directory);
+        using (BlockCrashes())
+        {
+            Assert.False(LocalDataEraser.EraseIfPending(_directory)!.Complete);
+        }
+
+        Assert.True(LocalDataEraser.IsPending(_directory));
+        Assert.Equal([Crashes], LocalDataEraser.StillOwed(_directory));
+
+        // A later run writes a fresh store, its key and its settings beside the thing that would not go.
+        File.WriteAllText(Path.Combine(_directory, "store.db"), "a session recorded after the erasure was asked for");
+        File.WriteAllText(Path.Combine(_directory, "store.key"), "a new key");
+        File.WriteAllText(Path.Combine(_directory, "settings.json"), "new settings");
+
+        var finished = Assert.IsType<ErasureResult>(LocalDataEraser.EraseIfPending(_directory));
+
+        Assert.True(finished.Complete);
+        Assert.False(LocalDataEraser.IsPending(_directory));
+        Assert.False(Directory.Exists(Path.Combine(_directory, Crashes)));
+        Assert.Equal(
+            ["settings.json", "store.db", "store.key"],
+            Directory.GetFileSystemEntries(_directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void AMarkerThatCannotBeReadStillMeansEverything()
+    {
+        // Fail closed. A marker with something in it that is not a name of ours (a path, a corrupt
+        // line) is the original request, not a narrower one: everything goes, as it would have.
+        Populate();
+        File.WriteAllText(Path.Combine(_directory, LocalDataEraser.PendingMarker), "../elsewhere\n" + Path.Combine("crashes", "report.txt"));
+
+        var result = Assert.IsType<ErasureResult>(LocalDataEraser.EraseIfPending(_directory));
+
+        Assert.True(result.Complete);
+        Assert.Empty(Directory.GetFileSystemEntries(_directory));
+    }
+
+    [Fact]
+    public void WhatIsStillOwedNeverNamesTheModelsOrTheMarker()
+    {
+        // The two things kept on purpose cannot be owed, so a narrowed marker can never ask for them.
+        Populate();
+        Directory.CreateDirectory(Path.Combine(_directory, LocalDataEraser.KeptDirectory));
+        File.WriteAllText(Path.Combine(_directory, LocalDataEraser.KeptDirectory, "ggml-base.bin"), "weights");
+        LocalDataEraser.MarkPending(_directory);
+
+        using (BlockCrashes())
+        {
+            _ = LocalDataEraser.EraseIfPending(_directory);
+        }
+
+        Assert.Equal([Crashes], LocalDataEraser.StillOwed(_directory));
+        Assert.True(File.Exists(Path.Combine(_directory, LocalDataEraser.KeptDirectory, "ggml-base.bin")));
+    }
+
+    [Fact]
     public void TheMarkerItselfIsNotLeftBehind()
     {
         Populate();

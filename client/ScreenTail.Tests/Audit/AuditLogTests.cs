@@ -145,6 +145,77 @@ public sealed class AuditLogTests : IAsyncDisposable
         Assert.False(verification.Intact);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InsertingAnUnhashedRowAfterTheChainBeganIsNoticed(bool midLog)
+    {
+        // T-60. Rows from before schema 4 have no hash and are reported as unattested rather than broken,
+        // and that allowance was open to anybody: a row with NULL in both hash columns, written today,
+        // was counted as one of them wherever it sat. At the end it slipped past the head too, because
+        // the head only noticed a log that had got shorter. An unhashed row after the chain has begun
+        // is a forgery, and so is a log with more rows than its head says.
+        var store = await OpenAsync();
+        for (var i = 0; i < 5; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        var forged = "INSERT INTO audit_log (id, at, session_id, type, count) VALUES (@id, '2026-10-12T09:00:00.0000000+00:00', 's1', 'frames_purged_unredacted', 1)";
+        store = midLog
+            ? await TamperAsync("UPDATE audit_log SET id = id + 100 WHERE id >= 3; " + forged + "; UPDATE audit_log SET id = id - 99 WHERE id >= 100", ("@id", 3))
+            : await TamperAsync(forged, ("@id", 6));
+
+        var verification = await store.VerifyAuditAsync();
+
+        Assert.False(verification.Intact, verification.Describe());
+        Assert.Equal(0, verification.Unchained);
+    }
+
+    [Fact]
+    public async Task AnAppendThatFailsHalfwayLeavesNoRowAndNoOpenSavepoint()
+    {
+        // T-64. The row and the head are written under one savepoint; if the second write fails the
+        // first is rolled back, and the savepoint is released whatever happens, because the connection
+        // is shared by every later write and a savepoint left open turns each of them into "cannot
+        // start a transaction within a transaction". The trigger makes the head refuse, which is the
+        // failure a full disk or a constraint would produce at that point.
+        var store = await OpenAsync();
+        for (var i = 0; i < 3; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        store = await TamperAsync("CREATE TRIGGER refuse_head BEFORE UPDATE ON audit_head BEGIN SELECT RAISE(ABORT, 'the head will not move'); END");
+
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click"));
+
+        // On the same connection, without reopening: the row is gone, the log agrees with its head, and
+        // a transaction can still be opened.
+        Assert.Equal(3, (await store.GetAuditRecordsAsync()).Count);
+        var verification = await store.VerifyAuditAsync();
+        Assert.True(verification.Intact, verification.Describe());
+        Assert.Equal(3, verification.Checked);
+        Assert.Equal(0, await store.DiscardSessionAsync("nobody"));
+    }
+
+    [Fact]
+    public void TheChainHashOfAKnownRowNeverChanges()
+    {
+        // T-55. Every store in the field holds rows hashed under this canonical form. A change to the
+        // field order, the separator, the timestamp format or the encoding would make every one of
+        // them verify as tampered after the upgrade, so the form is pinned to a known answer here.
+        var at = new DateTimeOffset(2026, 10, 12, 9, 30, 15, 123, TimeSpan.FromHours(2));
+
+        var first = AuditChain.Hash(null, at, "s1", AuditTypes.FrameCaptured, 1, "Click");
+        var second = AuditChain.Hash(first, at.AddSeconds(1), null, AuditTypes.RetentionPurged, null, null);
+
+        Assert.Equal("KNOWN-FIRST", first);
+        Assert.Equal("KNOWN-SECOND", second);
+        Assert.Equal(first, AuditChain.Hash(AuditChain.Genesis, at, "s1", AuditTypes.FrameCaptured, 1, "Click"));
+        Assert.Equal(first, AuditChain.Hash(new AuditRecord(1, at, "s1", AuditTypes.FrameCaptured, 1, "Click", null, first), null));
+    }
+
     [Fact]
     public async Task AnUntouchedLogStillSaysSo()
     {

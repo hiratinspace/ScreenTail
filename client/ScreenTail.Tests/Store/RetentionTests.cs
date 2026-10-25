@@ -78,6 +78,72 @@ public sealed class RetentionTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AFinishedSessionIsNotExemptJustBecauseItWasTheLastOne()
+    {
+        // T-18, S-3 (INV-12). The host handed retention `() => machine.SessionId`, and the machine keeps
+        // that id after finalize so Review can find the draft. So the last session of the day stayed
+        // exempt, and VACUUM was skipped, until the next session or a restart. The exemption has to read
+        // the state as well as the id, and the machine here shares the store's clock so "ended" is the
+        // same moment for both.
+        var store = await OpenAsync();
+        await using var machine = new Core.Sessions.SessionMachine(
+            store,
+            new Core.Sessions.NoCaptureSources(),
+            new Core.Sessions.UnavailableDrafter(),
+            time: _time,
+            options: new Core.Sessions.SessionMachineOptions { RedactionGrace = TimeSpan.FromMilliseconds(100), RedactionPoll = TimeSpan.FromMilliseconds(20) });
+        var job = new RetentionJob(store, _time, new RetentionOptions(), () => RetentionJob.SessionBeingRecorded(machine.Snapshot));
+
+        Assert.True(await machine.StartAsync(Tool()));
+        var finished = machine.SessionId!;
+        await store.StageFrameAsync(finished, Frame("finished-f", 1));
+        await store.MarkFrameRedactedAsync("finished-f", new RedactionOutcome(new byte[] { 1 }, "Service status: Stopped", [], false, T0));
+        Assert.True(await machine.StopAsync());
+        Assert.Equal(finished, machine.SessionId); // the machine still names it, which is the trap
+        Assert.Single((await store.LoadSessionAsync(finished))!.Frames);
+
+        _time.Now = T0 + TimeSpan.FromDays(8);
+        Assert.Equal(1, await job.RunAsync());
+        Assert.Empty((await store.LoadSessionAsync(finished))!.Frames);
+
+        // The control: a session that is being recorded keeps its data however old the clock says it is.
+        Assert.True(await machine.StartAsync(Tool()));
+        var live = machine.SessionId!;
+        Assert.NotEqual(finished, live);
+        await store.StageFrameAsync(live, Frame("live-f", 1));
+        _time.Now = T0 + TimeSpan.FromDays(60);
+        Assert.Equal(0, await job.RunAsync());
+        Assert.Equal(1, await store.CountPendingFramesAsync(live));
+    }
+
+    [Fact]
+    public async Task TheFileIsNotRebuiltWhileASessionIsBeingRecorded()
+    {
+        // T-58. A rebuild holds the store's gate for as long as it takes to re-encrypt every page, and
+        // frame staging, the drain loop and every IPC read queue behind it. The policy says not while
+        // recording; this is the pass that proves the job obeys it, with a control that rebuilds the
+        // moment nobody is recording and something has newly expired.
+        var store = await OpenAsync();
+        await FinishedSessionAsync(store, "old", frames: 40);
+        _time.Now = T0 + TimeSpan.FromHours(2);
+        await FinishedSessionAsync(store, "later", frames: 20);
+        await store.CreateSessionAsync(new NewSession("live", _time.Now, Tool(), false, null));
+        string? recording = "live";
+        var job = new RetentionJob(store, _time, new RetentionOptions(), () => recording);
+
+        _time.Now = T0 + TimeSpan.FromDays(7) + TimeSpan.FromHours(1);
+        Assert.Equal(1, await job.RunAsync());
+        var free = await store.FreeSpaceFractionAsync();
+        Assert.True(free >= RetentionJob.WorthReclaiming, $"with a session recording the file is left alone ({free:P1} free)");
+
+        recording = null;
+        _time.Now = T0 + TimeSpan.FromDays(7) + TimeSpan.FromHours(3);
+        Assert.Equal(1, await job.RunAsync());
+        free = await store.FreeSpaceFractionAsync();
+        Assert.True(free < 0.05, $"with nobody recording the next expiry rebuilds the file ({free:P1} free)");
+    }
+
+    [Fact]
     public async Task UnfinishedSessionStillAgesOut()
     {
         // A crash left this one recording and its recovery never ran. Without the COALESCE fallback its

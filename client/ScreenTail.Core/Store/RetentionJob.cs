@@ -1,3 +1,5 @@
+using ScreenTail.Shared.Ipc;
+
 namespace ScreenTail.Core.Store;
 
 public sealed class RetentionOptions
@@ -40,6 +42,13 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
     public static readonly TimeSpan AtMostEvery = TimeSpan.FromDays(1);
 
     private DateTimeOffset? _lastVacuum;
+
+    /// <summary>The session a retention pass must leave alone, read off the machine's snapshot.</summary>
+    public static string? SessionBeingRecorded(CaptureStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return snapshot.SessionId;
+    }
 
     /// <summary>
     /// Whether to rebuild the file.
@@ -143,6 +152,13 @@ public static class LocalDataEraser
 
     public static bool IsPending(string dataDirectory) =>
         File.Exists(Path.Combine(dataDirectory, PendingMarker));
+
+    /// <summary>What an unfinished erasure still has to remove, by name; empty when nothing is narrowed.</summary>
+    public static IReadOnlyList<string> StillOwed(string dataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        return [];
+    }
 
     /// <summary>
     /// Finishes an erasure that was asked for and did not happen. Called before the store is opened.
