@@ -491,8 +491,16 @@ public sealed class SessionMachine : IAsyncDisposable
         // is refused rather than queued for ever or written somewhere it would wait unredacted: the
         // count reaches the bundle, where it makes the draft hedge instead of claiming to have seen a
         // session it only partly saw.
+        //
+        // Counted here, against the session, the moment it is refused. The queue keeps a tally of its
+        // own, but that is one number for the life of the service and nothing read it per session, so
+        // a refused frame reached neither the row the bundle hedges on nor the audit log, and
+        // diagnostics said 0 (2026-10-12 review, S-1). It is the same loss as a straggler purged at
+        // finalize, nobody having read the frame (ADR-0004), and it is recorded the same way; the
+        // store writes the audit row with the count.
         if (!_options.Pending.TryEnqueue(session.Id, frame))
         {
+            await _store.RecordPurgedFramesAsync(session.Id, 1, ct).ConfigureAwait(false);
             return false;
         }
 
