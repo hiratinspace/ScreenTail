@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using System.Windows;
+using System.Windows.Threading;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Hud;
 using ScreenTail.Core.Ipc;
@@ -51,7 +52,15 @@ public sealed class LiveShell : IAsyncDisposable
     private readonly ShellState _state = new();
     private readonly TrayIconHost _tray = new();
     private readonly CaptureConnection _connection;
-    private readonly ShellPreferencesStore _preferences = new(ShellPreferencesStore.DefaultPath);
+    private readonly ShellPreferencesStore _preferences;
+
+    /// <summary>
+    /// The thread that built the shell, which owns the tray icon and the pill. The application builds it
+    /// on its UI thread, so this is that thread's dispatcher; taken here rather than from
+    /// <see cref="Application.Current"/> so the shell needs a UI thread and nothing more, which is what
+    /// lets its quit path be tested without a WPF application.
+    /// </summary>
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private Onboarding.OnboardingWindow? _onboarding;
 
     /// <summary>
@@ -80,9 +89,18 @@ public sealed class LiveShell : IAsyncDisposable
     private ShellWindow? _window;
 
     public LiveShell()
+        : this(OpenAsync, new ShellPreferencesStore(ShellPreferencesStore.DefaultPath))
     {
+    }
+
+    /// <param name="open">Opens one connection to the service. The verified pipe outside tests.</param>
+    /// <param name="preferences">The shell's preferences file.</param>
+    internal LiveShell(Func<string, CancellationToken, Task<ICaptureChannel>> open, ShellPreferencesStore preferences)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
-        _connection = new CaptureConnection(_state, ct => OpenAsync(version, ct));
+        _connection = new CaptureConnection(_state, ct => open(version, ct));
 
         _state.Changed += snapshot =>
         {
@@ -137,9 +155,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void ShowOnboarding()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(ShowOnboarding);
+            _ = _dispatcher.BeginInvoke(ShowOnboarding);
             return;
         }
 
@@ -162,9 +180,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     public void HidePillForThisSession()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(HidePillForThisSession);
+            _ = _dispatcher.BeginInvoke(HidePillForThisSession);
             return;
         }
 
@@ -188,9 +206,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     public void ShowWindow()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(ShowWindow);
+            _ = _dispatcher.BeginInvoke(ShowWindow);
             return;
         }
 
@@ -218,8 +236,10 @@ public sealed class LiveShell : IAsyncDisposable
     /// report (2026-10-12 review, S-47, E-27, T-157). Awaiting back onto the UI thread instead would
     /// deadlock against that blocking call, so the order is the fix.
     ///
-    /// The icon is disposed whatever the pill does. Closing the pill first stops the indicator reports,
-    /// which is the safe direction for INV-4: the service suppresses capture when nothing indicates it.
+    /// The icon is disposed whatever the pill does, and so is the connection: a pill that throws as it
+    /// closes still leaves no pipe open behind it, and the exception is raised once both are done.
+    /// Closing the pill first stops the indicator reports, which is the safe direction for INV-4: the
+    /// service suppresses capture when nothing indicates it.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
@@ -227,16 +247,27 @@ public sealed class LiveShell : IAsyncDisposable
         NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
         try
         {
-            _hud?.Close();
-            _hud = null;
+            try
+            {
+                _hud?.Close();
+                _hud = null;
+            }
+            finally
+            {
+                _tray.Dispose();
+            }
         }
         finally
         {
-            _tray.Dispose();
+            await _connection.DisposeAsync().ConfigureAwait(false);
         }
-
-        await _connection.DisposeAsync().ConfigureAwait(false);
     }
+
+    /// <summary>The pill's window while the shell holds one, for the Windows tests.</summary>
+    internal Hud.HudWindow? Pill => _hud?.Window;
+
+    /// <summary>The tray icon, for the Windows tests.</summary>
+    internal TrayIconHost Tray => _tray;
 
     /// <summary>
     /// Opens one connection to the service, verifying it before handing over the token (ST-012).
@@ -354,9 +385,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     private void DiscardWithConfirmation()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(DiscardWithConfirmation);
+            _ = _dispatcher.BeginInvoke(DiscardWithConfirmation);
             return;
         }
 
@@ -413,9 +444,9 @@ public sealed class LiveShell : IAsyncDisposable
     }
 
     /// <summary>Runs <paramref name="body"/> on the UI thread, from whichever thread a pipe answer arrived on.</summary>
-    private static Task<T> OnUiThread<T>(Func<T> body) =>
-        Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess()
-            ? dispatcher.InvokeAsync(body).Task
+    private Task<T> OnUiThread<T>(Func<T> body) =>
+        !_dispatcher.CheckAccess()
+            ? _dispatcher.InvokeAsync(body).Task
             : Task.FromResult(body());
 
     /// <summary>
@@ -432,9 +463,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     private void QuitWithoutLeavingCaptureRunning()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(QuitWithoutLeavingCaptureRunning);
+            _ = _dispatcher.BeginInvoke(QuitWithoutLeavingCaptureRunning);
             return;
         }
 
@@ -464,9 +495,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void ShowDiagnostics()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(ShowDiagnostics);
+            _ = _dispatcher.BeginInvoke(ShowDiagnostics);
             return;
         }
 
@@ -482,9 +513,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     private void ShowOrHideHud(ShellSnapshot snapshot)
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(() => ShowOrHideHud(snapshot));
+            _ = _dispatcher.BeginInvoke(() => ShowOrHideHud(snapshot));
             return;
         }
 
@@ -522,9 +553,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// <summary>The pill's double-click (Spec §5 S2): the shell, on Review of the session the service last named.</summary>
     private void OpenTheCurrentSession()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(OpenTheCurrentSession);
+            _ = _dispatcher.BeginInvoke(OpenTheCurrentSession);
             return;
         }
 
@@ -567,9 +598,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     private void OnNetworkChanged(object? sender, NetworkAvailabilityEventArgs e)
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(() => OnNetworkChanged(sender, e));
+            _ = _dispatcher.BeginInvoke(() => OnNetworkChanged(sender, e));
             return;
         }
 

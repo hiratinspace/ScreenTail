@@ -26,6 +26,8 @@ namespace ScreenTail.UI.Tray;
 [SupportedOSPlatform("windows")]
 public sealed class TrayIconHost : IDisposable
 {
+    /// <summary>The thread that built the icon, which is the one that may touch it (the shell's UI thread).</summary>
+    private readonly System.Windows.Threading.Dispatcher _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
     private readonly Forms.NotifyIcon _icon = new() { Visible = false };
     private readonly Dictionary<TrayIcon, Icon> _icons = [];
     private readonly List<IntPtr> _handles = [];
@@ -100,9 +102,9 @@ public sealed class TrayIconHost : IDisposable
     public void Update(ShellSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(() => Update(snapshot));
+            _ = _dispatcher.BeginInvoke(() => Update(snapshot));
             return;
         }
 
@@ -132,9 +134,9 @@ public sealed class TrayIconHost : IDisposable
     public void Notify(Notification notice)
     {
         ArgumentNullException.ThrowIfNull(notice);
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(() => Notify(notice));
+            _ = _dispatcher.BeginInvoke(() => Notify(notice));
             return;
         }
 
@@ -148,8 +150,12 @@ public sealed class TrayIconHost : IDisposable
         _icon.ShowBalloonTip(10_000);
     }
 
+    /// <summary>Whether <see cref="Dispose"/> has run, for the shell's quit tests.</summary>
+    internal bool Disposed { get; private set; }
+
     public void Dispose()
     {
+        Disposed = true;
         _icon.Visible = false;
         _icon.Dispose();
         foreach (var icon in _icons.Values)

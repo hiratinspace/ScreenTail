@@ -117,6 +117,9 @@ internal sealed class HudWindowHolder
     /// <summary>Whether a cloud draft could be asked for, for the offline segment (Spec §5 S2).</summary>
     public void SetOnline(bool online) => _model.Online = online;
 
+    /// <summary>The pill's window, for the shell's quit tests.</summary>
+    internal HudWindow Window => _window;
+
     public void Close()
     {
         _reporting.Stop();
