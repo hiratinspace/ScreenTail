@@ -54,6 +54,10 @@ public sealed class SpokenPasswordTests
     [InlineData("PIN for the safe at 4821", "4821")]
     [InlineData("the wifi password on the router is sunshine", "sunshine")]
     [InlineData("password for the admin account: Winter2026", "Winter2026")]
+    // A passphrase whose first word is one the walk reads past when it joins a cue to its value. Reached
+    // through an assertion it is the secret, as it always was, and walking past it would store it.
+    [InlineData("the guest wifi passphrase is have fun", "have")]
+    [InlineData("the new passphrase is been there done that", "been")]
     public void TheSecretIsMaskedHoweverLongTheRunUpToIt(string spoken, string secret)
     {
         var scrubbed = new RedactionEngine().ScrubText(spoken);

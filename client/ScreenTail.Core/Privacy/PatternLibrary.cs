@@ -53,15 +53,19 @@ internal static partial class PatternLibrary
 
     /// <summary>
     /// Words that join a cue to the clause that states its value. "which", "when" and "that" used to end
-    /// the walk ("the password, which is Winter2026" was stored whole), and "has", "have" and "been" were
-    /// read as ordinary words, so "has been reset to Spring2027" never reached its value (2026-10-12
-    /// review, S-12). Walked past like <see cref="Connectives"/>, but kept apart from them: an ordinary
-    /// word is only carried over on a joining word proper, so that "the password is tomato, which they
-    /// changed" still masks "tomato".
+    /// the walk, so "the password, which is Winter2026" was stored whole (2026-10-12 review, S-12).
+    /// Walked past like <see cref="Connectives"/>, but kept apart from them: an ordinary word is only
+    /// carried over on a joining word proper, so that "the password is tomato, which they changed" still
+    /// masks "tomato".
+    ///
+    /// Only words the old walk stopped on belong here. "has", "have" and "been" do not: the old walk
+    /// read them as ordinary words and masked one reached through an assertion ("the passphrase is have
+    /// fun"), so skipping them would store what it masked. Read as ordinary words they still reach a
+    /// value further on, because the walk now carries on past prose: "has been reset to Spring2027".
     /// </summary>
     private static readonly HashSet<string> Clause = new(StringComparer.OrdinalIgnoreCase)
     {
-        "which", "when", "that", "has", "have", "been",
+        "which", "when", "that",
     };
 
     /// <summary>
