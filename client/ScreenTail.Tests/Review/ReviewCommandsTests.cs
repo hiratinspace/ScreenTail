@@ -77,6 +77,57 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AThumbnailIsTheRedactedImageScaledForTheStripAndNothingIsPainted()
+    {
+        // E-30. The strip draws 320 px thumbnails and used to pull every full redacted JPEG over the pipe
+        // to do it. The service scales the redacted image, with the masker redaction uses and no regions,
+        // and answers with the small picture under the same `frame` event.
+        var commands = await CommandsAsync();
+        await SeedAsync(redacted: ["f1"], pending: []);
+
+        var reply = await commands.ReplyToAsync(new GetFrameThumbnailCommand { RequestId = 5, FrameId = "f1" });
+
+        var frame = Assert.IsType<FrameLoaded>(reply);
+        Assert.Equal("f1", frame.FrameId);
+        Assert.Equal(_masker.Painted, frame.Image);
+        Assert.Empty(_masker.Regions);
+        var (scaled, edge) = Assert.Single(_masker.Scaled);
+        Assert.Equal(RedactedBytes("f1"), scaled);
+        Assert.Equal(ReviewCommands.ThumbnailEdge, edge);
+        Assert.Equal(RedactedBytes("f1"), await _store!.GetRedactedFrameImageAsync("f1"));
+    }
+
+    [Fact]
+    public async Task APendingOrMissingFrameHasNoThumbnail()
+    {
+        // INV-1 on the thumbnail path too: the pending image is never decoded, scaled or sent.
+        var commands = await CommandsAsync();
+        await SeedAsync(redacted: [], pending: ["f3"]);
+
+        Assert.Null(await commands.ReplyToAsync(new GetFrameThumbnailCommand { RequestId = 6, FrameId = "f3" }));
+        Assert.Null(await commands.ReplyToAsync(new GetFrameThumbnailCommand { RequestId = 7, FrameId = "nope" }));
+        var result = await commands.HandleAsync(new GetFrameThumbnailCommand { RequestId = 6, FrameId = "f3" });
+
+        Assert.False(result!.Ok);
+        Assert.Empty(_masker.Scaled);
+    }
+
+    [Fact]
+    public async Task AnImageTheMaskerCannotReadIsARefusalNotAClosedPipe()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(redacted: ["f1"], pending: []);
+        _masker.OnMask = () => throw new ArgumentException("not an image");
+
+        var command = new GetFrameThumbnailCommand { RequestId = 8, FrameId = "f1" };
+        Assert.Null(await commands.ReplyToAsync(command));
+        var result = await commands.HandleAsync(command);
+
+        Assert.False(result!.Ok);
+        Assert.Contains("thumbnail", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task AFrameTooBigForThePipeIsRefusedNotDropped()
     {
         // Writing an oversized message closes the connection, which the UI would see as the service
@@ -630,12 +681,20 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
 
         public List<MaskedRegion> Regions { get; } = [];
 
+        /// <summary>Every image handed over with the edge it was asked to fit, so a scale can be told from a paint.</summary>
+        public List<(byte[] Image, int MaxEdge)> Scaled { get; } = [];
+
         /// <summary>Run while painting, after the image was read and before it is written.</summary>
         public Action? OnMask { get; set; }
 
         public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge)
         {
             Regions.AddRange(regions);
+            if (maxEdge != int.MaxValue)
+            {
+                Scaled.Add((image.ToArray(), maxEdge));
+            }
+
             OnMask?.Invoke();
             return new MaskedImage(Painted, 1600, 900);
         }
