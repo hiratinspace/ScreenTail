@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -25,6 +24,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private const string NothingToReview = "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.";
     private const string SettingsLater = "Settings arrive when the capture service answers.";
+    private const string Loading = "Asking the capture service for the session…";
 
     private readonly ShellState _state;
     private readonly Func<string, CancellationToken, Task<object?>>? _loadReview;
@@ -34,8 +34,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private readonly CancellationToken _closing;
     private volatile bool _disposed;
     private object? _historyPane;
+    private readonly ShellPanes _panes = new();
     private object? _settingsPane;
-    private string? _reviewShown;
+    private object? _reviewPane;
+    private int _loads;
 
     public ShellViewModel()
         : this(new ShellState())
@@ -142,22 +144,34 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         Banner = snapshot.Banner ?? string.Empty;
         BannerVisibility = snapshot.Banner is null ? Visibility.Collapsed : Visibility.Visible;
-        Status = Describe(snapshot);
+        Status = ShellStatus.Describe(snapshot);
         Show(snapshot);
     }
 
+    /// <summary>
+    /// Shows what <see cref="ShellPanes"/> decided. The decisions (when Settings is read, when Review is
+    /// loaded or shown again) live there, where they are tested without WPF; this only does them.
+    /// </summary>
     private void Show(ShellSnapshot snapshot)
     {
-        switch (snapshot.View)
+        var step = _panes.Next(snapshot);
+        switch (step.Action)
         {
-            case ShellView.Review when snapshot.Reviewing is null:
-                _reviewShown = null;
+            case PaneAction.NothingToReview:
+                // A load still under way is for a session no longer to be shown.
+                _loads++;
+                _reviewPane = null;
                 Content = NothingToReview;
                 break;
-            case ShellView.Review when snapshot.Reviewing != _reviewShown:
-                _ = LoadReviewAsync(snapshot.Reviewing);
+            case PaneAction.LoadReview:
+                _ = LoadReviewAsync(step.SessionId!);
                 break;
-            case ShellView.History:
+            case PaneAction.ShowReview:
+                // Back to the session it already had, from another view: its pane again, edits and all,
+                // rather than the other view's pane left on screen (T-159). Still loading, it says so.
+                Content = _reviewPane ?? Loading;
+                break;
+            case PaneAction.History:
                 _historyPane ??= _history?.Invoke();
                 Content = _historyPane ?? "History arrives when the capture service answers.";
                 if (_historyPane is History.HistoryViewModel list)
@@ -166,15 +180,34 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 }
 
                 break;
-            case ShellView.Settings:
+            case PaneAction.Settings:
                 _settingsPane ??= _settings?.Invoke();
                 Content = _settingsPane ?? SettingsLater;
-                if (_settingsPane is Settings.SettingsViewModel settings)
+
+                // Read when the view becomes Settings, and not again on each state change while it is
+                // open: that overwrote unsaved edits, and Save then stored the old values (S-144, T-161).
+                // Read again when the service comes back, but never a panel holding an unsaved change.
+                if (step.LoadSettings && _settingsPane is Settings.SettingsViewModel settings)
                 {
-                    _ = settings.Activation.LoadAsync(_closing);
-                    _ = settings.Capture.LoadAsync(_closing);
-                    _ = settings.Privacy.LoadAsync(_closing);
-                    _ = settings.Integrations.LoadAsync(_closing);
+                    if (!step.KeepEdits || !settings.Activation.HasUnsavedEdits)
+                    {
+                        _ = settings.Activation.LoadAsync(_closing);
+                    }
+
+                    if (!step.KeepEdits || !settings.Capture.HasUnsavedEdits)
+                    {
+                        _ = settings.Capture.LoadAsync(_closing);
+                    }
+
+                    if (!step.KeepEdits || !settings.Privacy.HasUnsavedEdits)
+                    {
+                        _ = settings.Privacy.LoadAsync(_closing);
+                    }
+
+                    if (!step.KeepEdits || !settings.Integrations.HasUnsavedEdits)
+                    {
+                        _ = settings.Integrations.LoadAsync(_closing);
+                    }
                 }
 
                 break;
@@ -182,72 +215,43 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Asks for the session and shows the pane when it arrives. The id is remembered as shown before
-    /// the await, so a second snapshot for the same session while it loads does not ask twice; a snapshot
-    /// for a different session wins, because the last thing asked for is the thing to show. Closing the
-    /// window cancels the load, and a pane that arrives after the close is not shown.
+    /// Asks for the session and shows the pane when it arrives. A second snapshot for the same session
+    /// while it loads does not ask twice (<see cref="ShellPanes"/> remembers it); a snapshot for a
+    /// different session wins, because the last thing asked for is the thing to show. Closing the window
+    /// cancels the load, and a pane that arrives after the close is not shown. A pane that arrives while
+    /// the technician is looking at another view is kept for when they come back, not put over that view.
     /// </summary>
     private async Task LoadReviewAsync(string sessionId)
     {
-        _reviewShown = sessionId;
-        Content = "Asking the capture service for the session…";
+        var load = ++_loads;
+        _reviewPane = null;
+        Content = Loading;
 
         // A load the close cancelled ends this task as cancelled, which nothing observes and nothing reports.
         var pane = _loadReview is null ? null : await _loadReview(sessionId, _closing).ConfigureAwait(true);
-        if (_disposed || _reviewShown != sessionId)
+
+        // Only the latest load shows anything: one for another session, or for this one again once its
+        // draft arrived, may have finished first.
+        if (_disposed || load != _loads)
         {
             return;
         }
 
         if (pane is null)
         {
-            _reviewShown = null;
-            Content = "The capture service could not hand over that session. Open it again from History.";
+            _panes.Failed(sessionId);
+            if (_panes.View == ShellView.Review)
+            {
+                Content = "The capture service could not hand over that session. Open it again from History.";
+            }
+
             return;
         }
 
-        Content = pane;
-    }
-
-    /// <summary>
-    /// Spec §5 S1's tooltip wording: the state, the tool, and how long. A session that has been running
-    /// for twelve minutes says so, because "recording" alone does not tell a technician whether the thing
-    /// they started an hour ago is still going.
-    /// </summary>
-    private static string Describe(ShellSnapshot snapshot)
-    {
-        if (snapshot.Connection == ServiceConnection.Connecting)
+        _reviewPane = pane;
+        if (_panes.View == ShellView.Review)
         {
-            return "Connecting to the capture service…";
+            Content = pane;
         }
-
-        if (snapshot.KnownCapture is not { } capture)
-        {
-            return "Not connected to the capture service";
-        }
-
-        var state = capture.State switch
-        {
-            "recording" => "Recording",
-            "paused" => "Paused",
-            "suppressed" => "Paused — sensitive window",
-            "finalizing" => "Finishing up",
-            "draft_ready" => "Draft ready",
-            "draft_failed" => "Draft failed",
-            _ => "Idle",
-        };
-
-        var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : capture.RemoteTool;
-        var elapsed = capture.ElapsedMs is { } ms
-            ? TimeSpan.FromMilliseconds(ms).ToString(@"m\:ss", CultureInfo.InvariantCulture)
-            : null;
-
-        return (tool, elapsed) switch
-        {
-            (not null, not null) => $"{state} — {tool} ({elapsed})",
-            (not null, null) => $"{state} — {tool}",
-            (null, not null) => $"{state} ({elapsed})",
-            _ => state,
-        };
     }
 }

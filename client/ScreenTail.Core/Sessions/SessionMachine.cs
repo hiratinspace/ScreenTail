@@ -253,6 +253,11 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
+            // Before the state moves, so the recorder never sees this session stop recording without
+            // also seeing why: what was being said is dropped at a suppression, not kept as at a pause.
+            // Counted while paused too, where it costs at most a sentence the pause would have kept.
+            _options.Narration.Suppressed();
+
             bool added;
             lock (_stateLock)
             {
@@ -491,8 +496,24 @@ public sealed class SessionMachine : IAsyncDisposable
         // is refused rather than queued for ever or written somewhere it would wait unredacted: the
         // count reaches the bundle, where it makes the draft hedge instead of claiming to have seen a
         // session it only partly saw.
+        //
+        // Counted here, against the session, the moment it is refused. The queue keeps a tally of its
+        // own, but that is one number for the life of the service and nothing read it per session, so
+        // a refused frame reached neither the row the bundle hedges on nor the audit log, and
+        // diagnostics said 0 (2026-10-12 review, S-1). It is the same loss as a straggler purged at
+        // finalize, nobody having read the frame (ADR-0004), and it is recorded the same way; the
+        // store writes the audit row with the count.
+        //
+        // Not on the caller's token. The refusal has already happened, and the capture loop's token is
+        // the one Stop cancels: a refusal that lands as Stop begins would throw before the count was
+        // written and the draft would not hedge for a frame it never saw.
+        //
+        // A refused frame gets this purged row and no FrameCaptured row, because ST-045 counts frames
+        // that were accepted. So in an audit export "purged unredacted" includes frames refused before
+        // they were staged, and can be larger than "captured" for a session that lost frames this way.
         if (!_options.Pending.TryEnqueue(session.Id, frame))
         {
+            await _store.RecordPurgedFramesAsync(session.Id, 1, CancellationToken.None).ConfigureAwait(false);
             return false;
         }
 

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using ScreenTail.Core.Net;
 using ScreenTail.Core.Speech;
 
 namespace ScreenTail.Tests.Speech;
@@ -34,6 +35,24 @@ public sealed class ModelDownloadTests : IDisposable
 
         Assert.Equal(Weights, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
         Assert.False(File.Exists(path + ".partial"), "the partial file was left behind");
+    }
+
+    [Fact]
+    public async Task EveryModelRequestIsMarkedAsAModelDownload()
+    {
+        // 2026-10-12 review (T-82). The guard decides by purpose and refuses a request without one
+        // (INV-8), so a request this forgot to mark would make every model download fail closed, and the
+        // tempting fix would be an unguarded client. The resume request carries it too.
+        var server = new StubServer(Weights);
+        var download = new ModelDownload(new HttpClient(server));
+        var path = Path.Combine(_dir, "model.bin");
+        Directory.CreateDirectory(_dir);
+        await File.WriteAllBytesAsync(path + ".partial", Weights[..20_000], TestContext.Current.CancellationToken);
+
+        Assert.True(await download.EnsureAsync(Model(), path, ct: TestContext.Current.CancellationToken));
+
+        Assert.NotEmpty(server.Purposes);
+        Assert.All(server.Purposes, purpose => Assert.Equal(EgressPurpose.ModelDownload, purpose));
     }
 
     [Fact]
@@ -251,9 +270,13 @@ public sealed class ModelDownloadTests : IDisposable
 
         public long BytesServed { get; private set; }
 
+        /// <summary>The purpose each request carried, or null for one that carried none. What the guard reads.</summary>
+        public List<EgressPurpose?> Purposes { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
+            Purposes.Add(request.Options.TryGetValue(EgressGuard.PurposeKey, out var purpose) ? purpose : null);
             var from = request.Headers.Range?.Ranges.FirstOrDefault()?.From ?? 0;
             ResumedFrom = from;
 

@@ -18,7 +18,12 @@ public enum EgressPurpose
     /// <summary>The tenant's policy, fetched at start and hourly (ST-047). Allowed in local-only mode: it carries no content, and it is how local-only is lifted.</summary>
     Policy,
 
-    /// <summary>Fetching a speech model (ST-027). Not customer data, but still egress, so still decided here.</summary>
+    /// <summary>
+    /// Fetching a speech model (ST-027). Not customer data, but still egress, so still decided here, and
+    /// refused in local-only mode like everything the client does on its own: local-only is a promise
+    /// about requests, not about what is in them (2026-10-12 review, S-32). Narration under local-only
+    /// needs the model on the machine already; the recogniser treats the refusal as "no narration".
+    /// </summary>
     ModelDownload,
 }
 
@@ -26,7 +31,7 @@ public enum EgressPurpose
 /// <param name="Reason">Plain language for the log and the diagnostics panel. Never a URL with a path.</param>
 public sealed record EgressDecision(bool Allowed, string Reason);
 
-/// <param name="LocalOnly">Nothing leaves except a publish the technician asked for (INV-8).</param>
+/// <param name="LocalOnly">Nothing leaves except a publish the technician asked for and the policy fetch that can lift it (INV-8).</param>
 /// <param name="PolicyEnforced">
 /// The tenant's admin set this, so the technician cannot turn it off here (INV-11). A setting that says
 /// "local only" while the UI lets it be switched off is not a guarantee, it is a label.
@@ -128,6 +133,14 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
         {
             // The criterion: zero requests at finalize. Drafting happens on the device instead (ST-065).
             return new EgressDecision(false, "Local-only mode is on, so nothing is sent for drafting.");
+        }
+
+        if (_settings.LocalOnly && purpose is EgressPurpose.ModelDownload)
+        {
+            // The one request that is not about a customer, and still a request the technician did not
+            // ask for. The policy fetch is the only thing local-only lets out on its own, because it is
+            // how local-only is lifted; a model is not (S-32).
+            return new EgressDecision(false, "Local-only mode is on, so the speech model is not fetched.");
         }
 
         var allowed = purpose switch

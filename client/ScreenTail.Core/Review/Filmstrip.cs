@@ -104,6 +104,9 @@ public sealed class Filmstrip
 
     public bool IsIncluded(string frameId) => _included.GetValueOrDefault(frameId);
 
+    /// <summary>Whether the frame is in the strip at all: false once it is deleted, true again if the delete is undone.</summary>
+    public bool Contains(string frameId) => _included.ContainsKey(frameId);
+
     /// <summary>
     /// `Space`. Returns the new state, or null when the frame is not in the strip. A withheld frame
     /// answers false every time: it can be left out but never put in.

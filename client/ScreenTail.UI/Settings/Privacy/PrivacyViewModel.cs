@@ -123,6 +123,9 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [ObservableProperty]
     public partial string Saved { get; set; } = string.Empty;
 
+    /// <summary>The panel holds a change the technician has not saved, so the shell does not read it again on a reconnect.</summary>
+    public bool HasUnsavedEdits => _panel.HasUnsavedEdits;
+
     public async Task LoadAsync(CancellationToken ct = default)
     {
         await _panel.LoadAsync(ct).ConfigureAwait(true);

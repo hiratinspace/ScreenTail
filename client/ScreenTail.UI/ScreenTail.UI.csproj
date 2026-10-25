@@ -10,6 +10,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>ScreenTail.UI</RootNamespace>
     <AssemblyName>ScreenTail.UI</AssemblyName>
+    <!-- ST-012 (ADR-0003): the runtime loads no startup hook into this process, whatever the
+         environment asks. RunningHonestly's check runs at start-up, after a hook would already have
+         run, so it cannot be what keeps one out. ProcessStartupTests pins this for both processes. -->
+    <StartupHookSupport>false</StartupHookSupport>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,6 +26,12 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The pill's monitor check and the shell's quit path are held by Windows tests through seams that
+         are not public API: the monitors the pill is placed against, and the shell's pipe and settings file. -->
+    <InternalsVisibleTo Include="ScreenTail.Tests.Windows" />
   </ItemGroup>
 
   <ItemGroup>

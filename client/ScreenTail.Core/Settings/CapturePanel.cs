@@ -38,6 +38,9 @@ public sealed class CapturePanel(ICaptureGateway gateway)
     private readonly List<ToolToggle> _tools = [];
     private readonly Dictionary<HotkeyAction, string> _hotkeys = [];
     private CaptureSettings _loaded = new();
+
+    /// <summary>What <see cref="Current"/> was when last loaded or saved; a fresh panel's own before either.</summary>
+    private CaptureSettings _baseline = new();
     private bool _allWindowsConfirmed;
     private string? _refusal;
 
@@ -147,6 +150,13 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
     public bool CanSave => Loaded && Problem is null;
 
+    /// <summary>
+    /// Whether the screen holds a change the technician has not saved: what would be saved differs from
+    /// what was last loaded or saved. The shell reads the panel again when the service comes back only
+    /// when this is false, so a reconnect never overwrites an edit (2026-10-12 review, S-144).
+    /// </summary>
+    public bool HasUnsavedEdits => !Same(Current(), _baseline);
+
     public void SetTool(string id, bool enabled)
     {
         _refusal = null;
@@ -205,6 +215,7 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         }
 
         Loaded = true;
+        _baseline = Current();
     }
 
     public async Task<bool> SaveAsync(CancellationToken ct = default)
@@ -223,8 +234,20 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         }
 
         _loaded = settings;
+        _baseline = settings;
         return true;
     }
+
+    private static bool Same(CaptureSettings a, CaptureSettings b) =>
+        a.CaptureAllWindows == b.CaptureAllWindows
+        && a.AutoStart == b.AutoStart
+        && a.GraceSeconds == b.GraceSeconds
+        && string.Equals(a.Sensitivity, b.Sensitivity, StringComparison.Ordinal)
+        && string.Equals(a.SpeechModel, b.SpeechModel, StringComparison.Ordinal)
+        && a.StartUiAtLogin == b.StartUiAtLogin
+        && a.DisabledTools.Order(StringComparer.Ordinal).SequenceEqual(b.DisabledTools.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+        && a.Hotkeys.Count == b.Hotkeys.Count
+        && a.Hotkeys.All(h => b.Hotkeys.TryGetValue(h.Key, out var other) && string.Equals(h.Value, other, StringComparison.Ordinal));
 }
 
 /// <summary>Settings → Capture's gateway, over the pipe (ST-080).</summary>

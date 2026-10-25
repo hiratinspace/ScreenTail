@@ -31,6 +31,23 @@ public sealed class NarrationBacklog
     private readonly Dictionary<string, int> _owed = new(StringComparer.Ordinal);
     private readonly HashSet<string> _finished = new(StringComparer.Ordinal);
     private readonly Queue<string> _finishedInOrder = new(Remembered);
+    private long _suppressions;
+
+    /// <summary>
+    /// How many times capture has been suppressed since the service started. Read by the recorder with
+    /// every chunk of audio, so it is one volatile read and no lock.
+    ///
+    /// The recorder learns of a suppression only as the session not recording on the next chunk, which
+    /// looks the same as a pause or a Stop, and at those it keeps what was being said. Under a password
+    /// field it must not: the words just before the field took focus are the start of what was read off
+    /// it (INV-6). And a field that takes focus and loses it again between two chunks is never seen at
+    /// all. A count that only goes up answers both: if it moved since the last chunk, a suppression came
+    /// in between, and what was open is dropped.
+    /// </summary>
+    public long Suppressions => Interlocked.Read(ref _suppressions);
+
+    /// <summary>Capture is being suppressed. Called before the session stops recording, so the recorder cannot miss it.</summary>
+    public void Suppressed() => _ = Interlocked.Increment(ref _suppressions);
 
     /// <summary>A segment heard in this session is waiting for the model. Not counted once the session is forgotten.</summary>
     public void Owe(string sessionId)

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -15,11 +16,17 @@ namespace ScreenTail.Core.Review.Publish;
 /// reason when there was no answer. The refusal is kept by request id between the two calls, because
 /// the server asks them in that order on the same connection.
 /// </summary>
-public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null, Intel.IStyleLearner? style = null)
+public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null, Intel.IStyleLearner? style = null, ILogger? log = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
     private readonly ConcurrentDictionary<int, string> _refusals = new();
+
+    /// <summary>The backend's ceiling on frames per publish (PublishLimits.MaxFrames, which is BundleOptions.MaxFrames).</summary>
+    public const int MaxFrames = 25;
+
+    /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
+    public string? LastBookkeepingError { get; private set; }
 
     public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
@@ -112,14 +119,26 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
         // drafting bundle's own rule may go (redacted, not sensitive, not excluded, not taken while capture
         // was off). Anything else named is dropped, and so is a second mention of the same frame.
         var eligible = Intel.BundleBuilder.Eligible(session).Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal);
-        var frames = new List<PublishWireFrame>(Math.Min(publish.FrameIds.Count, eligible.Count));
+        var chosen = new List<string>(Math.Min(publish.FrameIds.Count, eligible.Count));
         foreach (var id in publish.FrameIds)
         {
-            if (!eligible.Remove(id))
+            if (eligible.Remove(id))
             {
-                continue;
+                chosen.Add(id);
             }
+        }
 
+        // E-18: the backend takes at most this many and refuses the whole publish above it. Counted on what
+        // would be attached, and before a single image is read, so a long session is told what to do rather
+        // than encoding and uploading megabytes for a certain refusal.
+        if (chosen.Count > MaxFrames)
+        {
+            return Refuse(publish, $"A publish can carry at most {MaxFrames} frames, and {chosen.Count} are included. Exclude {chosen.Count - MaxFrames} in the filmstrip and publish again.");
+        }
+
+        var frames = new List<PublishWireFrame>(chosen.Count);
+        foreach (var id in chosen)
+        {
             // The store will still not hand back a pending one, and one deleted between the technician's
             // choice and now is simply not sent (INV-1).
             var image = await _store.GetRedactedFrameImageAsync(id, ct).ConfigureAwait(false);
@@ -154,21 +173,47 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
         // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
+        // S-37: by now the note is on the ticket, so neither may stand between the technician and the
+        // backend's results. A fault in either is kept and the results go back as they came.
         if (answer.Value!.Any(r => r.Ok))
         {
             if (metrics is not null)
             {
-                await metrics.ReportAsync(publish.SessionId, published: true, ct).ConfigureAwait(false);
+                await KeepingTheResultAsync("metrics", () => metrics.ReportAsync(publish.SessionId, published: true, ct)).ConfigureAwait(false);
             }
 
             if (style is not null)
             {
-                await style.LearnAsync(publish.SessionId, ct).ConfigureAwait(false);
+                await KeepingTheResultAsync("style", () => style.LearnAsync(publish.SessionId, ct)).ConfigureAwait(false);
             }
         }
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
     }
+
+    /// <summary>Runs one piece of post-publish bookkeeping; a fault is kept and logged as its kind alone (INV-10).</summary>
+    private async Task KeepingTheResultAsync(string what, Func<Task> bookkeeping)
+    {
+        try
+        {
+            await bookkeeping().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // The type, never the message or the exception itself: a store's words may quote what it held,
+            // and the session id is not the log's business either.
+            LastBookkeepingError = error.GetType().Name;
+            if (log is not null)
+            {
+                BookkeepingFailed(log, what, LastBookkeepingError, null);
+            }
+        }
+    }
+
+    private static readonly Action<ILogger, string, string, Exception?> BookkeepingFailed = LoggerMessage.Define<string, string>(
+        LogLevel.Warning,
+        new EventId(1, nameof(BookkeepingFailed)),
+        "A publish landed, but its {Bookkeeping} bookkeeping failed with {Fault}; the results went back as they came");
 
     private IpcEvent? Refuse(IpcCommand command, string reason)
     {

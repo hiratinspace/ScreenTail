@@ -18,8 +18,8 @@ public partial class DiagnosticsWindow : Window
     }
 
     /// <summary>
-    /// Opens the panel with what the service says, or with an honest blank when it cannot be asked
-    /// (ST-085).
+    /// Opens the panel with what the service says, or saying unknown on every row when it cannot be asked
+    /// (ST-085, T-152).
     ///
     /// The question is asked every time the panel opens rather than cached, because the answer is what a
     /// technician turns the screen round and shows a customer, and a stale one is a claim about the
@@ -31,28 +31,10 @@ public partial class DiagnosticsWindow : Window
         var reported = await connection.RequestAsync<DiagnosticsReported>(
             id => new GetDiagnosticsCommand { RequestId = id }).ConfigureAwait(true);
 
-        var window = new DiagnosticsWindow(reported is null ? Unavailable : From(reported));
+        var window = new DiagnosticsWindow(reported is null ? CoreShell.DiagnosticsPanel.Unanswered : CoreShell.DiagnosticsPanel.From(From(reported)));
         window.Show();
         _ = window.Activate();
     }
-
-    /// <summary>
-    /// What the panel says when the service is not answering. Every count is left out rather than shown
-    /// as zero: "0 frames dropped" and "we cannot ask" are different claims, and only one of them is true.
-    /// </summary>
-    private static CoreShell.Diagnostics Unavailable { get; } = new(
-        Scope: "Not connected to the capture service — capture state unknown",
-        Microphone: null,
-        Suppression: null,
-        RedactionBacklog: 0,
-        FramesDropped: 0,
-        KeystrokesDropped: 0,
-        EgressBlocked: 0,
-        LocalOnly: false,
-        PolicyVersion: "unknown",
-        CpuPercent: 0,
-        WorkingSetBytes: 0,
-        ClientVersion: "unknown");
 
     private static CoreShell.Diagnostics From(DiagnosticsReported reported) => new(
         reported.Scope,
@@ -69,9 +51,19 @@ public partial class DiagnosticsWindow : Window
         reported.ServiceVersion);
 
     public DiagnosticsWindow(CoreShell.Diagnostics diagnostics)
+        : this(CoreShell.DiagnosticsPanel.From(diagnostics))
+    {
+    }
+
+    /// <summary>
+    /// The panel as <see cref="CoreShell.DiagnosticsPanel"/> decided it, which is what says "unknown" on
+    /// every row when the service is not answering. Every count used to be shown as zero and local-only
+    /// as "no", from a literal in this file (2026-10-12 review, T-152).
+    /// </summary>
+    public DiagnosticsWindow(CoreShell.DiagnosticsPanel panel)
     {
         InitializeComponent();
-        DataContext = new DiagnosticsViewModel(diagnostics);
+        DataContext = new DiagnosticsViewModel(panel);
     }
 
     /// <summary>

@@ -8,3 +8,6 @@ using Xunit.v3;
 //
 // The desktop is a single shared resource and these tests take turns with it.
 [assembly: Parallelization(Mode = ParallelMode.None)]
+
+// The collection that makes and shuts down the WPF Application runs after every other (WpfApplicationOwner.cs).
+[assembly: TestCollectionOrderer(typeof(ScreenTail.Tests.Windows.ApplicationOwnerRunsLast))]

@@ -46,7 +46,10 @@
                 </StackPanel>
 
                 <!-- 2. Activate: the code from the invite; the tenant's name on success. -->
-                <activation:ActivationPane Visibility="{Binding ActivateVisibility}" DataContext="{Binding Activation}" />
+                <!-- The step's visibility sits on a wrapper: on the pane itself it would bind against the pane's own DataContext. -->
+                <Border Visibility="{Binding ActivateVisibility}">
+                    <activation:ActivationPane DataContext="{Binding Activation}" />
+                </Border>
 
                 <!-- 3. Permissions: each shows ✓ or a fix. -->
                 <StackPanel Visibility="{Binding PermissionsVisibility}">
@@ -90,7 +93,10 @@
                 </StackPanel>
 
                 <!-- 5. Connect (skippable) -->
-                <integrations:IntegrationsPane Visibility="{Binding ConnectVisibility}" DataContext="{Binding Integrations}" />
+                <!-- The step's visibility sits on a wrapper: on the pane itself it would bind against the pane's own DataContext. -->
+                <Border Visibility="{Binding ConnectVisibility}">
+                    <integrations:IntegrationsPane DataContext="{Binding Integrations}" />
+                </Border>
 
                 <!-- 6. Try it: a real session, drafted the real way. -->
                 <StackPanel Visibility="{Binding TryItVisibility}">

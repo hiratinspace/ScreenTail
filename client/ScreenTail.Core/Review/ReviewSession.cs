@@ -21,6 +21,14 @@ public interface IReviewFrames
     Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default);
 
     /// <summary>
+    /// The redacted image scaled down for the strip, or null when the frame is gone (E-30). Over the pipe
+    /// the service scales it, so a session's worth of full screenshots never crosses just to be drawn
+    /// 160 px wide. A source that only has the full image, like the render harness's fixture, hands that
+    /// over and the strip decodes it small.
+    /// </summary>
+    Task<byte[]?> ThumbnailAsync(Frame frame, CancellationToken ct = default) => ImageAsync(frame, ct);
+
+    /// <summary>
     /// What the redaction engine read on the frame, for `T` in the enlarged view, or null when it read
     /// nothing or the frame is gone. Asked one frame at a time, when the frame is enlarged: over the pipe
     /// the session arrives without any frame's text, because on a long session the text alone would not

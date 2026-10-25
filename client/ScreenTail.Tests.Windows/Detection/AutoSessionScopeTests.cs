@@ -77,10 +77,12 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
     [Fact]
     public async Task WithNothingInTheTitleTheClipboardIsReadOnceAtStart()
     {
-        // AC3: once, at start. A second foreground change in the same session reads nothing.
+        // AC3: once, at start. A second foreground change in the same session reads nothing. The clipboard
+        // introduces its number as a ticket: a bare number copied whole is a one-time code or a PIN more
+        // often than a ticket, and does not count (TicketHint, 2026-10-12 review S-45).
         var ct = TestContext.Current.CancellationToken;
         var reads = 0;
-        var coordinator = await CoordinatorAsync(ct, clipboard: () => { reads++; return "50011"; });
+        var coordinator = await CoordinatorAsync(ct, clipboard: () => { reads++; return "Ticket #50011"; });
 
         await coordinator.HandleAsync(Window(handle: 111), ct);
         await coordinator.HandleAsync(Window(handle: 222), ct);

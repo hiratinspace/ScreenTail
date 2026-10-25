@@ -19,6 +19,7 @@ namespace ScreenTail.Tests.Windows.Settings;
 /// shows, or saves, a value that came from that clamp. The slider is bound as PrivacyPane.xaml binds it.
 /// </summary>
 [SupportedOSPlatform("windows")]
+[Collection(WpfApplicationOwner.Name)]
 public sealed class PrivacyViewModelTests
 {
     [Fact]
@@ -145,7 +146,8 @@ public sealed class PrivacyViewModelTests
     /// <summary>
     /// The pane's styles are the application's, as App.xaml merges them. Plain <see cref="Application"/>,
     /// not the app's own subclass, so nothing of the app's start-up runs. One per process, so only this test
-    /// makes one, and <see cref="ShutDownAsync"/> takes it away again.
+    /// makes one, <see cref="ShutDownAsync"/> takes it away again, and its collection runs after every other
+    /// (<see cref="WpfApplicationOwner"/>), because no XAML component loads in the process after that.
     /// </summary>
     private static Application WithTheAppsStyles()
     {

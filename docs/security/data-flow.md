@@ -186,7 +186,10 @@ nothing a client sends can become a line of the prompt.
 settings — retention days, local-only and whether the admin locked it, capture scope — with no content,
 fetched from the configured backend host under its own egress purpose, at start and hourly. It has to
 be, because the policy that turns local-only on is the only thing that can turn it off. The last copy
-that arrived is kept on disk and applies when the backend does not answer.
+that arrived is kept on disk and applies when the backend does not answer. The speech model is not
+fetched in local-only mode either (ST-046): it carries no customer data, but it is a request the
+technician did not make. A machine that has no model when local-only is turned on records sessions
+without narration until the model is present or the policy is lifted, and the recogniser says so.
 
 The diagnostics panel is filled from the service's own counters and policy over the pipe (ST-085); the UI
 holds no value of its own to show, so the panel cannot say one thing while the service does another.
@@ -255,7 +258,15 @@ This document describes what is enforced today. These are named here rather than
   transcribed, so the note includes the last things said. Nothing said during a pause or a
   suppression is heard. A sentence said while recording and finished by the model after a pause or a
   suppression began is still written (scrubbed like any other), as a screenshot taken before a pause
-  is redacted and written during it.
+  is redacted and written during it. A sentence still being said when the session pauses or stops is
+  cut at that moment and kept the same way, and Stop waits for it; nothing heard after the moment is
+  joined on to it. One still being said when capture is suppressed (a password field, a sign-in
+  screen, no indicator on screen) or when a window outside the scope comes to the front is dropped,
+  never kept, even when the session stops at the same moment or the suppression is over before the
+  next piece of audio arrives. Speech with no pause in it that runs past the longest segment (20
+  seconds) is held back from the model in the meantime, so the part already cut is dropped with it;
+  only parts a whole longest segment older go ahead. The speech model is released after five minutes with nothing to
+  transcribe and loaded again by the next sentence.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
   its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
   nothing is lost.

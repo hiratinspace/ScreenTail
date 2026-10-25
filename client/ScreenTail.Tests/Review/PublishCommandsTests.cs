@@ -132,6 +132,108 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task APublishWithMoreFramesThanTheBackendTakesIsRefusedBeforeAnyBytesAreRead()
+    {
+        // E-18. The backend refuses more than 25 frames with a 400, and the client used to find that out
+        // after reading, encoding and uploading all of them. The service refuses first, says how many are
+        // over, and reads nothing.
+        var commands = await CommandsAsync();
+        var ids = Enumerable.Range(1, PublishCommands.MaxFrames + 1).Select(i => $"f{i}").ToArray();
+        await SeedAsync(ids);
+
+        var command = Publish(ids);
+        Assert.Null(await commands.ReplyToAsync(command));
+        var result = await commands.HandleAsync(command);
+
+        Assert.False(result!.Ok);
+        Assert.Contains($"{PublishCommands.MaxFrames}", result.Error, StringComparison.Ordinal);
+        Assert.Contains("26", result.Error, StringComparison.Ordinal);
+        Assert.Empty(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task ExactlyTheCeilingIsSentAndIneligibleNamesDoNotCountAgainstIt()
+    {
+        // The ceiling is on what would be attached, not on what was typed: an excluded frame or a stray id
+        // in the list is dropped before the count, so a strip showing 25 included publishes.
+        var commands = await CommandsAsync();
+        var ids = Enumerable.Range(1, PublishCommands.MaxFrames).Select(i => $"f{i}").ToArray();
+        await SeedAsync(ids);
+        await AddFrameAsync("s1", "out", 2000);
+        await _store!.SetFrameExcludedAsync("out", excluded: true);
+
+        var reply = await commands.ReplyToAsync(Publish([.. ids, "out", "gone", "f1"]));
+
+        Assert.IsType<SessionPublished>(reply);
+        Assert.Equal(PublishCommands.MaxFrames, Assert.Single(_gateway.Published).Frames.Count);
+    }
+
+    [Fact]
+    public void ThePublishCeilingIsTheBundlesCeiling()
+    {
+        // One number: the backend's PublishLimits.MaxFrames is BundleLimits.MaxFrames, which is the
+        // client's BundleOptions.MaxFrames. A drift here would make the service refuse what the backend
+        // takes, or the reverse.
+        Assert.Equal(PublishCommands.MaxFrames, new ScreenTail.Core.Intel.BundleOptions().MaxFrames);
+    }
+
+    [Fact]
+    public async Task ASessionCountsAsPublishedOnlyWhenSomethingLanded()
+    {
+        // T-128 (ST-098, ST-067). The metric and the style signals are about a note that reached the PSA.
+        // Every destination failing is not that, and reporting it would count a session as published that
+        // the technician is about to retry.
+        var metrics = new RecordingBookkeeping();
+        var commands = await CommandsAsync(metrics);
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "PSA down"))];
+
+        var nothing = Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        Assert.All(nothing.Results, r => Assert.False(r.Ok));
+        Assert.Empty(metrics.Reported);
+        Assert.Empty(metrics.Learned);
+
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, d == "ticket_note", d == "ticket_note" ? "1" : null, Error: d == "ticket_note" ? null : "PSA down"))];
+
+        var partly = Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        Assert.Contains(partly.Results, r => r.Ok);
+        Assert.Equal([("s1", true)], metrics.Reported);
+        Assert.Equal(["s1"], metrics.Learned);
+    }
+
+    [Fact]
+    public async Task AStoreFaultAfterALandedPublishStillReturnsTheResults()
+    {
+        // S-37. The note is on the ticket by the time the bookkeeping runs. A metrics or style store that
+        // throws then must not turn into a dropped pipe and a result list that says every destination
+        // failed, which is what the technician would read as "publish again".
+        var metrics = new RecordingBookkeeping { Throws = true };
+        using var lines = new StringWriter();
+        using var logs = new ScreenTail.Shared.Logging.ScrubbingLoggerProvider(lines, Microsoft.Extensions.Logging.LogLevel.Information);
+        var commands = await CommandsAsync(metrics, logs.CreateLogger("publish"));
+        await SeedAsync(["f1"]);
+
+        var reply = await commands.ReplyToAsync(Publish(["f1"]));
+
+        var published = Assert.IsType<SessionPublished>(reply);
+        Assert.Equal(2, published.Results.Count);
+        Assert.All(published.Results, r => Assert.True(r.Ok));
+        Assert.Equal([("s1", true)], metrics.Reported);
+        Assert.Equal(["s1"], metrics.Learned);
+        Assert.Equal(nameof(InvalidOperationException), commands.LastBookkeepingError);
+
+        // Each fault is a line in the service's log with its kind and nothing it carried: not the
+        // exception's words, which a store may fill with what it held, and not the session.
+        var logged = lines.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, logged.Length);
+        Assert.All(logged, line => Assert.Contains(nameof(InvalidOperationException), line, StringComparison.Ordinal));
+        Assert.Contains(logged, line => line.Contains("metrics", StringComparison.Ordinal));
+        Assert.Contains(logged, line => line.Contains("style", StringComparison.Ordinal));
+        Assert.DoesNotContain("locked", lines.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("s1", lines.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ABackendRefusalIsAFailedResultWithItsWords()
     {
         var commands = await CommandsAsync();
@@ -228,10 +330,34 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         FrameIds = frameIds,
     };
 
-    private async Task<PublishCommands> CommandsAsync()
+    private async Task<PublishCommands> CommandsAsync(RecordingBookkeeping? bookkeeping = null, Microsoft.Extensions.Logging.ILogger? log = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
-        return new PublishCommands(_store, _gateway);
+        return bookkeeping is null
+            ? new PublishCommands(_store, _gateway)
+            : new PublishCommands(_store, _gateway, bookkeeping, bookkeeping, log);
+    }
+
+    /// <summary>The metrics reporter and the style learner, remembering what they were told; optionally failing like a store that is down.</summary>
+    private sealed class RecordingBookkeeping : IMetricsReporter, ScreenTail.Core.Intel.IStyleLearner
+    {
+        public bool Throws { get; init; }
+
+        public List<(string SessionId, bool Published)> Reported { get; } = [];
+
+        public List<string> Learned { get; } = [];
+
+        public Task ReportAsync(string sessionId, bool published, CancellationToken ct = default)
+        {
+            Reported.Add((sessionId, published));
+            return Throws ? Task.FromException(new InvalidOperationException("the metrics store is locked")) : Task.CompletedTask;
+        }
+
+        public Task LearnAsync(string sessionId, CancellationToken ct = default)
+        {
+            Learned.Add(sessionId);
+            return Throws ? Task.FromException(new InvalidOperationException("the style store is locked")) : Task.CompletedTask;
+        }
     }
 
     private async Task SeedAsync(string[] frames)
@@ -260,6 +386,9 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         public IReadOnlyList<IntegrationInfo> Integrations { get; set; } = [];
 
         public List<PublishWire> Published { get; } = [];
+
+        /// <summary>How each destination went, by its wire name. Null means everything landed.</summary>
+        public Func<IReadOnlyList<string>, IReadOnlyList<PublishOutcomeRow>>? Outcomes { get; set; }
 
         public string? LastQuery { get; private set; }
 
@@ -306,7 +435,8 @@ public sealed class PublishCommandsTests : IAsyncDisposable
             }
 
             Published.Add(bundle);
-            return Task.FromResult(GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d => new PublishOutcomeRow(d, true, "1"))]));
+            return Task.FromResult(GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>(
+                Outcomes?.Invoke(bundle.Destinations) ?? [.. bundle.Destinations.Select(d => new PublishOutcomeRow(d, true, "1"))]));
         }
     }
 
