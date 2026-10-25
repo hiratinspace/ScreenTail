@@ -90,9 +90,26 @@ public sealed class CaptureTargetTests
         Assert.True(ProcessElevation.IsElevated(null, ProcessElevation.Medium, isOwnProcess: false));
 
     [Fact]
-    public void AnAdministratorsWindowIsElevatedEvenToAHostThatIsItselfElevated() =>
-        // INV-6 is about the window, not about who is looking at it.
-        Assert.True(ProcessElevation.IsElevated(ProcessElevation.High, ProcessElevation.High, isOwnProcess: false));
+    public void WithUacOffAWindowAtTheServicesOwnHighLevelIsNotElevated()
+    {
+        // With UAC off every process the technician starts runs at High, the service included. Counting
+        // High as elevated whatever the service ran at made every window "elevated" there, and nothing was
+        // captured at all (c8 review). Elevated is above the service's own level, which at Medium is High.
+        Assert.False(ProcessElevation.IsElevated(ProcessElevation.High, ProcessElevation.High, isOwnProcess: false));
+        Assert.False(ProcessElevation.IsElevated(ProcessElevation.Medium, ProcessElevation.High, isOwnProcess: false));
+
+        // Above it is still elevated: a SYSTEM process is not the technician's to photograph.
+        Assert.True(ProcessElevation.IsElevated(ProcessElevation.System, ProcessElevation.High, isOwnProcess: false));
+    }
+
+    [Fact]
+    public void WhenTheServicesOwnLevelCannotBeReadEveryWindowIsTreatedAsElevated()
+    {
+        // Nothing can be said to be above or below a level that is not known, so the closed answer is the
+        // one INV-6 asks for: no frames rather than frames of a window that might be elevated.
+        Assert.True(ProcessElevation.IsElevated(ProcessElevation.Medium, null, isOwnProcess: false));
+        Assert.True(ProcessElevation.IsElevated(0x1000, null, isOwnProcess: false));
+    }
 
     [Fact]
     public void AnythingAboveThisProcessIsElevated() =>
