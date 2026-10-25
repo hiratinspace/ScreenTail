@@ -34,6 +34,9 @@ public sealed partial class PublishViewModel : ObservableObject
     private readonly Func<IReadOnlyList<string>> _frames;
     private bool _choicesAsked;
 
+    /// <summary>False while the Minutes field holds something that is not a whole number of minutes (T-386).</summary>
+    private bool _minutesValid = true;
+
     /// <param name="note">The note as it is now, edited; asked for at the moment of publishing.</param>
     /// <param name="frames">The included frames, in strip order, at the moment of publishing.</param>
     public PublishViewModel(PublishPanel panel, Func<DraftNote> note, Func<IReadOnlyList<string>> frames)
@@ -149,7 +152,7 @@ public sealed partial class PublishViewModel : ObservableObject
     [RelayCommand]
     private async Task PublishAsync()
     {
-        if (!_panel.CanPublish)
+        if (!_panel.CanPublish || BlockedHere() is not null)
         {
             return;
         }
@@ -171,6 +174,12 @@ public sealed partial class PublishViewModel : ObservableObject
     [RelayCommand]
     private async Task RetryAsync()
     {
+        if (BlockedHere() is { } reason)
+        {
+            Summary = reason;
+            return;
+        }
+
         await _panel.RetryAsync(_note(), _frames()).ConfigureAwait(true);
         Refresh();
     }
@@ -185,6 +194,14 @@ public sealed partial class PublishViewModel : ObservableObject
     {
         if (SelectedCompany is not { } choice || !_panel.NeedsMapping)
         {
+            return;
+        }
+
+        // The article carries the frames too, so the ceiling holds here; it carries no minutes.
+        if (BlockedHere(minutesMatter: false) is { } reason)
+        {
+            MappingError = reason;
+            MappingErrorVisibility = Visibility.Visible;
             return;
         }
 
@@ -254,13 +271,33 @@ public sealed partial class PublishViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// T-386: only digits that make a whole number of minutes reach the panel. Anything else (blank, a
+    /// decimal, a sign, letters, a number too large) used to leave the panel on the previous value, so the
+    /// time entry went out with a number the field did not show. Now Publish is blocked until it is fixed,
+    /// and the field keeps what was typed.
+    /// </summary>
     partial void OnMinutesChanged(string value)
     {
-        if (int.TryParse(value, out var minutes))
+        var valid = int.TryParse(
+            value,
+            System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowTrailingWhite,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var minutes);
+        if (valid)
         {
             _panel.Minutes = minutes;
         }
+
+        if (valid != _minutesValid)
+        {
+            _minutesValid = valid;
+            RefreshBlock();
+        }
     }
+
+    /// <summary>The strip changed what goes out, so the frame ceiling may have been crossed either way (E-18).</summary>
+    public void FramesChanged() => RefreshBlock();
 
     partial void OnTicketNoteChanged(bool value)
     {
@@ -303,7 +340,13 @@ public sealed partial class PublishViewModel : ObservableObject
         TicketLabel = _panel.Ticket?.Label ?? string.Empty;
         TicketVisibility = _panel.Ticket is null ? Visibility.Collapsed : Visibility.Visible;
         SuggestedVisibility = _panel.Ticket?.Suggested == true ? Visibility.Visible : Visibility.Collapsed;
-        Minutes = _panel.Minutes.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // A field holding something that is not a number keeps showing it: putting the panel's last good
+        // value back would show a number the technician did not type, which is the T-386 problem again.
+        if (_minutesValid)
+        {
+            Minutes = _panel.Minutes.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         RoundingNote = _panel.RoundingNote;
         IsInternal = _panel.NoteType == NoteType.Internal;
         IsDiscussion = _panel.NoteType == NoteType.Discussion;
@@ -311,9 +354,7 @@ public sealed partial class PublishViewModel : ObservableObject
         TimeEntry = _panel.TimeEntry;
         KbArticle = _panel.KbArticle;
         KbLabel = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
-        BlockedBecause = _panel.HasIntegrations ? _panel.BlockedBecause ?? string.Empty : string.Empty;
-        BlockedVisibility = BlockedBecause.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        CanPublish = _panel.CanPublish;
+        RefreshBlock();
         PublishVisibility = _panel.HasIntegrations ? Visibility.Visible : Visibility.Collapsed;
         ConnectVisibility = _panel.HasIntegrations ? Visibility.Collapsed : Visibility.Visible;
 
@@ -350,6 +391,33 @@ public sealed partial class PublishViewModel : ObservableObject
         {
             Results.Add(new ResultRow(Label(result.Destination), result.Ok, result.Link, result.Error));
         }
+    }
+
+    /// <summary>Why Publish is disabled and whether it is. The panel's reasons come first; this pane's two follow.</summary>
+    private void RefreshBlock()
+    {
+        var here = BlockedHere();
+        BlockedBecause = _panel.HasIntegrations ? _panel.BlockedBecause ?? here ?? string.Empty : string.Empty;
+        BlockedVisibility = BlockedBecause.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        CanPublish = _panel.CanPublish && here is null;
+    }
+
+    /// <summary>
+    /// The two refusals this pane adds to the panel's, or null. The backend takes at most
+    /// <see cref="PublishCommands.MaxFrames"/> frames and refuses the whole publish above that (E-18), and
+    /// a time entry must carry the number the field shows (T-386).
+    /// </summary>
+    private string? BlockedHere(bool minutesMatter = true)
+    {
+        var frames = _frames().Count;
+        if (frames > PublishCommands.MaxFrames)
+        {
+            return $"A publish can carry at most {PublishCommands.MaxFrames} frames, and {frames} are included. Exclude {frames - PublishCommands.MaxFrames} in the filmstrip.";
+        }
+
+        return minutesMatter && _panel.TimeEntry && !_minutesValid
+            ? "Enter the time entry's minutes as a whole number"
+            : null;
     }
 
     private async Task LoadChoicesAsync()

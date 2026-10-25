@@ -103,9 +103,22 @@ public sealed class NoteEditorKeysTests
         // The wiring itself, as NoteEditorView.xaml declares it. The XAML is copied beside the tests at build.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var xaml = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "Review", "Xaml", "NoteEditorView.xaml"));
-        var box = Assert.Single(xaml.Descendants().Where(e => e.Name.LocalName == "TextBox" && (string?)e.Attribute(XName.Get("AutomationProperties.Name")) == "Step text"));
+        var box = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "TextBox" && (string?)e.Attribute(XName.Get("AutomationProperties.Name")) == "Step text");
 
         Assert.Equal("OnStepKeyDown", (string?)box.Attribute("PreviewKeyDown"));
         Assert.Null(box.Attribute("KeyDown"));
+    }
+
+    [Fact]
+    public void AFrameChipIsBoundToTheNotesShowFrameCommand()
+    {
+        // T-165, the XAML half: the chip reaches the strip through ShowFrameCommand on the pane's own
+        // view model, which ReviewPaneTests.ClickingAFrameChipSelectsThatFrameInTheStrip follows the rest of the way.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var xaml = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "Review", "Xaml", "NoteEditorView.xaml"));
+        var chip = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "Button" && (string?)e.Attribute("Tag") == "{Binding Id}");
+
+        Assert.Equal("{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}", (string?)chip.Attribute("Command"));
+        Assert.Equal("{Binding Id}", (string?)chip.Attribute("CommandParameter"));
     }
 }

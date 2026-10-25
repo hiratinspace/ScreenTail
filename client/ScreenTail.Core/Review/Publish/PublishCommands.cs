@@ -118,14 +118,26 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
         // drafting bundle's own rule may go (redacted, not sensitive, not excluded, not taken while capture
         // was off). Anything else named is dropped, and so is a second mention of the same frame.
         var eligible = Intel.BundleBuilder.Eligible(session).Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal);
-        var frames = new List<PublishWireFrame>(Math.Min(publish.FrameIds.Count, eligible.Count));
+        var chosen = new List<string>(Math.Min(publish.FrameIds.Count, eligible.Count));
         foreach (var id in publish.FrameIds)
         {
-            if (!eligible.Remove(id))
+            if (eligible.Remove(id))
             {
-                continue;
+                chosen.Add(id);
             }
+        }
 
+        // E-18: the backend takes at most this many and refuses the whole publish above it. Counted on what
+        // would be attached, and before a single image is read, so a long session is told what to do rather
+        // than encoding and uploading megabytes for a certain refusal.
+        if (chosen.Count > MaxFrames)
+        {
+            return Refuse(publish, $"A publish can carry at most {MaxFrames} frames, and {chosen.Count} are included. Exclude {chosen.Count - MaxFrames} in the filmstrip and publish again.");
+        }
+
+        var frames = new List<PublishWireFrame>(chosen.Count);
+        foreach (var id in chosen)
+        {
             // The store will still not hand back a pending one, and one deleted between the technician's
             // choice and now is simply not sent (INV-1).
             var image = await _store.GetRedactedFrameImageAsync(id, ct).ConfigureAwait(false);
@@ -160,20 +172,34 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
         // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
+        // S-37: by now the note is on the ticket, so neither may stand between the technician and the
+        // backend's results. A fault in either is kept and the results go back as they came.
         if (answer.Value!.Any(r => r.Ok))
         {
             if (metrics is not null)
             {
-                await metrics.ReportAsync(publish.SessionId, published: true, ct).ConfigureAwait(false);
+                await KeepingTheResultAsync(() => metrics.ReportAsync(publish.SessionId, published: true, ct)).ConfigureAwait(false);
             }
 
             if (style is not null)
             {
-                await style.LearnAsync(publish.SessionId, ct).ConfigureAwait(false);
+                await KeepingTheResultAsync(() => style.LearnAsync(publish.SessionId, ct)).ConfigureAwait(false);
             }
         }
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
+    }
+
+    private async Task KeepingTheResultAsync(Func<Task> bookkeeping)
+    {
+        try
+        {
+            await bookkeeping().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            LastBookkeepingError = error.GetType().Name;
+        }
     }
 
     private IpcEvent? Refuse(IpcCommand command, string reason)

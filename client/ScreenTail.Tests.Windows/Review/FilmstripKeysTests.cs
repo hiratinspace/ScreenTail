@@ -69,7 +69,7 @@ public sealed class FilmstripKeysTests
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var xaml = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "Review", "Xaml", "FilmstripView.xaml"));
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-        var strip = Assert.Single(xaml.Descendants().Where(e => e.Name.LocalName == "ListBox" && (string?)e.Attribute(x + "Name") == "Strip"));
+        var strip = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "ListBox" && (string?)e.Attribute(x + "Name") == "Strip");
 
         Assert.Equal("OnStripKeyDown", (string?)strip.Attribute("PreviewKeyDown"));
         Assert.Null(strip.Attribute("KeyDown"));

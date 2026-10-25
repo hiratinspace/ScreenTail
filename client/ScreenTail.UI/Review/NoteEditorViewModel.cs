@@ -83,11 +83,14 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     private readonly bool _persists;
     private readonly Dictionary<string, string> _quotes;
     private readonly Dictionary<string, string> _frameLabels;
+    private readonly Action<string?>? _showFrame;
+    private bool _disposed;
 
     /// <param name="write">Persists the note. Called by the autosave, one write at a time.</param>
     /// <param name="confirm">Shows the typed-confirmation dialog and returns whether it was satisfied.</param>
     /// <param name="discard">Deletes the session and its raw data. Null in the render harness.</param>
     /// <param name="retryDraft">Asks for the note again after a failed draft (ST-061).</param>
+    /// <param name="showFrame">Selects a frame in the filmstrip when its chip is clicked (T-165).</param>
     public NoteEditorViewModel(
         Session session,
         Func<DraftNote, CancellationToken, Task>? write = null,
@@ -95,10 +98,12 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         Func<CancellationToken, Task>? discard = null,
         Func<CancellationToken, Task>? retryDraft = null,
         bool offline = false,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        Action<string?>? showFrame = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        _showFrame = showFrame;
         _confirm = confirm ?? (_ => false);
         _discard = discard;
         _retryDraft = retryDraft;
@@ -187,13 +192,38 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         OnPropertyChanged(nameof(SaveLabel));
     }
 
-    /// <summary>Writes anything outstanding. Call before the window closes.</summary>
+    /// <summary>
+    /// Writes anything outstanding now, without waiting for the autosave's pause (T-169). The pane calls it
+    /// when it is unloaded. Does nothing once disposed.
+    /// </summary>
+    public async Task FlushAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await _save.FlushAsync().ConfigureAwait(true);
+        OnPropertyChanged(nameof(SaveLabel));
+    }
+
+    /// <summary>Writes anything outstanding. Call before the window closes. Safe to call more than once.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         _note.Changed -= OnNoteChanged;
         await _save.FlushAsync().ConfigureAwait(false);
         _save.Dispose();
     }
+
+    /// <summary>A frame chip: selects that frame in the filmstrip, or clears the selection when it is not there.</summary>
+    [RelayCommand]
+    private void ShowFrame(string? frameId) => _showFrame?.Invoke(frameId);
 
     partial void OnProblemChanged(string value) => _note.SetProblem(value);
 

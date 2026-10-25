@@ -91,7 +91,9 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
         Assert.Equal("f1", frame.FrameId);
         Assert.Equal(_masker.Painted, frame.Image);
         Assert.Empty(_masker.Regions);
-        Assert.Equal([(RedactedBytes("f1"), ReviewCommands.ThumbnailEdge)], _masker.Scaled);
+        var (scaled, edge) = Assert.Single(_masker.Scaled);
+        Assert.Equal(RedactedBytes("f1"), scaled);
+        Assert.Equal(ReviewCommands.ThumbnailEdge, edge);
         Assert.Equal(RedactedBytes("f1"), await _store!.GetRedactedFrameImageAsync("f1"));
     }
 

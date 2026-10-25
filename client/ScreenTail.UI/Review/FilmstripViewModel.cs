@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -89,12 +90,23 @@ public sealed class GapItem(GapCell cell) : StripItem
 /// tested there without WPF (ADR-0002). What is here is binding, the image bytes, and the two commands
 /// whose whole job is to happen in the right order.
 /// </summary>
-public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
+public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, IAsyncDisposable
 {
     private readonly Filmstrip _strip;
     private readonly IReviewFrames? _frames;
     private readonly FrameBlur? _blur;
     private readonly UndoWindow<FrameItem> _deletes;
+
+    /// <summary>Every frame the strip opened with, in strip order. Never changes, so a thumbnail load can walk it across awaits.</summary>
+    private readonly FrameItem[] _frameItems;
+
+    /// <summary>Permanent deletes still waiting on the service, so leaving Review can wait for their answers.</summary>
+    private readonly List<Task> _committing = [];
+
+    /// <summary>How far the thumbnail load has walked <see cref="_frameItems"/>; -1 before it starts.</summary>
+    private int _thumbnailsAt = -1;
+
+    private CancellationToken _thumbnailToken;
 
     /// <param name="frames">Where the images come from and where the edits go. In the running
     /// application that is the service, over the pipe; the harness passes nothing and shows no images.</param>
@@ -115,6 +127,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
             time: time);
 
         Items = [.. _strip.Cells.Select(Item)];
+        _frameItems = [.. Items.OfType<FrameItem>()];
     }
 
     public ObservableCollection<StripItem> Items { get; }
@@ -146,10 +159,14 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     public bool IsEnlarged => Enlarged is not null;
 
     /// <summary>
-    /// Fills in the thumbnails. Called once the pane is up, so the first paint is not blocked on IO.
+    /// Fills in the thumbnails. Called once the pane is up, so the first paint is not blocked on IO, and
+    /// cancelled when the pane goes, so a closed Review stops pulling pictures over the shared pipe (E-105).
     ///
-    /// The bytes are decoded small and let go: a 150-frame session is a few tens of megabytes of
-    /// thumbnails, not hundreds of megabytes of screenshots nobody is looking at (P2-3).
+    /// Each one is asked for at thumbnail size (E-30) and decoded small: a 150-frame session is a few
+    /// megabytes on the pipe, not every full screenshot nobody is looking at (P2-3). The walk is over the
+    /// frames the strip opened with, never the live <see cref="Items"/>, so a Del or an Undo while it
+    /// waits cannot pull the list out from under it (T-237). A frame deleted by the time the walk reaches
+    /// it is skipped; if it comes back after the walk has passed, the undo fetches its picture.
     /// </summary>
     public async Task LoadImagesAsync(CancellationToken ct = default)
     {
@@ -158,12 +175,42 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
             return;
         }
 
-        foreach (var item in Items.OfType<FrameItem>())
+        _thumbnailToken = ct;
+        for (var at = 0; at < _frameItems.Length; at++)
         {
-            if (await _frames.ImageAsync(item.Cell.Frame, ct).ConfigureAwait(true) is { } bytes)
+            ct.ThrowIfCancellationRequested();
+            _thumbnailsAt = at;
+            var item = _frameItems[at];
+            if (item.Thumbnail is null && _strip.Contains(item.Id))
             {
-                item.Thumbnail = Thumbnails.Decode(bytes);
+                await LoadThumbnailAsync(_frames, item, ct).ConfigureAwait(true);
             }
+        }
+
+        _thumbnailsAt = _frameItems.Length;
+    }
+
+    private static async Task LoadThumbnailAsync(IReviewFrames frames, FrameItem item, CancellationToken ct)
+    {
+        var asked = item.Cell.Frame;
+        var bytes = await frames.ThumbnailAsync(asked, ct).ConfigureAwait(true);
+        ct.ThrowIfCancellationRequested();
+
+        // A blur while this was on the pipe has already drawn the thumbnail from the blurred image, and the
+        // picture answered here is from before it.
+        if (bytes is null || !ReferenceEquals(item.Cell.Frame, asked))
+        {
+            return;
+        }
+
+        try
+        {
+            item.Thumbnail = Thumbnails.Decode(bytes);
+        }
+        catch (Exception error) when (error is NotSupportedException or FormatException or IOException or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.ExternalException)
+        {
+            // Bytes that are not a picture leave this cell empty. They must not take the Loaded handler, and
+            // with it the UI process and any delete still in its undo window, down with them.
         }
     }
 
@@ -196,6 +243,27 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
     /// </summary>
     public void Dispose() => _deletes.Close();
 
+    /// <summary>
+    /// Leaving Review (T-169): as <see cref="Dispose"/>, and then waits for the service's answer to every
+    /// permanent delete, so a refusal is recorded in <see cref="EditError"/> before the screen is let go.
+    /// Safe to call more than once.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+        await Task.WhenAll([.. _committing]).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Why an edit the technician made did not reach the service, or null (S-35, T-136). Shown under the
+    /// strip, because a frame they were told is out or gone may come back the next time the session opens.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasEditError))]
+    private string? _editError;
+
+    public bool HasEditError => EditError is not null;
+
     /// <summary>`Space`. Persisted immediately: the usual reason to exclude is that it must not go out.</summary>
     [RelayCommand]
     private async Task ToggleIncludeAsync(FrameItem? item)
@@ -208,21 +276,38 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
         item.Refresh(_strip.Frames.First(cell => cell.Frame.Id == item.Id));
         OnPropertyChanged(nameof(Header));
+        if (_frames is null)
+        {
+            return;
+        }
+
+        var label = item.Label;
+        var recorded = await _frames.SetIncludedAsync(item.Id, included).ConfigureAwait(true);
+
         // An inclusion the service did not record goes back to excluded (ST-078). Filmstrip.Answered decides.
-        if (_frames is not null
-            && _strip.Answered(item.Id, included, await _frames.SetIncludedAsync(item.Id, included).ConfigureAwait(true)))
+        if (_strip.Answered(item.Id, included, recorded))
         {
             item.Refresh(_strip.Frames.First(cell => cell.Frame.Id == item.Id));
             OnPropertyChanged(nameof(Header));
+        }
+
+        // An exclusion the service did not record stays excluded here, so this publish leaves it out. But
+        // the store still has it in, and the technician is told so rather than finding it back next time.
+        if (!recorded && !included)
+        {
+            EditError = $"The service did not record that {label} is excluded. It stays out of this publish, but it may be included again the next time this session is opened.";
         }
     }
 
     /// <summary>
     /// `Del`. The frame leaves the strip at once and the toast offers five seconds to take it back; the
     /// row is only deleted when that window closes. Spec §5 S3 asks for exactly this and no confirmation.
+    ///
+    /// The exclusion is written now, though (S-35). If the process dies or the pipe drops inside the undo
+    /// window the row survives, and it must survive as a frame that does not go out.
     /// </summary>
-    [RelayCommand]
-    private void Delete(FrameItem? item)
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task DeleteAsync(FrameItem? item)
     {
         if (item is null || !Items.Contains(item))
         {
@@ -236,6 +321,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(IsEnlarged));
         }
 
+        var wasIncluded = _strip.IsIncluded(item.Id);
         _strip.Remove(item.Id);
         Items.Remove(item);
         Renumber();
@@ -246,15 +332,57 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(Header));
         OnPropertyChanged(nameof(UndoToast));
         OnPropertyChanged(nameof(HasUndoToast));
+
+        // A frame that was already out has nothing to write. A refusal here needs no word of its own: the
+        // delete that follows goes to the same service, and its answer is the one reported.
+        if (wasIncluded && _frames is not null)
+        {
+            _ = await _frames.SetIncludedAsync(item.Id, false).ConfigureAwait(true);
+        }
     }
 
-    [RelayCommand]
-    private void Undo()
+    /// <summary>
+    /// `Ctrl+Z` and the toast's Undo. The frame is back in its place at once; if it went out before the
+    /// delete, the exclusion Del wrote is taken back, and the same rule as `Space` applies to the answer.
+    /// </summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task UndoAsync()
     {
-        if (_deletes.Undo())
+        if (_deletes.Pending is not { } item || !_deletes.Undo())
         {
-            OnPropertyChanged(nameof(UndoToast));
-            OnPropertyChanged(nameof(HasUndoToast));
+            return;
+        }
+
+        OnPropertyChanged(nameof(UndoToast));
+        OnPropertyChanged(nameof(HasUndoToast));
+        if (_frames is null)
+        {
+            return;
+        }
+
+        // Decided before the await: the load below must not see the frame as passed over if it is not.
+        var missedByLoad = item.Thumbnail is null && _thumbnailsAt > Array.IndexOf(_frameItems, item);
+
+        if (_strip.IsIncluded(item.Id)
+            && _strip.Answered(item.Id, true, await _frames.SetIncludedAsync(item.Id, true).ConfigureAwait(true))
+            && _strip.Frames.FirstOrDefault(cell => cell.Frame.Id == item.Id) is { } cell)
+        {
+            item.Refresh(cell);
+            OnPropertyChanged(nameof(Header));
+        }
+
+        // The thumbnail load skipped it while it was gone. If the load had already passed its place it will
+        // not come back for it, so it is fetched here.
+        if (missedByLoad && !_thumbnailToken.IsCancellationRequested && _strip.Contains(item.Id))
+        {
+            try
+            {
+                await LoadThumbnailAsync(_frames, item, _thumbnailToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                // The pane closed while it loaded; the next open draws it.
+            }
         }
     }
 
@@ -349,10 +477,11 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
 
     private void Committed(FrameItem item)
     {
-        // Fire and forget is wrong here and this is not it: the delete is already reflected everywhere the
-        // technician can see, and awaiting inside a timer tick would block the pane. A failure is recorded
-        // rather than thrown, because there is no longer a screen to show it on.
-        _ = DeleteForGoodAsync(item);
+        // Not awaited here: the delete is already reflected everywhere the technician can see, and awaiting
+        // inside a timer tick would block the pane. The task is kept, so leaving Review can wait for it,
+        // and its answer is read, so a refusal is said rather than lost (T-136).
+        _committing.RemoveAll(task => task.IsCompleted);
+        _committing.Add(DeleteForGoodAsync(item));
     }
 
     private async Task DeleteForGoodAsync(FrameItem item)
@@ -362,18 +491,24 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // The label it had when it was deleted, which is the one the toast showed.
+        var label = item.Label;
+        bool deleted;
         try
         {
-            await _frames.DeleteAsync(item.Id).ConfigureAwait(false);
+            // False is how the pipe reports a refusal or a service that is not there.
+            deleted = await _frames.DeleteAsync(item.Id).ConfigureAwait(true);
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
-            DeleteError = error.Message;
+            deleted = false;
+        }
+
+        if (!deleted)
+        {
+            EditError = $"The service did not confirm that {label} was deleted. Check it the next time this session is opened.";
         }
     }
-
-    /// <summary>Set when the permanent delete failed after the window closed. Read by the diagnostics panel.</summary>
-    public string? DeleteError { get; private set; }
 
     private void Restored(FrameItem item)
     {

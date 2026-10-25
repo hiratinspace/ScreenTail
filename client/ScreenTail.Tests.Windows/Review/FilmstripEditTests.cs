@@ -25,13 +25,13 @@ public sealed class FilmstripEditTests
 
         await strip.DeleteCommand.ExecuteAsync(first);
         Assert.Empty(frames.Deleted);
-        Assert.Null(strip.DeleteError);
+        Assert.Null(strip.EditError);
 
         strip.Dispose();
 
         Assert.Equal(["f1"], frames.Deleted);
-        Assert.True(strip.HasDeleteError);
-        Assert.Contains("frame 1", strip.DeleteError, StringComparison.Ordinal);
+        Assert.True(strip.HasEditError);
+        Assert.Contains("frame 1", strip.EditError, StringComparison.Ordinal);
         Assert.Equal(["f2"], strip.IncludedFrameIds);
     }
 
@@ -46,8 +46,8 @@ public sealed class FilmstripEditTests
         strip.Dispose();
 
         Assert.Equal(["f1"], frames.Deleted);
-        Assert.Null(strip.DeleteError);
-        Assert.False(strip.HasDeleteError);
+        Assert.Null(strip.EditError);
+        Assert.False(strip.HasEditError);
     }
 
     [Fact]
@@ -76,6 +76,26 @@ public sealed class FilmstripEditTests
         Assert.Equal("2 of 2 included", strip.Header);
         Assert.Empty(frames.Deleted);
         Assert.False(strip.HasUndoToast);
+    }
+
+    [Fact]
+    public async Task AnExclusionTheServiceDidNotRecordStaysOutAndIsSaid()
+    {
+        // S-35. A refused Space used to be invisible: the strip showed the frame excluded, the store kept it
+        // included, and it was back the next time the session opened. It stays out of this publish, and
+        // the pane says the store disagrees.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new RecordingFrames { Records = false };
+        var strip = new FilmstripViewModel(Session(Frames(2)), frames);
+        var first = strip.Items.OfType<FrameItem>().First();
+
+        await strip.ToggleIncludeCommand.ExecuteAsync(first);
+
+        Assert.Equal([("f1", false)], frames.Included);
+        Assert.False(first.Included);
+        Assert.Equal(["f2"], strip.IncludedFrameIds);
+        Assert.True(strip.HasEditError);
+        Assert.Contains("frame 1", strip.EditError, StringComparison.Ordinal);
     }
 
     [Fact]
