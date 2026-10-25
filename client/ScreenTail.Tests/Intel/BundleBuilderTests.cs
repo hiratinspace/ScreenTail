@@ -91,6 +91,39 @@ public sealed class BundleBuilderTests
     }
 
     [Fact]
+    public void AFrameOnTheEdgeOfASuppressionIsStillExcluded()
+    {
+        // 2026-10-12 review (T-97). A frame stamped at the very millisecond capture went off, or came
+        // back, is inside the stretch: the state event and the frame share a clock, and the frame taken
+        // as the password field took focus is the one the rule exists for. Both bounds are inclusive.
+        var session = Session(Frame("before", 1_000), Frame("onset", 4_000), Frame("release", 6_000), Frame("after", 6_001)) with
+        {
+            Events =
+            [
+                new CaptureStateEvent { TsMs = 4_000, State = CaptureState.Suppressed, Reason = CaptureStateReason.PasswordField },
+                new CaptureStateEvent { TsMs = 6_000, State = CaptureState.Recording },
+            ],
+        };
+
+        Assert.Equal(["before", "after"], Build(session).Frames.Select(f => f.Id));
+    }
+
+    [Fact]
+    public void OcrPartialSaysSoWhenTheBudgetDroppedFrames()
+    {
+        // Every frame readable, and three quarters of them left out for the count. The prompt is told
+        // the picture is incomplete either way: a frame nobody could read and a frame nobody was shown
+        // both leave the model guessing about what happened there.
+        var everythingReadable = Session([.. Enumerable.Range(0, 100).Select(i => Frame($"f{i:D3}", i * 1_000))]);
+
+        var bundle = Build(everythingReadable);
+
+        Assert.True(bundle.Frames.Count < 100, "the count budget should have dropped frames");
+        Assert.All(bundle.Frames, frame => Assert.False(string.IsNullOrWhiteSpace(frame.OcrText)));
+        Assert.True(bundle.OcrPartial);
+    }
+
+    [Fact]
     public void AFrameTheTechnicianRemovedIsNeverIncluded()
     {
         // Review's "remove this screenshot" (ST-075). The technician looked at it and said no, which is
@@ -206,6 +239,28 @@ public sealed class BundleBuilderTests
         var bundle = Build(session, new BundleOptions { MaxFrames = 1 });
 
         Assert.Equal("explained", Assert.Single(bundle.Frames).Id);
+    }
+
+    [Fact]
+    public void AFrameTheTechnicianMarkedBeatsOneTheyTalkedOver()
+    {
+        // "Mark this moment" is the only frame anyone asked for by name, so it outranks even the
+        // strongest signal the builder infers. The review's version of this test gave the marked frame
+        // no readable text and lost to a talked-over click on the text bonus alone, which is the scoring
+        // working as written: the preference is between frames with the same words on them (T-97).
+        var session = Session(
+            Frame("explained", 1_000) with { OcrText = "Services" },
+            Frame("marked", 60_000) with { OcrText = "Services", Trigger = FrameTrigger.Marker }) with
+        {
+            Transcript =
+            [
+                new TranscriptSegment { Id = "t1", TsMs = 500, EndMs = 3_000, Speaker = Speaker.Tech, Text = "so the spooler was stopped", Confidence = 0.9 },
+            ],
+        };
+
+        var bundle = Build(session, new BundleOptions { MaxFrames = 1 });
+
+        Assert.Equal("marked", Assert.Single(bundle.Frames).Id);
     }
 
     [Fact]

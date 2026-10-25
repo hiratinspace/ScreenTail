@@ -263,11 +263,15 @@ public sealed class NarrationRecorderTests
         // The loop caught cancellation and nothing else, so one failed write stopped narration for the
         // life of the service — and the failure that actually happened was an id collision on the first
         // segment after a restart, which is to say: every session after a restart.
+        //
+        // Two things said, the first refused by the store. The second has to arrive: a counter that
+        // went up proves the failure was seen, not that narration went on (2026-10-12 review, T-95).
         var kept = new List<TranscriptSegment>();
         var refusals = 0;
+        var recogniser = new FakeRecogniser("restarting the spooler");
         var recorder = new NarrationRecorder(
-            new FakeMicrophone(Silence(20), Speech(40), Silence(40)),
-            new FakeRecogniser("restarting the spooler"),
+            new FakeMicrophone(Silence(20), Speech(40), Silence(40), Speech(40), Silence(40)),
+            recogniser,
             (_, segment, _) =>
             {
                 refusals++;
@@ -279,6 +283,165 @@ public sealed class NarrationRecorderTests
         await recorder.RunAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, recorder.Failures);
+        Assert.Equal(2, recogniser.Asked);
+        Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
+        Assert.Equal(1, recorder.Kept);
+    }
+
+    [Fact]
+    public async Task TheLastThingSaidBeforeStopReachesTheSession()
+    {
+        // 2026-10-12 review (T-93). The test above this one ends the session by running the microphone
+        // out, and that path flushed the gate. A real Stop ends it by the session going away between two
+        // chunks, and that path reset the gate instead: whatever was being said when the technician
+        // pressed Stop was dropped, and it is usually the outcome. The words were heard while recording,
+        // so they belong to the session (INV-6 is about what is heard after the boundary, and nothing
+        // after it is included). #188 made the machine accept them while it finalizes; this is the
+        // recorder's half.
+        var microphone = new LiveMicrophone(Silence(20)) { KeepsSaying = Speech(1)[0] };
+        var kept = new List<TranscriptSegment>();
+        NarrationSession? session = new("session-a", 0);
+        var recorder = new NarrationRecorder(
+            microphone,
+            new FakeRecogniser("and that fixed it"),
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => session);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+
+        // Two seconds into a sentence that has not ended, the technician presses Stop.
+        await UntilAsync(() => microphone.Yielded >= 80);
+        session = null;
+        await UntilAsync(() => !recorder.Listening);
+        await UntilAsync(() => kept.Count >= 1);
+
+        await stop.CancelAsync();
+        await running;
+
+        var last = Assert.Single(kept);
+        Assert.Equal("and that fixed it", last.Text);
+        Assert.Equal(1, microphone.Closes);
+    }
+
+    [Fact]
+    public async Task SpeechFromBeforeAPauseIsNotJoinedToSpeechAfterIt()
+    {
+        // 2026-10-12 review (T-94). The pause test above never opens a segment, so what happens to one
+        // that is open at a pause was unpinned. It is cut at the pause: the words from before it reach
+        // the session on their own, nothing heard afterwards is joined on to them, and what is said after
+        // the resume is its own segment, placed after the first.
+        var microphone = new LiveMicrophone(Silence(20)) { KeepsSaying = Speech(1)[0] };
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var kept = new List<TranscriptSegment>();
+        var recording = true;
+        var recorder = Recorder(microphone, recogniser, kept, recording: () => recording);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => microphone.Yielded >= 80);
+
+        // A pause mid-sentence: a password field, or the technician's own hand.
+        recording = false;
+        var heardBeforePause = microphone.Yielded;
+        await UntilAsync(() => !recorder.Listening);
+        await UntilAsync(() => kept.Count >= 1);
+
+        // Capture comes back and the technician says something else.
+        microphone.Replay(Silence(20), Speech(40), Silence(40));
+        microphone.KeepsSaying = new short[Rate * 32 / 1000];
+        recording = true;
+        recorder.Nudge();
+        await UntilAsync(() => kept.Count >= 2);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(2, kept.Count);
+        Assert.Equal(2, microphone.Opens);
+        Assert.Equal(microphone.Opens, microphone.Closes);
+
+        // The first segment was cut from audio heard before the pause and no later. A few frames of
+        // slack, because the recorder notices the pause on the chunk after it.
+        var frame = Rate * 32 / 1000;
+        var first = recogniser.Handed[0];
+        Assert.True(
+            first.Samples <= (heardBeforePause + 8) * frame,
+            $"the first segment held {first.Samples} samples, more than the {heardBeforePause} frames heard before the pause");
+        Assert.True(kept[1].TsMs >= kept[0].EndMs, "the second segment should follow the first on the session's clock");
+    }
+
+    [Fact]
+    public async Task TheMicrophoneIsClosedWhenTheSessionEnds()
+    {
+        // 2026-10-12 review (T-236). Opening once per session is half of what keeps the microphone-in-use
+        // indicator honest; letting go of the device at the end of the stretch is the other half, and
+        // nothing pinned it. The recorder closes the device by returning from its enumerator, so a
+        // microphone that counts its disposals must see one close per open.
+        var microphone = new LiveMicrophone(Silence(20), Speech(40), Silence(40));
+        var kept = new List<TranscriptSegment>();
+        var recording = true;
+        var recorder = Recorder(microphone, new FakeRecogniser("restarting the spooler"), kept, recording: () => recording);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => kept.Count >= 1);
+
+        recording = false;
+        await UntilAsync(() => microphone.Closes >= 1);
+
+        Assert.Equal(1, microphone.Opens);
+        Assert.Equal(1, microphone.Closes);
+        Assert.False(recorder.Listening);
+
+        recording = true;
+        recorder.Nudge();
+        await UntilAsync(() => microphone.Opens >= 2);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(2, microphone.Opens);
+        Assert.Equal(microphone.Opens, microphone.Closes);
+    }
+
+    [Fact]
+    public async Task TheRoomIsLearnedAgainWithEachSession()
+    {
+        // 2026-10-12 review (E-8): VoiceActivity.Reset had no caller. One session in a quiet office and
+        // the next beside a server rack: the floor learned for the first makes the second room read as
+        // speech for half a minute, and that half minute goes to a transcriber that answers room tone
+        // with invented sentences. A new session starts by listening to its own room.
+        var microphone = new LiveMicrophone(Silence(20), Speech(40), Silence(40));
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var kept = new List<TranscriptSegment>();
+        NarrationSession? session = new("session-a", 0);
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => session);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => kept.Count >= 1);
+
+        session = null;
+        await UntilAsync(() => !recorder.Listening);
+
+        // The next session, in a much louder room where nobody says anything.
+        var heard = microphone.Yielded;
+        microphone.Replay(Room(3000, 200));
+        session = new NarrationSession("session-b", 0);
+        recorder.Nudge();
+        await UntilAsync(() => microphone.Yielded >= heard + 230);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(1, recogniser.Asked);
+        Assert.Equal(1, recorder.Heard);
+        Assert.Single(kept);
     }
 
     [Fact]
@@ -614,8 +777,22 @@ public sealed class NarrationRecorderTests
         }
     }
 
-    /// <summary>Frames of digital silence, at the gate's frame length.</summary>
-    internal static short[][] Silence(int frames) => Frames(frames, _ => 0);
+    /// <summary>
+    /// Frames of a quiet room, at the gate's frame length.
+    ///
+    /// Room tone, not digital zeros. A real microphone in a quiet room never delivers zeros; zeros are a
+    /// mute or a stream that has not started, and the detector treats them as saying nothing about the
+    /// room (2026-10-12 review). A fixture of zeros hid that: the room was never heard, so the first
+    /// frame of speech became the floor and the bug could not show.
+    /// </summary>
+    internal static short[][] Silence(int frames) => Room(100, frames);
+
+    /// <summary>Frames of steady noise at the given amplitude: what a room sounds like to the detector, loud or quiet.</summary>
+    internal static short[][] Room(short amplitude, int frames)
+    {
+        var random = new Random(7);
+        return Frames(frames, _ => (short)random.Next(-amplitude, amplitude + 1));
+    }
 
     /// <summary>Frames of a 200 Hz tone well above the floor: what a voice looks like to the detector.</summary>
     internal static short[][] Speech(int frames)
@@ -688,32 +865,61 @@ public sealed class NarrationRecorderTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    /// <summary>A microphone that plays its script on every open and then keeps delivering silence until closed, as a real one does.</summary>
+    /// <summary>
+    /// A microphone that plays its script on every open and then keeps delivering one frame until closed,
+    /// as a real one does. Digital silence by default; a test that wants a sentence still in progress when
+    /// something happens sets <see cref="KeepsSaying"/> to speech.
+    /// </summary>
     private sealed class LiveMicrophone(params short[][][] runs) : IMicrophone
     {
-        private readonly List<short[]> _frames = [.. runs.SelectMany(run => run)];
-        private readonly short[] _quiet = new short[Rate * 32 / 1000];
+        private List<short[]> _frames = [.. runs.SelectMany(run => run)];
 
         public int Opens { get; private set; }
+
+        /// <summary>
+        /// How many times the device was let go of. Windows keeps the microphone-in-use indicator lit
+        /// until this catches up with <see cref="Opens"/>, so it is the half of the count a customer sees.
+        /// </summary>
+        public int Closes { get; private set; }
+
+        /// <summary>Frames delivered so far, across every open.</summary>
+        public int Yielded { get; private set; }
+
+        /// <summary>What is delivered once the script has run out, until the device is closed.</summary>
+        public short[] KeepsSaying { get; set; } = new short[Rate * 32 / 1000];
 
         public string? DeviceName => "Live Fake Microphone";
 
         public int SampleRate => Rate;
 
+        /// <summary>What the next open plays before <see cref="KeepsSaying"/> takes over.</summary>
+        public void Replay(params short[][][] next) => _frames = [.. next.SelectMany(run => run)];
+
         public async IAsyncEnumerable<ReadOnlyMemory<short>> ListenAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
             Opens++;
-            foreach (var frame in _frames)
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                yield return frame;
-                await Task.Yield();
-            }
+                foreach (var frame in _frames)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    Yielded++;
+                    yield return frame;
+                    await Task.Yield();
+                }
 
-            while (!ct.IsCancellationRequested)
+                while (!ct.IsCancellationRequested)
+                {
+                    Yielded++;
+                    yield return KeepsSaying;
+                    await Task.Delay(1, CancellationToken.None);
+                }
+            }
+            finally
             {
-                yield return _quiet;
-                await Task.Delay(1, CancellationToken.None);
+                // Disposing the enumerator is how the recorder closes the device, so this is where a real
+                // microphone lets go of the endpoint.
+                Closes++;
             }
         }
 
