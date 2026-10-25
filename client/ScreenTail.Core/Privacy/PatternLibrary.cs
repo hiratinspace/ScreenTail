@@ -61,7 +61,8 @@ internal static partial class PatternLibrary
     /// Only words the old walk stopped on belong here. "has", "have" and "been" do not: the old walk
     /// read them as ordinary words and masked one reached through an assertion ("the passphrase is have
     /// fun"), so skipping them would store what it masked. Read as ordinary words they still reach a
-    /// value further on, because the walk now carries on past prose: "has been reset to Spring2027".
+    /// value further on: the walk carries on past prose ("has been reset to Spring2027"), and a mask
+    /// that lands on one runs on to the value (see <see cref="Through"/>).
     /// </summary>
     private static readonly HashSet<string> Clause = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -186,14 +187,23 @@ internal static partial class PatternLibrary
                 // "reset the password for the user on ticket 48213" stays as written.
                 if (asserted || !pastProse || !References.Contains(previous))
                 {
-                    return (start, SecretEnd(text, start + length) - start);
+                    // Shouted on a screen, "HAS" and "BEEN" look like secrets too, and so does a dash
+                    // standing between words; they are the sentence on its way to one ("PASSWORD HAS
+                    // BEEN RESET TO SPRING2027", "password - is Winter2026"), so their mask runs on.
+                    var end = SecretEnd(text, start + length);
+                    return Auxiliary.Contains(value) || IsPunctuation(value)
+                        ? Through(text, start, end, MaxWalk - steps - 1, asserted, takePlain: asserted)
+                        : (start, end - start);
                 }
             }
             else if (asserted)
             {
                 // An ordinary word reached through an assertion is taken as the secret however plain it
                 // looks: "Wi-Fi password: sunshine", "the wifi password on the router is sunshine" (ST-115).
-                return (start, SecretEnd(text, start + length) - start);
+                // It may also be the sentence carrying on to the secret ("password: has been reset to
+                // Spring2027", "the password is probably Winter2026"), so the mask runs on to a later
+                // secret-like word when there is one. It never covers less than the plain word alone.
+                return Through(text, start, SecretEnd(text, start + length), MaxWalk - steps - 1, asserted: true, takePlain: Auxiliary.Contains(value));
             }
 
             // Where the old walk returned null. The sentence is still saying what the credential is for
@@ -205,6 +215,100 @@ internal static partial class PatternLibrary
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The words that carry a sentence from a cue to its value ("has been reset to") without being part
+    /// of either. Read as ordinary words, because the walk has always masked one reached through an
+    /// assertion, and a passphrase can start with one ("is have fun"). Where the walk lands on one of
+    /// them, its mask runs on to the secret-like word after it instead of stopping short of it.
+    /// </summary>
+    private static readonly HashSet<string> Auxiliary = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "has", "have", "had", "been",
+    };
+
+    /// <summary>
+    /// The span from <paramref name="start"/> to the first secret-like word after
+    /// <paramref name="end"/>, within <paramref name="budget"/> words, or the span to
+    /// <paramref name="end"/> when there is none. Never shorter than what it was given, so a word the
+    /// walk took as the secret stays masked whatever follows it. Stops at a full stop, at a word that
+    /// ends a sentence about a password ("but", "expired"), and, with nothing asserting a value,
+    /// before a number that follows "ticket" or "port", the same as the walk.
+    /// </summary>
+    /// <param name="takePlain">
+    /// Whether a plain word counts as the end of the secret too, as it does after an asserted
+    /// <see cref="Auxiliary"/> word.
+    /// </param>
+    private static (int Start, int Length) Through(string text, int start, int end, int budget, bool asserted, bool takePlain)
+    {
+        var at = end;
+        var previous = string.Empty;
+        for (var steps = 0; steps < budget; steps++)
+        {
+            if (NextWord(text, at) is not { } word)
+            {
+                break;
+            }
+
+            asserted |= text.AsSpan(at, word.Start - at).IndexOfAny(':', '=') >= 0;
+            var value = text.Substring(word.Start, word.Length);
+            asserted |= Assertive.Contains(value);
+            var joining = Connectives.Contains(value) || Clause.Contains(value) || Auxiliary.Contains(value) || IsPunctuation(value);
+            if (!joining && NotSecrets.Contains(value))
+            {
+                break;
+            }
+
+            if (!joining && LooksLikeSecret(value))
+            {
+                if (!asserted && References.Contains(previous))
+                {
+                    break;
+                }
+
+                return (start, SecretEnd(text, word.Start + word.Length) - start);
+            }
+
+            // After an asserted "has", "been" or dash, the first plain word is taken too, the way the
+            // walk takes one straight after "is": "pwd=has, tomato", "the passphrase is have fun". With
+            // a joining word behind it the sentence is still on its way, and the reading goes on.
+            if (!joining && takePlain && !FollowedByJoining(text, word.Start + word.Length))
+            {
+                return (start, SecretEnd(text, word.Start + word.Length) - start);
+            }
+
+            previous = value;
+            at = word.Start + word.Length;
+        }
+
+        return (start, end - start);
+    }
+
+    /// <summary>A word with no letter or digit in it: a dash or a slash standing between words.</summary>
+    private static bool IsPunctuation(string value)
+    {
+        foreach (var c in value)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether the next word is any of those <see cref="Through"/> reads past: "has since been".</summary>
+    private static bool FollowedByJoining(string text, int after)
+    {
+        if (NextWord(text, after) is not { } following)
+        {
+            return false;
+        }
+
+        var value = text.Substring(following.Start, following.Length);
+        return Connectives.Contains(value) || Clause.Contains(value) || Auxiliary.Contains(value) || IsPunctuation(value);
     }
 
     private static bool FollowedByConnective(string text, int after) =>

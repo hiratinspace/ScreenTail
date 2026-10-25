@@ -58,6 +58,19 @@ public sealed class SpokenPasswordTests
     // through an assertion it is the secret, as it always was, and walking past it would store it.
     [InlineData("the guest wifi passphrase is have fun", "have")]
     [InlineData("the new passphrase is been there done that", "been")]
+    [InlineData("the guest wifi passphrase is have fun", "fun")]
+    [InlineData("pwd=has, tomato", "tomato")]
+    [InlineData("Wi-Fi password: - sunshine", "sunshine")]
+    // The same words carrying the sentence on to the secret after an assertion. Masking the joining word
+    // alone and stopping there would leave the value in the transcript.
+    [InlineData("Password: has been reset to Spring2027", "Spring2027")]
+    [InlineData("the password that was set has been reset to Spring2027", "Spring2027")]
+    [InlineData("PASSWORD: HAS BEEN RESET TO SPRING2027", "SPRING2027")]
+    [InlineData("the password: has since been reset to Winter2026", "Winter2026")]
+    [InlineData("their passcode has now been changed to 4821", "4821")]
+    [InlineData("the password is probably Winter2026", "Winter2026")]
+    [InlineData("the password - is Winter2026", "Winter2026")]
+    [InlineData("Wi-Fi password - set to Spring2027", "Spring2027")]
     public void TheSecretIsMaskedHoweverLongTheRunUpToIt(string spoken, string secret)
     {
         var scrubbed = new RedactionEngine().ScrubText(spoken);
