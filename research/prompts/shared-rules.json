@@ -23,7 +23,12 @@
     "refused is deliberately not changed here; that is a separate redesign (T-204).",
     "",
     "Credentials are refused by shape only (the owner's option A, 2026-10-24): 'secret_shaped' after a",
-    "'credential_cue', 'key_shapes', 'key_cue_value', cards and SSNs. A plain word after a cue is not."
+    "'credential_cue', 'key_shapes', 'key_cue_value', cards and SSNs. A plain word after a cue is not.",
+    "",
+    "A text is read only while its decomposition stays within 'read_growth' code points for each of its",
+    "own and 'read_slack' more. Past that the reading stops and the text is refused, because NFKC can",
+    "make one character eighteen (U+FDFA) and a validator that reads whatever it is sent can be made to",
+    "spend without limit. agreement-cases.json.gz pins both sides of the line."
   ],
   "redaction_markers": [
     "[REDACTED]",
@@ -101,6 +106,8 @@
     "been"
   ],
   "walk_steps": "6",
+  "read_growth": "4",
+  "read_slack": "64",
   "sentence_ends": ".;!?",
   "value_breaks": ",.;!?:=\"'",
   "secret_shaped": "^(?=.*[A-Za-z])(?=.*[0-9])[\\x21-\\x7e]{6,}$|^[\\x21-\\x7e]{16,}$",

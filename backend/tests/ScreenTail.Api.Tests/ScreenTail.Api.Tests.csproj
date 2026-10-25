@@ -27,6 +27,7 @@
     <EmbeddedResource Include="..\..\..\research\prompts\hardening-cases.json" LogicalName="ScreenTail.Api.Tests.hardening-cases.json" />
     <EmbeddedResource Include="..\..\..\research\prompts\shared-rules.json" LogicalName="ScreenTail.Api.Tests.shared-rules.json" />
     <EmbeddedResource Include="..\..\..\research\prompts\differential-cases.json" LogicalName="ScreenTail.Api.Tests.differential-cases.json" />
+    <EmbeddedResource Include="..\..\..\research\prompts\agreement-cases.json.gz" LogicalName="ScreenTail.Api.Tests.agreement-cases.json.gz" />
     <EmbeddedResource Include="..\..\..\shared\contracts\summarize-request.v1.json" LogicalName="ScreenTail.Api.Tests.summarize-request.v1.json" />
     <EmbeddedResource Include="..\..\..\shared\contracts\summarize-response.v1.json" LogicalName="ScreenTail.Api.Tests.summarize-response.v1.json" />
     <EmbeddedResource Include="..\..\..\shared\contracts\publish-request.v1.json" LogicalName="ScreenTail.Api.Tests.publish-request.v1.json" />
