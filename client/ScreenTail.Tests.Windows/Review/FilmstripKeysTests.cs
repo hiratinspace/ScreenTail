@@ -25,39 +25,61 @@ public sealed class FilmstripKeysTests
             var frames = new RecordingFrames();
             var strip = new FilmstripViewModel(Session(Frames(2)), frames);
             var list = new ListBox { ItemsSource = strip.Items };
-            var reachedKeyDown = false;
-            list.KeyDown += (_, e) => reachedKeyDown |= e.Key == Key.Space;
             list.PreviewKeyDown += (_, e) => FilmstripKeys.Handle(strip, list.SelectedItem as FrameItem, e, () => { });
-            var window = UiThread.Shown(list);
-            try
+            UiThread.Laid(list);
+            var first = strip.Items.OfType<FrameItem>().First();
+            list.SelectedItem = first;
+            var cell = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromItem(first));
+
+            Assert.True(UiThread.Press(cell, Key.Space));
+            await System.Windows.Threading.Dispatcher.Yield();
+
+            Assert.False(first.Included);
+            Assert.Equal("excluded", first.StateLabel);
+            Assert.Equal([("f1", false)], frames.Included);
+            Assert.Equal(["f2"], strip.IncludedFrameIds);
+
+            // The other chords go the same way.
+            Assert.True(UiThread.Press(cell, Key.Space));
+            await System.Windows.Threading.Dispatcher.Yield();
+            Assert.True(first.Included);
+            Assert.True(UiThread.Press(cell, Key.Delete));
+            await System.Windows.Threading.Dispatcher.Yield();
+            Assert.DoesNotContain(first, strip.Items);
+            Assert.True(strip.HasUndoToast);
+        });
+    }
+
+    [Fact]
+    public void TheSameHandlerOnKeyDownNeverSeesSpace()
+    {
+        // The negative control, and the bug as it shipped: the ListBox's own key handling takes Space on
+        // one of its items for selection and marks it handled, so a KeyDown handler on the ListBox never
+        // runs and the frame stays included. If this ever passes Space through, the test above proves
+        // nothing about PreviewKeyDown.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var frames = new RecordingFrames();
+            var strip = new FilmstripViewModel(Session(Frames(2)), frames);
+            var list = new ListBox { ItemsSource = strip.Items };
+            var sawSpace = false;
+            list.KeyDown += (_, e) =>
             {
-                var first = strip.Items.OfType<FrameItem>().First();
-                list.SelectedItem = first;
-                window.UpdateLayout();
-                var cell = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromItem(first));
+                sawSpace |= e.Key == Key.Space;
+                FilmstripKeys.Handle(strip, list.SelectedItem as FrameItem, e, () => { });
+            };
+            UiThread.Laid(list);
+            var first = strip.Items.OfType<FrameItem>().First();
+            list.SelectedItem = first;
+            var cell = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromItem(first));
 
-                Assert.True(UiThread.Press(cell, Key.Space));
-                await System.Windows.Threading.Dispatcher.Yield();
+            Assert.True(UiThread.Press(cell, Key.Space), "the ListBox handles Space on one of its items");
+            await System.Windows.Threading.Dispatcher.Yield();
 
-                Assert.False(first.Included);
-                Assert.Equal("excluded", first.StateLabel);
-                Assert.Equal([("f1", false)], frames.Included);
-                Assert.Equal(["f2"], strip.IncludedFrameIds);
-                Assert.False(reachedKeyDown, "the ListBox took Space before a KeyDown handler could see it; the strip has to listen on PreviewKeyDown");
-
-                // The other chords go the same way.
-                Assert.True(UiThread.Press(cell, Key.Space));
-                await System.Windows.Threading.Dispatcher.Yield();
-                Assert.True(first.Included);
-                Assert.True(UiThread.Press(cell, Key.Delete));
-                await System.Windows.Threading.Dispatcher.Yield();
-                Assert.DoesNotContain(first, strip.Items);
-                Assert.True(strip.HasUndoToast);
-            }
-            finally
-            {
-                window.Close();
-            }
+            Assert.False(sawSpace, "a KeyDown handler on the ListBox saw Space");
+            Assert.True(first.Included);
+            Assert.Empty(frames.Included);
         });
     }
 

@@ -39,15 +39,14 @@ public sealed class NoteEditorKeysTests
     public void EnterAtTheEndOfAStepStartsTheNextOneAndBackspaceRemovesAnEmptyOne()
     {
         // T-168, against a real multiline TextBox: the editing commands take Enter and Backspace on
-        // KeyDown, so the step box has to act on PreviewKeyDown or never act at all.
+        // KeyDown, so the step box has to act on PreviewKeyDown or never act at all. Which event the view
+        // listens on is pinned by TheStepBoxListensBeforeTheTextBoxDoes; this pins what the routing does.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         UiThread.Run(async () =>
         {
             var model = new NoteEditorViewModel(Session(Frames(1)));
             var current = model.Steps.Single();
             var box = new TextBox { AcceptsReturn = true, TextWrapping = System.Windows.TextWrapping.Wrap, Text = current.Text };
-            var reachedKeyDown = false;
-            box.KeyDown += (_, e) => reachedKeyDown |= e.Key is Key.Enter or Key.Back;
             box.PreviewKeyDown += (_, e) =>
             {
                 switch (NoteEditorKeys.Route(e.Key, e.SystemKey, e.KeyboardDevice.Modifiers, box.CaretIndex == box.Text.Length, box.Text.Length == 0))
@@ -71,29 +70,20 @@ public sealed class NoteEditorKeysTests
                         break;
                 }
             };
-            var window = UiThread.Shown(box);
-            try
-            {
-                box.CaretIndex = box.Text.Length;
+            box.CaretIndex = box.Text.Length;
 
-                Assert.True(UiThread.Press(box, Key.Enter));
+            Assert.True(UiThread.Press(box, Key.Enter));
 
-                Assert.Equal(2, model.Steps.Count);
-                Assert.Equal("Checked the spooler service.", model.Steps[0].Text);
-                Assert.Equal(string.Empty, model.Steps[1].Text);
-                Assert.Equal(string.Empty, box.Text);
+            Assert.Equal(2, model.Steps.Count);
+            Assert.Equal("Checked the spooler service.", model.Steps[0].Text);
+            Assert.Equal(string.Empty, model.Steps[1].Text);
+            Assert.Equal(string.Empty, box.Text);
 
-                Assert.True(UiThread.Press(box, Key.Back));
+            Assert.True(UiThread.Press(box, Key.Back));
 
-                Assert.Equal("Checked the spooler service.", Assert.Single(model.Steps).Text);
-                Assert.Equal("Checked the spooler service.", box.Text);
-                Assert.False(reachedKeyDown, "the TextBox ran Enter and Backspace as editing commands before a KeyDown handler could see them; the step box has to listen on PreviewKeyDown");
-                await System.Windows.Threading.Dispatcher.Yield();
-            }
-            finally
-            {
-                window.Close();
-            }
+            Assert.Equal("Checked the spooler service.", Assert.Single(model.Steps).Text);
+            Assert.Equal("Checked the spooler service.", box.Text);
+            await System.Windows.Threading.Dispatcher.Yield();
         });
     }
 
