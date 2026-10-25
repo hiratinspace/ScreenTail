@@ -148,3 +148,5 @@ if ($bad -gt 0) {
     exit 1
 }
 Write-Host "All $n skip gate cases gave the right answer."
+# The last case leaves its expected exit 1 in $LASTEXITCODE, which the step would otherwise report.
+exit 0

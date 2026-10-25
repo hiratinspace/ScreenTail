@@ -20,11 +20,12 @@ public sealed class HotkeyHostTests
         // shows up in Conflicts: the old set is not released, so the technician's old chord goes on
         // doing something and nobody else can have it; or the new set is made without the handler, so
         // the new chord registers and does nothing. The chords are not the defaults, so a ScreenTail
-        // installed on this machine does not take them first.
+        // installed on this machine does not take them first, and they are three-modifier letters rather
+        // than Ctrl+Alt function keys, which graphics drivers hold (the laptop's holds Ctrl+Alt+F8).
         Assert.SkipUnless(OnWindows, "Windows only.");
         var ct = TestContext.Current.CancellationToken;
-        var before = Chords(HotkeyModifiers.Control | HotkeyModifiers.Shift);
-        var after = Chords(HotkeyModifiers.Control | HotkeyModifiers.Alt);
+        var before = Chords("H", "L", "N", "O");
+        var after = Chords("G", "Q", "V", "Z");
         var pressed = new ConcurrentQueue<HotkeyAction>();
         var arrived = new SemaphoreSlim(0);
 
@@ -62,11 +63,13 @@ public sealed class HotkeyHostTests
         Assert.Equal(HotkeyAction.PauseOrResume, action);
     }
 
-    private static Dictionary<HotkeyAction, Hotkey> Chords(HotkeyModifiers modifiers) => new()
+    private const HotkeyModifiers Three = HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift;
+
+    private static Dictionary<HotkeyAction, Hotkey> Chords(string start, string pause, string stop, string mark) => new()
     {
-        [HotkeyAction.StartCapture] = new(modifiers, "F5"),
-        [HotkeyAction.PauseOrResume] = new(modifiers, "F6"),
-        [HotkeyAction.StopAndDraft] = new(modifiers, "F7"),
-        [HotkeyAction.MarkMoment] = new(modifiers, "F8"),
+        [HotkeyAction.StartCapture] = new(Three, start),
+        [HotkeyAction.PauseOrResume] = new(Three, pause),
+        [HotkeyAction.StopAndDraft] = new(Three, stop),
+        [HotkeyAction.MarkMoment] = new(Three, mark),
     };
 }
