@@ -43,11 +43,20 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
 
     private DateTimeOffset? _lastVacuum;
 
-    /// <summary>The session a retention pass must leave alone, read off the machine's snapshot.</summary>
+    /// <summary>
+    /// The session a retention pass must leave alone, read off the machine's snapshot: its id while it
+    /// is recording, paused, suppressed or finalizing, and null otherwise.
+    ///
+    /// The snapshot keeps naming a session after it finalizes, so Review can find the draft. Taken as the
+    /// exemption, that kept the last session of the day out of retention, and VACUUM waiting, until the
+    /// next session or a restart (INV-12). A finished session ages out like any other.
+    /// </summary>
     public static string? SessionBeingRecorded(CaptureStateSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return snapshot.SessionId;
+        return snapshot.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing
+            ? snapshot.SessionId
+            : null;
     }
 
     /// <summary>
@@ -145,29 +154,139 @@ public static class LocalDataEraser
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         Directory.CreateDirectory(dataDirectory);
 
-        // Contents are deliberately nothing: its existence is the whole message, and a file in a
-        // directory that is about to be deleted is no place for anything about a session (INV-10).
+        // Contents are deliberately nothing: an empty marker owes everything, which is what was asked
+        // for. Only a sweep that could not finish writes into it, and then only the names of what it
+        // could not remove, never anything about a session (INV-10).
         File.WriteAllBytes(Path.Combine(dataDirectory, PendingMarker), []);
     }
 
     public static bool IsPending(string dataDirectory) =>
         File.Exists(Path.Combine(dataDirectory, PendingMarker));
 
-    /// <summary>What an unfinished erasure still has to remove, by name; empty when nothing is narrowed.</summary>
+    /// <summary>
+    /// The line that ends a narrowed marker. A marker cut short by a crash part way through writing it has
+    /// no such line, and is read as the original request: everything.
+    /// </summary>
+    private const string OwedEnd = "end";
+
+    /// <summary>The most of a marker that is read. A longer one is not a list this class wrote.</summary>
+    private const int LongestMarker = 64 * 1024;
+
+    /// <summary>The names whose survival means the store must not be opened: a fresh one would reuse them.</summary>
+    private static readonly string[] StoreFiles = ["store.key", "store.db", "store.db-wal", "store.db-shm", "store.db-journal"];
+
+    /// <summary>
+    /// What an unfinished erasure still has to remove, by name, or empty when the marker is not narrowed:
+    /// none is pending, or the whole of the data directory is still owed.
+    ///
+    /// An erasure is of what existed when it was asked for (2026-10-12 review, T-59). The marker used to
+    /// mean "everything, whenever you next start", so a sweep that could not remove one folder left the
+    /// next start deleting every session recorded since. A sweep that cannot finish now writes down the
+    /// names of what it could not remove, and the next start removes those and nothing newer. Only names
+    /// of entries directly in the data directory go in it, never anything about a session (INV-10).
+    /// </summary>
     public static IReadOnlyList<string> StillOwed(string dataDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
-        return [];
+        return ReadOwed(dataDirectory) ?? [];
+    }
+
+    /// <summary>
+    /// Whether the store must stay closed: an erasure is pending and it still owes the whole directory,
+    /// the store's file or its key. A store opened then would be the old key under a new file, or the old
+    /// file under a new key, and the erasure that finishes later would take whatever was recorded into it.
+    /// </summary>
+    public static bool StoreIsStillOwed(string dataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        if (!IsPending(dataDirectory))
+        {
+            return false;
+        }
+
+        return ReadOwed(dataDirectory) is not { } owed
+            || owed.Any(name => StoreFiles.Contains(name, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
     /// Finishes an erasure that was asked for and did not happen. Called before the store is opened.
+    /// When an earlier sweep narrowed the marker, only what it names is removed.
     /// </summary>
     /// <returns>Null when none was owed, so a caller can tell "nothing to do" from "done".</returns>
     public static ErasureResult? EraseIfPending(string dataDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
-        return IsPending(dataDirectory) ? Erase(dataDirectory) : null;
+        return IsPending(dataDirectory) ? Erase(dataDirectory, AppContext.BaseDirectory, ReadOwed(dataDirectory)) : null;
+    }
+
+    /// <summary>
+    /// The names a narrowed marker owes, or null when it owes everything. Anything this class would not
+    /// have written (a path, a name it keeps, a list with no end line, an unreadable file) is everything:
+    /// fail closed, towards the erasure that was promised (INV-12).
+    /// </summary>
+    private static List<string>? ReadOwed(string dataDirectory)
+    {
+        string text;
+        try
+        {
+            var marker = new FileInfo(Path.Combine(dataDirectory, PendingMarker));
+            if (!marker.Exists || marker.Length == 0 || marker.Length > LongestMarker)
+            {
+                return null;
+            }
+
+            text = File.ReadAllText(marker.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        var lines = text.Split('\n').Select(line => line.TrimEnd('\r')).ToList();
+        while (lines.Count > 0 && lines[^1].Length == 0)
+        {
+            lines.RemoveAt(lines.Count - 1);
+        }
+
+        if (lines.Count < 2 || lines[^1] != OwedEnd)
+        {
+            return null;
+        }
+
+        var names = lines[..^1];
+        return names.All(IsOwnableName) ? names : null;
+    }
+
+    /// <summary>A name directly in the data directory that an erasure may owe.</summary>
+    private static bool IsOwnableName(string name) =>
+        name.Length is > 0 and <= 255
+        && name.Trim() == name
+        && name is not "." and not ".."
+        && name.IndexOfAny(['/', '\\', ':']) < 0
+        && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+        && !name.Equals(KeptDirectory, StringComparison.OrdinalIgnoreCase)
+        && !name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Narrows the marker to what is still owed. When the list cannot be written the marker is left as it
+    /// was, which owes at least as much.
+    /// </summary>
+    private static void Narrow(string dataDirectory, List<string> owed)
+    {
+        if (owed.Count == 0 || !owed.All(IsOwnableName))
+        {
+            return;
+        }
+
+        try
+        {
+            var names = owed.Distinct(StringComparer.OrdinalIgnoreCase).Append(OwedEnd);
+            File.WriteAllText(Path.Combine(dataDirectory, PendingMarker), string.Join('\n', names) + "\n");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The marker as it stood owes the same or more.
+        }
     }
 
     /// <summary>
@@ -184,17 +303,26 @@ public static class LocalDataEraser
     /// like the models: deleting a running program fails part way, leaves a copy that will not start, and
     /// keeps the erasure owed on every start after, which wipes each new session too.
     /// </param>
-    internal static ErasureResult Erase(string dataDirectory, string? runningFrom)
+    internal static ErasureResult Erase(string dataDirectory, string? runningFrom) => Erase(dataDirectory, runningFrom, only: null);
+
+    /// <param name="dataDirectory">The folder to empty.</param>
+    /// <param name="runningFrom">Where this program's own files are; see the overload above.</param>
+    /// <param name="only">
+    /// The names an earlier, unfinished sweep still owes, or null for everything. Whatever was written
+    /// beside them since is not part of the erasure that was asked for, and stays.
+    /// </param>
+    internal static ErasureResult Erase(string dataDirectory, string? runningFrom, IReadOnlyCollection<string>? only)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         var deleted = new List<string>();
         var complete = true;
+        var refused = new List<string>();
         var program = FolderHolding(dataDirectory, runningFrom);
 
         foreach (var name in SecretsFirst)
         {
             var path = Path.Combine(dataDirectory, name);
-            if (File.Exists(path))
+            if (Owed(name) && File.Exists(path))
             {
                 Count(path, Remove(new FileInfo(path)));
             }
@@ -220,7 +348,8 @@ public static class LocalDataEraser
         {
             if (entry.Name.Equals(KeptDirectory, StringComparison.OrdinalIgnoreCase)
                 || entry.Name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase)
-                || entry.Name.Equals(program, StringComparison.OrdinalIgnoreCase))
+                || entry.Name.Equals(program, StringComparison.OrdinalIgnoreCase)
+                || !Owed(entry.Name))
             {
                 continue;
             }
@@ -228,15 +357,22 @@ public static class LocalDataEraser
             Count(Path.Combine(dataDirectory, entry.Name), Remove(entry));
         }
 
-        // Last, and only when there is nothing left to owe. While it is there, the next start finishes
-        // the job rather than opening what survived.
         if (complete && IsPending(dataDirectory))
         {
+            // Last, and only when there is nothing left to owe. While it is there, the next start
+            // finishes the job rather than opening what survived.
             var marker = Path.Combine(dataDirectory, PendingMarker);
             Count(marker, Remove(new FileInfo(marker)));
         }
+        else if (!complete && IsPending(dataDirectory))
+        {
+            // Owed is what would not go, and nothing that is written after this.
+            Narrow(dataDirectory, refused);
+        }
 
         return new ErasureResult(deleted, complete);
+
+        bool Owed(string name) => only is null || only.Contains(name, StringComparer.OrdinalIgnoreCase);
 
         void Count(string path, Outcome outcome)
         {
@@ -247,6 +383,7 @@ public static class LocalDataEraser
             else if (outcome == Outcome.Refused)
             {
                 complete = false;
+                refused.Add(Path.GetFileName(path));
             }
         }
     }

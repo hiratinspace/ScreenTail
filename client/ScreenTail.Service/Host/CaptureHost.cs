@@ -85,6 +85,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             LogErased(logger, owed.Deleted.Count, owed.Complete);
         }
 
+        // An erasure that could not finish owes only what it could not remove, so a store written from
+        // here on is not part of it. Unless what it owes is the store or its key: a store opened beside
+        // either is one the erasure takes with it when it finishes, so the service does not run until the
+        // next start manages it (INV-12).
+        if (LocalDataEraser.StoreIsStillOwed(DataDirectory))
+        {
+            LogStoreStillOwed(logger);
+            lifetime.StopApplication();
+            return;
+        }
+
         await using var store = await SqliteSessionStore.OpenAsync(
             Path.Combine(DataDirectory, "store.db"),
             new DpapiKeyProvider(DpapiKeyProvider.DefaultKeyFilePath),
@@ -557,7 +568,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             narration.Microphone);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
-        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => machine.SessionId);
+        // The exemption is the session being recorded, read off the state and not the id alone: the
+        // machine keeps naming a session after it finishes, and that one ages out like any other.
+        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => RetentionJob.SessionBeingRecorded(machine.Snapshot));
 
         // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
         // technician is not waiting on, and a tight loop on a laptop is a battery complaint.
@@ -631,6 +644,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Erased {Count} item(s) of local data; complete={Complete}")]
     private static partial void LogErased(ILogger logger, int count, bool complete);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An erasure of local data is still owed the store or its key; the service will not open a store until it finishes")]
+    private static partial void LogStoreStillOwed(ILogger logger);
 
     /// <summary>
     /// Works the outbox until the service stops.
