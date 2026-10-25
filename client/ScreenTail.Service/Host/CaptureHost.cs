@@ -129,7 +129,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // The model hosts are named because the transcriber cannot fetch its model otherwise. The
         // backend host is on the backend list and the publish list both, so under local-only the purpose
         // each sender attaches is what keeps a draft in (INV-8); LocalOnlyEgressTests pins that shape.
-        var egressPolicy = new EgressPolicy(EgressSettings.ForBackend(backend, SpeechModels.Hosts));
+        // ClientEgress builds it, the same function the --transcribe tool asks, and ClientEgressTests
+        // holds it to every hop a model download makes.
+        var egressPolicy = new EgressPolicy(ClientEgress.Settings(backend));
         var egress = new EgressGuard(egressPolicy);
 
         // ST-047: the tenant's policy changes these in place while the service runs. The technician's
