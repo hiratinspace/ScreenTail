@@ -253,6 +253,54 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         Assert.Equal(2, guard.Holds);
     }
 
+    [Fact]
+    public async Task AGuardWhoseCheckThrowsKeepsGuarding()
+    {
+        // The 2026-09-19 fail-open, kept closed. The guard's loop caught cancellation and nothing else, so
+        // one exception from a pass ended it for the life of the service, and capture carried on with no
+        // indicator and nothing watching for one. The loop lives in ResilientLoop now; this runs the real
+        // RunAsync through a pass that throws so that inlining a plain loop again goes red (T-39).
+        var machine = await RecordingAsync();
+        var calls = 0;
+        var guard = new IndicatorGuard(
+            machine,
+            () => Interlocked.Increment(ref calls) == 1 ? throw new InvalidOperationException("the pill could not be asked") : false,
+            options: new IndicatorOptions { Grace = TimeSpan.FromMilliseconds(20), Tick = TimeSpan.FromMilliseconds(5) });
+        var failures = new List<Type>();
+        guard.Failed += ex => failures.Add(ex.GetType());
+        using var stop = new CancellationTokenSource();
+
+        var running = guard.RunAsync(stop.Token);
+        await WaitUntilAsync(() => machine.State == SessionState.Suppressed, running);
+        stop.Cancel();
+        await running;
+
+        Assert.Equal(1, guard.Failures);
+        Assert.Equal(typeof(InvalidOperationException), Assert.Single(failures));
+        Assert.True(guard.Holding);
+        Assert.True(calls > 1, "the loop stopped asking after the pass that threw");
+    }
+
+    /// <summary>
+    /// Waits for the loop to reach a state, failing fast if the loop ends first, which is what the
+    /// fail-open looks like from outside: RunAsync completes while the session is still Recording.
+    /// </summary>
+    internal static async Task WaitUntilAsync(Func<bool> condition, Task loop)
+    {
+        var deadline = Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        while (!condition())
+        {
+            var finished = await Task.WhenAny(loop, deadline, Task.Delay(5, TestContext.Current.CancellationToken));
+            if (finished == loop)
+            {
+                await loop;
+                Assert.Fail("the guard's loop ended instead of carrying on past the pass that threw");
+            }
+
+            Assert.NotSame(deadline, finished);
+        }
+    }
+
     /// <summary>
     /// Ticks once to notice the indicator is gone, waits past the grace, and ticks again.
     ///

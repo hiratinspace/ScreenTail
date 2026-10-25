@@ -300,6 +300,35 @@ public sealed class SensitiveContextGuardTests : IAsyncDisposable
         Assert.False(guard.Holding);
     }
 
+    [Fact]
+    public async Task AGuardWhosePassThrowsKeepsGuarding()
+    {
+        // The IndicatorGuard test's twin (T-39). The store refuses the first suppression write, the way a
+        // busy disk does; the pass throws, the loop counts it and carries on, and the next pass holds.
+        // A loop that ended on the first exception would leave the credential prompt on screen captured
+        // for as long as it stayed there (INV-6; the 2026-09-19 fail-open).
+        var ct = TestContext.Current.CancellationToken;
+        _harness = await MachineHarness.StartAsync();
+        var (store, gate) = SuppressionHoldsTests.GatedStore.Over(_harness.Store);
+        await using var machine = new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter());
+        Assert.True(await machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct));
+        var guard = new SensitiveContextGuard(machine, tick: TimeSpan.FromMilliseconds(5));
+        var failures = new List<Type>();
+        guard.Failed += ex => failures.Add(ex.GetType());
+        using var stop = new CancellationTokenSource();
+
+        guard.Seen(TimeSpan.FromMinutes(1));
+        gate.FailNext();
+        var running = guard.RunAsync(stop.Token);
+        await IndicatorGuardTests.WaitUntilAsync(() => machine.State == SessionState.Suppressed, running);
+        stop.Cancel();
+        await running;
+
+        Assert.Equal(1, guard.Failures);
+        Assert.Equal(typeof(IOException), Assert.Single(failures));
+        Assert.True(guard.Holding);
+    }
+
     private async Task<SessionMachine> RecordingAsync()
     {
         _harness = await MachineHarness.StartAsync();

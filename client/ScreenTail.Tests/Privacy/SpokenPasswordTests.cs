@@ -1,4 +1,5 @@
 using ScreenTail.Core.Privacy;
+using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Tests.Privacy;
 
@@ -37,11 +38,36 @@ public sealed class SpokenPasswordTests
     }
 
     [Theory]
+    // 2026-10-12 review, S-12. The walk gave up on the first ordinary word, on "which" and "when", and
+    // after five words, so each of these was stored verbatim with no audit row. A person says what the
+    // password is for before saying what it is, and the assertion ("is", "was reset to") is what marks
+    // the secret, however far along the sentence it comes.
+    [InlineData("the password for the domain admin account is Winter2026", "Winter2026")]
+    [InlineData("the password, which is Winter2026, has not changed", "Winter2026")]
+    [InlineData("the password when prompted is Winter2026", "Winter2026")]
+    [InlineData("the password has been reset to Spring2027", "Spring2027")]
+    [InlineData("the password for the user on ticket 48213 is Winter2026", "Winter2026")]
+    public void TheSecretIsMaskedHoweverLongTheRunUpToIt(string spoken, string secret)
+    {
+        var scrubbed = new RedactionEngine().ScrubText(spoken);
+
+        Assert.DoesNotContain(secret, scrubbed.Text, StringComparison.Ordinal);
+        // The audit row is the other half of the finding: a masked word nobody counted is a redaction the
+        // customer's audit export denies happened (INV-10).
+        Assert.Equal(1, scrubbed.Counts.GetValueOrDefault(MaskKind.Password));
+    }
+
+    [Theory]
     // Sentences about a password. Masking any of these teaches technicians to switch the rule off.
     [InlineData("the password is incorrect")]
     [InlineData("the password was wrong again")]
     [InlineData("their password expired")]
     [InlineData("Outlook kept prompting for a password")]
+    // Walking further must not start masking the technician's own account of what they did: a number
+    // the sentence never asserted is a ticket, and a plain word after a long run-up is prose.
+    [InlineData("reset the password for the user on ticket 48213")]
+    [InlineData("the password for the domain admin account is in the vault")]
+    [InlineData("the password which expired was for the service account")]
     public void ASentenceAboutAPasswordIsNotAPassword(string spoken)
     {
         Assert.Equal(spoken, Mask(spoken));
