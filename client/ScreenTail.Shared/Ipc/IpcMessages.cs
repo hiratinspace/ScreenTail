@@ -99,6 +99,10 @@ public sealed record DiscardCommand : IpcCommand
 /// The rectangle is the pill's own, in virtual-screen coordinates. It is there so the claim is a
 /// specific one a person could check against a screenshot rather than a bare assertion, and because the
 /// UI has to compute it anyway to know whether the pill is on a screen at all.
+///
+/// A zero width and height means the technician chose tray-only between sessions; the pill returns as a
+/// session starts. A session that starts must be followed by a report with the pill's real rectangle, or
+/// the zero-size one expires and the indicator guard suppresses capture after its grace.
 /// </summary>
 public sealed record IndicatorShowingCommand : IpcCommand
 {
