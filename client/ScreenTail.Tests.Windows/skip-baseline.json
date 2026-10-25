@@ -12,6 +12,9 @@
     "     raised' check in ci.yml, so loosening the gate is a decision someone makes in review rather than",
     "     a side effect of adding a skip.",
     "Lowering a number needs no ceremony, and a job says so whenever it skips fewer than its budget.",
+    "  3. A run with no tests in it fails whatever its budget, and so does a run in which a test named",
+    "     in an environment's optional mustRun list did not pass. '0 of 0 skipped' is what renaming the",
+    "     class the input job filters to would report, and INV-2's only end-to-end proof is in it.",
     "",
     "The same assembly is run by three jobs with different permissions, so each gets its own number.",
     "All three were measured on 2026-09-16, not guessed."
@@ -27,7 +30,8 @@
     },
     "laptop-input": {
       "maxSkipped": 0,
-      "why": "SCREENTRAIL, input-injection job. Filtered to InputHookTests from 2026-09-21: the rest of the assembly had just been run by the capabilities job on the same machine, and the laptop runs one job at a time. Measured on 2026-09-16."
+      "mustRun": ["InputHookTests.TypingAPasswordRecordsOnlyHowManyKeys"],
+      "why": "SCREENTRAIL, input-injection job. Filtered to InputHookTests from 2026-09-21: the rest of the assembly had just been run by the capabilities job on the same machine, and the laptop runs one job at a time. Measured on 2026-09-16. TypingAPasswordRecordsOnlyHowManyKeys is INV-2's only end-to-end proof, so the gate requires it by name as well as by count."
     }
   }
 }

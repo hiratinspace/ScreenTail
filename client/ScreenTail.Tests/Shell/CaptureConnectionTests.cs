@@ -71,6 +71,39 @@ public sealed class CaptureConnectionTests
     }
 
     [Fact]
+    public async Task ADroppedConnectionIsReopenedAndTheOldChannelIsLetGo()
+    {
+        // T-78. A service that restarts mid-day drops every connection it had. The UI must open a new
+        // one by itself, and the old channel must be finished with: disposed, and no longer able to
+        // speak for the service, so a late event or a second drop from it cannot move the shell or
+        // start another reconnect.
+        var shell = new ShellState();
+        var first = new FakeChannel(Recording);
+        var second = new FakeChannel(new CaptureStateSnapshot { State = CaptureStates.Paused, SessionId = "s1" });
+        var opened = 0;
+        await using var connection = Connect(shell, () => ++opened == 1 ? first : second);
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+
+        first.Drop();
+
+        await WaitFor(() => opened == 2 && shell.Snapshot.Capture?.State == CaptureStates.Paused);
+        Assert.Equal(ServiceConnection.Connected, shell.Snapshot.Connection);
+        Assert.True(first.Disposed, "the dropped channel was not disposed");
+        Assert.False(second.Disposed);
+
+        // The old channel has nothing more to say. Neither a stale event nor a second drop counts.
+        first.Raise(new CaptureStateSnapshot { State = CaptureStates.Idle });
+        first.Drop();
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+
+        Assert.Equal(CaptureStates.Paused, shell.Snapshot.Capture!.State);
+        Assert.Equal(ServiceConnection.Connected, shell.Snapshot.Connection);
+        Assert.Equal(2, opened);
+        Assert.True(connection.IsConnected);
+    }
+
+    [Fact]
     public async Task AServiceThatIsNotThereYetIsUnavailableRatherThanAnError()
     {
         var shell = new ShellState();
@@ -441,6 +474,8 @@ public sealed class CaptureConnectionTests
 
         public bool IsConnected { get; private set; } = true;
 
+        public bool Disposed { get; private set; }
+
         public event Action<CaptureStateSnapshot>? StateChanged;
 
         public event Action? Disconnected;
@@ -484,6 +519,11 @@ public sealed class CaptureConnectionTests
                 : Task.FromException<TReply>(new IpcProtocolException("no reply set"));
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            IsConnected = false;
+            return ValueTask.CompletedTask;
+        }
     }
 }
