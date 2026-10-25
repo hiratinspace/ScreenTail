@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Ipc;
@@ -15,7 +16,7 @@ namespace ScreenTail.Core.Review.Publish;
 /// reason when there was no answer. The refusal is kept by request id between the two calls, because
 /// the server asks them in that order on the same connection.
 /// </summary>
-public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null, Intel.IStyleLearner? style = null)
+public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null, Intel.IStyleLearner? style = null, ILogger? log = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
@@ -178,19 +179,20 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
         {
             if (metrics is not null)
             {
-                await KeepingTheResultAsync(() => metrics.ReportAsync(publish.SessionId, published: true, ct)).ConfigureAwait(false);
+                await KeepingTheResultAsync("metrics", () => metrics.ReportAsync(publish.SessionId, published: true, ct)).ConfigureAwait(false);
             }
 
             if (style is not null)
             {
-                await KeepingTheResultAsync(() => style.LearnAsync(publish.SessionId, ct)).ConfigureAwait(false);
+                await KeepingTheResultAsync("style", () => style.LearnAsync(publish.SessionId, ct)).ConfigureAwait(false);
             }
         }
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
     }
 
-    private async Task KeepingTheResultAsync(Func<Task> bookkeeping)
+    /// <summary>Runs one piece of post-publish bookkeeping; a fault is kept and logged as its kind alone (INV-10).</summary>
+    private async Task KeepingTheResultAsync(string what, Func<Task> bookkeeping)
     {
         try
         {
@@ -198,9 +200,20 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
+            // The type, never the message or the exception itself: a store's words may quote what it held,
+            // and the session id is not the log's business either.
             LastBookkeepingError = error.GetType().Name;
+            if (log is not null)
+            {
+                BookkeepingFailed(log, what, LastBookkeepingError, null);
+            }
         }
     }
+
+    private static readonly Action<ILogger, string, string, Exception?> BookkeepingFailed = LoggerMessage.Define<string, string>(
+        LogLevel.Warning,
+        new EventId(1, nameof(BookkeepingFailed)),
+        "A publish landed, but its {Bookkeeping} bookkeeping failed with {Fault}; the results went back as they came");
 
     private IpcEvent? Refuse(IpcCommand command, string reason)
     {

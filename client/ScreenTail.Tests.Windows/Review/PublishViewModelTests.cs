@@ -70,6 +70,38 @@ public sealed class PublishViewModelTests
         Assert.Equal(45, Assert.Single(sent).Minutes);
     }
 
+    [Fact]
+    public async Task ARetryIsHeldByTheMinutesOnlyWhenTheTimeEntryIsWhatItSends()
+    {
+        // Retry sends only what failed. A time entry that failed goes again with the field's number, so a
+        // field that is not a whole number holds it; a ticket note that failed carries no minutes, so the
+        // same field does not.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var sent = new List<PublishRequest>();
+        var pane = Pane(sent, landed: d => d != Destination.TimeEntry);
+        await pane.PublishCommand.ExecuteAsync(null);
+        pane.Minutes = "1.5";
+
+        await pane.RetryCommand.ExecuteAsync(null);
+        Assert.Single(sent);
+
+        pane.Minutes = "45";
+        await pane.RetryCommand.ExecuteAsync(null);
+        var retried = sent[^1];
+        Assert.Equal([Destination.TimeEntry], retried.Destinations);
+        Assert.Equal(45, retried.Minutes);
+
+        var notes = new List<PublishRequest>();
+        var other = Pane(notes, landed: d => d != Destination.TicketNote);
+        await other.PublishCommand.ExecuteAsync(null);
+        other.Minutes = "1.5";
+
+        await other.RetryCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, notes.Count);
+        Assert.Equal([Destination.TicketNote], notes[^1].Destinations);
+    }
+
     private static async Task<NoteType> PublishedAsAsync(Action<PublishViewModel> choose)
     {
         var sent = new List<PublishRequest>();
@@ -79,9 +111,10 @@ public sealed class PublishViewModelTests
         return Assert.Single(sent).NoteType;
     }
 
-    private static PublishViewModel Pane(List<PublishRequest> sent)
+    private static PublishViewModel Pane(List<PublishRequest> sent, Func<Destination, bool>? landed = null)
     {
         var session = Session(Frames(1));
+        var tries = 0;
         var panel = new PublishPanel(
             session,
             ConnectWise,
@@ -89,7 +122,10 @@ public sealed class PublishViewModelTests
             (request, _) =>
             {
                 sent.Add(request);
-                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, true))]);
+
+                // The first try goes as `landed` says; a retry lands.
+                var first = tries++ == 0;
+                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, !first || landed?.Invoke(d) != false))]);
             });
         var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
         pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");

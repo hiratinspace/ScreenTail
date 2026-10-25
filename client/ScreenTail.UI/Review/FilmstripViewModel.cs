@@ -108,16 +108,24 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
 
     private CancellationToken _thumbnailToken;
 
+    private readonly TimeProvider _time;
+    private readonly TimeSpan _answerWait;
+
     /// <param name="frames">Where the images come from and where the edits go. In the running
     /// application that is the service, over the pipe; the harness passes nothing and shows no images.</param>
+    /// <param name="answerWait">How long leaving Review waits for the service to answer a permanent delete.
+    /// Three seconds unless a test says otherwise.</param>
     public FilmstripViewModel(
         Session session,
         IReviewFrames? frames = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        TimeSpan? answerWait = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _strip = new Filmstrip(session);
         _frames = frames;
+        _time = time ?? TimeProvider.System;
+        _answerWait = answerWait ?? TimeSpan.FromSeconds(3);
         _blur = frames is not null ? new FrameBlur(frames) : null;
 
         _deletes = new UndoWindow<FrameItem>(
@@ -251,7 +259,15 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     public async ValueTask DisposeAsync()
     {
         Dispose();
-        await Task.WhenAll([.. _committing]).ConfigureAwait(true);
+        try
+        {
+            // Bounded: the pipe may be busy behind a slow publish, and leaving Review must not hang on it.
+            // A delete still unanswered then keeps running and records its answer when it comes.
+            await Task.WhenAll([.. _committing]).WaitAsync(_answerWait, _time).ConfigureAwait(true);
+        }
+        catch (TimeoutException)
+        {
+        }
     }
 
     /// <summary>
@@ -293,11 +309,21 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
 
         // An exclusion the service did not record stays excluded here, so this publish leaves it out. But
         // the store still has it in, and the technician is told so rather than finding it back next time.
-        if (!recorded && !included)
+        if (recorded)
         {
-            EditError = $"The service did not record that {label} is excluded. It stays out of this publish, but it may be included again the next time this session is opened.";
+            EditLanded();
+        }
+        else if (!included)
+        {
+            EditError = NotExcluded(label);
         }
     }
+
+    private static string NotExcluded(string label) =>
+        $"The service did not record that {label} is excluded. It stays out of this publish, but it may be included again the next time this session is opened.";
+
+    /// <summary>The service is taking edits again, so the last refusal no longer describes the strip.</summary>
+    private void EditLanded() => EditError = null;
 
     /// <summary>
     /// `Del`. The frame leaves the strip at once and the toast offers five seconds to take it back; the
@@ -333,11 +359,19 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
         OnPropertyChanged(nameof(UndoToast));
         OnPropertyChanged(nameof(HasUndoToast));
 
-        // A frame that was already out has nothing to write. A refusal here needs no word of its own: the
-        // delete that follows goes to the same service, and its answer is the one reported.
+        // A frame that was already out has nothing to write. A refusal is said as a refused Space is: if the
+        // delete does not land either, the frame is back, included, the next time the session opens.
         if (wasIncluded && _frames is not null)
         {
-            _ = await _frames.SetIncludedAsync(item.Id, false).ConfigureAwait(true);
+            var label = item.Label;
+            if (await _frames.SetIncludedAsync(item.Id, false).ConfigureAwait(true))
+            {
+                EditLanded();
+            }
+            else
+            {
+                EditError = NotExcluded(label);
+            }
         }
     }
 
@@ -363,12 +397,20 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
         // Decided before the await: the load below must not see the frame as passed over if it is not.
         var missedByLoad = item.Thumbnail is null && _thumbnailsAt > Array.IndexOf(_frameItems, item);
 
-        if (_strip.IsIncluded(item.Id)
-            && _strip.Answered(item.Id, true, await _frames.SetIncludedAsync(item.Id, true).ConfigureAwait(true))
-            && _strip.Frames.FirstOrDefault(cell => cell.Frame.Id == item.Id) is { } cell)
+        if (_strip.IsIncluded(item.Id))
         {
-            item.Refresh(cell);
-            OnPropertyChanged(nameof(Header));
+            var recorded = await _frames.SetIncludedAsync(item.Id, true).ConfigureAwait(true);
+            if (recorded)
+            {
+                EditLanded();
+            }
+
+            if (_strip.Answered(item.Id, true, recorded)
+                && _strip.Frames.FirstOrDefault(cell => cell.Frame.Id == item.Id) is { } cell)
+            {
+                item.Refresh(cell);
+                OnPropertyChanged(nameof(Header));
+            }
         }
 
         // The thumbnail load skipped it while it was gone. If the load had already passed its place it will
@@ -504,7 +546,11 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
             deleted = false;
         }
 
-        if (!deleted)
+        if (deleted)
+        {
+            EditLanded();
+        }
+        else
         {
             EditError = $"The service did not confirm that {label} was deleted. Check it the next time this session is opened.";
         }

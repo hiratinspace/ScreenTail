@@ -99,6 +99,66 @@ public sealed class FilmstripEditTests
     }
 
     [Fact]
+    public async Task ADelWhoseExclusionWasNotRecordedIsSaidAndTheNextEditClearsIt()
+    {
+        // Del writes the exclusion at once (S-35). A refusal there is the same news as a refused Space:
+        // if the delete never lands either, the frame is back, included, next time.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new RecordingFrames { Records = false };
+        var strip = new FilmstripViewModel(Session(Frames(3)), frames);
+        var items = strip.Items.OfType<FrameItem>().ToList();
+
+        await strip.DeleteCommand.ExecuteAsync(items[0]);
+
+        Assert.Equal([("f1", false)], frames.Included);
+        Assert.True(strip.HasEditError);
+        Assert.Contains("frame 1", strip.EditError, StringComparison.Ordinal);
+
+        frames.Records = true;
+        await strip.ToggleIncludeCommand.ExecuteAsync(items[1]);
+
+        Assert.False(strip.HasEditError);
+        Assert.Null(strip.EditError);
+    }
+
+    [Fact]
+    public async Task AnEditThatLandsClearsTheLastRefusal()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new RecordingFrames { Records = false };
+        var strip = new FilmstripViewModel(Session(Frames(2)), frames);
+        var first = strip.Items.OfType<FrameItem>().First();
+
+        await strip.ToggleIncludeCommand.ExecuteAsync(first);
+        Assert.True(strip.HasEditError);
+
+        frames.Records = true;
+        await strip.ToggleIncludeCommand.ExecuteAsync(first);
+
+        Assert.True(first.Included);
+        Assert.False(strip.HasEditError);
+    }
+
+    [Fact]
+    public async Task LeavingReviewDoesNotWaitForeverOnADeleteTheServiceNeverAnswers()
+    {
+        // DisposeAsync waits for the permanent delete's answer, but only so long: the pipe may be stuck
+        // behind a slow publish, and leaving Review must not hang on it. The wait is bounded; here the
+        // bound is zero, so the test needs no clock.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new RecordingFrames { DeleteAnswer = new TaskCompletionSource<bool>() };
+        var strip = new FilmstripViewModel(Session(Frames(2)), frames, answerWait: TimeSpan.Zero);
+        await strip.DeleteCommand.ExecuteAsync(strip.Items.OfType<FrameItem>().First());
+
+        var leaving = strip.DisposeAsync();
+
+        Assert.True(leaving.IsCompleted, "leaving Review waited on a delete the service never answered");
+        await leaving;
+        Assert.Equal(["f1"], frames.Deleted);
+        frames.DeleteAnswer.SetResult(true);
+    }
+
+    [Fact]
     public async Task DeletingAnExcludedFrameWritesNothingAndUndoKeepsItExcluded()
     {
         // Already out, so there is nothing to persist, and an undo must not quietly put it back in.

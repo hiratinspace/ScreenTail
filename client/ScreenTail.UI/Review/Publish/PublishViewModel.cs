@@ -174,7 +174,8 @@ public sealed partial class PublishViewModel : ObservableObject
     [RelayCommand]
     private async Task RetryAsync()
     {
-        if (BlockedHere() is { } reason)
+        // Retry sends only what failed, so the minutes matter only when the time entry is among it.
+        if (BlockedHere(minutesMatter: _panel.Failed.Contains(Destination.TimeEntry)) is { } reason)
         {
             Summary = reason;
             return;

@@ -208,7 +208,9 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         // throws then must not turn into a dropped pipe and a result list that says every destination
         // failed, which is what the technician would read as "publish again".
         var metrics = new RecordingBookkeeping { Throws = true };
-        var commands = await CommandsAsync(metrics);
+        using var lines = new StringWriter();
+        using var logs = new ScreenTail.Shared.Logging.ScrubbingLoggerProvider(lines, Microsoft.Extensions.Logging.LogLevel.Information);
+        var commands = await CommandsAsync(metrics, logs.CreateLogger("publish"));
         await SeedAsync(["f1"]);
 
         var reply = await commands.ReplyToAsync(Publish(["f1"]));
@@ -218,7 +220,17 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         Assert.All(published.Results, r => Assert.True(r.Ok));
         Assert.Equal([("s1", true)], metrics.Reported);
         Assert.Equal(["s1"], metrics.Learned);
-        Assert.NotNull(commands.LastBookkeepingError);
+        Assert.Equal(nameof(InvalidOperationException), commands.LastBookkeepingError);
+
+        // Each fault is a line in the service's log with its kind and nothing it carried: not the
+        // exception's words, which a store may fill with what it held, and not the session.
+        var logged = lines.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, logged.Length);
+        Assert.All(logged, line => Assert.Contains(nameof(InvalidOperationException), line, StringComparison.Ordinal));
+        Assert.Contains(logged, line => line.Contains("metrics", StringComparison.Ordinal));
+        Assert.Contains(logged, line => line.Contains("style", StringComparison.Ordinal));
+        Assert.DoesNotContain("locked", lines.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("s1", lines.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -318,12 +330,12 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         FrameIds = frameIds,
     };
 
-    private async Task<PublishCommands> CommandsAsync(RecordingBookkeeping? bookkeeping = null)
+    private async Task<PublishCommands> CommandsAsync(RecordingBookkeeping? bookkeeping = null, Microsoft.Extensions.Logging.ILogger? log = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
         return bookkeeping is null
             ? new PublishCommands(_store, _gateway)
-            : new PublishCommands(_store, _gateway, bookkeeping, bookkeeping);
+            : new PublishCommands(_store, _gateway, bookkeeping, bookkeeping, log);
     }
 
     /// <summary>The metrics reporter and the style learner, remembering what they were told; optionally failing like a store that is down.</summary>

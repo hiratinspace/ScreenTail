@@ -110,10 +110,13 @@ internal static class ReviewSessions
             return Task.FromResult(Records);
         }
 
+        /// <summary>When set, a delete waits for this answer: a service that is slow, or never answers.</summary>
+        public TaskCompletionSource<bool>? DeleteAnswer { get; set; }
+
         public Task<bool> DeleteAsync(string frameId, CancellationToken ct = default)
         {
             Deleted.Add(frameId);
-            return Task.FromResult(Deletes);
+            return DeleteAnswer?.Task ?? Task.FromResult(Deletes);
         }
 
         public Task<byte[]?> BlurAsync(string frameId, MaskedRegion region, CancellationToken ct = default) => Task.FromResult(Image);
