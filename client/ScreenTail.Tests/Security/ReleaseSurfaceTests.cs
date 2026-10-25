@@ -137,7 +137,7 @@ public sealed class ReleaseSurfaceTests
     public void NothingThatRunsBuildsASampleWindow()
     {
         // The diagnostics panel is what a technician turns the screen round and shows a customer. It
-        // rendered a literal in production — "local-only: yes" from a constant — which is worse than no
+        // rendered a literal in production ("local-only: yes" from a constant), which is worse than no
         // panel at all (weaknesses P1-2). The sample stays for the CI render; nothing that runs may reach
         // it.
         //
