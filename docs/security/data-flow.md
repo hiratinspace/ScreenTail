@@ -255,7 +255,11 @@ This document describes what is enforced today. These are named here rather than
   transcribed, so the note includes the last things said. Nothing said during a pause or a
   suppression is heard. A sentence said while recording and finished by the model after a pause or a
   suppression began is still written (scrubbed like any other), as a screenshot taken before a pause
-  is redacted and written during it.
+  is redacted and written during it. A sentence still being said when the session itself pauses, is
+  suppressed or stops is cut at that moment and kept the same way, and Stop waits for it; nothing heard
+  after the moment is joined on to it. (One under way when a window outside the scope comes to the
+  front is still dropped, as above.) The speech model is released after five minutes with nothing to
+  transcribe and loaded again by the next sentence.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
   its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
   nothing is lost.

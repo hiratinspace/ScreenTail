@@ -325,6 +325,75 @@ public sealed class NarrationRecorderTests
     }
 
     [Fact]
+    public async Task ASentenceStillBeingSaidAtStopIsOwedSoTheNoteWaitsForIt()
+    {
+        // The other half of T-93. Finalize waits for what the backlog says the session is owed, and the
+        // recorder only cuts the open sentence on the chunk after Stop. A sentence not yet cut was owed
+        // nothing, so a Stop whose sources closed within one audio buffer drafted the note without it.
+        // It is counted from the moment the gate opens, and the count is what the cut segment inherits.
+        var backlog = new NarrationBacklog();
+        var microphone = new FakeMicrophone(Silence(20), Speech(60));
+        var kept = new List<TranscriptSegment>();
+        int? owedWhenStopped = null;
+        var recorder = new NarrationRecorder(
+            microphone,
+            new FakeRecogniser("and that fixed it"),
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () =>
+            {
+                // Recording for sixty frames, forty of them mid-sentence, then Stop. Asked of each chunk
+                // before it is judged, so this is the moment the recorder learns of the Stop.
+                if (microphone.Yielded <= 60)
+                {
+                    return new NarrationSession("session-a", 0);
+                }
+
+                owedWhenStopped ??= backlog.DepthFor("session-a");
+                return null;
+            },
+            backlog: backlog);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => kept.Count >= 1 && backlog.DepthFor("session-a") == 0);
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(1, owedWhenStopped);
+        Assert.Equal("and that fixed it", Assert.Single(kept).Text);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    [Fact]
+    public async Task ASentenceDroppedAtASuppressionIsNoLongerOwed()
+    {
+        // What the gate was holding when an excluded app came to the front is forgotten, so nothing is
+        // owed for it: a Stop during the vault must not wait out its grace for a sentence that will never
+        // be transcribed.
+        var backlog = new NarrationBacklog();
+        var owed = new List<int>();
+        var recorder = new NarrationRecorder(
+            new FakeMicrophone(Silence(20), Speech(20), Speech(20), Silence(40)),
+            new FakeRecogniser("the admin password is"),
+            (_, _, _) => Task.FromResult(true),
+            () => new NarrationSession("session-a", 0),
+            hearing: () =>
+            {
+                owed.Add(backlog.DepthFor("session-a"));
+                return owed.Count is <= 40 or > 60;
+            },
+            backlog: backlog);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        // Asked before chunk 41 is judged: twenty frames into the sentence, so it is owed. Asked before
+        // chunk 42: the vault came to the front on 41, so it is not.
+        Assert.Equal(1, owed[40]);
+        Assert.Equal(0, owed[41]);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    [Fact]
     public async Task SpeechFromBeforeAPauseIsNotJoinedToSpeechAfterIt()
     {
         // 2026-10-12 review (T-94). The pause test above never opens a segment, so what happens to one

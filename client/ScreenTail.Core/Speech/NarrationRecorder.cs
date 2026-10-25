@@ -96,6 +96,17 @@ public sealed class NarrationRecorder : IDisposable
     /// <summary>The session the detector last learned a room for, so a new one starts by listening to its own.</summary>
     private string? _heardSession;
 
+    /// <summary>
+    /// The session a sentence still being said is counted against, or null when the gate is closed.
+    ///
+    /// Stop moves the session on, and the recorder only finds out on the next chunk, when it cuts what
+    /// was being said and queues it. Finalize waits for what the backlog says is owed, and a sentence
+    /// not yet queued was owed nothing, so a Stop whose sources closed faster than one audio buffer
+    /// drafted the note without the last thing said. Counted from the moment the gate opens, it is
+    /// waited for like a segment with the model, and the count passes to the segment when it is cut.
+    /// </summary>
+    private string? _holding;
+
     /// <param name="recording">
     /// The session recording right now, or null when none is.
     ///
@@ -273,6 +284,7 @@ public sealed class NarrationRecorder : IDisposable
         finally
         {
             Listening = false;
+            LetGo();
 
             // Nothing more will be queued, so the drain can finish what it has. A segment already cut
             // from the ring is a thing the technician said, and dropping it because the service is
@@ -402,6 +414,7 @@ public sealed class NarrationRecorder : IDisposable
     /// </summary>
     private void Discard()
     {
+        LetGo();
         _gate.Reset();
         _filled = 0;
         _stretch = null;
@@ -434,6 +447,12 @@ public sealed class NarrationRecorder : IDisposable
             if (_gate.Offer(_voice.Offer(_frame)) is { } segment)
             {
                 await QueueAsync(segment, ct).ConfigureAwait(false);
+            }
+
+            // One comparison a frame; the backlog's lock is taken only when the gate opens or closes.
+            if (_gate.Speaking != (_holding is not null))
+            {
+                Hold();
             }
         }
     }
@@ -482,8 +501,17 @@ public sealed class NarrationRecorder : IDisposable
         // clicks and frames are stamped with.
         var placed = segment with { StartMs = segment.StartMs + stretch.AtMs, EndMs = segment.EndMs + stretch.AtMs };
 
-        // Owed from now until it is written or refused, so finalize waits for it.
-        _backlog.Owe(stretch.SessionId);
+        // Owed from now until it is written or refused, so finalize waits for it. A sentence the gate has
+        // finished with was already counted while it was being said, and that count becomes this one's.
+        if (!_gate.Speaking && string.Equals(_holding, stretch.SessionId, StringComparison.Ordinal))
+        {
+            _holding = null;
+        }
+        else
+        {
+            _backlog.Owe(stretch.SessionId);
+        }
+
         try
         {
             // Bounded, and waits rather than dropping: the queue only fills when the model is slower than
@@ -495,6 +523,30 @@ public sealed class NarrationRecorder : IDisposable
         {
             _backlog.Settle(stretch.SessionId);
             throw;
+        }
+    }
+
+    /// <summary>The gate opened or closed: count the sentence being said against its session, or stop counting it.</summary>
+    private void Hold()
+    {
+        if (_gate.Speaking && _stretch is { } stretch)
+        {
+            _backlog.Owe(stretch.SessionId);
+            _holding = stretch.SessionId;
+        }
+        else
+        {
+            LetGo();
+        }
+    }
+
+    /// <summary>Nothing is being said any more, or what was is no longer the session's: the count goes.</summary>
+    private void LetGo()
+    {
+        if (_holding is { } session)
+        {
+            _holding = null;
+            _backlog.Settle(session);
         }
     }
 
