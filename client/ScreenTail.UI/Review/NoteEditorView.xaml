@@ -104,7 +104,7 @@
 
                                 <StackPanel Grid.Column="1">
                                     <TextBox Style="{StaticResource Input.Multiline}"
-                                             KeyDown="OnStepKeyDown"
+                                             PreviewKeyDown="OnStepKeyDown"
                                              Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
                                              AutomationProperties.Name="Step text" />
 
@@ -124,11 +124,15 @@
                                                 </ItemsPanelTemplate>
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
+                                                <!-- The chip selects its frame in the strip through the note's
+                                                     ShowFrameCommand, which ReviewViewModel hands to the strip (T-165). -->
                                                 <DataTemplate>
                                                     <Button Style="{StaticResource Pill.Control}"
                                                             Margin="0,0,6,0"
                                                             Content="{Binding Label}"
                                                             Tag="{Binding Id}"
+                                                            Command="{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding Id}"
                                                             Click="OnFrameChip" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>

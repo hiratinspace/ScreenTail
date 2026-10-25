@@ -1,7 +1,9 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Intel;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
@@ -145,6 +147,294 @@ public sealed class DraftSenderTests : IAsyncDisposable
         Assert.Equal(OutboxState.Pending, outcome.State);
     }
 
+    [Theory]
+    // The budget is spent for the day and comes back at UTC midnight (the backend's CostLedger). From
+    // 10:00Z that is fourteen hours; thirty minutes later, thirteen and a half.
+    [InlineData(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"This tenant has reached its drafting budget for today."}""", 13.5)]
+    // Nobody has configured a provider. An operator fixes that in hours, not seconds; the hold is the
+    // outbox's own longest wait.
+    [InlineData(HttpStatusCode.NotImplemented, """{"status":"not_configured","reason":"No summarization provider is configured on this deployment."}""", 0.5)]
+    public async Task AfterARefusalThatHoldsForTheDayNothingIsRebuiltOrUploadedUntilItPasses(HttpStatusCode status, string body, double remainingHours)
+    {
+        // 2026-10-12 review (E-11). After a 402 or a 501 every retry rebuilt the ~6 MB bundle and uploaded
+        // it again, because the sender kept no "blocked until" and the backend refuses only after reading
+        // the body. The hold is the sender's, so every queued draft shares it, and it is checked before
+        // the store is opened.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var handler = new RecordingHandler(Answer(status, body));
+        var sender = Sender(store, handler, time: time);
+
+        var first = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(OutboxState.Pending, first.State);
+        Assert.Equal(1, handler.Requests);
+
+        time.Advance(TimeSpan.FromMinutes(30));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Pending, held.State);
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal(TimeSpan.FromHours(remainingHours), held.RetryAfter);
+
+        // The hold repeats the backend's own reason, so the outbox's last error still says why.
+        Assert.Equal(first.Message, held.Message);
+
+        // A session the store has never heard of would be Failed if the store were asked. It is not asked.
+        var other = await sender.SendAsync(Item() with { SessionId = "nobody" }, TestContext.Current.CancellationToken);
+        Assert.Equal(OutboxState.Pending, other.State);
+
+        time.Advance(TimeSpan.FromHours(remainingHours));
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARefusalThatNamesATimeIsHeldUntilThen()
+    {
+        // When the backend says when, that is the hold: the quota it is standing behind may reopen before
+        // midnight, or after an hour, and the header is the better guess.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"Budget."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromHours(2));
+        var sender = Sender(store, new RecordingHandler(reply), time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        time.Advance(TimeSpan.FromMinutes(15));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(TimeSpan.FromMinutes(105), held.RetryAfter);
+    }
+
+    [Fact]
+    public async Task ARefusalThatNamesAMonthIsHeldForADayAtMost()
+    {
+        // One header naming a month is a far end having a bad day: the hold is bounded like any
+        // Retry-After the outbox honours, so drafting on this device is not stopped for a month.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(HttpStatusCode.NotImplemented, """{"status":"not_configured","reason":"None."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromDays(30));
+        var handler = new RecordingHandler(reply);
+        var sender = Sender(store, handler, time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(Core.Outbox.Outbox.MaxRetryAfter, held.RetryAfter);
+
+        time.Advance(Core.Outbox.Outbox.MaxRetryAfter);
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARefusalThatNamesADateIsHeldUntilThatDate()
+    {
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"Budget."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(At + TimeSpan.FromHours(3));
+        var sender = Sender(store, new RecordingHandler(reply), time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(TimeSpan.FromHours(3), held.RetryAfter);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.PaymentRequired, 14.0)]
+    [InlineData(HttpStatusCode.NotImplemented, 1.0)]
+    public async Task TheRefusalThatStartsAHoldAlreadyNamesIt(HttpStatusCode status, double hours)
+    {
+        // The outbox should not spend an attempt finding out that drafting is held.
+        var store = await SessionAsync();
+        var sender = Sender(store, new RecordingHandler(Answer(status, """{"status":"x","reason":"No."}""")));
+
+        var first = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(TimeSpan.FromHours(hours), first.RetryAfter);
+        Assert.False(first.NothingSent);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.PaymentRequired, 0, 14.0)]
+    [InlineData(HttpStatusCode.PaymentRequired, -3, 14.0)]
+    [InlineData(HttpStatusCode.NotImplemented, 0, 1.0)]
+    [InlineData(HttpStatusCode.NotImplemented, -3, 1.0)]
+    public async Task ARetryAfterOfNowOrThePastIsTheDefaultHold(HttpStatusCode status, int hoursFromNow, double held)
+    {
+        // A wait of nothing would be no hold at all, and the next retry would rebuild and upload the
+        // bundle for the backend to refuse again. Zero is sent in seconds, the past as a date.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(status, """{"status":"x","reason":"No."}""");
+        reply.Headers.RetryAfter = hoursFromNow == 0
+            ? new RetryConditionHeaderValue(TimeSpan.Zero)
+            : new RetryConditionHeaderValue(At + TimeSpan.FromHours(hoursFromNow));
+        var handler = new RecordingHandler(reply);
+        var sender = Sender(store, handler, time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        var next = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal(TimeSpan.FromHours(held), next.RetryAfter);
+    }
+
+    [Fact]
+    public async Task TheWallClockGoingBackDoesNotLengthenAHold()
+    {
+        // The hold is timed on the monotonic clock. A wall clock set back two days must not turn an
+        // hour's hold into two days and an hour.
+        var store = await SessionAsync();
+        var time = new JumpingTime(At);
+        var handler = new RecordingHandler(Answer(HttpStatusCode.NotImplemented, """{"status":"not_configured","reason":"None."}"""));
+        var sender = Sender(store, handler, time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        time.SetWallClock(At - TimeSpan.FromDays(2));
+        time.Elapse(TimeSpan.FromMinutes(20));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(TimeSpan.FromMinutes(40), held.RetryAfter);
+        time.Elapse(TimeSpan.FromMinutes(40));
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task AHoldIsNeverReadBackLongerThanADay()
+    {
+        // Bounded when it is set, and bounded again when it is read. A timestamp source that steps back
+        // (a host's own TimeProvider, a resumed virtual machine) must not stretch a day's hold into a
+        // longer one, because the outbox parks the item for whatever this says.
+        var store = await SessionAsync();
+        var time = new JumpingTime(At);
+        var reply = Answer(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"Budget."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromDays(30));
+        var sender = Sender(store, new RecordingHandler(reply), time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        time.StepMonotonicBack(TimeSpan.FromDays(2));
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.True(held.NothingSent);
+        Assert.Equal(Core.Outbox.Outbox.MaxRetryAfter, held.RetryAfter);
+    }
+
+    [Fact]
+    public async Task AHeldOrUnenrolledSendSaysNothingWasSent()
+    {
+        // The outbox counts an attempt only when something was tried, so a device left unactivated over a
+        // weekend, or a hold through the night, does not use up an item's patience without one real send.
+        var store = await SessionAsync();
+        var unenrolled = await Sender(store, new RecordingHandler(Answer(HttpStatusCode.OK, Ok())), token: null).SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.True(unenrolled.NothingSent);
+        Assert.Equal(OutboxState.Pending, unenrolled.State);
+        Assert.Equal(DraftSender.NotEnrolledWait, unenrolled.RetryAfter);
+
+        var sender = Sender(store, new RecordingHandler(Answer(HttpStatusCode.NotImplemented, """{"status":"not_configured","reason":"None."}""")));
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.True(held.NothingSent);
+        Assert.Equal(OutboxState.Pending, held.State);
+    }
+
+    [Fact]
+    public async Task ThePaidDraftIsKeptBeforeItsAuditRowIsWritten()
+    {
+        // Order, not only survival: a row that hangs, or a service stopped between the two, must find
+        // the note already in the store. The audit log here looks for it as the row is written.
+        var store = await SessionAsync();
+        var audit = new DraftCheckingAudit(store);
+        var sender = new DraftSender(
+            new HttpClient(new RecordingHandler(Answer(HttpStatusCode.OK, Ok()))) { BaseAddress = new Uri("https://api.screentail.example/") },
+            store,
+            () => "a-device-token",
+            audit: audit,
+            time: new ManualTime(At));
+
+        var outcome = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, outcome.State);
+        Assert.Equal([true], audit.DraftKeptAtRow);
+    }
+
+    [Fact]
+    public async Task AnAuditLogThatFailsDoesNotCostADraftTheBackendAlreadyMade()
+    {
+        // The draft is paid for once the backend answers. The row is written after the draft is kept,
+        // and a row that cannot be written is not a reason to lose the note.
+        var store = await SessionAsync();
+        var sender = new DraftSender(
+            new HttpClient(new RecordingHandler(Answer(HttpStatusCode.OK, Ok()))) { BaseAddress = new Uri("https://api.screentail.example/") },
+            store,
+            () => "a-device-token",
+            audit: new ThrowingAudit(),
+            time: new ManualTime(At));
+
+        var outcome = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, outcome.State);
+        Assert.NotNull((await store.LoadSessionAsync("s1"))!.Draft);
+    }
+
+    [Theory]
+    [InlineData("https://[::1]:5001/", "::1")]
+    [InlineData("https://[2001:db8::7]/", "2001:db8::7")]
+    [InlineData("https://bücher.example/", "xn--bcher-kva.example")]
+    public async Task ABackendAtAnAddressOrAnInternationalNameSendsAndRecords(string backend, string recorded)
+    {
+        // The audit detail takes letters, digits and a little punctuation, so the host is written the way
+        // that fits: an address without its brackets, an international name in its ASCII form.
+        var store = await SessionAsync();
+        var handler = new RecordingHandler(Answer(HttpStatusCode.OK, Ok()));
+        var sender = new DraftSender(
+            new HttpClient(handler) { BaseAddress = new Uri(backend) },
+            store,
+            () => "a-device-token",
+            time: new ManualTime(At));
+
+        var outcome = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, outcome.State);
+        var sent = Assert.Single(await store.GetAuditRecordsAsync("s1"), r => r.Type == AuditTypes.BundleSent);
+        Assert.Equal(recorded, sent.Detail);
+        Assert.Equal(Encoding.UTF8.GetByteCount(handler.Body!), sent.Count);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.BadRequest)]
+    public async Task ASendWritesTheBundleSentRowWithItsBytesAndHost(HttpStatusCode status)
+    {
+        // 2026-10-12 review (S-15). The audit export has a "bytes sent, and to which host" section and
+        // nothing in the product wrote to it: the only test wrote the row itself. A refused bundle left
+        // the machine just as surely as an accepted one, so both are recorded.
+        var store = await SessionAsync();
+        var handler = new RecordingHandler(Answer(status, status == HttpStatusCode.OK ? Ok() : """{"status":"rejected","reason":"No."}"""));
+
+        _ = await Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        var sent = Assert.Single(await store.GetAuditRecordsAsync("s1"), r => r.Type == AuditTypes.BundleSent);
+        Assert.Equal(Encoding.UTF8.GetByteCount(handler.Body!), sent.Count);
+        Assert.Equal("api.screentail.example", sent.Detail);
+    }
+
+    [Fact]
+    public async Task NothingIsRecordedAsSentWhenNothingWasSent()
+    {
+        // No token and no network are the two ways a send ends without bytes leaving. An audit row for
+        // either would be a claim about egress that did not happen.
+        var store = await SessionAsync();
+
+        _ = await Sender(store, new RecordingHandler(Answer(HttpStatusCode.OK, Ok())), token: null).SendAsync(Item(), TestContext.Current.CancellationToken);
+        _ = await Sender(store, new BrokenHandler()).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(await store.GetAuditRecordsAsync("s1"), r => r.Type == AuditTypes.BundleSent);
+    }
+
     [Fact]
     public async Task ABackendNobodyCouldReachIsTriedAgain()
     {
@@ -214,6 +504,16 @@ public sealed class DraftSenderTests : IAsyncDisposable
         }
 
         var outcome = await Sender(store, new RecordingHandler(reply)).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        // A refusal that holds drafting for the device says how long, so the outbox does not spend an
+        // attempt finding out: a spent budget until UTC midnight, a missing provider for the default
+        // hold, unless the backend named a time of its own.
+        waits ??= reply.StatusCode switch
+        {
+            HttpStatusCode.PaymentRequired => new DateTimeOffset(At.UtcDateTime.Date.AddDays(1), TimeSpan.Zero) - At,
+            HttpStatusCode.NotImplemented => DraftSender.NotConfiguredHold,
+            _ => null,
+        };
 
         var state = expected.GetProperty("client").GetString() switch
         {
@@ -334,11 +634,12 @@ public sealed class DraftSenderTests : IAsyncDisposable
     private static JsonElement Sent(RecordingHandler handler) =>
         JsonDocument.Parse(handler.Body ?? throw new InvalidOperationException("nothing was sent")).RootElement;
 
-    private static DraftSender Sender(ISessionStore store, HttpMessageHandler handler, string? token = "a-device-token") =>
+    private static DraftSender Sender(ISessionStore store, HttpMessageHandler handler, string? token = "a-device-token", TimeProvider? time = null) =>
         new(
             new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") },
             store,
-            () => token);
+            () => token,
+            time: time ?? new ManualTime(At));
 
     private static OutboxItem Item() => new(
         "o1", "s1", OutboxKind.Draft, "draft:s1", "{}", OutboxState.Pending, 0, At, At, null, null, null);
@@ -373,21 +674,36 @@ public sealed class DraftSenderTests : IAsyncDisposable
             Path.Combine(_dir, "store.db"),
             new FixedKey(RandomNumberGenerator.GetBytes(32)));
 
-    /// <summary>Keeps the request rather than sending it, so a test can read what would have gone.</summary>
+    /// <summary>
+    /// Keeps the request rather than sending it, so a test can read what would have gone. Every request
+    /// gets its own copy of the reply: the sender disposes what it is given, and a test that sends twice
+    /// is a test about the second send.
+    /// </summary>
     private sealed class RecordingHandler(HttpResponseMessage reply) : HttpMessageHandler
     {
+        private readonly string _body = reply.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
         public int Requests { get; private set; }
 
         public string? Body { get; private set; }
 
-        public System.Net.Http.Headers.AuthenticationHeaderValue? Authorization { get; private set; }
+        public AuthenticationHeaderValue? Authorization { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
             Authorization = request.Headers.Authorization;
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
-            return reply;
+            var copy = new HttpResponseMessage(reply.StatusCode)
+            {
+                Content = new StringContent(_body, Encoding.UTF8, reply.Content.Headers.ContentType?.MediaType ?? "application/json"),
+            };
+            foreach (var header in reply.Headers)
+            {
+                copy.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            return copy;
         }
 
         protected override void Dispose(bool disposing)
@@ -401,7 +717,48 @@ public sealed class DraftSenderTests : IAsyncDisposable
         }
     }
 
+    /// <summary>Notes, as each row is written, whether the session's draft was already kept.</summary>
+    private sealed class DraftCheckingAudit(SqliteSessionStore store) : IAuditLog
+    {
+        public List<bool> DraftKeptAtRow { get; } = [];
+
+        public async Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
+        {
+            var session = sessionId is null ? null : await store.LoadSessionAsync(sessionId, ct);
+            DraftKeptAtRow.Add(session?.Draft is not null);
+        }
+    }
+
     /// <summary>Fails the way an unreachable host does.</summary>
+    private sealed class ThrowingAudit : IAuditLog
+    {
+        public Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default) =>
+            throw new InvalidOperationException("the audit table is locked");
+    }
+
+    /// <summary>A wall clock that can be set anywhere, over a monotonic one that moves forward unless a test steps it back.</summary>
+    private sealed class JumpingTime(DateTimeOffset start) : TimeProvider
+    {
+        private DateTimeOffset _wall = start;
+        private long _monotonic = start.UtcTicks;
+
+        public override DateTimeOffset GetUtcNow() => _wall;
+
+        public override long GetTimestamp() => _monotonic;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public void SetWallClock(DateTimeOffset to) => _wall = to;
+
+        public void StepMonotonicBack(TimeSpan by) => _monotonic -= by.Ticks;
+
+        public void Elapse(TimeSpan by)
+        {
+            _wall += by;
+            _monotonic += by.Ticks;
+        }
+    }
+
     private sealed class BrokenHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>

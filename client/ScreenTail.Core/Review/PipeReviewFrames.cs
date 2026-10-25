@@ -34,6 +34,13 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
         return (await _connection.RequestAsync<FrameLoaded>(id => new GetFrameCommand { RequestId = id, FrameId = frame.Id }, ct).ConfigureAwait(false))?.Image;
     }
 
+    /// <summary>The small picture the strip draws, scaled by the service (E-30). Null when the frame is gone, pending, or there is no service.</summary>
+    public async Task<byte[]?> ThumbnailAsync(Frame frame, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        return (await _connection.RequestAsync<FrameLoaded>(id => new GetFrameThumbnailCommand { RequestId = id, FrameId = frame.Id }, ct).ConfigureAwait(false))?.Image;
+    }
+
     /// <summary>One frame's OCR text, asked for on its own because the session crosses without it (E-20). Null when it has none, or there is no frame or no service.</summary>
     public async Task<string?> OcrTextAsync(Frame frame, CancellationToken ct = default)
     {

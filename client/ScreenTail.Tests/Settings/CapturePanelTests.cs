@@ -118,6 +118,40 @@ public sealed class CapturePanelTests
         Assert.True(panel.ScopeLocked);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AForcedScopeIsNotSavedAsTheTechniciansOwnChoice(bool ownChoice)
+    {
+        // The policy shows "All windows" on a read-only radio, and the technician saves something else on
+        // the panel. What is saved is the scope they chose themselves, never the forced one: saved as
+        // theirs, all-window capture would outlive the policy that forced it with no confirmation ever
+        // given (INV-5).
+        var gateway = new FakeCapture
+        {
+            Snapshot = new CaptureSnapshot(new CaptureSettings { CaptureAllWindows = ownChoice }, [], [], PolicyForcesAllWindows: true, 120),
+        };
+        var panel = new CapturePanel(gateway);
+        await panel.LoadAsync();
+        Assert.True(panel.CaptureAllWindows);
+
+        panel.AutoStart = false;
+        panel.CaptureAllWindows = !ownChoice;
+        Assert.True(panel.CanSave);
+        Assert.True(await panel.SaveAsync());
+
+        Assert.NotNull(gateway.Saved);
+        Assert.Equal(ownChoice, gateway.Saved.CaptureAllWindows);
+        Assert.False(gateway.Saved.AutoStart);
+
+        // The admin lifts the policy. The panel shows the technician's own scope, and all windows only if
+        // they had confirmed it themselves.
+        gateway.Snapshot = new CaptureSnapshot(gateway.Saved, [], [], PolicyForcesAllWindows: false, 120);
+        await panel.LoadAsync();
+        Assert.False(panel.ScopeLocked);
+        Assert.Equal(ownChoice, panel.CaptureAllWindows);
+    }
+
     private sealed class FakeCapture : ICaptureGateway
     {
         public CaptureSnapshot? Snapshot { get; set; } = new(new CaptureSettings(), [new ToolChoice("rdp", "Remote Desktop")], ["Built-in microphone"], false, 120);

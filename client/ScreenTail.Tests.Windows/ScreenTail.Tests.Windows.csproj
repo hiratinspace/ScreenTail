@@ -26,6 +26,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Review views' XAML, so a test can pin which routed event a handler is attached to. The views
+         themselves cannot be built here: their styles need the one WPF Application a process may have, and
+         PrivacyViewModelTests is the test that makes it. -->
+    <None Include="..\ScreenTail.UI\Review\FilmstripView.xaml" Link="Review\Xaml\FilmstripView.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\ScreenTail.UI\Review\NoteEditorView.xaml" Link="Review\Xaml\NoteEditorView.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- System.Drawing.Common comes with the Windows Desktop framework now that UseWPF is on; an explicit
          package reference is a restore error (NU1510) on Windows. -->
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
