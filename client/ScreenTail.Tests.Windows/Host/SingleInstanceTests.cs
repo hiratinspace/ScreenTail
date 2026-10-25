@@ -14,7 +14,7 @@ namespace ScreenTail.Tests.Windows.Host;
 public sealed class SingleInstanceTests
 {
     [Fact]
-    public async Task OneServicePerUserAndTheNameIsFreedOnAnyThread()
+    public void OneServicePerUserAndTheNameIsFreedOnAnyThread()
     {
         var user = "S-1-5-21-test-" + Guid.NewGuid().ToString("N");
 
@@ -29,14 +29,24 @@ public sealed class SingleInstanceTests
         }
 
         // Let go from a thread that is not the one that took it, which is what an awaited shutdown does.
-        var took = Environment.CurrentManagedThreadId;
-        await Task.Run(
-            () =>
+        // A thread of its own rather than the pool, so it is certainly a different one.
+        Exception? failed = null;
+        var letGo = new Thread(() =>
+        {
+            try
             {
-                Assert.NotEqual(took, Environment.CurrentManagedThreadId);
                 first.Dispose();
-            },
-            TestContext.Current.CancellationToken);
+            }
+#pragma warning disable CA1031 // Carried back to the test thread and asserted there.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                failed = ex;
+            }
+        });
+        letGo.Start();
+        Assert.True(letGo.Join(TimeSpan.FromSeconds(10)), "letting go of the name did not return");
+        Assert.Null(failed);
 
         using var again = SingleInstance.TryAcquire(user);
         Assert.NotNull(again);

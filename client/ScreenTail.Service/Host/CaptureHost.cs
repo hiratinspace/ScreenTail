@@ -165,7 +165,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new DpapiDeviceCredentials(DpapiDeviceCredentials.DefaultPath),
             () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"),
             TimeProvider.System);
-        _ = Task.Run(() => device.RunAsync(stoppingToken), stoppingToken);
+        // The policy fetch waits for a token to fetch with, and the outbox waits for the policy: see
+        // SyncPolicyAsync. Both are set once and never reset.
+        var tokenReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policyFetched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = Task.Run(() => RenewDeviceAsync(device, tokenReady, TimeProvider.System, stoppingToken), stoppingToken);
         // ST-067: what the technician keeps changing about drafts, as hints on the next one.
         var style = new StyleStore(Path.Combine(DataDirectory, "style.json"));
         var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints);
@@ -367,7 +371,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var state = machine.State.ToWire();
         LogStarted(logger, IpcContract.Version, mode, state);
 
-        _ = Task.Run(() => policySync.RunAsync(stoppingToken), stoppingToken);
+        _ = Task.Run(() => SyncPolicyAsync(policySync, tokenReady.Task, policyFetched, TimeProvider.System, stoppingToken), stoppingToken);
         foreground.Changed += coordinator.Observe;
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
@@ -579,7 +583,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
         // technician is not waiting on, and a tight loop on a laptop is a battery complaint.
-        var draining = DrainOutboxAsync(outbox, logger, stoppingToken);
+        // With no backend nothing is sent and the queue only records why, so it is not held for a policy
+        // that cannot be fetched.
+        var draining = DrainOutboxAsync(outbox, backend is null ? Task.CompletedTask : policyFetched.Task, logger, stoppingToken);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {
@@ -654,16 +660,89 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     private static partial void LogErasureBlocksStart(ILogger logger);
 
     /// <summary>
+    /// The device's renewal loop, on DeviceSession's own schedule, that also says when there is first a
+    /// token to send. The policy fetch waits for that rather than racing it: started side by side, the
+    /// fetch usually went first, found no token, and waited ten minutes (2026-10-12 review, S-31).
+    /// </summary>
+    internal static async Task RenewDeviceAsync(DeviceSession device, TaskCompletionSource tokenReady, TimeProvider time, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(tokenReady);
+        while (!ct.IsCancellationRequested)
+        {
+            bool renewed;
+            try
+            {
+                renewed = await device.RefreshAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            // Renewed, or a token the device already had (an activation, or the environment's fallback).
+            if (device.CurrentToken is not null)
+            {
+                _ = tokenReady.TrySetResult();
+            }
+
+            try
+            {
+                await Task.Delay(renewed ? DeviceSession.RefreshEvery : DeviceSession.RetryAfterFailure, time, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The tenant policy loop, on PolicySync's own schedule, started once there is a token and saying
+    /// when the first fetch landed. The outbox waits for that (see <see cref="DrainOutboxAsync"/>).
+    /// </summary>
+    internal static async Task SyncPolicyAsync(PolicySync policy, Task tokenReady, TaskCompletionSource fetched, TimeProvider time, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(tokenReady);
+        ArgumentNullException.ThrowIfNull(fetched);
+        try
+        {
+            await tokenReady.WaitAsync(ct).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested)
+            {
+                var ok = await policy.FetchAsync(ct).ConfigureAwait(false);
+                if (ok)
+                {
+                    // Changed has been raised and applied by now, so whatever waits on this sees the
+                    // tenant's policy in force rather than the cached copy.
+                    _ = fetched.TrySetResult();
+                }
+
+                await Task.Delay(ok ? PolicySync.Every : PolicySync.RetryAfterFailure, time, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
+    }
+
+    /// <summary>
     /// Works the outbox until the service stops.
     ///
     /// One item per tick and a long tick: nothing in the queue is something a technician is waiting on,
     /// and a queue that spins costs battery on a machine that is also capturing.
+    ///
+    /// Nothing is sent until this run has fetched the tenant's policy once (<paramref name="policyFetched"/>).
+    /// Until then the policy in force is the cached copy on disk, and the user can write to that file, so
+    /// a draft could otherwise leave under a local-only lock the tenant had set (INV-8, INV-11).
     /// </summary>
-    private static async Task DrainOutboxAsync(Core.Outbox.Outbox outbox, ILogger logger, CancellationToken ct)
+    private static async Task DrainOutboxAsync(Core.Outbox.Outbox outbox, Task policyFetched, ILogger logger, CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
         try
         {
+            await policyFetched.WaitAsync(ct).ConfigureAwait(false);
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
                 _ = await outbox.DrainAsync(ct).ConfigureAwait(false);
