@@ -24,6 +24,13 @@ internal sealed class Hotkeys : IAsyncDisposable
     private readonly HotkeyBindings _bindings;
     private readonly CancellationTokenSource _stopping = new();
     private readonly List<HotkeyConflict> _conflicts = [];
+
+    /// <summary>
+    /// Which registration id Windows will name in WM_HOTKEY for which action. Filled by the pump before
+    /// <see cref="StartAsync"/> completes and emptied when it stops; read by the pump for every message
+    /// and by <see cref="Press"/>.
+    /// </summary>
+    private readonly Dictionary<int, HotkeyAction> _registered = [];
     private Thread? _pump;
     private uint _pumpThreadId;
 
@@ -89,9 +96,48 @@ internal sealed class Hotkeys : IAsyncDisposable
         _stopping.Dispose();
     }
 
+    /// <summary>
+    /// Presses a chord without a keyboard: posts to this pump the message Windows posts when the chord is
+    /// struck, so a test can check which action each message becomes and that it becomes it once. False
+    /// when the chord is not registered or the pump is not running. For tests; the product has no
+    /// reason to press its own chords.
+    /// </summary>
+    internal bool Press(HotkeyAction action)
+    {
+        var id = 0;
+        lock (_registered)
+        {
+            foreach (var (candidate, bound) in _registered)
+            {
+                if (bound == action)
+                {
+                    id = candidate;
+                    break;
+                }
+            }
+        }
+
+        var thread = _pumpThreadId;
+        if (id == 0 || thread == 0 || _pump is null)
+        {
+            return false;
+        }
+
+        // What Windows puts in the message: the modifiers in the low word and the key in the high word.
+        var hotkey = _bindings.For(action);
+        var lParam = hotkey is { VirtualKey: { } key } ? ((long)key << 16) | (uint)hotkey.Value.Modifiers : 0L;
+        return PostThreadMessage(thread, WM_HOTKEY, new IntPtr(id), new IntPtr(lParam));
+    }
+
+    /// <summary>
+    /// The modifier flags a chord is registered with. Always includes MOD_NOREPEAT: holding the chord
+    /// down is one press. Without it, leaning on Ctrl+Alt+M would mark a moment every few milliseconds
+    /// for as long as the keys were held.
+    /// </summary>
+    internal static uint RegistrationFlags(Hotkey hotkey) => (uint)hotkey.Modifiers | MOD_NOREPEAT;
+
     private void Pump(TaskCompletionSource ready)
     {
-        var registered = new Dictionary<int, HotkeyAction>();
         try
         {
             _pumpThreadId = GetCurrentThreadId();
@@ -111,11 +157,13 @@ internal sealed class Hotkeys : IAsyncDisposable
                     continue;   // already reported by Validate
                 }
 
-                // MOD_NOREPEAT: holding the chord down is one press. Without it, leaning on Ctrl+Alt+M
-                // would mark a moment every few milliseconds for as long as the keys were held.
-                if (RegisterHotKey(IntPtr.Zero, id, (uint)hotkey.Modifiers | MOD_NOREPEAT, (uint)key))
+                if (RegisterHotKey(IntPtr.Zero, id, RegistrationFlags(hotkey), (uint)key))
                 {
-                    registered[id] = action;
+                    lock (_registered)
+                    {
+                        _registered[id] = action;
+                    }
+
                     id++;
                 }
                 else
@@ -131,7 +179,7 @@ internal sealed class Hotkeys : IAsyncDisposable
 
             while (!_stopping.IsCancellationRequested && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
             {
-                if (message.Message == WM_HOTKEY && registered.TryGetValue(message.WParam.ToInt32(), out var action))
+                if (message.Message == WM_HOTKEY && TryActionFor(message.WParam.ToInt32(), out var action))
                 {
                     Pressed?.Invoke(action);
                 }
@@ -146,12 +194,25 @@ internal sealed class Hotkeys : IAsyncDisposable
         }
         finally
         {
-            foreach (var id in registered.Keys)
+            lock (_registered)
             {
-                _ = UnregisterHotKey(IntPtr.Zero, id);
+                foreach (var id in _registered.Keys)
+                {
+                    _ = UnregisterHotKey(IntPtr.Zero, id);
+                }
+
+                _registered.Clear();
             }
 
             ready.TrySetResult();
+        }
+    }
+
+    private bool TryActionFor(int id, out HotkeyAction action)
+    {
+        lock (_registered)
+        {
+            return _registered.TryGetValue(id, out action);
         }
     }
 
