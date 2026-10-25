@@ -26,6 +26,8 @@
   <ItemGroup>
     <!-- The design tokens are the single source; the contrast test reads them from the output folder. -->
     <None Include="..\..\shared\design\tokens.json" Link="Design\tokens.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The theme dictionaries, so a test can hold the hand-written high-contrast one to the generated keys (T-377). -->
+    <None Include="..\ScreenTail.UI\Theme\Tokens.*.xaml" Link="Theme\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

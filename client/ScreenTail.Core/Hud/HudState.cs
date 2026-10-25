@@ -81,11 +81,39 @@ public static class HudState
     /// not for the indicator to stay gone through a dropped pipe, a service restart, or a session that
     /// began while the UI was reconnecting (ST-048, weaknesses P0-3).
     ///
+    /// A session that has ended rests in draft_ready or draft_failed, not idle: the machine stays there
+    /// until something discards the draft or the service restarts. Both are the service saying, in so
+    /// many words, that it is not capturing, so both count (2026-10-12 review, S-39). Without them the
+    /// pill warned "may be recording" after every session and could not be put away.
+    ///
     /// An unrecognised state string counts as unknown for the same reason. A service newer than this UI
     /// is exactly the case where guessing "idle" is least defensible.
     /// </summary>
-    private static bool KnownIdle(CaptureStateSnapshot? capture) =>
-        capture is not null && capture.State == CaptureStates.Idle;
+    public static bool KnownIdle(CaptureStateSnapshot? capture) =>
+        capture is not null && capture.State is CaptureStates.Idle or CaptureStates.DraftReady or CaptureStates.DraftFailed;
+
+    /// <summary>
+    /// Whether the UI may tell the service that the indicator is on screen (INV-4, <c>indicator_showing</c>).
+    ///
+    /// Decided here, beside <see cref="For"/>, because the service asks this before it starts a session
+    /// as well as during one, and the two answers have to agree. The pill up means the claim is about the
+    /// pill, and it holds only when the pill is somewhere a monitor is: a pill restored onto a screen that
+    /// has since been unplugged is drawn into empty coordinate space and indicates nothing (ST-072).
+    ///
+    /// The pill down is only ever the technician's own doing while capture is known to be off, and the
+    /// tray icon stays, which is the tray-only arrangement INV-4 allows when it is chosen. Reporting goes
+    /// on in that state. It used to stop, and since the service refuses to start a session nothing
+    /// indicates, hiding the pill between sessions refused every later start, by hotkey or by a remote
+    /// tool taking the foreground, until the UI was restarted (2026-10-12 review, T-154). The pill comes
+    /// back the moment the session starts, because <see cref="For"/> will not hide it then.
+    /// </summary>
+    /// <param name="hud">What the pill is showing, from <see cref="For"/>.</param>
+    /// <param name="pillOnScreen">Whether the pill has a size and its middle lands on a real monitor.</param>
+    public static bool Indicates(HudSnapshot hud, bool pillOnScreen)
+    {
+        ArgumentNullException.ThrowIfNull(hud);
+        return !hud.Visible || pillOnScreen;
+    }
 
     /// <summary>mm:ss, or h:mm:ss once a session runs past the hour.</summary>
     public static string Elapsed(long? milliseconds)
@@ -122,6 +150,13 @@ public static class HudState
             CaptureStates.Finalizing => new HudSegment(HudTone.Paused, "⋯", "Finishing up"),
 
             CaptureStates.Idle => new HudSegment(HudTone.Idle, "○", "Not recording"),
+
+            // Where a session rests once it is over. Not capturing, and said so: these used to fall
+            // through to "unknown, may be recording", which the pill then showed after every session and
+            // refused to put away (S-39). The words match the tray's, so the two indicators agree.
+            CaptureStates.DraftReady => new HudSegment(HudTone.Idle, "○", "Not recording — draft ready", "Nothing is being captured. The note is ready to review."),
+
+            CaptureStates.DraftFailed => new HudSegment(HudTone.Idle, "○", "Not recording — draft failed", "Nothing is being captured. The note could not be drafted; open ScreenTail to see why."),
 
             // A state this build has never heard of: a service newer than this UI. KnownIdle already
             // says why guessing "idle" is least defensible here, and this is the same reasoning applied
@@ -172,8 +207,10 @@ public static class HudState
             return null;
         }
 
-        var microphone = capabilities[Capability.Microphone];
-        return microphone.State is CapabilityState.Ok
+        // FirstOrDefault, not the indexer: a report from a newer or older service may not carry the row,
+        // and the pill must not throw over a segment that is a nicety.
+        var microphone = capabilities.Checks.FirstOrDefault(c => c.Capability == Capability.Microphone);
+        return microphone is null || microphone.State is CapabilityState.Ok
             ? null
             : new HudSegment(HudTone.Idle, "🎤", "No mic", "No microphone. Capture continues without voice.");
     }

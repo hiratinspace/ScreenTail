@@ -183,9 +183,50 @@ public sealed class TrayAndDiagnosticsTests
     [Fact]
     public void ThePillSaysUnknownForAStateItDoesNotKnow()
     {
-        var hud = Core.Hud.HudState.For(new CaptureStateSnapshot { State = "recording_with_audio" });
+        // Hidden, so the Visible assert can fail: without the flag the pill is up whatever the state, and
+        // the line proved nothing (2026-10-12 review, T-138).
+        var hud = Core.Hud.HudState.For(new CaptureStateSnapshot { State = "recording_with_audio" }, hidden: true);
 
         Assert.Contains("unknown", hud.State.Text, StringComparison.OrdinalIgnoreCase);
         Assert.True(hud.Visible);
+    }
+
+    [Fact]
+    public void AnUnansweredPanelClaimsNoCounts()
+    {
+        // The service is not answering. The panel used to be built from zeros, so a customer read "0
+        // frames dropped" and "Local-only: no" when nobody knew either (2026-10-12 review, T-152).
+        var panel = DiagnosticsPanel.Unanswered;
+
+        Assert.False(panel.Answered);
+        Assert.Contains("unknown", panel.Headline, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(DiagnosticsPanel.From(Sample()).Rows.Select(r => r.Label), panel.Rows.Select(r => r.Label));
+        foreach (var row in panel.Rows.Where(r => r.Label != "Scope"))
+        {
+            Assert.Equal(DiagnosticsPanel.Unknown, row.Value);
+        }
+
+        Assert.Contains("Not connected", panel.Rows.Single(r => r.Label == "Scope").Value, StringComparison.Ordinal);
+        Assert.DoesNotContain(panel.Rows, r => r.Value == "0" || r.Value == "no" || r.Value == "yes");
+
+        var text = panel.ToClipboardText(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        Assert.Contains(DiagnosticsPanel.NotConnected, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("local-only       no", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("frames dropped   0", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAnsweredPanelShowsTheServicesOwnCounts()
+    {
+        // The control: a panel that said unknown on every row would pass the test above and tell a
+        // customer nothing all day.
+        var panel = DiagnosticsPanel.From(Sample());
+
+        Assert.True(panel.Answered);
+        Assert.Equal("Not capturing — outlook", panel.Headline);
+        Assert.Equal("4", panel.Rows.Single(r => r.Label == "Redaction queue").Value);
+        Assert.Equal("yes", panel.Rows.Single(r => r.Label == "Local-only").Value);
+        Assert.Equal("240 MB", panel.Rows.Single(r => r.Label == "Memory").Value);
+        Assert.Equal(Sample().ToClipboardText(DateTimeOffset.UnixEpoch), panel.ToClipboardText(DateTimeOffset.UnixEpoch));
     }
 }
