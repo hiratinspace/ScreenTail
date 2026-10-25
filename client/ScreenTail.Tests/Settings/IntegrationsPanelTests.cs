@@ -117,6 +117,11 @@ public sealed class IntegrationsPanelTests
         panel.Hudu.Change();
         Assert.True(panel.Hudu.HasUnsavedEdits);
         Assert.False(panel.ConnectWise.HasUnsavedEdits);
+
+        // A saved card with Change pressed and its site box emptied is still mid-change: reading it again
+        // would close the form the technician opened.
+        panel.Hudu.SiteUrl = string.Empty;
+        Assert.True(panel.Hudu.HasUnsavedEdits);
     }
 
     [Fact]
