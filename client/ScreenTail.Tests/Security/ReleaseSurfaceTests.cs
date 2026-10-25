@@ -167,6 +167,8 @@ public sealed class ReleaseSurfaceTests
     [InlineData("var w = new ShellWindow((string?)null);", true)]
     [InlineData("var w = new ShellWindow(null);", true)]
     [InlineData("var d = DiagnosticsWindow.Sample;", true)]
+    [InlineData("var w = new ScreenTail.UI.Shell.ShellWindow();", true)]
+    [InlineData("var w = new global::ScreenTail.UI.Diagnostics.DiagnosticsWindow();", true)]
     [InlineData("var w = new ShellWindow(state, loadReview, history, settings);", false)]
     [InlineData("var w = new DiagnosticsWindow(From(reported));", false)]
     [InlineData("var w = new ShellWindow(directory);", false)]
@@ -230,10 +232,11 @@ public sealed class ReleaseSurfaceTests
 
     /// <summary>
     /// The sample constructors and the sample itself: <c>new DiagnosticsWindow()</c>, <c>new ShellWindow()</c>,
-    /// a ShellWindow built on a null screenshot directory, and <c>DiagnosticsWindow.Sample</c>.
+    /// a ShellWindow built on a null screenshot directory, and <c>DiagnosticsWindow.Sample</c>, with or
+    /// without the namespace in front.
     /// </summary>
     private static readonly Regex SampleWindow = new(
-        @"new\s+(?:DiagnosticsWindow|ShellWindow)\s*\(\s*(?:\(\s*string\??\s*\)\s*)?(?:null\s*)?\)|DiagnosticsWindow\.Sample\b",
+        @"new\s+(?:global::)?(?:[\w.]+\.)?(?:DiagnosticsWindow|ShellWindow)\s*\(\s*(?:\(\s*string\??\s*\)\s*)?(?:null\s*)?\)|DiagnosticsWindow\.Sample\b",
         RegexOptions.Compiled);
 
     private static bool BuildsUnguardedHttp(string source)

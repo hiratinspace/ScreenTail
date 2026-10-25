@@ -174,8 +174,16 @@ public sealed class DraftSender(
     /// Holds every send until <paramref name="until"/>. The reason travels with the holds that follow,
     /// so the outbox's last error still says why rather than only that it waited.
     /// </summary>
-    private void Hold(DateTimeOffset until, string reason)
+    private void Hold(DateTimeOffset until, DateTimeOffset now, string reason)
     {
+        // Bounded like any far end's Retry-After: one header naming a month must not stop drafting on
+        // this device for a month, and nothing waits longer than the outbox would honour anyway.
+        var latest = now + Outbox.Outbox.MaxRetryAfter;
+        if (until > latest)
+        {
+            until = latest;
+        }
+
         _holdReason = reason;
         _ = Interlocked.Exchange(ref _holdUntilTicks, until.UtcTicks);
     }
@@ -206,20 +214,24 @@ public sealed class DraftSender(
         }
 
         var reason = answer?.Reason ?? $"The backend answered {(int)response.StatusCode}.";
-        var named = response.Headers.RetryAfter?.Delta;
         var now = _time.GetUtcNow();
+        var named = response.Headers.RetryAfter is { } after
+            ? after.Delta ?? (after.Date is { } date ? date - now : null)
+            : null;
         switch (response.StatusCode)
         {
             // The tenant's budget is spent for the day. It reopens at UTC midnight, or when the backend
             // says if it says; until then every draft on this device would be refused the same way, so
-            // none is built (E-11, paired with E-13's bound on the outbox).
+            // none is built (E-11, paired with E-13's bound on the outbox). The refusal itself is answered
+            // as the shared response contract says; the hold is what the next attempt finds, before it
+            // builds anything.
             case HttpStatusCode.PaymentRequired:
-                Hold(named is { } wait ? now + wait : NextUtcMidnight(now), reason);
+                Hold(named is { } wait ? now + wait : NextUtcMidnight(now), now, reason);
                 break;
 
             // No provider is configured. A deployment problem an operator fixes in hours.
             case HttpStatusCode.NotImplemented:
-                Hold(now + (named ?? NotConfiguredHold), reason);
+                Hold(now + (named ?? NotConfiguredHold), now, reason);
                 break;
         }
 

@@ -205,6 +205,42 @@ public sealed class DraftSenderTests : IAsyncDisposable
         Assert.Equal(TimeSpan.FromMinutes(105), held.RetryAfter);
     }
 
+    [Fact]
+    public async Task ARefusalThatNamesAMonthIsHeldForADayAtMost()
+    {
+        // One header naming a month is a far end having a bad day: the hold is bounded like any
+        // Retry-After the outbox honours, so drafting on this device is not stopped for a month.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(HttpStatusCode.NotImplemented, """{"status":"not_configured","reason":"None."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromDays(30));
+        var handler = new RecordingHandler(reply);
+        var sender = Sender(store, handler, time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(Core.Outbox.Outbox.MaxRetryAfter, held.RetryAfter);
+
+        time.Advance(Core.Outbox.Outbox.MaxRetryAfter);
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARefusalThatNamesADateIsHeldUntilThatDate()
+    {
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var reply = Answer(HttpStatusCode.PaymentRequired, """{"status":"cost_cap_reached","reason":"Budget."}""");
+        reply.Headers.RetryAfter = new RetryConditionHeaderValue(At + TimeSpan.FromHours(3));
+        var sender = Sender(store, new RecordingHandler(reply), time: time);
+
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        var held = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(TimeSpan.FromHours(3), held.RetryAfter);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.OK)]
     [InlineData(HttpStatusCode.BadRequest)]
