@@ -105,6 +105,15 @@ internal static class DraftRules
     /// <summary>How many words past a cue the walk reads before giving up on finding a credential.</summary>
     public const string WalkSteps = "6";
 
+    /// <summary>
+    /// How far a text may grow when it is read: its decomposition may hold this many code points for each
+    /// of its own, and <see cref="ReadSlack"/> more. Past that it is refused unread (<see cref="DraftReading"/>).
+    /// </summary>
+    public const string ReadGrowth = "4";
+
+    /// <summary>What a text's decomposition may hold beyond <see cref="ReadGrowth"/>, so a short field may hold a few ligatures.</summary>
+    public const string ReadSlack = "64";
+
     /// <summary>What ends a sentence, and with it any claim that what follows is the credential.</summary>
     public const string SentenceEnds = ".;!?";
 
@@ -181,6 +190,8 @@ internal static class DraftRules
         ["credential_cue"] = [CredentialCue],
         ["connectives"] = Connectives,
         ["walk_steps"] = [WalkSteps],
+        ["read_growth"] = [ReadGrowth],
+        ["read_slack"] = [ReadSlack],
         ["sentence_ends"] = [SentenceEnds],
         ["value_breaks"] = [ValueBreaks],
         ["secret_shaped"] = [SecretShaped],

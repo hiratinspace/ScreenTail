@@ -58,11 +58,11 @@ public sealed class AgreementCasesTests
 
         Assert.Equal(0x110000 - 0x800, Scalars().Count());
         Assert.True(groups["random"].Cases.Count >= 100_000, "Fewer than 100,000 random sequences.");
-        Assert.Contains("각", groups["hangul"].Cases);
-        Assert.Contains("ậ", groups["triples"].Cases);
-        Assert.Contains("ậ", groups["triples"].Cases);
+        Assert.Contains("\u1100\u1161\u11A8", groups["hangul"].Cases);
+        Assert.Contains("a\u0323\u0302", groups["triples"].Cases);
+        Assert.Contains("a\u0302\u0323", groups["triples"].Cases);
         Assert.Contains(groups["runs"].Cases, run => run.Length > 5000);
-        Assert.Contains("ﷺﷺﷺﷺﷺaa", groups["bound"].Cases);
+        Assert.Contains("\uFDFA\uFDFA\uFDFA\uFDFA\uFDFAaa", groups["bound"].Cases);
     }
 
     [Fact]

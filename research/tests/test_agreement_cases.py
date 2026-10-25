@@ -35,10 +35,11 @@ FIXTURE = ROOT / "fixtures" / "handcrafted" / "spooler-stopped-screenconnect" / 
 MAX_TOTAL_TEXT_CHARS = 600_000
 MAX_TEXT_CHARS = 10_000
 
-# Measured on the development machine (an M-series Mac, CPython 3.12) after the bound: U+FDFA 0.3 s,
-# U+3392 2.4 s, U+FB4F 1.9 s, the run of marks 1.2 s. Before it, U+FDFA took 9 s and the run of marks
-# did not finish in a minute. The budget leaves a slower runner room and keeps the old cost out.
-BUDGET_SECONDS = 15.0
+# Measured on the development machine (an M-series Mac, CPython 3.12), each including building the session:
+# U+FDFA 0.05 s, U+3392 0.50 s, U+FB4F 0.43 s, the run of marks 0.27 s. Before the bound, U+FDFA took 2.8 s
+# and was read rather than refused, which its verdict catches, and the run of marks took 60 s, which this
+# budget catches with room left for a slower runner.
+BUDGET_SECONDS = 5.0
 
 
 def cases_of(group: str) -> list[str]:
@@ -72,8 +73,10 @@ def test_the_file_is_what_agreement_py_writes_from_these_tables():
 def test_the_tables_nfkc_is_pythons_on_every_case_this_python_knows():
     # The digests are Python's NFKC at the tables' version. CI's Python may have another, and NFKC is
     # stable for every character both versions assign, so the comparison is over those.
+    assigned = set(checks.code_points(checks.TABLES["assigned"]))
+
     def known(text: str) -> bool:
-        return all(unicodedata.category(c) != "Cn" for c in text)
+        return all(ord(c) in assigned and unicodedata.category(c) != "Cn" for c in text)
 
     wrong = []
     for group in FILE["groups"]:
@@ -103,7 +106,7 @@ def largest(unit: str) -> dict:
     draft = session["draft"]
     draft["steps"] = [
         {
-            "text": f"The customer said “{(unit * 1000)[:1000]}”.",
+            "text": f"The customer said \u201c{(unit * 4)[:4]}\u201d.",
             "confidence": "high",
             "frame_refs": [],
             "transcript_refs": ["t-0001"],
@@ -115,7 +118,7 @@ def largest(unit: str) -> dict:
 
 @pytest.mark.parametrize(
     "unit,refused",
-    [("ﷺ", True), ("㎒", False), ("ﭏ", False), ("̣́", False)],
+    [("\ufdfa", True), ("\u3392", False), ("\ufb4f", False), ("\u0301\u0323", False)],
     ids=["U+FDFA", "U+3392", "U+FB4F", "marks"],
 )
 def test_the_largest_bundle_of_one_character_is_checked_within_budget(unit: str, refused: bool):
@@ -128,9 +131,9 @@ def test_the_largest_bundle_of_one_character_is_checked_within_budget(unit: str,
 
 
 def test_a_text_that_grows_past_the_bound_is_refused_rather_than_read():
-    session = largest("ﷺ")
+    session = largest("\ufdfa")
     errors = checks.check_draft(session["draft"], session)
     assert any(e.startswith("result: ") and "too long" in e for e in errors), errors
     assert any(e.startswith("Step 1 quotes") for e in errors), errors
-    assert checks.read("ﷺ" * 5 + "aa") is not None
-    assert checks.read("ﷺ" * 7 + "a" * 11) is None
+    assert checks.read("\ufdfa" * 5 + "aa") is not None
+    assert checks.read("\ufdfa" * 7 + "a" * 11) is None

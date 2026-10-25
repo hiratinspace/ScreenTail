@@ -25,6 +25,9 @@ namespace ScreenTail.Api.Summarize;
 /// refusing refuses the draft, so the normalisation can only add refusals. It refuses "In&lt;ZWSP&gt;stall
 /// the agent", which production let through; and "curl²", which NFKC reads as "curl2", is still refused
 /// because of how it was written.
+///
+/// A text that grows past the reading's bound when it is read (<see cref="DraftReading"/>) is refused
+/// unread, and a transcript that does is one no quotation can be shown to come from.
 /// </summary>
 public static class DraftValidator
 {
@@ -97,17 +100,37 @@ public static class DraftValidator
         return safe.ToString();
     }
 
-    /// <summary>The text as every rule but the quotation rule reads it the second time, as <c>checks.read</c> does.</summary>
-    public static string Read(string text) => DraftReading.Read(text);
+    /// <summary>
+    /// The text as every rule but the quotation rule reads it the second time, as <c>checks.read</c> does,
+    /// or null when it grows past the reading's bound.
+    /// </summary>
+    public static string? Read(string text) => DraftReading.Read(text);
+
+    /// <summary>
+    /// What <see cref="Instruction"/> answers for a text that grows past the reading's bound. Not null,
+    /// because a text nobody could read is not one anybody showed was a record.
+    /// </summary>
+    public const string Unreadable = "(text that grows too long to read)";
 
     /// <summary>
     /// What makes this text read as an instruction, or null: the first match of production's rule over
-    /// the text as written, then as read. <c>checks.instruction</c> answers the same.
+    /// the text as written, then as read, and <see cref="Unreadable"/> for a text that cannot be read.
+    /// <c>checks.instruction</c> answers the same.
     /// </summary>
     public static string? Instruction(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        foreach (var reading in Readings(text))
+        return InstructionIn(Readings(text));
+    }
+
+    private static string? InstructionIn(string[]? readings)
+    {
+        if (readings is null)
+        {
+            return Unreadable;
+        }
+
+        foreach (var reading in readings)
         {
             if (Directive.Match(reading) is { Success: true } found)
             {
@@ -312,42 +335,55 @@ public static class DraftValidator
     private static bool OneOf(string value, string[] allowed) =>
         Array.Exists(allowed, candidate => string.Equals(candidate, value, StringComparison.Ordinal));
 
-    private static IEnumerable<string> CheckText(string where, string? text, string spoken)
+    private static IEnumerable<string> CheckText(string where, string? text, string? spoken)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
             yield break;
         }
 
-        foreach (var quoted in Quotations(text))
+        // Read once, and refused unread when it cannot be: no rule can check what was never read.
+        if (DraftReading.Read(text) is not { } read)
+        {
+            yield return TooLong(where);
+            yield break;
+        }
+
+        var readings = Both(text, read);
+        foreach (var quoted in Quotations(read))
         {
             // A quoted sentence in a ticket note is a claim about what somebody said, and a customer may
-            // read it. Paraphrase is fine; invented speech is not.
-            if (!spoken.Contains(AsciiLower(quoted).Trim(' '), StringComparison.Ordinal))
+            // read it. Paraphrase is fine; invented speech is not. A transcript that could not be read is
+            // one nobody can be shown to have said anything in.
+            if (spoken is null || !spoken.Contains(AsciiLower(quoted).Trim(' '), StringComparison.Ordinal))
             {
                 yield return $"{where} quotes \"{Echoed(quoted)}\", which nobody said.";
             }
         }
 
-        foreach (var secret in Secrets(where, text))
+        foreach (var secret in SecretsIn(where, readings))
         {
             yield return secret;
         }
 
-        if (Instruction(text) is { } directive)
+        if (InstructionIn(readings) is { } directive)
         {
             yield return $"{where} reads as an instruction rather than a record: '{Echoed(directive)}'.";
         }
     }
 
+    private static string TooLong(string where) =>
+        $"{where} grows too long when it is read to be checked, so it may not be shown.";
+
     /// <summary>
     /// Why this text puts a secret back into the note: a credential, a social security number or a card,
     /// over the text as written and as read. Empty when it does not.
     /// </summary>
-    internal static IEnumerable<string> Secrets(string where, string text)
-    {
-        var both = Readings(text);
+    internal static IEnumerable<string> Secrets(string where, string text) =>
+        Readings(text) is { } readings ? SecretsIn(where, readings) : [TooLong(where)];
 
+    private static IEnumerable<string> SecretsIn(string where, string[] both)
+    {
         if (both.Any(CarriesACredential))
         {
             yield return $"{where} appears to write out a credential.";
@@ -364,9 +400,13 @@ public static class DraftValidator
         }
     }
 
-    /// <summary>The text as written and as read, with the redaction engine's markers blanked in both.</summary>
-    private static string[] Readings(string text) =>
-        [Blanked(DraftReading.Written(text)), Blanked(DraftReading.Read(text))];
+    /// <summary>
+    /// The text as written and as read, with the redaction engine's markers blanked in both, or null when
+    /// it grows past the reading's bound.
+    /// </summary>
+    private static string[]? Readings(string text) => DraftReading.Read(text) is { } read ? Both(text, read) : null;
+
+    private static string[] Both(string text, string read) => [Blanked(DraftReading.Written(text)), Blanked(read)];
 
     /// <summary>The markers are deliberate and stay. What must not appear is the thing one of them replaced.</summary>
     private static string Blanked(string text) =>
@@ -378,9 +418,9 @@ public static class DraftValidator
     /// quotation with "I've" in it ended after one letter (T-203), and two possessives in one sentence
     /// read as a quotation nobody said (T-230).
     /// </summary>
-    private static IEnumerable<string> Quotations(string text)
+    private static IEnumerable<string> Quotations(string read)
     {
-        var folded = Apostrophe.Replace(DraftReading.Read(text), DraftRules.ApostropheAs);
+        var folded = Apostrophe.Replace(read, DraftRules.ApostropheAs);
         foreach (Match match in Quoted.Matches(folded))
         {
             yield return match.Groups.Values.Skip(1).First(group => group.Success).Value;
@@ -390,9 +430,10 @@ public static class DraftValidator
     /// <summary>
     /// Text as a quotation is compared with the transcript: read, apostrophes inside words made one kind,
     /// ASCII letters in lower case. Only ASCII, because .NET and Python lower-case the rest differently.
+    /// Null when the transcript grows past the reading's bound.
     /// </summary>
-    private static string SpokenForm(string text) =>
-        AsciiLower(Apostrophe.Replace(DraftReading.Read(text), DraftRules.ApostropheAs)).Trim(' ');
+    private static string? SpokenForm(string text) =>
+        DraftReading.Read(text) is { } read ? AsciiLower(Apostrophe.Replace(read, DraftRules.ApostropheAs)).Trim(' ') : null;
 
     private static string AsciiLower(string text) =>
         string.Create(text.Length, text, (span, source) =>

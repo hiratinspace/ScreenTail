@@ -59,7 +59,7 @@ GROWTH = int(checks.RULES["read_growth"])
 SLACK = int(checks.RULES["read_slack"])
 
 S_BASE, L_BASE, V_BASE, T_BASE = 0xAC00, 0x1100, 0x1161, 0x11A7
-EXPANDERS = ["ﷺ", "ﷻ", "㎒", "ﭏ", "㎯", "⑴", "㌀", "ﬃ", "½"]
+EXPANDERS = ["\ufdfa", "\ufdfb", "\u3392", "\ufb4f", "\u33af", "\u2474", "\u3300", "\ufb03", "\u00bd"]
 
 
 def scalars() -> Iterator[str]:
@@ -99,11 +99,11 @@ def corpus() -> dict[str, list[str]]:
     hangul = [lead + vowel for lead in leads for vowel in vowels]
     hangul += [lead + vowel + tail for lead in leads for vowel in vowels for tail in tails]
     hangul += [syllable + tail for syllable in lv for tail in tails]
-    hangul += [syllable + "ᆨ" for syllable in lvt]
+    hangul += [syllable + "\u11a8" for syllable in lvt]
     hangul += [lead + syllable for lead in leads for syllable in lv[:21]]
-    hangul += [lead + vowel + "́" + "ᆨ" for lead in leads for vowel in vowels]
-    hangul += [lead + "́" + vowel for lead in leads for vowel in vowels]
-    hangul += [syllable + "́" + "ᆨ" for syllable in lv]
+    hangul += [lead + vowel + "\u0301" + "\u11a8" for lead in leads for vowel in vowels]
+    hangul += [lead + "\u0301" + vowel for lead in leads for vowel in vowels]
+    hangul += [syllable + "\u0301" + "\u11a8" for syllable in lv]
 
     rng = random.Random(SEED)
     marks = sorted(ccc)
@@ -112,10 +112,10 @@ def corpus() -> dict[str, list[str]]:
         starter = chr(rng.choice(firsts))
         run = "".join(chr(rng.choice(marks)) for _ in range(rng.randint(33, 300)))
         runs.append(starter + run + rng.choice(["", "a", chr(rng.choice(firsts))]))
-    runs.append("a" + "̣́" * 3000)
-    runs.append("a" + "̣́" * 3000)
+    runs.append("a" + "\u0301\u0323" * 3000)
+    runs.append("a" + "\u0323\u0301" * 3000)
     runs.append("e" + "".join(chr(m) for m in sorted(marks, key=lambda m: -ccc[m])) * 3)
-    runs.append("가" + "́" * 5000 + "ᆨ")
+    runs.append("\u1100\u1161" + "\u0301" * 5000 + "\u11a8")
 
     decomposable = sorted(checks.DECOMPOSITIONS)
     old_jamo = [*range(0x1100, 0x1200), *range(0xA960, 0xA980), *range(0xD7B0, 0xD800)]
@@ -137,14 +137,14 @@ def corpus() -> dict[str, list[str]]:
         randoms.append("".join(chr(rng.choice(rng.choice(pools))) for _ in range(rng.randint(1, 12))))
 
     bound = []
-    for filler in ("a", "\U0001f600", "́", "각"):
-        for expander in ("ﷺ", "ﷻ", "㎒"):
+    for filler in ("a", "\U0001f600", "\u0301", "\uac01"):
+        for expander in ("\ufdfa", "\ufdfb", "\u3392"):
             for count in range(0, 31):
                 for pad in range(0, 41, 3):
                     bound.append(filler * pad + expander * count)
                     bound.append(expander * count + " " + filler * pad)
-    bound.append("ﷺ" * 5 + "aa")  # 90 code points from 7: exactly 4 * 7 + 64 = 92 is not passed.
-    bound.append("ﷺ" * 5 + "a" * 11)  # 101 from 16: one under 4 * 16 + 64 = 128.
+    bound.append("\ufdfa" * 5 + "aa")  # 92 code points from 7, which is 4 * 7 + 64: read.
+    bound.append("\ufdfa" * 7 + "a" * 11)  # 137 from 18, one past 4 * 18 + 64: refused.
 
     groups = {
         "pairs": pairs,

@@ -21,4 +21,15 @@ The post-conditions run twice: `checks.py` scores the eval corpus offline, and t
   instruction verdict from before ST-061 beside each. `differential.py` writes it, and stops if the two
   disagree or if any case production refused as an instruction would now pass.
 
-`unicode_tables.py` and `differential.py` need the .NET SDK; they ask .NET through `engine_probe.cs`.
+- `agreement-cases.json.gz` holds what both must read every scalar value as, and every pair and triple
+  the tables compose or reorder, Hangul in each shape, long runs of marks, 112,654 seeded random
+  sequences, and text either side of the reading's bound, as digests of Python's own NFKC at the tables'
+  Unicode version. `agreement.py` writes it; `AgreementCasesTests` and `test_agreement_cases.py` hold
+  each validator to it, and `agreement.py --check` names any case one of them reads differently.
+
+A text is read only while its decomposition stays within `read_growth` (4) code points for each of its
+own and `read_slack` (64) more. Past that both refuse it unread, because NFKC makes U+FDFA eighteen and
+the backend reads a device's transcript.
+
+`unicode_tables.py`, `differential.py` and `agreement.py --check` need the .NET SDK; they ask .NET through
+`engine_probe.cs`.

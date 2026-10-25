@@ -49,7 +49,7 @@ public sealed class SharedRulesTests
     /// <summary>Keys whose values are words or data, not patterns.</summary>
     private static readonly HashSet<string> NotPatterns = new(StringComparer.Ordinal)
     {
-        "redaction_markers", "connectives", "ignore_case", "walk_steps", "sentence_ends", "value_breaks", "apostrophe_as",
+        "redaction_markers", "connectives", "ignore_case", "walk_steps", "read_growth", "read_slack", "sentence_ends", "value_breaks", "apostrophe_as",
     };
 
     /// <summary>

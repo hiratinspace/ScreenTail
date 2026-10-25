@@ -29,6 +29,8 @@ NOT_PATTERNS = {
     "connectives",
     "ignore_case",
     "walk_steps",
+    "read_growth",
+    "read_slack",
     "sentence_ends",
     "value_breaks",
 }
@@ -82,6 +84,7 @@ def test_checks_compiles_every_rule_from_the_shared_file():
         assert regex.flags & re.ASCII, f"{name} folds case beyond ASCII, which .NET does not"
     assert checks.CONNECTIVES == set(RULES["connectives"])
     assert checks.WALK_STEPS == int(RULES["walk_steps"])
+    assert (checks.READ_GROWTH, checks.READ_SLACK) == (int(RULES["read_growth"]), int(RULES["read_slack"]))
 
 
 def client_key_shapes() -> list[str]:

@@ -91,7 +91,7 @@ public sealed class DifferentialCasesTests
         // it compares with are the ones production's own rule gives.
         var wrong = Load()
             .Where(c => c.Group == group)
-            .Where(c => MainRefuses(c.Text) != c.Main || MainRefuses(DraftValidator.Read(c.Text)) != c.MainOnRead)
+            .Where(c => MainRefuses(c.Text) != c.Main || MainRefuses(DraftValidator.Read(c.Text)!) != c.MainOnRead)
             .Select(c => Show(c.Text)).Take(5).ToList();
 
         Assert.True(wrong.Count == 0, "Production's rule gives another verdict for " + string.Join(", ", wrong));
@@ -147,7 +147,7 @@ public sealed class DifferentialCasesTests
             {
                 lost.Add(Show(text));
             }
-            else if (MainRefuses(DraftValidator.Read(text)))
+            else if (MainRefuses(DraftValidator.Read(text)!))
             {
                 added++;
             }

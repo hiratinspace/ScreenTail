@@ -25,6 +25,14 @@ How the text is read, identically in both validators:
 2. "As written": the text as the model wrote it, with only U+212A KELVIN SIGN read as K, because .NET's
    IgnoreCase takes it for k and Python's ASCII folding does not.
 
+A text is read only while its decomposition stays within read_growth code points for each of its own and
+read_slack more (shared-rules.json). NFKC makes U+FDFA eighteen, and the backend reads 600,000 characters
+of a device's transcript, so past the bound read() answers None and the text is refused: what cannot be
+read cannot be checked. A transcript past it is one no quotation can be shown to come from. The reading is
+linear: canonical ordering sorts each run of marks once rather than by insertion, which a run of
+thousands made quadratic. agreement-cases.json.gz holds this and DraftReading to Unicode's NFKC on every
+scalar value and a few hundred thousand sequences.
+
 Every refusal rule but the quotation rule looks at both, and either refusing refuses the draft. So the
 normalisation can only add refusals: "In<ZWSP>stall the agent" is refused because of it, and "curl" with a
 superscript after it, which NFKC turns into a letter-digit word, is still refused because of how it was
@@ -88,6 +96,8 @@ CLASSES = {
     "nonspace": char_class(TABLES["net_space"], negated=True),
 }
 NET_SPACE = {chr(cp) for cp in code_points(TABLES["net_space"])}
+READ_GROWTH = int(RULES["read_growth"])
+READ_SLACK = int(RULES["read_slack"])
 UNSEEN = set(code_points(TABLES["unseen"]))
 SPACES = set(code_points(TABLES["spaces"]))
 
@@ -124,6 +134,11 @@ COMBINING = {cp: int(cls) for cls, spec in TABLES["combining_classes"].items() f
 COMPOSITIONS = {
     (int(a, 16), int(b, 16)): int(c, 16) for a, b, c in (line.split() for line in TABLES["compositions"])
 }
+DECOMPOSED_LENGTH = {cp: len(parts) for cp, parts in DECOMPOSITIONS.items()}
+
+# What instruction() answers, and the reason every rule gives, for a text that grows past the bound.
+UNREADABLE = "(text that grows too long to read)"
+TOO_LONG = "grows too long when it is read to be checked, so it may not be shown."
 
 
 def compose(first: int, second: int) -> int | None:
@@ -150,15 +165,19 @@ def nfkc(points: list[int]) -> list[int]:
         else:
             out.extend(DECOMPOSITIONS.get(cp, (cp,)))
 
-    for i in range(1, len(out)):
-        cp, cls = out[i], COMBINING.get(out[i], 0)
-        if cls == 0:
+    # Canonical ordering: each run of marks sorted stably by class, which is what swapping neighbours
+    # comes to, in one sort rather than a swap at a time.
+    i, count = 0, len(out)
+    while i < count:
+        if not COMBINING.get(out[i], 0):
+            i += 1
             continue
-        j = i
-        while j > 0 and COMBINING.get(out[j - 1], 0) > cls:
-            out[j] = out[j - 1]
-            j -= 1
-        out[j] = cp
+        j = i + 1
+        while j < count and COMBINING.get(out[j], 0):
+            j += 1
+        if j - i > 1:
+            out[i:j] = sorted(out[i:j], key=COMBINING.__getitem__)
+        i = j
 
     if not out:
         return out
@@ -196,10 +215,28 @@ def scalar_values(text: str) -> list[int]:
     return points
 
 
-def read(text: str) -> str:
-    """The text as a person reads it on screen, as DraftValidator.Read reads it."""
+def within_bound(points: list[int]) -> bool:
+    """Whether these code points decompose to no more than the bound, counted without decomposing them."""
+    limit = READ_GROWTH * len(points) + READ_SLACK
+    length = 0
+    for cp in points:
+        if S_BASE <= cp < S_BASE + S_COUNT:
+            length += 2 if (cp - S_BASE) % T_COUNT == 0 else 3
+        else:
+            length += DECOMPOSED_LENGTH.get(cp, 1)
+        if length > limit:
+            return False
+    return True
+
+
+def read(text: str) -> str | None:
+    """The text as a person reads it on screen, as DraftValidator.Read reads it, or None when it grows
+    past the bound."""
+    points = scalar_values(text)
+    if not within_bound(points):
+        return None
     out: list[int] = []
-    for cp in nfkc(scalar_values(text)):
+    for cp in nfkc(points):
         if cp in UNSEEN:
             continue
         if cp in SPACES:
@@ -235,9 +272,13 @@ def blanked(text: str) -> str:
     return text
 
 
-def readings(text: str) -> tuple[str, str]:
-    """The text as written and as read, in code units, with the markers blanked."""
-    return units(blanked(text.replace("\u212a", "K"))), units(blanked(read(text)))
+def readings(text: str) -> tuple[str, str] | None:
+    """The text as written and as read, in code units, with the markers blanked, or None when it grows
+    past the bound."""
+    as_read = read(text)
+    if as_read is None:
+        return None
+    return units(blanked(text.replace("\u212a", "K"))), units(blanked(as_read))
 
 
 def ascii_lower(text: str) -> str:
@@ -370,10 +411,14 @@ def prompt_version() -> str:
     raise AssertionError("note_v1.md does not declare a version")
 
 
-def spoken_form(text: str) -> str:
+def spoken_form(text: str) -> str | None:
     """Text as a quotation is compared with the transcript: read, apostrophes inside words made one kind,
-    ASCII letters in lower case. Only ASCII, because .NET and Python lower-case the rest differently."""
-    return ascii_lower(APOSTROPHE.sub(RULES["apostrophe_as"], read(text))).strip(" ")
+    ASCII letters in lower case. Only ASCII, because .NET and Python lower-case the rest differently.
+    None when the transcript grows past the bound."""
+    as_read = read(text)
+    if as_read is None:
+        return None
+    return ascii_lower(APOSTROPHE.sub(RULES["apostrophe_as"], as_read)).strip(" ")
 
 
 def check_draft(draft: dict, session: dict) -> list[str]:
@@ -420,22 +465,15 @@ def check_draft(draft: dict, session: dict) -> list[str]:
         if not step.get("transcript_refs") and step.get("confidence") != "low":
             errors.append(f"{where} has no transcript evidence, so it cannot be high confidence.")
 
-        errors.extend(f"{where} {reason}" for reason in check_quotations(step.get("text", ""), spoken))
-        errors.extend(f"{where}: {reason}" for reason in check_no_secrets(step.get("text", "")))
-        errors.extend(f"{where}: {reason}" for reason in check_not_directed(step.get("text", "")))
+        errors.extend(check_text(where, step.get("text", ""), spoken))
 
     # Every free-text field, not only the steps. These are the fields most likely to be copied into a
     # customer-visible Discussion note.
     for field in ("problem", "result", "suggested_title", "kb_reason"):
-        value = str(draft.get(field, ""))
-        errors.extend(f"{field}: {reason}" for reason in check_no_secrets(value))
-        errors.extend(f"{field}: {reason}" for reason in check_not_directed(value))
-        errors.extend(f"{field}: {reason}" for reason in check_quotations(value, spoken))
+        errors.extend(check_text(field, str(draft.get(field, "")), spoken, quotations_last=True))
 
     for follow_up in draft.get("follow_ups", []):
-        errors.extend(f"follow_ups: {reason}" for reason in check_no_secrets(follow_up))
-        errors.extend(f"follow_ups: {reason}" for reason in check_not_directed(follow_up))
-        errors.extend(f"follow_ups: {reason}" for reason in check_quotations(follow_up, spoken))
+        errors.extend(check_text("follow_ups", follow_up, spoken, quotations_last=True))
 
     if not str(draft.get("kb_reason", "")).strip():
         errors.append("kb_reason is empty; a person has to read it to decide about the article.")
@@ -454,25 +492,46 @@ def check_draft(draft: dict, session: dict) -> list[str]:
     return errors
 
 
+def check_text(where: str, text: str, spoken: str | None, quotations_last: bool = False) -> list[str]:
+    """Every rule that reads a free-text field, or the one reason a field past the bound gets: it is
+    refused unread, since no rule can check what was never read. A step's quotations are reported first
+    and a field's last, as they always were."""
+    if read(text) is None:
+        return [f"{where}: {TOO_LONG}"]
+    quoted = [f"{where} {reason}" for reason in check_quotations(text, spoken)]
+    others = [
+        *(f"{where}: {reason}" for reason in check_no_secrets(text)),
+        *(f"{where}: {reason}" for reason in check_not_directed(text)),
+    ]
+    return others + quoted if quotations_last else quoted + others
+
+
 def quotations(text: str) -> list[str]:
     """What the text puts in quotation marks, as read, with apostrophes inside words folded first.
 
     A straight or curly apostrophe is the same character as a closing single quote, so unfolded a curly
     quotation with "I've" in it ended after one letter, and two possessives in a sentence read as a
-    quotation (2026-10-12 review, T-203 and T-230)."""
-    folded = units(APOSTROPHE.sub(RULES["apostrophe_as"], read(text)))
+    quotation (2026-10-12 review, T-203 and T-230). Empty for a text past the bound, which check_quotations
+    refuses."""
+    as_read = read(text)
+    if as_read is None:
+        return []
+    folded = units(APOSTROPHE.sub(RULES["apostrophe_as"], as_read))
     return [
         shown(next(group for group in match.groups() if group is not None))
         for match in QUOTED.finditer(folded)
     ]
 
 
-def check_quotations(text: str, spoken: str) -> list[str]:
-    """Rule 4. A phrase in quotation marks has to be one somebody actually said."""
+def check_quotations(text: str, spoken: str | None) -> list[str]:
+    """Rule 4. A phrase in quotation marks has to be one somebody actually said. A transcript past the
+    bound (spoken None) is one nobody can be shown to have said anything in."""
+    if read(text) is None:
+        return [TOO_LONG]
     return [
         f"quotes {quoted!r}, which nobody said in this session."
         for quoted in quotations(text)
-        if ascii_lower(quoted).strip(" ") not in spoken
+        if spoken is None or ascii_lower(quoted).strip(" ") not in spoken
     ]
 
 
@@ -480,8 +539,12 @@ def instruction(text: str) -> str | None:
     """What makes this text read as an instruction, or None.
 
     Production's rule from before ST-061 (DraftValidator.cs at main b989436), spelled out so that both
-    engines read it as .NET did, over the text as written and then as read."""
-    for reading in readings(text):
+    engines read it as .NET did, over the text as written and then as read. UNREADABLE for a text past
+    the bound: a text nobody could read is not one anybody showed was a record."""
+    both = readings(text)
+    if both is None:
+        return UNREADABLE
+    for reading in both:
         found = DIRECTIVE.search(reading)
         if found is not None:
             return shown(found.group(0))
@@ -501,6 +564,8 @@ def check_not_directed(text: str) -> list[str]:
     or switch off a security control. Those are things a screen can say and a session cannot produce on
     its own, so their presence is a reason to refuse the draft rather than to show it.
     """
+    if read(text) is None:
+        return [TOO_LONG]
     found = instruction(text)
     return [] if found is None else [f"reads as an instruction rather than a record: {found!r}."]
 
@@ -513,6 +578,8 @@ def check_no_secrets(text: str) -> list[str]:
     "password" is not refused, so "Password reset completed for jsmith." passes."""
     reasons = []
     both = readings(text)
+    if both is None:
+        return [TOO_LONG]
     if any(SSN.search(r) or SSN_CUED.search(r) for r in both):
         reasons.append("contains something shaped like an SSN.")
     if any(passes_luhn(match.group(0)) for r in both for match in CARD.finditer(r)):

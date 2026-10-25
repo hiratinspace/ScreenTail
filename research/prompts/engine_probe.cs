@@ -17,7 +17,7 @@
 // - "single": for each pattern, which of the given characters it matches whole, compiled with and
 //   without IgnoreCase as the validator compiles its patterns; with "surrogates", each lone surrogate
 //   is a character after the given ones.
-// - "read": DraftValidator.Read of each text, and nothing else.
+// - "read": DraftValidator.Read of each text, and nothing else; null for a text past the reading's bound.
 // - "cases": for each text, DraftValidator.Read of it, the instruction the validator finds, main's
 //   Directive verdict on the text and on the text as read, and whether DraftValidator refuses a draft
 //   whose result is the text.
@@ -107,7 +107,7 @@ static object Cases(JsonElement request)
         read = DraftValidator.Read(text),
         instruction = DraftValidator.Instruction(text) is not null,
         main = MainDirective.IsMatch(Blanked(text)),
-        main_on_read = MainDirective.IsMatch(Blanked(DraftValidator.Read(text))),
+        main_on_read = MainDirective.IsMatch(Blanked(DraftValidator.Read(text) ?? "")),
         refuse = DraftValidator.Check(Draft(text), bundle).Count > 0,
     }).ToList();
 }

@@ -24,30 +24,40 @@ namespace ScreenTail.Api.Tests.Summarize;
 ///
 /// The validator reads the transcript a device sent, not only the draft, and BundleLimits lets a bundle
 /// carry 600,000 characters of it. NFKC makes U+FDFA eighteen characters, so before the bound a bundle of
-/// it was read as 10.8 million code points, held in lists of boxed-size ints, three times over. And
-/// canonical ordering sorted a run of marks by insertion, which a run of ten thousand marks of two
-/// classes in descending order makes quadratic.
+/// it was read as 10.8 million code points, held in lists three times over. And canonical ordering sorted
+/// a run of marks by insertion, which ten thousand marks of two classes in descending order make
+/// quadratic.
 ///
 /// Each shape is the most text BundleLimits accepts, of one character, through
 /// <see cref="DraftValidator.Check"/>, with a draft that quotes the transcript and a result of the same
-/// character. The time and allocation budgets are the least of three runs; the numbers measured on the
-/// development machine (an M-series Mac, Debug build) are beside each, and the budgets leave room for a
-/// slower CI runner without letting the old cost back in.
+/// character. Time and allocation are the least of three runs. Measured on the development machine (an
+/// M-series Mac), before the bound and after it, in a Release build as CI runs it, Debug in brackets:
+///
+/// U+FDFA: 126 ms (473) and 286 MB, read and passed; now 1 ms (6) and 1.2 MB, refused.
+/// U+3392: 22 ms (83) and 39 MB; now 27 ms (107) and 8.2 MB, passed both times.
+/// U+FB4F: 15 ms (57) and 22 MB; now 13 ms (55 to 89) and 5.9 MB, passed both times.
+/// The run of marks: 3,343 ms (7,154) and 10 MB; now 6 ms (37) and 3.5 MB, passed both times.
+/// The endpoint: 200 and the draft in 503 ms (594); now 422 and 209 characters in 190 ms (162).
+///
+/// The budgets are 1 s and 16 MB a check, and 3 s for the endpoint. Allocation does not depend on the
+/// machine, so 16 MB is twice the most measured now and under what each ligature cost before. The time
+/// budget is nine times the slowest Debug check and under a third of the run of marks before, and U+FDFA
+/// before is caught by its verdict as well as its allocation.
 /// </summary>
 public sealed class ReadingBoundTests
 {
     /// <summary>More than the model's output cap could carry: 8,192 tokens of one character each, four times over.</summary>
     private const int DraftChars = 32_768;
 
-    private static readonly TimeSpan CheckBudget = TimeSpan.FromMilliseconds(1_500);
-    private const long CheckAllocationBudget = 64L * 1024 * 1024;
-    private static readonly TimeSpan EndpointBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan CheckBudget = TimeSpan.FromMilliseconds(1_000);
+    private const long CheckAllocationBudget = 16L * 1024 * 1024;
+    private static readonly TimeSpan EndpointBudget = TimeSpan.FromSeconds(3);
 
     [Theory]
-    [InlineData("ﷺ", true)] // ARABIC LIGATURE SALLALLAHOU ALAYHE WASALLAM: eighteen code points.
-    [InlineData("㎒", false)] // SQUARE MHZ: three.
-    [InlineData("ﭏ", false)] // HEBREW LIGATURE ALEF LAMED: two.
-    [InlineData("̣́", true)] // Marks of classes 230 and 220 in the order canonical ordering reverses.
+    [InlineData("\uFDFA", true)] // ARABIC LIGATURE SALLALLAHOU ALAYHE WASALLAM: eighteen code points.
+    [InlineData("\u3392", false)] // SQUARE MHZ: three.
+    [InlineData("\uFB4F", false)] // HEBREW LIGATURE ALEF LAMED: two.
+    [InlineData("\u0301\u0323", false)] // Marks of classes 230 and 220 in the order canonical ordering reverses.
     public void TheLargestBundleOfOneCharacterIsCheckedWithinBudget(string unit, bool refused)
     {
         var bundle = Largest(unit);
@@ -68,8 +78,8 @@ public sealed class ReadingBoundTests
     {
         // Fail closed: what cannot be read cannot be checked, so it may not be shown. A quotation of a
         // transcript that cannot be read is one nobody can be shown to have said.
-        var bundle = Largest("ﷺ");
-        var draft = Draft("ﷺ");
+        var bundle = Largest("\uFDFA");
+        var draft = Draft("\uFDFA");
 
         var reasons = DraftValidator.Check(draft, bundle);
 
@@ -129,7 +139,7 @@ public sealed class ReadingBoundTests
         var watch = Stopwatch.StartNew();
         using var response = await client.PostAsync(
             new Uri("/v1/sessions/summarize", UriKind.Relative),
-            new StringContent(JsonSerializer.Serialize(Largest("ﷺ")), Encoding.UTF8, "application/json"),
+            new StringContent(JsonSerializer.Serialize(Largest("\uFDFA")), Encoding.UTF8, "application/json"),
             TestContext.Current.CancellationToken);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         watch.Stop();
@@ -169,7 +179,7 @@ public sealed class ReadingBoundTests
         [
             new DraftStepJson
             {
-                Text = $"The customer said “{Filled(unit, 1_000)}”.",
+                Text = $"The customer said \u201C{Filled(unit, 4)}\u201D.",
                 Confidence = "high",
                 FrameRefs = [],
                 TranscriptRefs = ["t-0001"],
@@ -226,8 +236,8 @@ public sealed class ReadingBoundTests
         public Task<ProviderResult<LlmDraft>> DraftAsync(SummarizeBundle bundle, string? repair, CancellationToken ct = default)
         {
             _ = Interlocked.Increment(ref _calls);
-            var draft = JsonSerializer.SerializeToNode(Draft("ﷺ"))!;
-            draft["result"] = Filled("ﷺ", 8_192);
+            var draft = JsonSerializer.SerializeToNode(Draft("\uFDFA"))!;
+            draft["result"] = Filled("\uFDFA", 8_192);
             return Task.FromResult(ProviderResult.Success(new LlmDraft(draft.ToJsonString(), 0.01m)));
         }
     }
