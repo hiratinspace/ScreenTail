@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http;
 using System.Runtime.Versioning;
 using System.Text;
 using ScreenTail.Core.Net;
