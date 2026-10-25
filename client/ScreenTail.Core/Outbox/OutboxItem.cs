@@ -72,12 +72,13 @@ public sealed record OutboxItem(
 /// <summary>How a send ended. Four outcomes, because three of them are wrong for at least one caller.</summary>
 public readonly record struct SendOutcome
 {
-    private SendOutcome(OutboxState state, string? remoteId, string? message, TimeSpan? retryAfter = null)
+    private SendOutcome(OutboxState state, string? remoteId, string? message, TimeSpan? retryAfter = null, bool nothingSent = false)
     {
         State = state;
         RemoteId = remoteId;
         Message = message;
         RetryAfter = retryAfter;
+        NothingSent = nothingSent;
     }
 
     public OutboxState State { get; }
@@ -93,6 +94,13 @@ public readonly record struct SendOutcome
     /// </summary>
     public TimeSpan? RetryAfter { get; }
 
+    /// <summary>
+    /// The sender knew before sending that there was no point, so nothing left the machine: the device
+    /// is not enrolled, or the far end has already said it will refuse until a time. Not an attempt, so
+    /// it does not use up the item's patience.
+    /// </summary>
+    public bool NothingSent { get; }
+
     /// <summary>It happened, and the far end called it this.</summary>
     public static SendOutcome Done(string? remoteId) => new(OutboxState.Done, remoteId, null);
 
@@ -101,6 +109,9 @@ public readonly record struct SendOutcome
 
     /// <summary>A retry the far end named a time for, from its Retry-After. Null is the plain backoff.</summary>
     public static SendOutcome Retry(string message, TimeSpan? after) => new(OutboxState.Pending, null, message, after);
+
+    /// <summary>Not tried, and worth trying after <paramref name="after"/>: see <see cref="NothingSent"/>.</summary>
+    public static SendOutcome NotSent(string message, TimeSpan? after) => new(OutboxState.Pending, null, message, after, nothingSent: true);
 
     /// <summary>It will not happen: a missing ticket, a rejected payload, credentials that are wrong.</summary>
     public static SendOutcome Failed(string message) => new(OutboxState.Failed, null, message);

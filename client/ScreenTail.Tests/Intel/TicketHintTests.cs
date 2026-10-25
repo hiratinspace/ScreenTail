@@ -34,9 +34,22 @@ public sealed class TicketHintTests
     [Fact]
     public void TheClipboardIsAskedOnlyWhenTheTitleSaysNothing()
     {
-        Assert.Equal("48213", TicketHint.From("Remote Desktop", null, clipboard: "48213"));
         Assert.Equal("48213", TicketHint.From("Remote Desktop", null, clipboard: "ticket #48213 please"));
-        Assert.Equal("50011", TicketHint.From("Ticket #50011", null, clipboard: "48213"));
+        Assert.Equal("48213", TicketHint.From("Remote Desktop", null, clipboard: "#48213"));
+        Assert.Equal("50011", TicketHint.From("Ticket #50011", null, clipboard: "#48213"));
+    }
+
+    [Theory]
+    [InlineData("48213")]
+    [InlineData(" 482130 ")]
+    [InlineData("1234")]
+    [InlineData("123456789")]
+    public void ABareNumberOnTheClipboardIsNotATicket(string clipboard)
+    {
+        // Three to nine digits copied whole is a one-time code or a PIN far more often than a ticket. As a
+        // suggested ticket it outlived retention with the session and went to the PSA as a search when
+        // Review opened (2026-10-12 review, S-45). A number is a ticket when something introduces it as one.
+        Assert.Null(TicketHint.From("Remote Desktop", null, clipboard: clipboard));
     }
 
     [Fact]

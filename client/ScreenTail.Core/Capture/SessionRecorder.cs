@@ -195,7 +195,7 @@ public sealed class SessionRecorder(
 
         // Staged with redaction_pending, the only state a frame can be born in: nothing outside the
         // redaction worker can read one until it has been through ST-041 (INV-1).
-        _ = await machine.TryStageFrameAsync(
+        var staged = await machine.TryStageFrameAsync(
             new StagedFrame(
                 Guid.NewGuid().ToString("N")[..12],
                 click.TsMs,
@@ -206,6 +206,12 @@ public sealed class SessionRecorder(
                 frame.Image),
             ct).ConfigureAwait(false);
 
-        FrameStaged?.Invoke(frame);
+        // Only a frame that was accepted was staged. A refused one is counted against the session by
+        // the machine, and the host's log line about what the frame cost would otherwise describe a
+        // frame that went nowhere (2026-10-12 review, S-1; the scene recorder already did this).
+        if (staged)
+        {
+            FrameStaged?.Invoke(frame);
+        }
     }
 }

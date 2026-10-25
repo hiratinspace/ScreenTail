@@ -43,7 +43,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
         {
             return new TrayPresence(
                 TrayIcon.Offline,
-                "ScreenTail — not connected to the capture service",
+                "ScreenTail · not connected to the capture service",
                 "Capture service not running",
                 0);
         }
@@ -58,7 +58,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
         {
             "recording" => (TrayIcon.Recording, "Recording"),
             "paused" => (TrayIcon.Paused, "Paused"),
-            "suppressed" => (TrayIcon.Paused, "Paused — sensitive window"),
+            "suppressed" => (TrayIcon.Paused, "Paused: sensitive window"),
             "finalizing" => (TrayIcon.Paused, "Finishing up"),
             "draft_ready" => (TrayIcon.DraftReady, "Draft ready"),
             "draft_failed" => (TrayIcon.DraftReady, "Draft failed"),
@@ -73,12 +73,12 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
 
         var detail = (tool, elapsed) switch
         {
-            (not null, not null) => $"{label} — {tool} ({elapsed})",
-            (not null, null) => $"{label} — {tool}",
+            (not null, not null) => $"{label}: {tool} ({elapsed})",
+            (not null, null) => $"{label}: {tool}",
             (null, not null) => $"{label} ({elapsed})",
             _ => label,
         };
 
-        return new TrayPresence(icon, $"ScreenTail — {detail}", detail, drafts);
+        return new TrayPresence(icon, $"ScreenTail · {detail}", detail, drafts);
     }
 }

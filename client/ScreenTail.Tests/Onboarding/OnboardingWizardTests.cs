@@ -1,5 +1,7 @@
+using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Onboarding;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
 
 namespace ScreenTail.Tests.Onboarding;
@@ -64,12 +66,16 @@ public sealed class OnboardingWizardTests
     [Fact]
     public async Task ABlockedMicrophoneShowsTheFixAndIsCheckedAgain()
     {
-        // AC3: blocked mic → deep link and re-check.
+        // AC3: blocked mic → deep link and re-check. The check is the one the service sends, built the
+        // way the service builds it: the hint is a sentence for a person and the link is what the Fix
+        // button opens, and a fake that put the link in the hint hid a Fix button that did nothing
+        // (2026-10-12 review, T-110).
+        var blocked = CapabilityCopy.MicrophoneBlocked().ToWire();
         var capabilities = new FakeCapabilities
         {
             Checks =
             [
-                new CapabilityStatus { Capability = "microphone", State = "blocked", Message = "Microphone access is off for desktop apps.", FixHint = "ms-settings:privacy-microphone" },
+                blocked,
                 new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
                 new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
             ],
@@ -81,14 +87,40 @@ public sealed class OnboardingWizardTests
 
         var mic = wizard.Permissions.Single(p => p.Capability == "microphone");
         Assert.False(mic.Ok);
-        Assert.Equal("ms-settings:privacy-microphone", mic.FixLink);
+        Assert.Equal(CapabilityCopy.MicrophoneSettings, mic.FixLink);
+        Assert.Equal(blocked.Message, mic.Message);
+        Assert.True(ExternalLinks.TryFixLink(mic.FixLink, out _), "the Fix button opens only a link it accepts");
         Assert.True(wizard.CanContinue, "a blocked microphone is a worse session, not a blocked setup");
         Assert.Contains("without narration", wizard.Blocker ?? wizard.Note, StringComparison.OrdinalIgnoreCase);
 
-        capabilities.Checks = [.. capabilities.Checks.Select(c => c.Capability == "microphone" ? c with { State = "ok", Message = "Microphone works.", FixHint = null } : c)];
+        capabilities.Checks = [.. capabilities.Checks.Select(c => c.Capability == "microphone" ? c with { State = "ok", Message = "Microphone works.", FixHint = null, FixLink = null } : c)];
         await wizard.RecheckAsync();
         Assert.True(wizard.Permissions.Single(p => p.Capability == "microphone").Ok);
         Assert.Equal(2, capabilities.Asked);
+    }
+
+    [Fact]
+    public async Task AMicrophoneTheAdminBlockedOffersNoFixButton()
+    {
+        // The admin's block has a hint and no link: there is nothing in Windows Settings the technician
+        // can change, so there is no button to press.
+        var capabilities = new FakeCapabilities
+        {
+            Checks =
+            [
+                CapabilityCopy.MicrophoneBlockedByAdmin().ToWire(),
+                new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
+                new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
+            ],
+        };
+        var wizard = Wizard(capabilities: capabilities);
+        wizard.Go(OnboardingStep.Permissions);
+
+        await wizard.LoadStepAsync();
+
+        var mic = wizard.Permissions.Single(p => p.Capability == "microphone");
+        Assert.False(mic.Ok);
+        Assert.Null(mic.FixLink);
     }
 
     [Fact]

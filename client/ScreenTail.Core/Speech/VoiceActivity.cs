@@ -16,6 +16,13 @@ namespace ScreenTail.Core.Speech;
 /// <b>The floor is learned only while nobody is talking.</b> Tracking every frame would drag it up behind
 /// a speaker, and the back half of a long sentence would fall below the threshold — a technician
 /// explaining a fix, transcribed for three seconds and then cut off mid-clause.
+///
+/// <b>Digital silence is not a room.</b> A frame of exact zeros is a muted device or a stream that has not
+/// started delivering, and it used to be believed at once as a room at -100 dBFS. The real room, forty or
+/// fifty decibels louder, then read as speech for close to a minute and was cut into truncated segments
+/// for a transcriber that answers room tone with invented sentences (2026-10-12 review). Such a frame is
+/// never speech and teaches the floor nothing, and the floor is never allowed below what a room can
+/// sound like.
 /// </summary>
 public sealed class VoiceActivity(VoiceActivityOptions? options = null)
 {
@@ -44,11 +51,19 @@ public sealed class VoiceActivity(VoiceActivityOptions? options = null)
         }
 
         LevelDb = LevelOf(frame);
+        if (LevelDb <= _options.SilenceDb)
+        {
+            // A mute, or a device that has not started. Nobody is talking, and nothing has been learned
+            // about the room: the floor it would have set is one no room reads at, and the next real
+            // frame would have been speech by comparison for as long as it took the floor to climb back.
+            _speakingFrames = 0;
+            return 0;
+        }
 
-        // The first frame *is* the room. Starting the floor at silence instead made every real signal
-        // look like speech, which meant the floor was never allowed to learn and never came off silence:
-        // a machine beside a fan would have transcribed the fan all day.
-        _floorDb ??= LevelDb;
+        // The first real frame *is* the room. Starting the floor at silence instead made every real
+        // signal look like speech, which meant the floor was never allowed to learn and never came off
+        // silence: a machine beside a fan would have transcribed the fan all day.
+        _floorDb ??= Math.Max(LevelDb, _options.FloorMinimumDb);
         var snr = LevelDb - _floorDb.Value;
 
         // Straight line between "indistinguishable from the room" and "unmistakably someone talking".
@@ -105,7 +120,7 @@ public sealed class VoiceActivity(VoiceActivityOptions? options = null)
 
         if (levelDb < _floorDb)
         {
-            _floorDb = levelDb;
+            _floorDb = Math.Max(levelDb, _options.FloorMinimumDb);
             return;
         }
 
@@ -129,6 +144,21 @@ public sealed record VoiceActivityOptions
     public double QuietDb { get; init; } = 6;
 
     public double LoudDb { get; init; } = 18;
+
+    /// <summary>
+    /// At or below this, a frame is digital silence: a muted device or a stream that has not started
+    /// delivering, never a room. It is not speech and it teaches the floor nothing. Minus ninety dBFS is
+    /// a sample of amplitude one in sixteen bits; no microphone in a room reads that quiet.
+    /// </summary>
+    public double SilenceDb { get; init; } = -90;
+
+    /// <summary>
+    /// The quietest the floor may be. A near-silent frame that is not quite zeros (a muted device with
+    /// dither on it) would otherwise open the same window a mute did, so the floor is held at the
+    /// quietest level a real room reads at. Speech sits tens of decibels above this however quiet the
+    /// room, so nothing anyone says is lost to the clamp.
+    /// </summary>
+    public double FloorMinimumDb { get; init; } = -80;
 
     /// <summary>
     /// Above this probability the frame is treated as speech and the room is not updated from it.

@@ -147,6 +147,38 @@ public sealed class EgressGuardTests
     }
 
     [Fact]
+    public async Task LocalOnlyDoesNotFetchTheSpeechModel()
+    {
+        // 2026-10-12 review (S-32). The docs promised the tenant's policy was the one thing fetched in
+        // local-only mode, and the first session on a machine without the model fetched it from the
+        // model host on its own. Only metadata leaves, but local-only is a promise about requests, not
+        // about content. Narration needs the model on the machine before local-only is turned on, or
+        // the policy lifted; the recogniser already treats a refusal as "no narration".
+        var far = new CountingHandler();
+        using var client = Client(Tenant(localOnly: true), far);
+
+        var blocked = await Assert.ThrowsAsync<EgressBlockedException>(
+            () => client.SendAsync(EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload), TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, far.Requests);
+        Assert.Contains("Local-only mode is on", blocked.Message, StringComparison.Ordinal);
+        Assert.Equal(EgressPurpose.ModelDownload, blocked.Purpose);
+    }
+
+    [Fact]
+    public void TheDefaultInnerHandlerDoesNotFollowRedirects()
+    {
+        // 2026-10-12 review (T-99). The guard follows redirects itself, hop by hop against the allowlist,
+        // which only means anything if the handler underneath does not follow them first. Nothing pinned
+        // that: a swap to a handler with the platform default would let a 307 re-POST a bundle to a
+        // second host under the guard's nose (INV-8).
+        using var guard = new EgressGuard(new EgressPolicy(Tenant()));
+
+        var inner = Assert.IsType<HttpClientHandler>(guard.InnerHandler);
+        Assert.False(inner.AllowAutoRedirect);
+    }
+
+    [Fact]
     public async Task ATenantThatConfiguredNothingSendsNothing()
     {
         // The default is empty allowlists, so a misconfigured or half-provisioned client cannot reach
@@ -302,7 +334,7 @@ public sealed class EgressGuardTests
         {
             Status = HttpStatusCode.TemporaryRedirect,
         };
-        using var client = Client(Tenant(localOnly: true), far);
+        using var client = Client(Tenant(), far);
 
         using var response = await client.SendAsync(
             EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload),
@@ -321,7 +353,7 @@ public sealed class EgressGuardTests
         // from zero -- so a download interrupted at 90% restarted at 0% every time, forever, on a
         // connection bad enough to have interrupted it once.
         var far = new RecordingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
-        using var client = Client(Tenant(localOnly: true), far);
+        using var client = Client(Tenant(), far);
 
         using var request = EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload);
         request.Headers.Range = new RangeHeaderValue(1_000, null);
@@ -337,7 +369,7 @@ public sealed class EgressGuardTests
         // instruction to talk to a second host, and handing that host whatever credential was on the
         // first request is how an allowlisted hop becomes a credential leak.
         var far = new RecordingHandler(new Uri("https://models.example/cdn/ggml-small.bin"));
-        using var client = Client(Tenant(localOnly: true), far);
+        using var client = Client(Tenant(), far);
 
         using var request = EgressRequest.For(HttpMethod.Get, Models, EgressPurpose.ModelDownload);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "a-device-token");

@@ -44,6 +44,18 @@ public sealed partial class OnboardingViewModel : ObservableObject
         _opened = opened ?? throw new ArgumentNullException(nameof(opened));
         Activation = new ActivationViewModel(wizard.Activation);
         Integrations = new IntegrationsViewModel(wizard.Integrations);
+
+        // The activation card is Settings' own view model and acts on the wizard's panel by itself, so
+        // nothing here ran after it activated and Continue stayed off (2026-10-12 review, T-166). Its
+        // activated state is what the step's blocker reads, so a change to it is a reason to refresh.
+        // The card belongs to this view model, so the handler lives exactly as long as both.
+        Activation.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ActivationViewModel.ActivatedVisibility))
+            {
+                Refresh();
+            }
+        };
         Refresh();
     }
 

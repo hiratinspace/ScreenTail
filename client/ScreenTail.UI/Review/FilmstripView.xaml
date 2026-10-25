@@ -85,11 +85,25 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0"
-                   Style="{StaticResource Text.SectionHeading}"
-                   Text="{Binding Header}"
-                   AutomationProperties.LiveSetting="Polite" />
+        <StackPanel Grid.Row="0">
+            <TextBlock Style="{StaticResource Text.SectionHeading}"
+                       Text="{Binding Header}"
+                       AutomationProperties.LiveSetting="Polite" />
 
+            <!-- An exclusion or a delete the service did not record (S-35, T-136). Said in words with a
+                 glyph, never colour alone (Spec §7), because the frame may be back next time. -->
+            <TextBlock Margin="0,6,0,0"
+                       Style="{StaticResource Text.Body}"
+                       Foreground="{DynamicResource Brush.state.danger}"
+                       TextWrapping="Wrap"
+                       Visibility="{Binding HasEditError, Converter={StaticResource Visible}}"
+                       AutomationProperties.LiveSetting="Assertive">
+                <Run Text="⚠ " /><Run Text="{Binding EditError, Mode=OneWay}" />
+            </TextBlock>
+        </StackPanel>
+
+        <!-- PreviewKeyDown, not KeyDown: the ListBox's own key handling marks Space handled for selection
+             before a KeyDown handler on it runs, so Space never excluded a frame (T-167). -->
         <ListBox Grid.Row="1"
                  x:Name="Strip"
                  Margin="0,10,0,0"
@@ -98,7 +112,7 @@
                  SelectedItem="{Binding Selected}"
                  SelectionChanged="OnStripSelectionChanged"
                  ItemTemplateSelector="{StaticResource StripTemplate}"
-                 KeyDown="OnStripKeyDown"
+                 PreviewKeyDown="OnStripKeyDown"
                  MouseDoubleClick="OnStripDoubleClick"
                  AutomationProperties.Name="Screenshots" />
 

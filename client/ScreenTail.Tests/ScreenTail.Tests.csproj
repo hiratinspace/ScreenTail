@@ -26,6 +26,11 @@
   <ItemGroup>
     <!-- The design tokens are the single source; the contrast test reads them from the output folder. -->
     <None Include="..\..\shared\design\tokens.json" Link="Design\tokens.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The theme dictionaries, so a test can hold the hand-written high-contrast one to the generated keys (T-377). -->
+    <None Include="..\ScreenTail.UI\Theme\Tokens.*.xaml" Link="Theme\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The component styles and the pill, so a test can hold every resource the pill asks for to one that exists (INV-4). -->
+    <None Include="..\ScreenTail.UI\Theme\Components.xaml" Link="Theme\Components.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\ScreenTail.UI\Hud\HudWindow.xaml" Link="Hud\HudWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

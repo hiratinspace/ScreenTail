@@ -46,7 +46,9 @@ public static class Transcribe
         await Console.Error.WriteLineAsync(
             string.Create(CultureInfo.InvariantCulture, $"{path}: {seconds:F1}s of audio, model {model.Name}")).ConfigureAwait(false);
 
-        await using var recogniser = new WhisperRecogniser(new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy()))), model);
+        // The service's own egress shape, with no backend: only the model hosts may be reached. This used
+        // to build a bare policy that allowed no host at all, so the tool could never fetch a model.
+        await using var recogniser = new WhisperRecogniser(new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(backend: null))))), model);
         if (!await recogniser.PrepareAsync(ct).ConfigureAwait(false))
         {
             await Console.Error.WriteLineAsync($"Could not prepare the {model.Name} model.").ConfigureAwait(false);

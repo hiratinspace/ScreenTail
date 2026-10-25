@@ -495,6 +495,33 @@ public sealed class SessionStoreTests : IAsyncDisposable
         Assert.Contains("CHECK", refused.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AStoreFromBeforeTheSessionIndexUpgradesAndListsTheSameSessions()
+    {
+        // Migration 0012 adds an index to a table every used machine already has rows in. The store is
+        // put back to how version 11 left it and reopened; the same sessions come back in the same order.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("older") with { StartedAt = At.AddHours(-2) });
+        await store.CreateSessionAsync(Session("newest") with { StartedAt = At.AddHours(1) });
+        await store.CreateSessionAsync(Session("middle") with { StartedAt = At });
+        await store.DisposeAsync();
+        _stores.Remove(store);
+
+        await using (var raw = await OpenRawAsync())
+        {
+            await RawAsync(raw, "DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
+        }
+
+        var upgraded = await OpenAsync();
+
+        Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await upgraded.GetSchemaVersionAsync());
+        Assert.Equal(["newest", "middle", "older"], (await upgraded.ListSessionsAsync()).Select(s => s.Id));
+        await using var check = await OpenRawAsync();
+        await using var index = check.CreateCommand();
+        index.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'sessions_by_started'";
+        Assert.Contains("started_at", (string)(await index.ExecuteScalarAsync(TestContext.Current.CancellationToken))!, StringComparison.Ordinal);
+    }
+
     /// <summary>The store's own file opened directly, for putting it back to an older schema.</summary>
     private async Task<SqliteConnection> OpenRawAsync()
     {
