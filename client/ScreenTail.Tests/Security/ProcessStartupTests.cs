@@ -60,6 +60,13 @@ public sealed class ProcessStartupTests
         var signing = File.ReadAllText(Source("ScreenTail.Platform", Path.Combine("Ipc", "Signing.cs")));
 
         Assert.DoesNotContain("WTD_LIFETIME_SIGNING_FLAG", authenticode, StringComparison.Ordinal);
+
+        // By value as well as by name: the flag is 0x800, and a literal would ask for it just the same.
+        // Every provider flag set is the one this file means to set, and nothing else.
+        var flags = authenticode.Split('\n').Select(line => line.Trim()).Where(line => line.StartsWith("ProvFlags =", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(flags);
+        Assert.All(flags, line => Assert.Equal("ProvFlags = WTD_SAFER_FLAG,", line));
+
         Assert.Contains("Authenticode.IsUnsigned(", signing, StringComparison.Ordinal);
         Assert.DoesNotContain("VerifiedSignerThumbprint", signing, StringComparison.Ordinal);
     }
