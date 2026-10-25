@@ -186,7 +186,10 @@ nothing a client sends can become a line of the prompt.
 settings — retention days, local-only and whether the admin locked it, capture scope — with no content,
 fetched from the configured backend host under its own egress purpose, at start and hourly. It has to
 be, because the policy that turns local-only on is the only thing that can turn it off. The last copy
-that arrived is kept on disk and applies when the backend does not answer.
+that arrived is kept on disk and applies when the backend does not answer. The speech model is not
+fetched in local-only mode either (ST-046): it carries no customer data, but it is a request the
+technician did not make. A machine that has no model when local-only is turned on records sessions
+without narration until the model is present or the policy is lifted, and the recogniser says so.
 
 The diagnostics panel is filled from the service's own counters and policy over the pipe (ST-085); the UI
 holds no value of its own to show, so the panel cannot say one thing while the service does another.

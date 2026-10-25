@@ -57,6 +57,9 @@ public sealed class ActivationPanel(IDeviceGateway gateway, string deviceName)
 
     public bool CanActivate => !_busy && !Activated && Problem is null;
 
+    /// <summary>A code is being typed, or is on its way: the shell does not read this card again on a reconnect.</summary>
+    public bool HasUnsavedEdits => _busy || !string.IsNullOrWhiteSpace(Code);
+
     public async Task LoadAsync(CancellationToken ct = default)
     {
         var standing = await _gateway.StandingAsync(ct).ConfigureAwait(false);

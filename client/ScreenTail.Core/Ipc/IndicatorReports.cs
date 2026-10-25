@@ -12,6 +12,14 @@ namespace ScreenTail.Core.Ipc;
 /// A report is the UI saying "I am showing the pill", repeated while it is true. Reports expire, so the
 /// interesting case — a UI that has stopped painting but not stopped running — stops counting on its own.
 ///
+/// A report with a zero width and height says something narrower: the technician chose tray-only between
+/// sessions, and the pill returns as a session starts (owner decision, 2026-10-25). It is accepted here
+/// like any other, so a session the service starts by itself is not refused for want of a pill the
+/// technician put away. Once that session starts the UI must follow with a real pill report: if it does
+/// not, because the pill failed to come back or landed on no monitor, the zero-size report expires and
+/// the guard suppresses after its grace, so the most capture can run without a pill is one report's
+/// lifetime plus that grace.
+///
 /// <b>What this is not.</b> The service cannot verify the claim, and a process that would lie about it
 /// is a process that could just as well connect and say nothing, which is exactly what used to be
 /// enough. This is not a defence against a hostile client and nothing here should be read as one. It is

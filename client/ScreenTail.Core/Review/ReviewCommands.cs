@@ -50,6 +50,12 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
     /// </summary>
     public const int LargestFrameBytes = 700 * 1024;
 
+    /// <summary>
+    /// The long edge of a filmstrip thumbnail (E-30): twice the strip's 160 px cell, so a 200% display gets
+    /// real pixels. A 16:9 frame comes out 320x180, a few tens of kilobytes as JPEG.
+    /// </summary>
+    public const int ThumbnailEdge = 320;
+
     public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -64,6 +70,7 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
             GetFrameCommand get => Fits(await _store.GetRedactedFrameImageAsync(get.FrameId, ct).ConfigureAwait(false)) is { } image
                 ? new FrameLoaded { RequestId = command.RequestId, FrameId = get.FrameId, Image = image }
                 : null,
+            GetFrameThumbnailCommand get => await ThumbnailAsync(get, ct).ConfigureAwait(false),
             BlurFrameCommand blur => await BlurAsync(blur, ct).ConfigureAwait(false),
             _ => null,
         };
@@ -87,6 +94,9 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
                 _ => (true, null),
             },
             GetFrameCommand get => await WhyNotAsync(get.FrameId, ct).ConfigureAwait(false),
+            GetFrameThumbnailCommand get => await _store.GetRedactedFrameImageAsync(get.FrameId, ct).ConfigureAwait(false) is null
+                ? (false, NoFrame)
+                : (false, "The frame's thumbnail could not be made from its image."),
             BlurFrameCommand blur => await WhyNotBlurredAsync(blur, ct).ConfigureAwait(false),
             SetFrameIncludedCommand set => await IncludeAsync(set, ct).ConfigureAwait(false),
             DeleteFrameCommand delete => await _store.DeleteFrameAsync(delete.FrameId, ct).ConfigureAwait(false)
@@ -173,6 +183,36 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
         {
             _blurring.Release();
         }
+    }
+
+    /// <summary>
+    /// The redacted image scaled for the filmstrip (E-30), with the masker redaction uses and no regions,
+    /// so nothing is painted and nothing is written. Null for a pending or missing frame (INV-1), and for
+    /// an image the masker cannot read, which <see cref="HandleAsync"/> then explains rather than the
+    /// fault closing the pipe.
+    /// </summary>
+    private async Task<FrameLoaded?> ThumbnailAsync(GetFrameThumbnailCommand get, CancellationToken ct)
+    {
+        if (await _store.GetRedactedFrameImageAsync(get.FrameId, ct).ConfigureAwait(false) is not { } image)
+        {
+            return null;
+        }
+
+        MaskedImage small;
+        try
+        {
+            small = _masker.Mask(image, [], ThumbnailEdge);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException)
+        {
+            // GDI+ reports an image it cannot decode as one of these; OutOfMemoryException is its word for
+            // a corrupt bitmap, not the process running out.
+            return null;
+        }
+
+        return Fits(small.Image) is { } thumbnail
+            ? new FrameLoaded { RequestId = get.RequestId, FrameId = get.FrameId, Image = thumbnail }
+            : null;
     }
 
     private async Task<(bool, string?)> WhyNotBlurredAsync(BlurFrameCommand blur, CancellationToken ct)

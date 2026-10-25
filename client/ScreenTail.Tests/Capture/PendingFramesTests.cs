@@ -153,6 +153,27 @@ public sealed class PendingFramesTests
     }
 
     [Fact]
+    public void AFrameTakenIsStillOwedToItsOwnSession()
+    {
+        // 2026-10-12 review (T-1). Depth counted both states and DepthFor was never asked about the
+        // second. Finalize asks DepthFor, by session, and a frame a worker has taken but not yet written
+        // is still that session's: counted only while waiting, the session would be drafted and closed
+        // with its last frame still in the worker's hands.
+        var queue = new PendingFrames();
+        _ = queue.TryEnqueue("mine", Frame("a"));
+        _ = queue.TryEnqueue("theirs", Frame("b"));
+
+        Assert.True(queue.TryTake(out var taken));
+        Assert.Equal("mine", taken.SessionId);
+        Assert.Equal(1, queue.DepthFor("mine"));
+        Assert.Equal(1, queue.DepthFor("theirs"));
+
+        queue.Done(taken);
+        Assert.Equal(0, queue.DepthFor("mine"));
+        Assert.Equal(1, queue.DepthFor("theirs"));
+    }
+
+    [Fact]
     public void OneSessionsBacklogIsNotAnothers()
     {
         // Two sessions never overlap today, but finalize asks about one of them by name and a count

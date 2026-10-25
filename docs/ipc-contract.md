@@ -55,9 +55,10 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `unmap_company` | `psa_company` | Forgets a company mapping. Answered by a `result` |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
+| `get_frame_thumbnail` | `frame_id` | One redacted frame's image scaled to a 320 px long edge for the filmstrip. Answered by `frame`; nothing is painted or written. The full image stays `get_frame`'s, for the enlarged view |
 | `get_frame_text` | `frame_id` | One redacted frame's OCR text, for `T` in the enlarged view. Answered by `frame_text` |
 | `set_frame_included` | `frame_id`, `included` | Space in the filmstrip: whether the frame goes out with the note. Fails when there is no such frame, and the UI then shows an inclusion that failed as excluded again |
-| `delete_frame` | `frame_id` | Delete, once the five-second undo has closed. Fails when it was already gone |
+| `delete_frame` | `frame_id` | Delete, once the five-second undo has closed. Fails when it was already gone. Del itself sends `set_frame_included` with `included: false` at once for a frame that was going out, and Undo sends it back, so a row that outlives the window because the UI or the pipe went does not go out |
 | `blur_frame` | `frame_id`, `x`, `y`, `width`, `height` | Blur a rectangle, in the frame's own pixels. Answered by `frame` with the image as it now is |
 | `save_draft` | `session_id`, `draft` | The edited note, written back. The whole note, every time |
 
@@ -74,7 +75,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `sessions` | `sessions[]` | Answers `list_sessions` |
 | `confirmation` | `token`, `phrase` | Answers `request_confirmation` |
 | `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft and without any frame's `ocr_text`. Refused with its size when it would not fit in one message |
-| `frame` | `frame_id`, `image` | Answers `get_frame` and `blur_frame`: one image, base64 |
+| `frame` | `frame_id`, `image` | Answers `get_frame`, `get_frame_thumbnail` and `blur_frame`: one image, base64 |
 | `frame_text` | `frame_id`, `ocr_text?` | Answers `get_frame_text`. `ocr_text` is absent when the frame had none |
 | `integrations` | `integrations[]` (`provider`, `site_url`, `secret` as last four) | Answers `get_integrations` |
 | `tickets` | `tickets[]` (`id`, `summary`, `company`, `status`) | Answers `search_tickets` |
@@ -106,7 +107,7 @@ results still learns the command was accepted.
 | `session_id?`, `elapsed_ms?` | The session, and its active time excluding pauses |
 | `remote_tool?` | Which tool started it |
 | `reason?` | Why capture is not running when the state alone does not say: `password_field`, `excluded_app`, `elevated_window`, `sensitive_context`, `out_of_scope`, `user` (ST-072; Spec §5 S2 gives each its own words) |
-| `scope_process?` | The process in front when capture is out of scope, so the HUD can say "Not capturing — Outlook". A process name, never a window title (INV-10) |
+| `scope_process?` | The process in front when capture is out of scope, so the HUD can say "Not capturing: Outlook". A process name, never a window title (INV-10) |
 | `pending_redactions`, `drafts_ready` | Counts |
 | `draft_failure_reason?` | Only in `draft_failed`. Plain language, no content |
 | `draft_title?`, `draft_company?` | Only in `draft_ready`, for the notification (Spec §6). Model-written text that crosses the pipe to the same user's UI and nowhere else |
@@ -182,11 +183,21 @@ outstanding; a `discard` or `erase_all_local_data` without a valid token gets `o
 ### `indicator_showing`
 
 The UI's claim that the recording pill is visible, with the pill's own rectangle in virtual-screen
-coordinates, so the claim is specific enough to check against a screenshot. It is sent while it is true
+coordinates, so the claim is specific enough to check against a screenshot, or, with a zero-size
+rectangle, that the technician chose tray-only between sessions (below). It is sent while it is true
 and not once at startup, because the interesting failure is a UI that stops painting without closing: the
 socket stays open and the pill goes stale. A report expires after six seconds, and a connection is not
 an indicator — the service counts pills it has heard from, not clients it can see (INV-4, #130). While
 none is reported, `IndicatorGuard` suppresses capture after a short grace for UI restarts.
+
+A report with a zero width and height means the technician chose tray-only between sessions, and the
+pill returns as a session starts (owner decision, 2026-10-25). INV-4 allows tray-only as the technician's
+choice, and the report keeps a session the service starts by itself from being refused for want of the
+pill they put away. A session that starts must be followed by a real pill report: if the pill fails to
+come back, or comes back on no monitor, the zero-size report expires and `IndicatorGuard` suppresses after
+its grace, so capture runs without a pill for at most one report's lifetime (six seconds) plus that grace.
+A pill that is up but on no monitor is not reported at all. The wire format is unchanged and the version
+is not bumped.
 
 ### Review over the pipe: `get_session`, `get_frame`, the edits
 
@@ -290,7 +301,7 @@ E-25, 2026-10-12 review. A connection's commands are answered on two lanes, so r
 - So are the two settings writes, `set_settings` and `set_capture_settings`, which are a local file and an in-memory apply. A session command sent after a setting change on the same connection (the tray and the hotkey send Start without waiting) is therefore always handled after that change, never under the settings it replaced.
 - Every other command, including any added later, goes to one queue per connection and is run one at a time in the order it was sent, as every command was before. At most 16 wait behind the one running; one more is answered at once with `ok: false` and a "busy" sentence rather than read later. When the client disconnects, whatever is still waiting is dropped, not run.
 - If a command on either lane fails, the service closes the connection at once, even while a queued command is still running, so the client sees the pipe end and reconnects. The running command finishes, but its reply goes nowhere.
-- An answer too large for one frame is not such a failure, on either lane: it is refused before a byte is written, with a failed `result` that gives its size, and the connection stays up (E-2). `get_session`, `get_frame` and `get_frame_text`, the replies most likely to be large, all queue.
+- An answer too large for one frame is not such a failure, on either lane: it is refused before a byte is written, with a failed `result` that gives its size, and the connection stays up (E-2). `get_session`, `get_frame`, `get_frame_thumbnail` and `get_frame_text`, the replies most likely to be large, all queue.
 
 Before this a slow backend call (a publish, a ticket search) held up the HUD's `indicator_showing` past the indicator's grace, and the service dropped frames and typing as unindicated with the pill on screen (INV-4, INV-6). The wire format is unchanged and the version is not bumped: the client has always matched replies by `request_id`.
 
@@ -333,3 +344,4 @@ indicator unreachable rather than by touching capture.
 | 2026-10-14 | `get_frame_text` / `frame_text`; `session` leaves out every frame's `ocr_text` and is refused with its size when it would not fit (E-20). An older client reads the session as before and shows no OCR text | 3 |
 | 2026-10-23 | `audit` carries `path`, `rows`, `intact`, `note` instead of `json`; an answer too large for one frame is a failed `result` (2026-10-12 review, E-2) | **4** |
 | 2026-10-14 | Two answering lanes per connection: the session's commands and the two settings writes are answered on the read loop, the rest queue (16 at most) behind one worker (E-25) | 4 |
+| 2026-10-25 | `get_frame_thumbnail`, answered by `frame`: the filmstrip draws from a thumbnail the service scales instead of every full redacted image (E-30). A new command, so the version is not bumped | 4 |

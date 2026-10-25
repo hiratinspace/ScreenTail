@@ -8,7 +8,7 @@ namespace ScreenTail.Tests.Settings;
 /// Settings → Privacy &amp; Redaction (ST-081, Spec §5 S6): the technician's own settings, validated
 /// before they are saved, with the fields the admin's policy locked shown read-only and enforced
 /// (INV-11); a custom pattern checked as it is typed with a test box; the exact list of fields
-/// telemetry sends; export and delete. The service is a fake here; <c>PipePrivacyTests</c> is the real one.
+/// telemetry sends; export and delete. The service is a fake here; <c>PipeSettingsGatewaysTests</c> runs the gateway over a real pipe.
 /// </summary>
 public sealed class PrivacyPanelTests
 {
@@ -232,6 +232,52 @@ public sealed class PrivacyPanelTests
         Assert.False(await panel.SaveAsync());
 
         Assert.Equal("Not connected to the capture service.", panel.Problem);
+    }
+
+    [Fact]
+    public async Task UnsavedEditsAreThoseThatDifferFromWhatWasLoadedOrSaved()
+    {
+        // The shell reads Settings again when the service comes back, and must not overwrite a local-only
+        // switch or an excluded app the technician has not saved yet. This is how it knows.
+        var gateway = new FakePrivacy { Snapshot = new SettingsSnapshot(new ClientSettings { ExcludedProcesses = ["keepass"] }, false, false, "default", false, 7) };
+        var panel = new PrivacyPanel(gateway);
+        Assert.False(panel.HasUnsavedEdits);
+        await panel.LoadAsync();
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.LocalOnly = true;
+        Assert.True(panel.HasUnsavedEdits);
+        panel.LocalOnly = false;
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.RemoveProcess("keepass");
+        Assert.True(panel.HasUnsavedEdits);
+        panel.NewProcess = "keepass";
+        Assert.True(panel.AddProcess());
+        Assert.False(panel.HasUnsavedEdits);
+
+        // Half-typed is typed: a pattern or an app name in its box, not yet added, is the technician's.
+        panel.NewPattern = "ACME-";
+        Assert.True(panel.HasUnsavedEdits);
+        panel.NewPattern = string.Empty;
+        panel.NewProcess = "bitwarden";
+        Assert.True(panel.HasUnsavedEdits);
+        panel.NewProcess = "  ";
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.Telemetry = true;
+        Assert.True(await panel.SaveAsync());
+        Assert.False(panel.HasUnsavedEdits);
+    }
+
+    [Fact]
+    public void AChangeMadeBeforeAnyLoadIsAnUnsavedEdit()
+    {
+        var panel = new PrivacyPanel(new FakePrivacy());
+
+        panel.LocalOnly = true;
+
+        Assert.True(panel.HasUnsavedEdits);
     }
 
     private sealed class FakePrivacy : IPrivacyGateway
