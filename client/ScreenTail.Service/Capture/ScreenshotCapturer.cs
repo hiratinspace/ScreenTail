@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capture;
+using ScreenTail.Core.Detection;
 
 namespace ScreenTail.Service.Capture;
 
@@ -37,36 +38,55 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private int _bitmapWidth;
     private int _bitmapHeight;
     private bool _disposed;
+    private long _skippedCovered;
+
+    // Reused under the lock by the covered check, so it allocates nothing per capture once warm.
+    private readonly List<WindowAbove> _above = new(64);
+    private readonly char[] _className = new char[64];
+
+    /// <summary>Samples skipped because another application's window lay over the one in front. A count, for diagnostics.</summary>
+    internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
+
+    /// <summary>
+    /// A test seam, null in production: runs inside the lock before the foreground is read, where a capture
+    /// that waited for a slow one finds itself. Nothing is read before it runs, so nothing read is stale.
+    /// </summary>
+    internal Action? BeforeGrab { get; set; }
+
+    /// <summary>
+    /// A test seam, false in production. A test can only make windows in its own process, and a window
+    /// of the process in front is that application's own menu or toolbar, which never counts as cover.
+    /// With this set, the test's own windows are judged as another application's would be.
+    /// </summary>
+    internal bool JudgeOwnWindowsAsForeign { get; init; }
 
     // No size argument: the frame is captured at the window's own size and the downscale belongs to
     // the redaction worker, after the text has been read (ADR-0001 finding 2a). A parameter here that
     // did nothing had four callers believing it did (weaknesses P3).
     public CapturedFrame? CaptureForegroundWindow(nint expected = 0)
     {
-        var window = GetForegroundWindow();
-        if (window == IntPtr.Zero || !GetWindowRect(window, out var rect))
-        {
-            return null;
-        }
-
-        // The window that was judged in scope, or nothing. Checked here rather than at the caller because
-        // this is the last moment before the pixels are read, and any gap between the two is a window in
-        // which the foreground can move (INV-5).
-        if (expected != 0 && window != expected)
-        {
-            return null;
-        }
-
-        var width = rect.Right - rect.Left;
-        var height = rect.Bottom - rect.Top;
-        if (width <= 0 || height <= 0)
-        {
-            return null;
-        }
-
         lock (_gate)
         {
-            if (_disposed || !Prepare(width, height))
+            // The foreground and its rectangle are read inside the lock, after waiting for it. A grab holds
+            // the lock for about 300 ms at 4K, and a capture that read them first and then waited could copy
+            // a rectangle the judged window had already left (INV-5).
+            BeforeGrab?.Invoke();
+            if (_disposed || !ReadTarget(expected, minWidth: 1, minHeight: 1, out var window, out var rect))
+            {
+                return null;
+            }
+
+            // The interim half of capturing the window rather than the screen: another application's
+            // window over this one, topmost or not, would be in the frame, so the sample is skipped.
+            if (IsCovered(window, rect))
+            {
+                _ = Interlocked.Increment(ref _skippedCovered);
+                return null;
+            }
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+            if (!Prepare(width, height))
             {
                 return null;
             }
@@ -115,30 +135,18 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     /// </summary>
     public byte[]? CaptureSceneGrid(nint expected = 0)
     {
-        var window = GetForegroundWindow();
-        if (window == IntPtr.Zero || !GetWindowRect(window, out var rect))
-        {
-            return null;
-        }
-
-        if (expected != 0 && window != expected)
-        {
-            return null;
-        }
-
-        var width = rect.Right - rect.Left;
-        var height = rect.Bottom - rect.Top;
-        if (width < PerceptualHash.Columns || height < PerceptualHash.Rows)
-        {
-            return null;
-        }
-
         lock (_gate)
         {
-            if (_disposed || !PrepareGrid())
+            // Read after the lock is taken, for the same reason as a full capture.
+            if (_disposed
+                || !ReadTarget(expected, PerceptualHash.Columns, PerceptualHash.Rows, out _, out var rect)
+                || !PrepareGrid())
             {
                 return null;
             }
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
 
             var previous = SelectObject(_gridDc, _gridBitmap);
             _ = SetStretchBltMode(_gridDc, STRETCH_HALFTONE);
@@ -170,6 +178,83 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
             return grid;
         }
+    }
+
+    /// <summary>
+    /// The window in front and its rectangle, read now. The window that was judged in scope, or nothing:
+    /// checked here rather than at the caller because this is the last moment before the pixels are read,
+    /// and any gap between the two is a window in which the foreground can move (INV-5).
+    /// </summary>
+    private static bool ReadTarget(nint expected, int minWidth, int minHeight, out IntPtr window, out Rect rect)
+    {
+        window = GetForegroundWindow();
+        rect = default;
+        if (window == IntPtr.Zero || (expected != 0 && window != expected) || !GetWindowRect(window, out rect))
+        {
+            return false;
+        }
+
+        return rect.Right - rect.Left >= minWidth && rect.Bottom - rect.Top >= minHeight;
+    }
+
+    /// <summary>
+    /// Whether another application's window lies over the window in front (<see cref="WindowCover"/>).
+    /// Walks up the z-order from the window, so only what is above it is looked at, and reads window
+    /// properties only. Measured against the window's visible frame rather than its rectangle, which on a
+    /// maximized window reaches a few pixels under the taskbar.
+    /// </summary>
+    private bool IsCovered(IntPtr window, Rect rect)
+    {
+        var target = VisibleBounds(window, rect);
+        _ = GetWindowThreadProcessId(window, out var owner);
+        _above.Clear();
+        var walked = 0;
+        var above = GetWindow(window, GW_HWNDPREV);
+        while (above != IntPtr.Zero && walked < WindowCover.MaxWindowsAbove)
+        {
+            walked++;
+
+            // Visibility first: most windows above the one in front are hidden ones (tooltips, message
+            // windows, things not shown yet), and for those nothing else needs asking. Any shown window
+            // above counts, topmost or not: an ordinary window over this one is in the frame too.
+            if (IsWindowVisible(above) && !IsIconic(above) && GetWindowRect(above, out var aboveRect))
+            {
+                _ = GetWindowThreadProcessId(above, out var aboveOwner);
+                _above.Add(new WindowAbove(
+                    VisibleBounds(above, aboveRect),
+                    Visible: true,
+                    Cloaked: IsCloaked(above),
+                    Topmost: ((long)GetWindowLongPtr(above, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0,
+                    SameProcess: aboveOwner == owner && !JudgeOwnWindowsAsForeign,
+                    ExcludedFromCapture: GetWindowDisplayAffinity(above, out var affinity) && affinity != WDA_NONE,
+                    Taskbar: IsTaskbar(above)));
+            }
+
+            above = GetWindow(above, GW_HWNDPREV);
+        }
+
+        return WindowCover.AnyCovers(target, _above, walkComplete: above == IntPtr.Zero);
+    }
+
+    private static ScreenRect VisibleBounds(IntPtr window, Rect fallback) =>
+        DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, out Rect frame, Marshal.SizeOf<Rect>()) == 0
+            ? new ScreenRect(frame.Left, frame.Top, frame.Right, frame.Bottom)
+            : new ScreenRect(fallback.Left, fallback.Top, fallback.Right, fallback.Bottom);
+
+    private static bool IsCloaked(IntPtr window) =>
+        DwmGetWindowAttribute(window, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
+
+    private bool IsTaskbar(IntPtr window)
+    {
+        var length = GetClassName(window, _className, _className.Length);
+        if (length <= 0)
+        {
+            return false;
+        }
+
+        var name = _className.AsSpan(0, length);
+        return name.Equals("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Shell_SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The tiny destination for <see cref="CaptureSceneGrid"/>, made once and kept.</summary>
@@ -316,6 +401,12 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     }
 
     private const int SRCCOPY = 0x00CC0020;
+    private const uint GW_HWNDPREV = 3;
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_EX_TOPMOST = 0x00000008;
+    private const uint WDA_NONE = 0;
+    private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    private const int DWMWA_CLOAKED = 14;
 
     /// <summary>Averages the source pixels into each destination pixel — a box filter, done by GDI.</summary>
     private const int STRETCH_HALFTONE = 4;
@@ -344,6 +435,36 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowDisplayAffinity(IntPtr hWnd, out uint affinity);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, [Out] char[] className, int count);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out Rect value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

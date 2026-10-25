@@ -497,6 +497,113 @@ public sealed class ScopePolicyTests
     }
 
     [Fact]
+    public void ASessionInTheToolPastTheGraceKeepsRunning()
+    {
+        // The grace runs from when the tool loses focus, not from when it took it. A technician working in
+        // one RDP window for ten minutes makes no foreground change, and the timer that lets an idle session
+        // end used to end this one too, ninety seconds in (2026-10-12 review, c8 blocker).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var tool = Window("mstsc", "RECEPTION-02");
+        Assert.True(trigger.Observe(tool).Start);
+
+        for (var elapsed = 0; elapsed < 600; elapsed += 5)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            Assert.False(trigger.Tick(tool).Stop);
+        }
+
+        Assert.True(trigger.SessionRunning);
+        Assert.Equal(TimeSpan.FromSeconds(90), trigger.Remaining);
+    }
+
+    [Fact]
+    public void TheGraceRunsFromWhenTheToolLosesFocus()
+    {
+        // The control for the test above: ten minutes in the tool, then Outlook, and the full grace from
+        // that moment, no less and no more.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var tool = Window("mstsc", "RECEPTION-02");
+        var outlook = Window("outlook", "Inbox");
+        trigger.Observe(tool);
+        clock.Advance(TimeSpan.FromSeconds(600));
+        Assert.False(trigger.Tick(tool).Stop);
+
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(89));
+        Assert.False(trigger.Tick(outlook).Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(trigger.Tick(outlook).Stop);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandKeepsRunningWhileItsOwnWindowIsInFront()
+    {
+        // Ctrl+Alt+R over a window no registry knows. That window is the session's tool for as long as it
+        // is in front, so the session outlives the grace there, as it did before the trigger followed
+        // manual starts.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var own = Window("vendorconsole", "Customer 4471") with { Handle = 4471 };
+        Assert.True(trigger.Follow(running: true, window: own));
+
+        for (var elapsed = 0; elapsed < 600; elapsed += 5)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            Assert.False(trigger.Tick(own).Stop);
+        }
+
+        Assert.True(trigger.SessionRunning);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandRunsOutItsGraceOnceItsWindowIsLeft()
+    {
+        // Leaving that window for one that is neither it nor a remote tool starts the grace, and coming
+        // back to it, by a foreground change, keeps the session as returning to a tool does.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var own = Window("vendorconsole", "Customer 4471") with { Handle = 4471 };
+        var outlook = Window("outlook", "Inbox") with { Handle = 5000 };
+        trigger.Follow(running: true, window: own);
+
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(80));
+        Assert.False(trigger.Observe(own).Stop);
+        clock.Advance(TimeSpan.FromSeconds(80));
+        Assert.False(trigger.Tick(own).Stop);
+
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(91));
+        Assert.True(trigger.Tick(outlook).Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
+    public void AnotherProcesssWindowUnderAReusedHandleDoesNotKeepASessionStartedByHand()
+    {
+        // Windows hands a closed window's handle out again. The window a session was started in by hand is
+        // known by its handle and its process together, so another application's window that happens to
+        // get the same handle later does not keep the session, and its microphone, running (c8 review).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var own = Window("vendorconsole", "Customer 4471") with { Handle = 4471, ProcessId = 900 };
+        var reused = Window("notepad", "Untitled") with { Handle = 4471, ProcessId = 901 };
+        trigger.Follow(running: true, window: own);
+
+        Assert.False(trigger.Observe(reused).Stop);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.False(trigger.Tick(reused).Stop);
+        clock.Advance(TimeSpan.FromSeconds(31));
+
+        Assert.True(trigger.Tick(reused).Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
     public void ReturningToTheToolKeepsTheSessionAlive()
     {
         var clock = new ManualTime(At);
@@ -512,6 +619,76 @@ public sealed class ScopePolicyTests
         }
 
         Assert.True(trigger.SessionRunning);
+    }
+
+    // ---- following the session machine (S-6, T-22) ---------------------------------------------------
+
+    [Fact]
+    public void AStartThatDidNotBeginIsTriedAgainOnTheNextFocus()
+    {
+        // The trigger decides to start as the tool takes focus. When no session then begins (nothing on
+        // screen to say capture is on, auto-start off), the coordinator tells it so, and the next focus
+        // is a start again rather than "no change" until a whole grace has passed (2026-10-12 review, T-22).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-02")).Start);
+
+        Assert.True(trigger.Follow(running: false));
+
+        Assert.False(trigger.SessionRunning);
+        Assert.Equal(TimeSpan.Zero, trigger.Remaining);
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-02")).Start);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandAwayFromAnyToolRunsOutItsGrace()
+    {
+        // Ctrl+Alt+R over Outlook. The trigger hears of the start and the grace runs from it, so the session
+        // and its microphone end once it is out (2026-10-12 review, S-6).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        Assert.True(trigger.Follow(running: true));
+        Assert.False(trigger.Observe(Window("outlook", "Inbox")).Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(89));
+        Assert.False(trigger.Tick().Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(trigger.Tick().Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
+    public void FollowingWhatTheTriggerAlreadyKnowsChangesNothing()
+    {
+        // The machine announces the start the trigger itself asked for. The tool and the grace it was
+        // already counting are kept, rather than reset by its own echo.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        trigger.Observe(Window("mstsc", "RECEPTION-02"));
+        clock.Advance(TimeSpan.FromSeconds(60));
+        trigger.Observe(Window("outlook", "Inbox"));
+
+        Assert.False(trigger.Follow(running: true));
+
+        Assert.Equal("rdp", trigger.RunningToolId);
+        Assert.InRange(trigger.Remaining, TimeSpan.FromSeconds(29), TimeSpan.FromSeconds(31));
+        Assert.False(new SessionTrigger(new ScopePolicy(Shipped), clock).Follow(running: false));
+    }
+
+    [Fact]
+    public void AStopFromTheTrayLeavesAutoStartArmed()
+    {
+        // Stopped by hand while still in the tool. The trigger follows, so the next remote-tool focus
+        // starts a session instead of being taken for the one that already ended (S-6).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        trigger.Observe(Window("mstsc", "RECEPTION-02"));
+
+        Assert.True(trigger.Follow(running: false));
+
+        Assert.False(trigger.Tick().Stop);
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-03")).Start);
     }
 
     [Fact]
@@ -590,6 +767,102 @@ public sealed class ScopePolicyTests
 
         Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
         Assert.True(clock.ElapsedMilliseconds < 1_000, $"took {clock.ElapsedMilliseconds} ms");
+    }
+
+    [Fact]
+    public void ARegistryThatWouldCaptureEverythingDoesNotLoad()
+    {
+        // Validate reporting the problem is proved above; this is the other half, that Load refuses the
+        // document rather than handing back a registry with the problem in it (2026-10-12 review, T-19).
+        var load = () => RemoteToolRegistry.Load("""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "bad", "kind": "other", "display_name": "Bad", "window_class_patterns": [".*"] } ] }
+            """);
+
+        var refused = Assert.Throws<InvalidOperationException>(load);
+        Assert.Contains("matches everything", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(".*")]
+    [InlineData(".+")]
+    [InlineData("(?i)^.")]
+    public void ABrowserPatternThatMatchesEveryTabIsRejected(string pattern)
+    {
+        // A browser entry with no url_pattern matches on the tab title alone, so a title pattern that
+        // matches any title makes every tab a remote tool (2026-10-12 review, T-20). Refused by Validate
+        // and so by Load, which a tenant's policy sync goes through too.
+        var document = new RegistryDocument
+        {
+            Tools = [new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] }],
+            BrowserPatterns = [new BrowserPatternEntry { Id = "web", DisplayName = "Web", TitlePattern = pattern }],
+        };
+
+        var problems = RemoteToolRegistry.Validate(document);
+
+        Assert.Contains(problems, p => p.Contains("web", StringComparison.Ordinal) && p.Contains("matches everything", StringComparison.Ordinal));
+        var refused = Assert.Throws<InvalidOperationException>(() => RemoteToolRegistry.Load($$"""
+            { "version": "t", "grace_seconds": 90,
+              "tools": [ { "id": "t", "kind": "other", "display_name": "T", "processes": ["x"] } ],
+              "browser_patterns": [ { "id": "web", "display_name": "Web", "title_pattern": {{System.Text.Json.JsonSerializer.Serialize(pattern)}} } ] }
+            """));
+        Assert.Contains("matches everything", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABrowserPatternThatNamesItsToolIsAccepted()
+    {
+        // The control for the test above: the check is for patterns that match anything, not for every
+        // title-only entry. One that names the tool, as the shipped entries do, loads.
+        var problems = RemoteToolRegistry.Validate(new RegistryDocument
+        {
+            Tools = [new ToolEntry { Id = "t", DisplayName = "T", Processes = ["x"] }],
+            BrowserPatterns = [new BrowserPatternEntry { Id = "web", DisplayName = "Web", TitlePattern = @"(?i)\bsplashtop (business|web)\b" }],
+        });
+
+        Assert.Empty(problems);
+    }
+
+    // ---- WSLg is not a remote desktop ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData("RAIL_WINDOW")]
+    [InlineData("Window")]
+    public void AWslgWindowIsNotARemoteDesktopSession(string className)
+    {
+        // WSLg shows Linux GUI apps through its own copy of msrdc, in RAIL_WINDOW windows exactly like a
+        // RemoteApp, so a Linux terminal used to auto-start an RDP session (2026-10-12 review, S-10). The
+        // watcher reports that copy by the name "wslg"; the registry must not reach it by process or by
+        // window class either.
+        var decision = new ScopePolicy(Shipped).Decide(Window("wslg", "Terminal", className));
+
+        Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
+        Assert.Null(decision.ToolId);
+        Assert.False(decision.MayCaptureFrames);
+    }
+
+    [Fact]
+    public void AWslgWindowCanBeExcludedByItsOwnName()
+    {
+        // Told apart, it can be excluded without excluding Azure Virtual Desktop's msrdc with it.
+        var options = new ScopeOptions { ExcludedProcesses = new HashSet<string>(["wslg"], StringComparer.OrdinalIgnoreCase) };
+        var policy = new ScopePolicy(Shipped, options);
+
+        Assert.Equal(CaptureScope.Excluded, policy.Decide(Window("wslg", "Files", "RAIL_WINDOW")).Scope);
+        Assert.Equal(CaptureScope.RemoteTool, policy.Decide(Window("msrdc", "Acme desktop", "RAIL_WINDOW")).Scope);
+    }
+
+    [Theory]
+    [InlineData("msrdc", "RAIL_WINDOW")]
+    [InlineData("msrdc", "TscShellContainerClass")]
+    [InlineData("RdClient", "Windows.UI.Core.CoreWindow")]
+    [InlineData("mstsc", "RAIL_WINDOW")]
+    public void AzureVirtualDesktopAndWindows365AreStillRemoteDesktop(string process, string className)
+    {
+        var decision = new ScopePolicy(Shipped).Decide(Window(process, "Acme desktop", className));
+
+        Assert.Equal(CaptureScope.RemoteTool, decision.Scope);
+        Assert.Equal("rdp", decision.ToolId);
     }
 
     private static ForegroundWindowInfo Window(string process, string title, string className = "Window") =>
