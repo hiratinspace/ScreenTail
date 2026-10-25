@@ -176,8 +176,8 @@ public sealed class HudStateTests
     }
 
     [Theory]
-    [InlineData(CaptureStates.DraftReady, "Not recording — draft ready")]
-    [InlineData(CaptureStates.DraftFailed, "Not recording — draft failed")]
+    [InlineData(CaptureStates.DraftReady, "Not recording: draft ready")]
+    [InlineData(CaptureStates.DraftFailed, "Not recording: draft failed")]
     public void AFinishedSessionSaysItIsNotRecording(string state, string expected)
     {
         // After every session the pill used to say "Capture state unknown, it may be recording", which

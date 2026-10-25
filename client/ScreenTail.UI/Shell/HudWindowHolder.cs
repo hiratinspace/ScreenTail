@@ -116,6 +116,9 @@ internal sealed class HudWindowHolder
     /// <summary>What Windows allows, for the no-mic segment (ST-021, ST-072).</summary>
     public void SetCapabilities(CapabilityReport report) => _model.Capabilities = report;
 
+    /// <summary>Whether a cloud draft could be asked for, for the offline segment (Spec §5 S2).</summary>
+    public void SetOnline(bool online) => _model.Online = online;
+
     public void Close()
     {
         _reporting.Stop();
@@ -139,13 +142,16 @@ internal sealed class HudWindowHolder
             return;
         }
 
+        // The pill put away is the tray icon alone, and is said as an empty rectangle rather than as the
+        // hidden window's old one: the rectangle is a claim about where the pill is, and it is nowhere.
+        var pill = _hud.Visible;
         _ = _connection.SendAsync(id => new IndicatorShowingCommand
         {
             RequestId = id,
-            X = _window.Left,
-            Y = _window.Top,
-            Width = _window.ActualWidth,
-            Height = _window.ActualHeight,
+            X = pill ? _window.Left : 0,
+            Y = pill ? _window.Top : 0,
+            Width = pill ? _window.ActualWidth : 0,
+            Height = pill ? _window.ActualHeight : 0,
         });
     }
 

@@ -11,7 +11,7 @@ public sealed record DiagnosticsRow(string Label, string Value);
 /// The "What's being captured right now?" panel (ST-071, Spec §5 S1).
 ///
 /// Every row comes from <see cref="CoreShell.DiagnosticsPanel"/> over <see cref="CoreShell.Diagnostics"/>,
-/// which has nowhere to put content — so the panel cannot show a window title or a line of OCR even by
+/// which has nowhere to put content, so the panel cannot show a window title or a line of OCR even by
 /// mistake, and neither can the clipboard text the Copy button produces (INV-10). The panel also decides
 /// what to say when the service cannot be asked, so that is tested without a window.
 /// </summary>

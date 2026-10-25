@@ -44,8 +44,9 @@ public sealed class ConfirmedActionTests
     public async Task TheTokenTheServiceIssuedTravelsBackOnTheCommand()
     {
         IpcCommand? sent = null;
+        var issued = 0;
         var result = await ConfirmedAction.RunAsync(
-            (action, _) => Task.FromResult<ConfirmationIssued?>(new ConfirmationIssued { Token = "issued-for-" + action, Phrase = "DELETE" }),
+            (action, _) => Task.FromResult<ConfirmationIssued?>(new ConfirmationIssued { Token = $"issued-for-{action}-{++issued}", Phrase = "DELETE" }),
             "erase_everything",
             phrase => Task.FromResult(phrase == "DELETE"),
             token => id => new EraseAllLocalDataCommand { RequestId = id, Confirmation = token },
@@ -59,7 +60,7 @@ public sealed class ConfirmedActionTests
         Assert.True(result.Done);
         Assert.Null(result.Error);
         var erase = Assert.IsType<EraseAllLocalDataCommand>(sent);
-        Assert.Equal("issued-for-erase_everything", erase.Confirmation);
+        Assert.Equal("issued-for-erase_everything-2", erase.Confirmation);
         Assert.Equal(7, erase.RequestId);
     }
 
@@ -112,7 +113,7 @@ public sealed class ConfirmedActionTests
     }
 
     [Fact]
-    public async Task CancellationReachesBothRoundTrips()
+    public async Task CancellationReachesEveryRoundTrip()
     {
         using var cts = new CancellationTokenSource();
         var tokens = new List<CancellationToken>();
@@ -132,7 +133,83 @@ public sealed class ConfirmedActionTests
             },
             cts.Token);
 
-        Assert.Equal(2, tokens.Count);
+        Assert.Equal(3, tokens.Count);
         Assert.All(tokens, t => Assert.Equal(cts.Token, t));
+    }
+
+    [Fact]
+    public async Task TheTokenSpentIsIssuedAfterThePhraseIsTyped()
+    {
+        // The service gives a token thirty seconds. One issued before the dialog opened was spent on
+        // reading and typing, so a careful technician's yes came back refused (S-46).
+        var steps = new List<string>();
+        var issued = 0;
+        string? spent = null;
+        _ = await ConfirmedAction.RunAsync(
+            (_, _) =>
+            {
+                steps.Add("issue");
+                return Task.FromResult<ConfirmationIssued?>(new ConfirmationIssued { Token = "t" + ++issued, Phrase = "DELETE EVERYTHING" });
+            },
+            "erase_everything",
+            _ =>
+            {
+                steps.Add("typed");
+                return Task.FromResult(true);
+            },
+            token => id => new EraseAllLocalDataCommand { RequestId = id, Confirmation = token },
+            (build, _) =>
+            {
+                steps.Add("send");
+                spent = ((EraseAllLocalDataCommand)build(1)).Confirmation;
+                return Task.FromResult(new CommandResult { RequestId = 1, Ok = true });
+            });
+
+        Assert.Equal(["issue", "typed", "issue", "send"], steps);
+        Assert.Equal("t2", spent);
+    }
+
+    [Fact]
+    public async Task AServiceGoneWhileTheTechnicianTypedSendsNothing()
+    {
+        var asks = 0;
+        var sends = 0;
+        var result = await ConfirmedAction.RunAsync(
+            (_, _) => Task.FromResult(++asks == 1 ? new ConfirmationIssued { Token = "t1", Phrase = "DISCARD" } : null),
+            "discard_session",
+            _ => Task.FromResult(true),
+            token => id => new DiscardCommand { RequestId = id, Confirmation = token },
+            (_, _) =>
+            {
+                sends++;
+                return Task.FromResult(new CommandResult { RequestId = 1, Ok = true });
+            });
+
+        Assert.Equal(ConfirmedOutcome.NotAvailable, result.Outcome);
+        Assert.Equal(ConfirmedAction.NotConnected, result.Error);
+        Assert.Equal(0, sends);
+    }
+
+    [Fact]
+    public async Task WordsThatChangedWhileTheTechnicianTypedSendNothing()
+    {
+        // Agreeing to one sentence is not agreeing to another: a service that now asks for different
+        // words gets nothing until the technician has read them.
+        var asks = 0;
+        var sends = 0;
+        var result = await ConfirmedAction.RunAsync(
+            (_, _) => Task.FromResult<ConfirmationIssued?>(new ConfirmationIssued { Token = "t" + ++asks, Phrase = asks == 1 ? "DISCARD" : "DISCARD ALL" }),
+            "discard_session",
+            _ => Task.FromResult(true),
+            token => id => new DiscardCommand { RequestId = id, Confirmation = token },
+            (_, _) =>
+            {
+                sends++;
+                return Task.FromResult(new CommandResult { RequestId = 1, Ok = true });
+            });
+
+        Assert.Equal(ConfirmedOutcome.Refused, result.Outcome);
+        Assert.Equal(ConfirmedAction.PhraseChanged, result.Error);
+        Assert.Equal(0, sends);
     }
 }

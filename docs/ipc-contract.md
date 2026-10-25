@@ -188,6 +188,12 @@ socket stays open and the pill goes stale. A report expires after six seconds, a
 an indicator — the service counts pills it has heard from, not clients it can see (INV-4, #130). While
 none is reported, `IndicatorGuard` suppresses capture after a short grace for UI restarts.
 
+A report with a zero width and height is the tray icon alone. The UI sends it while the technician has put
+the pill away between sessions, which INV-4 allows as their choice, so a session the service starts by
+itself is not refused for want of a pill that the UI brings back the moment that session starts. A pill
+that is up but on no monitor is not reported at all. The wire format is unchanged and the version is not
+bumped.
+
 ### Review over the pipe: `get_session`, `get_frame`, the edits
 
 ST-085's remainder (2026-09-25). The UI has no store, and until these existed the Review views were fed

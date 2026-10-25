@@ -28,8 +28,8 @@ public sealed record ConfirmedResult(ConfirmedOutcome Outcome, string? Error = n
 /// The typed-confirmation flow behind Discard and Delete everything (ST-085, Spec §3), as decisions
 /// rather than as a chain of fire-and-forget calls.
 ///
-/// Three steps, and the last one's answer matters: the service issues a token for the action, the
-/// technician types the phrase, and the command goes back with the token. The service refuses the
+/// Three steps, and the last one's answer matters: the service says what to type, the technician types
+/// it, and the command goes back with a token issued just then. The service refuses the
 /// command when a session is running or when the token is older than thirty seconds, and that answer
 /// used to be dropped on the floor, so a refused "delete everything" closed its dialog exactly as a
 /// successful one did. The technician believed INV-12's erase had happened and it had not (2026-10-12
@@ -42,6 +42,8 @@ public static class ConfirmedAction
     public const string NotConnected = "Not connected to the capture service, so nothing was changed.";
 
     public const string RefusedWithoutReason = "The capture service refused, so nothing was changed.";
+
+    public const string PhraseChanged = "The capture service now asks for different words, so nothing was changed. Try again.";
 
     /// <param name="issue">Asks the service for a token for the action; null when there is nobody to ask.</param>
     /// <param name="action"><c>discard_session</c> or <c>erase_everything</c>.</param>
@@ -81,7 +83,23 @@ public static class ConfirmedAction
             return new ConfirmedResult(ConfirmedOutcome.Declined);
         }
 
-        var result = await send(build(issued.Token), ct).ConfigureAwait(false);
+        // A fresh token, asked for once the phrase is typed. The first one's thirty seconds ran while the
+        // technician read the consequence and typed, and "DELETE EVERYTHING" read with care can take longer
+        // than that, which turned a considered yes into a refusal (S-46). The first token is left to expire.
+        var spend = await issue(action, ct).ConfigureAwait(false);
+        if (spend is null)
+        {
+            return new ConfirmedResult(ConfirmedOutcome.NotAvailable, NotConnected);
+        }
+
+        if (!string.Equals(spend.Phrase, issued.Phrase, StringComparison.Ordinal))
+        {
+            // What was typed is no longer what the service asks for. Agreeing to one sentence is not
+            // agreeing to another, so nothing is sent.
+            return new ConfirmedResult(ConfirmedOutcome.Refused, PhraseChanged);
+        }
+
+        var result = await send(build(spend.Token), ct).ConfigureAwait(false);
         if (result.Ok)
         {
             return new ConfirmedResult(ConfirmedOutcome.Done);

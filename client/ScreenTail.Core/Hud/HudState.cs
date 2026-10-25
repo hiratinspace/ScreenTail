@@ -115,6 +115,18 @@ public static class HudState
         return !hud.Visible || pillOnScreen;
     }
 
+    /// <summary>
+    /// The session the service says is under way, or null between sessions and whenever that is not known.
+    ///
+    /// The shell clears its "hide the pill" wish when this names a session it has not seen running, because
+    /// hiding is for one session and no longer (Spec §5 S2). The tray's item used to set the wish for the
+    /// life of the process, so one click put the pill away after every later session too (T-154).
+    /// </summary>
+    public static string? SessionUnderWay(CaptureStateSnapshot? capture) =>
+        capture is { State: CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed, SessionId: { Length: > 0 } id }
+            ? id
+            : null;
+
     /// <summary>mm:ss, or h:mm:ss once a session runs past the hour.</summary>
     public static string Elapsed(long? milliseconds)
     {
@@ -153,10 +165,10 @@ public static class HudState
 
             // Where a session rests once it is over. Not capturing, and said so: these used to fall
             // through to "unknown, may be recording", which the pill then showed after every session and
-            // refused to put away (S-39). The words match the tray's, so the two indicators agree.
-            CaptureStates.DraftReady => new HudSegment(HudTone.Idle, "○", "Not recording — draft ready", "Nothing is being captured. The note is ready to review."),
+            // refused to put away (S-39). The words agree with the tray's, which says the same two things.
+            CaptureStates.DraftReady => new HudSegment(HudTone.Idle, "○", "Not recording: draft ready", "Nothing is being captured. The note is ready to review."),
 
-            CaptureStates.DraftFailed => new HudSegment(HudTone.Idle, "○", "Not recording — draft failed", "Nothing is being captured. The note could not be drafted; open ScreenTail to see why."),
+            CaptureStates.DraftFailed => new HudSegment(HudTone.Idle, "○", "Not recording: draft failed", "Nothing is being captured. The note could not be drafted; open ScreenTail to see why."),
 
             // A state this build has never heard of: a service newer than this UI. KnownIdle already
             // says why guessing "idle" is least defensible here, and this is the same reasoning applied
