@@ -414,6 +414,30 @@ public sealed class EraseEverythingTests : IDisposable
     }
 
     [Fact]
+    public void AnEntryNamedLikeTheEndLineIsNeverWrittenIntoTheMarker()
+    {
+        // A narrowed marker ends with the line "end", and one cut short by a crash part way through
+        // writing it has none, which reads as everything. An owed entry named "end" would put that line
+        // in the middle of the list, so a marker cut just after it would read as a complete, shorter
+        // list and could leave out the store or its key, and the service would start. Such a list is not
+        // written: the marker keeps owing what it owed, which here is everything (INV-12).
+        Populate();
+        var end = Path.Combine(_directory, "end");
+        Directory.CreateDirectory(end);
+        File.WriteAllText(Path.Combine(end, "report.txt"), "not ours to keep");
+        LocalDataEraser.MarkPending(_directory);
+
+        using (Block(Crashes))
+        using (Block("end"))
+        {
+            Assert.False(LocalDataEraser.EraseIfPending(_directory)!.Complete);
+        }
+
+        Assert.Empty(LocalDataEraser.StillOwed(_directory));
+        Assert.True(LocalDataEraser.BlocksStart(_directory));
+    }
+
+    [Fact]
     public void ANarrowedErasureThatIsAskedForAgainOwesEverythingOnceMore()
     {
         // A new "delete everything" is a new request, about everything there is now, whatever an earlier
@@ -462,15 +486,18 @@ public sealed class EraseEverythingTests : IDisposable
     ///
     /// The Unix arm does nothing when the tests run as root, which nothing in this project does.
     /// </summary>
-    private IDisposable BlockCrashes()
+    private IDisposable BlockCrashes() => Block(Crashes);
+
+    /// <summary>Makes a folder directly in the data directory refuse to go, as <see cref="BlockCrashes"/> does; it must hold report.txt.</summary>
+    private IDisposable Block(string folder)
     {
-        var crashes = Path.Combine(_directory, Crashes);
+        var path = Path.Combine(_directory, folder);
         if (OperatingSystem.IsWindows())
         {
-            return File.Open(Path.Combine(crashes, "report.txt"), FileMode.Open, FileAccess.Read, FileShare.None);
+            return File.Open(Path.Combine(path, "report.txt"), FileMode.Open, FileAccess.Read, FileShare.None);
         }
 
-        return BlockUnix(crashes);
+        return BlockUnix(path);
     }
 
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]

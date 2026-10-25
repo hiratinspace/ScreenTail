@@ -267,12 +267,16 @@ public static class LocalDataEraser
         return names.All(IsOwnableName) ? names : null;
     }
 
-    /// <summary>A name directly in the data directory that an erasure may owe.</summary>
+    /// <summary>
+    /// A name directly in the data directory that an erasure may owe. Never the end line itself, and
+    /// never a name that would split into more than one line: either would let a marker cut short by a
+    /// crash read as a complete list that leaves something out.
+    /// </summary>
     private static bool IsOwnableName(string name) =>
         name.Length is > 0 and <= 255
         && name.Trim() == name
-        && name is not "." and not ".."
-        && name.IndexOfAny(['/', '\\', ':']) < 0
+        && name is not "." and not ".." and not OwedEnd
+        && name.IndexOfAny(['/', '\\', ':', '\r', '\n']) < 0
         && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
         && !name.Equals(KeptDirectory, StringComparison.OrdinalIgnoreCase)
         && !name.Equals(PendingMarker, StringComparison.OrdinalIgnoreCase);
