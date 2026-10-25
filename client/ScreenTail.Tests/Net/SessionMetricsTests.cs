@@ -83,6 +83,21 @@ public sealed class SessionMetricsTests
     }
 
     [Fact]
+    public async Task AnUnenrolledDeviceSendsNoMetricAndSaysNothingWasSent()
+    {
+        // Nothing left the machine, so it is not an attempt: the outbox must not use up the metric's
+        // patience while a device waits to be activated, as it does not for a draft.
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var sender = new MetricsSender(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => null);
+
+        var outcome = await sender.SendAsync(Item(SessionMetricWire.From(Session(draft: Draft(Step("one"))), published: false, editRatio: null)), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Pending, outcome.State);
+        Assert.True(outcome.NothingSent);
+        Assert.Null(handler.Asked);
+    }
+
+    [Fact]
     public async Task TheReporterQueuesAMetricOnlyWhenTelemetryIsOnAndMeasuresTheEditsAgainstTheOriginal()
     {
         var dir = Path.Combine(Path.GetTempPath(), "screentail-tests", Guid.NewGuid().ToString("N"));
