@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Runtime.Versioning;
 using System.Windows;
 using System.Windows.Media;
@@ -48,8 +47,9 @@ internal sealed class HudWindowHolder
         _window = new HudWindow(preferences);
         _model = new HudViewModel(state);
         _model.MarkRequested += () => _ = connection.SendAsync(id => new MarkMomentCommand { RequestId = id });
-        _model.ReviewRequested += () => ReviewRequested?.Invoke();
-        _model.PropertyChanged += OnModelChanged;
+        var gestures = new HudGestures(_model, () => _hud.Visible);
+        gestures.ReviewRequested += () => ReviewRequested?.Invoke();
+        gestures.HideRequested += () => HideRequested?.Invoke();
         _window.DataContext = _model;
 
         // The first report is not left to the timer. Show() lays the window out before it returns, but
@@ -174,17 +174,5 @@ internal sealed class HudWindowHolder
         var topLeft = toDevice.Transform(new Point(_window.Left, _window.Top));
         var size = toDevice.Transform(new Vector(_window.ActualWidth, _window.ActualHeight));
         return HudPlacement.IsOnScreen(topLeft.X, topLeft.Y, size.X, size.Y, Screens());
-    }
-
-    /// <summary>
-    /// The pill's right-click sets the view model's own hidden flag and nothing else listened. When the
-    /// model now says the pill may go while the shell still shows it, that is the gesture.
-    /// </summary>
-    private void OnModelChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(HudViewModel.Visible) && !_model.Visible && _hud.Visible)
-        {
-            HideRequested?.Invoke();
-        }
     }
 }
