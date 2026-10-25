@@ -108,6 +108,19 @@ public sealed class NarrationRecorder : IDisposable
     private string? _holding;
 
     /// <summary>
+    /// The latest part of a stretch of speech the gate cut at its longest segment while the speaker went
+    /// on, held back until the stretch ends, or null.
+    ///
+    /// Queued at once, it was beyond reach of a suppression or an out-of-scope window that came while the
+    /// rest of the stretch was still being said, so the start of what was read off a vault reached the
+    /// model while its end was dropped (INV-6). It goes to the model when the stretch ends in a way that
+    /// keeps it (a pause in the speech, a Stop, the next part being cut), and is dropped with the rest
+    /// where the stretch is dropped. One part, so a copy of at most one longest segment is held, and it
+    /// stays owed while it waits so a Stop still waits for it.
+    /// </summary>
+    private (string Session, SpeechSegment Segment, ReadOnlyMemory<short> Audio)? _carried;
+
+    /// <summary>
     /// The backlog's suppression count as of the last chunk taken. When it has moved, capture was
     /// suppressed since, and what was being said is dropped rather than kept.
     /// </summary>
@@ -290,6 +303,7 @@ public sealed class NarrationRecorder : IDisposable
         {
             Listening = false;
             LetGo();
+            DropCarried();
 
             // Nothing more will be queued, so the drain can finish what it has. A segment already cut
             // from the ring is a thing the technician said, and dropping it because the service is
@@ -413,9 +427,14 @@ public sealed class NarrationRecorder : IDisposable
     /// </summary>
     private async ValueTask EndStretchAsync(CancellationToken ct)
     {
-        if (_backlog.Suppressions == _suppressions && _hearing() && _gate.Flush() is { } last)
+        if (_backlog.Suppressions == _suppressions && _hearing())
         {
-            await QueueAsync(last, ct).ConfigureAwait(false);
+            if (_gate.Flush() is { } last)
+            {
+                await QueueAsync(last, ct).ConfigureAwait(false);
+            }
+
+            await ReleaseCarriedAsync(ct).ConfigureAwait(false);
         }
 
         _suppressions = _backlog.Suppressions;
@@ -438,6 +457,7 @@ public sealed class NarrationRecorder : IDisposable
     private void Discard()
     {
         LetGo();
+        DropCarried();
         _gate.Reset();
         _filled = 0;
         _stretch = null;
@@ -476,6 +496,14 @@ public sealed class NarrationRecorder : IDisposable
             if (_gate.Speaking != (_holding is not null))
             {
                 Hold();
+            }
+
+            // The stretch a held-back part belongs to has ended in a pause, so it is kept. Normally the
+            // closing segment has already sent it; this is for one too short to be speech, or cut while
+            // the model was missing.
+            if (_carried is not null && !_gate.Speaking)
+            {
+                await ReleaseCarriedAsync(ct).ConfigureAwait(false);
             }
         }
     }
@@ -535,17 +563,62 @@ public sealed class NarrationRecorder : IDisposable
             _backlog.Owe(stretch.SessionId);
         }
 
+        if (segment.Truncated && _gate.Speaking)
+        {
+            // Cut mid-speech, and the speaker is still going: held back until the stretch ends, so that a
+            // suppression before then drops it with the rest. The part before it, if any, is a whole
+            // longest segment older and goes now, which keeps what is held to one part.
+            var earlier = _carried;
+            _carried = (stretch.SessionId, placed, audio);
+            if (earlier is { } sent)
+            {
+                await WriteAsync(sent, ct).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        // In the order they were said: whatever was held back is the start of this one.
+        await ReleaseCarriedAsync(ct).ConfigureAwait(false);
+        await WriteAsync((stretch.SessionId, placed, audio), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Hands one segment to the transcriber. If it cannot be, it is no longer owed.</summary>
+    private async ValueTask WriteAsync((string Session, SpeechSegment Segment, ReadOnlyMemory<short> Audio) item, CancellationToken ct)
+    {
         try
         {
             // Bounded, and waits rather than dropping: the queue only fills when the model is slower than
             // the technician is talkative, and an unbounded one would hold a support call in memory.
             // Waiting here costs what the old code cost, and only once the buffer is already full.
-            await _pending.Writer.WriteAsync((stretch.SessionId, placed, audio), ct).ConfigureAwait(false);
+            await _pending.Writer.WriteAsync(item, ct).ConfigureAwait(false);
         }
         catch
         {
-            _backlog.Settle(stretch.SessionId);
+            _backlog.Settle(item.Session);
             throw;
+        }
+    }
+
+    /// <summary>The stretch a held-back part belongs to ended in a way that keeps it: it goes to the transcriber.</summary>
+    private ValueTask ReleaseCarriedAsync(CancellationToken ct)
+    {
+        if (_carried is not { } carried)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        _carried = null;
+        return WriteAsync(carried, ct);
+    }
+
+    /// <summary>The stretch a held-back part belongs to was dropped, so it is too, and is no longer owed.</summary>
+    private void DropCarried()
+    {
+        if (_carried is { } carried)
+        {
+            _carried = null;
+            _backlog.Settle(carried.Session);
         }
     }
 

@@ -863,6 +863,174 @@ public sealed class NarrationRecorderTests
     }
 
     [Fact]
+    public async Task AnUnbrokenStretchOfSpeechCutAtTheLongestSegmentIsStillTranscribedInFull()
+    {
+        // The gate cuts a stretch with no pause in it at its longest segment and carries on. Every part
+        // is what was said, in order and end to end, and none is lost for waiting on the next.
+        var microphone = new FakeMicrophone(Silence(20), Speech(60), Silence(40));
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, _, _) => Task.FromResult(true),
+            () => new NarrationSession("session-a", 0),
+            gate: new SpeechGateOptions { MaximumSegment = TimeSpan.FromSeconds(1.5) });
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, recogniser.Asked);
+        Assert.All(recogniser.Handed.SkipLast(1), handed => Assert.True(handed.Segment.Truncated));
+        Assert.False(recogniser.Handed[^1].Segment.Truncated);
+        for (var i = 1; i < recogniser.Handed.Count; i++)
+        {
+            Assert.Equal(recogniser.Handed[i - 1].Segment.EndMs, recogniser.Handed[i].Segment.StartMs);
+        }
+    }
+
+    [Fact]
+    public async Task AStretchThatEndsJustAfterACutIsKeptOnceItEnds()
+    {
+        // The speaker stops a moment after the last cut, too soon for what follows it to count as speech.
+        // The stretch has still ended in a pause, so the part held back is kept there and then, and a
+        // password field that takes focus later has nothing of it left to drop.
+        var backlog = new NarrationBacklog();
+        var microphone = new FakeMicrophone(Silence(20), Speech(60), Silence(60));
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, _, _) => Task.FromResult(true),
+            () =>
+            {
+                if (microphone.Yielded == 120)
+                {
+                    backlog.Suppressed();
+                }
+
+                return new NarrationSession("session-a", 0);
+            },
+            gate: Cut,
+            backlog: backlog);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, recogniser.Asked);
+        Assert.All(recogniser.Handed, handed => Assert.True(handed.Segment.Truncated));
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    [Fact]
+    public async Task AStopJustAfterACutStillKeepsThePartHeldBack()
+    {
+        // Stop lands a moment after the gate cut the stretch, so what is still open is too short to be
+        // speech. The part held back is the session's all the same, and is owed until the model has it.
+        var backlog = new NarrationBacklog();
+        var microphone = new FakeMicrophone(Silence(20), Speech(60));
+        var recogniser = new FakeRecogniser("and that fixed it");
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, _, _) => Task.FromResult(true),
+            () => microphone.Yielded <= 46 ? new NarrationSession("session-a", 0) : null,
+            gate: Cut,
+            backlog: backlog);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => recogniser.Asked >= 1 && backlog.DepthFor("session-a") == 0);
+        await stop.CancelAsync();
+        await running;
+
+        Assert.True(Assert.Single(recogniser.Handed).Segment.Truncated);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    [Fact]
+    public async Task AnUnbrokenStretchOfSpeechUnderWayWhenAnExcludedAppCameToFrontIsDroppedWholeEvenWhereItWasCut()
+    {
+        // Speech with no pause in it, longer than the gate's longest segment, so the gate has cut it and
+        // is still open when the vault comes to the front. The part already cut is the start of the same
+        // stretch as what was read off the vault, so it goes with it rather than to the model (INV-6).
+        var microphone = new FakeMicrophone(Silence(20), Speech(52), Silence(48));
+        var recogniser = new FakeRecogniser("the admin password is");
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, _, _) => Task.FromResult(true),
+            () => new NarrationSession("session-a", 0),
+            gate: Cut,
+            hearing: () => microphone.Yielded is < 70 or > 72);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, recogniser.Asked);
+    }
+
+    [Fact]
+    public async Task AnUnbrokenStretchOfSpeechUnderWayWhenCaptureIsSuppressedIsDroppedWholeEvenWhereItWasCut()
+    {
+        // The same with a password field that takes focus and lets go between two chunks: the recorder
+        // learns of it from the backlog's count, and drops the part already cut as well as the open one,
+        // and owes nothing for either.
+        var backlog = new NarrationBacklog();
+        var microphone = new FakeMicrophone(Silence(20), Speech(52), Silence(48));
+        var recogniser = new FakeRecogniser("the admin password is");
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, _, _) => Task.FromResult(true),
+            () =>
+            {
+                if (microphone.Yielded == 70)
+                {
+                    backlog.Suppressed();
+                }
+
+                return new NarrationSession("session-a", 0);
+            },
+            gate: Cut,
+            backlog: backlog);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, recogniser.Asked);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    [Fact]
+    public async Task AnUnbrokenStretchOfSpeechUnderWayAtStopIsKeptWhole()
+    {
+        // A Stop is not a suppression: the part already cut and the part still open are both the
+        // session's, in order, and both are owed until the model has them.
+        var backlog = new NarrationBacklog();
+        var microphone = new FakeMicrophone(Silence(20), Speech(60));
+        var recogniser = new FakeRecogniser("and that fixed it");
+        var kept = new List<TranscriptSegment>();
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => microphone.Yielded <= 60 ? new NarrationSession("session-a", 0) : null,
+            gate: Cut,
+            backlog: backlog);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => recogniser.Asked >= 2 && backlog.DepthFor("session-a") == 0);
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(2, recogniser.Asked);
+        Assert.True(recogniser.Handed[0].Segment.Truncated);
+        Assert.False(recogniser.Handed[1].Segment.Truncated);
+        Assert.Equal(recogniser.Handed[0].Segment.EndMs, recogniser.Handed[1].Segment.StartMs);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+    }
+
+    /// <summary>A gate whose longest segment is a second, so a few seconds of speech is cut mid-stretch.</summary>
+    private static SpeechGateOptions Cut { get; } = new() { MaximumSegment = TimeSpan.FromSeconds(1) };
+
+    [Fact]
     public void AServiceRecorderCannotBeBuiltWithoutSayingWhenASessionIsRecording()
     {
         // 2026-10-12 review (T-84). "Is a session recording?" used to default to "always". A host that

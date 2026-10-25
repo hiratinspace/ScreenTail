@@ -260,7 +260,9 @@ This document describes what is enforced today. These are named here rather than
   joined on to it. One still being said when capture is suppressed (a password field, a sign-in
   screen, no indicator on screen) or when a window outside the scope comes to the front is dropped,
   never kept, even when the session stops at the same moment or the suppression is over before the
-  next piece of audio arrives. The speech model is released after five minutes with nothing to
+  next piece of audio arrives. Speech with no pause in it that runs past the longest segment (20
+  seconds) is held back from the model in the meantime, so the part already cut is dropped with it;
+  only parts a whole longest segment older go ahead. The speech model is released after five minutes with nothing to
   transcribe and loaded again by the next sentence.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
   its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
