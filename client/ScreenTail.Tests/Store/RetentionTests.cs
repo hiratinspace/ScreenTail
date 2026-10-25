@@ -127,6 +127,9 @@ public sealed class RetentionTests : IAsyncDisposable
         await FinishedSessionAsync(store, "old", frames: 40);
         _time.Now = T0 + TimeSpan.FromHours(2);
         await FinishedSessionAsync(store, "later", frames: 20);
+
+        // Started after "later" ended, so it is not old enough to age out on either pass below.
+        _time.Now = T0 + TimeSpan.FromHours(5);
         await store.CreateSessionAsync(new NewSession("live", _time.Now, Tool(), false, null));
         string? recording = "live";
         var job = new RetentionJob(store, _time, new RetentionOptions(), () => recording);

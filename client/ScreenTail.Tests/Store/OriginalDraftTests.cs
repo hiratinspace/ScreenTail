@@ -83,25 +83,35 @@ public sealed class OriginalDraftTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task LoadingTheOriginalDraftWhileAnotherCallerWritesNeverFails()
+    public async Task TheOriginalDraftIsReadOnlyWhileNoOtherCallerHoldsTheStore()
     {
         // T-62. The read went to the shared connection without the store's gate, so it raced whatever
         // was writing at the time: after a publish, the style learner reads the original while the
         // outbox or an autosave writes, and the publish reply failed with the note already landed.
-        // Probabilistic by nature; with the gate it cannot fail at all.
+        //
+        // Not a stress loop. The audit export holds the gate while it hands out rows, so from inside it
+        // the read is started on another thread and given a moment. Through the gate it waits for the
+        // export, so it has not finished when the export moves on; without the gate it runs at once on a
+        // connection another caller is in the middle of using. The wait bounds the passing case rather
+        // than racing it: nothing the read can do while the gate is held finishes it.
         var store = await OpenAsync();
         await store.CreateSessionAsync(new NewSession("s1", DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
         await store.SaveDraftAsync("s1", Draft(Step("as drafted")));
+        await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
 
-        for (var round = 0; round < 200; round++)
-        {
-            var writing = Task.Run(() => store.SaveDraftAsync("s1", Draft(Step($"edit {round}"))));
-            var reading = Task.Run(() => store.LoadOriginalDraftAsync("s1"));
-            var auditing = Task.Run(() => store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click"));
-            await Task.WhenAll(writing, reading, auditing);
+        Task<DraftNote?>? reading = null;
+        var finishedWhileAnotherCallerHeldTheStore = false;
+        await store.ReadAuditAsync(
+            (_, _) =>
+            {
+                reading ??= Task.Run(() => store.LoadOriginalDraftAsync("s1"));
+                finishedWhileAnotherCallerHeldTheStore |= ((IAsyncResult)reading).AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(250));
+                return ValueTask.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
 
-            Assert.Equal("as drafted", Assert.Single((await reading)!.Steps).Text);
-        }
+        Assert.False(finishedWhileAnotherCallerHeldTheStore, "the read ran on the connection while another caller held the store");
+        Assert.Equal("as drafted", Assert.Single((await reading!)!.Steps).Text);
     }
 
     private sealed class NoMasker : Core.Privacy.IFrameMasker

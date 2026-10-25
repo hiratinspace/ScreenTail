@@ -200,6 +200,41 @@ public sealed class AuditLogTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AnAppendCancelledAsItFailsIsStillRolledBack()
+    {
+        // T-64, the other half. The rollback must not be given the caller's token: when that token is
+        // what fired (a shutdown cancelling just as the head write fails), a rollback that honours it
+        // never runs, and the half-written row stays in an open savepoint on the shared connection. The
+        // trigger cancels the token and then refuses, so both happen inside the one append.
+        var store = await OpenAsync();
+        for (var i = 0; i < 3; i++)
+        {
+            await store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click");
+        }
+
+        store = await TamperAsync("CREATE TRIGGER refuse_head BEFORE UPDATE ON audit_head BEGIN SELECT cancel_append(); SELECT RAISE(ABORT, 'the head will not move'); END");
+        using var stopping = new CancellationTokenSource();
+        StoreConnection(store).CreateFunction("cancel_append", () =>
+        {
+            stopping.Cancel();
+            return 0;
+        });
+
+        await Assert.ThrowsAnyAsync<Exception>(() => store.RecordAsync(AuditTypes.FrameCaptured, "s1", 1, "Click", stopping.Token));
+
+        Assert.Equal(3, (await store.GetAuditRecordsAsync()).Count);
+        var verification = await store.VerifyAuditAsync();
+        Assert.True(verification.Intact, verification.Describe());
+        Assert.Equal(0, await store.DiscardSessionAsync("nobody"));
+    }
+
+    /// <summary>The store's own connection, so a test can give it a function a trigger calls.</summary>
+    private static Microsoft.Data.Sqlite.SqliteConnection StoreConnection(SqliteSessionStore store) =>
+        (Microsoft.Data.Sqlite.SqliteConnection)typeof(SqliteSessionStore)
+            .GetField("_connection", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(store)!;
+
+    [Fact]
     public void TheChainHashOfAKnownRowNeverChanges()
     {
         // T-55. Every store in the field holds rows hashed under this canonical form. A change to the
@@ -210,8 +245,11 @@ public sealed class AuditLogTests : IAsyncDisposable
         var first = AuditChain.Hash(null, at, "s1", AuditTypes.FrameCaptured, 1, "Click");
         var second = AuditChain.Hash(first, at.AddSeconds(1), null, AuditTypes.RetentionPurged, null, null);
 
-        Assert.Equal("KNOWN-FIRST", first);
-        Assert.Equal("KNOWN-SECOND", second);
+        // Worked out outside .NET, as SHA-256 over the UTF-8 of the fields joined by U+001F: previous
+        // hash (empty at the start), the time in UTC as "O" (2026-10-12T07:30:15.1230000+00:00), session,
+        // type, count, detail, with an absent field as the empty string.
+        Assert.Equal("a994ec2aa6a4bb974c7c97a0602a514ec5d99e0c203409394e66d9d54902f2e2", first);
+        Assert.Equal("e0503dbe32405283a8baa5a8b184d4c1bc6739ae5190c90abdfdeeb0c198e1dc", second);
         Assert.Equal(first, AuditChain.Hash(AuditChain.Genesis, at, "s1", AuditTypes.FrameCaptured, 1, "Click"));
         Assert.Equal(first, AuditChain.Hash(new AuditRecord(1, at, "s1", AuditTypes.FrameCaptured, 1, "Click", null, first), null));
     }
