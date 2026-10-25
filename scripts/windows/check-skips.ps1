@@ -13,6 +13,13 @@
     budget in client/ScreenTail.Tests.Windows/skip-baseline.json. Every skipped test is named in the log
     and in the job summary, so a run that skipped something says which fact went unchecked.
 
+    Three more things fail the gate, whatever the budget (2026-10-12 review, T-231):
+      - A run with no tests in it. "0 of 0 skipped" is within every budget and proves nothing; it is
+        what the laptop's input job would report if the class it filters to were renamed.
+      - A test the environment's `mustRun` list names that is not in the reports at all.
+      - A test that list names that did not pass.
+    The list is the baseline's, per environment, and is optional; the input job's names INV-2's proof.
+
 .PARAMETER Environment
     Which budget applies. The same assembly runs in three jobs with different permissions, so each
     has its own number: 'hosted', 'laptop-capabilities', 'laptop-input'.
@@ -25,8 +32,9 @@
 
     Kept to ASCII on purpose. Windows PowerShell 5.1 reads a .ps1 with no byte-order mark as ANSI, so a
     single non-ASCII character several lines up turns into mojibake and the parser then fails somewhere
-    else entirely with "the string is missing the terminator". spike-windows.yml parse-checks this file
-    against 5.1 and refuses non-ASCII in it.
+    else entirely with "the string is missing the terminator". ci.yml parse-checks this file against
+    5.1 and refuses non-ASCII in it, and check-skips.Tests.ps1 next to it runs the logic below against
+    synthetic reports.
 #>
 [CmdletBinding()]
 param(
@@ -49,6 +57,9 @@ if ($null -eq $budget) {
     exit 1
 }
 
+$mustRun = @()
+if ($null -ne $budget.mustRun) { $mustRun = @($budget.mustRun) }
+
 $reports = @(Get-ChildItem -Path $TrxGlob -Recurse -ErrorAction SilentlyContinue)
 if ($reports.Count -eq 0) {
     # A missing report is the failure mode this script exists to catch, wearing a different hat: no
@@ -58,6 +69,7 @@ if ($reports.Count -eq 0) {
 }
 
 $skipped = [System.Collections.Generic.List[string]]::new()
+$passed = [System.Collections.Generic.List[string]]::new()
 $total = 0
 $failed = 0
 
@@ -77,6 +89,7 @@ foreach ($report in $reports) {
                 $skipped.Add("$($result.testName): $($reason -replace '\s+', ' ')")
             }
             'Failed' { $failed++ }
+            'Passed' { $passed.Add([string]$result.testName) }
         }
     }
 }
@@ -101,6 +114,25 @@ $lines | ForEach-Object { Write-Host $_ }
 
 foreach ($line in $skipped) {
     Write-Host "::warning::Skipped on $($Environment): $line"
+}
+
+if ($total -eq 0) {
+    Write-Host "::error::The reports for $Environment hold no tests at all. Nothing skipped because nothing ran: check the test step's filter (the input job runs the classes called *InputHookTests) and that the run wrote its TRX."
+    exit 1
+}
+
+# The tests this environment exists to run. Named in the baseline, matched on the end of the TRX test
+# name, which xUnit writes fully qualified.
+$notRun = @()
+foreach ($name in $mustRun) {
+    $ran = @($passed | Where-Object { $_.EndsWith($name) })
+    if ($ran.Count -eq 0) { $notRun += $name }
+}
+if ($notRun.Count -gt 0) {
+    foreach ($name in $notRun) {
+        Write-Host "::error::$name must run and pass on $Environment and did not. It is either skipped, failed or no longer in the run; the invariant it proves has no evidence until it is back."
+    }
+    exit 1
 }
 
 if ($skipped.Count -gt $budget.maxSkipped) {

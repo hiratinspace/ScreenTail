@@ -475,6 +475,15 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # ST-018. Parsing proves the skip gate is a script; this proves it is the right one. Synthetic TRX
+      # reports stand in for a run that skipped too much, a run that proved nothing (no tests at all,
+      # which is what renaming InputHookTests would leave the laptop's input job with) and a run in
+      # which INV-2's end-to-end proof did not execute, and the gate has to fail each of them and pass
+      # the run that is in order (2026-10-12 review, T-231 and T-232).
+      - name: The skip gate fails a run that proved nothing
+        shell: powershell
+        run: ./scripts/windows/check-skips.Tests.ps1
+
   workflows:
     name: Workflows are well-formed
     runs-on: ubuntu-latest
@@ -489,13 +498,17 @@ jobs:
       # never going to start and then fails -- on a pull request with nothing wrong with it.
       #
       # Checked by example rather than by comparing a regex with a glob list, because the two notations
-      # do not compare and the examples are what a person would check by hand anyway.
+      # do not compare. The examples are not hand-picked: one is made from every glob in
+      # hardware-checks.yml, so a glob the gate does not know is caught even when its folder is empty
+      # today, and then every file in the tree is asked both questions, so a path the gate flags and the
+      # workflow ignores (or the reverse) cannot hide in the gaps between thirteen chosen paths
+      # (2026-10-12 review, T-225).
       - name: The hardware gate and the hardware workflow agree
         run: |
           python3 - <<'EOF'
-          import re, sys, yaml, fnmatch
+          import re, sys, yaml, fnmatch, subprocess
 
-          ci = pathlib_read = open('.github/workflows/ci.yml').read()
+          ci = open('.github/workflows/ci.yml').read()
           match = re.search(r"only '(\^\([^']+\))' hardware", ci)
           if not match:
               sys.exit("Could not find the hardware only() filter in ci.yml.")
@@ -503,48 +516,39 @@ jobs:
 
           hardware = yaml.safe_load(open('.github/workflows/hardware-checks.yml'))
           globs = hardware[True]['pull_request']['paths']
+          if not globs:
+              sys.exit("hardware-checks.yml has no pull_request paths.")
 
           def triggers(path):
               return any(fnmatch.fnmatch(path, glob) for glob in globs)
 
-          # One real file per area the laptop is meant to see, and a few it is not.
-          needs_laptop = [
-              'client/ScreenTail.Core/Capture/PendingFrames.cs',
-              'client/ScreenTail.Core/Privacy/RedactionWorker.cs',
-              'client/ScreenTail.Core/Input/HookLifetime.cs',
-              'client/ScreenTail.Core/Store/SqliteSessionStore.cs',
-              'client/ScreenTail.Core/Ipc/IndicatorReports.cs',
-              'client/ScreenTail.Core/Sessions/SessionMachine.cs',
-              'client/ScreenTail.Core/Speech/SpeechModels.cs',
-              'client/ScreenTail.Core/Detection/ScopePolicy.cs',
-              'client/ScreenTail.Core/Capabilities/Probe.cs',
-              'client/ScreenTail.Service/Capture/ClickCaptureLoop.cs',
-              'client/ScreenTail.Platform/Ipc/ProcessImage.cs',
-              'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
-              'scripts/windows/run-local.ps1',
-          ]
-          does_not = [
-              'client/ScreenTail.UI/Shell/LiveShell.cs',
-              'client/ScreenTail.Core/Net/DraftSender.cs',
-              'client/ScreenTail.Core/Intel/BundleBuilder.cs',
-              'backend/src/ScreenTail.Api/Program.cs',
-              'docs/README.md',
-          ]
-
           bad = []
-          for path in needs_laptop:
-              flagged, runs = bool(gate.match(path)), triggers(path)
-              if not flagged:
-                  bad.append(f"{path}: ci.yml would not ask for hardware evidence.")
-              elif not runs:
-                  bad.append(f"{path}: ci.yml asks for evidence but hardware-checks.yml does not run -- the gate would wait for a run that never starts.")
 
-          for path in does_not:
-              if gate.match(path):
-                  bad.append(f"{path}: ci.yml asks for hardware evidence it does not need.")
+          # One sample per glob, made from the glob itself, so a folder with no file in it yet is still
+          # checked. A glob is either a folder ending in /** or one literal file.
+          for glob in globs:
+              sample = glob.replace('**', 'Sample.cs')
+              if not triggers(sample):
+                  bad.append(f"{glob}: its own sample {sample} does not match it, so the glob is not one this check understands.")
+              elif not gate.match(sample):
+                  bad.append(f"{glob}: hardware-checks.yml runs for {sample} but ci.yml would not ask for its evidence.")
+
+          # Every tracked file, both ways. A file the gate flags and the workflow ignores makes the gate
+          # wait thirty-five minutes for a run that never starts; a file the workflow runs for and the
+          # gate ignores takes the laptop's keyboard with nothing waiting for the answer.
+          files = subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True).stdout.split('\n')
+          checked = 0
+          for path in filter(None, files):
+              flagged, runs = bool(gate.match(path)), triggers(path)
+              checked += 1
+              if flagged and not runs:
+                  bad.append(f"{path}: ci.yml asks for evidence but hardware-checks.yml does not run -- the gate would wait for a run that never starts.")
+              elif runs and not flagged:
+                  bad.append(f"{path}: hardware-checks.yml runs but ci.yml does not ask for its evidence.")
 
           for line in bad:
               print(f"::error file=.github/workflows/ci.yml::{line}")
+          print("\n".join(bad) if bad else f"{len(globs)} globs and {checked} tracked files agree with the hardware gate")
           sys.exit(1 if bad else 0)
           EOF
 
