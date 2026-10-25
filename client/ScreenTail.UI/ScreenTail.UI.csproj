@@ -10,6 +10,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>ScreenTail.UI</RootNamespace>
     <AssemblyName>ScreenTail.UI</AssemblyName>
+    <!-- ST-012 (ADR-0003): the runtime loads no startup hook into this process, whatever the
+         environment asks. RunningHonestly's check runs at start-up, after a hook would already have
+         run, so it cannot be what keeps one out. ProcessStartupTests pins this for both processes. -->
+    <StartupHookSupport>false</StartupHookSupport>
   </PropertyGroup>
 
   <ItemGroup>

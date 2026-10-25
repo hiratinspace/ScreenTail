@@ -38,6 +38,10 @@ public partial class App : Application, IDisposable
         // asks — so an attacker needs no forged binary, only our real one launched with a startup hook
         // set. The process being hijacked is ours, so it is ours to refuse (ST-012, 2026-09-19 review).
         //
+        // The second line, not the first: a startup hook runs before this does, so the project builds
+        // with StartupHookSupport off and the runtime loads none. This still refuses the variables being
+        // set, and the profiler ones, which only packaging can fully close (ADR-0003, ST-112).
+        //
         // A development build says so and carries on: this is how a profiler is attached.
         if (Core.Ipc.RunningHonestly.WhyNotToStart(Platform.Ipc.Signing.IsDevelopmentBuild) is { } refusal)
         {
