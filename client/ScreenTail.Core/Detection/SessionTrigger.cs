@@ -33,7 +33,10 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
 
     // The window a session started by hand was started in. It keeps the session as a remote tool does,
     // so Ctrl+Alt+R over a console no registry knows is not ended while the technician is still in it.
+    // Known by its handle and its process together: Windows hands a closed window's handle out again, and
+    // another application's window under the same handle is not the one the session was started in.
     private nint _ownWindow;
+    private int _ownProcess;
 
     /// <summary>The grace in force. The technician's setting changes it in place (ST-080).</summary>
     public TimeSpan Grace
@@ -143,7 +146,8 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
     }
 
     /// <summary>Whether this is the window the running session was started in by hand. Call under the gate.</summary>
-    private bool IsOwnLocked(ForegroundWindowInfo window) => _running && _ownWindow != 0 && window.Handle == _ownWindow;
+    private bool IsOwnLocked(ForegroundWindowInfo window) =>
+        _running && _ownWindow != 0 && window.Handle == _ownWindow && window.ProcessId == _ownProcess;
 
     private TriggerDecision TickLocked()
     {
@@ -156,6 +160,7 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
         _running = false;
         _runningToolId = null;
         _ownWindow = 0;
+        _ownProcess = 0;
         _lastToolSeen = 0;
         return new TriggerDecision(false, true, toolId, $"No remote session for {_grace.TotalSeconds:F0} seconds.");
     }
@@ -189,6 +194,7 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
 
             SetRunningLocked(running, toolId);
             _ownWindow = running && window is not null ? window.Handle : 0;
+            _ownProcess = running && window is not null ? window.ProcessId : 0;
             return true;
         }
     }
@@ -198,6 +204,7 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
         _running = running;
         _runningToolId = running ? toolId : null;
         _ownWindow = 0;
+        _ownProcess = 0;
         _lastToolSeen = running ? _time.GetTimestamp() : 0;
     }
 }

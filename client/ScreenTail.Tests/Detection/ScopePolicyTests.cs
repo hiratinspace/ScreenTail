@@ -583,6 +583,27 @@ public sealed class ScopePolicyTests
     }
 
     [Fact]
+    public void AnotherProcesssWindowUnderAReusedHandleDoesNotKeepASessionStartedByHand()
+    {
+        // Windows hands a closed window's handle out again. The window a session was started in by hand is
+        // known by its handle and its process together, so another application's window that happens to
+        // get the same handle later does not keep the session, and its microphone, running (c8 review).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var own = Window("vendorconsole", "Customer 4471") with { Handle = 4471, ProcessId = 900 };
+        var reused = Window("notepad", "Untitled") with { Handle = 4471, ProcessId = 901 };
+        trigger.Follow(running: true, window: own);
+
+        Assert.False(trigger.Observe(reused).Stop);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.False(trigger.Tick(reused).Stop);
+        clock.Advance(TimeSpan.FromSeconds(31));
+
+        Assert.True(trigger.Tick(reused).Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
     public void ReturningToTheToolKeepsTheSessionAlive()
     {
         var clock = new ManualTime(At);
