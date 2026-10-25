@@ -266,6 +266,31 @@ public sealed class HudStateTests
         Assert.False(HudState.Indicates(hud, pillOnScreen: false));
     }
 
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    public void ASessionUnderWayIsNamedSoTheShellCanClearAHideMeantForTheLastOne(string state)
+    {
+        // Hiding is for one session and no longer (Spec §5 S2). The tray's item used to hide the pill for
+        // the life of the process (T-154); the shell clears the wish when a session it has not seen starts.
+        Assert.Equal("s2", HudState.SessionUnderWay(new CaptureStateSnapshot { State = state, SessionId = "s2" }));
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Idle, "s1")]
+    [InlineData(CaptureStates.Finalizing, "s1")]
+    [InlineData(CaptureStates.DraftReady, "s1")]
+    [InlineData(CaptureStates.DraftFailed, "s1")]
+    [InlineData("recording_with_audio", "s1")]
+    [InlineData(CaptureStates.Recording, null)]
+    [InlineData(CaptureStates.Recording, "")]
+    public void NothingIsUnderWayBetweenSessionsOrWhenItCannotBeTold(string state, string? session)
+    {
+        Assert.Null(HudState.SessionUnderWay(new CaptureStateSnapshot { State = state, SessionId = session }));
+        Assert.Null(HudState.SessionUnderWay(null));
+    }
+
     [Fact]
     public void HidingThePillDoesNotWorkWhileTheStateIsUnknown()
     {
