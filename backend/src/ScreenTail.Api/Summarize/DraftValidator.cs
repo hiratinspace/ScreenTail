@@ -17,120 +17,34 @@ namespace ScreenTail.Api.Summarize;
 /// reads as an instruction is the prompt-injection landing site: text on a customer's screen can ask a
 /// model to emit a command, and a note is where a person downstream would find it and run it.
 ///
-/// The same rules run in <c>research/prompts/checks.py</c> over the eval corpus. They are here as well
-/// because that harness runs offline and this runs in front of a technician. When one changes, both
-/// change; <c>DraftValidatorTests</c> and <c>test_prompt_hardening.py</c> are the pair that notice.
+/// The same rules run in <c>research/prompts/checks.py</c> over the eval corpus. Both are built from
+/// <c>research/prompts/shared-rules.json</c> (here through <see cref="DraftRules"/>, which
+/// <c>SharedRulesTests</c> holds to the file), and both read text the same way (<see cref="DraftReading"/>).
+///
+/// Every rule but the quotation rule reads a text twice: as written, and as read (normalised). Either
+/// refusing refuses the draft, so the normalisation can only add refusals. It refuses "In&lt;ZWSP&gt;stall
+/// the agent", which production let through; and "curl²", which NFKC reads as "curl2", is still refused
+/// because of how it was written.
 /// </summary>
 public static class DraftValidator
 {
     /// <summary>The prompt these rules were written against. A draft from another has been checked by nothing.</summary>
     public const string PromptVersion = "note_v1";
 
-    /// <summary>
-    /// Deliberate markers the redaction engine leaves behind. They are allowed, and guessing what they
-    /// stood for is not.
-    /// </summary>
-    private static readonly string[] Redactions = ["[REDACTED]", "[CARD]", "[SSN]", "[SECRET]", "[EMAIL]"];
+    private static readonly Regex Quoted = DraftRules.Compile("quoted", DraftRules.Quoted);
+    private static readonly Regex Apostrophe = DraftRules.Compile("apostrophe", [DraftRules.Apostrophe]);
+    private static readonly Regex Ssn = DraftRules.Compile("ssn", [DraftRules.Ssn]);
+    private static readonly Regex SsnCued = DraftRules.Compile("ssn_cued", [DraftRules.SsnCued]);
+    private static readonly Regex Card = DraftRules.Compile("card", [DraftRules.Card]);
+    private static readonly Regex CredentialCue = DraftRules.Compile("credential_cue", [DraftRules.CredentialCue]);
+    private static readonly Regex SecretShaped = DraftRules.Compile("secret_shaped", [DraftRules.SecretShaped]);
+    private static readonly Regex KeyShape = DraftRules.Compile("key_shapes", DraftRules.KeyShapes);
+    private static readonly Regex KeyCueValue = DraftRules.Compile("key_cue_value", [DraftRules.KeyCueValue]);
+    private static readonly Regex Directive = DraftRules.Compile("directive", DraftRules.Directive);
 
-    /// <summary>
-    /// Every pair of marks a model might reach for, not only straight doubles.
-    ///
-    /// The rule is "quotation marks". A fabricated line inside curly quotes or guillemets is the same
-    /// fabrication, and a model writing prose reaches for curly ones more often than not — so this whole
-    /// class of invented quotation walked past the check until 2026-09-20.
-    /// </summary>
-    private static readonly Regex Quoted = new(
-        "[\"\u201c\u2018\u00ab]([^\"\u201d\u2019\u00bb]{4,})[\"\u201d\u2019\u00bb]",
-        RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-
-    private static readonly Regex Ssn = new(
-        @"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b",
-        RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-
-    /// <summary>
-    /// Nine unbroken digits are an order number far more often than a social security number, so this
-    /// one needs a cue in front of it. Without it the hyphenated form was the only shape caught.
-    /// </summary>
-    private static readonly Regex SsnCued = new(
-        @"\b(?:ssn|social\s?security(?:\s?(?:number|no|#))?)\b\s*(?:is|was)?\s*[:=#]?\s*"
-        + @"(?!000|666|9\d\d)\d{3}(?!00)\d{2}(?!0000)\d{4}\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase,
-        TimeSpan.FromSeconds(1));
-
-    private static readonly Regex LongDigits = new(@"\b(?:\d[ -]?){13,19}\b", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
-
-    /// <summary>
-    /// A credential's cue word, and only that.
-    ///
-    /// Where the credential sits after the cue is a question about how somebody writes or speaks, and a
-    /// single expression answered it by assuming the two are adjacent. Four of the seven phrasings the
-    /// client's scrubber had just been fixed for still passed here untouched: "the password is, uh,
-    /// Winter2026" matched nothing at all, because the connective run consumed " is" and the value could
-    /// not then begin on a comma (2026-09-21).
-    ///
-    /// <see cref="CarriesACredential"/> walks from here. The same walk is in
-    /// <c>research/prompts/checks.py</c>, and <c>hardening-cases.json</c> is what keeps the two honest.
-    /// </summary>
-    private static readonly Regex CredentialCue = new(
-        @"\b(?:password|passphrase|passwd|pwd|api[ _-]?key|secret|token|bearer)\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase,
-        TimeSpan.FromSeconds(1));
-
-    /// <summary>
-    /// Words that join a cue to the credential, or that somebody says while remembering one.
-    ///
-    /// Skipped rather than read as the value. Mirrors the client's own list, because a rule that masks
-    /// on the device and a rule that refuses on the server disagreeing is how a credential reaches a
-    /// customer's ticket.
-    /// </summary>
-    private static readonly HashSet<string> Connectives = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
-        "uh", "um", "er", "ah", "like", "just", "actually", "currently", "still",
-        "the", "a", "an", "on", "for", "of", "at", "in", "my", "your", "our", "their", "his", "her",
-        "its", "new", "old", "that", "this", "it",
-    };
-
-    /// <summary>How far past a cue to look before giving up on finding a credential.</summary>
-    private const int MaxSteps = 6;
-
-    /// <summary>
-    /// What separates a credential from a sentence about one.
-    ///
-    /// "Outlook prompted for a password repeatedly" and "the password was wrong" are notes a technician
-    /// would write; "the password is Summer2024" is the thing the rule forbids. A failed check fails the
-    /// whole draft, so a false positive here throws away a correct note: the value has to look like a
-    /// secret, not merely follow the word.
-    /// </summary>
-    private static readonly Regex SecretShaped = new(
-        @"^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7e]{6,}$|^[\x21-\x7e]{16,}$",
-        RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-
-    /// <summary>
-    /// Credentials recognisable without a cue word at all. A model quoting one back needs no
-    /// introduction, and neither does a key that survived redaction upstream and was read out of OCR.
-    /// </summary>
-    private static readonly Regex KeyShape = new(
-        @"AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}"
-        + @"|-----BEGIN[ A-Z]*PRIVATE KEY-----",
-        RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-
-    /// <summary>
-    /// A note is a record, not an instruction (prompt rule 5a). A web address, a command line, or a
-    /// direction to install, run, download or disable something.
-    /// </summary>
-    private static readonly Regex Directive = new(
-        @"(?:https?://|www\.)\S+"
-        + @"|\b(?:Set-ExecutionPolicy|powershell|cmd\.exe|regedit|curl|wget|iwr|irm|invoke-webrequest"
-        + @"|invoke-restmethod|invoke-expression|iex|certutil|bitsadmin|mshta|rundll32)\b"
-        + @"|\b(?:disable|turn\s+off|uninstall|remove)\s+(?:the\s+)?(?:antivirus|defender|firewall|edr|mfa|two-factor)\b"
-        + @"|\b(?:download|install|run|execute|disable|uninstall|delete)\b\s+(?:the\s+|your\s+|windows\s+)?\S+",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase,
-        TimeSpan.FromSeconds(1));
+    private static readonly HashSet<string> Connectives = new(DraftRules.Connectives, StringComparer.Ordinal);
+    private static readonly int WalkSteps = int.Parse(DraftRules.WalkSteps, CultureInfo.InvariantCulture);
+    private static readonly HashSet<char> ValueBreaks = [.. DraftReading.NetSpace, .. DraftRules.ValueBreaks];
 
     /// <summary>How much of a model-chosen string is worth repeating. Enough to recognise a citation.</summary>
     private const int EchoedLength = 48;
@@ -138,35 +52,70 @@ public static class DraftValidator
     /// <summary>
     /// A model-chosen string, made safe to put in a sentence.
     ///
-    /// Every reason below quotes something the model wrote, and those reasons go back to the client and
-    /// into the stored draft-failed reason. The model reads OCR of a customer's screen, so a screen can
-    /// suggest what it writes: a "frame id" carrying newlines forges log lines, and one carrying a
-    /// thousand characters pushes screen content into places INV-10 keeps it out of. Neither needs an
-    /// attacker — a model having a bad day writes long nonsense on its own.
+    /// Every reason below quotes something the model wrote, and those reasons go back to the client, into
+    /// the stored draft-failed reason, and into the repair prompt the model reads next. The model reads
+    /// OCR of a customer's screen, so a screen can suggest what it writes: a "frame id" carrying newlines
+    /// forges log lines, and one carrying a thousand characters pushes screen content into places INV-10
+    /// keeps it out of. Neither needs an attacker; a model having a bad day writes long nonsense on its
+    /// own.
     ///
     /// Kept recognisable rather than removed, because a reason that will not say which citation was
-    /// wrong does not help the technician reading it.
+    /// wrong does not help the technician reading it. Every site that repeats the model goes through
+    /// here: the 2026-10-12 review found three that did not (S-62).
     /// </summary>
-    private static string Echoed(string? value)
+    internal static string Echoed(string? value)
     {
         if (string.IsNullOrEmpty(value))
         {
             return "";
         }
 
-        var safe = new StringBuilder(Math.Min(value.Length, EchoedLength));
-        foreach (var c in value)
+        var safe = new StringBuilder(Math.Min(value.Length, EchoedLength) + 2);
+        Span<char> pair = stackalloc char[2];
+        foreach (var rune in value.EnumerateRunes())
         {
-            if (safe.Length == EchoedLength)
+            if (safe.Length >= EchoedLength)
             {
                 return safe.Append('…').ToString();
             }
 
-            // Printable, and nothing that ends a line or closes the quotation it sits inside.
-            _ = safe.Append(char.IsControl(c) || c == '\'' ? '.' : c);
+            // Printable, and nothing that ends a line, reorders the text around it, or closes the
+            // quotation it sits inside. Line and paragraph separators end a line as surely as a newline
+            // does, and a bidirectional override makes a reason read differently from what it says.
+            var shown = Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control
+                or UnicodeCategory.Format
+                or UnicodeCategory.LineSeparator
+                or UnicodeCategory.ParagraphSeparator
+                or UnicodeCategory.PrivateUse
+                or UnicodeCategory.OtherNotAssigned
+                || rune.Value == '\''
+                ? new Rune('.')
+                : rune;
+            _ = safe.Append(pair[..shown.EncodeToUtf16(pair)]);
         }
 
         return safe.ToString();
+    }
+
+    /// <summary>The text as every rule but the quotation rule reads it the second time, as <c>checks.read</c> does.</summary>
+    public static string Read(string text) => DraftReading.Read(text);
+
+    /// <summary>
+    /// What makes this text read as an instruction, or null: the first match of production's rule over
+    /// the text as written, then as read. <c>checks.instruction</c> answers the same.
+    /// </summary>
+    public static string? Instruction(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        foreach (var reading in Readings(text))
+        {
+            if (Directive.Match(reading) is { Success: true } found)
+            {
+                return found.Value;
+            }
+        }
+
+        return null;
     }
 
     /// <returns>Why this draft may not be shown. Empty means it is fine to store.</returns>
@@ -187,11 +136,11 @@ public static class DraftValidator
         var reasons = new List<string>();
         var frames = bundle.Frames.ToDictionary(frame => frame.Id, StringComparer.Ordinal);
         var segments = bundle.Transcript.ToDictionary(segment => segment.Id, StringComparer.Ordinal);
-        var spoken = Normalise(string.Join(" ", bundle.Transcript.Select(segment => segment.Text)));
+        var spoken = SpokenForm(string.Join(" ", bundle.Transcript.Select(segment => segment.Text ?? "")));
 
         if (!string.Equals(draft.PromptVersion, PromptVersion, StringComparison.Ordinal))
         {
-            reasons.Add($"The draft came from prompt '{draft.PromptVersion}', not '{PromptVersion}'.");
+            reasons.Add($"The draft came from prompt '{Echoed(draft.PromptVersion)}', not '{PromptVersion}'.");
         }
 
         for (var i = 0; i < draft.Steps.Count; i++)
@@ -370,57 +319,101 @@ public static class DraftValidator
             yield break;
         }
 
-        foreach (Match match in Quoted.Matches(text))
+        foreach (var quoted in Quotations(text))
         {
             // A quoted sentence in a ticket note is a claim about what somebody said, and a customer may
             // read it. Paraphrase is fine; invented speech is not.
-            if (!spoken.Contains(Normalise(match.Groups[1].Value), StringComparison.Ordinal))
+            if (!spoken.Contains(AsciiLower(quoted).Trim(' '), StringComparison.Ordinal))
             {
-                yield return $"{where} quotes \"{match.Groups[1].Value}\", which nobody said.";
+                yield return $"{where} quotes \"{Echoed(quoted)}\", which nobody said.";
             }
         }
 
-        // The markers are deliberate and stay. What must not appear is the thing one of them replaced.
-        var withoutMarkers = Redactions.Aggregate(text, (current, marker) => current.Replace(marker, " ", StringComparison.Ordinal));
-
-        if (CarriesACredential(withoutMarkers))
+        foreach (var secret in Secrets(where, text))
         {
-            yield return $"{where} appears to write out a credential.";
+            yield return secret;
         }
 
-        if (Ssn.IsMatch(withoutMarkers) || SsnCued.IsMatch(withoutMarkers))
+        if (Instruction(text) is { } directive)
         {
-            yield return $"{where} contains something shaped like a social security number.";
-        }
-
-        if (LongDigits.IsMatch(withoutMarkers) && Luhn(withoutMarkers))
-        {
-            yield return $"{where} contains something shaped like a card number.";
-        }
-
-        if (Directive.Match(withoutMarkers) is { Success: true } directive)
-        {
-            yield return $"{where} reads as an instruction rather than a record: '{directive.Value}'.";
+            yield return $"{where} reads as an instruction rather than a record: '{Echoed(directive)}'.";
         }
     }
 
     /// <summary>
-    /// Whether any long run of digits passes the card checksum.
-    ///
-    /// Without it every order number and serial in a session is a false positive, and a validator that
-    /// cries wolf is one somebody turns off.
+    /// Why this text puts a secret back into the note: a credential, a social security number or a card,
+    /// over the text as written and as read. Empty when it does not.
     /// </summary>
+    internal static IEnumerable<string> Secrets(string where, string text)
+    {
+        var both = Readings(text);
+
+        if (both.Any(CarriesACredential))
+        {
+            yield return $"{where} appears to write out a credential.";
+        }
+
+        if (both.Any(reading => Ssn.IsMatch(reading) || SsnCued.IsMatch(reading)))
+        {
+            yield return $"{where} contains something shaped like a social security number.";
+        }
+
+        if (both.Any(reading => Card.Matches(reading).Any(match => Luhn(match.Value))))
+        {
+            yield return $"{where} contains something shaped like a card number.";
+        }
+    }
+
+    /// <summary>The text as written and as read, with the redaction engine's markers blanked in both.</summary>
+    private static string[] Readings(string text) =>
+        [Blanked(DraftReading.Written(text)), Blanked(DraftReading.Read(text))];
+
+    /// <summary>The markers are deliberate and stay. What must not appear is the thing one of them replaced.</summary>
+    private static string Blanked(string text) =>
+        DraftRules.RedactionMarkers.Aggregate(text, (current, marker) => current.Replace(marker, " ", StringComparison.Ordinal));
+
+    /// <summary>
+    /// What the text puts in quotation marks, as read, with apostrophes inside words made one character
+    /// first. A straight or curly apostrophe is the same character as a closing single quote, so a curly
+    /// quotation with "I've" in it ended after one letter (T-203), and two possessives in one sentence
+    /// read as a quotation nobody said (T-230).
+    /// </summary>
+    private static IEnumerable<string> Quotations(string text)
+    {
+        var folded = Apostrophe.Replace(DraftReading.Read(text), DraftRules.ApostropheAs);
+        foreach (Match match in Quoted.Matches(folded))
+        {
+            yield return match.Groups.Values.Skip(1).First(group => group.Success).Value;
+        }
+    }
+
+    /// <summary>
+    /// Text as a quotation is compared with the transcript: read, apostrophes inside words made one kind,
+    /// ASCII letters in lower case. Only ASCII, because .NET and Python lower-case the rest differently.
+    /// </summary>
+    private static string SpokenForm(string text) =>
+        AsciiLower(Apostrophe.Replace(DraftReading.Read(text), DraftRules.ApostropheAs)).Trim(' ');
+
+    private static string AsciiLower(string text) =>
+        string.Create(text.Length, text, (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+            {
+                span[i] = source[i] is >= 'A' and <= 'Z' ? (char)(source[i] + 32) : source[i];
+            }
+        });
+
     /// <summary>
     /// Whether this text puts a credential back into the note (prompt rule 5).
     ///
-    /// Two ways in: a cue word followed by something secret-shaped, and a key whose shape needs no cue.
-    /// The shape test is what keeps "the password was wrong" out of it — a rejected draft costs a
-    /// technician a correct note, so the value has to look like a secret rather than merely follow the
-    /// word.
+    /// By shape only (the owner's option A, 2026-10-24): a key whose shape needs no cue, a long value
+    /// after a named key, or a cue word followed by something secret-shaped. The shape test is what keeps
+    /// "Password reset completed for jsmith." out of it: a rejected draft costs a technician a correct
+    /// note, so the value has to look like a secret rather than merely follow the word.
     /// </summary>
     private static bool CarriesACredential(string text)
     {
-        if (KeyShape.IsMatch(text))
+        if (KeyShape.IsMatch(text) || KeyCueValue.IsMatch(text))
         {
             return true;
         }
@@ -441,13 +434,16 @@ public static class DraftValidator
     ///
     /// The first word that is not a joining word decides. If it looks like a secret, it is one. If it is
     /// an ordinary word with a joining word behind it, the cue was still naming what the credential is
-    /// for — "the password on the router is Winter2026" — and the walk goes on. A credential written as
-    /// two words is judged on the pair, because neither half of "Winter 2026" looks like a secret alone.
+    /// for ("the password on the router is Winter2026") and the walk goes on. A credential written as two
+    /// words is judged on the pair, because neither half of "Winter 2026" looks like a secret alone.
+    ///
+    /// A word in brackets is judged like any other. Only the redaction engine's exact markers are skipped,
+    /// and those are blanked before the walk: a bare "[" let "[Winter2026!]" through (S-63).
     /// </summary>
     private static bool CredentialAfter(string text, int start)
     {
         var at = start;
-        for (var step = 0; step < MaxSteps; step++)
+        for (var step = 0; step < WalkSteps; step++)
         {
             if (NextWord(text, at) is not { } word)
             {
@@ -455,16 +451,10 @@ public static class DraftValidator
             }
 
             var value = text.Substring(word.Start, word.Length);
-            if (Connectives.Contains(value))
+            if (IsConnective(value))
             {
                 at = word.Start + word.Length;
                 continue;
-            }
-
-            // The redaction engine's own marker. Finding one means the rules upstream worked.
-            if (value.StartsWith('['))
-            {
-                return false;
             }
 
             if (SecretShaped.IsMatch(value))
@@ -480,7 +470,7 @@ public static class DraftValidator
                     return true;
                 }
 
-                if (Connectives.Contains(next))
+                if (IsConnective(next))
                 {
                     at = word.Start + word.Length;
                     continue;
@@ -493,6 +483,8 @@ public static class DraftValidator
         return false;
     }
 
+    private static bool IsConnective(string word) => Connectives.Contains(AsciiLower(word));
+
     /// <summary>
     /// The next word, or null at the end of the sentence. A full stop ends any claim that what follows
     /// is the credential.
@@ -500,9 +492,9 @@ public static class DraftValidator
     private static (int Start, int Length)? NextWord(string text, int from)
     {
         var i = from;
-        while (i < text.Length && !IsWordChar(text[i]))
+        while (i < text.Length && ValueBreaks.Contains(text[i]))
         {
-            if (text[i] is '.' or ';' or '!' or '?')
+            if (DraftRules.SentenceEnds.Contains(text[i], StringComparison.Ordinal))
             {
                 return null;
             }
@@ -516,7 +508,7 @@ public static class DraftValidator
         }
 
         var begin = i;
-        while (i < text.Length && IsWordChar(text[i]))
+        while (i < text.Length && !ValueBreaks.Contains(text[i]))
         {
             i++;
         }
@@ -524,39 +516,54 @@ public static class DraftValidator
         return (begin, i - begin);
     }
 
-    private static bool IsWordChar(char c) =>
-        !char.IsWhiteSpace(c) && c is not (',' or '.' or ';' or '!' or '?' or ':' or '=' or '"' or '\'');
-
-    private static bool Luhn(string text)
+    /// <summary>
+    /// Whether a run of digits passes the card checksum. Without it every order number and serial in a
+    /// session is a false positive, and a validator that cries wolf is one somebody turns off.
+    ///
+    /// Tried twice: with each digit's own value, and with the value production gave a digit, its code
+    /// minus '0', which for a digit outside ASCII is a large number. Production refused some runs only
+    /// because of that, and CredentialParityTests holds this validator to refusing everything production
+    /// refused. For ASCII digits the two are the same.
+    /// </summary>
+    private static bool Luhn(string run)
     {
-        foreach (Match match in LongDigits.Matches(text))
-        {
-            var digits = match.Value.Where(char.IsDigit).Select(c => c - '0').Reverse().ToArray();
-            var total = 0;
-            for (var i = 0; i < digits.Length; i++)
-            {
-                var digit = digits[i];
-                if (i % 2 == 1)
-                {
-                    digit *= 2;
-                    if (digit > 9)
-                    {
-                        digit -= 9;
-                    }
-                }
+        var digits = run.Where(c => DigitValue(c) >= 0).Reverse().ToArray();
+        return digits.Length is >= 13 and <= 19
+            && (Checksum(digits.Select(DigitValue)) || Checksum(digits.Select(c => c - '0')));
+    }
 
-                total += digit;
+    private static bool Checksum(IEnumerable<int> reversed)
+    {
+        var total = 0;
+        var i = 0;
+        foreach (var value in reversed)
+        {
+            var digit = value;
+            if (i++ % 2 == 1)
+            {
+                digit *= 2;
+                if (digit > 9)
+                {
+                    digit -= 9;
+                }
             }
 
-            if (digits.Length >= 13 && total % 10 == 0)
+            total += digit;
+        }
+
+        return total % 10 == 0;
+    }
+
+    private static int DigitValue(char c)
+    {
+        foreach (var zero in DraftReading.DigitZeros)
+        {
+            if (c >= zero && c <= zero + 9)
             {
-                return true;
+                return c - zero;
             }
         }
 
-        return false;
+        return -1;
     }
-
-    private static string Normalise(string text) =>
-        Regex.Replace(text, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(1)).Trim().ToLowerInvariant();
 }

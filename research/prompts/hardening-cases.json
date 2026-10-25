@@ -411,6 +411,21 @@
       "text": "The customer said ‚never again‘ when asked.",
       "refuse": true,
       "why": "A single low-9 quotation is a quotation."
+    },
+    {
+      "text": "Then Invo\u212ae-WebRequest² the fix.",
+      "refuse": true,
+      "why": "A Kelvin sign is a k to .NET's IgnoreCase, so main refuses this as written; Python has to read it as K to agree. NFKC alone would read 'WebRequest2' and miss it."
+    },
+    {
+      "text": "The card 4111 1111٩ 1111 1111 was on screen.",
+      "refuse": true,
+      "why": "Main refused this because its checksum read the Arabic-Indic nine as its code minus '0'. Nothing main refused may pass now, so the checksum is tried that way too."
+    },
+    {
+      "text": "The customer replied “\ud83d\ude00\ud83d\ude00” and hung up.",
+      "refuse": true,
+      "why": "Two emoji are four UTF-16 code units, which is how .NET counts them, so this is a quotation nobody said. Python has to count the same way."
     }
   ]
 }
