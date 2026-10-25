@@ -11,6 +11,9 @@
         Topmost="True"
         ShowActivated="False"
         ShowInTaskbar="False">
+    <!-- The app's styles are looked up dynamically, not statically. A static lookup throws while the
+         window is built when the app's resources are not there, which is the case on the bare UI thread
+         the shell's quit and re-dock tests run on; a dynamic one resolves to the same style in the app. -->
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
     </Window.Resources>
@@ -59,7 +62,7 @@
 
             <TextBlock Margin="8,0,0,0"
                        VerticalAlignment="Center"
-                       Style="{StaticResource Text.Body}"
+                       Style="{DynamicResource Text.Body}"
                        FontWeight="{DynamicResource Weight.medium}"
                        Text="{Binding StateText}"
                        ToolTip="{Binding StateTooltip}"
@@ -68,21 +71,21 @@
 
             <TextBlock Margin="16,0,0,0"
                        VerticalAlignment="Center"
-                       Style="{StaticResource Text.Muted}"
+                       Style="{DynamicResource Text.Muted}"
                        Text="{Binding MicTooltip}"
                        ToolTip="{Binding MicTooltip}"
                        Visibility="{Binding ShowMic, Converter={StaticResource Visible}}" />
 
             <TextBlock Margin="16,0,0,0"
                        VerticalAlignment="Center"
-                       Style="{StaticResource Text.Muted}"
+                       Style="{DynamicResource Text.Muted}"
                        Text="{Binding RedactionText}"
                        ToolTip="Screenshots still being masked. They are not readable until this reaches zero."
                        Visibility="{Binding ShowRedactions, Converter={StaticResource Visible}}" />
 
             <TextBlock Margin="16,0,0,0"
                        VerticalAlignment="Center"
-                       Style="{StaticResource Text.Muted}"
+                       Style="{DynamicResource Text.Muted}"
                        Text="☁ Offline"
                        ToolTip="{Binding CloudTooltip}"
                        Visibility="{Binding ShowCloud, Converter={StaticResource Visible}}" />
@@ -95,14 +98,14 @@
                 <ItemsControl ItemsSource="{Binding RecentEvents}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <TextBlock Style="{StaticResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="{Binding}" />
+                            <TextBlock Style="{DynamicResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="{Binding}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </StackPanel>
 
             <Button Margin="16,0,0,0"
-                    Style="{StaticResource Pill.Control}"
+                    Style="{DynamicResource Pill.Control}"
                     Content="Mark moment"
                     Command="{Binding MarkCommand}"
                     Visibility="{Binding Expanded, Converter={StaticResource Visible}}" />

@@ -2,8 +2,10 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using ScreenTail.Core.Hud;
 using ScreenTail.Core.Shell;
+using Forms = System.Windows.Forms;
 
 namespace ScreenTail.UI.Hud;
 
@@ -27,6 +29,7 @@ namespace ScreenTail.UI.Hud;
 public partial class HudWindow : Window
 {
     private readonly ShellPreferencesStore? _preferences;
+    private readonly Func<IReadOnlyList<ScreenArea>> _monitors;
 
     public HudWindow()
         : this(null)
@@ -34,8 +37,15 @@ public partial class HudWindow : Window
     }
 
     public HudWindow(ShellPreferencesStore? preferences)
+        : this(preferences, Monitors)
+    {
+    }
+
+    /// <param name="monitors">The monitors, in device pixels. <see cref="Monitors"/> outside tests.</param>
+    internal HudWindow(ShellPreferencesStore? preferences, Func<IReadOnlyList<ScreenArea>> monitors)
     {
         _preferences = preferences;
+        _monitors = monitors ?? throw new ArgumentNullException(nameof(monitors));
         InitializeComponent();
 
         if (_preferences?.Load() is { HudX: > 0, HudY: > 0 } saved)
@@ -107,24 +117,46 @@ public partial class HudWindow : Window
     /// The saved position is deliberately left alone. Plug the monitor back in and the pill goes back to
     /// where it was put, which is what somebody who arranged it that way would expect; overwriting it
     /// here would quietly lose that arrangement the first time a cable came out.
+    ///
+    /// The same question the indicator reports ask (<see cref="OnSomeMonitor"/>), against the real
+    /// monitors. It used to ask about the bounding box of every monitor instead, so a pill restored into
+    /// the dead space beside an uneven layout stayed there: the reports, which ask about the real
+    /// monitors, rightly stopped, and the service suppressed capture with the pill nowhere to be seen
+    /// (2026-10-12 review). Now a place the reports would refuse is a place the pill is moved from.
     /// </summary>
-    private void DockIfNowhere()
+    internal void DockIfNowhere()
     {
-        // The bounding box of every monitor rather than the monitors themselves, which WPF does not
-        // offer without dragging in WinForms. It catches the cases that happen — a monitor unplugged, a
-        // coordinate nobody could have dragged to — and misses only a point in the notch of an L-shaped
-        // arrangement, which draws a pill that is at worst on the wrong screen rather than on none.
-        var virtualScreen = new ScreenArea(
-            SystemParameters.VirtualScreenLeft,
-            SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth,
-            SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight);
-
-        if (!HudPlacement.IsOnScreen(Left, Top, ActualWidth, ActualHeight, [virtualScreen]))
+        if (!OnSomeMonitor())
         {
             DockTopRight();
         }
     }
+
+    /// <summary>
+    /// Whether the pill's middle is on one of the monitors, in device pixels.
+    ///
+    /// WPF measures in device-independent units and the monitors are in device pixels, so the pill's
+    /// rectangle is taken through its own window's transform. That is exact on the monitor the pill is
+    /// on and near enough on the way between two of different scale. Before the window has a source the
+    /// transform is the identity.
+    /// </summary>
+    internal bool OnSomeMonitor()
+    {
+        var toDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+        var topLeft = toDevice.Transform(new Point(Left, Top));
+        var size = toDevice.Transform(new Vector(ActualWidth, ActualHeight));
+        return HudPlacement.IsOnScreen(topLeft.X, topLeft.Y, size.X, size.Y, _monitors());
+    }
+
+    /// <summary>
+    /// The monitors as rectangles in device pixels, for <see cref="HudPlacement.IsOnScreen"/>.
+    ///
+    /// The real monitors, not the virtual screen's bounding box. On an uneven layout the box covers
+    /// dead space between and beside the monitors, and a pill restored into it reported itself as
+    /// showing while nobody could see it (2026-10-12 review, S-42).
+    /// </summary>
+    internal static IReadOnlyList<ScreenArea> Monitors() =>
+        [.. Forms.Screen.AllScreens.Select(s => new ScreenArea(s.Bounds.Left, s.Bounds.Top, s.Bounds.Right, s.Bounds.Bottom))];
 
     private void DockTopRight()
     {

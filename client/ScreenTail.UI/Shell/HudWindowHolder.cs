@@ -1,13 +1,11 @@
 using System.Runtime.Versioning;
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Hud;
 using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.Hud;
-using Forms = System.Windows.Forms;
 
 namespace ScreenTail.UI.Shell;
 
@@ -125,16 +123,6 @@ internal sealed class HudWindowHolder
         _window.Close();
     }
 
-    /// <summary>
-    /// The monitors as rectangles in device pixels, for <see cref="HudPlacement.IsOnScreen"/>.
-    ///
-    /// The real monitors, not the virtual screen's bounding box. On an uneven layout the box covers
-    /// dead space between and beside the monitors, and a pill restored into it reported itself as
-    /// showing while nobody could see it (2026-10-12 review, S-42).
-    /// </summary>
-    internal static IReadOnlyList<ScreenArea> Screens() =>
-        [.. Forms.Screen.AllScreens.Select(s => new ScreenArea(s.Bounds.Left, s.Bounds.Top, s.Bounds.Right, s.Bounds.Bottom))];
-
     private void Report()
     {
         if (!HudState.Indicates(_hud, PillOnScreen()))
@@ -156,23 +144,10 @@ internal sealed class HudWindowHolder
     }
 
     /// <summary>
-    /// Whether the pill is up, has a size, and has its middle on some monitor.
-    ///
-    /// WPF measures in device-independent units and the monitors are in device pixels, so the pill's
-    /// rectangle is taken through its own window's transform. That is exact on the monitor the pill is
-    /// on and near enough on the way between two of different scale, which is far better than the
-    /// bounding box this replaces.
+    /// Whether the pill is up, has a size, and has its middle on some monitor. The last part is the
+    /// window's own check, the one it re-docks by, so the place the pill is restored to and the place it
+    /// reports from can never be judged differently.
     /// </summary>
-    private bool PillOnScreen()
-    {
-        if (!_shown || !_window.IsVisible || _window.ActualWidth <= 0 || _window.ActualHeight <= 0)
-        {
-            return false;
-        }
-
-        var toDevice = PresentationSource.FromVisual(_window)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
-        var topLeft = toDevice.Transform(new Point(_window.Left, _window.Top));
-        var size = toDevice.Transform(new Vector(_window.ActualWidth, _window.ActualHeight));
-        return HudPlacement.IsOnScreen(topLeft.X, topLeft.Y, size.X, size.Y, Screens());
-    }
+    private bool PillOnScreen() =>
+        _shown && _window.IsVisible && _window.ActualWidth > 0 && _window.ActualHeight > 0 && _window.OnSomeMonitor();
 }
