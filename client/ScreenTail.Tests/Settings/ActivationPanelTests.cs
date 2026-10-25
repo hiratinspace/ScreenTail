@@ -21,6 +21,19 @@ public sealed class ActivationPanelTests
         Assert.Equal("Activated with Acme IT.", panel.Standing);
     }
 
+    [Fact]
+    public async Task ACodeBeingTypedIsAnUnsavedEdit()
+    {
+        var panel = new ActivationPanel(new FakeDevice(), "TECH-LAPTOP");
+        await panel.LoadAsync();
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.Code = "KX7PM";
+        Assert.True(panel.HasUnsavedEdits);
+        panel.Code = " ";
+        Assert.False(panel.HasUnsavedEdits);
+    }
+
     [Theory]
     [InlineData("", "Enter the code from your invite.")]
     [InlineData("KX7P", "A code is ten letters and digits, like KX7PM-4R2WQ.")]

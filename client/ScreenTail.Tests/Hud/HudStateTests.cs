@@ -51,7 +51,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Paused, reason: CaptureReasons.User));
 
         Assert.Equal(HudTone.Paused, hud.State.Tone);
-        Assert.Equal("Paused — press Ctrl+Alt+P to resume", hud.State.Text);
+        Assert.Equal("Paused: press Ctrl+Alt+P to resume", hud.State.Text);
     }
 
     [Theory]
@@ -76,7 +76,7 @@ public sealed class HudStateTests
         // not let us capture an elevated window and the technician cannot fix that.
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.ElevatedWindow));
 
-        Assert.Equal("Elevated window — screen not captured.", hud.State.Tooltip);
+        Assert.Equal("Elevated window: screen not captured.", hud.State.Tooltip);
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope, process: "OUTLOOK"));
 
         Assert.Equal(HudTone.Scope, hud.State.Tone);
-        Assert.Equal("Not capturing — OUTLOOK", hud.State.Text);
+        Assert.Equal("Not capturing: OUTLOOK", hud.State.Text);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class HudStateTests
         // the service not knowing what is in front.
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope));
 
-        Assert.Equal("Not capturing — out of scope", hud.State.Text);
+        Assert.Equal("Not capturing: out of scope", hud.State.Text);
         Assert.Equal(HudTone.Scope, hud.State.Tone);
     }
 
@@ -145,7 +145,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Recording), online: false);
 
         Assert.NotNull(hud.Cloud);
-        Assert.Equal("Offline — draft will be created when connected.", hud.Cloud.Tooltip);
+        Assert.Equal("Offline: draft will be created when connected.", hud.Cloud.Tooltip);
         Assert.Equal(HudTone.Recording, hud.State.Tone);
     }
 
@@ -153,18 +153,142 @@ public sealed class HudStateTests
     [InlineData(CaptureStates.Recording)]
     [InlineData(CaptureStates.Paused)]
     [InlineData(CaptureStates.Suppressed)]
+    [InlineData(CaptureStates.Finalizing)]
+    [InlineData("recording_with_audio")]
     public void HidingThePillDoesNotWorkWhileThereIsSomethingToIndicate(string state)
     {
         // Spec v0.4.1 Q1: the HUD stays up, including while the technician shares their screen, because an
         // indicator that can be dismissed mid-session is a silent-capture path with a convenience's face
-        // on it. Right-click hides it between sessions; the tray icon remains either way.
+        // on it. Right-click hides it between sessions; the tray icon remains either way. Finishing up is
+        // still a session, and a state this build has never heard of may be one (2026-10-12 review, T-138).
         Assert.True(HudState.For(Capture(state), hidden: true).Visible);
     }
 
-    [Fact]
-    public void HidingThePillWorksWhenNothingIsBeingCaptured()
+    [Theory]
+    [InlineData(CaptureStates.Idle)]
+    [InlineData(CaptureStates.DraftReady)]
+    [InlineData(CaptureStates.DraftFailed)]
+    public void HidingThePillWorksWhenNothingIsBeingCaptured(string state)
     {
-        Assert.False(HudState.For(Capture(CaptureStates.Idle), hidden: true).Visible);
+        // A session that has ended rests in draft_ready or draft_failed, not idle. Both are the service
+        // saying it is not capturing, so both may be put away (2026-10-12 review, S-39).
+        Assert.False(HudState.For(Capture(state), hidden: true).Visible);
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.DraftReady, "Not recording: draft ready")]
+    [InlineData(CaptureStates.DraftFailed, "Not recording: draft failed")]
+    public void AFinishedSessionSaysItIsNotRecording(string state, string expected)
+    {
+        // After every session the pill used to say "Capture state unknown, it may be recording", which
+        // was false and alarming in equal measure (S-39, T-137).
+        var hud = HudState.For(Capture(state));
+
+        Assert.Equal(expected, hud.State.Text);
+        Assert.Equal(HudTone.Idle, hud.State.Tone);
+        Assert.DoesNotContain("unknown", hud.State.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryStateTheServiceSends))]
+    public void EveryStateTheServiceSendsHasItsOwnWords(string state)
+    {
+        // Read off CaptureStates by reflection, so a state added to the contract without words here
+        // fails this rather than falling through to "unknown" in front of a technician (T-137).
+        var hud = HudState.For(Capture(state));
+
+        Assert.DoesNotContain("unknown", hud.State.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual("?", hud.State.Glyph);
+    }
+
+    public static TheoryData<string> EveryStateTheServiceSends
+    {
+        get
+        {
+            var data = new TheoryData<string>();
+            foreach (var constant in typeof(CaptureStates).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (constant.IsLiteral && constant.GetRawConstantValue() is string state)
+                {
+                    data.Add(state);
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Fact]
+    public void TheReflectionTheoryReadsEveryStateOffTheContract()
+    {
+        // The control for the theory above: a contract with its constants renamed would give it nothing
+        // to check and it would pass vacuously.
+        Assert.Equal(7, EveryStateTheServiceSends.Count);
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Idle)]
+    [InlineData(CaptureStates.DraftReady)]
+    [InlineData(CaptureStates.DraftFailed)]
+    public void HidingThePillBetweenSessionsDoesNotStopTheNextOneStarting(string state)
+    {
+        // The service refuses to start a session nothing indicates, and asks before it starts. A pill the
+        // technician put away between sessions used to stop the UI reporting, so every later start, by
+        // hotkey or by a remote tool taking the foreground, was refused until the UI restarted (T-154).
+        // Put away is tray-only by choice, which INV-4 allows, and the tray icon is still there to report.
+        var hud = HudState.For(Capture(state), hidden: true);
+
+        Assert.False(hud.Visible);
+        Assert.True(HudState.Indicates(hud, pillOnScreen: false));
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Idle)]
+    public void APillOffEveryScreenIsNotReportedAsShowing(string state)
+    {
+        // A pill restored onto a monitor that has since been unplugged is drawn into empty coordinate
+        // space. It is up, and it indicates nothing (ST-072, S-42).
+        var hud = HudState.For(Capture(state));
+
+        Assert.True(hud.Visible);
+        Assert.False(HudState.Indicates(hud, pillOnScreen: false));
+        Assert.True(HudState.Indicates(hud, pillOnScreen: true));
+    }
+
+    [Fact]
+    public void AnUnknownStateIsReportedOnlyWhileThePillIsOnScreen()
+    {
+        // Hidden or not, unknown keeps the pill up, so the claim is about the pill and not about the tray.
+        var hud = HudState.For(capture: null, hidden: true);
+
+        Assert.True(hud.Visible);
+        Assert.False(HudState.Indicates(hud, pillOnScreen: false));
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    public void ASessionUnderWayIsNamedSoTheShellCanClearAHideMeantForTheLastOne(string state)
+    {
+        // Hiding is for one session and no longer (Spec §5 S2). The tray's item used to hide the pill for
+        // the life of the process (T-154); the shell clears the wish when a session it has not seen starts.
+        Assert.Equal("s2", HudState.SessionUnderWay(new CaptureStateSnapshot { State = state, SessionId = "s2" }));
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Idle, "s1")]
+    [InlineData(CaptureStates.Finalizing, "s1")]
+    [InlineData(CaptureStates.DraftReady, "s1")]
+    [InlineData(CaptureStates.DraftFailed, "s1")]
+    [InlineData("recording_with_audio", "s1")]
+    [InlineData(CaptureStates.Recording, null)]
+    [InlineData(CaptureStates.Recording, "")]
+    public void NothingIsUnderWayBetweenSessionsOrWhenItCannotBeTold(string state, string? session)
+    {
+        Assert.Null(HudState.SessionUnderWay(new CaptureStateSnapshot { State = state, SessionId = session }));
+        Assert.Null(HudState.SessionUnderWay(null));
     }
 
     [Fact]
@@ -192,6 +316,46 @@ public sealed class HudStateTests
     public void TheRedactionCountIsWhateverTheServiceSaid()
     {
         Assert.Equal(3, HudState.For(Capture(CaptureStates.Recording, pending: 3)).PendingRedactions);
+    }
+
+    [Fact]
+    public void NoPillStringCarriesAnEmDash()
+    {
+        // The pill's words use plain punctuation, as the tray's and the shell's do (2026-10-12 review).
+        // Every state and every pause reason, with and without a process, offline, with each microphone.
+        string[] states = [CaptureStates.Idle, CaptureStates.Recording, CaptureStates.Paused, CaptureStates.Suppressed, CaptureStates.Finalizing, CaptureStates.DraftReady, CaptureStates.DraftFailed, "new_state"];
+        string?[] reasons = [null, CaptureReasons.User, CaptureReasons.PasswordField, CaptureReasons.SensitiveContext, CaptureReasons.ExcludedApp, CaptureReasons.ElevatedWindow, CaptureReasons.OutOfScope, "new_reason"];
+        var said = new List<string>();
+        foreach (var state in states)
+        {
+            foreach (var reason in reasons)
+            {
+                foreach (var process in new string?[] { null, "OUTLOOK" })
+                {
+                    foreach (var capabilities in new CapabilityReport?[] { null, Capabilities(CapabilityState.Ok), Capabilities(CapabilityState.Blocked) })
+                    {
+                        Collect(HudState.For(Capture(state, 1_000, reason, process), capabilities, online: false), said);
+                    }
+                }
+            }
+        }
+
+        Collect(HudState.For(null, online: false), said);
+
+        Assert.NotEmpty(said);
+        Assert.All(said, text => Assert.DoesNotContain("—", text, StringComparison.Ordinal));
+    }
+
+    private static void Collect(HudSnapshot hud, List<string> said)
+    {
+        foreach (var segment in new[] { hud.State, hud.Mic, hud.Cloud })
+        {
+            if (segment is not null)
+            {
+                said.Add(segment.Text);
+                said.Add(segment.Tooltip ?? string.Empty);
+            }
+        }
     }
 
     private static CaptureStateSnapshot Capture(

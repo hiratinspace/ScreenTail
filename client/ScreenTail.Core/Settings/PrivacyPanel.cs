@@ -55,6 +55,9 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
     private readonly List<string> _patterns = [];
     private readonly List<string> _processes = [];
     private ClientSettings _loaded = new();
+
+    /// <summary>What <see cref="Current"/> was when last loaded or saved; a fresh panel's own before either.</summary>
+    private ClientSettings _baseline = new();
     private string? _refusal;
     private bool _localOnly;
     private int _retentionDays = 7;
@@ -160,6 +163,17 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     public bool CanSave => Loaded && Problem is null;
 
+    /// <summary>
+    /// Whether the screen holds a change the technician has not saved: what would be saved differs from
+    /// what was last loaded or saved, or a pattern or app name is typed into its box and not yet added.
+    /// The shell reads the panel again when the service comes back only when this is false, so a
+    /// reconnect never overwrites a local-only switch or an exclusion (2026-10-12 review, S-144).
+    /// </summary>
+    public bool HasUnsavedEdits =>
+        !string.IsNullOrWhiteSpace(NewPattern)
+        || !string.IsNullOrWhiteSpace(NewProcess)
+        || !Same(Current(), _baseline);
+
     /// <summary>What the technician is about to save: the fields, with the locked ones left as the technician's own on disk.</summary>
     public ClientSettings Current() => new()
     {
@@ -203,6 +217,7 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
         _processes.Clear();
         _processes.AddRange(_loaded.ExcludedProcesses);
         Loaded = true;
+        _baseline = Current();
     }
 
     public bool AddPattern()
@@ -250,10 +265,23 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
         }
 
         _loaded = settings;
+        _baseline = settings;
         return true;
     }
 
     public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) => _gateway.ExportAuditAsync(destination, ct);
+
+    private static bool Same(ClientSettings a, ClientSettings b) =>
+        a.LocalOnly == b.LocalOnly
+        && a.RetentionDays == b.RetentionDays
+        && a.Telemetry == b.Telemetry
+        && a.Ssn == b.Ssn
+        && a.Cards == b.Cards
+        && a.ApiKeys == b.ApiKeys
+        && a.Passwords == b.Passwords
+        && a.Emails == b.Emails
+        && a.CustomPatterns.SequenceEqual(b.CustomPatterns, StringComparer.Ordinal)
+        && a.ExcludedProcesses.SequenceEqual(b.ExcludedProcesses, StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>Settings → Privacy's gateway, over the pipe (ST-081).</summary>

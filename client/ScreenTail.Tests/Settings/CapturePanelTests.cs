@@ -118,6 +118,50 @@ public sealed class CapturePanelTests
         Assert.True(panel.ScopeLocked);
     }
 
+    [Fact]
+    public async Task UnsavedEditsAreThoseThatDifferFromWhatWasLoadedOrSaved()
+    {
+        // The shell reads Settings again when the service comes back, and must not overwrite what the
+        // technician changed and has not saved. This is how it knows.
+        var gateway = new FakeCapture
+        {
+            Snapshot = new CaptureSnapshot(new CaptureSettings { GraceSeconds = 90, Hotkeys = new Dictionary<string, string> { ["MarkMoment"] = "Ctrl+Alt+B" } }, [new ToolChoice("rdp", "Remote Desktop")], [], false, 120),
+        };
+        var panel = new CapturePanel(gateway);
+        Assert.False(panel.HasUnsavedEdits);
+        await panel.LoadAsync();
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.GraceSeconds = 60;
+        Assert.True(panel.HasUnsavedEdits);
+        panel.GraceSeconds = 90;
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.SetTool("rdp", enabled: false);
+        Assert.True(panel.HasUnsavedEdits);
+        panel.SetTool("rdp", enabled: true);
+        panel.SetHotkey(HotkeyAction.MarkMoment, "Ctrl+Alt+Q");
+        Assert.True(panel.HasUnsavedEdits);
+        panel.SetHotkey(HotkeyAction.MarkMoment, "Ctrl+Alt+B");
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.CaptureAllWindows = true;
+        Assert.True(panel.HasUnsavedEdits);
+        panel.ConfirmAllWindows();
+        Assert.True(await panel.SaveAsync());
+        Assert.False(panel.HasUnsavedEdits);
+    }
+
+    [Fact]
+    public void AChangeMadeBeforeAnyLoadIsAnUnsavedEdit()
+    {
+        var panel = new CapturePanel(new FakeCapture());
+
+        panel.Sensitivity = "high";
+
+        Assert.True(panel.HasUnsavedEdits);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

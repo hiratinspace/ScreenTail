@@ -37,6 +37,9 @@ public sealed partial class ActivationViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility ProblemVisibility { get; set; } = Visibility.Collapsed;
 
+    /// <summary>The panel holds a change the technician has not saved, so the shell does not read it again on a reconnect.</summary>
+    public bool HasUnsavedEdits => _panel.HasUnsavedEdits;
+
     public async Task LoadAsync(CancellationToken ct = default)
     {
         await _panel.LoadAsync(ct).ConfigureAwait(true);

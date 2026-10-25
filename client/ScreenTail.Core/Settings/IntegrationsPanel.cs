@@ -104,6 +104,19 @@ public sealed class IntegrationCard
 
     public bool CanSave => Editing && Problem is null && !Busy;
 
+    /// <summary>
+    /// A site or key is being typed, Change was pressed on a saved card, or a save is on its way. Reading
+    /// the card again would put it back to what is saved, so the shell does not on a reconnect.
+    /// </summary>
+    public bool HasUnsavedEdits =>
+        Busy
+        || (Editing && (Connected
+            || !string.IsNullOrWhiteSpace(SiteUrl)
+            || !string.IsNullOrWhiteSpace(CompanyId)
+            || !string.IsNullOrWhiteSpace(PublicKey)
+            || !string.IsNullOrWhiteSpace(PrivateKey)
+            || !string.IsNullOrWhiteSpace(ApiKey)));
+
     public string Status => Connected
         ? LastError is null
             ? LastCheckedAt is { } at ? $"Connected · checked {at.ToLocalTime():HH:mm}" : "Connected"
@@ -286,6 +299,9 @@ public sealed class IntegrationsPanel
 
     /// <summary>Why the screen is not showing the truth, or null: the service did not answer, or the mappings could not be read.</summary>
     public string? Notice { get; private set; }
+
+    /// <summary>Either card holds something unsaved (<see cref="IntegrationCard.HasUnsavedEdits"/>).</summary>
+    public bool HasUnsavedEdits => ConnectWise.HasUnsavedEdits || Hudu.HasUnsavedEdits;
 
     public async Task LoadAsync(CancellationToken ct = default)
     {

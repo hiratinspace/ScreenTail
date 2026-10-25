@@ -107,7 +107,7 @@ results still learns the command was accepted.
 | `session_id?`, `elapsed_ms?` | The session, and its active time excluding pauses |
 | `remote_tool?` | Which tool started it |
 | `reason?` | Why capture is not running when the state alone does not say: `password_field`, `excluded_app`, `elevated_window`, `sensitive_context`, `out_of_scope`, `user` (ST-072; Spec §5 S2 gives each its own words) |
-| `scope_process?` | The process in front when capture is out of scope, so the HUD can say "Not capturing — Outlook". A process name, never a window title (INV-10) |
+| `scope_process?` | The process in front when capture is out of scope, so the HUD can say "Not capturing: Outlook". A process name, never a window title (INV-10) |
 | `pending_redactions`, `drafts_ready` | Counts |
 | `draft_failure_reason?` | Only in `draft_failed`. Plain language, no content |
 | `draft_title?`, `draft_company?` | Only in `draft_ready`, for the notification (Spec §6). Model-written text that crosses the pipe to the same user's UI and nowhere else |
@@ -183,11 +183,21 @@ outstanding; a `discard` or `erase_all_local_data` without a valid token gets `o
 ### `indicator_showing`
 
 The UI's claim that the recording pill is visible, with the pill's own rectangle in virtual-screen
-coordinates, so the claim is specific enough to check against a screenshot. It is sent while it is true
+coordinates, so the claim is specific enough to check against a screenshot, or, with a zero-size
+rectangle, that the technician chose tray-only between sessions (below). It is sent while it is true
 and not once at startup, because the interesting failure is a UI that stops painting without closing: the
 socket stays open and the pill goes stale. A report expires after six seconds, and a connection is not
 an indicator — the service counts pills it has heard from, not clients it can see (INV-4, #130). While
 none is reported, `IndicatorGuard` suppresses capture after a short grace for UI restarts.
+
+A report with a zero width and height means the technician chose tray-only between sessions, and the
+pill returns as a session starts (owner decision, 2026-10-25). INV-4 allows tray-only as the technician's
+choice, and the report keeps a session the service starts by itself from being refused for want of the
+pill they put away. A session that starts must be followed by a real pill report: if the pill fails to
+come back, or comes back on no monitor, the zero-size report expires and `IndicatorGuard` suppresses after
+its grace, so capture runs without a pill for at most one report's lifetime (six seconds) plus that grace.
+A pill that is up but on no monitor is not reported at all. The wire format is unchanged and the version
+is not bumped.
 
 ### Review over the pipe: `get_session`, `get_frame`, the edits
 

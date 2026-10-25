@@ -29,6 +29,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The pill's monitor check and the shell's quit path are held by Windows tests through seams that
+         are not public API: the monitors the pill is placed against, and the shell's pipe and settings file. -->
+    <InternalsVisibleTo Include="ScreenTail.Tests.Windows" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Platform\ScreenTail.Platform.csproj" />
     <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />

@@ -64,6 +64,14 @@ public partial class ShellWindow : Window
 
     public ShellWindow(string? screenshotDirectory)
     {
+        // The render collects binding errors from the first binding on, as the pill's and the note's do.
+        // A pane bound to a property that is not there renders blank and still counts hundreds of
+        // colours, so without this a renamed view-model property went green (2026-10-12 review, T-163).
+        if (screenshotDirectory is not null)
+        {
+            Render.BindingErrors.Listen();
+        }
+
         InitializeComponent();
         _screenshotDirectory = screenshotDirectory;
 
@@ -321,18 +329,38 @@ public partial class ShellWindow : Window
         }
 
         // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
-        // rather than appearing inside the shell's.
-        foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+        // rather than appearing inside the shell's. Answered, and with the service not answering, which
+        // is the panel that says unknown on every row rather than zeros (T-152).
+        foreach (var (name, build) in new (string, Func<Diagnostics.DiagnosticsWindow>)[]
         {
-            ThemeManager.Apply(theme, Application.Current.Resources);
-            var panel = new Diagnostics.DiagnosticsWindow { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
-            panel.Show();
-            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
-            panel.UpdateLayout();
-            Save(panel, Path.Combine(_screenshotDirectory!, $"panel-{theme.ToString().ToLowerInvariant()}.png"));
-            panel.Close();
+            ("panel", () => new Diagnostics.DiagnosticsWindow()),
+            ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)),
+        })
+        {
+            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            {
+                ThemeManager.Apply(theme, Application.Current.Resources);
+                var panel = build();
+                panel.ShowInTaskbar = false;
+                panel.WindowStartupLocation = WindowStartupLocation.Manual;
+                panel.Left = -4000;
+                panel.Top = -4000;
+                panel.Show();
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+                panel.UpdateLayout();
+                Save(panel, Path.Combine(_screenshotDirectory!, $"{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                panel.Close();
+            }
         }
 
+        // Read by CI, which fails the step on anything but zero.
+        var errors = Render.BindingErrors.Collected;
+        foreach (var error in errors)
+        {
+            Console.Error.WriteLine(error);
+        }
+
+        Console.WriteLine($"{errors.Count} binding errors");
         Application.Current.Shutdown();
     }
 

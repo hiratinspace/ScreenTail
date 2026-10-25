@@ -1,8 +1,11 @@
 using System.IO;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using System.Windows;
+using System.Windows.Threading;
+using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Hud;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
@@ -49,11 +52,20 @@ public sealed class LiveShell : IAsyncDisposable
     private readonly ShellState _state = new();
     private readonly TrayIconHost _tray = new();
     private readonly CaptureConnection _connection;
-    private readonly ShellPreferencesStore _preferences = new(ShellPreferencesStore.DefaultPath);
+    private readonly ShellPreferencesStore _preferences;
+
+    /// <summary>
+    /// The thread that built the shell, which owns the tray icon and the pill. The application builds it
+    /// on its UI thread, so this is that thread's dispatcher; taken here rather than from
+    /// <see cref="Application.Current"/> so the shell needs a UI thread and nothing more, which is what
+    /// lets its quit path be tested without a WPF application.
+    /// </summary>
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private Onboarding.OnboardingWindow? _onboarding;
 
     /// <summary>
-    /// The technician right-clicked the pill away. Held for this session only, never written to disk.
+    /// The technician put the pill away, from its right-click or the tray. Held for this session only,
+    /// never written to disk, and cleared when the next one starts (<see cref="_sessionUnderWay"/>).
     ///
     /// <see cref="ShellPreferencesStore"/> says why at length: persisting it would turn one right-click
     /// into a standing tray-only mode across reboots that nobody opted into, which is a recording with no
@@ -62,20 +74,43 @@ public sealed class LiveShell : IAsyncDisposable
     private bool _hudHidden;
 
     /// <summary>
+    /// The session the service last said was under way, so the shell can tell when a new one starts. Read
+    /// and written on the UI thread only, in <see cref="ShowOrHideHud"/>.
+    /// </summary>
+    private string? _sessionUnderWay;
+
+    /// <summary>
     /// Raises each notification once (ST-073). The service repeats its state on every reconnect, so
     /// without this a dropped pipe would announce a draft that has been ready for an hour.
     /// </summary>
     private readonly Notifier _notifier = new();
     private HudWindowHolder? _hud;
+    private volatile bool _disposed;
     private ShellWindow? _window;
 
     public LiveShell()
+        : this(OpenAsync, new ShellPreferencesStore(ShellPreferencesStore.DefaultPath))
     {
+    }
+
+    /// <param name="open">Opens one connection to the service. The verified pipe outside tests.</param>
+    /// <param name="preferences">The shell's preferences file.</param>
+    internal LiveShell(Func<string, CancellationToken, Task<ICaptureChannel>> open, ShellPreferencesStore preferences)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
-        _connection = new CaptureConnection(_state, ct => OpenAsync(version, ct));
+        _connection = new CaptureConnection(_state, ct => open(version, ct));
 
         _state.Changed += snapshot =>
         {
+            // The pipe can deliver one more state while the connection is being disposed. The icon and
+            // the pill are gone by then, and building the pill again for it would be a window nobody closes.
+            if (_disposed)
+            {
+                return;
+            }
+
             _tray.Update(snapshot);
             ShowOrHideHud(snapshot);
             Announce(snapshot);
@@ -88,6 +123,7 @@ public sealed class LiveShell : IAsyncDisposable
         _tray.Setup += ShowOnboarding;
         _tray.ShowDiagnostics += ShowDiagnostics;
         _tray.HidePill += HidePillForThisSession;
+        NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
         _tray.NotificationClicked += _ => ShowWindow();
         _tray.Quit += QuitWithoutLeavingCaptureRunning;
     }
@@ -119,9 +155,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void ShowOnboarding()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(ShowOnboarding);
+            _ = _dispatcher.BeginInvoke(ShowOnboarding);
             return;
         }
 
@@ -137,11 +173,19 @@ public sealed class LiveShell : IAsyncDisposable
     }
 
     /// <summary>
-    /// The one way capture runs without a pill, and only ever because the technician asked in this
-    /// session (INV-4). The tray icon stays: there is no state in which nothing indicates capture.
+    /// Puts the pill away while capture is known to be off, because the technician asked (INV-4). The tray
+    /// icon stays: there is no state in which nothing indicates capture. <see cref="HudState"/> keeps the
+    /// pill up whatever this says while a session runs, and the wish lasts until the next session starts.
+    /// It used to last for the life of the process (2026-10-12 review, T-154).
     /// </summary>
     public void HidePillForThisSession()
     {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(HidePillForThisSession);
+            return;
+        }
+
         _hudHidden = true;
         ShowOrHideHud(_state.Snapshot);
     }
@@ -162,9 +206,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     public void ShowWindow()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(ShowWindow);
+            _ = _dispatcher.BeginInvoke(ShowWindow);
             return;
         }
 
@@ -182,12 +226,48 @@ public sealed class LiveShell : IAsyncDisposable
         _ = _window.Activate();
     }
 
+    /// <summary>
+    /// Takes the pill and the tray icon down, then the connection.
+    ///
+    /// The windows first, before anything is awaited, so they close on the calling thread: App.Dispose
+    /// calls this on the UI thread and blocks on it. They used to close after the connection's dispose,
+    /// whose ConfigureAwait(false) had moved the rest onto the thread pool, so closing the pill threw,
+    /// the icon was never disposed (a ghost in the notification area) and every Quit ended in a crash
+    /// report (2026-10-12 review, S-47, E-27, T-157). Awaiting back onto the UI thread instead would
+    /// deadlock against that blocking call, so the order is the fix.
+    ///
+    /// The icon is disposed whatever the pill does, and so is the connection: a pill that throws as it
+    /// closes still leaves no pipe open behind it, and the exception is raised once both are done.
+    /// Closing the pill first stops the indicator reports, which is the safe direction for INV-4: the
+    /// service suppresses capture when nothing indicates it.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        await _connection.DisposeAsync().ConfigureAwait(false);
-        _hud?.Close();
-        _tray.Dispose();
+        _disposed = true;
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
+        try
+        {
+            try
+            {
+                _hud?.Close();
+                _hud = null;
+            }
+            finally
+            {
+                _tray.Dispose();
+            }
+        }
+        finally
+        {
+            await _connection.DisposeAsync().ConfigureAwait(false);
+        }
     }
+
+    /// <summary>The pill's window while the shell holds one, for the Windows tests.</summary>
+    internal Hud.HudWindow? Pill => _hud?.Window;
+
+    /// <summary>The tray icon, for the Windows tests.</summary>
+    internal TrayIconHost Tray => _tray;
 
     /// <summary>
     /// Opens one connection to the service, verifying it before handing over the token (ST-012).
@@ -250,8 +330,13 @@ public sealed class LiveShell : IAsyncDisposable
 
         // ST-077: the ticket number the coordinator read off the window when the session started. The
         // PSA is asked for it by id so the pane can show its summary and company beside the Suggested
-        // badge; a number the PSA does not know is not suggested, and the picker is as before.
-        if (session.SuggestedTicket is { } hinted && integrations.Count > 0)
+        // badge; a number the PSA does not know is not suggested, and the picker is as before. Never for
+        // a local-only session, whose banner says nothing from it leaves the device: opening Review is
+        // not the technician publishing, and the number came off their screen (S-44, S-45). Nor when
+        // local-only is in force now for a session recorded before it was, or when the service will not
+        // say whether it is.
+        if (await ReviewOpening.MayLookUpSuggestedTicketAsync(session.LocalOnly, session.SuggestedTicket, integrations.Count, LocalOnlyNowAsync, ct).ConfigureAwait(true)
+            && session.SuggestedTicket is { } hinted)
         {
             var matches = await publisher.SearchAsync(hinted, ct).ConfigureAwait(true);
             if (matches.FirstOrDefault(m => m.Id == hinted) is { } match)
@@ -280,6 +365,10 @@ public sealed class LiveShell : IAsyncDisposable
             timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }));
     }
 
+    /// <summary>Local-only as the service has it in force now (the admin's when locked), or null when it would not say.</summary>
+    private async Task<bool?> LocalOnlyNowAsync(CancellationToken ct) =>
+        (await _connection.RequestAsync<SettingsReported>(id => new GetSettingsCommand { RequestId = id }, ct).ConfigureAwait(true))?.EffectiveLocalOnly;
+
     private async Task<IReadOnlyList<SessionRow>?> ListSessionsAsync(CancellationToken ct) =>
         (await _connection.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct).ConfigureAwait(true))?.Sessions;
 
@@ -291,14 +380,14 @@ public sealed class LiveShell : IAsyncDisposable
     /// process that is not the UI cannot skip the dialog: the service refuses a discard that does not
     /// carry one it issued moments ago (Spec §3, 2026-09-19 review).
     ///
-    /// Nothing happens if the service is not there. A discard sent into a dropped pipe would be reported
-    /// as done and would not be.
+    /// Nothing is sent if the service is not there, and the technician is told so. A discard sent into a
+    /// dropped pipe would be reported as done and would not be.
     /// </summary>
     private void DiscardWithConfirmation()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(DiscardWithConfirmation);
+            _ = _dispatcher.BeginInvoke(DiscardWithConfirmation);
             return;
         }
 
@@ -328,28 +417,37 @@ public sealed class LiveShell : IAsyncDisposable
         return dialog.ShowDialog(_window) == true ? dialog.FileName : null;
     }
 
+    /// <summary>
+    /// The flow <see cref="ConfirmedAction"/> decides, with the dialog and the answer on the UI thread.
+    ///
+    /// The service's answer is shown when it is anything but done. It used to be dropped, so a refused
+    /// "delete everything" (a session running, or the token gone stale while the phrase was typed) closed
+    /// its dialog exactly as a successful one did, and the technician believed INV-12's erase had
+    /// happened (2026-10-12 review, S-46, T-158). Not connected is said too: a click that did nothing and
+    /// said nothing is the same mistake.
+    /// </summary>
     private async Task ConfirmAndSendAsync(string action, string heading, string consequence, Func<string, IpcCommand> build)
     {
-        var issued = await _connection
-            .RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = action })
-            .ConfigureAwait(true);
+        var result = await ConfirmedAction.RunAsync(
+            (asked, ct) => _connection.RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = asked }, ct),
+            action,
+            phrase => OnUiThread(() => ConfirmWindow.Asks(_window, heading, consequence, phrase)),
+            token => id => build(token) with { RequestId = id },
+            (command, ct) => _connection.SendAsync(command, ct)).ConfigureAwait(false);
 
-        if (issued is null)
+        if (result.Outcome is ConfirmedOutcome.Refused or ConfirmedOutcome.NotAvailable)
         {
-            // Not connected, or the service does not know this action. Either way there is nothing to
-            // confirm, and a dialog that led somewhere would be worse than none.
-            return;
+            _ = await OnUiThread(() => _window is { IsLoaded: true } owner
+                ? MessageBox.Show(owner, result.Error, heading, MessageBoxButton.OK, MessageBoxImage.Warning)
+                : MessageBox.Show(result.Error, heading, MessageBoxButton.OK, MessageBoxImage.Warning)).ConfigureAwait(false);
         }
-
-        if (!ConfirmWindow.Asks(_window, heading, consequence, issued.Phrase))
-        {
-            // The token is left to expire. Telling the service it went unused would be another round
-            // trip to say nothing, and thirty seconds from now it is worthless anyway.
-            return;
-        }
-
-        Send(id => build(issued.Token) with { RequestId = id });
     }
+
+    /// <summary>Runs <paramref name="body"/> on the UI thread, from whichever thread a pipe answer arrived on.</summary>
+    private Task<T> OnUiThread<T>(Func<T> body) =>
+        !_dispatcher.CheckAccess()
+            ? _dispatcher.InvokeAsync(body).Task
+            : Task.FromResult(body());
 
     /// <summary>
     /// Quits, having made sure nothing is left recording without an indicator.
@@ -365,13 +463,14 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     private void QuitWithoutLeavingCaptureRunning()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(QuitWithoutLeavingCaptureRunning);
+            _ = _dispatcher.BeginInvoke(QuitWithoutLeavingCaptureRunning);
             return;
         }
 
-        if (_state.Snapshot.KnownCapture is { } capture && capture.State != CaptureStates.Idle)
+        // A finished session rests in draft_ready or draft_failed, which is nothing being captured (S-39).
+        if (_state.Snapshot.KnownCapture is { } capture && !HudState.KnownIdle(capture))
         {
             var stop = MessageBox.Show(
                 "A session is being captured. Quitting closes the recording indicator, so ScreenTail will "
@@ -396,9 +495,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void ShowDiagnostics()
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(ShowDiagnostics);
+            _ = _dispatcher.BeginInvoke(ShowDiagnostics);
             return;
         }
 
@@ -414,15 +513,100 @@ public sealed class LiveShell : IAsyncDisposable
     /// </summary>
     private void ShowOrHideHud(ShellSnapshot snapshot)
     {
-        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        if (!_dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(() => ShowOrHideHud(snapshot));
+            _ = _dispatcher.BeginInvoke(() => ShowOrHideHud(snapshot));
             return;
         }
 
-        _hud ??= new HudWindowHolder(_state, _connection, _preferences);
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_hud is null)
+        {
+            // The pill's own gestures reach the shell: double-click opens Review, right-click is the same
+            // wish as the tray's item. Until they were wired only Mark moment did anything (T-372).
+            _hud = new HudWindowHolder(_state, _connection, _preferences);
+            _hud.ReviewRequested += OpenTheCurrentSession;
+            _hud.HideRequested += HidePillForThisSession;
+            _hud.SetOnline(NetworkInterface.GetIsNetworkAvailable());
+        }
+
         // KnownCapture, not Capture: what the service last said is not what is true once it stops
         // answering, and this is the one decision that can take the indicator off the screen.
-        _hud.SetVisible(HudState.For(snapshot.KnownCapture, hidden: _hudHidden).Visible);
+        var capture = snapshot.KnownCapture;
+        if (HudState.SessionUnderWay(capture) is { } session && session != _sessionUnderWay)
+        {
+            // A session the shell has not seen running. Hiding was for the last one; and what Windows
+            // allows is asked now, once, for the pill's no-mic segment, not on every state change.
+            _sessionUnderWay = session;
+            _hudHidden = false;
+            _hud.SessionStarted();
+            _ = ShowCapabilitiesAsync();
+        }
+
+        _hud.Apply(HudState.For(capture, hidden: _hudHidden));
+    }
+
+    /// <summary>The pill's double-click (Spec §5 S2): the shell, on Review of the session the service last named.</summary>
+    private void OpenTheCurrentSession()
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(OpenTheCurrentSession);
+            return;
+        }
+
+        if (_state.Snapshot.KnownCapture?.SessionId is { Length: > 0 } session)
+        {
+            _state.OpenSession(session);
+        }
+        else
+        {
+            _state.Navigate(ShellView.Review);
+        }
+
+        ShowWindow();
+    }
+
+    /// <summary>
+    /// Asks the service what Windows allows and hands it to the pill. A question the service cannot
+    /// answer leaves the pill as it was: the segment is a nicety, and its absence claims nothing.
+    /// </summary>
+    private async Task ShowCapabilitiesAsync()
+    {
+        try
+        {
+            var reported = await _connection
+                .RequestAsync<CapabilitiesReported>(id => new GetCapabilitiesCommand { RequestId = id })
+                .ConfigureAwait(true);
+            if (reported is not null && !_disposed)
+            {
+                _hud?.SetCapabilities(reported.FromWire());
+            }
+        }
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// The pill's grey cloud (Spec §5 S2): whether this machine has a network at all. A local question,
+    /// asked when Windows says the answer changed, never by polling and never by sending anything.
+    /// </summary>
+    private void OnNetworkChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(() => OnNetworkChanged(sender, e));
+            return;
+        }
+
+        if (!_disposed)
+        {
+            _hud?.SetOnline(e.IsAvailable);
+        }
     }
 }

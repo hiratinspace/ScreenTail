@@ -12,6 +12,34 @@ namespace ScreenTail.Tests.Shell;
 /// </summary>
 public sealed class TrayAndDiagnosticsTests
 {
+    [Theory]
+    [InlineData(ServiceConnection.Connecting)]
+    [InlineData(ServiceConnection.Connected)]
+    [InlineData(ServiceConnection.Unavailable)]
+    public void NoTrayOrShellStatusStringCarriesAnEmDash(ServiceConnection connection)
+    {
+        // The tray's tooltip and state line, and the shell's status line that repeats them, use plain
+        // punctuation (2026-10-12 review). Every state, with and without a tool and a time.
+        string[] states = [CaptureStates.Idle, CaptureStates.Recording, CaptureStates.Paused, CaptureStates.Suppressed, CaptureStates.Finalizing, CaptureStates.DraftReady, CaptureStates.DraftFailed, "new_state"];
+        var said = new List<string>();
+        foreach (var state in states)
+        {
+            foreach (var tool in new string?[] { null, "screenconnect" })
+            {
+                foreach (var elapsed in new long?[] { null, 761_000 })
+                {
+                    var snapshot = new ShellSnapshot(connection, new CaptureStateSnapshot { State = state, SessionId = "s1", RemoteTool = tool, ElapsedMs = elapsed, DraftsReady = 1 }, ShellView.Review, null);
+                    var presence = TrayPresence.From(snapshot);
+                    said.Add(presence.Tooltip);
+                    said.Add(presence.StateLine);
+                    said.Add(ShellStatus.Describe(snapshot));
+                }
+            }
+        }
+
+        Assert.All(said, text => Assert.DoesNotContain("—", text, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void RecordingLooksDifferentFromPausedAndFromUnknown()
     {
@@ -27,7 +55,7 @@ public sealed class TrayAndDiagnosticsTests
     {
         // Spec §5 S1's wording. "Recording" alone does not tell a technician whether the thing they
         // started an hour ago is still going.
-        Assert.Equal("ScreenTail — Recording — screenconnect (12:41)", Presence("recording").Tooltip);
+        Assert.Equal("ScreenTail · Recording: screenconnect (12:41)", Presence("recording").Tooltip);
     }
 
     [Fact]
@@ -75,8 +103,8 @@ public sealed class TrayAndDiagnosticsTests
         // what the technician has open in it is the customer's business (INV-10).
         var presence = Presence("recording");
 
-        Assert.DoesNotContain("—  ", presence.Tooltip, StringComparison.Ordinal);
-        Assert.Equal(presence.Tooltip, $"ScreenTail — {presence.StateLine}");
+        Assert.DoesNotContain(":  ", presence.Tooltip, StringComparison.Ordinal);
+        Assert.Equal(presence.Tooltip, $"ScreenTail · {presence.StateLine}");
     }
 
     [Fact]
@@ -183,9 +211,50 @@ public sealed class TrayAndDiagnosticsTests
     [Fact]
     public void ThePillSaysUnknownForAStateItDoesNotKnow()
     {
-        var hud = Core.Hud.HudState.For(new CaptureStateSnapshot { State = "recording_with_audio" });
+        // Hidden, so the Visible assert can fail: without the flag the pill is up whatever the state, and
+        // the line proved nothing (2026-10-12 review, T-138).
+        var hud = Core.Hud.HudState.For(new CaptureStateSnapshot { State = "recording_with_audio" }, hidden: true);
 
         Assert.Contains("unknown", hud.State.Text, StringComparison.OrdinalIgnoreCase);
         Assert.True(hud.Visible);
+    }
+
+    [Fact]
+    public void AnUnansweredPanelClaimsNoCounts()
+    {
+        // The service is not answering. The panel used to be built from zeros, so a customer read "0
+        // frames dropped" and "Local-only: no" when nobody knew either (2026-10-12 review, T-152).
+        var panel = DiagnosticsPanel.Unanswered;
+
+        Assert.False(panel.Answered);
+        Assert.Contains("unknown", panel.Headline, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(DiagnosticsPanel.From(Sample()).Rows.Select(r => r.Label), panel.Rows.Select(r => r.Label));
+        foreach (var row in panel.Rows.Where(r => r.Label != "Scope"))
+        {
+            Assert.Equal(DiagnosticsPanel.Unknown, row.Value);
+        }
+
+        Assert.Contains("Not connected", panel.Rows.Single(r => r.Label == "Scope").Value, StringComparison.Ordinal);
+        Assert.DoesNotContain(panel.Rows, r => r.Value == "0" || r.Value == "no" || r.Value == "yes");
+
+        var text = panel.ToClipboardText(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        Assert.Contains(DiagnosticsPanel.NotConnected, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("local-only       no", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("frames dropped   0", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAnsweredPanelShowsTheServicesOwnCounts()
+    {
+        // The control: a panel that said unknown on every row would pass the test above and tell a
+        // customer nothing all day.
+        var panel = DiagnosticsPanel.From(Sample());
+
+        Assert.True(panel.Answered);
+        Assert.Equal("Not capturing — outlook", panel.Headline);
+        Assert.Equal("4", panel.Rows.Single(r => r.Label == "Redaction queue").Value);
+        Assert.Equal("yes", panel.Rows.Single(r => r.Label == "Local-only").Value);
+        Assert.Equal("240 MB", panel.Rows.Single(r => r.Label == "Memory").Value);
+        Assert.Equal(Sample().ToClipboardText(DateTimeOffset.UnixEpoch), panel.ToClipboardText(DateTimeOffset.UnixEpoch));
     }
 }
