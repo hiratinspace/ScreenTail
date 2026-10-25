@@ -136,6 +136,25 @@ public sealed class VoiceActivityTests
     }
 
     [Fact]
+    public void UnmutingDoesNotMakeTheRoomSoundLikeSpeech()
+    {
+        // The same fault as the gate sees it. A technician mutes for a few seconds and unmutes; the
+        // gate opens at 0.6, and not one frame of the room after the unmute may get there. Before the
+        // fix every frame did, for close to a minute, and the gate cut the room into segments.
+        var vad = new VoiceActivity();
+        var room = Noise(amplitude: 200);
+        Settle(vad, room);
+
+        for (var i = 0; i < 150; i++)
+        {
+            _ = vad.Offer(new short[512]);
+        }
+
+        var loudest = Enumerable.Range(0, 300).Select(_ => vad.Offer(room)).Max();
+        Assert.True(loudest < new SpeechGateOptions().EnterAt, $"the room after an unmute read as {loudest:F2}");
+    }
+
+    [Fact]
     public void AStreamThatStartsSilentLearnsTheRoomFromItsFirstRealFrame()
     {
         // The other place zeros arrive: a capture device's first buffers, before it has filled. The room
