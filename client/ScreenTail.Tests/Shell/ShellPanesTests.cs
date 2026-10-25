@@ -25,12 +25,52 @@ public sealed class ShellPanesTests
         state.Observe(Capture(CaptureStates.Recording, "s1", elapsed: 1_000));
         state.Observe(Capture(CaptureStates.Recording, "s1", elapsed: 2_000));
         state.Lost();
-        state.Connected(Capture(CaptureStates.Recording, "s1", elapsed: 3_000));
 
         var settings = steps.Where(s => s.Action == PaneAction.Settings).ToList();
-        Assert.Equal(5, settings.Count);
+        Assert.Equal(4, settings.Count);
         Assert.Single(settings, s => s.LoadSettings);
         Assert.True(settings[0].LoadSettings, "the panels were not read when the view became Settings");
+        Assert.False(settings[0].KeepEdits, "a view entered afresh is read whole");
+    }
+
+    [Fact]
+    public void TheServiceComingBackRereadsSettingsKeepingUnsavedEdits()
+    {
+        // Settings opened while the service was away says it did not answer, and stayed saying so after it
+        // came back, because only entering the view read the panels. A reconnect now reads them again, but
+        // only those with nothing unsaved: the technician's edits are never overwritten.
+        var state = new ShellState();
+        var panes = new ShellPanes();
+        var steps = new List<PaneStep>();
+        state.Changed += snapshot => steps.Add(panes.Next(snapshot));
+
+        state.Connecting();
+        state.Navigate(ShellView.Settings);
+        state.Connected(Capture(CaptureStates.Idle));
+        state.Observe(Capture(CaptureStates.Recording, "s1", elapsed: 1_000));
+        state.Lost();
+
+        // An event while the shell thought the service was away is the service back, as the store says.
+        state.Observe(Capture(CaptureStates.Recording, "s1", elapsed: 2_000));
+        state.Connected(Capture(CaptureStates.Recording, "s1", elapsed: 3_000));
+        state.Lost();
+        state.Connected(Capture(CaptureStates.Recording, "s1", elapsed: 4_000));
+        state.Observe(Capture(CaptureStates.Recording, "s1", elapsed: 5_000));
+
+        Assert.Equal(
+            [(true, false), (true, true), (false, false), (false, false), (true, true), (false, false), (false, false), (true, true), (false, false)],
+            steps.Where(s => s.Action == PaneAction.Settings).Select(s => (s.LoadSettings, s.KeepEdits)));
+    }
+
+    [Fact]
+    public void TheServiceComingBackWhileAnotherViewIsOpenReadsNoSettings()
+    {
+        var panes = new ShellPanes();
+        Assert.Equal(PaneAction.History, panes.Next(Snapshot(ShellView.History) with { Connection = ServiceConnection.Unavailable }).Action);
+        Assert.Equal(PaneAction.History, panes.Next(Snapshot(ShellView.History)).Action);
+
+        // Entering Settings afterwards reads it whole, as any entry does.
+        Assert.Equal(new PaneStep(PaneAction.Settings, LoadSettings: true), panes.Next(Snapshot(ShellView.Settings)));
     }
 
     [Fact]

@@ -186,12 +186,28 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
                 // Read when the view becomes Settings, and not again on each state change while it is
                 // open: that overwrote unsaved edits, and Save then stored the old values (S-144, T-161).
+                // Read again when the service comes back, but never a panel holding an unsaved change.
                 if (step.LoadSettings && _settingsPane is Settings.SettingsViewModel settings)
                 {
-                    _ = settings.Activation.LoadAsync(_closing);
-                    _ = settings.Capture.LoadAsync(_closing);
-                    _ = settings.Privacy.LoadAsync(_closing);
-                    _ = settings.Integrations.LoadAsync(_closing);
+                    if (!step.KeepEdits || !settings.Activation.HasUnsavedEdits)
+                    {
+                        _ = settings.Activation.LoadAsync(_closing);
+                    }
+
+                    if (!step.KeepEdits || !settings.Capture.HasUnsavedEdits)
+                    {
+                        _ = settings.Capture.LoadAsync(_closing);
+                    }
+
+                    if (!step.KeepEdits || !settings.Privacy.HasUnsavedEdits)
+                    {
+                        _ = settings.Privacy.LoadAsync(_closing);
+                    }
+
+                    if (!step.KeepEdits || !settings.Integrations.HasUnsavedEdits)
+                    {
+                        _ = settings.Integrations.LoadAsync(_closing);
+                    }
                 }
 
                 break;

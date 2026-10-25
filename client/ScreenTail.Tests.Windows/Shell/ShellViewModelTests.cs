@@ -49,7 +49,6 @@ public sealed class ShellViewModelTests
         state.Observe(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", ElapsedMs = 1_000 });
         state.Observe(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", ElapsedMs = 2_000 });
         state.Lost();
-        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", ElapsedMs = 3_000 });
 
         Assert.Equal(opened, gateways.Loads);
         Assert.IsType<SettingsViewModel>(model.Content);
@@ -58,6 +57,43 @@ public sealed class ShellViewModelTests
         state.Navigate(ShellView.History);
         state.Navigate(ShellView.Settings);
         Assert.True(gateways.Loads > opened, "coming back to Settings did not read it again");
+    }
+
+    [Fact]
+    public void TheServiceComingBackReadsSettingsAgainButNeverOverAnUnsavedEdit()
+    {
+        // Settings opened while the service was away said it did not answer, and went on saying so after
+        // it came back. A reconnect reads the panels again, except one holding a change not yet saved.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var state = new ShellState();
+        var gateways = new CountingGateways
+        {
+            Privacy = new SettingsSnapshot(new ClientSettings(), LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: false, EffectiveRetentionDays: 7),
+        };
+        using var model = new ShellViewModel(state, settings: gateways.Settings);
+        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
+        state.Navigate(ShellView.Settings);
+        var settings = Assert.IsType<SettingsViewModel>(model.Content);
+        Assert.Equal(1, gateways.LoadsOf("privacy"));
+        Assert.Equal(1, gateways.LoadsOf("capture"));
+
+        // The technician switches local-only on and has not pressed Save when the pipe drops and returns.
+        settings.Privacy.LocalOnly = true;
+        state.Lost();
+        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
+
+        Assert.Equal(1, gateways.LoadsOf("privacy"));
+        Assert.True(settings.Privacy.LocalOnly, "the reconnect overwrote the technician's unsaved local-only switch");
+        Assert.Equal(2, gateways.LoadsOf("capture"));
+        Assert.Equal(2, gateways.LoadsOf("activation"));
+        Assert.Equal(2, gateways.LoadsOf("integrations"));
+
+        // Put back as it was, nothing is unsaved, and the next reconnect reads it too.
+        settings.Privacy.LocalOnly = false;
+        state.Lost();
+        state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
+        Assert.Equal(2, gateways.LoadsOf("privacy"));
+        Assert.Equal(3, gateways.LoadsOf("capture"));
     }
 
     [Fact]
@@ -129,7 +165,14 @@ public sealed class ShellViewModelTests
     /// <summary>Every Settings panel's gateway, counting the reads that reach the service.</summary>
     private sealed class CountingGateways : IDeviceGateway, ICaptureGateway, IPrivacyGateway, IIntegrationsGateway
     {
+        private readonly Dictionary<string, int> _loads = [];
+
         public int Loads { get; private set; }
+
+        /// <summary>What the privacy gateway answers; null is a service that did not.</summary>
+        public SettingsSnapshot? Privacy { get; init; }
+
+        public int LoadsOf(string panel) => _loads.GetValueOrDefault(panel);
 
         public SettingsViewModel Settings() => new(
             new ActivationViewModel(new ActivationPanel(this, "TECH-LAPTOP")),
@@ -137,17 +180,17 @@ public sealed class ShellViewModelTests
             new PrivacyViewModel(new PrivacyPanel(this), () => null, () => Task.CompletedTask),
             new IntegrationsViewModel(new IntegrationsPanel(this)));
 
-        public Task<DeviceStanding?> StandingAsync(CancellationToken ct = default) => Count<DeviceStanding>();
+        public Task<DeviceStanding?> StandingAsync(CancellationToken ct = default) => Count<DeviceStanding>("activation");
 
         public Task<ActivationAnswer> ActivateAsync(string code, string deviceName, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
-        Task<CaptureSnapshot?> ICaptureGateway.LoadAsync(CancellationToken ct) => Count<CaptureSnapshot>();
+        Task<CaptureSnapshot?> ICaptureGateway.LoadAsync(CancellationToken ct) => Count<CaptureSnapshot>("capture");
 
         public Task<string?> SaveAsync(CaptureSettings settings, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
-        Task<SettingsSnapshot?> IPrivacyGateway.LoadAsync(CancellationToken ct) => Count<SettingsSnapshot>();
+        Task<SettingsSnapshot?> IPrivacyGateway.LoadAsync(CancellationToken ct) => Count("privacy", Privacy);
 
         public Task<string?> SaveAsync(ClientSettings settings, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
@@ -155,7 +198,7 @@ public sealed class ShellViewModelTests
         public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
-        public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Count<IReadOnlyList<IntegrationDetail>>();
+        public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Count<IReadOnlyList<IntegrationDetail>>("integrations");
 
         public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
@@ -166,7 +209,7 @@ public sealed class ShellViewModelTests
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
-        public Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default) => Count<CompanyMappingsPage>();
+        public Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default) => Count<CompanyMappingsPage>("mappings");
 
         public Task<string?> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
@@ -174,11 +217,12 @@ public sealed class ShellViewModelTests
         public Task<string?> UnmapAsync(string psaCompany, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 
-        private Task<T?> Count<T>()
+        private Task<T?> Count<T>(string panel, T? answer = null)
             where T : class
         {
             Loads++;
-            return Task.FromResult<T?>(null);
+            _loads[panel] = LoadsOf(panel) + 1;
+            return Task.FromResult(answer);
         }
     }
 }

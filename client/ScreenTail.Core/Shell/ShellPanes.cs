@@ -26,8 +26,12 @@ public enum PaneAction
 }
 
 /// <param name="SessionId">The session for <see cref="PaneAction.LoadReview"/> and <see cref="PaneAction.ShowReview"/>.</param>
-/// <param name="LoadSettings">True only when the view has just become Settings.</param>
-public sealed record PaneStep(PaneAction Action, string? SessionId = null, bool LoadSettings = false);
+/// <param name="LoadSettings">True when the view has just become Settings, or the service has just come back while it is open.</param>
+/// <param name="KeepEdits">
+/// The read is for the service coming back, not for entering the view: a panel holding a change the
+/// technician has not saved is left as it is.
+/// </param>
+public sealed record PaneStep(PaneAction Action, string? SessionId = null, bool LoadSettings = false, bool KeepEdits = false);
 
 /// <summary>
 /// Which pane the shell shows, and when it may ask the service for anything (ST-070).
@@ -36,7 +40,9 @@ public sealed record PaneStep(PaneAction Action, string? SessionId = null, bool 
 /// wrong while it lived there. Every state change the service sent while Settings was open reloaded all
 /// four panels, which overwrote whatever the technician had changed and not yet saved, so Save then stored
 /// the old values and said "Saved and applied." (2026-10-12 review, S-144, T-161). The panels are read
-/// once, when the view becomes Settings. And going back to Review for the session it already had left the
+/// when the view becomes Settings, and again when the service comes back while it is open, then only
+/// those with nothing unsaved: Settings opened while the service was away would otherwise say it did not
+/// answer until the technician left and came back. And going back to Review for the session it already had left the
 /// previous view's pane on screen, because only a different session counted as a change (T-159). Entering
 /// Review now always shows it.
 ///
@@ -48,6 +54,7 @@ public sealed class ShellPanes
     private string? _review;
     private bool _reviewHadDraft;
     private bool _reviewFailed;
+    private ServiceConnection? _connection;
 
     /// <summary>The view the content area belongs to now, or null before the first snapshot.</summary>
     public ShellView? View => _view;
@@ -60,6 +67,12 @@ public sealed class ShellPanes
         ArgumentNullException.ThrowIfNull(snapshot);
         var entering = _view != snapshot.View;
         _view = snapshot.View;
+
+        // Back after being away, or answering for the first time after connecting. The store also counts
+        // an event that arrives while it thought the service was away as the service back.
+        var reconnected = _connection is not null and not ServiceConnection.Connected
+            && snapshot.Connection == ServiceConnection.Connected;
+        _connection = snapshot.Connection;
 
         switch (snapshot.View)
         {
@@ -98,7 +111,7 @@ public sealed class ShellPanes
                 return new PaneStep(PaneAction.History);
 
             case ShellView.Settings:
-                return new PaneStep(PaneAction.Settings, LoadSettings: entering);
+                return new PaneStep(PaneAction.Settings, LoadSettings: entering || reconnected, KeepEdits: !entering && reconnected);
 
             default:
                 return new PaneStep(PaneAction.None);

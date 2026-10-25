@@ -93,6 +93,33 @@ public sealed class IntegrationsPanelTests
     }
 
     [Fact]
+    public async Task ACardBeingFilledInOrChangedHasUnsavedEdits()
+    {
+        // The shell reads Settings again when the service comes back, which would put a card back to what
+        // is saved. A site or key being typed, or a card the technician pressed Change on, is kept.
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, null)],
+        };
+        var panel = new IntegrationsPanel(gateway);
+        await panel.LoadAsync();
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.ConnectWise.PrivateKey = "PRIV";
+        Assert.True(panel.ConnectWise.HasUnsavedEdits);
+        Assert.True(panel.HasUnsavedEdits);
+        panel.ConnectWise.PrivateKey = string.Empty;
+        panel.ConnectWise.SiteUrl = "https://na.myconnectwise.net";
+        Assert.True(panel.HasUnsavedEdits);
+        panel.ConnectWise.SiteUrl = string.Empty;
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.Hudu.Change();
+        Assert.True(panel.Hudu.HasUnsavedEdits);
+        Assert.False(panel.ConnectWise.HasUnsavedEdits);
+    }
+
+    [Fact]
     public async Task ChangeRevealsTheFieldsAgainAndTheBackendsRefusalIsShown()
     {
         var gateway = new FakeIntegrations
