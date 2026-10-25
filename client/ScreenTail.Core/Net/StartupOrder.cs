@@ -89,8 +89,8 @@ public static class StartupOrder
                 catch (Exception ex)
 #pragma warning restore CA1031
                 {
-                    // Usually an apply that threw. PolicySync leaves the old policy in force then, so the
-                    // next fetch applies this one again; until one lands nothing counts as fetched and the
+                    // Usually an apply that threw. PolicySync remembers the policy as not yet applied, so
+                    // the next fetch applies it again; until one lands nothing counts as fetched and the
                     // outbox keeps waiting (INV-8, INV-11). Ending the loop here wedged the outbox for the
                     // life of the service.
                     failed?.Invoke(ex);

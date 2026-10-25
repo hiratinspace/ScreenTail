@@ -115,6 +115,7 @@ public sealed class PolicySync(HttpClient http, Func<string?> token, IPolicyCach
     private readonly IPolicyCache _cache = cache ?? throw new ArgumentNullException(nameof(cache));
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private TenantPolicy? _current;
+    private bool _unapplied;
 
     /// <summary>Raised when a fetch brought a policy that differs from the one in force.</summary>
     public event Action<TenantPolicy>? Changed;
@@ -169,19 +170,16 @@ public sealed class PolicySync(HttpClient http, Func<string?> token, IPolicyCach
             var before = Current;
             _current = policy;
             _cache.Save(policy);
-            if (policy != before)
+            if (policy != before || _unapplied)
             {
-                try
-                {
-                    Changed?.Invoke(policy);
-                }
-                catch
-                {
-                    // In force only once applied. Left as the new one, the next fetch of the same answer
-                    // would find nothing changed, never apply it, and report it fetched (INV-11).
-                    _current = before;
-                    throw;
-                }
+                // An apply that throws has usually done part of its work, the guard first, so the
+                // tenant's answer stays the policy every later apply resolves under: a technician's save
+                // then cannot lift a lock the guard already holds (INV-8, INV-11). It is remembered as
+                // not yet applied, so the next fetch of the same answer applies it again and only then
+                // reports it fetched.
+                _unapplied = true;
+                Changed?.Invoke(policy);
+                _unapplied = false;
             }
 
             return true;

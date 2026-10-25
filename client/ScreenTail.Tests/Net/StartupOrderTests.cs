@@ -143,11 +143,12 @@ public sealed class StartupOrderTests
     }
 
     [Fact]
-    public async Task APolicyWhoseApplyThrowsIsNotInForceAndIsAppliedAgainNextTime()
+    public async Task APolicyWhoseApplyThrowsIsAppliedAgainNextTime()
     {
-        // Fail closed. The policy is in force only once applied: a fetch whose apply threw leaves the
-        // policy as it was, so the next fetch of the same answer raises Changed again rather than
-        // finding nothing new and reporting a policy that was never applied as fetched.
+        // Fail closed. A fetch whose apply threw does not count as fetched, and the next fetch of the
+        // same answer raises Changed again rather than finding nothing new and reporting a policy that
+        // was never fully applied as fetched. The tenant's answer stays the one later applies resolve
+        // under (PolicyApplierTests.ALockWhoseApplyThrewIsNotLiftedByTheTechniciansNextSave).
         var ct = TestContext.Current.CancellationToken;
         using var http = new HttpClient(new PolicyBackend()) { BaseAddress = new Uri("https://api.screentail.example/") };
         var policy = new PolicySync(http, () => "an-access-token", new NoCache());
@@ -161,7 +162,8 @@ public sealed class StartupOrderTests
         };
 
         _ = await Assert.ThrowsAsync<InvalidOperationException>(() => policy.FetchAsync(ct));
-        Assert.Equal(TenantPolicy.Default.Version, policy.Current.Version);
+        Assert.Equal(1, applies);
+        Assert.Equal("v9", policy.Current.Version);
 
         Assert.True(await policy.FetchAsync(ct));
         Assert.Equal(2, applies);
