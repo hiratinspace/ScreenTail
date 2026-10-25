@@ -202,8 +202,15 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         await _one.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // Released after an idle stretch, or never loaded on this thread's view yet. The file is on
-            // disk and was verified when it landed, so this is a reload, not a download.
+            if (_disposed)
+            {
+                // Disposal released the model while this call waited for the lock. Loading it again
+                // here would leave a native context nobody frees.
+                return null;
+            }
+
+            // Released after an idle stretch. The file is on disk and was verified when it landed, so
+            // this is a reload, not a download.
             var processor = _processor ?? Load();
 
             var text = new System.Text.StringBuilder();
@@ -244,8 +251,9 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         }
         finally
         {
-            _one.Release();
+            // Under the lock, so an idle release waiting for it sees this use and leaves the model be.
             _idle.Touch();
+            _one.Release();
         }
     }
 
@@ -306,7 +314,15 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         }
         finally
         {
-            _one.Release();
+            try
+            {
+                _one.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Disposal took the lock after this one and has finished with it. Nobody awaits this task,
+                // so the release is the last thing it does either way.
+            }
         }
     }
 
