@@ -16,6 +16,26 @@ public static class ReviewOpening
     /// and company. Never under local-only, where the technician's own search in the pane is the first
     /// thing that may reach the PSA; never without a hint or a PSA to ask.
     /// </summary>
-    public static bool MayLookUpSuggestedTicket(bool localOnly, string? suggestedTicket, int integrations) =>
-        !localOnly && !string.IsNullOrWhiteSpace(suggestedTicket) && integrations > 0;
+    /// <param name="sessionLocalOnly">The session was recorded under local-only.</param>
+    /// <param name="localOnlyNow">
+    /// Asks the service whether local-only is in force now: true, false, or null when it would not say.
+    /// Asked only when everything else allows the lookup.
+    /// </param>
+    public static async Task<bool> MayLookUpSuggestedTicketAsync(
+        bool sessionLocalOnly,
+        string? suggestedTicket,
+        int integrations,
+        Func<CancellationToken, Task<bool?>> localOnlyNow,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(localOnlyNow);
+        if (sessionLocalOnly || string.IsNullOrWhiteSpace(suggestedTicket) || integrations <= 0)
+        {
+            return false;
+        }
+
+        // The setting in force now, not only the session's flag: a session recorded before local-only
+        // was turned on is opened under it. An answer that did not come is not taken to mean "off".
+        return await localOnlyNow(ct).ConfigureAwait(false) == false;
+    }
 }

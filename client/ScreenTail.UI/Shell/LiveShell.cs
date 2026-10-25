@@ -301,8 +301,10 @@ public sealed class LiveShell : IAsyncDisposable
         // PSA is asked for it by id so the pane can show its summary and company beside the Suggested
         // badge; a number the PSA does not know is not suggested, and the picker is as before. Never for
         // a local-only session, whose banner says nothing from it leaves the device: opening Review is
-        // not the technician publishing, and the number came off their screen (S-44, S-45).
-        if (ReviewOpening.MayLookUpSuggestedTicket(session.LocalOnly, session.SuggestedTicket, integrations.Count)
+        // not the technician publishing, and the number came off their screen (S-44, S-45). Nor when
+        // local-only is in force now for a session recorded before it was, or when the service will not
+        // say whether it is.
+        if (await ReviewOpening.MayLookUpSuggestedTicketAsync(session.LocalOnly, session.SuggestedTicket, integrations.Count, LocalOnlyNowAsync, ct).ConfigureAwait(true)
             && session.SuggestedTicket is { } hinted)
         {
             var matches = await publisher.SearchAsync(hinted, ct).ConfigureAwait(true);
@@ -331,6 +333,10 @@ public sealed class LiveShell : IAsyncDisposable
             timelineExpanded: _preferences.Load().TimelineExpanded,
             timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }));
     }
+
+    /// <summary>Local-only as the service has it in force now (the admin's when locked), or null when it would not say.</summary>
+    private async Task<bool?> LocalOnlyNowAsync(CancellationToken ct) =>
+        (await _connection.RequestAsync<SettingsReported>(id => new GetSettingsCommand { RequestId = id }, ct).ConfigureAwait(true))?.EffectiveLocalOnly;
 
     private async Task<IReadOnlyList<SessionRow>?> ListSessionsAsync(CancellationToken ct) =>
         (await _connection.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct).ConfigureAwait(true))?.Sessions;
