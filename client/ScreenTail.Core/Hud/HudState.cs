@@ -63,7 +63,7 @@ public static class HudState
         return new HudSnapshot(
             state,
             Mic(capabilities),
-            online ? null : new HudSegment(HudTone.Idle, "☁", "Offline", "Offline — draft will be created when connected."),
+            online ? null : new HudSegment(HudTone.Idle, "☁", "Offline", "Offline: draft will be created when connected."),
             capture?.PendingRedactions ?? 0,
 
             // Hidden only ever hides the pill, and only while capture is known to be off — Spec v0.4.1 Q1
@@ -183,7 +183,7 @@ public static class HudState
 
     private static HudSegment Paused(CaptureStateSnapshot capture) =>
         capture.Reason is CaptureReasons.User or null
-            ? new HudSegment(HudTone.Paused, "‖", "Paused — press Ctrl+Alt+P to resume")
+            ? new HudSegment(HudTone.Paused, "‖", "Paused: press Ctrl+Alt+P to resume")
             : Suppressed(capture);
 
     private static HudSegment Suppressed(CaptureStateSnapshot capture) => capture.Reason switch
@@ -199,14 +199,14 @@ public static class HudState
 
             // Spec v0.4.1 Q5 fixes this wording. It explains a limitation rather than implying a choice:
             // Windows will not let us capture an elevated window, and the technician cannot fix that.
-            "Elevated window — screen not captured."),
+            "Elevated window: screen not captured."),
 
         CaptureReasons.OutOfScope => new HudSegment(
             HudTone.Scope,
             "◎",
             capture.ScopeProcess is { Length: > 0 } process
-                ? $"Not capturing — {process}"
-                : "Not capturing — out of scope",
+                ? $"Not capturing: {process}"
+                : "Not capturing: out of scope",
             "Clicks are still on the timeline; no screenshots are taken."),
 
         _ => new HudSegment(HudTone.Paused, "⏸", "Paused"),

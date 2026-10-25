@@ -51,7 +51,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Paused, reason: CaptureReasons.User));
 
         Assert.Equal(HudTone.Paused, hud.State.Tone);
-        Assert.Equal("Paused — press Ctrl+Alt+P to resume", hud.State.Text);
+        Assert.Equal("Paused: press Ctrl+Alt+P to resume", hud.State.Text);
     }
 
     [Theory]
@@ -76,7 +76,7 @@ public sealed class HudStateTests
         // not let us capture an elevated window and the technician cannot fix that.
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.ElevatedWindow));
 
-        Assert.Equal("Elevated window — screen not captured.", hud.State.Tooltip);
+        Assert.Equal("Elevated window: screen not captured.", hud.State.Tooltip);
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope, process: "OUTLOOK"));
 
         Assert.Equal(HudTone.Scope, hud.State.Tone);
-        Assert.Equal("Not capturing — OUTLOOK", hud.State.Text);
+        Assert.Equal("Not capturing: OUTLOOK", hud.State.Text);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class HudStateTests
         // the service not knowing what is in front.
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope));
 
-        Assert.Equal("Not capturing — out of scope", hud.State.Text);
+        Assert.Equal("Not capturing: out of scope", hud.State.Text);
         Assert.Equal(HudTone.Scope, hud.State.Tone);
     }
 
@@ -145,7 +145,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Recording), online: false);
 
         Assert.NotNull(hud.Cloud);
-        Assert.Equal("Offline — draft will be created when connected.", hud.Cloud.Tooltip);
+        Assert.Equal("Offline: draft will be created when connected.", hud.Cloud.Tooltip);
         Assert.Equal(HudTone.Recording, hud.State.Tone);
     }
 
@@ -316,6 +316,46 @@ public sealed class HudStateTests
     public void TheRedactionCountIsWhateverTheServiceSaid()
     {
         Assert.Equal(3, HudState.For(Capture(CaptureStates.Recording, pending: 3)).PendingRedactions);
+    }
+
+    [Fact]
+    public void NoPillStringCarriesAnEmDash()
+    {
+        // The pill's words use plain punctuation, as the tray's and the shell's do (2026-10-12 review).
+        // Every state and every pause reason, with and without a process, offline, with each microphone.
+        string[] states = [CaptureStates.Idle, CaptureStates.Recording, CaptureStates.Paused, CaptureStates.Suppressed, CaptureStates.Finalizing, CaptureStates.DraftReady, CaptureStates.DraftFailed, "new_state"];
+        string?[] reasons = [null, CaptureReasons.User, CaptureReasons.PasswordField, CaptureReasons.SensitiveContext, CaptureReasons.ExcludedApp, CaptureReasons.ElevatedWindow, CaptureReasons.OutOfScope, "new_reason"];
+        var said = new List<string>();
+        foreach (var state in states)
+        {
+            foreach (var reason in reasons)
+            {
+                foreach (var process in new string?[] { null, "OUTLOOK" })
+                {
+                    foreach (var capabilities in new CapabilityReport?[] { null, Capabilities(CapabilityState.Ok), Capabilities(CapabilityState.Blocked) })
+                    {
+                        Collect(HudState.For(Capture(state, 1_000, reason, process), capabilities, online: false), said);
+                    }
+                }
+            }
+        }
+
+        Collect(HudState.For(null, online: false), said);
+
+        Assert.NotEmpty(said);
+        Assert.All(said, text => Assert.DoesNotContain("—", text, StringComparison.Ordinal));
+    }
+
+    private static void Collect(HudSnapshot hud, List<string> said)
+    {
+        foreach (var segment in new[] { hud.State, hud.Mic, hud.Cloud })
+        {
+            if (segment is not null)
+            {
+                said.Add(segment.Text);
+                said.Add(segment.Tooltip ?? string.Empty);
+            }
+        }
     }
 
     private static CaptureStateSnapshot Capture(

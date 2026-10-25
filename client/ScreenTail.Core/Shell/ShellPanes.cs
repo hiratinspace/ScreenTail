@@ -158,7 +158,7 @@ public static class ShellStatus
         {
             CaptureStates.Recording => "Recording",
             CaptureStates.Paused => "Paused",
-            CaptureStates.Suppressed => "Paused — sensitive window",
+            CaptureStates.Suppressed => "Paused: sensitive window",
             CaptureStates.Finalizing => "Finishing up",
             CaptureStates.DraftReady => "Draft ready",
             CaptureStates.DraftFailed => "Draft failed",
@@ -173,8 +173,8 @@ public static class ShellStatus
 
         return (tool, elapsed) switch
         {
-            (not null, not null) => $"{state} — {tool} ({elapsed})",
-            (not null, null) => $"{state} — {tool}",
+            (not null, not null) => $"{state}: {tool} ({elapsed})",
+            (not null, null) => $"{state}: {tool}",
             (null, not null) => $"{state} ({elapsed})",
             _ => state,
         };

@@ -155,7 +155,7 @@ public sealed class ShellPanesTests
     [InlineData(CaptureStates.Idle, "Idle")]
     [InlineData(CaptureStates.Recording, "Recording")]
     [InlineData(CaptureStates.Paused, "Paused")]
-    [InlineData(CaptureStates.Suppressed, "Paused — sensitive window")]
+    [InlineData(CaptureStates.Suppressed, "Paused: sensitive window")]
     [InlineData(CaptureStates.Finalizing, "Finishing up")]
     [InlineData(CaptureStates.DraftReady, "Draft ready")]
     [InlineData(CaptureStates.DraftFailed, "Draft failed")]
@@ -169,7 +169,7 @@ public sealed class ShellPanesTests
     {
         var capture = Capture(CaptureStates.Recording, "s1", elapsed: 12 * 60 * 1000 + 41_000) with { RemoteTool = "screenconnect" };
 
-        Assert.Equal("Recording — screenconnect (12:41)", ShellStatus.Describe(Snapshot(ShellView.Review, capture)));
+        Assert.Equal("Recording: screenconnect (12:41)", ShellStatus.Describe(Snapshot(ShellView.Review, capture)));
         Assert.Equal(ShellStatus.Unknown + " (12:41)", ShellStatus.Describe(Snapshot(ShellView.Review, capture with { State = "new_state", RemoteTool = null })));
     }
 

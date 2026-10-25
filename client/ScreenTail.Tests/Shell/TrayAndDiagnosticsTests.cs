@@ -12,6 +12,34 @@ namespace ScreenTail.Tests.Shell;
 /// </summary>
 public sealed class TrayAndDiagnosticsTests
 {
+    [Theory]
+    [InlineData(ServiceConnection.Connecting)]
+    [InlineData(ServiceConnection.Connected)]
+    [InlineData(ServiceConnection.Unavailable)]
+    public void NoTrayOrShellStatusStringCarriesAnEmDash(ServiceConnection connection)
+    {
+        // The tray's tooltip and state line, and the shell's status line that repeats them, use plain
+        // punctuation (2026-10-12 review). Every state, with and without a tool and a time.
+        string[] states = [CaptureStates.Idle, CaptureStates.Recording, CaptureStates.Paused, CaptureStates.Suppressed, CaptureStates.Finalizing, CaptureStates.DraftReady, CaptureStates.DraftFailed, "new_state"];
+        var said = new List<string>();
+        foreach (var state in states)
+        {
+            foreach (var tool in new string?[] { null, "screenconnect" })
+            {
+                foreach (var elapsed in new long?[] { null, 761_000 })
+                {
+                    var snapshot = new ShellSnapshot(connection, new CaptureStateSnapshot { State = state, SessionId = "s1", RemoteTool = tool, ElapsedMs = elapsed, DraftsReady = 1 }, ShellView.Review, null);
+                    var presence = TrayPresence.From(snapshot);
+                    said.Add(presence.Tooltip);
+                    said.Add(presence.StateLine);
+                    said.Add(ShellStatus.Describe(snapshot));
+                }
+            }
+        }
+
+        Assert.All(said, text => Assert.DoesNotContain("—", text, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void RecordingLooksDifferentFromPausedAndFromUnknown()
     {
@@ -27,7 +55,7 @@ public sealed class TrayAndDiagnosticsTests
     {
         // Spec §5 S1's wording. "Recording" alone does not tell a technician whether the thing they
         // started an hour ago is still going.
-        Assert.Equal("ScreenTail — Recording — screenconnect (12:41)", Presence("recording").Tooltip);
+        Assert.Equal("ScreenTail · Recording: screenconnect (12:41)", Presence("recording").Tooltip);
     }
 
     [Fact]
@@ -75,8 +103,8 @@ public sealed class TrayAndDiagnosticsTests
         // what the technician has open in it is the customer's business (INV-10).
         var presence = Presence("recording");
 
-        Assert.DoesNotContain("—  ", presence.Tooltip, StringComparison.Ordinal);
-        Assert.Equal(presence.Tooltip, $"ScreenTail — {presence.StateLine}");
+        Assert.DoesNotContain(":  ", presence.Tooltip, StringComparison.Ordinal);
+        Assert.Equal(presence.Tooltip, $"ScreenTail · {presence.StateLine}");
     }
 
     [Fact]
