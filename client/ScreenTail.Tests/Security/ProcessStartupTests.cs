@@ -48,6 +48,22 @@ public sealed class ProcessStartupTests
         Assert.Matches(new Regex(@"<StartupHookSupport>\s*false\s*</StartupHookSupport>"), csproj);
     }
 
+    [Fact]
+    public void ASignatureIsNotAskedToExpireWithItsCertificate()
+    {
+        // S-21. Lifetime signing makes WinVerifyTrust treat a signature as invalid once its certificate
+        // expires, timestamp or not. On that date both peer checks would refuse every process, and a
+        // shipped build would start calling itself a development build. Only Windows can run the call,
+        // so the flag is pinned here where every platform's suite reads it, and the development rule is
+        // pinned to "nothing signed this" (DevelopmentBuildTests runs that half on Windows).
+        var authenticode = File.ReadAllText(Source("ScreenTail.Platform", Path.Combine("Ipc", "Authenticode.cs")));
+        var signing = File.ReadAllText(Source("ScreenTail.Platform", Path.Combine("Ipc", "Signing.cs")));
+
+        Assert.DoesNotContain("WTD_LIFETIME_SIGNING_FLAG", authenticode, StringComparison.Ordinal);
+        Assert.Contains("Authenticode.IsUnsigned(", signing, StringComparison.Ordinal);
+        Assert.DoesNotContain("VerifiedSignerThumbprint", signing, StringComparison.Ordinal);
+    }
+
     /// <summary>A file in the client's source tree, found from the test binary the way ClientSources finds projects.</summary>
     private static string Source(string project, string file)
     {

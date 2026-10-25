@@ -76,7 +76,12 @@ internal static class Authenticode
                 RevocationChecks = WTD_REVOKE_NONE,
                 UnionChoice = WTD_CHOICE_FILE,
                 StateAction = WTD_STATEACTION_VERIFY,
-                ProvFlags = WTD_SAFER_FLAG | WTD_LIFETIME_SIGNING_FLAG,
+                // Not lifetime signing. That flag makes a signature expire with its certificate even
+                // when it was timestamped, and on that date both peer checks would refuse everyone and
+                // the shipped build would stop counting as signed (2026-10-12 review, S-21). Without it a
+                // timestamped signature stays good; an untimestamped one still fails once its certificate
+                // expires, which is why ST-112 timestamps every signature it makes.
+                ProvFlags = WTD_SAFER_FLAG,
                 FileInfoPtr = fileInfoPtr,
             };
 
@@ -122,7 +127,6 @@ internal static class Authenticode
     private const uint WTD_STATEACTION_VERIFY = 1;
     private const uint WTD_STATEACTION_CLOSE = 2;
     private const uint WTD_SAFER_FLAG = 0x100;
-    private const uint WTD_LIFETIME_SIGNING_FLAG = 0x800;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
 
     private static readonly Guid WintrustActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
