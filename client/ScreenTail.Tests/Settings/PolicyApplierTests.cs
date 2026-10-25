@@ -88,6 +88,41 @@ public sealed class PolicyApplierTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ALockWhoseApplyThrewIsNotLiftedByTheTechniciansNextSave()
+    {
+        // The apply that carries a new policy runs every piece and then reports to the host, and the
+        // report can throw (a logging provider that fails). The guard already holds the admin's lock by
+        // then. Putting the old, unlocked policy back as the one in force meant the technician's next
+        // save resolved under it and lifted the lock, so drafts left under a local-only lock the tenant
+        // had set until the next fetch, ten minutes on (INV-8, INV-11).
+        var ct = TestContext.Current.CancellationToken;
+        using var rig = new Rig(new ClientSettings { LocalOnly = false });
+        _ = rig.Applier.Apply();
+        var reports = 0;
+        rig.Applier.Applied += _ =>
+        {
+            if (++reports == 1)
+            {
+                throw new InvalidOperationException("a report that failed");
+            }
+        };
+
+        rig.Backend.Policy = new TenantPolicy("p2", 7, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: false);
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Sync.FetchAsync(ct));
+        Assert.True(rig.Egress.Settings.LocalOnly);
+
+        _ = rig.Applier.Apply(new ClientSettings { LocalOnly = false });
+
+        Assert.True(rig.Egress.Settings.LocalOnly);
+        Assert.False(rig.Egress.CanChangeLocally);
+        Assert.False(rig.Egress.Decide(EgressPurpose.Summarisation, new Uri(Address, "v1/sessions/summarize")).Allowed);
+
+        // And the next fetch of the same answer applies it again, rather than finding nothing new.
+        Assert.True(await rig.Sync.FetchAsync(ct));
+        Assert.Equal(3, reports);
+    }
+
+    [Fact]
     public async Task WhenTheAdminLiftsTheLockTheTechniciansOwnChoiceComesBack()
     {
         // Both directions, without a restart: the policy that locked local-only on is lifted by the next one,

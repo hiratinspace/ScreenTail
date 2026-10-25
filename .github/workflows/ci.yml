@@ -99,29 +99,68 @@ jobs:
       # ST-018, the second half of the skip gate. The budget in skip-baseline.json is a ratchet: a pull
       # request may tighten it freely and may not loosen it, so adding a skip cannot quietly buy itself
       # room. Raising a number is a decision that has to be argued for, not a side effect.
+      #
+      # The mustRun lists are the other half of the same ratchet. A test named there has to run and pass
+      # or the skip gate fails, so deleting the name was a way to stop requiring it that no budget saw
+      # (2026-10-12 review, second pass). Every name the base branch requires, per environment, has to
+      # still be required; adding names is free. The comparison checks itself first against baselines
+      # made up here, so a comparison that passed everything would fail this step rather than wave
+      # every pull request through.
       - name: The skip budget has not been raised
         if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           FILE: client/ScreenTail.Tests.Windows/skip-baseline.json
         run: |
+          compare() {
+            local was="$1" now="$2" bad=0
+            while IFS= read -r envname; do
+              before=$(jq -r --arg e "$envname" '.environments[$e].maxSkipped // empty' "$was")
+              if [ -z "$before" ]; then echo "$envname: new, nothing to compare"; continue; fi
+              after=$(jq -r --arg e "$envname" '.environments[$e].maxSkipped // empty' "$now")
+              echo "$envname: was $before, now ${after:-missing}"
+              if ! [[ "$after" =~ ^[0-9]+$ ]]; then
+                echo "::error file=$FILE::The '$envname' skip budget is missing or not a whole number. It was $before on the base branch and may only go down."
+                bad=1
+              elif [ "$after" -gt "$before" ]; then
+                echo "::error file=$FILE::The '$envname' skip budget went from $before to $after. It may only go down. A test that skips is a fact nobody is checking; if the machine genuinely cannot run it, say so in the PR and get agreement rather than widening the gate."
+                bad=1
+              fi
+            done < <(jq -r '.environments | keys[]' "$was")
+            while IFS=$'\t' read -r envname name; do
+              [ -n "$name" ] || continue
+              if ! jq -e --arg e "$envname" --arg n "$name" '[(.environments[$e].mustRun // [])[] | select(. == $n)] | length > 0' "$now" > /dev/null; then
+                echo "::error file=$FILE::'$name' must run on '$envname' on the base branch and is no longer required. A mustRun name is how the gate knows an invariant's proof ran; taking it off is a decision to argue for in review, like raising a budget."
+                bad=1
+              fi
+            done < <(jq -r '.environments | to_entries[] | .key as $e | (.value.mustRun // [])[] | [$e, .] | @tsv' "$was")
+            return $bad
+          }
+
+          # The comparison, on baselines made up here, before it is trusted with the real one.
+          scratch=$(mktemp -d)
+          echo '{"environments":{"laptop":{"maxSkipped":2,"mustRun":["A.Proof","B.Other"]}}}' > "$scratch/base.json"
+          echo '{"environments":{"laptop":{"maxSkipped":1,"mustRun":["A.Proof","B.Other","C.New"]}},"extra":1}' > "$scratch/tighter.json"
+          echo '{"environments":{"laptop":{"maxSkipped":3,"mustRun":["A.Proof","B.Other"]}}}' > "$scratch/raised.json"
+          echo '{"environments":{"laptop":{"maxSkipped":2,"mustRun":["B.Other"]}}}' > "$scratch/dropped.json"
+          echo '{"environments":{"laptop":{"maxSkipped":2}}}' > "$scratch/nolist.json"
+          echo '{"environments":{"other":{"maxSkipped":0}}}' > "$scratch/noenv.json"
+          selfbad=0
+          expect() {
+            if compare "$scratch/base.json" "$scratch/$2.json" > /dev/null; then got=0; else got=1; fi
+            if [ "$got" != "$1" ]; then echo "::error file=.github/workflows/ci.yml::The ratchet gave the wrong answer for '$2': exit $got, expected $1."; selfbad=1; fi
+          }
+          expect 0 base; expect 0 tighter; expect 1 raised; expect 1 dropped; expect 1 nolist; expect 1 noenv
+          rm -rf "$scratch"
+          if [ "$selfbad" -ne 0 ]; then exit 1; fi
+          echo "The ratchet's own check passed: an unchanged or tighter baseline passes, a raised budget or a dropped mustRun name fails."
+
           if ! git cat-file -e "$BASE:$FILE" 2>/dev/null; then
             echo "No baseline on the base branch yet; nothing to compare."
             exit 0
           fi
           git show "$BASE:$FILE" > /tmp/base-baseline.json
-          bad=0
-          for envname in $(jq -r '.environments | keys[]' "$FILE"); do
-            was=$(jq -r ".environments.\"$envname\".maxSkipped // empty" /tmp/base-baseline.json)
-            if [ -z "$was" ]; then echo "$envname: new, nothing to compare"; continue; fi
-            now=$(jq -r ".environments.\"$envname\".maxSkipped" "$FILE")
-            echo "$envname: was $was, now $now"
-            if [ "$now" -gt "$was" ]; then
-              echo "::error file=$FILE::The '$envname' skip budget went from $was to $now. It may only go down. A test that skips is a fact nobody is checking; if the machine genuinely cannot run it, say so in the PR and get agreement rather than widening the gate."
-              bad=1
-            fi
-          done
-          exit $bad
+          compare /tmp/base-baseline.json "$FILE"
 
   client:
     name: Client (Windows)
@@ -484,6 +523,15 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # ST-018. Parsing proves the skip gate is a script; this proves it is the right one. Synthetic TRX
+      # reports stand in for a run that skipped too much, a run that proved nothing (no tests at all,
+      # which is what renaming InputHookTests would leave the laptop's input job with) and a run in
+      # which INV-2's end-to-end proof did not execute, and the gate has to fail each of them and pass
+      # the run that is in order (2026-10-12 review, T-231 and T-232).
+      - name: The skip gate fails a run that proved nothing
+        shell: powershell
+        run: ./scripts/windows/check-skips.Tests.ps1
+
   workflows:
     name: Workflows are well-formed
     runs-on: ubuntu-latest
@@ -498,13 +546,23 @@ jobs:
       # never going to start and then fails -- on a pull request with nothing wrong with it.
       #
       # Checked by example rather than by comparing a regex with a glob list, because the two notations
-      # do not compare and the examples are what a person would check by hand anyway.
+      # do not compare. One example is made from every glob in hardware-checks.yml, so a glob the gate
+      # does not know is caught even when its folder is empty today, and then every file in the tree is
+      # asked both questions, so a path the gate flags and the workflow ignores (or the reverse) cannot
+      # hide in the gaps between chosen paths (2026-10-12 review, T-225).
+      #
+      # Agreement alone is not enough, because both files can be narrowed together: take Privacy out of
+      # each and they still agree, and the redaction code (INV-1) no longer reaches the laptop. So a few
+      # fixed anchors say what the answer has to be whatever the two files say: real files that must
+      # need the laptop, one from every area that does, and paths that must not. An anchor that is no
+      # longer a tracked file fails too, so a move has to be followed here rather than leaving the new
+      # folder unchecked.
       - name: The hardware gate and the hardware workflow agree
         run: |
           python3 - <<'EOF'
-          import re, sys, yaml, fnmatch
+          import re, sys, yaml, fnmatch, subprocess
 
-          ci = pathlib_read = open('.github/workflows/ci.yml').read()
+          ci = open('.github/workflows/ci.yml').read()
           match = re.search(r"only '(\^\([^']+\))' hardware", ci)
           if not match:
               sys.exit("Could not find the hardware only() filter in ci.yml.")
@@ -512,48 +570,79 @@ jobs:
 
           hardware = yaml.safe_load(open('.github/workflows/hardware-checks.yml'))
           globs = hardware[True]['pull_request']['paths']
+          if not globs:
+              sys.exit("hardware-checks.yml has no pull_request paths.")
 
           def triggers(path):
               return any(fnmatch.fnmatch(path, glob) for glob in globs)
 
-          # One real file per area the laptop is meant to see, and a few it is not.
-          needs_laptop = [
-              'client/ScreenTail.Core/Capture/PendingFrames.cs',
-              'client/ScreenTail.Core/Privacy/RedactionWorker.cs',
-              'client/ScreenTail.Core/Input/HookLifetime.cs',
-              'client/ScreenTail.Core/Store/SqliteSessionStore.cs',
-              'client/ScreenTail.Core/Ipc/IndicatorReports.cs',
-              'client/ScreenTail.Core/Sessions/SessionMachine.cs',
-              'client/ScreenTail.Core/Speech/SpeechModels.cs',
-              'client/ScreenTail.Core/Detection/ScopePolicy.cs',
-              'client/ScreenTail.Core/Capabilities/Probe.cs',
-              'client/ScreenTail.Service/Capture/ClickCaptureLoop.cs',
-              'client/ScreenTail.Platform/Ipc/ProcessImage.cs',
-              'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
-              'scripts/windows/run-local.ps1',
-          ]
-          does_not = [
-              'client/ScreenTail.UI/Shell/LiveShell.cs',
-              'client/ScreenTail.Core/Net/DraftSender.cs',
-              'client/ScreenTail.Core/Intel/BundleBuilder.cs',
-              'backend/src/ScreenTail.Api/Program.cs',
-              'docs/README.md',
-          ]
-
           bad = []
-          for path in needs_laptop:
-              flagged, runs = bool(gate.match(path)), triggers(path)
-              if not flagged:
-                  bad.append(f"{path}: ci.yml would not ask for hardware evidence.")
-              elif not runs:
-                  bad.append(f"{path}: ci.yml asks for evidence but hardware-checks.yml does not run -- the gate would wait for a run that never starts.")
 
-          for path in does_not:
-              if gate.match(path):
-                  bad.append(f"{path}: ci.yml asks for hardware evidence it does not need.")
+          # Whatever the two files say, these need the laptop: INV-1's redaction worker and the queue its
+          # frames wait in, the session machine and store, and a file from every other area the laptop
+          # exists to check. And these do not: a backend, web or docs change never takes the keyboard.
+          must_need = [
+              'client/ScreenTail.Core/Privacy/RedactionWorker.cs',
+              'client/ScreenTail.Core/Capture/PendingFrames.cs',
+              'client/ScreenTail.Core/Sessions/SessionMachine.cs',
+              'client/ScreenTail.Core/Store/SqliteSessionStore.cs',
+              'client/ScreenTail.Core/Capabilities/CachedCapabilityProbe.cs',
+              'client/ScreenTail.Service/Capture/ClickCaptureLoop.cs',
+              'client/ScreenTail.Service/Detection/WindowsForegroundWatcher.cs',
+              'client/ScreenTail.Service/Input/WindowsInputHooks.cs',
+              'client/ScreenTail.Core/Ipc/IpcServer.cs',
+              'client/ScreenTail.Service/Speech/WindowsMicrophone.cs',
+              'client/ScreenTail.Platform/Ipc/WindowsClientVerifier.cs',
+              'scripts/windows/check-skips.ps1',
+              'client/ScreenTail.Core/Input/HookLifetime.cs',
+              'client/ScreenTail.Core/Detection/ScopePolicy.cs',
+              'client/ScreenTail.Core/Speech/SpeechModels.cs',
+              'client/ScreenTail.Tests.Windows/Input/InputHookTests.cs',
+              'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
+              '.github/workflows/hardware-checks.yml',
+          ]
+          must_not = [
+              'backend/ScreenTail.Backend.sln',
+              'web/package.json',
+              'docs/adr/0001-client-stack.md',
+          ]
+
+          tracked = set(filter(None, subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True).stdout.split('\n')))
+          for path in must_need:
+              if path not in tracked:
+                  bad.append(f"{path}: an anchor that must need the laptop is no longer a tracked file. If it moved, name its new path here, and the check will say whether its new folder is gated.")
+              if not gate.match(path):
+                  bad.append(f"{path}: must need hardware evidence and the only() filter in ci.yml no longer asks for it.")
+              if not triggers(path):
+                  bad.append(f"{path}: must need hardware evidence and hardware-checks.yml no longer runs for it.")
+          for path in must_not:
+              if gate.match(path) or triggers(path):
+                  bad.append(f"{path}: must not take the laptop, and the hardware gate or workflow now runs for it.")
+
+          # One sample per glob, made from the glob itself, so a folder with no file in it yet is still
+          # checked. A glob is either a folder ending in /** or one literal file.
+          for glob in globs:
+              sample = glob.replace('**', 'Sample.cs')
+              if not triggers(sample):
+                  bad.append(f"{glob}: its own sample {sample} does not match it, so the glob is not one this check understands.")
+              elif not gate.match(sample):
+                  bad.append(f"{glob}: hardware-checks.yml runs for {sample} but ci.yml would not ask for its evidence.")
+
+          # Every tracked file, both ways. A file the gate flags and the workflow ignores makes the gate
+          # wait thirty-five minutes for a run that never starts; a file the workflow runs for and the
+          # gate ignores takes the laptop's keyboard with nothing waiting for the answer.
+          checked = 0
+          for path in sorted(tracked):
+              flagged, runs = bool(gate.match(path)), triggers(path)
+              checked += 1
+              if flagged and not runs:
+                  bad.append(f"{path}: ci.yml asks for evidence but hardware-checks.yml does not run -- the gate would wait for a run that never starts.")
+              elif runs and not flagged:
+                  bad.append(f"{path}: hardware-checks.yml runs but ci.yml does not ask for its evidence.")
 
           for line in bad:
               print(f"::error file=.github/workflows/ci.yml::{line}")
+          print("\n".join(bad) if bad else f"{len(globs)} globs, {len(must_need) + len(must_not)} anchors and {checked} tracked files agree with the hardware gate")
           sys.exit(1 if bad else 0)
           EOF
 

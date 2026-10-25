@@ -180,6 +180,55 @@ public sealed class FilmstripTests
     }
 
     [Fact]
+    public void ABlurredFrameKeepsItsPlaceAndWhetherItGoesOut()
+    {
+        // T-121. The frame a blur hands back carries the load-time excluded_by_user, which is stale once
+        // the technician has pressed Space. Rebuilding the cell from the frame would put an excluded frame
+        // back on the ticket; the cell keeps its own flag and only the picture changes.
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000), Frame("f2", 2000), Frame("f3", 3000)));
+        Assert.False(strip.Toggle("f2"));
+        var stale = strip.Frames.Single(cell => cell.Frame.Id == "f2").Frame;
+        var blurred = stale with { MaskedRegions = [new MaskedRegion { X = 1, Y = 2, Width = 30, Height = 4, Kind = MaskKind.UserBlur }], OcrText = null };
+
+        strip.Replace(blurred);
+
+        var cell = strip.Frames.Single(c => c.Frame.Id == "f2");
+        Assert.Same(blurred, cell.Frame);
+        Assert.Equal(2, cell.Number);
+        Assert.False(cell.Included);
+        Assert.False(strip.IsIncluded("f2"));
+        Assert.Equal(["f1", "f3"], strip.ToPublish().Select(frame => frame.Id));
+        Assert.Equal("2 of 3 included", strip.Header);
+
+        // And the other way: an included frame whose load-time flag says excluded stays included.
+        var strip2 = new Filmstrip(WithFrames(Frame("g1", 1000, excluded: true)));
+        Assert.True(strip2.Toggle("g1"));
+        strip2.Replace(strip2.Frames.Single().Frame with { OcrText = null });
+        Assert.True(strip2.IsIncluded("g1"));
+        Assert.Equal(["g1"], strip2.ToPublish().Select(frame => frame.Id));
+    }
+
+    [Fact]
+    public void AnUndoneDeleteOfAnExcludedFrameStaysExcluded()
+    {
+        // T-122. Excluded, deleted, then undeleted: the frame's own excluded_by_user is false, so a Restore
+        // that trusted the frame rather than the argument would publish a frame the technician took out.
+        var strip = new Filmstrip(WithFrames(Frame("f1", 1000), Frame("f2", 2000)));
+        Assert.False(strip.Toggle("f2"));
+        var removed = strip.Frames.Single(cell => cell.Frame.Id == "f2").Frame;
+        Assert.False(removed.ExcludedByUser);
+        strip.Remove("f2");
+
+        strip.Restore(removed, included: false);
+
+        Assert.False(strip.IsIncluded("f2"));
+        Assert.False(strip.Frames.Single(cell => cell.Frame.Id == "f2").Included);
+        Assert.Equal(["f1"], strip.ToPublish().Select(frame => frame.Id));
+        Assert.Equal("1 of 2 included", strip.Header);
+        Assert.Equal(["frame 1", "frame 2"], strip.Frames.Select(cell => cell.Label));
+    }
+
+    [Fact]
     public void ASuppressedIntervalIsDrawnBetweenTheFramesEitherSideOfIt()
     {
         // Spec §5 S3. Without it the strip reads as though the session lost eighteen seconds, and the

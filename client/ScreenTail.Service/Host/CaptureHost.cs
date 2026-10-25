@@ -85,6 +85,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             LogErased(logger, owed.Deleted.Count, owed.Complete);
         }
 
+        // An erasure that could not finish owes only what it could not remove, so a store written from
+        // here on is not part of it. Unless what it owes is the store, its key, the device's credential
+        // or the IPC token: a store opened beside the first two is one the erasure takes with it when it
+        // finishes, and a surviving credential would run this as an activated device after everything was
+        // to go. So the service does not run until a start manages it (INV-12).
+        if (LocalDataEraser.BlocksStart(DataDirectory))
+        {
+            LogErasureBlocksStart(logger);
+            lifetime.StopApplication();
+            return;
+        }
+
         await using var store = await SqliteSessionStore.OpenAsync(
             Path.Combine(DataDirectory, "store.db"),
             new DpapiKeyProvider(DpapiKeyProvider.DefaultKeyFilePath),
@@ -117,7 +129,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // The model hosts are named because the transcriber cannot fetch its model otherwise. The
         // backend host is on the backend list and the publish list both, so under local-only the purpose
         // each sender attaches is what keeps a draft in (INV-8); LocalOnlyEgressTests pins that shape.
-        var egressPolicy = new EgressPolicy(EgressSettings.ForBackend(backend, SpeechModels.Hosts));
+        // ClientEgress builds it, the same function the --transcribe tool asks, and ClientEgressTests
+        // holds it to every hop a model download makes.
+        var egressPolicy = new EgressPolicy(ClientEgress.Settings(backend));
         var egress = new EgressGuard(egressPolicy);
 
         // ST-047: the tenant's policy changes these in place while the service runs. The technician's
@@ -151,7 +165,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new DpapiDeviceCredentials(DpapiDeviceCredentials.DefaultPath),
             () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"),
             TimeProvider.System);
-        _ = Task.Run(() => device.RunAsync(stoppingToken), stoppingToken);
+        // The policy fetch waits for a token to fetch with, and the outbox waits for the policy: see
+        // StartupOrder. Both are set once and never reset.
+        var tokenReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policyFetched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = Task.Run(() => StartupOrder.RenewDeviceAsync(device, tokenReady, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "device renewal", ex.GetType().Name)), stoppingToken);
         // ST-067: what the technician keeps changing about drafts, as hints on the next one.
         var style = new StyleStore(Path.Combine(DataDirectory, "style.json"));
         var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints);
@@ -222,7 +240,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
-        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, null, null, null);
+        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, machine, pending, null, null, null);
         // What the UI reports about the pill being on screen, and what the indicator guard reads. A
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
@@ -353,7 +371,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var state = machine.State.ToWire();
         LogStarted(logger, IpcContract.Version, mode, state);
 
-        _ = Task.Run(() => policySync.RunAsync(stoppingToken), stoppingToken);
+        _ = Task.Run(() => StartupOrder.SyncPolicyAsync(policySync, tokenReady.Task, policyFetched, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "policy", ex.GetType().Name)), stoppingToken);
         foreground.Changed += coordinator.Observe;
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
@@ -551,17 +569,23 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             version,
             egress,
             egressPolicy,
+            machine,
+            pending,
             coordinator.CurrentScope?.Reason,
             redaction.Progress,
             capture.DroppedOutOfScope,
             narration.Microphone);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
-        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => machine.SessionId);
+        // The exemption is the session being recorded, read off the state and not the id alone: the
+        // machine keeps naming a session after it finishes, and that one ages out like any other.
+        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => RetentionJob.SessionBeingRecorded(machine.Snapshot));
 
         // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
         // technician is not waiting on, and a tight loop on a laptop is a battery complaint.
-        var draining = DrainOutboxAsync(outbox, logger, stoppingToken);
+        // With no backend nothing is sent and the queue only records why, so it is not held for a policy
+        // that cannot be fetched.
+        var draining = DrainOutboxAsync(outbox, backend is null ? Task.CompletedTask : policyFetched.Task, logger, stoppingToken);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {
@@ -632,17 +656,30 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Warning, Message = "Erased {Count} item(s) of local data; complete={Complete}")]
     private static partial void LogErased(ILogger logger, int count, bool complete);
 
+    // The type and never the message: an exception can quote what it was handling (INV-10).
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The {Loop} loop hit {Error} and carried on")]
+    private static partial void LogLoopFailed(ILogger logger, string loop, string error);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An erasure of local data still owes the store, its key or a credential; the service will not start until it finishes")]
+    private static partial void LogErasureBlocksStart(ILogger logger);
+
     /// <summary>
     /// Works the outbox until the service stops.
     ///
     /// One item per tick and a long tick: nothing in the queue is something a technician is waiting on,
     /// and a queue that spins costs battery on a machine that is also capturing.
+    ///
+    /// Nothing is sent until this run has fetched the tenant's policy once (<paramref name="policyFetched"/>,
+    /// from <see cref="StartupOrder.SyncPolicyAsync"/>).
+    /// Until then the policy in force is the cached copy on disk, and the user can write to that file, so
+    /// a draft could otherwise leave under a local-only lock the tenant had set (INV-8, INV-11).
     /// </summary>
-    private static async Task DrainOutboxAsync(Core.Outbox.Outbox outbox, ILogger logger, CancellationToken ct)
+    private static async Task DrainOutboxAsync(Core.Outbox.Outbox outbox, Task policyFetched, ILogger logger, CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
         try
         {
+            await policyFetched.WaitAsync(ct).ConfigureAwait(false);
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
                 _ = await outbox.DrainAsync(ct).ConfigureAwait(false);
@@ -670,36 +707,35 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     private static partial void LogNoModel(ILogger logger, string model, string reason);
 
     /// <summary>
-    /// What the diagnostics panel shows, assembled from the things only this process can see.
-    ///
-    /// Every field is a state, a count or a device name. The active window appears as the scope decision's
-    /// own words — a process name and what is being done about it — because this text goes on a clipboard
-    /// and into tickets, and a window title there is a customer's business in someone's ticket (INV-10).
+    /// What the diagnostics panel shows: this process's live sources, mapped by
+    /// <see cref="ServiceDiagnostics.Report"/> in Core, where the Mac suite holds each field to its source.
+    /// The suppression comes from the machine's state and holds, and the backlog from the queue of frames
+    /// waiting to be read.
     /// </summary>
     private static DiagnosticsReported Diagnostics(
         string version,
         EgressGuard egress,
         EgressPolicy egressPolicy,
+        SessionMachine machine,
+        PendingFrames pending,
         string? scope,
         RedactionProgress? redaction,
         long? keystrokesDropped,
         string? microphone = null)
     {
         using var self = System.Diagnostics.Process.GetCurrentProcess();
-        return new DiagnosticsReported
-        {
-            Scope = scope ?? "Not capturing — no remote session in front",
-            Microphone = microphone, // A device name, never audio (INV-10).
-            Suppression = null, // The HUD carries this from the capture state; the panel echoes it in ST-081.
-            RedactionBacklog = 0,
-            FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0),
-            KeystrokesDropped = keystrokesDropped ?? 0,
-            EgressBlocked = egress.Blocked,
-            LocalOnly = egressPolicy.Settings.LocalOnly,
-            PolicyVersion = _policySync?.Current.Version ?? TenantPolicy.Default.Version,
-            CpuPercent = 0,
-            WorkingSetBytes = self.WorkingSet64,
-            ServiceVersion = version,
-        };
+        return ServiceDiagnostics.Report(
+            serviceVersion: version,
+            scope: scope,
+            microphone: microphone,
+            state: machine.Snapshot,
+            isHeld: machine.IsHeld,
+            redactionBacklog: pending.Depth,
+            redaction: redaction,
+            keystrokesDropped: keystrokesDropped,
+            egressBlocked: egress.Blocked,
+            localOnly: egressPolicy.Settings.LocalOnly,
+            policyVersion: _policySync?.Current.Version ?? TenantPolicy.Default.Version,
+            workingSetBytes: self.WorkingSet64);
     }
 }

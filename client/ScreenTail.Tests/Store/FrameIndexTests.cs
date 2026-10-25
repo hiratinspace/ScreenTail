@@ -49,6 +49,24 @@ public sealed class FrameIndexTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheHistoryListIsReadInStartOrderFromAnIndex()
+    {
+        // E-3. The History screen asks for the newest sessions first. With nothing on started_at the
+        // planner read every session row ever kept, evaluated json_extract over each draft and counted
+        // each one's frames, sorted the lot in a temporary b-tree, and only then took the first page:
+        // 25x slower at 5,000 sessions, under the store gate, and session rows are never removed.
+        var plan = await PlanAsync(
+            """
+            SELECT s.id, s.started_at, json_extract(s.draft_json, '$.suggested_title'),
+                   (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0)
+            FROM sessions s ORDER BY s.started_at DESC LIMIT 200
+            """);
+
+        Assert.Contains("sessions_by_started", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("TEMP B-TREE", plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task OneSessionsAuditRowsAreFoundThroughTheIndex()
     {
         // The audit log is the one table nothing ever prunes, so a full scan of it is the one that gets

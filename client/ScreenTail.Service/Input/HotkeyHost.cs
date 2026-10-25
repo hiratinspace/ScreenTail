@@ -34,6 +34,9 @@ internal sealed class HotkeyHost(HotkeyBindings bindings, Action<HotkeyAction> p
         }
     }
 
+    /// <summary>Strikes a chord of the current set without a keyboard. For tests; see <see cref="Hotkeys.Press"/>.</summary>
+    internal bool Press(Hotkey chord) => _current.Press(chord);
+
     public async ValueTask DisposeAsync()
     {
         await _current.DisposeAsync().ConfigureAwait(false);

@@ -17,15 +17,25 @@ public static partial class LogScrubber
 
     // Names a value is logged under when it is content. Matched whole or as a suffix (WindowTitle,
     // OcrText), lower-cased. "Hotkey" and "TitleLength" are not here on purpose: a chord and a count
-    // say nothing about what was on the screen.
+    // say nothing about what was on the screen. A plural is the same content as its singular, and a
+    // customer's company or ticket is content whatever word follows it (CompanyName, TicketNumber): the
+    // static check over log templates and the runtime check both ask this, so a name missing here is
+    // missing from both (2026-10-12 review, T-116).
     private static readonly HashSet<string> Words = new(StringComparer.Ordinal)
     {
         "title", "text", "ocr", "ocrtext", "transcript", "note", "notes", "body", "clipboard", "summary",
         "query", "secret", "token", "password", "credential", "authorization", "apikey", "privatekey",
         "publickey", "company", "ticket", "email", "path", "filename", "file", "url", "site", "siteurl",
+        "titles", "texts", "transcripts", "companies", "tickets", "emails", "paths", "files", "urls",
+        "companyname", "ticketnumber", "ticketid",
     };
 
-    private static readonly string[] Suffixes = ["title", "text", "transcript", "clipboard", "secret", "password", "credential", "token", "note"];
+    private static readonly string[] Suffixes =
+    [
+        "title", "titles", "text", "texts", "transcript", "transcripts", "clipboard", "secret", "secrets",
+        "password", "passwords", "credential", "credentials", "token", "tokens", "note", "notes",
+        "company", "companies", "companyname", "ticket", "tickets", "ticketnumber", "ticketid",
+    ];
 
     [GeneratedRegex(@"(?<![\w])(?:[A-Za-z]:\\|\\\\)(?:[^\\\s""'<>|]+(?: [^\\\s""'<>|]+)*\\)*[^\\\s""'<>|]*")]
     private static partial Regex WindowsPath();

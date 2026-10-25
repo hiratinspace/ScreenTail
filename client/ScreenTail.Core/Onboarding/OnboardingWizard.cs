@@ -151,7 +151,7 @@ public sealed class OnboardingWizard(
                 var check = checks.FirstOrDefault(c => c.Capability == l.Capability);
                 return check is null
                     ? new PermissionRow(l.Capability, l.Label, false, "Not checked.", null)
-                    : new PermissionRow(l.Capability, l.Label, check.State == "ok", check.Message, check.FixHint);
+                    : new PermissionRow(l.Capability, l.Label, check.State == "ok", check.Message, check.FixLink);
             })];
     }
 

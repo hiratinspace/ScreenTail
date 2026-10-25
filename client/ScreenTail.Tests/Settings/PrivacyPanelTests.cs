@@ -8,7 +8,7 @@ namespace ScreenTail.Tests.Settings;
 /// Settings → Privacy &amp; Redaction (ST-081, Spec §5 S6): the technician's own settings, validated
 /// before they are saved, with the fields the admin's policy locked shown read-only and enforced
 /// (INV-11); a custom pattern checked as it is typed with a test box; the exact list of fields
-/// telemetry sends; export and delete. The service is a fake here; <c>PipePrivacyTests</c> is the real one.
+/// telemetry sends; export and delete. The service is a fake here; <c>PipeSettingsGatewaysTests</c> runs the gateway over a real pipe.
 /// </summary>
 public sealed class PrivacyPanelTests
 {

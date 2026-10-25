@@ -24,6 +24,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(GetSessionCommand), "get_session")]
 [JsonDerivedType(typeof(GetFrameCommand), "get_frame")]
 [JsonDerivedType(typeof(GetFrameTextCommand), "get_frame_text")]
+[JsonDerivedType(typeof(GetFrameThumbnailCommand), "get_frame_thumbnail")]
 [JsonDerivedType(typeof(SetFrameIncludedCommand), "set_frame_included")]
 [JsonDerivedType(typeof(DeleteFrameCommand), "delete_frame")]
 [JsonDerivedType(typeof(BlurFrameCommand), "blur_frame")]
@@ -220,6 +221,17 @@ public sealed record SessionLoaded : IpcEvent
 
 /// <summary>Asks for one redacted frame's image. Answered by a <see cref="FrameLoaded"/>.</summary>
 public sealed record GetFrameCommand : IpcCommand
+{
+    [JsonPropertyName("frame_id")]
+    public required string FrameId { get; init; }
+}
+
+/// <summary>
+/// Asks for one redacted frame's image scaled down for the filmstrip, which draws it 160 px wide. Answered
+/// by a <see cref="FrameLoaded"/> carrying the small image. The full image is still <see cref="GetFrameCommand"/>'s,
+/// for the enlarged view. Never a pending frame's (INV-1).
+/// </summary>
+public sealed record GetFrameThumbnailCommand : IpcCommand
 {
     [JsonPropertyName("frame_id")]
     public required string FrameId { get; init; }

@@ -466,23 +466,45 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
     }
 
-    public Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default)
+    /// <summary>
+    /// Saves the note. A session that is not there, or that the technician discarded, has no note to
+    /// save, and the save is refused rather than reported as done (INV-12): a late autosave or a draft
+    /// that lands after a discard would otherwise put the text back into a row the technician was told
+    /// had been emptied.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">There is no such session, or it was discarded.</exception>
+    public async Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(draft);
-        return RunAsync(
-            "UPDATE sessions SET draft_json = @draft, original_draft_json = COALESCE(original_draft_json, @draft), updated_at = @now WHERE id = @id",
+        var saved = await RunAsync(
+            """
+            UPDATE sessions SET draft_json = @draft, original_draft_json = COALESCE(original_draft_json, @draft), updated_at = @now
+            WHERE id = @id AND state IS NOT @discarded
+            """,
             ct,
             ("@draft", JsonSerializer.Serialize(draft, SessionJson.Options)),
             ("@now", Iso(_time.GetUtcNow())),
-            ("@id", sessionId));
+            ("@id", sessionId),
+            ("@discarded", Sessions.SessionStateNames.Discarded)).ConfigureAwait(false);
+
+        if (saved == 0)
+        {
+            throw new InvalidOperationException("There is no such session to save a note for.");
+        }
     }
 
-    public async Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default)
-    {
-        await using var command = Command(_connection, "SELECT original_draft_json FROM sessions WHERE id = @id", ("@id", sessionId));
-        var json = await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
-        return json is null ? null : JsonSerializer.Deserialize<DraftNote>(json, SessionJson.Options);
-    }
+    /// <summary>
+    /// The first draft, read under the gate like every other read: the connection is shared, and a read
+    /// on it while another caller writes fails one of the two.
+    /// </summary>
+    public Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT original_draft_json FROM sessions WHERE id = @id",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) && !reader.IsDBNull(0)
+                ? JsonSerializer.Deserialize<DraftNote>(reader.GetString(0), SessionJson.Options)
+                : null,
+            ct,
+            ("@id", sessionId));
 
     public Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default)
     {
@@ -967,7 +989,15 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
             if (record.Hash is null)
             {
-                // Written before schema 4. Genuinely unattested rather than broken.
+                // Written before schema 4, so only ever before the first hashed row: every row since
+                // carries a hash. Unattested rather than broken while the chain has not begun; once it
+                // has, a row without one was not written by this store.
+                if (_previous is not null)
+                {
+                    _brokenAt = record.Id;
+                    return;
+                }
+
                 _unchained++;
                 return;
             }
@@ -998,6 +1028,14 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                 if (have < end.Rows)
                 {
                     return new AuditVerification(false, _checked, _unchained, null, end.Rows - have);
+                }
+
+                if (have > end.Rows)
+                {
+                    // More rows than were ever appended. The head counts every row, unhashed ones too
+                    // (schema 7 seeded it with all of them), so a row it does not count was not put there
+                    // by this store.
+                    return new AuditVerification(false, _checked, _unchained, _last);
                 }
 
                 if (_previous is not null && end.Hash.Length > 0 && _previous != end.Hash)
@@ -1497,8 +1535,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
         catch
         {
-            _ = await ExecuteAsync(_connection, "ROLLBACK TO audit_append", ct).ConfigureAwait(false);
-            _ = await ExecuteAsync(_connection, "RELEASE audit_append", CancellationToken.None).ConfigureAwait(false);
+            // CancellationToken.None for both, for the same reason as the release below: the caller's
+            // token may be the very thing that just fired, and a cancelled rollback would leave the
+            // half-written row inside a savepoint nobody tracks.
+            try
+            {
+                _ = await ExecuteAsync(_connection, "ROLLBACK TO audit_append", CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = await ExecuteAsync(_connection, "RELEASE audit_append", CancellationToken.None).ConfigureAwait(false);
+            }
+
             throw;
         }
 
