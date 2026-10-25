@@ -19,7 +19,7 @@ Heads move: always `git fetch origin` and work from the branch's latest commit.
 | c5 redaction | st-042-redaction-p2 | ST-042 | yes | still being built | see the c5 rule below |
 | c6 speech | st-027-speech-p2 | ST-027 | yes | built; in review | review, then fix round or PR |
 | c7 store, host | st-049-store-host-p2 | ST-049 | yes | built; in review | review, then fix round or PR |
-| c8 capture, detection | st-022-capture-detection-p2 | ST-022 | yes | built; in review | review, then fix round or PR |
+| c8 capture, detection | st-022-capture-detection-p2 | ST-022 | yes | review found a blocker; fix round in progress | finish the fix round, re-review, open PR |
 
 "Laptop yes" means the PR touches hardware-gated paths, so `ci-ok` waits for the self-hosted laptop runner
 (SCREENTRAIL, label `screentail-win`). If it is offline, gated PRs wait; ask the owner to turn the laptop on.
@@ -56,9 +56,13 @@ Heads move: always `git fetch origin` and work from the branch's latest commit.
 - **c7 review focus:** the erase marker must never let the service start while the store, its key, a
   credential or the IPC token is owed; refused saves for discarded sessions must not wedge finalize; the
   outbox's wait for a first policy fetch must not deadlock, and must fit c3's outbox change.
-- **c8 review focus:** whether auto-stop's grace counts from the last focus into a tool, so a technician
-  working inside a tool longer than the grace is stopped, and whether this branch makes that worse (a
-  regression is a blocker).
+- **c8 (blocker):** the auto-stop grace must run from when the tool LOSES focus. On the branch, a
+  technician working inside a tool is stopped after the grace, and a manual start outside any tool dies after
+  it; main keeps both running. Refresh the trigger on each tick while a remote tool (or a manual session's
+  own window) is in front; add `ASessionInTheToolPastTheGraceKeepsRunning`. Also: elevation is "above the
+  service's own level, or High while the service runs at Medium" (UAC-off machines must still capture);
+  any foreign window above the target counts as cover, not only topmost ones; dated ST-022/ST-023 Status
+  notes.
 
 ## Decisions already taken by the owner
 
