@@ -89,7 +89,9 @@ public sealed class MetricsSender(HttpClient http, Func<string?> token)
 
         if (_token() is not { Length: > 0 } bearer)
         {
-            return SendOutcome.Retry("This device is not enrolled yet.");
+            // Nothing is sent, so it is not an attempt (see SendOutcome.NothingSent), and it is looked at
+            // again on the draft sender's schedule for the same wait.
+            return SendOutcome.NotSent("This device is not enrolled yet.", DraftSender.NotEnrolledWait);
         }
 
         using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/metrics/sessions", UriKind.Relative), EgressPurpose.Backend);

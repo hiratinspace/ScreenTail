@@ -1,3 +1,5 @@
+using ScreenTail.Core.Capture;
+using ScreenTail.Core.Input;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Settings;
 using ScreenTail.Shared.Ipc;
@@ -69,6 +71,70 @@ public sealed class CaptureSettingsCommandsTests : IDisposable
         Assert.True(then!.Ok);
         Assert.False(new CaptureSettingsStore(Path.Combine(_dir, "capture.json")).Load().CaptureAllWindows);
         Assert.False(inForce!.CaptureAllWindows);
+    }
+
+    [Fact]
+    public async Task AFileWithNullMembersIsTheDefaults()
+    {
+        // A null is an absent value, and an absent value is the shipped default. The file is read at
+        // every start, so one that throws there throws on every restart.
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "capture.json");
+        await File.WriteAllTextAsync(
+            path,
+            """{"disabled_tools":null,"hotkeys":null,"sensitivity":null,"speech_model":null,"grace_seconds":null,"auto_start":false}""",
+            TestContext.Current.CancellationToken);
+
+        var loaded = new CaptureSettingsStore(path).Load();
+
+        Assert.Empty(loaded.DisabledTools);
+        Assert.Empty(loaded.Hotkeys);
+        Assert.Equal("medium", loaded.Sensitivity);
+        Assert.Empty(loaded.Problems());
+        Assert.Equal(HotkeyBindings.Defaults[HotkeyAction.StartCapture], loaded.ToBindings().For(HotkeyAction.StartCapture));
+        Assert.Equal(new SceneSamplerOptions(), loaded.ToSceneOptions());
+
+        // The members that were there are kept: a null beside them is not grounds to drop the file.
+        Assert.False(loaded.AutoStart);
+
+        var reported = Assert.IsType<CaptureSettingsReported>(await Commands(TenantPolicy.Default).ReplyToAsync(new GetCaptureSettingsCommand { RequestId = 1 }, TestContext.Current.CancellationToken));
+        Assert.Empty(reported.Settings.Hotkeys);
+    }
+
+    [Fact]
+    public async Task NullEntriesInAFileAreDroppedRatherThanKept()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "capture.json");
+        await File.WriteAllTextAsync(
+            path,
+            """{"disabled_tools":[null,"rdp",""],"hotkeys":{"StartCapture":null,"MarkMoment":"Ctrl+Alt+K"}}""",
+            TestContext.Current.CancellationToken);
+
+        var loaded = new CaptureSettingsStore(path).Load();
+
+        Assert.Equal(["rdp"], loaded.DisabledTools);
+        Assert.Equal("Ctrl+Alt+K", Assert.Single(loaded.Hotkeys).Value);
+        Assert.Empty(loaded.Problems());
+    }
+
+    [Fact]
+    public async Task ASaveWithNullMembersIsSavedAsTheDefaults()
+    {
+        // The same document can arrive over the pipe from an older or broken peer. It is the defaults
+        // there too, rather than an exception inside the save.
+        var applied = new List<CaptureSettings>();
+        var commands = Commands(TenantPolicy.Default, applied.Add);
+        var sent = new CaptureSettings { AutoStart = false } with { DisabledTools = null!, Hotkeys = null!, Sensitivity = null! };
+
+        var result = await commands.HandleAsync(new SetCaptureSettingsCommand { RequestId = 2, Settings = sent }, TestContext.Current.CancellationToken);
+
+        Assert.True(result!.Ok);
+        var inForce = Assert.Single(applied);
+        Assert.Empty(inForce.DisabledTools);
+        Assert.Empty(inForce.Hotkeys);
+        Assert.Equal("medium", inForce.Sensitivity);
+        Assert.False(new CaptureSettingsStore(Path.Combine(_dir, "capture.json")).Load().AutoStart);
     }
 
     private CaptureSettingsCommands Commands(TenantPolicy policy, Action<CaptureSettings>? apply = null) => new(
