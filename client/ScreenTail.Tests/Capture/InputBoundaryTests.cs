@@ -134,6 +134,59 @@ public sealed class InputBoundaryTests
         Assert.Single(stored.Events.OfType<EnterEvent>());
     }
 
+    [Fact]
+    public async Task TypingBeforeAnythingIsKnownAboutTheWindowIsNotCounted()
+    {
+        // 2026-10-12 review (T-2). The first scope decision arrives a moment after the session starts,
+        // and until it does nothing is known about the window in front. Not known is not in scope: a
+        // password typed in that gap must not form a burst that the first in-scope click then closes
+        // and writes. The rule is one comparison in the recorder, and a "not false" regression of it
+        // would pass every other test here.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        ScopeDecision? scope = null;
+        var recorder = Recorder(harness, () => scope);
+
+        await Drain(recorder, Keys(14, from: 1_000), ct);
+        scope = InScope;
+        await Drain(recorder, [Click(at: 9_000)], ct);
+
+        var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
+        Assert.Empty(stored.Events.OfType<TypingBurstEvent>());
+        Assert.Single(stored.Events.OfType<ClickEvent>());
+        Assert.Equal(14, recorder.DroppedOutOfScope);
+    }
+
+    [Fact]
+    public async Task ABurstLeftOpenWhenASessionEndsIsNotTheNextSessionsFirstEvent()
+    {
+        // 2026-10-12 review (T-3). The reader keeps an open burst across calls, and the hooks outlive
+        // the session. Keys typed at the end of one session with nothing to close them were still being
+        // counted when the next began, and its first Enter wrote them down: a burst stamped before the
+        // new session existed, with the old session's key count. Reset is what the host calls as a
+        // session starts (ST-029), and it has to forget the burst as well as the click history.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var recorder = Recorder(harness, () => InScope);
+
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var first = harness.Machine.SessionId!;
+        await Drain(recorder, Keys(14, from: 1_000), ct);
+        Assert.True(await harness.Machine.StopAsync(ct));
+
+        recorder.Reset();
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var second = harness.Machine.SessionId!;
+        await Drain(recorder, [new InputSignal(InputKind.Enter, 500)], ct);
+
+        var stored = (await harness.Store.LoadSessionAsync(second, ct))!;
+        Assert.Empty(stored.Events.OfType<TypingBurstEvent>());
+        Assert.Single(stored.Events.OfType<EnterEvent>());
+        // Nor did the first session get them: a burst with nothing to close it is lost, by design.
+        Assert.Empty((await harness.Store.LoadSessionAsync(first, ct))!.Events.OfType<TypingBurstEvent>());
+    }
+
     private static SessionRecorder Recorder(MachineHarness harness, Func<ScopeDecision?> scope) =>
         new(harness.Machine, new NoPictures(), scope);
 

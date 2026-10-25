@@ -211,6 +211,69 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AFrameRefusedForAFullQueueIsCountedAgainstTheSession()
+    {
+        // 2026-10-12 review (S-1, T-5). ADR-0006 says a frame that finds the queue full is "dropped and
+        // counted", and the count it means is frames_purged_unredacted, the one the bundle reads and the
+        // Review banner hedges on. The machine refused the frame and counted it nowhere: the queue kept
+        // a service-wide tally that nothing read per session, so the draft claimed to have seen a
+        // session it only partly saw. The known full-disk case is separate and was already counted.
+        var machine = await MachineAsync(grace: TimeSpan.FromMilliseconds(100), pendingDepth: 1);
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        Assert.True(await machine.TryStageFrameAsync(Frame("kept", machine.NowMs)));
+        Assert.False(await machine.TryStageFrameAsync(Frame("refused", machine.NowMs)));
+
+        // Counted the moment it is refused, not at finalize: diagnostics read the session row live.
+        var stored = (await _store!.LoadSessionAsync(id))!;
+        Assert.Equal(1, stored.FramesPurgedUnredacted);
+        var audit = await _store.GetAuditAsync(id);
+        Assert.Contains(audit, a => a.Type == AuditTypes.FramesPurgedUnredacted && a.Count == 1);
+        // The refused frame was never captured as far as the record is concerned (ST-045's count is
+        // of frames that were accepted).
+        Assert.Single(audit, a => a.Type == AuditTypes.FrameCaptured);
+
+        // The straggler is purged at finalize on top of it, so the draft hedges for both.
+        Assert.True(await machine.StopAsync());
+        Assert.Equal(2, (await _store.LoadSessionAsync(id))!.FramesPurgedUnredacted);
+    }
+
+    [Fact]
+    public async Task StopWaitsForAFrameAWorkerIsHolding()
+    {
+        // 2026-10-12 review (T-1). The queue holds two states, waiting and taken-but-unwritten, and
+        // finalize must wait for both: a DepthFor that counted only the waiting half would draft the
+        // note while the worker was still writing the last frame, and that frame would land after the
+        // line was drawn.
+        var machine = await MachineAsync(grace: TimeSpan.FromSeconds(5));
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        Assert.True(await machine.TryStageFrameAsync(Frame("held", machine.NowMs)));
+        Assert.True(_pending.TryTake(out var held));
+        Assert.Equal(id, held.SessionId);
+
+        var stopping = machine.StopAsync();
+        for (var i = 0; i < 100 && machine.State != SessionState.Finalizing; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        await Task.Delay(200);
+        Assert.False(stopping.IsCompleted, "Stop drafted the note while a worker was still holding a frame of the session.");
+
+        await _store!.SaveRedactedFrameAsync(
+            held.SessionId, held.Frame, new RedactionOutcome(new byte[] { 1 }, "ok", [], false, DateTimeOffset.UtcNow));
+        _pending.Done(held);
+        Assert.True(await stopping);
+
+        Assert.Equal(SessionState.DraftReady, machine.State);
+        var stored = (await _store.LoadSessionAsync(id))!;
+        Assert.Equal(0, stored.FramesPurgedUnredacted);
+        Assert.Single(stored.Frames);
+    }
+
+    [Fact]
     public async Task DraftFailureIsReportedWithItsReason()
     {
         _drafter.Outcome = DraftOutcome.Failure("Cloud drafting paused for today.");
@@ -258,6 +321,65 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.Equal(6_000, stored.DurationMs);
         Assert.Equal(1, stored.FramesPurgedUnredacted);
         Assert.NotNull(stored.Draft);
+        Assert.Empty(await store.ListSessionsInStatesAsync(SessionStateNames.Orphanable));
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    [InlineData(CaptureStates.Finalizing)]
+    public async Task ACrashInAnyLiveStateIsRecovered(string leftIn)
+    {
+        // 2026-10-12 review (T-8). Recovery was tested for a Recording orphan only. A session a crash
+        // left paused, suppressed or finalizing is just as live, and one dropped from Orphanable would
+        // sit in the store for ever with no draft and no way to reach one.
+        var store = await OpenStoreAsync();
+        await store.CreateSessionAsync(new NewSession("orphan", DateTimeOffset.UtcNow, ScreenConnect, false, null));
+        await store.SetSessionStateAsync("orphan", CaptureStates.Recording, null);
+        await store.AppendEventAsync("orphan", new ClickEvent { TsMs = 5_000, X = 0, Y = 0, Button = MouseButton.Left });
+        await store.SetSessionStateAsync("orphan", leftIn, null);
+
+        var machine = await MachineAsync();
+        var recovered = await machine.RecoverAsync();
+
+        Assert.Equal(1, recovered);
+        Assert.Equal(SessionState.DraftReady, machine.State);
+        var stored = (await store.LoadSessionAsync("orphan"))!;
+        Assert.True(stored.PartialCapture);
+        Assert.NotNull(stored.Draft);
+        Assert.Equal(5_000, stored.DurationMs);
+        Assert.Empty(await store.ListSessionsInStatesAsync(SessionStateNames.Orphanable));
+    }
+
+    [Fact]
+    public async Task TwoOrphansAreBothRecovered()
+    {
+        // A crash during recovery itself, or a store an older build left two sessions in, is how there
+        // comes to be more than one. Each is finalized and drafted on its own; the second must not be
+        // skipped because the first moved the machine out of Idle.
+        var store = await OpenStoreAsync();
+        foreach (var (id, state) in new[] { ("first", CaptureStates.Recording), ("second", CaptureStates.Paused) })
+        {
+            await store.CreateSessionAsync(new NewSession(id, DateTimeOffset.UtcNow, ScreenConnect, false, null));
+            await store.SetSessionStateAsync(id, state, null);
+        }
+
+        var machine = await MachineAsync();
+        var recovered = await machine.RecoverAsync();
+
+        Assert.Equal(2, recovered);
+        Assert.Equal(
+            [CaptureStates.Finalizing, CaptureStates.DraftReady, CaptureStates.Finalizing, CaptureStates.DraftReady],
+            _observed.Select(s => s.State));
+        foreach (var id in new[] { "first", "second" })
+        {
+            var stored = (await store.LoadSessionAsync(id))!;
+            Assert.True(stored.PartialCapture);
+            Assert.NotNull(stored.Draft);
+        }
+
+        Assert.Equal(2, machine.Snapshot.DraftsReady);
         Assert.Empty(await store.ListSessionsInStatesAsync(SessionStateNames.Orphanable));
     }
 
@@ -320,14 +442,19 @@ public sealed class StateMachineTests : IAsyncDisposable
         var machine = await MachineAsync();
         await machine.StartAsync(ScreenConnect);
         var id = machine.SessionId!;
-        await machine.TryStageFrameAsync(Frame("f1", machine.NowMs));
+        Assert.True(await machine.TryStageFrameAsync(Frame("f1", machine.NowMs)));
+        Assert.Equal(1, _pending.DepthFor(id));
 
         Assert.True(await machine.DiscardAsync());
 
         Assert.Equal(SessionState.Idle, machine.State);
         Assert.Null(machine.Snapshot.SessionId);
         Assert.Null(await _store!.LoadSessionAsync(id));
-        Assert.Null(await _store.TakeNextPendingFrameAsync());
+        // The frame that was waiting to be read goes with the session (T-17). This used to ask the
+        // store, which has held no pending frame since ADR-0006 and so answered "none" whatever the
+        // machine did; the queue is where the frame was, and it has to be empty of this session now,
+        // or the worker would go on reading frames of a session the technician threw away.
+        Assert.Equal(0, _pending.DepthFor(id));
         Assert.Contains(await _store.GetAuditAsync(id), a => a.Type == AuditTypes.SessionDiscarded);
         Assert.Equal(1, _sources.Stops);
     }
@@ -660,12 +787,20 @@ public sealed class StateMachineTests : IAsyncDisposable
 
     private async Task<SqliteSessionStore> OpenStoreAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
 
-    /// <summary>Where a captured frame waits to be read (ADR-0006). The store no longer holds one.</summary>
-    private readonly PendingFrames _pending = new(depth: 1000);
+    /// <summary>
+    /// Where a captured frame waits to be read (ADR-0006). The store no longer holds one. Deep, so a
+    /// test that stages a handful of frames is not measuring the production depth; a test about the
+    /// full queue asks <see cref="MachineAsync"/> for a shallow one.
+    /// </summary>
+    private PendingFrames _pending = new(depth: 1000);
 
-    private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null, TimeProvider? time = null, RedactionEngine? scrubber = null)
+    private async Task<SessionMachine> MachineAsync(TimeSpan? grace = null, TimeProvider? time = null, RedactionEngine? scrubber = null, int? pendingDepth = null)
     {
         var store = await OpenStoreAsync();
+        if (pendingDepth is { } depth)
+        {
+            _pending = new PendingFrames(depth);
+        }
 
         // Scrubber is only set when a test asks for one: left alone, the machine has to scrub by itself,
         // which is the behaviour under test.
