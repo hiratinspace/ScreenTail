@@ -272,6 +272,10 @@ public sealed class IpcServer : IAsyncDisposable
                         counted = false;
                     },
                     handshake.Token).ConfigureAwait(false);
+                if (reason is null)
+                {
+                    await AdmitAsync(connection, handshake.Token).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (!_stopping.IsCancellationRequested)
             {
@@ -299,7 +303,6 @@ public sealed class IpcServer : IAsyncDisposable
                 return;
             }
 
-            _clients[connection.Id] = connection;
             await ServeAsync(connection, _stopping.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or IpcProtocolException or OperationCanceledException or ObjectDisposedException)
@@ -397,11 +400,30 @@ public sealed class IpcServer : IAsyncDisposable
             return RejectReasons.UnverifiedClient;
         }
 
-        await connection.SendAsync(
-            new HelloAck { ContractVersion = IpcContract.Version, ServiceVersion = _serviceVersion, State = _handler.CurrentState },
-            ct).ConfigureAwait(false);
         return null;
     }
+
+    /// <summary>
+    /// Makes an authenticated connection a client: joins it to the broadcast set, reads the state and
+    /// writes the <see cref="HelloAck"/>, all under the connection's write lock.
+    ///
+    /// The ack's state used to be read, and the ack written, before the connection joined
+    /// <see cref="_clients"/>. A transition in that gap, about a millisecond, was broadcast to everyone
+    /// but the client that was connecting, which then showed the old state until the next transition:
+    /// idle while the service recorded (INV-4; 2026-10-12 review, S-20).
+    ///
+    /// Under the lock there is no gap. A broadcast that enumerates the set before this joins it was
+    /// issued for a transition that happened before the state is read here, so the ack carries it. One
+    /// that enumerates the set after this joins it waits on the same lock, so its <c>state_changed</c>
+    /// follows the ack, which is the order the client's read loop expects.
+    /// </summary>
+    private Task AdmitAsync(Connection connection, CancellationToken ct) => connection.SendAsync(
+        () =>
+        {
+            _clients[connection.Id] = connection;
+            return new HelloAck { ContractVersion = IpcContract.Version, ServiceVersion = _serviceVersion, State = _handler.CurrentState };
+        },
+        ct);
 
     /// <summary>
     /// Reads one connection's commands and answers them, on two lanes (E-25, 2026-10-12 review).
@@ -612,12 +634,18 @@ public sealed class IpcServer : IAsyncDisposable
 
         public Task<IpcCommand?> ReadAsync(CancellationToken ct) => IpcFraming.ReadAsync<IpcCommand>(pipe, ct);
 
-        public async Task SendAsync(IpcEvent ipcEvent, CancellationToken ct)
+        public Task SendAsync(IpcEvent ipcEvent, CancellationToken ct) => SendAsync(() => ipcEvent, ct);
+
+        /// <summary>
+        /// Sends what <paramref name="compose"/> builds, holding the write lock while it is built as
+        /// well as while it is written, so nothing else can be sent between the two.
+        /// </summary>
+        public async Task SendAsync(Func<IpcEvent> compose, CancellationToken ct)
         {
             await _writeLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                await IpcFraming.WriteAsync(pipe, ipcEvent, ct).ConfigureAwait(false);
+                await IpcFraming.WriteAsync(pipe, compose(), ct).ConfigureAwait(false);
             }
             finally
             {
