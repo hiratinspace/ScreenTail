@@ -92,7 +92,10 @@ public sealed class TrayIconHost : IDisposable
     public void Show(ShellSnapshot snapshot)
     {
         Update(snapshot);
-        _icon.Visible = true;
+        if (!Disposed)
+        {
+            _icon.Visible = true;
+        }
     }
 
     /// <summary>
@@ -105,6 +108,13 @@ public sealed class TrayIconHost : IDisposable
         if (!_dispatcher.CheckAccess())
         {
             _ = _dispatcher.BeginInvoke(() => Update(snapshot));
+            return;
+        }
+
+        // A change queued from the pipe's thread can run after Quit disposed the icon, and repainting a
+        // disposed icon throws on the UI thread.
+        if (Disposed)
+        {
             return;
         }
 
@@ -140,6 +150,11 @@ public sealed class TrayIconHost : IDisposable
             return;
         }
 
+        if (Disposed)
+        {
+            return;
+        }
+
         _pending = notice.Action;
         _icon.BalloonTipTitle = "ScreenTail";
         _icon.BalloonTipText = notice.Text;
@@ -155,6 +170,11 @@ public sealed class TrayIconHost : IDisposable
 
     public void Dispose()
     {
+        if (Disposed)
+        {
+            return;
+        }
+
         Disposed = true;
         _icon.Visible = false;
         _icon.Dispose();

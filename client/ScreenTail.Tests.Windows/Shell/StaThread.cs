@@ -7,9 +7,8 @@ namespace ScreenTail.Tests.Windows.Shell;
 /// Runs a test body on its own STA thread with its own dispatcher, which a WPF window requires.
 ///
 /// No <see cref="System.Windows.Application"/>: WPF allows one per process, and PrivacyViewModelTests
-/// makes it and shuts it down. A window needs only an STA thread. After that shutdown WPF will not show
-/// a window again in this process (its Show returns without creating one), so a body that shows one must
-/// hold either way; closing works on a window that was never shown, and raises Closed the same.
+/// makes it and shuts it down. A window needs only an STA thread. No XAML window can be built after that
+/// shutdown, so PrivacyViewModelTests' collection runs after every other (<see cref="WpfApplicationOwner"/>).
 /// </summary>
 internal static class StaThread
 {
