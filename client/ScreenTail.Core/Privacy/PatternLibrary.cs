@@ -42,16 +42,37 @@ internal static partial class PatternLibrary
     /// then dropped it for being an ordinary word. Each of those wrote an audit row saying a redaction
     /// had happened (2026-09-20 review).
     ///
-    /// "which", "when" and "that" join a cue to its clause ("the password, which is Winter2026") and
-    /// used to end the walk instead; "has", "have" and "been" let "has been reset to" reach its value
-    /// (2026-10-12 review, S-12).
     /// </summary>
     private static readonly HashSet<string> Connectives = new(StringComparer.OrdinalIgnoreCase)
     {
         "is", "was", "to", "set", "reset", "changed", "change", "now", "will", "be", "equals", "are",
         "uh", "um", "er", "ah", "like", "just", "actually", "currently", "still",
         "the", "a", "an", "on", "for", "of", "at", "in", "my", "your", "our", "their", "his", "her",
-        "its", "new", "old", "which", "when", "that", "has", "have", "been",
+        "its", "new", "old",
+    };
+
+    /// <summary>
+    /// Words that join a cue to the clause that states its value. "which", "when" and "that" used to end
+    /// the walk ("the password, which is Winter2026" was stored whole), and "has", "have" and "been" were
+    /// read as ordinary words, so "has been reset to Spring2027" never reached its value (2026-10-12
+    /// review, S-12). Walked past like <see cref="Connectives"/>, but kept apart from them: an ordinary
+    /// word is only carried over on a joining word proper, so that "the password is tomato, which they
+    /// changed" still masks "tomato".
+    /// </summary>
+    private static readonly HashSet<string> Clause = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "which", "when", "that", "has", "have", "been",
+    };
+
+    /// <summary>
+    /// Words after which a number is a reference, not a credential: "the password for the user on ticket
+    /// 48213". Consulted only where the walk is reading past prose that used to end it, with nothing yet
+    /// asserting a value; an assertion ("is 48213", "pin: 48213") always wins.
+    /// </summary>
+    private static readonly HashSet<string> References = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ticket", "case", "order", "invoice", "port", "ext", "extension", "build", "version", "line", "id",
+        "number", "no", "ref", "reference",
     };
 
     /// <summary>
@@ -98,9 +119,10 @@ internal static partial class PatternLibrary
     /// The walk used to give up on the first ordinary word that had no joining word behind it, and after
     /// five words, so "the password for the domain admin account is Winter2026" was stored verbatim with
     /// no audit row (2026-10-12 review, S-12). It reads on now: the words between the cue and the
-    /// assertion say what the credential is for, and the first secret-like word after the assertion is
-    /// the secret. Past those words only a secret-like word is taken, so the sentence carrying on after
-    /// an assertion ("the password sticker is under the router") is left alone.
+    /// assertion say what the credential is for, and the secret is the first secret-like word after
+    /// them, or a plain word once something has asserted a value. This is the on-device rule (INV-1),
+    /// so it only ever grows: every decision the old walk made is made the same way here, and the new
+    /// reading starts exactly where the old walk returned null.
     /// </summary>
     private static (int Start, int Length)? SecretAfter(string text, int from)
     {
@@ -108,7 +130,11 @@ internal static partial class PatternLibrary
 
         // A colon or an equals sign right after the cue asserts as much as "is" does: "pass: hunter2".
         var asserted = text.AsSpan(from, Math.Min(4, text.Length - from)).IndexOfAny(':', '=') >= 0;
+
+        // Set where the old walk gave up: an ordinary word with nothing asserting a value and no joining
+        // word behind it. From there the reading is new, and a number is held to a higher standard.
         var pastProse = false;
+        var previous = string.Empty;
         for (var steps = 0; steps < MaxWalk; steps++)
         {
             var word = NextWord(text, at);
@@ -118,8 +144,13 @@ internal static partial class PatternLibrary
             }
 
             var (start, length) = word.Value;
+
+            // A colon or an equals sign crossed later in the sentence asserts just the same: "password
+            // for the admin account: Winter2026".
+            asserted |= text.AsSpan(at, start - at).IndexOfAny(':', '=') >= 0;
+
             var value = text.Substring(start, length);
-            if (Connectives.Contains(value))
+            if (Connectives.Contains(value) || Clause.Contains(value))
             {
                 asserted |= Assertive.Contains(value);
                 at = start + length;
@@ -132,32 +163,40 @@ internal static partial class PatternLibrary
                 return null;
             }
 
-            if (LooksLikeSecret(value))
+            var secretLike = LooksLikeSecret(value);
+            if (!secretLike && FollowedByConnective(text, start + length))
             {
-                // Taken at once when nothing ordinary came before it ("temporary password Welcome1!",
-                // "the PIN to 4821 for her" does not walk past 4821 and mask "her"), and otherwise once
-                // something has asserted a value. A number reached through plain prose with nothing
-                // asserting it is a ticket or a port, not the password: "reset the password for the
-                // user on ticket 48213".
-                if (asserted || !pastProse)
+                // An ordinary word with a joining word behind it is still part of the run-up: "the
+                // password on the router is Winter2026" reaches "router" here, and the secret is two
+                // words further on.
+                previous = value;
+                at = start + length;
+                continue;
+            }
+
+            if (secretLike)
+            {
+                // Taken as the secret at once ("the PIN to 4821 for her" does not walk past 4821 and
+                // mask "her"), with one exception: while reading past prose the old walk ended on, with
+                // nothing yet asserting a value, a number after "ticket" or "port" is a reference, so
+                // "reset the password for the user on ticket 48213" stays as written.
+                if (asserted || !pastProse || !References.Contains(previous))
                 {
                     return (start, SecretEnd(text, start + length) - start);
                 }
             }
-            else if (asserted && !pastProse && !FollowedByConnective(text, start + length))
+            else if (asserted)
             {
-                // An ordinary word reached straight through an assertion is taken as the secret however
-                // plain it looks ("Wi-Fi password: sunshine"; ST-115). With a joining word behind it the
-                // sentence is still placing the password ("is set on the router to Winter2026"), and
-                // the walk goes on.
+                // An ordinary word reached through an assertion is taken as the secret however plain it
+                // looks: "Wi-Fi password: sunshine", "the wifi password on the router is sunshine" (ST-115).
                 return (start, SecretEnd(text, start + length) - start);
             }
 
-            // The sentence is still saying what the credential is for: "the password on the router is
-            // Winter2026" reaches "router" here, "the password for the domain admin account is
-            // Winter2026" reaches "domain". From here on only a secret-like word after an assertion is
-            // the secret; a plain one is the technician's own account carrying on.
+            // Where the old walk returned null. The sentence is still saying what the credential is for
+            // ("the password for the domain admin account is Winter2026" reaches "domain" here), and the
+            // walk goes on to the assertion.
             pastProse = true;
+            previous = value;
             at = start + length;
         }
 

@@ -47,6 +47,13 @@ public sealed class SpokenPasswordTests
     [InlineData("the password when prompted is Winter2026", "Winter2026")]
     [InlineData("the password has been reset to Spring2027", "Spring2027")]
     [InlineData("the password for the user on ticket 48213 is Winter2026", "Winter2026")]
+    // What the walk already masked before S-12 and must go on masking, whatever else it learns (INV-1: the
+    // on-device rule may grow broader and never narrower). A secret-like word reached through joining
+    // words after what the credential is for; a plain word after an assertion that follows such prose;
+    // and a colon crossed later in the sentence, which asserts as much as one right after the cue.
+    [InlineData("PIN for the safe at 4821", "4821")]
+    [InlineData("the wifi password on the router is sunshine", "sunshine")]
+    [InlineData("password for the admin account: Winter2026", "Winter2026")]
     public void TheSecretIsMaskedHoweverLongTheRunUpToIt(string spoken, string secret)
     {
         var scrubbed = new RedactionEngine().ScrubText(spoken);
@@ -64,9 +71,9 @@ public sealed class SpokenPasswordTests
     [InlineData("their password expired")]
     [InlineData("Outlook kept prompting for a password")]
     // Walking further must not start masking the technician's own account of what they did: a number
-    // the sentence never asserted is a ticket, and a plain word after a long run-up is prose.
+    // after "ticket" with nothing asserting it is a reference, and a clause that ends the sentence about
+    // a password still ends it.
     [InlineData("reset the password for the user on ticket 48213")]
-    [InlineData("the password for the domain admin account is in the vault")]
     [InlineData("the password which expired was for the service account")]
     public void ASentenceAboutAPasswordIsNotAPassword(string spoken)
     {

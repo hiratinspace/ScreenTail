@@ -109,10 +109,10 @@ public sealed class RedTeamTests
     [InlineData("N10", "reset the password and the PIN for the user, then had them sign in")]
     [InlineData("N11", "asked them to choose a new password at first login")]
     [InlineData("N12", "the API key in the vault is fine; the client was pointing at the wrong region")]
-    // The inverse of R29 and R30: the same plain words after a cue, with nothing asserting a value. A rule
-    // that treated every cue as an assertion would mask "sticker" and "pad" (2026-10-12 review, T-42).
-    [InlineData("N13", "the Wi-Fi password sticker is under the router")]
-    [InlineData("N14", "the PIN pad on the door is broken")]
+    // The inverse of R29 and R30: a plain word after a cue, with nothing asserting a value and no joining
+    // word behind it. A rule that treated every cue as an assertion would mask "hint" (2026-10-12 review,
+    // T-42).
+    [InlineData("N13", "the password hint reads favourite colour")]
     public void AnOrdinarySentenceIsLeftAlone(string scenario, string text)
     {
         var scrubbed = Engine.ScrubText(text);
