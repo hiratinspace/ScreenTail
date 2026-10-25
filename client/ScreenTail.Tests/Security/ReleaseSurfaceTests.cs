@@ -105,10 +105,10 @@ public sealed class ReleaseSurfaceTests
         // The product projects only. The test projects never run on a technician's machine, and they
         // build clients over fake handlers on purpose; that is what a test of the guard looks like.
         var offenders = Projects
-            .SelectMany(SourceFiles)
-            .Where(file => !file.EndsWith("EgressGuard.cs", StringComparison.Ordinal))
-            .Where(file => BuildsUnguardedHttp(File.ReadAllText(file)))
-            .Select(Path.GetFileName)
+            .SelectMany(project => SourceFiles(project).Select(file => (file, key: SourceKey(project, file))))
+            .Where(source => !IsEgressGuard(source.key))
+            .Where(source => BuildsUnguardedHttp(File.ReadAllText(source.file)))
+            .Select(source => source.key)
             .ToList();
 
         Assert.True(
@@ -190,9 +190,10 @@ public sealed class ReleaseSurfaceTests
         // screenshot directory. The one-argument shell constructor is the render harness's, so App.xaml.cs
         // is the one file that may call it, behind its --render switch.
         var offenders = SourceFiles("ScreenTail.UI")
-            .Where(file => Path.GetFileName(file) is not ("DiagnosticsWindow.xaml.cs" or "ShellWindow.xaml.cs"))
-            .SelectMany(file => SampleWindows(File.ReadAllText(file), inApp: Path.GetFileName(file) == "App.xaml.cs")
-                .Select(found => $"{Path.GetFileName(file)}: {found}"))
+            .Select(file => (file, key: SourceKey("ScreenTail.UI", file)))
+            .Where(source => !OwnsASampleWindow(source.key))
+            .SelectMany(source => SampleWindows(File.ReadAllText(source.file), inApp: IsRenderHarness(source.key))
+                .Select(found => $"{source.key}: {found}"))
             .ToList();
 
         Assert.True(
@@ -228,6 +229,36 @@ public sealed class ReleaseSurfaceTests
     public void TheSampleWindowCheckKnowsTheShapesItIsFor(string snippet, bool inApp, bool offends)
     {
         Assert.Equal(offends, SampleWindows(snippet, inApp).Count > 0);
+    }
+
+    [Theory]
+    [InlineData("ScreenTail.Core/Net/EgressGuard.cs", true)]
+    [InlineData("ScreenTail.Core/Net/NotEgressGuard.cs", false)]
+    [InlineData("ScreenTail.Core/EgressGuard.cs", false)]
+    [InlineData("ScreenTail.Service/Net/EgressGuard.cs", false)]
+    [InlineData("ScreenTail.UI/Net/EgressGuard.cs", false)]
+    public void TheEgressCheckExemptsTheGuardItselfAndNothingElse(string key, bool exempt)
+    {
+        // The guard builds the handler every client sits on, so it is the one file the check skips. By
+        // its place in the tree, not by its name: a file anywhere whose name ends the same way is code
+        // like any other.
+        Assert.Equal(exempt, IsEgressGuard(key));
+    }
+
+    [Theory]
+    [InlineData("ScreenTail.UI/Shell/ShellWindow.xaml.cs", true, false)]
+    [InlineData("ScreenTail.UI/Diagnostics/DiagnosticsWindow.xaml.cs", true, false)]
+    [InlineData("ScreenTail.UI/App.xaml.cs", false, true)]
+    [InlineData("ScreenTail.UI/Tray/ShellWindow.xaml.cs", false, false)]
+    [InlineData("ScreenTail.UI/Shell/DiagnosticsWindow.xaml.cs", false, false)]
+    [InlineData("ScreenTail.UI/Tray/App.xaml.cs", false, false)]
+    [InlineData("ScreenTail.UI/Shell/App.xaml.cs", false, false)]
+    public void TheSampleWindowCheckExemptsOnlyTheWindowsAndTheRenderHarness(string key, bool owner, bool harness)
+    {
+        // Each window builds its own sample, and App.xaml.cs renders the shell behind --render. By their
+        // place in the tree: a second file with one of those names elsewhere gets no pass.
+        Assert.Equal(owner, OwnsASampleWindow(key));
+        Assert.Equal(harness, IsRenderHarness(key));
     }
 
     [Fact]
@@ -543,6 +574,20 @@ public sealed class ReleaseSurfaceTests
 
         return source.Length;
     }
+
+    /// <summary>A source file as <c>Project/relative/path.cs</c>, with forward slashes on every OS.</summary>
+    private static string SourceKey(string project, string file) =>
+        $"{project}/{Path.GetRelativePath(Path.GetDirectoryName(ProjectFile(project))!, file).Replace('\\', '/')}";
+
+    /// <summary>The one product file that may build the handler underneath a client: the guard itself.</summary>
+    private static bool IsEgressGuard(string key) => key == "ScreenTail.Core/Net/EgressGuard.cs";
+
+    /// <summary>The two windows, which each build their own sample.</summary>
+    private static bool OwnsASampleWindow(string key) =>
+        key is "ScreenTail.UI/Shell/ShellWindow.xaml.cs" or "ScreenTail.UI/Diagnostics/DiagnosticsWindow.xaml.cs";
+
+    /// <summary>The render harness, which may call the one-argument shell constructor behind --render.</summary>
+    private static bool IsRenderHarness(string key) => key == "ScreenTail.UI/App.xaml.cs";
 
     private static string ProjectFile(string project)
     {
