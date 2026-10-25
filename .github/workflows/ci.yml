@@ -117,13 +117,16 @@ jobs:
             while IFS= read -r envname; do
               before=$(jq -r --arg e "$envname" '.environments[$e].maxSkipped // empty' "$was")
               if [ -z "$before" ]; then echo "$envname: new, nothing to compare"; continue; fi
-              after=$(jq -r --arg e "$envname" '.environments[$e].maxSkipped' "$now")
-              echo "$envname: was $before, now $after"
-              if [ "$after" -gt "$before" ]; then
+              after=$(jq -r --arg e "$envname" '.environments[$e].maxSkipped // empty' "$now")
+              echo "$envname: was $before, now ${after:-missing}"
+              if ! [[ "$after" =~ ^[0-9]+$ ]]; then
+                echo "::error file=$FILE::The '$envname' skip budget is missing or not a whole number. It was $before on the base branch and may only go down."
+                bad=1
+              elif [ "$after" -gt "$before" ]; then
                 echo "::error file=$FILE::The '$envname' skip budget went from $before to $after. It may only go down. A test that skips is a fact nobody is checking; if the machine genuinely cannot run it, say so in the PR and get agreement rather than widening the gate."
                 bad=1
               fi
-            done < <(jq -r '.environments | keys[]' "$now")
+            done < <(jq -r '.environments | keys[]' "$was")
             while IFS=$'\t' read -r envname name; do
               [ -n "$name" ] || continue
               if ! jq -e --arg e "$envname" --arg n "$name" '[(.environments[$e].mustRun // [])[] | select(. == $n)] | length > 0' "$now" > /dev/null; then
@@ -582,6 +585,12 @@ jobs:
               'client/ScreenTail.Service/Speech/WindowsMicrophone.cs',
               'client/ScreenTail.Platform/Ipc/WindowsClientVerifier.cs',
               'scripts/windows/check-skips.ps1',
+              'client/ScreenTail.Core/Input/HookLifetime.cs',
+              'client/ScreenTail.Core/Detection/ScopePolicy.cs',
+              'client/ScreenTail.Core/Speech/SpeechModels.cs',
+              'client/ScreenTail.Tests.Windows/Input/InputHookTests.cs',
+              'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
+              '.github/workflows/hardware-checks.yml',
           ]
           must_not = [
               'backend/ScreenTail.Backend.sln',
