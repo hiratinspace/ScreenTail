@@ -111,8 +111,10 @@ public sealed class NarrationRecorder : IDisposable
     /// Each segment is stamped with the session it was heard in and placed on its timeline, and is
     /// written into that session or nowhere.
     ///
-    /// It defaults to "always", which is what the tests of the pipeline itself want and what nothing
-    /// that ships should use.
+    /// Required. It used to default to "always", so a host that dropped the argument compiled, opened
+    /// the microphone for the life of the service and transcribed everything said between sessions
+    /// (2026-10-12 review). Only a recording that is all narration, a file transcribed on the command
+    /// line, has no sessions to ask about, and it says so by using the shorter constructor.
     /// </param>
     /// <param name="hearing">
     /// Whether what is said right now may be kept, asked of every chunk while a session is recording.
@@ -129,13 +131,13 @@ public sealed class NarrationRecorder : IDisposable
         IMicrophone microphone,
         ISpeechRecogniser recogniser,
         AppendTranscript append,
-        Func<NarrationSession?>? recording = null,
+        Func<NarrationSession?> recording,
         NarrationOptions? options = null,
         SpeechGateOptions? gate = null,
         Func<bool>? hearing = null,
         NarrationBacklog? backlog = null)
     {
-        _recording = recording ?? (() => new NarrationSession("narration", 0));
+        _recording = recording ?? throw new ArgumentNullException(nameof(recording));
         _hearing = hearing ?? (() => true);
         _backlog = backlog ?? new NarrationBacklog();
         _microphone = microphone ?? throw new ArgumentNullException(nameof(microphone));
@@ -145,6 +147,19 @@ public sealed class NarrationRecorder : IDisposable
         _gate = new SpeechGate(gate);
         _ring = new short[Math.Max(1, (int)(_options.Buffer.TotalSeconds * microphone.SampleRate))];
         _frame = new short[Math.Max(1, (int)(_options.Frame.TotalSeconds * microphone.SampleRate))];
+    }
+
+    /// <summary>
+    /// A recording that is all narration, such as a file transcribed on the command line: one session
+    /// for the whole of it, every word of which may be kept.
+    ///
+    /// Not for the service. Nothing here asks whether a session is recording or whether the window in
+    /// front may be heard, so a service recorder built this way would hold the microphone open all day
+    /// and keep what was said over a password manager (INV-6, INV-9). The service's recorder passes both.
+    /// </summary>
+    public NarrationRecorder(IMicrophone microphone, ISpeechRecogniser recogniser, AppendTranscript append)
+        : this(microphone, recogniser, append, static () => new NarrationSession("narration", 0))
+    {
     }
 
     /// <summary>The device in use, or null when there is none. A name, never audio (INV-10).</summary>

@@ -164,8 +164,8 @@ public sealed class NarrationRecorderTests
     {
         // The half that made it a leak rather than waste: a segment opened while recording, the
         // technician paused mid-sentence over a password field, and the segment closed after the resume
-        // and was appended. The gate is emptied at the boundary, so what was being said is dropped with
-        // the rest rather than waiting to be finished.
+        // and was appended. The gate is cut at the boundary, so what was being said before it is kept on
+        // its own and nothing heard after the resume can finish it.
         var recogniser = new FakeRecogniser("the password is");
         var kept = new List<TranscriptSegment>();
         var recording = true;
@@ -724,6 +724,62 @@ public sealed class NarrationRecorderTests
 
         Assert.Empty(kept);
         Assert.Equal(0, recogniser.Asked);
+    }
+
+    [Fact]
+    public async Task SpeechFromBeforeASuppressionIsNotTranscribedAfterIt()
+    {
+        // 2026-10-12 review (T-94). The test above proves nothing reaches the model, which a recorder that
+        // drops everything after the first suppression also passes. Here the technician speaks again once
+        // the vault has gone: that sentence is transcribed, on its own, and the words from before the
+        // vault came to the front are not handed over with it or after it.
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var kept = new List<TranscriptSegment>();
+        var chunks = 0;
+        var recorder = Recorder(
+            new FakeMicrophone(Silence(20), Speech(20), Speech(20), Silence(40), Speech(40), Silence(40)),
+            recogniser,
+            kept,
+            hearing: () =>
+            {
+                // In scope for the silence and the first words, excluded for the rest of that sentence,
+                // back in scope for the quiet and the next sentence.
+                chunks++;
+                return chunks is <= 40 or > 60;
+            });
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("restarting the spooler", Assert.Single(kept).Text);
+        var handed = Assert.Single(recogniser.Handed);
+
+        // The only segment is the second sentence. The gate's clock starts again when hearing does, so
+        // it begins after the forty frames of quiet that followed the vault, less the pre-roll.
+        var frameMs = (int)new SpeechGateOptions().FrameLength.TotalMilliseconds;
+        Assert.True(
+            handed.Segment.StartMs >= (40 * frameMs) - 250,
+            $"the segment began at {handed.Segment.StartMs} ms, before the sentence said after the vault had gone");
+        Assert.Equal(0, recorder.MissedWaitingForModel);
+    }
+
+    [Fact]
+    public void AServiceRecorderCannotBeBuiltWithoutSayingWhenASessionIsRecording()
+    {
+        // 2026-10-12 review (T-84). "Is a session recording?" used to default to "always". A host that
+        // dropped the argument still compiled, and the microphone was then open all day with everything
+        // said between sessions sent to the model (INV-9). The constructor a service uses, the one that
+        // shares a backlog with the session machine, cannot be called without it; the only other is
+        // the all-narration one, which takes nothing a service passes.
+        var constructors = typeof(NarrationRecorder).GetConstructors();
+        var service = Assert.Single(constructors, c => c.GetParameters().Any(p => p.ParameterType == typeof(NarrationBacklog)));
+
+        var recording = Assert.Single(service.GetParameters(), p => p.Name == "recording");
+        Assert.False(recording.IsOptional, "the recording gate has a default again");
+
+        var other = Assert.Single(constructors, c => c != service);
+        Assert.Equal(
+            [typeof(IMicrophone), typeof(ISpeechRecogniser), typeof(AppendTranscript)],
+            other.GetParameters().Select(p => p.ParameterType));
     }
 
     [Fact]
