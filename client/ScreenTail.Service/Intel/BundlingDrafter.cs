@@ -20,11 +20,18 @@ namespace ScreenTail.Service.Intel;
 /// technician sees is honest: Review shows "we could not draft this" with the reason, and the screenshots
 /// and transcript are still there (Spec §5 S3).
 /// </summary>
+/// <param name="canSend">
+/// Whether a drafting request could ever leave this machine: a backend is configured and the egress
+/// guard would let a summarisation request through. False means local-only mode or no backend, and
+/// the session is drafted here instead (ST-065 AC3). A backend that is merely offline is not this:
+/// the outbox waits for it. A session whose own record says local-only is drafted here whatever this says.
+/// </param>
 internal sealed partial class BundlingDrafter(
     ISessionStore store,
     ILogger logger,
     Core.Outbox.Outbox? outbox = null,
-    BundleOptions? options = null) : IDrafter
+    BundleOptions? options = null,
+    Func<bool>? canSend = null) : IDrafter
 {
     public const string NoProviderReason = "No summarization provider is configured, so this session could not be drafted.";
 
@@ -69,6 +76,17 @@ internal sealed partial class BundlingDrafter(
         // the machine comes back. The queue holds the request, not the bundle: frames are re-selected when
         // it is finally sent, from a store that retention may have thinned in the meantime, so a queued
         // draft can never resurrect a frame the tenant's window has already removed (INV-12).
+        //
+        // A session recorded under local-only is drafted here even if the mode has been lifted since: its
+        // record says nothing from it leaves the device, and Review's banner says so (INV-8).
+        if (session.LocalOnly || (canSend is not null && !canSend()))
+        {
+            // Nothing to queue: a request that policy will never let out is not "pending", and a session
+            // stuck at "draft failed" for a choice the technician made is the thing ST-065 AC3 removes.
+            LogDraftedLocally(logger, sessionId, bundle.Frames.Count, bundle.Transcript.Count);
+            return DraftOutcome.Success(FallbackDraft.Build(session));
+        }
+
         if (outbox is not null)
         {
             _ = await outbox.EnqueueAsync(
@@ -78,6 +96,9 @@ internal sealed partial class BundlingDrafter(
 
         return DraftOutcome.Failure(NoProviderReason);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Drafted {SessionId} on this device: no model reachable; {Frames} frames, {Segments} transcript segments")]
+    private static partial void LogDraftedLocally(ILogger logger, string sessionId, int frames, int segments);
 
     [LoggerMessage(
         Level = LogLevel.Information,
