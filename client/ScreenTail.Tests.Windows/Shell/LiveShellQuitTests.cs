@@ -15,9 +15,9 @@ namespace ScreenTail.Tests.Windows.Shell;
 /// ghost in the notification area. These hold the real shell to the fixed order, connected to a service
 /// that is recording, the way App.Dispose calls it: on the UI thread, blocking.
 ///
-/// The shell needs a UI thread and no WPF Application, so these run on an STA thread of their own. After
-/// another test's Application has shut down, WPF will not show a window in this process again, so the
-/// pill may never have been on screen here; closing it is the same either way, and so is what is held.
+/// The shell needs a UI thread and no WPF Application, so these run on an STA thread of their own. The
+/// pill is a XAML window, which cannot be built once another test's Application has shut down; that test's
+/// collection runs last (<see cref="WpfApplicationOwner"/>), so these always come before it.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class LiveShellQuitTests
