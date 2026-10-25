@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ScreenTail.Tests.Security;
@@ -96,7 +97,13 @@ public sealed class ReleaseSurfaceTests
         // 2026-10-12 review (T-120): "bare" used to mean `new HttpClient()` and nothing else, so a client
         // built around a SocketsHttpHandler, a raw web socket or the old WebRequest family bypassed the
         // guard with the test still green. The handler, socket and request types are named instead:
-        // EgressGuard.cs is the one file allowed to build the handler underneath.
+        // EgressGuard.cs is the one file allowed to build the handler underneath. A client built without
+        // a handler in any spelling (target-typed, with an initializer, with its namespace) is bare too,
+        // and so is a class of our own derived from HttpClient. Comments and string literals are taken
+        // out first, so neither a URL nor a message that names a type decides the answer.
+        //
+        // The product projects only. The test projects never run on a technician's machine, and they
+        // build clients over fake handlers on purpose; that is what a test of the guard looks like.
         var offenders = Projects
             .SelectMany(SourceFiles)
             .Where(file => !file.EndsWith("EgressGuard.cs", StringComparison.Ordinal))
@@ -120,12 +127,45 @@ public sealed class ReleaseSurfaceTests
     [InlineData("var r = (HttpWebRequest)WebRequest.Create(uri);", true)]
     [InlineData("using var w = new WebClient();", true)]
     [InlineData("services.AddHttpClient<Foo>();", true)]
+    [InlineData("HttpClient c = new();", true)]
+    [InlineData("using HttpClient c = new( );", true)]
+    [InlineData("private readonly HttpClient _http = new();", true)]
+    [InlineData("public HttpClient Http { get; } = new();", true)]
+    [InlineData("private static HttpClient Make() => new();", true)]
+    [InlineData("var c = new HttpClient { BaseAddress = b };", true)]
+    [InlineData("var c = new HttpClient\n{\n    BaseAddress = b,\n};", true)]
+    [InlineData("var c = new System.Net.Http.HttpClient();", true)]
+    [InlineData("var c = new global::System.Net.Http.HttpClient();", true)]
+    [InlineData("sealed class Raw : HttpClient { }", true)]
+    [InlineData("internal sealed class Raw(HttpMessageHandler h) : System.Net.Http.HttpClient(h) { }", true)]
+    [InlineData("using var tcp = new TcpClient(host, 443);", true)]
+    [InlineData("using var udp = new UdpClient();", true)]
+    [InlineData("var s = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);", true)]
+    [InlineData("var s = new System.Net.Sockets.Socket(a, b, c);", true)]
+    [InlineData("using var tls = new SslStream(stream);", true)]
+    [InlineData("await using var q = await QuicConnection.ConnectAsync(options);", true)]
+    [InlineData("var u = new Uri(\"https://x\"); var h = new SocketsHttpHandler();", true)]
+    [InlineData("var u = @\"C:\\temp\\\"; var h = new SocketsHttpHandler();", true)]
+    [InlineData("var q = $\"{(a ? \"x\" : \"//y\")}\"; var h = new SocketsHttpHandler();", true)]
+    [InlineData("char c = '\"'; var h = new SocketsHttpHandler();", true)]
+    [InlineData("var raw = \"\"\"a \"quoted\" //thing\"\"\"; var h = new SocketsHttpHandler();", true)]
     [InlineData("var c = new HttpClient(egress) { BaseAddress = backend };", false)]
     [InlineData("var c = new HttpClient(new EgressGuard(new EgressPolicy()));", false)]
     [InlineData("// a comment that mentions SocketsHttpHandler is not a handler", false)]
     [InlineData("/// <summary>Not a WebClient either.</summary>", false)]
     [InlineData("HttpClientHandlerSettings x;", false)]
     [InlineData("var request = new HttpRequestMessage(HttpMethod.Get, uri);", false)]
+    [InlineData("HttpClient c = new(egress);", false)]
+    [InlineData("HttpClient? http = null;", false)]
+    [InlineData("public HttpClient Client(HttpMessageHandler handler) => new(handler);", false)]
+    [InlineData("internal sealed class Sender(HttpClient http) : ISender { }", false)]
+    [InlineData("var s = \"SocketsHttpHandler is named in this message\";", false)]
+    [InlineData("/* new HttpClient() in a block comment */", false)]
+    [InlineData("var url = \"https://x\"; // new TcpClient()", false)]
+    [InlineData("var p = @\"C:\\path\\\"; var c = new HttpClient(guard);", false)]
+    [InlineData("var raw = \"\"\"a \"quoted\" new HttpClient()\"\"\"; var c = new HttpClient(guard);", false)]
+    [InlineData("var q = $\"{{new HttpClient()}}\";", false)]
+    [InlineData("var listener = new TcpClientOptions();", false)]
     public void TheUnguardedHttpCheckKnowsTheShapesItIsFor(string snippet, bool offends)
     {
         // The check above is only as good as this list. A self-test over snippets is what stops a regex
@@ -145,10 +185,14 @@ public sealed class ReleaseSurfaceTests
         // parameterless DiagnosticsWindow() and ShellWindow() constructors, which build the same sample
         // and are what a hurried `new ShellWindow()` in the tray would call. Each window may build its
         // own sample; nothing else may ask for one.
+        //
+        // Any spelling counts: target-typed, with the namespace, with a null, a null! or a default for the
+        // screenshot directory. The one-argument shell constructor is the render harness's, so App.xaml.cs
+        // is the one file that may call it, behind its --render switch.
         var offenders = SourceFiles("ScreenTail.UI")
             .Where(file => Path.GetFileName(file) is not ("DiagnosticsWindow.xaml.cs" or "ShellWindow.xaml.cs"))
-            .SelectMany(file => SampleWindow.Matches(File.ReadAllText(file))
-                .Select(match => $"{Path.GetFileName(file)}: {match.Value}"))
+            .SelectMany(file => SampleWindows(File.ReadAllText(file), inApp: Path.GetFileName(file) == "App.xaml.cs")
+                .Select(found => $"{Path.GetFileName(file)}: {found}"))
             .ToList();
 
         Assert.True(
@@ -161,20 +205,29 @@ public sealed class ReleaseSurfaceTests
     }
 
     [Theory]
-    [InlineData("var w = new DiagnosticsWindow();", true)]
-    [InlineData("var w = new ShellWindow();", true)]
-    [InlineData("var w = new ShellWindow( );", true)]
-    [InlineData("var w = new ShellWindow((string?)null);", true)]
-    [InlineData("var w = new ShellWindow(null);", true)]
-    [InlineData("var d = DiagnosticsWindow.Sample;", true)]
-    [InlineData("var w = new ScreenTail.UI.Shell.ShellWindow();", true)]
-    [InlineData("var w = new global::ScreenTail.UI.Diagnostics.DiagnosticsWindow();", true)]
-    [InlineData("var w = new ShellWindow(state, loadReview, history, settings);", false)]
-    [InlineData("var w = new DiagnosticsWindow(From(reported));", false)]
-    [InlineData("var w = new ShellWindow(directory);", false)]
-    public void TheSampleWindowCheckKnowsTheShapesItIsFor(string snippet, bool offends)
+    [InlineData("var w = new DiagnosticsWindow();", false, true)]
+    [InlineData("var w = new ShellWindow();", false, true)]
+    [InlineData("var w = new ShellWindow( );", true, true)]
+    [InlineData("var w = new ShellWindow((string?)null);", false, true)]
+    [InlineData("var w = new ShellWindow(null);", false, true)]
+    [InlineData("var w = new ShellWindow(null!);", false, true)]
+    [InlineData("var w = new ShellWindow(default);", false, true)]
+    [InlineData("var w = new ShellWindow(directory);", false, true)]
+    [InlineData("ShellWindow w = new();", false, true)]
+    [InlineData("ShellWindow w = new(directory);", false, true)]
+    [InlineData("DiagnosticsWindow w = new();", false, true)]
+    [InlineData("var d = DiagnosticsWindow.Sample;", false, true)]
+    [InlineData("var w = new ScreenTail.UI.Shell.ShellWindow();", false, true)]
+    [InlineData("var w = new global::ScreenTail.UI.Diagnostics.DiagnosticsWindow();", false, true)]
+    [InlineData("window = new ShellWindow(directory);", true, false)]
+    [InlineData("var w = new ShellWindow(state, loadReview, history, settings);", false, false)]
+    [InlineData("_window ??= new ShellWindow(\n    _state,\n    LoadReviewAsync,\n    () => new HistoryViewModel(_state, ListSessionsAsync),\n    () => new SettingsViewModel(a, b));", false, false)]
+    [InlineData("var w = new DiagnosticsWindow(From(reported));", false, false)]
+    [InlineData("var w = new DiagnosticsWindow(From(a, b));", false, false)]
+    [InlineData("var s = \"new ShellWindow() in a message\"; // new ShellWindow()", false, false)]
+    public void TheSampleWindowCheckKnowsTheShapesItIsFor(string snippet, bool inApp, bool offends)
     {
-        Assert.Equal(offends, SampleWindow.IsMatch(snippet));
+        Assert.Equal(offends, SampleWindows(snippet, inApp).Count > 0);
     }
 
     [Fact]
@@ -212,37 +265,283 @@ public sealed class ReleaseSurfaceTests
     }
 
     /// <summary>
-    /// <c>new HttpClient()</c> with no handler: a client built around the guard passes one in, which is
-    /// the whole distinction.
+    /// An <c>HttpClient</c> built with no handler, in every spelling: <c>new HttpClient()</c>, with an
+    /// initializer and no arguments, with its namespace, and target-typed <c>new()</c> where the declared
+    /// type is HttpClient. A client built around the guard passes one in, which is the whole distinction.
+    /// And a class of our own derived from HttpClient, which can build its own handler underneath.
     /// </summary>
-    private static readonly Regex BareHttpClient = new(@"new\s+HttpClient\s*\(\s*\)", RegexOptions.Compiled);
+    private static readonly Regex BareHttpClient = new(
+        @"new\s+(?:global::)?(?:System\.Net\.Http\.)?HttpClient\s*(?:\(\s*\)|\{)"
+        + @"|\bHttpClient\??\s+@?\w+\s*(?:\{[^{}]*\}\s*)?=\s*new\s*\(\s*\)"
+        + @"|\bHttpClient\??\s+@?\w+\s*\([^()]*\)\s*=>\s*new\s*\(\s*\)"
+        + @"|\b(?:class|record)\s+[^:{;]*:\s*(?:global::)?(?:[\w.]+\.)?HttpClient\b",
+        RegexOptions.Compiled);
+
+    /// <summary>A raw socket, by constructor, with or without its namespace.</summary>
+    private static readonly Regex RawSocket = new(@"\bnew\s+(?:global::)?(?:[\w.]+\.)?Socket\s*\(", RegexOptions.Compiled);
 
     /// <summary>
     /// The types that make a request without going through a handler somebody chose: the handlers an
-    /// <c>HttpClient</c> can be built around, the raw socket, the old request family, and the factory
-    /// that builds clients behind a caller's back. Whole words, so a type that merely contains one of
-    /// these names is not an offender.
+    /// <c>HttpClient</c> can be built around, the raw socket and its TCP, UDP, TLS and QUIC wrappers, the
+    /// old request family, and the factory that builds clients behind a caller's back. Whole words, so a
+    /// type that merely contains one of these names is not an offender.
     /// </summary>
     private static readonly Regex UnguardedHttpType = new(
-        @"\b(SocketsHttpHandler|HttpClientHandler|WinHttpHandler|HttpMessageInvoker|ClientWebSocket|HttpWebRequest|WebRequest|WebClient|IHttpClientFactory|AddHttpClient)\b",
+        @"\b(SocketsHttpHandler|HttpClientHandler|WinHttpHandler|HttpMessageInvoker|ClientWebSocket|HttpWebRequest|WebRequest|WebClient|IHttpClientFactory|AddHttpClient|TcpClient|UdpClient|SslStream|QuicConnection)\b",
         RegexOptions.Compiled);
 
-    /// <summary>Line comments, so a comment that names a type is not read as code that uses it.</summary>
-    private static readonly Regex LineComment = new(@"//.*$", RegexOptions.Compiled | RegexOptions.Multiline);
-
-    /// <summary>
-    /// The sample constructors and the sample itself: <c>new DiagnosticsWindow()</c>, <c>new ShellWindow()</c>,
-    /// a ShellWindow built on a null screenshot directory, and <c>DiagnosticsWindow.Sample</c>, with or
-    /// without the namespace in front.
-    /// </summary>
-    private static readonly Regex SampleWindow = new(
-        @"new\s+(?:global::)?(?:[\w.]+\.)?(?:DiagnosticsWindow|ShellWindow)\s*\(\s*(?:\(\s*string\??\s*\)\s*)?(?:null\s*)?\)|DiagnosticsWindow\.Sample\b",
+    /// <summary>A window constructor by name, with or without its namespace, up to its opening parenthesis.</summary>
+    private static readonly Regex WindowConstructor = new(
+        @"new\s+(?:global::)?(?:[\w.]+\.)?(?<window>DiagnosticsWindow|ShellWindow)\s*\(",
         RegexOptions.Compiled);
+
+    /// <summary>A window declared by type and built target-typed: <c>ShellWindow w = new(</c>.</summary>
+    private static readonly Regex TargetTypedWindow = new(
+        @"\b(?<window>DiagnosticsWindow|ShellWindow)\??\s+@?\w+\s*=\s*new\s*\(",
+        RegexOptions.Compiled);
+
+    private static readonly Regex DiagnosticsSample = new(@"\bDiagnosticsWindow\.Sample\b", RegexOptions.Compiled);
 
     private static bool BuildsUnguardedHttp(string source)
     {
-        var code = LineComment.Replace(source, string.Empty);
-        return BareHttpClient.IsMatch(code) || UnguardedHttpType.IsMatch(code);
+        var code = CodeOnly(source);
+        return BareHttpClient.IsMatch(code) || UnguardedHttpType.IsMatch(code) || RawSocket.IsMatch(code);
+    }
+
+    /// <summary>
+    /// What would build a sample window: a window constructor with no arguments, the sample itself, or
+    /// the one-argument shell constructor (the render harness's) anywhere but <paramref name="inApp"/>.
+    /// The four-argument shell and the one-argument diagnostics window are the real ones.
+    /// </summary>
+    private static List<string> SampleWindows(string source, bool inApp)
+    {
+        var code = CodeOnly(source);
+        var found = new List<string>();
+        foreach (var match in WindowConstructor.Matches(code).Concat(TargetTypedWindow.Matches(code)))
+        {
+            var arguments = TopLevelArguments(code, match.Index + match.Length);
+            var shell = match.Groups["window"].Value == "ShellWindow";
+            if (arguments == 0 || (shell && arguments == 1 && !inApp))
+            {
+                found.Add(match.Value);
+            }
+        }
+
+        found.AddRange(DiagnosticsSample.Matches(code).Select(m => m.Value));
+        return found;
+    }
+
+    /// <summary>How many arguments the call whose opening parenthesis ends at <paramref name="from"/> has.</summary>
+    private static int TopLevelArguments(string code, int from)
+    {
+        var depth = 0;
+        var commas = 0;
+        var any = false;
+        for (var i = from; i < code.Length; i++)
+        {
+            var c = code[i];
+            if (c is '(' or '[' or '{')
+            {
+                depth++;
+            }
+            else if (c is ')' or ']' or '}')
+            {
+                if (depth == 0)
+                {
+                    return any ? commas + 1 : 0;
+                }
+
+                depth--;
+            }
+            else if (c == ',' && depth == 0)
+            {
+                commas++;
+            }
+
+            if (!char.IsWhiteSpace(c))
+            {
+                any = true;
+            }
+        }
+
+        return any ? commas + 1 : 0;
+    }
+
+    /// <summary>
+    /// The source with comments removed and every string and character literal emptied, so what is
+    /// left is code. String-aware: a <c>//</c> inside a URL is not a comment, a quote inside a character
+    /// literal does not start a string, and verbatim, raw and interpolated strings end where C# says.
+    /// </summary>
+    internal static string CodeOnly(string source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var code = new StringBuilder(source.Length);
+        var i = 0;
+        while (i < source.Length)
+        {
+            var c = source[i];
+            var next = i + 1 < source.Length ? source[i + 1] : '\0';
+            if (c == '/' && next == '/')
+            {
+                while (i < source.Length && source[i] != '\n')
+                {
+                    i++;
+                }
+
+                continue;
+            }
+
+            if (c == '/' && next == '*')
+            {
+                var end = source.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = end < 0 ? source.Length : end + 2;
+                _ = code.Append(' ');
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                var j = i + 1;
+                while (j < source.Length && source[j] is not '\'' and not '\n')
+                {
+                    j += source[j] == '\\' ? 2 : 1;
+                }
+
+                i = Math.Min(j + 1, source.Length);
+                _ = code.Append("' '");
+                continue;
+            }
+
+            if (c == '"' || (c is '@' or '$' && StartsString(source, i)))
+            {
+                i = SkipString(source, i);
+                _ = code.Append("\"\"");
+                continue;
+            }
+
+            _ = code.Append(c);
+            i++;
+        }
+
+        return code.ToString();
+    }
+
+    private static bool StartsString(string source, int i)
+    {
+        while (i < source.Length && source[i] is '@' or '$')
+        {
+            i++;
+        }
+
+        return i < source.Length && source[i] == '"';
+    }
+
+    /// <summary>The index just past the string literal starting at <paramref name="start"/>.</summary>
+    private static int SkipString(string source, int start)
+    {
+        var i = start;
+        var verbatim = false;
+        var interpolated = false;
+        while (source[i] is '@' or '$')
+        {
+            verbatim |= source[i] == '@';
+            interpolated |= source[i] == '$';
+            i++;
+        }
+
+        var quotes = 0;
+        while (i + quotes < source.Length && source[i + quotes] == '"')
+        {
+            quotes++;
+        }
+
+        if (quotes >= 3)
+        {
+            // A raw string ends at the first run of at least as many quotes.
+            var fence = new string('"', quotes);
+            var end = source.IndexOf(fence, i + quotes, StringComparison.Ordinal);
+            if (end < 0)
+            {
+                return source.Length;
+            }
+
+            end += quotes;
+            while (end < source.Length && source[end] == '"')
+            {
+                end++;
+            }
+
+            return end;
+        }
+
+        if (quotes == 2)
+        {
+            return i + 2;
+        }
+
+        var j = i + 1;
+        var depth = 0;
+        while (j < source.Length)
+        {
+            var c = source[j];
+            if (depth > 0)
+            {
+                // Inside an interpolation hole: code, which may hold strings of its own.
+                if (c == '"' || (c is '@' or '$' && StartsString(source, j)))
+                {
+                    j = SkipString(source, j);
+                    continue;
+                }
+
+                depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+                j++;
+                continue;
+            }
+
+            if (interpolated && c == '{')
+            {
+                if (j + 1 < source.Length && source[j + 1] == '{')
+                {
+                    j += 2;
+                    continue;
+                }
+
+                depth = 1;
+                j++;
+                continue;
+            }
+
+            if (verbatim)
+            {
+                if (c == '"')
+                {
+                    if (j + 1 < source.Length && source[j + 1] == '"')
+                    {
+                        j += 2;
+                        continue;
+                    }
+
+                    return j + 1;
+                }
+            }
+            else
+            {
+                if (c == '\\')
+                {
+                    j += 2;
+                    continue;
+                }
+
+                if (c is '"' or '\n')
+                {
+                    return j + 1;
+                }
+            }
+
+            j++;
+        }
+
+        return source.Length;
     }
 
     private static string ProjectFile(string project)
