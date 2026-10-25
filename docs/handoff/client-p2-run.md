@@ -14,7 +14,7 @@ Heads move: always `git fetch origin` and work from the branch's latest commit.
 | c4 pipe | st-004-ipc-p2 | ST-004 | yes | PR #207 open, reviewed and approved, hosted checks green | merge once the laptop job is green |
 | c9 sessions, input, CI | st-020-sessions-input-p2 | ST-020 | yes | PR #208 open, reviewed twice, last gap fixed | merge once all checks are green |
 | c1 shell, HUD | st-070-shell-hud-p2 | ST-070 | yes | review asked for changes; fix round in progress | finish the fix round (below), re-review, open PR |
-| c2 review, publish | st-075-review-publish-p2 | ST-075 | no | review asked for changes; fix round in progress | finish the fix round, open PR, let the hosted Windows run settle the UI tests |
+| c2 review, publish | st-075-review-publish-p2 | ST-075 | no | PR #210 open, review findings fixed | let the hosted Windows run settle the UI tests (the two key tests and the KeyDown control); merge on green |
 | c3 settings, net | st-046-settings-net-p2 | ST-046 | no | review asked for changes; fix round in progress | finish the fix round, re-review, open PR |
 | c5 redaction | st-042-redaction-p2 | ST-042 | yes | still being built | see the c5 rule below |
 | c6 speech | st-027-speech-p2 | ST-027 | yes | built; in review | review, then fix round or PR |
@@ -33,10 +33,7 @@ Heads move: always `git fetch origin` and work from the branch's latest commit.
   setting when Review opens; replace the em dashes in the pill and tray status strings; update the INV-4
   wording in IndicatorReports.cs, IpcMessages.cs and docs/ipc-contract.md to match the decision below; the
   PR body must say it needs the laptop.
-- **c2:** backlog Status lines for ST-074, ST-075 and ST-078; the two STA key tests must not depend on a WPF
-  Application (another test shuts one down in the same process); give the key tests a negative control;
-  bound the filmstrip's dispose wait; report a refused Del exclusion; log the bookkeeping fault's type;
-  apply the minutes gate to Retry only for a pending time entry.
+- **c2:** done except what the hosted Windows run shows. If the detached-control key tests fail there, give them a real STA host that needs no Application.
 - **c3:** the draft sender must save a paid draft before writing its audit row, and the audit row must
   accept IPv6-literal and internationalised hosts; widen the release-surface check for unguarded network
   types (target-typed and initializer construction, subclasses, raw sockets, string-aware comment
@@ -108,6 +105,7 @@ Heads move: always `git fetch origin` and work from the branch's latest commit.
 
 - Diagnostics FramesDropped should add the pending queue's refused count (c9 with c7).
 - The shell should await the review pane's DisposeAsync when leaving Review (c2 with c1).
+- CaptureHost should pass its logger to PublishCommands so bookkeeping faults are logged (c2 with c7).
 - `bundle_sent` audit rows for the publish call and the metrics sender; the backend's log scrubber needs
   the same sensitive keys as the client's.
 - The pipe start command should use the same indicator gate as auto-start; a zero-size indicator report
