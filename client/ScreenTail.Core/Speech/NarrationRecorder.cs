@@ -93,6 +93,9 @@ public sealed class NarrationRecorder : IDisposable
     private TranscriptAssembler _assembler = new();
     private string? _assembling;
 
+    /// <summary>The session the detector last learned a room for, so a new one starts by listening to its own.</summary>
+    private string? _heardSession;
+
     /// <param name="recording">
     /// The session recording right now, or null when none is.
     ///
@@ -275,9 +278,9 @@ public sealed class NarrationRecorder : IDisposable
     /// <summary>
     /// Holds the microphone open for one session's worth of listening.
     ///
-    /// Returns when the session ends, so the enumerator is disposed and the device closed with it. The
-    /// gate is emptied on the way out for the same reason a pause empties it: a sentence begun while
-    /// recording must not be finished after it.
+    /// Returns when the session ends, so the enumerator is disposed and the device closed with it. What
+    /// was being said at that moment is cut there and kept; the gate and the buffer are emptied on the
+    /// way out, so nothing heard after the boundary can be joined on to it.
     /// </summary>
     /// <returns>
     /// True when the session ended and there may be another; false when the microphone itself stopped,
@@ -292,21 +295,22 @@ public sealed class NarrationRecorder : IDisposable
             {
                 if (_recording() is not { } now)
                 {
-                    Discard();
+                    await EndStretchAsync(ct).ConfigureAwait(false);
                     return true;
                 }
 
                 if (_stretch is { } stretch && !string.Equals(stretch.SessionId, now.SessionId, StringComparison.Ordinal))
                 {
-                    // One session ended and the next began between two chunks. Nothing said in one may
-                    // be finished in the other.
-                    Discard();
+                    // One session ended and the next began between two chunks. What was being said is
+                    // the first session's, cut here; nothing said in one may be finished in the other.
+                    await EndStretchAsync(ct).ConfigureAwait(false);
                 }
 
                 if (!_hearing())
                 {
                     // Something in front that may not be captured. Dropped where it arrives, and what was
-                    // being said is forgotten once, at the boundary, as a pause forgets it.
+                    // being said is forgotten at the boundary rather than kept: the words before a vault
+                    // came to the front are the start of the sentence that was read off it.
                     if (_stretch is not null)
                     {
                         Discard();
@@ -315,7 +319,20 @@ public sealed class NarrationRecorder : IDisposable
                     continue;
                 }
 
-                _stretch ??= now;
+                if (_stretch is null)
+                {
+                    if (!string.Equals(_heardSession, now.SessionId, StringComparison.Ordinal))
+                    {
+                        // A new session starts by listening to its own room. The floor learned in a
+                        // quiet office would make the next customer's server room read as speech for
+                        // half a minute, and that half minute would go to the model (2026-10-12 review).
+                        _voice.Reset();
+                        _heardSession = now.SessionId;
+                    }
+
+                    _stretch = now;
+                }
+
                 await OfferAsync(chunk, ct).ConfigureAwait(false);
             }
 
@@ -334,11 +351,33 @@ public sealed class NarrationRecorder : IDisposable
     }
 
     /// <summary>
+    /// The session went away between two chunks: stopped, paused, suppressed, or replaced by the next.
+    ///
+    /// Whatever was being said is cut here and kept. It was heard while the session was recording, and
+    /// nothing from after this moment is in it, so it is the session's as much as a frame staged just
+    /// before a pause is (backlog, 2026-10-14). Until the 2026-10-12 review only the microphone running
+    /// out flushed the gate; a real Stop reset it, and the last thing said in every session, usually the
+    /// outcome, was dropped. The session machine accepts the segment while it pauses or finalizes and
+    /// refuses it once the session is closed, so a stop that has already finished simply loses it.
+    ///
+    /// Capture coming back starts a new sentence, which is the honest reading: nobody can say what was
+    /// said in between, and this is the mechanism whose whole job is not to guess.
+    /// </summary>
+    private async ValueTask EndStretchAsync(CancellationToken ct)
+    {
+        if (_gate.Flush() is { } last)
+        {
+            await QueueAsync(last, ct).ConfigureAwait(false);
+        }
+
+        Discard();
+    }
+
+    /// <summary>
     /// Forgets whatever was being said.
     ///
-    /// The gate as well as the buffer: a sentence that began while recording must not be finished after
-    /// a pause. Capture coming back starts a new sentence, which is the honest reading — nobody can say
-    /// what was said in between, and this is the mechanism whose whole job is not to guess.
+    /// The gate as well as the buffer. At a session boundary <see cref="EndStretchAsync"/> has already
+    /// kept what was open; where the window in front may not be captured, nothing is kept.
     ///
     /// The gate's clock restarts with the buffer. It used to keep running while the buffer's count went
     /// back to zero, so after the first pause, suppression or session end every segment pointed at audio
