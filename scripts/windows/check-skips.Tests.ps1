@@ -22,7 +22,7 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ("check-skips-tests-" + [gui
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 
 # The gate appends to the job summary when the variable is set. Point it at a scratch file so the cases
-# below do not write twelve headings into the real one.
+# below do not write a heading each into the real one.
 $env:GITHUB_STEP_SUMMARY = Join-Path $root 'summary.md'
 
 function Write-Trx {
@@ -70,6 +70,8 @@ function Case {
 $proof = 'ScreenTail.Tests.Windows.Input.InputHookTests.TypingAPasswordRecordsOnlyHowManyKeys'
 $other = 'ScreenTail.Tests.Windows.Input.InputHookTests.EnterIsItsOwnCategory'
 $third = 'ScreenTail.Tests.Windows.Capture.SomethingElse'
+# A class whose name ends like the required one. Its passing must not count as the proof having run.
+$lookalike = 'ScreenTail.Tests.Windows.Input.XInputHookTests.TypingAPasswordRecordsOnlyHowManyKeys'
 
 Case -Name 'a run within its budget passes' -ExpectExit 0 -MaxSkipped 1 `
     -Reports @(, @((Passed $proof), (Passed $other), (Skipped $third))) -MustSay 'Skip gate passed: 1 of 3 skipped'
@@ -87,6 +89,12 @@ Case -Name 'a must-run test that failed does not count as having run' -ExpectExi
     -Reports @(, @((FailedTest $proof), (Passed $other))) -MustSay 'must run and pass'
 Case -Name 'a must-run test that passed satisfies the gate' -ExpectExit 0 -MaxSkipped 0 -MustRun @('InputHookTests.TypingAPasswordRecordsOnlyHowManyKeys') `
     -Reports @(, @((Passed $proof), (Passed $other))) -MustSay 'Skip gate passed: 0 of 2 skipped'
+Case -Name 'a lookalike that ends with the must-run name does not stand in for it' -ExpectExit 1 -MaxSkipped 5 -MustRun @('InputHookTests.TypingAPasswordRecordsOnlyHowManyKeys') `
+    -Reports @(, @((Passed $lookalike), (Passed $other), (Skipped $proof 'Input injection not permitted on this runner.'))) -MustSay 'must run and pass'
+Case -Name 'a must-run test named in full is matched in full' -ExpectExit 0 -MaxSkipped 0 -MustRun @($proof) `
+    -Reports @(, @((Passed $proof), (Passed $other))) -MustSay 'Skip gate passed: 0 of 2 skipped'
+Case -Name 'a run in which everything skipped fails, however generous the budget' -ExpectExit 1 -MaxSkipped 10 `
+    -Reports @(, @((Skipped $proof), (Skipped $other))) -MustSay 'passed. A run in which everything skipped'
 Case -Name 'a budget nobody has reached is pointed out' -ExpectExit 0 -MaxSkipped 3 `
     -Reports @(, @((Passed $proof), (Passed $other))) -MustSay 'Lower ''hosted'''
 

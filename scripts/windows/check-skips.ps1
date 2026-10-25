@@ -13,10 +13,12 @@
     budget in client/ScreenTail.Tests.Windows/skip-baseline.json. Every skipped test is named in the log
     and in the job summary, so a run that skipped something says which fact went unchecked.
 
-    Three more things fail the gate, whatever the budget (2026-10-12 review, T-231):
+    More things fail the gate, whatever the budget (2026-10-12 review, T-231):
       - A run with no tests in it. "0 of 0 skipped" is within every budget and proves nothing; it is
         what the laptop's input job would report if the class it filters to were renamed.
-      - A test the environment's `mustRun` list names that is not in the reports at all.
+      - A run in which no test passed, everything having skipped or failed.
+      - A test the environment's `mustRun` list names that is not in the reports at all, matched on its
+        whole name or on a dot and its name, never on a name that merely ends the same way.
       - A test that list names that did not pass.
     The list is the baseline's, per environment, and is optional; the input job's names INV-2's proof.
 
@@ -121,11 +123,20 @@ if ($total -eq 0) {
     exit 1
 }
 
-# The tests this environment exists to run. Named in the baseline, matched on the end of the TRX test
-# name, which xUnit writes fully qualified.
+# Tests ran and none of them passed: every one skipped or failed. Within a generous budget that is still
+# a run that proved nothing, and a failure is reported by the test step anyway, so this is the all-skipped
+# case the count above lets through.
+if ($passed.Count -eq 0) {
+    Write-Host "::error::None of the $total tests in the reports for $Environment passed. A run in which everything skipped proves nothing, whatever the budget allows."
+    exit 1
+}
+
+# The tests this environment exists to run. Named in the baseline and matched against the TRX test name,
+# which xUnit writes fully qualified: the whole name, or a dot and then the name, so a test whose class
+# merely ends the same way (XInputHookTests for InputHookTests) does not stand in for the one required.
 $notRun = @()
 foreach ($name in $mustRun) {
-    $ran = @($passed | Where-Object { $_.EndsWith($name) })
+    $ran = @($passed | Where-Object { ($_ -ceq $name) -or $_.EndsWith(".$name", [System.StringComparison]::Ordinal) })
     if ($ran.Count -eq 0) { $notRun += $name }
 }
 if ($notRun.Count -gt 0) {
