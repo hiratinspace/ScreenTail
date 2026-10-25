@@ -246,18 +246,25 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
     [Fact]
     public async Task AnIdleDesktopStillEndsTheSessionThroughTheCoordinator()
     {
-        // A technician who walks away produces no foreground changes at all, so the coordinator's own tick
-        // has to carry the stop. Driven here by the injected clock rather than by waiting for the timer.
+        // The technician leaves the tool for Outlook and then walks away: no foreground change follows, so
+        // the coordinator's own tick has to carry the stop. Driven by the injected clock rather than by
+        // waiting for the timer.
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTime(At);
         var coordinator = await CoordinatorAsync(ct, time: clock);
 
         await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 333, process: "outlook", title: "Inbox"), ct);
 
-        clock.Advance(TimeSpan.FromSeconds(120));
+        clock.Advance(TimeSpan.FromSeconds(89));
+        await coordinator.TickOnceAsync(ct);
+        Assert.Equal(SessionState.Recording, _machine!.State);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
         await coordinator.TickOnceAsync(ct);
 
-        Assert.NotEqual(SessionState.Recording, _machine!.State);
+        Assert.NotEqual(SessionState.Recording, _machine.State);
+        Assert.False(_trigger!.SessionRunning);
     }
 
     // ---- a policy change re-decides the window in front (T-30) ----------------------------------------

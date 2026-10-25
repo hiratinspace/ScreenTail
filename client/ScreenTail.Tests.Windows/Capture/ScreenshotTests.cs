@@ -245,13 +245,14 @@ public sealed class ScreenshotTests
     [Fact]
     public void NothingIsCapturedWhileATopmostWindowCoversTheWindowInFront()
     {
-        // The grab is of the screen over the window's rectangle, so a toast, a popup or any topmost window
-        // lying over an in-scope window is stored with it (2026-10-12 review, S-4; the topmost half of
-        // P-6). Until the grab is of the window itself, a sample with something on top is skipped.
+        // The grab is of the screen over the window's rectangle, so another application's topmost window
+        // lying over an in-scope window would be in its frame (2026-10-12 review, S-4). Until the grab is of
+        // the window itself, a sample with one on top is skipped. A test can only make windows in its own
+        // process, so the seam has the capturer judge them as another application's.
         Hardware.RequireScreenCapture();
         using var window = DesktopWindow.Create("ScreenTail covered target");
         window.RequireForeground();
-        using var capturer = new ScreenshotCapturer();
+        using var capturer = new ScreenshotCapturer { JudgeOwnWindowsAsForeign = true };
         Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
 
         var bounds = window.Bounds;
@@ -263,11 +264,38 @@ public sealed class ScreenshotTests
         Assert.Null(capturer.CaptureForegroundWindow(expected: window.Handle));
         Assert.Equal(1, capturer.SkippedCovered);
 
-        // Beside the window rather than over it, the same topmost window is no reason to skip.
-        toast.MoveTo(bounds.Right + 20, bounds.Top, 160, 80);
-        Thread.Sleep(150);
+        // Left out of screen capture, as the HUD is, the same window is absent from the frame anyway.
+        Assert.True(toast.ExcludeFromCapture(), "the display affinity could not be set, so nothing below would mean anything");
         Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
         Assert.Equal(1, capturer.SkippedCovered);
+    }
+
+    [Fact]
+    public void ATopmostWindowBesideTheWindowInFrontOrOfItsOwnAppIsNoReasonToSkip()
+    {
+        // The controls for the test above. Beside the window rather than over it, a topmost window is not
+        // in the frame. Over it but belonging to the app in front, it is that app's own menu or toolbar,
+        // which is what a click on a menu is a picture of.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail uncovered target");
+        window.RequireForeground();
+        var bounds = window.Bounds;
+        using var toast = DesktopWindow.Create("ScreenTail beside");
+        toast.ShowTopmostAt(bounds.Right + 20, bounds.Top, 160, 80);
+        Thread.Sleep(150);
+        Assert.True(window.IsForeground || window.TakeForeground(TimeSpan.FromSeconds(2)), "the topmost window took the foreground");
+
+        using (var foreign = new ScreenshotCapturer { JudgeOwnWindowsAsForeign = true })
+        {
+            Assert.NotNull(foreign.CaptureForegroundWindow(expected: window.Handle));
+            Assert.Equal(0, foreign.SkippedCovered);
+        }
+
+        toast.MoveTo(bounds.Left + 40, bounds.Top + 40, 160, 80);
+        Thread.Sleep(150);
+        using var own = new ScreenshotCapturer();
+        Assert.NotNull(own.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(0, own.SkippedCovered);
     }
 
     [Fact]

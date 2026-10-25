@@ -270,14 +270,33 @@ public sealed class RemoteToolRegistry
         {
             var regex = new Regex(pattern, RegexOptions.CultureInvariant, MatchTimeout);
 
-            // A pattern matching empty text matches every window, which would put everything in scope.
-            return regex.IsMatch(string.Empty) ? [$"'{id}' has a pattern that matches everything"] : [];
+            // A pattern matching empty text matches every window, which would put everything in scope. So
+            // does one that matches any text at all: a browser entry with no address matches on the tab
+            // title alone, and a title pattern that matches anything makes every tab a remote tool. Text no
+            // real tool's title, class or address contains stands in for "anything".
+            return Arbitrary.Any(text => regex.IsMatch(text)) ? [$"'{id}' has a pattern that matches everything"] : [];
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return [$"'{id}' has a pattern that takes too long to match"];
         }
         catch (ArgumentException ex)
         {
             return [$"'{id}' has an invalid pattern: {ex.Message}"];
         }
     }
+
+    /// <summary>Text that names no remote tool, no window class and no address: what "any title" looks like.</summary>
+    private static readonly string[] Arbitrary =
+    [
+        string.Empty,
+        "x",
+        "0",
+        " ",
+        "New Tab",
+        "zq7k vmw untitled",
+        new string('q', 300),
+    ];
 
     internal static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web)
     {

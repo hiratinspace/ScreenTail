@@ -514,6 +514,76 @@ public sealed class ScopePolicyTests
         Assert.True(trigger.SessionRunning);
     }
 
+    // ---- following the session machine (S-6, T-22) ---------------------------------------------------
+
+    [Fact]
+    public void AStartThatDidNotBeginIsTriedAgainOnTheNextFocus()
+    {
+        // The trigger decides to start as the tool takes focus. When no session then begins (nothing on
+        // screen to say capture is on, auto-start off), the coordinator tells it so, and the next focus
+        // is a start again rather than "no change" until a whole grace has passed (2026-10-12 review, T-22).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-02")).Start);
+
+        Assert.True(trigger.Follow(running: false));
+
+        Assert.False(trigger.SessionRunning);
+        Assert.Equal(TimeSpan.Zero, trigger.Remaining);
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-02")).Start);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandAwayFromAnyToolRunsOutItsGrace()
+    {
+        // Ctrl+Alt+R over Outlook. The trigger hears of the start and the grace runs from it, so the session
+        // and its microphone end once it is out (2026-10-12 review, S-6).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        Assert.True(trigger.Follow(running: true));
+        Assert.False(trigger.Observe(Window("outlook", "Inbox")).Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(89));
+        Assert.False(trigger.Tick().Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(trigger.Tick().Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
+    public void FollowingWhatTheTriggerAlreadyKnowsChangesNothing()
+    {
+        // The machine announces the start the trigger itself asked for. The tool and the grace it was
+        // already counting are kept, rather than reset by its own echo.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        trigger.Observe(Window("mstsc", "RECEPTION-02"));
+        clock.Advance(TimeSpan.FromSeconds(60));
+        trigger.Observe(Window("outlook", "Inbox"));
+
+        Assert.False(trigger.Follow(running: true));
+
+        Assert.Equal("rdp", trigger.RunningToolId);
+        Assert.InRange(trigger.Remaining, TimeSpan.FromSeconds(29), TimeSpan.FromSeconds(31));
+        Assert.False(new SessionTrigger(new ScopePolicy(Shipped), clock).Follow(running: false));
+    }
+
+    [Fact]
+    public void AStopFromTheTrayLeavesAutoStartArmed()
+    {
+        // Stopped by hand while still in the tool. The trigger follows, so the next remote-tool focus
+        // starts a session instead of being taken for the one that already ended (S-6).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        trigger.Observe(Window("mstsc", "RECEPTION-02"));
+
+        Assert.True(trigger.Follow(running: false));
+
+        Assert.False(trigger.Tick().Stop);
+        Assert.True(trigger.Observe(Window("mstsc", "RECEPTION-03")).Start);
+    }
+
     [Fact]
     public void AdminToolsAloneDoNotStartASession()
     {

@@ -1,6 +1,6 @@
 {
   "$comment": "ST-023. Which windows are a remote-support session, and which admin tools may be captured alongside one. This file decides what ScreenTail is allowed to photograph, so it is validated on load and every pattern is anchored: see ScreenTail.Core/Detection/Registry. Synced by tenant policy (ST-047); a technician can narrow it, never widen it.",
-  "version": "2026-10-14",
+  "version": "2026-10-25",
   "grace_seconds": 90,
 
   "tools": [
@@ -16,8 +16,9 @@
       "id": "rdp",
       "kind": "rdp",
       "display_name": "Remote Desktop",
+      "$comment": "RemoteApp windows (class RAIL_WINDOW) are matched by these processes and not by class: WSLg draws the same class for Linux apps through its own msrdc, which the watcher reports as wslg, and a class pattern would make every one of them a session.",
       "processes": ["mstsc", "msrdc", "RdClient"],
-      "window_class_patterns": ["^TscShellContainerClass$", "^RAIL_WINDOW$"],
+      "window_class_patterns": ["^TscShellContainerClass$"],
       "version_from": "file"
     },
     {

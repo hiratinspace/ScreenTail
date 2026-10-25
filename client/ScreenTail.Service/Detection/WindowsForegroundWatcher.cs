@@ -27,6 +27,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private readonly WinEventProc _callback;
     private Thread? _pump;
     private uint _pumpThreadId;
+    private IntPtr _settleTimer;
     private (uint ProcessId, string? Name, bool Elevated) _lastProcess;
     private volatile bool _hookInstalled;
     private ForegroundWindowInfo _current;
@@ -122,7 +123,15 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
             while (!_stopping.IsCancellationRequested && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
             {
-                if (message.Message == WM_TIMER)
+                if (message.Message == WM_TIMER && _settleTimer != IntPtr.Zero && message.WParam == _settleTimer)
+                {
+                    // The one-shot settle timer: a retitle the filter held is offered again now, rather
+                    // than waiting for the poll.
+                    _ = KillTimer(IntPtr.Zero, _settleTimer);
+                    _settleTimer = IntPtr.Zero;
+                    Publish(_filter.Flush(Read(GetForegroundWindow())));
+                }
+                else if (message.Message == WM_TIMER)
                 {
                     // Catches title changes and anything the hook missed; also the whole mechanism when the
                     // hook couldn't be installed.
@@ -139,6 +148,12 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         }
         finally
         {
+            if (_settleTimer != IntPtr.Zero)
+            {
+                _ = KillTimer(IntPtr.Zero, _settleTimer);
+                _settleTimer = IntPtr.Zero;
+            }
+
             if (timer != IntPtr.Zero)
             {
                 _ = KillTimer(IntPtr.Zero, timer);
@@ -183,7 +198,32 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             return;
         }
 
-        Publish(_filter.Offer(Read(window)));
+        var observed = Read(window);
+        var offered = _filter.Offer(observed);
+        if (offered is null && !observed.SameAs(_filter.Reported))
+        {
+            // Held: the same window, retitled inside the settle time. Only the poll used to offer it again,
+            // two seconds with the hook, and for those two seconds the old title's scope decision stood
+            // for a window whose title may now name something excluded. A one-shot timer on this thread
+            // offers it once the settle time is up. Armed once per hold, so a title rewriting itself many
+            // times a second still costs one timer, and nothing runs when nothing is held.
+            ArmSettleTimer();
+        }
+
+        Publish(offered);
+    }
+
+    private void ArmSettleTimer()
+    {
+        if (_settleTimer != IntPtr.Zero)
+        {
+            return;
+        }
+
+        // A thread timer: with no window, SetTimer ignores the id passed and returns its own, which is the
+        // WM_TIMER wParam the pump compares against.
+        var settle = (uint)Math.Max(1, Math.Ceiling(_filter.TitleSettle.TotalMilliseconds));
+        _settleTimer = SetTimer(IntPtr.Zero, IntPtr.Zero, settle, IntPtr.Zero);
     }
 
     private void Publish(ForegroundWindowInfo? info)
@@ -252,8 +292,14 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     }
 
     /// <summary>
-    /// A process we can't open is an elevated one, and that's the answer rather than an error: Spec §5 S2
-    /// has the technician told "elevated window — screen not captured" instead of capture going quiet.
+    /// The process's name, and whether its windows are elevated (INV-6).
+    ///
+    /// Elevation is read from the process's token: its mandatory integrity level, judged by
+    /// <see cref="ProcessElevation"/>. It used to be inferred from OpenProcess failing, and a process the
+    /// technician elevated runs as the same user and opens without complaint, so regedit, mmc or
+    /// PowerShell run as administrator were photographed as admin tools. A process that cannot be opened,
+    /// or whose token cannot be read, is still treated as elevated: blind is the closed answer, and Spec §5
+    /// S2 has the technician told "elevated window, screen not captured" rather than capture going quiet.
     /// </summary>
     internal static (string? Name, bool Elevated) ReadProcess(uint processId)
     {
@@ -262,22 +308,24 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             return (null, false);
         }
 
+        var isOwn = processId == (uint)Environment.ProcessId;
         var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
         if (handle == IntPtr.Zero)
         {
-            return (NameWithoutOpening(processId), true);
+            return (NameWithoutOpening(processId), ProcessElevation.IsElevated(null, OwnIntegrity.Value, isOwn));
         }
 
         try
         {
+            var elevated = ProcessElevation.IsElevated(IntegrityOf(handle), OwnIntegrity.Value, isOwn);
             var capacity = 1024;
             var buffer = new char[capacity];
             if (QueryFullProcessImageName(handle, 0, buffer, ref capacity))
             {
-                return (ProcessNameFor(new string(buffer, 0, capacity)), false);
+                return (ProcessNameFor(new string(buffer, 0, capacity)), elevated);
             }
 
-            return (NameWithoutOpening(processId), false);
+            return (NameWithoutOpening(processId), elevated);
         }
         finally
         {
@@ -285,8 +333,60 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         }
     }
 
-    /// <summary>The name a process is reported under, from the path of its image.</summary>
-    internal static string ProcessNameFor(string imagePath) => Path.GetFileNameWithoutExtension(imagePath);
+    /// <summary>The name a process is reported under, from the path of its image. WSLg's msrdc is "wslg".</summary>
+    internal static string ProcessNameFor(string imagePath) => ProcessImage.NameFor(imagePath);
+
+    /// <summary>This process's own level, read once: it does not change while the process runs.</summary>
+    private static readonly Lazy<int?> OwnIntegrity = new(() => IntegrityOf(GetCurrentProcess()));
+
+    /// <summary>
+    /// The mandatory integrity level of a process's token, or null when it cannot be read. TOKEN_QUERY on a
+    /// process opened for limited information is enough, and is granted for a same-user elevated process.
+    /// </summary>
+    private static int? IntegrityOf(IntPtr process)
+    {
+        if (!OpenProcessToken(process, TOKEN_QUERY, out var token))
+        {
+            return null;
+        }
+
+        try
+        {
+            _ = GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out var needed);
+            if (needed <= 0 || needed > 1024)
+            {
+                return null;
+            }
+
+            var buffer = Marshal.AllocHGlobal(needed);
+            try
+            {
+                if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, needed, out _))
+                {
+                    return null;
+                }
+
+                // TOKEN_MANDATORY_LABEL starts with SID_AND_ATTRIBUTES, whose first field is the SID. The
+                // level is the SID's last sub-authority.
+                var sid = Marshal.ReadIntPtr(buffer);
+                if (sid == IntPtr.Zero || !IsValidSid(sid))
+                {
+                    return null;
+                }
+
+                var count = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+                return count == 0 ? null : Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(count - 1)));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        finally
+        {
+            _ = CloseHandle(token);
+        }
+    }
 
     /// <summary>The name of a process we couldn't open. Often available anyway, and worth having in the note.</summary>
     private static string? NameWithoutOpening(uint processId)
@@ -314,6 +414,8 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private const uint WM_QUIT = 0x0012;
     private const uint WM_TIMER = 0x0113;
     private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private const uint TOKEN_QUERY = 0x0008;
+    private const int TokenIntegrityLevel = 25;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Msg
@@ -362,6 +464,27 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenProcessToken(IntPtr process, uint desiredAccess, out IntPtr token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetTokenInformation(IntPtr token, int informationClass, IntPtr information, int length, out int returnLength);
+
+    [DllImport("advapi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsValidSid(IntPtr sid);
+
+    [DllImport("advapi32.dll")]
+    private static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+
+    [DllImport("advapi32.dll")]
+    private static extern IntPtr GetSidSubAuthority(IntPtr sid, uint index);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

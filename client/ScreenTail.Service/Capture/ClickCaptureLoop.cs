@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Input;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Input;
@@ -65,28 +66,17 @@ internal sealed partial class ClickCaptureLoop
         // Drained on a timer rather than on every signal: the callbacks must stay free of everything but a
         // buffer write, and a click is worth a frame a few tens of milliseconds later just as much.
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
-        try
-        {
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
-            {
-                try
-                {
-                    await DrainAsync(ct).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    // One bad batch costs that batch. This loop used to end on the first exception of any
-                    // kind and stay ended for the life of the service, with the pill still saying
-                    // Recording and no click ever captured again. The type and a count, never the
-                    // message: a store error can quote what it was asked to write (INV-10).
-                    _failedDrains++;
-                    LogDrainFailed(_logger, ex.GetType().Name, _failedDrains);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+
+        // One bad batch costs that batch. This loop used to end on the first exception of any kind, and
+        // then on any OperationCanceledException, which is also what a call that timed out throws: either
+        // way it stayed ended for the life of the service, with the pill still saying Recording and no
+        // click captured again. ResilientLoop ends it only for the cancellation it was handed. The type and
+        // a count, never the message: a store error can quote what it was asked to write (INV-10).
+        await ResilientLoop.RunAsync(
+            next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
+            step: DrainAsync,
+            onFailure: failure => LogDrainFailed(_logger, failure.GetType().Name, Interlocked.Increment(ref _failedDrains)),
+            ct).ConfigureAwait(false);
     }
 
     private async Task DrainAsync(CancellationToken ct)

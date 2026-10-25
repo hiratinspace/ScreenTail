@@ -261,6 +261,22 @@ internal sealed class DesktopWindow : IDisposable
         _ = SetWindowPos(Handle, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
     /// <summary>
+    /// Leaves the window out of screen capture, as the HUD does with itself. Set on the window's own
+    /// thread; false when Windows refused it.
+    /// </summary>
+    public bool ExcludeFromCapture()
+    {
+        var done = new ManualResetEventSlim();
+        var set = false;
+        Post(() =>
+        {
+            set = SetWindowDisplayAffinity(Handle, WDA_EXCLUDEFROMCAPTURE);
+            done.Set();
+        });
+        return done.Wait(TimeSpan.FromSeconds(5)) && set;
+    }
+
+    /// <summary>
     /// Paints the client area in two halves, light first and dark second, so a capture of the window has
     /// something to be right or wrong about. Calling it again with the other layout repaints in place,
     /// which is what a window changing looks like to the scene sampler (ST-026).
@@ -534,6 +550,12 @@ internal sealed class DesktopWindow : IDisposable
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr GetStockObject(int index);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint affinity);
+
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
