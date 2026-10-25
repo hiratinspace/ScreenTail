@@ -226,6 +226,12 @@ public sealed class ReleaseSurfaceTests
     [InlineData("var w = new DiagnosticsWindow(From(reported));", false, false)]
     [InlineData("var w = new DiagnosticsWindow(From(a, b));", false, false)]
     [InlineData("var s = \"new ShellWindow() in a message\"; // new ShellWindow()", false, false)]
+    [InlineData("internal sealed class Kiosk : ShellWindow { }", false, true)]
+    [InlineData("internal sealed class Kiosk : ShellWindow { }", true, true)]
+    [InlineData("sealed class Panel(string d) : ScreenTail.UI.Diagnostics.DiagnosticsWindow(From(d)) { }", false, true)]
+    [InlineData("public partial class Kiosk\n    : global::ScreenTail.UI.Shell.ShellWindow\n{\n}", false, true)]
+    [InlineData("internal sealed class Kiosk : Window, IShellWindowHost { }", false, false)]
+    [InlineData("internal sealed class ShellWindowHost : Window { }", false, false)]
     public void TheSampleWindowCheckKnowsTheShapesItIsFor(string snippet, bool inApp, bool offends)
     {
         Assert.Equal(offends, SampleWindows(snippet, inApp).Count > 0);
@@ -333,6 +339,14 @@ public sealed class ReleaseSurfaceTests
 
     private static readonly Regex DiagnosticsSample = new(@"\bDiagnosticsWindow\.Sample\b", RegexOptions.Compiled);
 
+    /// <summary>
+    /// A class of our own derived from either window. Neither is sealed, and a subclass reaches the
+    /// sample through an implicit <c>base()</c> without ever spelling a constructor, so any subclass counts.
+    /// </summary>
+    private static readonly Regex WindowSubclass = new(
+        @"\b(?:class|record)\s+[^:{;]*:\s*(?:global::)?(?:[\w.]+\.)?(?:DiagnosticsWindow|ShellWindow)\b",
+        RegexOptions.Compiled);
+
     private static bool BuildsUnguardedHttp(string source)
     {
         var code = CodeOnly(source);
@@ -340,9 +354,10 @@ public sealed class ReleaseSurfaceTests
     }
 
     /// <summary>
-    /// What would build a sample window: a window constructor with no arguments, the sample itself, or
-    /// the one-argument shell constructor (the render harness's) anywhere but <paramref name="inApp"/>.
-    /// The four-argument shell and the one-argument diagnostics window are the real ones.
+    /// What would build a sample window: a window constructor with no arguments, the sample itself, the
+    /// one-argument shell constructor (the render harness's) anywhere but <paramref name="inApp"/>, or a
+    /// class derived from either window. The four-argument shell and the one-argument diagnostics window
+    /// are the real ones.
     /// </summary>
     private static List<string> SampleWindows(string source, bool inApp)
     {
@@ -359,6 +374,7 @@ public sealed class ReleaseSurfaceTests
         }
 
         found.AddRange(DiagnosticsSample.Matches(code).Select(m => m.Value));
+        found.AddRange(WindowSubclass.Matches(code).Select(m => m.Value));
         return found;
     }
 
