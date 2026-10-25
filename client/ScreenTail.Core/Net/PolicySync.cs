@@ -171,7 +171,17 @@ public sealed class PolicySync(HttpClient http, Func<string?> token, IPolicyCach
             _cache.Save(policy);
             if (policy != before)
             {
-                Changed?.Invoke(policy);
+                try
+                {
+                    Changed?.Invoke(policy);
+                }
+                catch
+                {
+                    // In force only once applied. Left as the new one, the next fetch of the same answer
+                    // would find nothing changed, never apply it, and report it fetched (INV-11).
+                    _current = before;
+                    throw;
+                }
             }
 
             return true;
