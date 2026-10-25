@@ -50,6 +50,12 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
     /// </summary>
     public const int LargestFrameBytes = 700 * 1024;
 
+    /// <summary>
+    /// The long edge of a filmstrip thumbnail (E-30): twice the strip's 160 px cell, so a 200% display gets
+    /// real pixels. A 16:9 frame comes out 320x180, a few tens of kilobytes as JPEG.
+    /// </summary>
+    public const int ThumbnailEdge = 320;
+
     public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);

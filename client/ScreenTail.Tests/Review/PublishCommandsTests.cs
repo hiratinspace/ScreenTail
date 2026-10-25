@@ -174,7 +174,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         // One number: the backend's PublishLimits.MaxFrames is BundleLimits.MaxFrames, which is the
         // client's BundleOptions.MaxFrames. A drift here would make the service refuse what the backend
         // takes, or the reverse.
-        Assert.Equal(new Intel.BundleOptions().MaxFrames, PublishCommands.MaxFrames);
+        Assert.Equal(PublishCommands.MaxFrames, new ScreenTail.Core.Intel.BundleOptions().MaxFrames);
     }
 
     [Fact]
@@ -327,7 +327,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     /// <summary>The metrics reporter and the style learner, remembering what they were told; optionally failing like a store that is down.</summary>
-    private sealed class RecordingBookkeeping : IMetricsReporter, Intel.IStyleLearner
+    private sealed class RecordingBookkeeping : IMetricsReporter, ScreenTail.Core.Intel.IStyleLearner
     {
         public bool Throws { get; init; }
 

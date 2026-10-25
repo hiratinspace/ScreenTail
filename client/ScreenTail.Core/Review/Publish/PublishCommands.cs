@@ -21,6 +21,12 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
     private readonly ConcurrentDictionary<int, string> _refusals = new();
 
+    /// <summary>The backend's ceiling on frames per publish (PublishLimits.MaxFrames, which is BundleOptions.MaxFrames).</summary>
+    public const int MaxFrames = 25;
+
+    /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
+    public string? LastBookkeepingError { get; private set; }
+
     public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
