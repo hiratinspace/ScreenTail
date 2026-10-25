@@ -107,6 +107,12 @@ public sealed class NarrationRecorder : IDisposable
     /// </summary>
     private string? _holding;
 
+    /// <summary>
+    /// The backlog's suppression count as of the last chunk taken. When it has moved, capture was
+    /// suppressed since, and what was being said is dropped rather than kept.
+    /// </summary>
+    private long _suppressions;
+
     /// <param name="recording">
     /// The session recording right now, or null when none is.
     ///
@@ -128,7 +134,8 @@ public sealed class NarrationRecorder : IDisposable
     /// line, has no sessions to ask about, and it says so by using the shorter constructor.
     /// </param>
     /// <param name="hearing">
-    /// Whether what is said right now may be kept, asked of every chunk while a session is recording.
+    /// Whether what is said right now may be kept, asked of every chunk while a session is recording, and
+    /// once more when a session stops recording, before what was being said is kept.
     /// The host answers no while the window in front may not be photographed: an excluded app such as a
     /// password manager, an elevated window, anything out of scope (INV-6). The microphone stays open,
     /// because the session is still recording, and the audio is dropped where it arrives. Defaults to
@@ -252,18 +259,16 @@ public sealed class NarrationRecorder : IDisposable
                 }
             }
 
-            // A session stopped mid-sentence still keeps what was being said. It is usually the outcome,
-            // which is the half of a session a note most needs.
-            if (_gate.Flush() is { } last)
-            {
-                await QueueAsync(last, ct).ConfigureAwait(false);
-            }
+            // A session stopped mid-sentence still keeps what was being said, unless it was suppressed or
+            // went out of scope first. It is usually the outcome, which is the half of a session a note
+            // most needs.
+            await EndStretchAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            if (_gate.Flush() is { } last && !ct.IsCancellationRequested)
+            if (!ct.IsCancellationRequested)
             {
-                await QueueAsync(last, ct).ConfigureAwait(false);
+                await EndStretchAsync(ct).ConfigureAwait(false);
             }
         }
 #pragma warning disable CA1031 // Losing narration must not be a reason to lose the session.
@@ -318,12 +323,23 @@ public sealed class NarrationRecorder : IDisposable
         Listening = true;
         try
         {
+            _suppressions = _backlog.Suppressions;
             await foreach (var chunk in _microphone.ListenAsync(ct).ConfigureAwait(false))
             {
                 if (_recording() is not { } now)
                 {
                     await EndStretchAsync(ct).ConfigureAwait(false);
                     return true;
+                }
+
+                if (_backlog.Suppressions != _suppressions)
+                {
+                    // Suppressed and let go again since the last chunk, so quickly the session never
+                    // stopped recording as far as this loop could see. What was open is dropped, and
+                    // so is this chunk: some of it was heard while capture was off.
+                    _suppressions = _backlog.Suppressions;
+                    Discard();
+                    continue;
                 }
 
                 if (_stretch is { } stretch && !string.Equals(stretch.SessionId, now.SessionId, StringComparison.Ordinal))
@@ -363,12 +379,9 @@ public sealed class NarrationRecorder : IDisposable
                 await OfferAsync(chunk, ct).ConfigureAwait(false);
             }
 
-            // The microphone itself stopped. Whatever was being said is still worth keeping.
-            if (_gate.Flush() is { } last)
-            {
-                await QueueAsync(last, ct).ConfigureAwait(false);
-            }
-
+            // The microphone itself stopped. Whatever was being said is still worth keeping, unless capture
+            // was suppressed or the window in front went out of scope since it was heard.
+            await EndStretchAsync(ct).ConfigureAwait(false);
             return false;
         }
         finally
@@ -380,7 +393,15 @@ public sealed class NarrationRecorder : IDisposable
     /// <summary>
     /// The session went away between two chunks: stopped, paused, suppressed, or replaced by the next.
     ///
-    /// Whatever was being said is cut here and kept. It was heard while the session was recording, and
+    /// <b>Dropped, never kept, when capture was suppressed or the window in front may not be heard.</b>
+    /// The recorder cannot tell a suppression from a pause by the session going away, so it asks the
+    /// backlog whether a suppression came since the last chunk, and asks again whether the window in
+    /// front may be heard. A password field taking focus mid-sentence, or a vault coming to the front as
+    /// the session stops, means the words just said are the start of what was read off it (INV-6). Both
+    /// questions fail closed: a suppression counted while paused, or a window whose scope is not known
+    /// yet, loses a sentence that might have been kept, never the other way round.
+    ///
+    /// Otherwise whatever was being said is cut here and kept. It was heard while the session was recording, and
     /// nothing from after this moment is in it, so it is the session's as much as a frame staged just
     /// before a pause is (backlog, 2026-10-14). Until the 2026-10-12 review only the microphone running
     /// out flushed the gate; a real Stop reset it, and the last thing said in every session, usually the
@@ -392,11 +413,12 @@ public sealed class NarrationRecorder : IDisposable
     /// </summary>
     private async ValueTask EndStretchAsync(CancellationToken ct)
     {
-        if (_gate.Flush() is { } last)
+        if (_backlog.Suppressions == _suppressions && _hearing() && _gate.Flush() is { } last)
         {
             await QueueAsync(last, ct).ConfigureAwait(false);
         }
 
+        _suppressions = _backlog.Suppressions;
         Discard();
     }
 
@@ -404,7 +426,8 @@ public sealed class NarrationRecorder : IDisposable
     /// Forgets whatever was being said.
     ///
     /// The gate as well as the buffer. At a session boundary <see cref="EndStretchAsync"/> has already
-    /// kept what was open; where the window in front may not be captured, nothing is kept.
+    /// kept what was open, if anything may be kept; where capture was suppressed or the window in front
+    /// may not be captured, nothing is.
     ///
     /// The gate's clock restarts with the buffer. It used to keep running while the buffer's count went
     /// back to zero, so after the first pause, suppression or session end every segment pointed at audio

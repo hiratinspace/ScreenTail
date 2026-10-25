@@ -17,7 +17,7 @@ namespace ScreenTail.Tests.Speech;
 /// </summary>
 public sealed class NarrationRecorderTests
 {
-    private const int Rate = 16_000;
+    internal const int Rate = 16_000;
 
     [Fact]
     public async Task SomethingSaidBecomesATranscriptSegment()
@@ -832,6 +832,37 @@ public sealed class NarrationRecorderTests
     }
 
     [Fact]
+    public async Task ASentenceUnderWayWhenAnOutOfScopeWindowCameToFrontIsDroppedEvenAsTheSessionEnds()
+    {
+        // The vault comes to the front mid-sentence, and the session stops before the recorder has heard
+        // another chunk. Both are news on the same chunk. The stop alone would keep what was being said;
+        // the window in front means it is the start of what was read off the vault, so it is dropped.
+        var microphone = new LiveMicrophone(Silence(20)) { KeepsSaying = Speech(1)[0] };
+        var recogniser = new FakeRecogniser("the admin password is");
+        var kept = new List<TranscriptSegment>();
+        var away = false;
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => away ? null : new NarrationSession("session-a", 0),
+            hearing: () => !away);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => microphone.Yielded >= 80);
+        away = true;
+        await UntilAsync(() => !recorder.Listening);
+        await Task.Delay(200);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Empty(kept);
+        Assert.Equal(0, recogniser.Asked);
+    }
+
+    [Fact]
     public void AServiceRecorderCannotBeBuiltWithoutSayingWhenASessionIsRecording()
     {
         // 2026-10-12 review (T-84). "Is a session recording?" used to default to "always". A host that
@@ -894,7 +925,7 @@ public sealed class NarrationRecorderTests
             hearing: hearing);
 
     /// <summary>Waits for a condition the recorder reaches on its own threads, for at most a few seconds.</summary>
-    private static async Task UntilAsync(Func<bool> done)
+    internal static async Task UntilAsync(Func<bool> done)
     {
         for (var i = 0; i < 250 && !done(); i++)
         {
@@ -995,7 +1026,7 @@ public sealed class NarrationRecorderTests
     /// as a real one does. Digital silence by default; a test that wants a sentence still in progress when
     /// something happens sets <see cref="KeepsSaying"/> to speech.
     /// </summary>
-    private sealed class LiveMicrophone(params short[][][] runs) : IMicrophone
+    internal sealed class LiveMicrophone(params short[][][] runs) : IMicrophone
     {
         private List<short[]> _frames = [.. runs.SelectMany(run => run)];
 

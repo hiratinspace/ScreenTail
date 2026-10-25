@@ -253,6 +253,11 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
+            // Before the state moves, so the recorder never sees this session stop recording without
+            // also seeing why: what was being said is dropped at a suppression, not kept as at a pause.
+            // Counted while paused too, where it costs at most a sentence the pause would have kept.
+            _options.Narration.Suppressed();
+
             bool added;
             lock (_stateLock)
             {
