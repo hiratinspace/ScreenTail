@@ -15,6 +15,11 @@ using ScreenTail.Shared.Logging;
 // else's code into a genuine signed process if the environment asks — so an attacker needs no forged
 // binary, only our real one launched with a startup hook set (ST-012, 2026-09-19 review).
 //
+// This is the second line, not the first. A startup hook runs before Main, so by the time this check
+// runs one would already have run; the project builds with StartupHookSupport off so the runtime loads
+// none at all. What this still catches is the variables being set, which is worth refusing and saying,
+// and the profiler variables, which only packaging can fully close (ADR-0003, ST-112).
+//
 // Signed builds refuse. A development build says so and carries on, because these variables are how a
 // profiler is attached and a rule that makes debugging impossible is one somebody deletes.
 if (RunningHonestly.WhyNotToStart(Signing.IsDevelopmentBuild) is { } refusal)
