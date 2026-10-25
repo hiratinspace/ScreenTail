@@ -497,6 +497,92 @@ public sealed class ScopePolicyTests
     }
 
     [Fact]
+    public void ASessionInTheToolPastTheGraceKeepsRunning()
+    {
+        // The grace runs from when the tool loses focus, not from when it took it. A technician working in
+        // one RDP window for ten minutes makes no foreground change, and the timer that lets an idle session
+        // end used to end this one too, ninety seconds in (2026-10-12 review, c8 blocker).
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var tool = Window("mstsc", "RECEPTION-02");
+        Assert.True(trigger.Observe(tool).Start);
+
+        for (var elapsed = 0; elapsed < 600; elapsed += 5)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            Assert.False(trigger.Tick(tool).Stop);
+        }
+
+        Assert.True(trigger.SessionRunning);
+        Assert.Equal(TimeSpan.FromSeconds(90), trigger.Remaining);
+    }
+
+    [Fact]
+    public void TheGraceRunsFromWhenTheToolLosesFocus()
+    {
+        // The control for the test above: ten minutes in the tool, then Outlook, and the full grace from
+        // that moment, no less and no more.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var tool = Window("mstsc", "RECEPTION-02");
+        var outlook = Window("outlook", "Inbox");
+        trigger.Observe(tool);
+        clock.Advance(TimeSpan.FromSeconds(600));
+        Assert.False(trigger.Tick(tool).Stop);
+
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(89));
+        Assert.False(trigger.Tick(outlook).Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(trigger.Tick(outlook).Stop);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandKeepsRunningWhileItsOwnWindowIsInFront()
+    {
+        // Ctrl+Alt+R over a window no registry knows. That window is the session's tool for as long as it
+        // is in front, so the session outlives the grace there, as it did before the trigger followed
+        // manual starts.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var own = Window("vendorconsole", "Customer 4471") with { Handle = 4471 };
+        Assert.True(trigger.Follow(running: true, window: own));
+
+        for (var elapsed = 0; elapsed < 600; elapsed += 5)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            Assert.False(trigger.Tick(own).Stop);
+        }
+
+        Assert.True(trigger.SessionRunning);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandRunsOutItsGraceOnceItsWindowIsLeft()
+    {
+        // Leaving that window for one that is neither it nor a remote tool starts the grace, and coming
+        // back to it, by a foreground change, keeps the session as returning to a tool does.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var own = Window("vendorconsole", "Customer 4471") with { Handle = 4471 };
+        var outlook = Window("outlook", "Inbox") with { Handle = 5000 };
+        trigger.Follow(running: true, window: own);
+
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(80));
+        Assert.False(trigger.Observe(own).Stop);
+        clock.Advance(TimeSpan.FromSeconds(80));
+        Assert.False(trigger.Tick(own).Stop);
+
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(91));
+        Assert.True(trigger.Tick(outlook).Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
     public void ReturningToTheToolKeepsTheSessionAlive()
     {
         var clock = new ManualTime(At);

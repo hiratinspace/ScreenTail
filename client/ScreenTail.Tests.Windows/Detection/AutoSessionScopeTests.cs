@@ -192,11 +192,12 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AManualStartAwayFromAnyToolStillStopsOnceTheGraceRunsOut()
+    public async Task AManualStartOutsideAnyToolKeepsRunningWhileItsWindowIsInFront()
     {
-        // Ctrl+Alt+R over Outlook starts a session as "other". The trigger never knew, so the grace never
-        // ran and the microphone stayed open until the technician stopped it by hand (S-6). It follows the
-        // start now, and the grace runs from it.
+        // Ctrl+Alt+R over Outlook starts a session as "other". Once the trigger followed manual starts, the
+        // grace ran from the start and ended the session while the technician was still working in the
+        // window they started it in; main kept it running (c8 blocker). That window counts as the
+        // session's tool for as long as it is in front.
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTime(At);
         var coordinator = await CoordinatorAsync(ct, time: clock);
@@ -206,15 +207,53 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.Equal(SessionState.Recording, _machine!.State);
         Assert.True(_trigger!.SessionRunning);
 
-        clock.Advance(TimeSpan.FromSeconds(89));
-        await coordinator.TickOnceAsync(ct);
-        Assert.Equal(SessionState.Recording, _machine.State);
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(300), ct);
 
-        clock.Advance(TimeSpan.FromSeconds(2));
-        await coordinator.TickOnceAsync(ct);
+        Assert.Equal(SessionState.Recording, _machine.State);
+        Assert.True(_trigger.SessionRunning);
+    }
+
+    [Fact]
+    public async Task AManualStartOutsideAnyToolStopsOnceItsWindowIsLeftForTheGrace()
+    {
+        // The control: the grace still ends a session started by hand (S-6), counted from when the
+        // technician leaves the window it was started in, so the microphone is not left open for good.
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTime(At);
+        var coordinator = await CoordinatorAsync(ct, time: clock);
+
+        await coordinator.HandleAsync(Window(handle: 333, process: "outlook", title: "Inbox"), ct);
+        Assert.True(await coordinator.StartFromForegroundAsync(ct));
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(300), ct);
+
+        await coordinator.HandleAsync(Window(handle: 444, process: "notepad", title: "Untitled"), ct);
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(85), ct);
+        Assert.Equal(SessionState.Recording, _machine!.State);
+
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(10), ct);
 
         Assert.NotEqual(SessionState.Recording, _machine.State);
-        Assert.False(_trigger.SessionRunning);
+        Assert.False(_trigger!.SessionRunning);
+    }
+
+    [Fact]
+    public async Task ASessionInTheToolPastTheGraceKeepsRunning()
+    {
+        // The technician works in one remote tool window for five minutes. Nothing moves in the foreground,
+        // and the auto-stop timer ended the session ninety seconds in, because the grace ran from when the
+        // tool took focus rather than from when it lost it (c8 blocker). Each tick with the tool in front
+        // starts the grace over.
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTime(At);
+        var coordinator = await CoordinatorAsync(ct, time: clock);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Recording, _machine!.State);
+
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(300), ct);
+
+        Assert.Equal(SessionState.Recording, _machine.State);
+        Assert.True(_trigger!.SessionRunning);
     }
 
     // ---- auto-stop (T-28) ------------------------------------------------------------------------------
@@ -312,6 +351,16 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         var session = (await _store!.LoadSessionAsync(_machine!.SessionId!, ct))!;
         Assert.Single(session.Events.OfType<FocusEvent>());
         Assert.Equal(111, coordinator.CurrentScope?.Window);
+    }
+
+    /// <summary>Runs the auto-stop timer as production does, a tick every five seconds, for this long.</summary>
+    private static async Task TickForAsync(AutoSessionCoordinator coordinator, ManualTime clock, TimeSpan span, CancellationToken ct)
+    {
+        for (var elapsed = TimeSpan.Zero; elapsed < span; elapsed += TimeSpan.FromSeconds(5))
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            await coordinator.TickOnceAsync(ct);
+        }
     }
 
     private async Task<AutoSessionCoordinator> CoordinatorAsync(

@@ -308,7 +308,10 @@ internal sealed partial class AutoSessionCoordinator
             }
         }
 
-        if (_trigger.Tick() is { Stop: true } stopped && IsRunning(_machine.State))
+        // The window in front keeps the session when it is a remote tool or the one a session started by
+        // hand was started in, so the grace runs from when the technician left it rather than from when
+        // they arrived. A technician working in one window makes no foreground change to say so.
+        if (_trigger.Tick(_decided?.Window) is { Stop: true } stopped && IsRunning(_machine.State))
         {
             await AutoStopAsync(stopped, ct).ConfigureAwait(false);
         }
@@ -339,7 +342,8 @@ internal sealed partial class AutoSessionCoordinator
     private void OnStateChanged(CaptureStateSnapshot snapshot)
     {
         var running = snapshot.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed;
-        _ = _trigger.Follow(running, running ? _decided?.Decision.ToolId : null);
+        var decided = running ? _decided : null;
+        _ = _trigger.Follow(running, decided?.Decision.ToolId, decided?.Window);
     }
 
     /// <summary>The decision in force, made again if the policy changed since it was made. Call under the gate.</summary>

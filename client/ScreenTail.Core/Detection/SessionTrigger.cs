@@ -1,7 +1,7 @@
 namespace ScreenTail.Core.Detection;
 
 /// <param name="Start">A remote tool took focus and no session is running.</param>
-/// <param name="Stop">The grace period elapsed with no remote-tool window in sight.</param>
+/// <param name="Stop">The grace period elapsed since the session's last remote tool (or own window) left the front.</param>
 public sealed record TriggerDecision(bool Start, bool Stop, string? ToolId, string Reason)
 {
     public static readonly TriggerDecision Nothing = new(false, false, null, "no change");
@@ -13,7 +13,9 @@ public sealed record TriggerDecision(bool Start, bool Stop, string? ToolId, stri
 /// Starting is immediate: a technician who opens ScreenConnect is working, and a session that begins a
 /// second late has already missed the first thing they did. Stopping waits out a grace period, because
 /// stepping into Outlook to read the ticket, or into PowerShell to check something, is part of the same
-/// piece of work — ending the session there would cut one job into five notes.
+/// piece of work, and ending the session there would cut one job into five notes. The grace runs from when
+/// the tool loses focus: while it is in front, every look at the foreground starts it over, so a technician
+/// who works in one window for an hour makes no foreground change and is not stopped for it.
 ///
 /// The clock is injected, so the grace is tested in microseconds rather than by waiting ninety seconds.
 /// </summary>
@@ -28,6 +30,10 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
     private long _lastToolSeen;
     private bool _running;
     private string? _runningToolId;
+
+    // The window a session started by hand was started in. It keeps the session as a remote tool does,
+    // so Ctrl+Alt+R over a console no registry knows is not ended while the technician is still in it.
+    private nint _ownWindow;
 
     /// <summary>The grace in force. The technician's setting changes it in place (ST-080).</summary>
     public TimeSpan Grace
@@ -95,10 +101,10 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
 
         lock (_gate)
         {
-            if (isRemoteTool)
+            if (isRemoteTool || IsOwnLocked(window))
             {
                 _lastToolSeen = _time.GetTimestamp();
-                if (!_running)
+                if (!_running && isRemoteTool)
                 {
                     _running = true;
                     _runningToolId = decision.ToolId;
@@ -114,13 +120,30 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
     /// Lets the grace expire without a foreground change. A technician who walks away mid-session leaves the
     /// desktop perfectly still, and a session that only ends on the next click would run until they return.
     /// </summary>
-    public TriggerDecision Tick()
+    public TriggerDecision Tick() => Tick(inFront: null);
+
+    /// <summary>
+    /// As <see cref="Tick()"/>, told what is in front now. A remote tool, or the window a session started by
+    /// hand was started in, keeps the session: the grace starts over from this moment, so it only runs out
+    /// once that window has been out of the front for all of it. Never starts a session; only a foreground
+    /// change does that.
+    /// </summary>
+    public TriggerDecision Tick(ForegroundWindowInfo? inFront)
     {
+        var holds = inFront is not null && policy.Decide(inFront).Scope == Shared.Schema.CaptureScope.RemoteTool;
         lock (_gate)
         {
+            if (_running && inFront is not null && (holds || IsOwnLocked(inFront)))
+            {
+                _lastToolSeen = _time.GetTimestamp();
+            }
+
             return TickLocked();
         }
     }
+
+    /// <summary>Whether this is the window the running session was started in by hand. Call under the gate.</summary>
+    private bool IsOwnLocked(ForegroundWindowInfo window) => _running && _ownWindow != 0 && window.Handle == _ownWindow;
 
     private TriggerDecision TickLocked()
     {
@@ -132,6 +155,7 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
         var toolId = _runningToolId;
         _running = false;
         _runningToolId = null;
+        _ownWindow = 0;
         _lastToolSeen = 0;
         return new TriggerDecision(false, true, toolId, $"No remote session for {_grace.TotalSeconds:F0} seconds.");
     }
@@ -148,12 +172,13 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
     /// <summary>
     /// The session machine is, or is not, running a session now, whoever started or stopped it: the chord, the
     /// tray, a refused start, a stop that failed. A change of answer is taken as <see cref="SetRunning"/>
-    /// takes it, and the grace of a session started by hand runs from its start, so one begun away from any
-    /// remote tool still ends once the grace is out. The same answer again changes nothing, so the grace and
-    /// the tool of a session this trigger started are kept.
+    /// takes it. A session started by hand is kept while <paramref name="window"/>, the window it was started
+    /// in, or a remote tool is in front, and once neither is the grace runs out as it does for any other,
+    /// so the microphone of one begun away from any remote tool is not left open for good. The same answer
+    /// again changes nothing, so the grace and the tool of a session this trigger started are kept.
     /// </summary>
     /// <returns>Whether the trigger changed its mind.</returns>
-    public bool Follow(bool running, string? toolId = null)
+    public bool Follow(bool running, string? toolId = null, ForegroundWindowInfo? window = null)
     {
         lock (_gate)
         {
@@ -163,6 +188,7 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
             }
 
             SetRunningLocked(running, toolId);
+            _ownWindow = running && window is not null ? window.Handle : 0;
             return true;
         }
     }
@@ -171,6 +197,7 @@ public sealed class SessionTrigger(ScopePolicy policy, TimeProvider? time = null
     {
         _running = running;
         _runningToolId = running ? toolId : null;
+        _ownWindow = 0;
         _lastToolSeen = running ? _time.GetTimestamp() : 0;
     }
 }
