@@ -197,6 +197,22 @@ public sealed class Outbox(
             outcome = SendOutcome.Failed($"This could not be sent ({ex.GetType().Name}).");
         }
 
+        if (outcome.NothingSent && outcome.State == OutboxState.Pending)
+        {
+            // Nothing was tried: the device is not enrolled, or the far end has already said it will
+            // refuse until a time. Not an attempt, so the count, the last attempt and the age bound are
+            // left alone; a device left unactivated over a weekend does not fail its drafts without one
+            // real send (activation is skippable). The store's retention still bounds how long it waits.
+            await store.UpdateAsync(
+                item with
+                {
+                    LastError = outcome.Message ?? item.LastError,
+                    DueAt = now + Wait(Math.Max(item.Attempts, 1), outcome.RetryAfter),
+                },
+                ct).ConfigureAwait(false);
+            return true;
+        }
+
         var state = outcome.State;
         if (state == OutboxState.Pending && attempts >= MinAttempts && now - item.CreatedAt >= MaxAge)
         {

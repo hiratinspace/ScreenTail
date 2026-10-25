@@ -212,6 +212,67 @@ public sealed class OutboxTests
     }
 
     [Fact]
+    public async Task AnItemNothingWasSentForIsNotFailedForIt()
+    {
+        // Activation is skippable, so a device can sit unenrolled for days with drafts owed, and a hold
+        // can last the night. Neither is an attempt: nothing went, and the item keeps all its patience
+        // for when something does. The store's retention still bounds how long it is kept.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var notSent = SendOutcome.NotSent("This device is not enrolled yet.", TimeSpan.FromMinutes(5));
+        var outcome = notSent;
+        var sent = 0;
+        var outbox = new Core.Outbox.Outbox(
+            store,
+            (_, _) =>
+            {
+                if (!outcome.NothingSent)
+                {
+                    sent++;
+                }
+
+                return Task.FromResult(outcome);
+            },
+            time);
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+
+        for (var elapsed = TimeSpan.Zero; elapsed < TimeSpan.FromDays(3); elapsed += TimeSpan.FromMinutes(5))
+        {
+            _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+            time.Advance(TimeSpan.FromMinutes(5));
+        }
+
+        Assert.Equal(OutboxState.Pending, store.Items[0].State);
+        Assert.Equal(0, store.Items[0].Attempts);
+        Assert.Null(store.Items[0].LastAttemptAt);
+        Assert.Equal("This device is not enrolled yet.", store.Items[0].LastError);
+
+        // Enrolled at last, and the backend is down. The item still gets the whole backoff run.
+        outcome = SendOutcome.Retry("The backend did not answer.");
+        for (var attempt = 1; attempt < Core.Outbox.Outbox.MinAttempts; attempt++)
+        {
+            time.Advance(TimeSpan.FromHours(1));
+            Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(OutboxState.Pending, store.Items[0].State);
+        }
+
+        Assert.Equal(Core.Outbox.Outbox.MinAttempts - 1, sent);
+    }
+
+    [Fact]
+    public async Task ANotSentOutcomeWaitsAsLongAsItSaysAndNoLessThanTheBackoff()
+    {
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var outbox = new Core.Outbox.Outbox(store, (_, _) => Task.FromResult(SendOutcome.NotSent("Held.", TimeSpan.FromMinutes(40))), time);
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(At + TimeSpan.FromMinutes(40), store.Items[0].DueAt);
+    }
+
+    [Fact]
     public async Task WorkQueuedLongAgoStillGetsAnHourOfAttemptsBeforeItIsFailed()
     {
         // The laptop was shut on Friday with a draft owed and opened on Monday. A day has long passed,
