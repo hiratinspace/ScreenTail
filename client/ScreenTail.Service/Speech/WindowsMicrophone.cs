@@ -21,12 +21,18 @@ namespace ScreenTail.Service.Speech;
 /// <b>No microphone is not an error.</b> A machine without one, or one where Windows has blocked access,
 /// still records clicks and screenshots (AC2): losing narration costs a better note, and stopping here
 /// would cost the session.
+///
+/// <b>Each listen owns its device.</b> The recorder opens the microphone once per recording stretch and
+/// closes it by disposing the enumerator at the end of the stretch (#122), which is what keeps Windows'
+/// microphone-in-use indicator off a customer's screen between sessions. The recorder built for a stretch
+/// used to be kept in a field and disposed only with this object, so every pause and every password field
+/// left the previous device open with its capture thread running and the indicator lit, and only the last
+/// one was ever closed (2026-10-12 review). It is a local of the enumeration now, released however the
+/// enumeration ends.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsMicrophone : IMicrophone
 {
-    private WasapiRecorder? _recorder;
-
     public WindowsMicrophone()
     {
         try
@@ -59,13 +65,15 @@ public sealed class WindowsMicrophone : IMicrophone
             yield break;
         }
 
-        var recorder = Open();
+        // Closed when this enumeration ends, whether the consumer ran it out, cancelled it or disposed
+        // the enumerator early: that last one is how the recorder ends a stretch, and it must close the
+        // device whatever NAudio's capture loop does about it.
+        await using var recorder = Open();
         if (recorder is null)
         {
             yield break;
         }
 
-        _recorder = recorder;
         var format = Describe(recorder.WaveFormat);
         await foreach (var buffer in recorder.CaptureAsync(ct).ConfigureAwait(false))
         {
@@ -77,15 +85,8 @@ public sealed class WindowsMicrophone : IMicrophone
         }
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        var recorder = _recorder;
-        _recorder = null;
-        if (recorder is not null)
-        {
-            await recorder.DisposeAsync().ConfigureAwait(false);
-        }
-    }
+    /// <summary>Nothing held between listens: each enumeration of <see cref="ListenAsync"/> closes its own device.</summary>
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     /// <summary>
     /// Opens the endpoint, asking for the format the model wants and settling for what it is given.

@@ -70,6 +70,29 @@ public sealed class TranscriptAssemblerTests
     }
 
     [Fact]
+    public void AConfidentStockPhraseOnAShortSegmentIsStillDropped()
+    {
+        // 2026-10-12 review (T-87): one arm of the boilerplate rule on its own. The model is sure, the
+        // rate is ordinary, and the segment is under a second and a half: "Thank you." alone against a
+        // moment of room tone is the model filling a gap, however sure it is.
+        var assembler = new TranscriptAssembler();
+
+        Assert.Null(assembler.Add(Heard("Thank you.", durationMs: 1200, confidence: 0.97)));
+        Assert.Equal(1, assembler.Rejected);
+    }
+
+    [Fact]
+    public void AnUnsureStockPhraseOnALongSegmentIsStillDropped()
+    {
+        // The other arm. Long enough to have been said and long enough in text to survive the unsure
+        // fragment rule, and still dropped because a known phrase the model is unsure of was not spoken.
+        var assembler = new TranscriptAssembler();
+
+        Assert.Null(assembler.Add(Heard("Subtitles by the Amara.org community", durationMs: 4000, confidence: 0.4)));
+        Assert.Equal(1, assembler.Rejected);
+    }
+
+    [Fact]
     public void ASentenceNobodyHadTimeToSayIsDropped()
     {
         // The giveaway is characters per second, not the words. Ordinary speech is about 15; this is a

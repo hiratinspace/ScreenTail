@@ -754,6 +754,92 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.Equal(1, recorder.Kept);
     }
 
+    [Theory]
+    [InlineData(CaptureStateReason.PasswordField)]
+    [InlineData(CaptureStateReason.SensitiveContext)]
+    [InlineData(CaptureStateReason.NoIndicator)]
+    public async Task ASentenceUnderWayWhenCaptureIsSuppressedIsDropped(CaptureStateReason reason)
+    {
+        // The real recorder over the real machine. The technician is mid-sentence when a password field
+        // takes focus. What was being said is the start of what is read off the screen next, so it is
+        // dropped at the suppression, never cut and kept as a Stop's last sentence is (INV-6).
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        var microphone = new NarrationRecorderTests.LiveMicrophone(NarrationRecorderTests.Silence(20))
+        {
+            KeepsSaying = NarrationRecorderTests.Speech(1)[0],
+        };
+        var recogniser = new NarrationRecorderTests.FakeRecogniser("the admin password is");
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
+            () => machine.Hearing,
+            backlog: machine.Narration);
+        machine.StateChanged += _ => recorder.Nudge();
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await NarrationRecorderTests.UntilAsync(() => microphone.Yielded >= 80);
+        Assert.True(await machine.SuppressAsync(reason));
+        await NarrationRecorderTests.UntilAsync(() => !recorder.Listening);
+        await Task.Delay(200);
+
+        await stop.CancelAsync();
+        await running;
+
+        Assert.Equal(0, recogniser.Asked);
+        Assert.Equal(0, machine.Narration.DepthFor(id));
+        Assert.Empty((await _store!.LoadSessionAsync(id))!.Transcript);
+    }
+
+    [Fact]
+    public async Task ASentenceUnderWayIsDroppedEvenWhenTheSuppressionLiftsBeforeTheNextChunk()
+    {
+        // A password field takes focus and loses it again between two chunks of audio, so the recorder
+        // never sees the session stop recording. What was being said before it is still dropped, and so
+        // is the chunk that spans it; what is said afterwards is a sentence of its own.
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        var microphone = new NarrationRecorderTests.FakeMicrophone(
+            NarrationRecorderTests.Silence(20), NarrationRecorderTests.Speech(80), NarrationRecorderTests.Silence(40));
+        var recogniser = new NarrationRecorderTests.FakeRecogniser("restarting the spooler");
+        var flickered = false;
+        var recorder = new NarrationRecorder(
+            microphone,
+            recogniser,
+            (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
+            () =>
+            {
+                // Forty frames into the sentence, before this chunk is judged.
+                if (microphone.Yielded == 60 && !flickered)
+                {
+                    flickered = true;
+                    Assert.True(machine.SuppressAsync(CaptureStateReason.PasswordField).GetAwaiter().GetResult());
+                    Assert.True(machine.UnsuppressAsync(CaptureStateReason.PasswordField).GetAwaiter().GetResult());
+                }
+
+                return machine.Hearing;
+            },
+            backlog: machine.Narration);
+
+        await recorder.RunAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(flickered);
+        Assert.NotEmpty(recogniser.Handed);
+        var frame = NarrationRecorderTests.Rate * 32 / 1000;
+        Assert.All(
+            recogniser.Handed,
+            handed => Assert.True(
+                handed.Samples <= 42 * frame,
+                $"a segment of {handed.Samples} samples reaches back before the password field took focus"));
+        Assert.Equal(0, machine.Narration.DepthFor(id));
+    }
+
     [Fact]
     public async Task NarrationIsHeardOnlyWhileRecording()
     {

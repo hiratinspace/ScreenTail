@@ -96,8 +96,12 @@ public sealed class VoiceActivityTests
         // pausing, so a "speech" run this long is a machine, and a floor that refused to learn from it
         // would send every frame from then on to a transcriber that answers non-speech with fluent
         // invented sentences.
+        //
+        // Settled on a quiet room rather than on digital zeros: zeros are a mute, not a room, and teach
+        // the floor nothing (2026-10-12 review), so a run that started from them would learn the hum as
+        // its first room and never exercise the relearning this test is about.
         var vad = new VoiceActivity();
-        Settle(vad, new short[512]);
+        Settle(vad, Noise(amplitude: 50));
 
         var hum = Noise(amplitude: 4000);
         double last = 1;
@@ -107,6 +111,77 @@ public sealed class VoiceActivityTests
         }
 
         Assert.True(last < 0.2, $"the floor never learned the new room; still reporting {last:F2}");
+    }
+
+    [Fact]
+    public void AMomentOfDigitalSilenceDoesNotTurnTheRoomIntoSpeech()
+    {
+        // 2026-10-12 review (E-8, T-89). A frame of exact zeros, which is what a muted microphone or a
+        // stream that has not started delivers, read as -100 dBFS and was believed at once as the new
+        // room. The real room, fifty decibels louder, then read as speech for about fifty seconds and was
+        // cut into truncated twenty-second segments for a transcriber that answers room tone with
+        // invented sentences. Zeros are a fact about the mute, not about the room.
+        var vad = new VoiceActivity();
+        var room = Noise(amplitude: 200);
+        Settle(vad, room);
+        var floor = vad.NoiseFloorDb;
+
+        for (var i = 0; i < 30; i++)
+        {
+            Assert.Equal(0, vad.Offer(new short[512]));
+        }
+
+        Assert.Equal(floor, vad.NoiseFloorDb);
+        Assert.True(vad.Offer(room) < 0.2, $"the room read as speech after a mute: {vad.Offer(room):F2}");
+    }
+
+    [Fact]
+    public void UnmutingDoesNotMakeTheRoomSoundLikeSpeech()
+    {
+        // The same fault as the gate sees it. A technician mutes for a few seconds and unmutes; the
+        // gate opens at 0.6, and not one frame of the room after the unmute may get there. Before the
+        // fix every frame did, for close to a minute, and the gate cut the room into segments.
+        var vad = new VoiceActivity();
+        var room = Noise(amplitude: 200);
+        Settle(vad, room);
+
+        for (var i = 0; i < 150; i++)
+        {
+            _ = vad.Offer(new short[512]);
+        }
+
+        var loudest = Enumerable.Range(0, 300).Select(_ => vad.Offer(room)).Max();
+        Assert.True(loudest < new SpeechGateOptions().EnterAt, $"the room after an unmute read as {loudest:F2}");
+    }
+
+    [Fact]
+    public void AStreamThatStartsSilentLearnsTheRoomFromItsFirstRealFrame()
+    {
+        // The other place zeros arrive: a capture device's first buffers, before it has filled. The room
+        // that follows them is the room, and a voice over it is still a voice.
+        var vad = new VoiceActivity();
+        Settle(vad, new short[512]);
+
+        var room = Noise(amplitude: 200);
+        Assert.True(vad.Offer(room) < 0.2, "the first real frame should have been taken as the room");
+        Settle(vad, room);
+
+        Assert.True(vad.Offer(Tone(amplitude: 6000)) > 0.9, "a voice over the learned room should still read as speech");
+    }
+
+    [Fact]
+    public void TheFloorNeverFallsBelowWhatARoomCanSoundLike()
+    {
+        // A near-silent frame that is not quite zeros: a muted device with dither on it. Believing it
+        // would open the same fifty-second window as a mute, so the floor is clamped at the quietest
+        // level a real room reads at.
+        var vad = new VoiceActivity();
+        var dither = new short[512];
+        Array.Fill(dither, (short)2);
+
+        Settle(vad, dither);
+
+        Assert.Equal(-80, vad.NoiseFloorDb);
     }
 
     [Fact]
