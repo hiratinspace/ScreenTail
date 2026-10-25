@@ -86,12 +86,13 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         }
 
         // An erasure that could not finish owes only what it could not remove, so a store written from
-        // here on is not part of it. Unless what it owes is the store or its key: a store opened beside
-        // either is one the erasure takes with it when it finishes, so the service does not run until the
-        // next start manages it (INV-12).
-        if (LocalDataEraser.StoreIsStillOwed(DataDirectory))
+        // here on is not part of it. Unless what it owes is the store, its key, the device's credential
+        // or the IPC token: a store opened beside the first two is one the erasure takes with it when it
+        // finishes, and a surviving credential would run this as an activated device after everything was
+        // to go. So the service does not run until a start manages it (INV-12).
+        if (LocalDataEraser.BlocksStart(DataDirectory))
         {
-            LogStoreStillOwed(logger);
+            LogErasureBlocksStart(logger);
             lifetime.StopApplication();
             return;
         }
@@ -647,8 +648,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Warning, Message = "Erased {Count} item(s) of local data; complete={Complete}")]
     private static partial void LogErased(ILogger logger, int count, bool complete);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "An erasure of local data is still owed the store or its key; the service will not open a store until it finishes")]
-    private static partial void LogStoreStillOwed(ILogger logger);
+    [LoggerMessage(Level = LogLevel.Error, Message = "An erasure of local data still owes the store, its key or a credential; the service will not start until it finishes")]
+    private static partial void LogErasureBlocksStart(ILogger logger);
 
     /// <summary>
     /// Works the outbox until the service stops.

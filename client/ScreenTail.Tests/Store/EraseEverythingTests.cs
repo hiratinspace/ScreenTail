@@ -390,22 +390,27 @@ public sealed class EraseEverythingTests : IDisposable
     [InlineData("crashes\nstore.key\nend\n", true)]
     [InlineData("STORE.DB\nend\n", true)]
     [InlineData("store.db-wal\nend\n", true)]
+    [InlineData("device.cred\nend\n", true)]
+    [InlineData("crashes\nDEVICE.CRED.TMP\nend\n", true)]
+    [InlineData("ipc.token\nend\n", true)]
     [InlineData("crashes\n", true)]
     [InlineData("crashes\nmodels\nend\n", true)]
     [InlineData("crashes\n..\nend\n", true)]
-    public void TheStoreStaysClosedWhileItOrItsKeyIsStillOwed(string? marker, bool closed)
+    public void TheServiceDoesNotStartWhileTheStoreOrACredentialIsStillOwed(string? marker, bool blocked)
     {
         // The host asks this before it opens the store. A fresh store beside an old key, or an old store
-        // under a new key, is something the owed erasure would take with it when it finishes, so while
-        // either is owed the store is not opened at all. A marker that owes everything, or that cannot be
-        // read as a list this class wrote (no end line, a name it keeps, a path), owes the store too.
+        // under a new key, is something the owed erasure would take with it when it finishes; a device
+        // credential that survived would have the service run as an activated device after the
+        // technician asked for everything to go. While any of them is owed the service does not start.
+        // A marker that owes everything, or that cannot be read as a list this class wrote (no end line,
+        // a name it keeps, a path), owes all of them too.
         Directory.CreateDirectory(_directory);
         if (marker is not null)
         {
             File.WriteAllText(Path.Combine(_directory, LocalDataEraser.PendingMarker), marker);
         }
 
-        Assert.Equal(closed, LocalDataEraser.StoreIsStillOwed(_directory));
+        Assert.Equal(blocked, LocalDataEraser.BlocksStart(_directory));
     }
 
     [Fact]
@@ -419,7 +424,7 @@ public sealed class EraseEverythingTests : IDisposable
         LocalDataEraser.MarkPending(_directory);
 
         Assert.Empty(LocalDataEraser.StillOwed(_directory));
-        Assert.True(LocalDataEraser.StoreIsStillOwed(_directory));
+        Assert.True(LocalDataEraser.BlocksStart(_directory));
         Assert.True(Assert.IsType<ErasureResult>(LocalDataEraser.EraseIfPending(_directory)).Complete);
         Assert.Empty(Directory.GetFileSystemEntries(_directory));
     }

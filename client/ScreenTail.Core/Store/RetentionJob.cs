@@ -172,8 +172,15 @@ public static class LocalDataEraser
     /// <summary>The most of a marker that is read. A longer one is not a list this class wrote.</summary>
     private const int LongestMarker = 64 * 1024;
 
-    /// <summary>The names whose survival means the store must not be opened: a fresh one would reuse them.</summary>
-    private static readonly string[] StoreFiles = ["store.key", "store.db", "store.db-wal", "store.db-shm", "store.db-journal"];
+    /// <summary>
+    /// The names whose survival means the service must not start: the store and its key, which a fresh
+    /// store would reuse, and every secret <see cref="SecretsFirst"/> removes first, so a device whose
+    /// erasure still owes its credential never runs as an activated device. The IPC token is rewritten at
+    /// every start, and is on the list anyway, because a token that could not be removed is one that may
+    /// not be replaceable either.
+    /// </summary>
+    private static readonly string[] MustGoBeforeStart =
+        [.. SecretsFirst, "ipc.token", "store.db", "store.db-wal", "store.db-shm", "store.db-journal"];
 
     /// <summary>
     /// What an unfinished erasure still has to remove, by name, or empty when the marker is not narrowed:
@@ -192,11 +199,14 @@ public static class LocalDataEraser
     }
 
     /// <summary>
-    /// Whether the store must stay closed: an erasure is pending and it still owes the whole directory,
-    /// the store's file or its key. A store opened then would be the old key under a new file, or the old
-    /// file under a new key, and the erasure that finishes later would take whatever was recorded into it.
+    /// Whether the service must not start: an erasure is pending and it still owes the whole directory,
+    /// the store, its key, the device's credential or the IPC token. A store opened then would be the old
+    /// key under a new file, or the old file under a new key, and the erasure that finishes later would
+    /// take whatever was recorded into it; a credential still there would have the service run as an
+    /// activated device after the technician asked for everything to go (INV-12). Fails closed: a marker
+    /// that cannot be read owes everything, so it blocks.
     /// </summary>
-    public static bool StoreIsStillOwed(string dataDirectory)
+    public static bool BlocksStart(string dataDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         if (!IsPending(dataDirectory))
@@ -205,7 +215,7 @@ public static class LocalDataEraser
         }
 
         return ReadOwed(dataDirectory) is not { } owed
-            || owed.Any(name => StoreFiles.Contains(name, StringComparer.OrdinalIgnoreCase));
+            || owed.Any(name => MustGoBeforeStart.Contains(name, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
