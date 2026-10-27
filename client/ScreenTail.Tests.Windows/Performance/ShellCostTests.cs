@@ -81,13 +81,14 @@ public sealed class ShellCostTests
 
         Assert.True(connected, "the shell never connected to the idle service or never built the pill");
         Assert.NotNull(idle);
-        var cpu = idle.CpuPercentOfOneCore - host.CpuPercentOfOneCore;
-        var wakeups = idle.WakeupsPerSecond - host.WakeupsPerSecond;
+        var cpu = idle.MedianCpu - host.MedianCpu;
+        var wakeups = idle.MedianWakeups - host.MedianWakeups;
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
-            $"Shell at idle (tray, pill, connection), over {idle.Elapsed.TotalSeconds:F0} s after {SettleFor.TotalSeconds:F0} s to settle: "
-            + $"**{cpu:F3}%** of one core net of the test host ({cpu / Environment.ProcessorCount:F3}% of {Environment.ProcessorCount} logical processors; "
-            + $"by slice {CostWindow.Spread(idle.CpuBySlice, "F3")}), **{wakeups:F1} wakeups/s** net (by slice {CostWindow.Spread(idle.WakeupsBySlice, "F1")}), "
+            $"Shell at idle (tray, pill, connection), {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices after {SettleFor.TotalSeconds:F0} s to settle: "
+            + $"**{cpu:F3}%** of one core net of the test host, median slice against median slice ({cpu / Environment.ProcessorCount:F3}% of {Environment.ProcessorCount} logical processors; "
+            + $"shell {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {CostWindow.Spread(host.CpuBySlice, "F3")}), "
+            + $"**{wakeups:F1} wakeups/s** net (shell {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}), "
             + $"{reports} indicator reports to the service ({reports / idle.Elapsed.TotalSeconds:F2}/s), "
             + $"private memory {ProcessCost.Megabytes(idle.Last.PrivateBytes - host.Last.PrivateBytes)} over the host "
             + $"(budget {IdleBudgetPercentOfOneCore:F0}% of one core, enforced: {Counts}; wakeups and memory reported, not enforced)"));

@@ -64,14 +64,14 @@ public sealed class ServiceCostTests
         Assert.Equal(SessionState.Idle, rig.Machine.State);
         Assert.False(rig.Hooks.Installed, "the input hooks were in with no session (ST-031 keeps them out until a session starts)");
 
-        var cpu = idle.CpuPercentOfOneCore - host.CpuPercentOfOneCore;
-        var wakeups = idle.WakeupsPerSecond - host.WakeupsPerSecond;
+        var cpu = idle.MedianCpu - host.MedianCpu;
+        var wakeups = idle.MedianWakeups - host.MedianWakeups;
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
-            $"Service at idle, no session, over {idle.Elapsed.TotalSeconds:F0} s after {SettleFor.TotalSeconds:F0} s to settle: "
-            + $"**{cpu:F3}%** of one core net of the test host ({cpu / Environment.ProcessorCount:F3}% of {Environment.ProcessorCount} logical processors; "
-            + $"by {Slice.TotalSeconds:F0} s slice {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {host.CpuPercentOfOneCore:F3}%), "
-            + $"**{wakeups:F1} wakeups/s** net (by slice {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {host.WakeupsPerSecond:F1}/s), "
+            $"Service at idle, no session, {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices after {SettleFor.TotalSeconds:F0} s to settle: "
+            + $"**{cpu:F3}%** of one core net of the test host, median slice against median slice ({cpu / Environment.ProcessorCount:F3}% of {Environment.ProcessorCount} logical processors; "
+            + $"service {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {CostWindow.Spread(host.CpuBySlice, "F3")}), "
+            + $"**{wakeups:F1} wakeups/s** net (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}), "
             + $"private memory {ProcessCost.Megabytes(idle.Last.PrivateBytes - host.Last.PrivateBytes)} over the host's {ProcessCost.Megabytes(host.Last.PrivateBytes)} "
             + $"(budget {IdleBudgetPercentOfOneCore:F0}% of one core, enforced: {Counts}; wakeups and memory reported, not enforced)"));
 
@@ -162,12 +162,12 @@ public sealed class ServiceCostTests
             var busy = perFrame * BusySessionFrames / (1024 * 1024);
             var scenes = rig.Scenes.Counts;
 
-            var cpu = recording.CpuPercentOfOneCore - host.CpuPercentOfOneCore;
+            var cpu = recording.MedianCpu - host.MedianCpu;
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
-                $"Service recording (no speech) over {recording.Elapsed.TotalSeconds:F0} s: **{cpu:F2}%** of one core net of the test host "
-                + $"({cpu / Environment.ProcessorCount:F2}% of {Environment.ProcessorCount} logical processors; by {(Slice * 2).TotalSeconds:F0} s slice {CostWindow.Spread(recording.CpuBySlice)}), "
-                + $"{recording.WakeupsPerSecond - host.WakeupsPerSecond:F0} wakeups/s net, "
+                $"Service recording (no speech), {recording.Elapsed.TotalSeconds:F0} s in {(Slice * 2).TotalSeconds:F0} s slices: **{cpu:F2}%** of one core net of the test host, median slice against median slice "
+                + $"({cpu / Environment.ProcessorCount:F2}% of {Environment.ProcessorCount} logical processors; service {CostWindow.Spread(recording.CpuBySlice)}, host alone {CostWindow.Spread(host.CpuBySlice)}), "
+                + $"{recording.MedianWakeups - host.MedianWakeups:F0} wakeups/s net ({recording.ThreadsWoken()}), "
                 + $"private memory {ProcessCost.Megabytes(recording.Last.PrivateBytes - host.Last.PrivateBytes)} over the host "
                 + $"(budget {RecordingBudgetPercentOfOneCore:F0}% of one core = 15% of four cores, enforced: {Counts})"));
             Measurements.Record(string.Create(

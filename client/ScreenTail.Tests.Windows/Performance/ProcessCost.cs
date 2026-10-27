@@ -110,6 +110,39 @@ internal sealed class CostWindow
     /// <summary>Each slice's wakeups per second.</summary>
     public IReadOnlyList<double> WakeupsBySlice => Slices(Wakeups);
 
+    /// <summary>
+    /// The middle slice's processor time, as a percentage of one core.
+    ///
+    /// What a budget is held against. The first laptop run showed why: the test host's own baseline,
+    /// taken a moment after another test had finished, came in at six per cent of a core for one slice
+    /// and made a total-over-total difference negative. A median ignores a slice or two of somebody
+    /// else's work at either end; a total does not.
+    /// </summary>
+    public double MedianCpu => Median(CpuBySlice);
+
+    /// <summary>The middle slice's wakeups per second.</summary>
+    public double MedianWakeups => Median(WakeupsBySlice);
+
+    private static double Median(IReadOnlyList<double> values) => values.Order().ElementAt(values.Count / 2);
+
+    /// <summary>
+    /// "12 threads woke; the busiest 41.2, 20.1, 9.9/s": whether the wakeups are one loop or many. A thread
+    /// has no name the kernel will give, so this says how the wakeups are spread, not whose they are.
+    /// </summary>
+    public string ThreadsWoken(int busiest = 3)
+    {
+        var elapsed = Elapsed.TotalSeconds;
+        var rates = Last.Switches
+            .Select(thread => (First.Switches.TryGetValue(thread.Key, out var before) ? unchecked(thread.Value - before) : thread.Value) / elapsed)
+            .Where(rate => rate > 0)
+            .OrderDescending()
+            .ToList();
+        var culture = CultureInfo.InvariantCulture;
+        return string.Create(
+            culture,
+            $"{rates.Count} threads woke; the busiest {string.Join(", ", rates.Take(busiest).Select(rate => rate.ToString("F1", culture)))}/s");
+    }
+
     private List<double> Slices(Func<ProcessSample, ProcessSample, double> rate)
     {
         var rates = new List<double>(_samples.Count - 1);
