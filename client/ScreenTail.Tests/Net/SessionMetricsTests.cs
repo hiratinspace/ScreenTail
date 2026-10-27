@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
+using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 using static ScreenTail.Tests.Review.ReviewFixture;
 
@@ -95,6 +97,49 @@ public sealed class SessionMetricsTests
         Assert.Equal(OutboxState.Pending, outcome.State);
         Assert.True(outcome.NothingSent);
         Assert.Null(handler.Asked);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NoContent)]
+    [InlineData(HttpStatusCode.BadRequest)]
+    public async Task AMetricWritesTheBundleSentRowWithItsBytesAndHost(HttpStatusCode status)
+    {
+        // Counts only, but still bytes that left the machine, and the audit export's "bytes sent, and to
+        // which host" is the place a customer looks for them. Accepted or refused, they left.
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+        var audit = new PsaGatewayTests.RecordingAudit();
+        var sender = new MetricsSender(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => "a-device-token", audit);
+        var item = Item(SessionMetricWire.From(Session(draft: Draft(Step("one"))), published: false, editRatio: null));
+
+        _ = await sender.SendAsync(item, TestContext.Current.CancellationToken);
+
+        var row = Assert.Single(audit.Rows);
+        Assert.Equal((AuditTypes.BundleSent, item.SessionId, "api.screentail.example"), (row.Type, row.SessionId, row.Detail));
+        Assert.Equal(Encoding.UTF8.GetByteCount(handler.Body!), row.Count);
+    }
+
+    [Fact]
+    public async Task AnAuditLogThatFailsLeavesTheMetricsOutcomeAsItWas()
+    {
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var sender = new MetricsSender(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => "a-device-token", new PsaGatewayTests.ThrowingAudit());
+
+        var outcome = await sender.SendAsync(Item(SessionMetricWire.From(Session(draft: Draft(Step("one"))), published: false, editRatio: null)), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, outcome.State);
+    }
+
+    [Fact]
+    public async Task AMetricThatWasNotSentIsNotRecordedAsSent()
+    {
+        // An unenrolled device sends nothing, so there is nothing to write down.
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var audit = new PsaGatewayTests.RecordingAudit();
+        var sender = new MetricsSender(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => null, audit);
+
+        _ = await sender.SendAsync(Item(SessionMetricWire.From(Session(draft: Draft(Step("one"))), published: false, editRatio: null)), TestContext.Current.CancellationToken);
+
+        Assert.Empty(audit.Rows);
     }
 
     [Fact]

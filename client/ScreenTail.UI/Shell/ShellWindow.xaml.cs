@@ -62,6 +62,12 @@ public partial class ShellWindow : Window
         base.OnClosed(e);
     }
 
+    /// <summary>
+    /// Finishes once the Review pane the window held has written its last and committed a pending delete,
+    /// after the window has closed (T-169). Quit waits on it before the application shuts down.
+    /// </summary>
+    internal Task Released => _model.Released;
+
     public ShellWindow(string? screenshotDirectory)
     {
         // The render collects binding errors from the first binding on, as the pill's and the note's do.

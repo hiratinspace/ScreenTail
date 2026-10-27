@@ -30,7 +30,7 @@
             <ColumnDefinition Width="320" MinWidth="280" />
         </Grid.ColumnDefinitions>
 
-        <review:NoteEditorView Grid.Column="0" x:Name="Note" DataContext="{Binding Note}" FrameRequested="OnFrameRequested" />
+        <review:NoteEditorView Grid.Column="0" x:Name="Note" DataContext="{Binding Note}" />
 
         <GridSplitter Grid.Column="1"
                       Width="6"

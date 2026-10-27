@@ -110,5 +110,9 @@ public sealed class NoteEditorKeysTests
 
         Assert.Equal("{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}", (string?)chip.Attribute("Command"));
         Assert.Equal("{Binding Id}", (string?)chip.Attribute("CommandParameter"));
+
+        // The command is the one way. A Click beside it used to raise an event the Review pane answered by
+        // selecting the same frame a second time.
+        Assert.Null(chip.Attribute("Click"));
     }
 }

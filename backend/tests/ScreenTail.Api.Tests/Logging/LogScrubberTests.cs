@@ -66,6 +66,38 @@ public sealed class LogScrubberTests
         Assert.Equal(sensitive, LogScrubber.IsSensitiveKey(key));
     }
 
+    [Theory]
+    [InlineData("CompanyName")]
+    [InlineData("TicketNumber")]
+    [InlineData("TicketId")]
+    [InlineData("SessionNotes")]
+    [InlineData("WindowTitles")]
+    [InlineData("Companies")]
+    [InlineData("Tickets")]
+    [InlineData("Titles")]
+    [InlineData("Texts")]
+    [InlineData("Transcripts")]
+    [InlineData("Emails")]
+    [InlineData("Paths")]
+    [InlineData("Files")]
+    [InlineData("Urls")]
+    [InlineData("ClientCompany")]
+    [InlineData("LinkedTicket")]
+    [InlineData("VaultSecrets")]
+    [InlineData("AdminPasswords")]
+    [InlineData("StoredCredentials")]
+    [InlineData("RefreshTokens")]
+    [InlineData("OcrTexts")]
+    [InlineData("SegmentTranscripts")]
+    [InlineData("@CompanyName")]
+    public void TheClientsSensitiveNamesAreSensitiveHereToo(string key)
+    {
+        // The client's scrubber learned these in the 2026-10-12 review (T-116): a plural is the same content
+        // as its singular, and a customer's company or ticket is content whatever word follows it. The
+        // backend holds the same note and the same company for a request, so it refuses the same names.
+        Assert.True(LogScrubber.IsSensitiveKey(key));
+    }
+
     [Fact]
     public void AValueUnderASensitiveKeyIsRedacted()
     {

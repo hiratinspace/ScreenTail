@@ -17,6 +17,10 @@ namespace ScreenTail.UI.Shell;
 /// draft and reloading Settings for nobody, once per window ever opened. <see cref="Dispose"/> stops it
 /// listening and cancels what it was loading; <see cref="ShellWindow"/> calls it when it closes.
 ///
+/// A Review pane it stops showing for good (another session's replaces it, its session goes away, or the
+/// window closes) is disposed, which writes the last of the note and commits a pending delete (T-169).
+/// <see cref="Released"/> finishes when all of that has, for Quit to wait on.
+///
 /// Everything the view binds to is a string or a visibility, computed here rather than in a converter,
 /// because the wording is Spec §5's and belongs somewhere it can be read and changed without opening XAML.
 /// </summary>
@@ -36,7 +40,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private object? _historyPane;
     private readonly ShellPanes _panes = new();
     private object? _settingsPane;
-    private object? _reviewPane;
+    private readonly HeldPane _review = new();
     private int _loads;
 
     public ShellViewModel()
@@ -103,9 +107,16 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Stops listening to the store and cancels anything still loading. Idempotent, and called on the
-    /// dispatcher when the window closes. A change the store raised just before, and already queued for
-    /// the dispatcher, finds the model disposed and does nothing.
+    /// Finishes once every Review pane this model let go of has finished going: the last of the note
+    /// written and a pending delete committed and answered (T-169). Complete until the window closes.
+    /// </summary>
+    public Task Released { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// Stops listening to the store, cancels anything still loading, and lets go of the Review pane, whose
+    /// last writes <see cref="Released"/> then waits for. Idempotent, and called on the dispatcher when the
+    /// window closes. A change the store raised just before, and already queued for the dispatcher, finds
+    /// the model disposed and does nothing.
     /// </summary>
     public void Dispose()
     {
@@ -118,6 +129,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _state.Changed -= OnStateChanged;
         _lifetime.Cancel();
         _lifetime.Dispose();
+        Released = _review.ReleaseAsync();
     }
 
     private void OnStateChanged(ShellSnapshot snapshot)
@@ -158,10 +170,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         switch (step.Action)
         {
             case PaneAction.NothingToReview:
-                // A load still under way is for a session no longer to be shown.
+                // A load still under way is for a session no longer to be shown, and the pane already
+                // shown is finished with: off the screen first, then let go of, which writes its last.
                 _loads++;
-                _reviewPane = null;
                 Content = NothingToReview;
+                _review.Hold(null);
                 break;
             case PaneAction.LoadReview:
                 _ = LoadReviewAsync(step.SessionId!);
@@ -169,7 +182,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             case PaneAction.ShowReview:
                 // Back to the session it already had, from another view: its pane again, edits and all,
                 // rather than the other view's pane left on screen (T-159). Still loading, it says so.
-                Content = _reviewPane ?? Loading;
+                Content = _review.Current ?? Loading;
                 break;
             case PaneAction.History:
                 _historyPane ??= _history?.Invoke();
@@ -220,12 +233,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// different session wins, because the last thing asked for is the thing to show. Closing the window
     /// cancels the load, and a pane that arrives after the close is not shown. A pane that arrives while
     /// the technician is looking at another view is kept for when they come back, not put over that view.
+    /// The pane this one replaces is let go of as the load begins, and one that arrives to be shown nowhere
+    /// is let go of as it arrives.
     /// </summary>
     private async Task LoadReviewAsync(string sessionId)
     {
         var load = ++_loads;
-        _reviewPane = null;
         Content = Loading;
+        _review.Hold(null);
 
         // A load the close cancelled ends this task as cancelled, which nothing observes and nothing reports.
         var pane = _loadReview is null ? null : await _loadReview(sessionId, _closing).ConfigureAwait(true);
@@ -234,6 +249,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // draft arrived, may have finished first.
         if (_disposed || load != _loads)
         {
+            _review.LetGo(pane);
             return;
         }
 
@@ -248,7 +264,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _reviewPane = pane;
+        _review.Hold(pane);
         if (_panes.View == ShellView.Review)
         {
             Content = pane;

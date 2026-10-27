@@ -26,6 +26,12 @@ public interface ICapabilitiesGateway
 /// <summary>The sixty-second test session of the "Try it" step: a real session through the service, drafted the real way.</summary>
 public interface ITestSession
 {
+    /// <summary>
+    /// Why the last start was refused, in the service's words, or null. The wizard shows it, because a
+    /// Start button that does nothing and says nothing leaves a first-run technician with no way on.
+    /// </summary>
+    string? Refusal => null;
+
     Task<bool> StartAsync(CancellationToken ct = default);
 
     Task<bool> StopAsync(CancellationToken ct = default);
@@ -64,6 +70,10 @@ public sealed class OnboardingWizard(
     private readonly ITestSession _testSession = testSession ?? throw new ArgumentNullException(nameof(testSession));
     private readonly Action<DateTimeOffset> _finished = finished ?? throw new ArgumentNullException(nameof(finished));
     private bool _testDone;
+    private string? _testRefused;
+
+    /// <summary>What the step says when the service refused the test session and gave no reason of its own.</summary>
+    public const string TestNotStarted = "The test session did not start. Check that ScreenTail's tray icon says it is connected, then try again.";
 
     public ActivationPanel Activation { get; } = activation ?? throw new ArgumentNullException(nameof(activation));
 
@@ -112,6 +122,7 @@ public sealed class OnboardingWizard(
     {
         OnboardingStep.Permissions when Permissions.Any(p => !p.Ok && p.Capability == "microphone") =>
             "Without the microphone, sessions are drafted without narration, from screenshots alone. Fix it now or later in Windows Settings.",
+        OnboardingStep.TryIt when !_testDone && _testRefused is { } refused => refused,
         OnboardingStep.TryIt when _testDone => "The draft is on its way. It opens in Review when it is ready — usually within a minute.",
         OnboardingStep.Done => "ScreenTail starts when you open a remote session. Look for the pill.",
         _ => null,
@@ -182,13 +193,24 @@ public sealed class OnboardingWizard(
     /// <summary>Jumps to a step: the tray's "Set up again" lands on Welcome, Settings' "check permissions" on Permissions.</summary>
     public void Go(OnboardingStep step) => Step = step;
 
+    /// <summary>
+    /// Starts the test session, or says why it did not: the service's reason, such as the recording pill
+    /// not being on screen yet (INV-4), shown as the step's note until a start works.
+    /// </summary>
     public async Task<bool> StartTestAsync(CancellationToken ct = default)
     {
-        if (TestRunning || !await _testSession.StartAsync(ct).ConfigureAwait(false))
+        if (TestRunning)
         {
             return false;
         }
 
+        if (!await _testSession.StartAsync(ct).ConfigureAwait(false))
+        {
+            _testRefused = _testSession.Refusal is { Length: > 0 } why ? why : TestNotStarted;
+            return false;
+        }
+
+        _testRefused = null;
         TestRunning = true;
         return true;
     }
@@ -229,8 +251,14 @@ public sealed class PipeTestSession(CaptureConnection connection) : ITestSession
 {
     private readonly CaptureConnection _connection = connection ?? throw new ArgumentNullException(nameof(connection));
 
-    public async Task<bool> StartAsync(CancellationToken ct = default) =>
-        (await _connection.SendAsync(id => new StartCommand { RequestId = id }, ct).ConfigureAwait(false)).Ok;
+    public string? Refusal { get; private set; }
+
+    public async Task<bool> StartAsync(CancellationToken ct = default)
+    {
+        var result = await _connection.SendAsync(id => new StartCommand { RequestId = id }, ct).ConfigureAwait(false);
+        Refusal = result.Ok ? null : result.Error;
+        return result.Ok;
+    }
 
     public async Task<bool> StopAsync(CancellationToken ct = default) =>
         (await _connection.SendAsync(id => new StopCommand { RequestId = id }, ct).ConfigureAwait(false)).Ok;

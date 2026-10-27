@@ -84,6 +84,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// without this a dropped pipe would announce a draft that has been ready for an hour.
     /// </summary>
     private readonly Notifier _notifier = new();
+
+    /// <summary>Quit's wait for the Review panes of every shell window closed so far (T-169).</summary>
+    private readonly ShellQuit _quit = new();
     private HudWindowHolder? _hud;
     private volatile bool _disposed;
     private ShellWindow? _window;
@@ -212,16 +215,28 @@ public sealed class LiveShell : IAsyncDisposable
             return;
         }
 
-        _window ??= new ShellWindow(
-            _state,
-            LoadReviewAsync,
-            () => new HistoryViewModel(_state, ListSessionsAsync),
-            () => new SettingsViewModel(
-                new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
-                new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
-                new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
-                new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
-        _window.Closed += (_, _) => _window = null;
+        if (_window is null)
+        {
+            var window = new ShellWindow(
+                _state,
+                LoadReviewAsync,
+                () => new HistoryViewModel(_state, ListSessionsAsync),
+                () => new SettingsViewModel(
+                    new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
+                    new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
+                    new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
+                    new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
+
+            // Once, when the window is made. A closed window's Review pane may still be writing its last,
+            // and Quit waits for it even after the window has gone (T-169).
+            window.Closed += (_, _) =>
+            {
+                _quit.WindowClosed(window.Released);
+                _window = null;
+            };
+            _window = window;
+        }
+
         _window.Show();
         _ = _window.Activate();
     }
@@ -490,7 +505,12 @@ public sealed class LiveShell : IAsyncDisposable
             Send(id => new StopCommand { RequestId = id });
         }
 
-        Application.Current?.Shutdown();
+        // The window closes and every closed window's Review pane is waited for, bounded, before the
+        // application shuts down (ShellQuit, T-169). Waited for here, asynchronously on the UI thread,
+        // because the application's own Dispose blocks that thread on DisposeAsync and a pane's writes
+        // come back to it. The pill and the tray icon stay up while it waits, the safe side of INV-4. A
+        // second Quit during the wait waits on the same task.
+        _ = _quit.QuitAsync(() => _window?.Close(), () => Application.Current?.Shutdown());
     }
 
     private void ShowDiagnostics()

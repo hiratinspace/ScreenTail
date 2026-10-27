@@ -22,15 +22,27 @@ public static partial class LogScrubber
     // redirect logs the whole URL it sends a request to as {redirect}. Location is the same URL as a
     // header, and a parameter that fails to bind is logged with the text it was given as {SourceValue}.
     // Matched as suffixes too, so RequestUri, BaseUrl and SearchQuery fall under the same rule.
+    //
+    // The plurals and the company and ticket names are the client's (2026-10-12 review, T-116): a plural is
+    // the same content as its singular, and a customer's company or ticket is content whatever word
+    // follows it (CompanyName, TicketNumber). Both lists hold everything the client's do.
     private static readonly HashSet<string> Words = new(StringComparer.Ordinal)
     {
         "title", "text", "ocr", "ocrtext", "transcript", "note", "notes", "body", "clipboard", "summary",
         "query", "secret", "token", "password", "credential", "authorization", "apikey", "privatekey",
         "publickey", "company", "ticket", "email", "path", "filename", "file", "url", "site", "siteurl",
+        "titles", "texts", "transcripts", "companies", "tickets", "emails", "paths", "files", "urls",
+        "companyname", "ticketnumber", "ticketid",
         "querystring", "uri", "redirect", "location", "sourcevalue",
     };
 
-    private static readonly string[] Suffixes = ["title", "text", "transcript", "clipboard", "secret", "password", "credential", "token", "note", "query", "uri", "url"];
+    private static readonly string[] Suffixes =
+    [
+        "title", "titles", "text", "texts", "transcript", "transcripts", "clipboard", "secret", "secrets",
+        "password", "passwords", "credential", "credentials", "token", "tokens", "note", "notes",
+        "company", "companies", "companyname", "ticket", "tickets", "ticketnumber", "ticketid",
+        "query", "uri", "url",
+    ];
 
     [GeneratedRegex(@"(?<![\w])(?:[A-Za-z]:\\|\\\\)(?:[^\\\s""'<>|]+(?: [^\\\s""'<>|]+)*\\)*[^\\\s""'<>|]*")]
     private static partial Regex WindowsPath();

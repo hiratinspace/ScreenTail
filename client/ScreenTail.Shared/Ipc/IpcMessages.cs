@@ -907,7 +907,7 @@ public sealed record DiagnosticsReported : IpcEvent
     [JsonPropertyName("redaction_backlog")]
     public required int RedactionBacklog { get; init; }
 
-    /// <summary>Frames deleted because they could not be checked (INV-1).</summary>
+    /// <summary>Frames lost unchecked (INV-1): deleted because they could not be read, or refused because the queue was full.</summary>
     [JsonPropertyName("frames_dropped")]
     public required long FramesDropped { get; init; }
 

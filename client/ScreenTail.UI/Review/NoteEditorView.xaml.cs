@@ -49,21 +49,7 @@ public partial class NoteEditorView : UserControl
         };
     }
 
-    /// <summary>
-    /// Raised when a frame chip is clicked, as well as the chip's own <see cref="NoteEditorViewModel.ShowFrameCommand"/>,
-    /// which is what selects the frame in the strip (T-165). Kept for a host that listens to it.
-    /// </summary>
-    public event EventHandler<string>? FrameRequested;
-
     private NoteEditorViewModel? Model => DataContext as NoteEditorViewModel;
-
-    private void OnFrameChip(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: string frameId })
-        {
-            FrameRequested?.Invoke(this, frameId);
-        }
-    }
 
     /// <summary>
     /// On PreviewKeyDown (T-168): a multiline TextBox runs Enter and Backspace as editing commands and

@@ -172,15 +172,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         _ = Task.Run(() => StartupOrder.RenewDeviceAsync(device, tokenReady, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "device renewal", ex.GetType().Name)), stoppingToken);
         // ST-067: what the technician keeps changing about drafts, as hints on the next one.
         var style = new StyleStore(Path.Combine(DataDirectory, "style.json"));
-        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints);
-        var psa = new PsaGateway(draftHttp, () => device.CurrentToken);
+        // Each of the three writes a bundle_sent row for what it sent, the host and the bytes, and logs a
+        // row it could not write by the fault's type alone (ST-045, INV-10).
+        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints, logger: logger);
+        var psa = new PsaGateway(draftHttp, () => device.CurrentToken, audit: store, logger: logger);
         var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(DataDirectory, "policy.json")), TimeProvider.System);
         _policySync = policySync;
 
         // ST-098: metrics ride the same queue, so an offline afternoon queues them rather than losing
         // them. Telemetry is the technician's setting (ST-081), off until switched on. A drafted session
         // reports once the draft lands; a published one reports again.
-        var metricsSender = new MetricsSender(draftHttp, () => device.CurrentToken);
+        var metricsSender = new MetricsSender(draftHttp, () => device.CurrentToken, audit: store, logger: logger);
         MetricsReporter? metrics = null;
         var outbox = new Core.Outbox.Outbox(
             store,
@@ -244,6 +246,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // What the UI reports about the pill being on screen, and what the indicator guard reads. A
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
+        // ST-047: every session starts under the tenant's policy as it stands now, local-only as the admin
+        // or the technician set it and the policy's version for its audit log, both from the applier's
+        // last apply (set below, once it exists; local-only until then). One function for the automatic
+        // start and the pipe's, so the two cannot start sessions under different rules.
+        Func<(bool LocalOnly, string? PolicyVersion)> appliedPolicy = () => (true, TenantPolicy.Default.Version);
+        Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy = () => appliedPolicy();
         // The registry is read here, ahead of the controller, because Settings → Capture lists its tools.
         var registry = RemoteToolRegistry.Load(await File.ReadAllTextAsync(
             Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
@@ -257,7 +265,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new CachedCapabilityProbe(new WindowsCapabilityProbe()),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
-            new PublishCommands(store, psa, metrics, new StyleLearner(style, store)),
+            // The logger, so a publish whose metrics or style bookkeeping failed says so in the service's
+            // log, by the fault's type alone (INV-10). Without it the fault was kept and nobody was told.
+            new PublishCommands(store, psa, metrics, new StyleLearner(style, store), logger),
             new DeviceCommands(device),
             new SettingsCommands(
                 settingsStore,
@@ -285,7 +295,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 lifetime.StopApplication();
                 return Task.FromResult(true);
             },
-            indicators);
+            indicators,
+            sessionPolicy);
         await using var server = new IpcServer(
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
@@ -344,8 +355,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             trigger,
             () => indicator.Indicated,
             logger,
+            sessionPolicy,
             Platform.Clipboard.ClipboardText.ReadOnce,
-            () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version),
             () => captureStore.Load().AutoStart);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
@@ -355,6 +366,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var applier = new PolicyApplier(policySync, settingsStore.Load(), captureSettings, egressPolicy, retentionOptions, policy, trigger, sampler, redactionEngine);
         applier.Applied += applied => LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
         applySettings = settings => applier.Apply(settings);
+        appliedPolicy = () => applier.ForNewSession();
         applyCapture = capture =>
         {
             _ = applier.Apply(capture);
@@ -709,8 +721,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     /// <summary>
     /// What the diagnostics panel shows: this process's live sources, mapped by
     /// <see cref="ServiceDiagnostics.Report"/> in Core, where the Mac suite holds each field to its source.
-    /// The suppression comes from the machine's state and holds, and the backlog from the queue of frames
-    /// waiting to be read.
+    /// The suppression comes from the machine's state and holds, and the backlog and the frames it refused
+    /// for want of room from the queue of frames waiting to be read.
     /// </summary>
     private static DiagnosticsReported Diagnostics(
         string version,
@@ -732,6 +744,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             isHeld: machine.IsHeld,
             redactionBacklog: pending.Depth,
             redaction: redaction,
+            framesRefused: pending.Dropped,
             keystrokesDropped: keystrokesDropped,
             egressBlocked: egress.Blocked,
             localOnly: egressPolicy.Settings.LocalOnly,

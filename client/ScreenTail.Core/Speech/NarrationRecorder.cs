@@ -151,8 +151,11 @@ public sealed class NarrationRecorder : IDisposable
     /// once more when a session stops recording, before what was being said is kept.
     /// The host answers no while the window in front may not be photographed: an excluded app such as a
     /// password manager, an elevated window, anything out of scope (INV-6). The microphone stays open,
-    /// because the session is still recording, and the audio is dropped where it arrives. Defaults to
-    /// "always".
+    /// because the session is still recording, and the audio is dropped where it arrives.
+    ///
+    /// Required, for the reason <paramref name="recording"/> is. It used to default to "always", so a
+    /// host that dropped the argument compiled and kept what was said over a password manager. A caller
+    /// with no window to ask about says so with <c>() =&gt; true</c>.
     /// </param>
     /// <param name="backlog">
     /// Where the segments each session is still owed are counted, shared with the session machine so
@@ -163,13 +166,13 @@ public sealed class NarrationRecorder : IDisposable
         ISpeechRecogniser recogniser,
         AppendTranscript append,
         Func<NarrationSession?> recording,
+        Func<bool> hearing,
         NarrationOptions? options = null,
         SpeechGateOptions? gate = null,
-        Func<bool>? hearing = null,
         NarrationBacklog? backlog = null)
     {
         _recording = recording ?? throw new ArgumentNullException(nameof(recording));
-        _hearing = hearing ?? (() => true);
+        _hearing = hearing ?? throw new ArgumentNullException(nameof(hearing));
         _backlog = backlog ?? new NarrationBacklog();
         _microphone = microphone ?? throw new ArgumentNullException(nameof(microphone));
         _recogniser = recogniser ?? throw new ArgumentNullException(nameof(recogniser));
@@ -189,7 +192,7 @@ public sealed class NarrationRecorder : IDisposable
     /// and keep what was said over a password manager (INV-6, INV-9). The service's recorder passes both.
     /// </summary>
     public NarrationRecorder(IMicrophone microphone, ISpeechRecogniser recogniser, AppendTranscript append)
-        : this(microphone, recogniser, append, static () => new NarrationSession("narration", 0))
+        : this(microphone, recogniser, append, static () => new NarrationSession("narration", 0), static () => true)
     {
     }
 

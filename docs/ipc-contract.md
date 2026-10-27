@@ -23,7 +23,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `type` | Fields | Meaning |
 |---|---|---|
 | `hello` | `contract_version`, `token`, `client_name`, `client_version?` | Authenticate the connection |
-| `start` | — | Start a session now (manual start, Ctrl+Alt+R) |
+| `start` | — | Start a session now. Sent only by the onboarding wizard's test session; Ctrl+Alt+R is a hotkey the service registers and handles itself, and the tray has no start item. Refused while no `indicator_showing` report is current, as a start the service makes by itself is (INV-4), with a `result` error saying why and what to do. Starts under the tenant's policy as it stands now: the same local-only flag and policy version as every other start (ST-047) |
 | `pause` | — | Pause capture |
 | `resume` | — | Resume capture |
 | `stop` | — | Stop and draft |
@@ -147,8 +147,8 @@ ST-071's panel, answered by the service because the UI has no store, no hooks an
 Every field is a state, a count or a device name. `scope` is the scope decision's own words — a process
 name and what is being done about it — never a window title, because this text goes on a clipboard and
 into tickets (INV-10). `suppression` is absent when nothing is suppressing capture. `redaction_backlog`
-is the depth of the in-memory queue (ADR-0006); `frames_dropped` counts frames deleted because they
-could not be checked (INV-1). `local_only` and `egress_blocked` come from the same policy object the
+is the depth of the in-memory queue (ADR-0006); `frames_dropped` counts frames lost unchecked (INV-1),
+whether deleted because they could not be read or refused because that queue was full. `local_only` and `egress_blocked` come from the same policy object the
 guard enforces with, so the panel cannot say one thing while the guard does another.
 
 ### `list_sessions` → `sessions`
@@ -198,6 +198,9 @@ come back, or comes back on no monitor, the zero-size report expires and `Indica
 its grace, so capture runs without a pill for at most one report's lifetime (six seconds) plus that grace.
 A pill that is up but on no monitor is not reported at all. The wire format is unchanged and the version
 is not bumped.
+
+The same reports gate `start`: with none current the service answers a failed `result` and starts
+nothing, as it does for a session it would start by itself. A zero-size report counts, as above.
 
 ### Review over the pipe: `get_session`, `get_frame`, the edits
 

@@ -65,8 +65,9 @@ public sealed class ReviewViewModel : IAsyncDisposable
 
     /// <summary>
     /// Leaving Review (T-169): the last of what was typed is written rather than lost to the autosave's
-    /// pause, and a delete still inside its undo window is committed and its answer read. Safe to call
-    /// more than once, because the pane's Unloaded and the shell's close can both get here.
+    /// pause, and a delete still inside its undo window is committed and its answer read. The shell calls
+    /// it when it lets go of the pane for good (Core.Shell.HeldPane): another session's pane replaces it,
+    /// its session goes away, or the window closes. Safe to call more than once.
     /// </summary>
     public async ValueTask DisposeAsync()
     {

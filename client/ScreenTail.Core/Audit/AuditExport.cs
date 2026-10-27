@@ -5,8 +5,13 @@ using ScreenTail.Core.Store;
 
 namespace ScreenTail.Core.Audit;
 
-/// <param name="FramesCaptured">Frames staged, whatever triggered them.</param>
-/// <param name="FramesPurgedUnredacted">Frames deleted because they could not be checked (INV-1).</param>
+/// <param name="FramesCaptured">Frames accepted for redaction, whatever triggered them.</param>
+/// <param name="FramesPurgedUnredacted">
+/// Frames lost before they could be checked (INV-1): deleted unread, or refused before they were accepted
+/// because the queue of frames waiting to be read was full. A refused frame is counted here and never in
+/// <paramref name="FramesCaptured"/>, so for a session that lost frames that way this can be the larger.
+/// It is not a share of the frames captured.
+/// </param>
 /// <param name="SuppressionsByReason">How often capture stopped for each reason, and for how long.</param>
 /// <param name="RedactionsByKind">What was masked, counted by kind. Counts only, never the matches.</param>
 /// <param name="BytesSent">Bytes that left the machine, by destination host.</param>

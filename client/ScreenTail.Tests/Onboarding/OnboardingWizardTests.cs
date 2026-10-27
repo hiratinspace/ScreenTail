@@ -1,5 +1,6 @@
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Onboarding;
+using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Settings;
 using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
@@ -176,6 +177,52 @@ public sealed class OnboardingWizardTests
     }
 
     [Fact]
+    public async Task ATestSessionTheServiceRefusedSaysWhyAndWhatToDo()
+    {
+        // A refused start used to leave the step exactly as it was: the button did nothing and nothing
+        // said so. The service's own sentence is shown, here the indicator gate's, and the next start
+        // that works clears it.
+        var session = new FakeTestSession { Refuses = ManualStart.NotIndicated };
+        var wizard = Wizard(session: session);
+        wizard.Go(OnboardingStep.TryIt);
+        await wizard.LoadStepAsync();
+
+        Assert.False(await wizard.StartTestAsync());
+
+        Assert.False(wizard.TestRunning);
+        Assert.Equal(ManualStart.NotIndicated, wizard.Note);
+        Assert.False(wizard.CanContinue);
+
+        session.Refuses = null;
+        Assert.True(await wizard.StartTestAsync());
+        Assert.Null(wizard.Note);
+    }
+
+    [Fact]
+    public async Task ARefusalWithNoReasonStillSaysSomething()
+    {
+        var wizard = Wizard(session: new FakeTestSession { Refuses = string.Empty });
+        wizard.Go(OnboardingStep.TryIt);
+        await wizard.LoadStepAsync();
+
+        Assert.False(await wizard.StartTestAsync());
+
+        Assert.Equal(OnboardingWizard.TestNotStarted, wizard.Note);
+    }
+
+    [Fact]
+    public async Task ThePipesTestSessionPassesOnTheServicesReason()
+    {
+        // Over a connection that never connected, the reason is the connection's own.
+        await using var connection = new CaptureConnection(new ShellState(), _ => throw new TimeoutException("no service"));
+        var session = new PipeTestSession(connection);
+
+        Assert.False(await session.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal("Not connected to the capture service.", session.Refusal);
+    }
+
+    [Fact]
     public async Task FinishingIsRememberedSoSetupDoesNotRunAgainUnasked()
     {
         DateTimeOffset? finishedAt = null;
@@ -266,10 +313,16 @@ public sealed class OnboardingWizardTests
 
         public bool Stopped { get; private set; }
 
+        /// <summary>The service's reason when it refuses the start; null starts it.</summary>
+        public string? Refuses { get; set; }
+
+        public string? Refusal { get; private set; }
+
         public Task<bool> StartAsync(CancellationToken ct = default)
         {
-            Started = true;
-            return Task.FromResult(true);
+            Refusal = Refuses;
+            Started = Refuses is null;
+            return Task.FromResult(Refuses is null);
         }
 
         public Task<bool> StopAsync(CancellationToken ct = default)

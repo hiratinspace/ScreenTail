@@ -198,8 +198,10 @@ holds no value of its own to show, so the panel cannot say one thing while the s
 
 ## What gets written down about what happened
 
-Every session keeps an audit log: frames captured, frames deleted because they could not be redacted,
-suppressed intervals and why, redactions by kind, bytes sent and to which host, and every deletion.
+Every session keeps an audit log: frames captured, frames lost because they could not be redacted,
+suppressed intervals and why, redactions by kind, bytes sent and to which host, and every deletion. A
+frame turned away before it was captured, because redaction had fallen behind, is counted as lost and
+not as captured, so the lost count can be larger than the captured one.
 
 It is **hash-chained** — each row carries the hash of the one before it — so a row cannot be removed or
 altered without breaking every row after it. That matters most for the rows recording that data was

@@ -29,6 +29,11 @@ public static class ServiceDiagnostics
     /// <param name="state">The machine's snapshot, for whether it is suppressed.</param>
     /// <param name="isHeld">Whether a reason is holding the session down, asked of the machine.</param>
     /// <param name="redactionBacklog">Frames waiting to be read, as the redaction worker last reported.</param>
+    /// <param name="framesRefused">
+    /// Frames the queue of frames waiting to be read refused for want of room, for the life of the
+    /// service. Lost to INV-1 like a frame the worker could not read, and counted in the same field: the
+    /// panel said 0 frames dropped while the queue was turning frames away.
+    /// </param>
     public static DiagnosticsReported Report(
         string serviceVersion,
         string? scope,
@@ -37,6 +42,7 @@ public static class ServiceDiagnostics
         Func<CaptureStateReason, bool> isHeld,
         int redactionBacklog,
         RedactionProgress? redaction,
+        long framesRefused,
         long? keystrokesDropped,
         long egressBlocked,
         bool localOnly,
@@ -51,7 +57,7 @@ public static class ServiceDiagnostics
             Microphone = microphone, // A device name, never audio (INV-10).
             Suppression = Suppression(state, isHeld),
             RedactionBacklog = Math.Max(0, redactionBacklog),
-            FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0),
+            FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0) + framesRefused,
             KeystrokesDropped = keystrokesDropped ?? 0,
             EgressBlocked = egressBlocked,
             LocalOnly = localOnly,

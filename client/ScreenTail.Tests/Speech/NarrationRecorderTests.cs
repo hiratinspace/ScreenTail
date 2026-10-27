@@ -305,7 +305,8 @@ public sealed class NarrationRecorderTests
             microphone,
             new FakeRecogniser("and that fixed it"),
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
-            () => session);
+            () => session,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -351,7 +352,8 @@ public sealed class NarrationRecorderTests
                 owedWhenStopped ??= backlog.DepthFor("session-a");
                 return null;
             },
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -489,7 +491,8 @@ public sealed class NarrationRecorderTests
             microphone,
             recogniser,
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
-            () => session);
+            () => session,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -595,7 +598,8 @@ public sealed class NarrationRecorderTests
                 kept.Add((heardIn, segment));
                 return Task.FromResult(true);
             },
-            () => session);
+            () => session,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -636,7 +640,8 @@ public sealed class NarrationRecorderTests
             microphone,
             new FakeRecogniser("restarting the spooler"),
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
-            () => session);
+            () => session,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -676,7 +681,8 @@ public sealed class NarrationRecorderTests
                 written.Add(heardIn);
                 return Task.FromResult(true);
             },
-            () => new NarrationSession(session, 0));
+            () => new NarrationSession(session, 0),
+            hearing: () => true);
 
         var running = recorder.RunAsync(TestContext.Current.CancellationToken);
         await UntilAsync(() => recogniser.Asked == 1);
@@ -703,7 +709,8 @@ public sealed class NarrationRecorderTests
             recogniser,
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
             () => new NarrationSession("session-a", 0),
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
 
         var running = recorder.RunAsync(TestContext.Current.CancellationToken);
         await UntilAsync(() => recogniser.Asked == 1);
@@ -732,7 +739,8 @@ public sealed class NarrationRecorderTests
             recogniser,
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
             () => new NarrationSession("session-a", 0),
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
 
         var running = recorder.RunAsync(TestContext.Current.CancellationToken);
         await UntilAsync(() => backlog.DepthFor("session-a") == 2);
@@ -874,7 +882,8 @@ public sealed class NarrationRecorderTests
             recogniser,
             (_, _, _) => Task.FromResult(true),
             () => new NarrationSession("session-a", 0),
-            gate: new SpeechGateOptions { MaximumSegment = TimeSpan.FromSeconds(1.5) });
+            gate: new SpeechGateOptions { MaximumSegment = TimeSpan.FromSeconds(1.5) },
+            hearing: () => true);
 
         await recorder.RunAsync(TestContext.Current.CancellationToken);
 
@@ -910,7 +919,8 @@ public sealed class NarrationRecorderTests
                 return new NarrationSession("session-a", 0);
             },
             gate: Cut,
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
 
         await recorder.RunAsync(TestContext.Current.CancellationToken);
 
@@ -933,7 +943,8 @@ public sealed class NarrationRecorderTests
             (_, _, _) => Task.FromResult(true),
             () => microphone.Yielded <= 46 ? new NarrationSession("session-a", 0) : null,
             gate: Cut,
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -989,7 +1000,8 @@ public sealed class NarrationRecorderTests
                 return new NarrationSession("session-a", 0);
             },
             gate: Cut,
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
 
         await recorder.RunAsync(TestContext.Current.CancellationToken);
 
@@ -1012,7 +1024,8 @@ public sealed class NarrationRecorderTests
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
             () => microphone.Yielded <= 60 ? new NarrationSession("session-a", 0) : null,
             gate: Cut,
-            backlog: backlog);
+            backlog: backlog,
+            hearing: () => true);
         using var stop = new CancellationTokenSource();
 
         var running = recorder.RunAsync(stop.Token);
@@ -1090,7 +1103,7 @@ public sealed class NarrationRecorderTests
             recogniser,
             (_, segment, _) => Task.FromResult(Add(kept, segment)),
             () => recording is null || recording() ? new NarrationSession("session-a", 0) : null,
-            hearing: hearing);
+            hearing: hearing ?? (() => true));
 
     /// <summary>Waits for a condition the recorder reaches on its own threads, for at most a few seconds.</summary>
     internal static async Task UntilAsync(Func<bool> done)

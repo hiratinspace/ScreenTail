@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using ScreenTail.Core.Audit;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
 
@@ -107,7 +109,12 @@ public interface IPsaGateway
 /// local-only mode does not stop (INV-8), and the search and the integrations list are that button's
 /// preparation. Every refusal is the backend's message, or a sentence of ours when it did not answer.
 /// </summary>
-public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGateway
+/// <param name="audit">
+/// Where a publish the backend answered is written down as a <c>bundle_sent</c> row: the host and the
+/// bytes, never the note (<see cref="SentAudit"/>). Null writes nothing. The other calls send no session.
+/// </param>
+/// <param name="logger">Where a failed audit write is reported, by exception type only. Null reports nothing.</param>
+public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? audit = null, ILogger? logger = null) : IPsaGateway
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -130,11 +137,16 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
             () =>
             {
                 var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/sessions/publish", UriKind.Relative), EgressPurpose.Publish);
-                request.Content = JsonContent.Create(bundle, options: Json);
+
+                // Serialised here rather than streamed by JsonContent, so the length is known and the audit
+                // row says how many bytes left.
+                request.Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(bundle, Json));
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
                 return request;
             },
             answer => [.. answer.Results.Select(r => new PublishOutcomeRow(r.Destination, r.Ok, r.Id, r.Link, r.Error, r.Kind, r.Retryable))],
-            ct);
+            ct,
+            sentFor: bundle.SessionId);
     }
 
     public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
@@ -191,7 +203,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
             (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
             ct);
 
-    private Task<GatewayAnswer<TOut>> AskAsync<TAnswer, TOut>(Func<HttpRequestMessage> build, Func<TAnswer, TOut> map, CancellationToken ct) =>
+    private Task<GatewayAnswer<TOut>> AskAsync<TAnswer, TOut>(Func<HttpRequestMessage> build, Func<TAnswer, TOut> map, CancellationToken ct, string? sentFor = null) =>
         SendAsync(
             build,
             async (response, token) =>
@@ -213,13 +225,19 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
                     return GatewayAnswer.Refused<TOut>("The backend answered something this version does not understand.");
                 }
             },
-            ct);
+            ct,
+            sentFor);
 
     /// <summary>
     /// The guarded send every call shares. <paramref name="read"/> turns a response it accepts into the
     /// answer and returns null for one it does not, which is then read as the backend's refusal.
     /// </summary>
-    private async Task<GatewayAnswer<TOut>> SendAsync<TOut>(Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<GatewayAnswer<TOut>?>> read, CancellationToken ct)
+    /// <param name="sentFor">
+    /// The session whose bytes this request carries, for its <c>bundle_sent</c> row; null for a call that
+    /// carries none. The row is written once the answer has been read, whatever the answer was: a refused
+    /// publish left the machine as surely as an accepted one.
+    /// </param>
+    private async Task<GatewayAnswer<TOut>> SendAsync<TOut>(Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<GatewayAnswer<TOut>?>> read, CancellationToken ct, string? sentFor = null)
     {
         if (http.BaseAddress is null)
         {
@@ -233,6 +251,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
 
         using var request = build();
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+        var bytes = sentFor is null ? null : request.Content?.Headers.ContentLength;
         HttpResponseMessage response;
         try
         {
@@ -249,8 +268,20 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token) : IPsaGatew
 
         using (response)
         {
-            return await read(response, ct).ConfigureAwait(false)
-                ?? GatewayAnswer.Refused<TOut>(await RefusalAsync(response, ct).ConfigureAwait(false));
+            try
+            {
+                // The answer first: it is what the technician is waiting for, and an audit row that cannot
+                // be written must not cost it.
+                return await read(response, ct).ConfigureAwait(false)
+                    ?? GatewayAnswer.Refused<TOut>(await RefusalAsync(response, ct).ConfigureAwait(false));
+            }
+            finally
+            {
+                if (sentFor is not null)
+                {
+                    await SentAudit.RecordAsync(audit, sentFor, bytes, response.RequestMessage?.RequestUri ?? request.RequestUri, http.BaseAddress, logger).ConfigureAwait(false);
+                }
+            }
         }
     }
 

@@ -204,8 +204,10 @@ builds fall back to requiring the peer executable to sit in the same directory.
 ## 5 · Auditing
 
 **5.1 Is there an audit log?**
-Yes, per session: frames captured, frames deleted unredacted, suppressed intervals with reasons and
-durations, redactions by kind, bytes sent and to which host, and every deletion.
+Yes, per session: frames captured, frames lost unredacted, suppressed intervals with reasons and
+durations, redactions by kind, bytes sent and to which host, and every deletion. A frame turned away
+before capture because redaction had fallen behind counts as lost and not as captured, so the lost count
+can exceed the captured one.
 
 **5.2 Can the audit log be tampered with?**
 Each row carries the hash of the previous row, so removing or editing one breaks every row after it.
