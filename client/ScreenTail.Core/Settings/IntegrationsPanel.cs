@@ -5,6 +5,45 @@ namespace ScreenTail.Core.Settings;
 /// <param name="SecretHint">The last four characters behind bullets, as the backend shows them. Never more.</param>
 public sealed record IntegrationDetail(string Provider, string SiteUrl, string SecretHint, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCheckedAt, string? LastError);
 
+/// <summary>
+/// A provider the backend lists that has no card of its own: the backend's Development demo (ST-090), or
+/// one this version does not know yet. Shown by name and site; there is nothing here to change or test.
+/// </summary>
+/// <param name="LastError">The backend's last word on it, shown as it came.</param>
+public sealed record OtherIntegration(string Provider, string Title, string SiteUrl, string? LastError = null)
+{
+    /// <summary>
+    /// Only the demo is called connected: it answers from the backend's memory, so it is. Of any other
+    /// provider this version knows nothing, and cannot say it works (review 2026-10-27).
+    /// </summary>
+    public bool Connected => IntegrationNames.IsDemo(Provider);
+
+    public string Status => Connected ? "Connected" : "Not supported by this version";
+}
+
+/// <summary>What each provider is called on screen. The backend names providers; the words are the client's.</summary>
+public static class IntegrationNames
+{
+    /// <summary>The backend's Development demo PSA (ST-090). Never registered outside Development.</summary>
+    public const string DemoPsa = "demo-psa";
+
+    public const string DemoKb = "demo-kb";
+
+    /// <summary>The title a provider goes by: a real product's name only for the real product, and the provider's own name for one this version does not know.</summary>
+    public static string Title(string provider) => provider switch
+    {
+        IntegrationCard.ConnectWiseProvider => "ConnectWise Manage",
+        IntegrationCard.HuduProvider => "Hudu",
+        DemoPsa => "Demo PSA (not ConnectWise)",
+        DemoKb => "Demo knowledge base (not Hudu)",
+        _ => provider,
+    };
+
+    /// <summary>One of the backend's demo providers, which publish nowhere a customer or colleague can read.</summary>
+    public static bool IsDemo(string provider) =>
+        provider is not null && provider.StartsWith("demo-", StringComparison.Ordinal);
+}
+
 /// <summary>"Test connection"'s answer, in words either way (Spec §4: what happened, then what to do).</summary>
 public sealed record CheckOutcome(bool Ok, string Message);
 
@@ -64,7 +103,7 @@ public sealed class IntegrationCard
 
     public string Provider { get; }
 
-    public string Title => Provider == ConnectWiseProvider ? "ConnectWise Manage" : "Hudu";
+    public string Title => IntegrationNames.Title(Provider);
 
     public bool IsConnectWise => Provider == ConnectWiseProvider;
 
@@ -291,6 +330,9 @@ public sealed class IntegrationsPanel
 
     public IReadOnlyList<IntegrationCard> Cards => [ConnectWise, Hudu];
 
+    /// <summary>What the backend lists beyond the two cards, by name: the Development demo (ST-090) or a provider this version does not know.</summary>
+    public IReadOnlyList<OtherIntegration> Others { get; private set; } = [];
+
     public IReadOnlyList<CompanyChoice> Companies { get; private set; } = [];
 
     public IReadOnlyList<CompanyMappingEntry> Mappings { get; private set; } = [];
@@ -316,6 +358,10 @@ public sealed class IntegrationsPanel
         {
             card.Load(rows?.FirstOrDefault(r => r.Provider == card.Provider));
         }
+
+        Others = rows is null
+            ? []
+            : [.. rows.Where(r => !Cards.Any(c => c.Provider == r.Provider)).Select(r => new OtherIntegration(r.Provider, IntegrationNames.Title(r.Provider), r.SiteUrl, r.LastError))];
 
         await RefreshMappingsAsync(ct).ConfigureAwait(false);
     }

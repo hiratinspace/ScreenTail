@@ -4,8 +4,18 @@ using ScreenTail.Api.Providers;
 
 namespace ScreenTail.Api.Publish;
 
+/// <summary>What a publish asks of the company mappings: the one remembered for a company, remember one, forget a stale one.</summary>
+public interface ICompanyMappings
+{
+    Task<CompanyMapping?> FindAsync(string psaCompany, CancellationToken ct = default);
+
+    Task<CompanyMapping> RememberAsync(string psaCompany, CompanyRef company, string confidence, CancellationToken ct = default);
+
+    Task<bool> ForgetIfUnchangedAsync(CompanyMapping stale, CancellationToken ct = default);
+}
+
 /// <summary>One tenant's remembered company mappings (ST-097): read before every article, written by an exact match or a person.</summary>
-public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimeProvider time)
+public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimeProvider time) : ICompanyMappings
 {
     /// <summary>
     /// This tenant's rows and no others. Every read and write below starts here, so the tenant is named

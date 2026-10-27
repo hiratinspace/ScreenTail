@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers.ConnectWise;
+using ScreenTail.Api.Providers.Demo;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Publish;
 
@@ -20,7 +21,7 @@ public static class PublishEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/sessions/publish", async (HttpContext http, PublishBundle bundle, Caller who, ScreenTailContext db, IPsaProviderFactory providers, IDocProviderFactory docProviders, TimeProvider time, IOptions<PublishOptions> publish, ILoggerFactory loggers, CancellationToken ct) =>
+        group.MapPost("/sessions/publish", async (HttpContext http, PublishBundle bundle, Caller who, ScreenTailContext db, IPsaProviderFactory providers, IDocProviderFactory docProviders, DemoOptions demo, TimeProvider time, IOptions<PublishOptions> publish, ILoggerFactory loggers, CancellationToken ct) =>
         {
             if (PublishLimits.Check(bundle) is { } problem)
             {
@@ -47,7 +48,8 @@ public static class PublishEndpoint
                 psa,
                 reviewed,
                 docs,
-                new CompanyMappings(db, who.TenantId, time),
+                // While the demo is on, the tenant's real mappings are neither read, written nor deleted.
+                demo.Demo ? new DemoCompanyMappings() : new CompanyMappings(db, who.TenantId, time),
                 publish.Value,
                 time,
                 spent: RequestStart.Elapsed(http, time),

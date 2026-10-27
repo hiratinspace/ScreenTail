@@ -9,6 +9,14 @@
         <StackPanel Visibility="{Binding FormVisibility}">
             <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Publish" />
 
+            <!-- ST-090: the backend's Development demo PSA, named where the technician is looking. -->
+            <Border Style="{StaticResource Banner.Info}"
+                    Margin="0,10,0,0"
+                    Visibility="{Binding DemoVisibility}"
+                    AutomationProperties.Name="Demo PSA">
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding DemoNotice}" />
+            </Border>
+
             <TextBlock Margin="0,12,0,4" Style="{StaticResource Text.Muted}" Text="Ticket" />
             <TextBox Style="{StaticResource Input.Default}"
                      Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
@@ -40,7 +48,7 @@
                 <RadioButton Content="Internal" IsChecked="{Binding IsInternal}" Foreground="{DynamicResource Brush.text.primary}" GroupName="NoteType" />
                 <RadioButton Margin="16,0,0,0" Content="Discussion" IsChecked="{Binding IsDiscussion}" Foreground="{DynamicResource Brush.text.primary}" GroupName="NoteType" />
             </StackPanel>
-            <TextBlock Style="{StaticResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="Discussion notes are visible to the customer in ConnectWise." Margin="0,2,0,0" />
+            <TextBlock Style="{StaticResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="{Binding DiscussionHint}" Margin="0,2,0,0" />
 
             <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Muted}" Text="Time entry" />
             <StackPanel Orientation="Horizontal">

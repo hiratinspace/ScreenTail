@@ -1,5 +1,6 @@
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
+using ScreenTail.Api.Providers.Demo;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Publish;
 
@@ -26,7 +27,7 @@ public static class CompanyMappingEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapGet("/integrations/hudu/companies", async (Caller who, ScreenTailContext db, IDocProviderFactory providers, TimeProvider time, CancellationToken ct) =>
+        group.MapGet("/integrations/hudu/companies", async (Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
             var docs = await providers.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false);
             if (docs is null)
@@ -40,7 +41,8 @@ public static class CompanyMappingEndpoint
                 return PsaEndpoint.Refused(companies.Error!);
             }
 
-            var mappings = await new CompanyMappings(db, who.TenantId, time).ListAsync(ct).ConfigureAwait(false);
+            // The demo's companies beside the tenant's real mappings would be a table of mismatches.
+            var mappings = demo.Demo ? [] : await new CompanyMappings(db, who.TenantId, time).ListAsync(ct).ConfigureAwait(false);
             return Results.Ok(new CompanyMappingsResponse(
                 [.. companies.Value!.Select(c => new DocCompanyRow(c.Id, c.Name))],
                 [.. mappings.Select(m => new CompanyMappingRow(m.PsaCompany, m.DocCompanyId, m.DocCompanyName, m.Confidence))]));
@@ -48,8 +50,13 @@ public static class CompanyMappingEndpoint
         .WithName("ListCompanyMappings")
         .WithSummary("The documentation platform's companies and what this tenant has mapped to them.");
 
-        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, TimeProvider time, CancellationToken ct) =>
+        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
+            if (demo.Demo)
+            {
+                return IntegrationsEndpoint.DemoOn();
+            }
+
             if (string.IsNullOrWhiteSpace(request.PsaCompany) || request.PsaCompany.Length > 200 || string.IsNullOrWhiteSpace(request.DocCompanyId))
             {
                 return Results.BadRequest(new { error = "bad_mapping", message = "A PSA company name and a documentation company id are required." });
@@ -79,8 +86,13 @@ public static class CompanyMappingEndpoint
         .WithName("MapCompany")
         .WithSummary("Maps a PSA company to a documentation-platform company, by hand.");
 
-        group.MapDelete("/integrations/hudu/companies/{psaCompany}", async (string psaCompany, Caller who, ScreenTailContext db, TimeProvider time, CancellationToken ct) =>
+        group.MapDelete("/integrations/hudu/companies/{psaCompany}", async (string psaCompany, Caller who, ScreenTailContext db, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
+            if (demo.Demo)
+            {
+                return IntegrationsEndpoint.DemoOn();
+            }
+
             return await new CompanyMappings(db, who.TenantId, time).ForgetAsync(psaCompany, ct).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
         })
         .WithName("UnmapCompany")

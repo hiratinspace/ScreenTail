@@ -29,6 +29,67 @@ public sealed class IntegrationsPanelTests
         Assert.False(panel.Hudu.Connected);
         Assert.True(panel.Hudu.Editing);
         Assert.Null(panel.Notice);
+        Assert.Empty(panel.Others);
+    }
+
+    [Fact]
+    public async Task TheDevelopmentDemoIsListedUnderNamesNobodyCanTakeForConnectWiseOrHudu()
+    {
+        // ST-090. With the backend's demo on, the list names only the demo. It used to be dropped,
+        // because only the two cards were ever looked for, and the screen said nothing was connected
+        // while Publish worked.
+        var gateway = new FakeIntegrations
+        {
+            Rows =
+            [
+                new IntegrationDetail("demo-psa", "In memory on this backend, Development only", string.Empty, null, null, null),
+                new IntegrationDetail("demo-kb", "In memory on this backend, Development only", string.Empty, null, null, null),
+            ],
+        };
+        var panel = new IntegrationsPanel(gateway);
+
+        await panel.LoadAsync();
+
+        Assert.Equal(["Demo PSA (not ConnectWise)", "Demo knowledge base (not Hudu)"], panel.Others.Select(o => o.Title));
+        Assert.All(panel.Others, o => Assert.Equal("In memory on this backend, Development only", o.SiteUrl));
+        Assert.All(panel.Others, o => Assert.True(o.Connected));
+        Assert.All(panel.Others, o => Assert.Equal("Connected", o.Status));
+        Assert.False(panel.ConnectWise.Connected);
+        Assert.False(panel.Hudu.Connected);
+        Assert.Equal("ConnectWise Manage", panel.ConnectWise.Title);
+        Assert.Equal("Hudu", panel.Hudu.Title);
+    }
+
+    [Fact]
+    public async Task AProviderThisVersionDoesNotKnowIsListedByItsOwnNameAndNotCalledConnected()
+    {
+        // Review 2026-10-27: it was badged Connected, which this version cannot know, and its last
+        // error was dropped. Only the demo is Connected; anything else says this version does not
+        // support it, and keeps the backend's last error.
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("halopsa", "https://acme.halopsa.com", "••••4321", DateTimeOffset.UnixEpoch, null, "HaloPSA rejected the key. Update it in Settings.")],
+        };
+        var panel = new IntegrationsPanel(gateway);
+
+        await panel.LoadAsync();
+
+        var other = Assert.Single(panel.Others);
+        Assert.Equal(("halopsa", "halopsa", "https://acme.halopsa.com"), (other.Provider, other.Title, other.SiteUrl));
+        Assert.False(other.Connected);
+        Assert.Equal("Not supported by this version", other.Status);
+        Assert.Equal("HaloPSA rejected the key. Update it in Settings.", other.LastError);
+    }
+
+    [Fact]
+    public async Task WhenTheServiceDoesNotAnswerNothingElseIsListed()
+    {
+        var panel = new IntegrationsPanel(new FakeIntegrations { Rows = null });
+
+        await panel.LoadAsync();
+
+        Assert.Empty(panel.Others);
+        Assert.NotNull(panel.Notice);
     }
 
     [Fact]

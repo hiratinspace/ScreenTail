@@ -4,6 +4,7 @@ using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers;
 using ScreenTail.Api.Providers.ConnectWise;
+using ScreenTail.Api.Providers.Demo;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Publish;
 using ScreenTail.Api.Vault;
@@ -39,19 +40,38 @@ public static partial class IntegrationsEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapGet("/integrations", async (Caller who, IIntegrationVault vault, CancellationToken ct) =>
+        group.MapGet("/integrations", async (Caller who, IIntegrationVault vault, DemoOptions demo, CancellationToken ct) =>
         {
+            // With the demo on (Development only, ST-090) the demo is what a publish reaches, so it is
+            // all the list names: a ConnectWise row beside it would say a note goes somewhere it does not.
+            if (demo.Demo)
+            {
+                return Results.Ok(new IntegrationsResponse(DemoRows));
+            }
+
             var rows = await vault.ListAsync(who.TenantId, ct).ConfigureAwait(false);
             return Results.Ok(new IntegrationsResponse([.. rows.Select(Masked)]));
         })
         .WithName("ListIntegrations")
         .WithSummary("The tenant's integrations, with each credential's last four characters and nothing more.");
 
-        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, ProviderNetworkOptions network, TimeProvider time, CancellationToken ct) =>
+        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, ProviderNetworkOptions network, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
+            if (demo.Demo)
+            {
+                return DemoOn();
+            }
+
             if (!ProviderName().IsMatch(provider))
             {
                 return Results.BadRequest(new { error = "bad_provider", message = "A provider is a short lowercase name, like connectwise or hudu." });
+            }
+
+            // The demo's names (ST-090). A credential stored under one would list a real tenant's
+            // integration as the demo, in every environment.
+            if (DemoNames.IsReserved(provider))
+            {
+                return Results.BadRequest(new { error = "reserved_provider", message = "Names starting with demo- are kept for the Development demo. Connect connectwise or hudu." });
             }
 
             if (!IntegrationVault.IsHttpsSite(request.SiteUrl))
@@ -114,8 +134,13 @@ public static partial class IntegrationsEndpoint
         .WithName("StoreIntegration")
         .WithSummary("Stores or replaces the tenant's credential for a provider. It is never returned.");
 
-        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, TimeProvider time, CancellationToken ct) =>
+        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
+            if (demo.Demo)
+            {
+                return DemoOn();
+            }
+
             if (provider != Hudu)
             {
                 return await vault.RemoveAsync(who.TenantId, provider, ct).ConfigureAwait(false)
@@ -173,6 +198,15 @@ public static partial class IntegrationsEndpoint
         return group;
     }
 
+    /// <summary>
+    /// The refusal of any change to a tenant's credentials or company mappings while the demo is on
+    /// (ST-090, review 2026-10-27). Settings shows the demo then, so a change would land on rows nobody can
+    /// see: a credential stored or removed, or a mapping overwritten with a demo company or deleted.
+    /// </summary>
+    internal static IResult DemoOn() => Results.Json(
+        new { error = "demo_on", message = $"The demo PSA is on ({DemoOptions.Setting}), so integrations and company mappings cannot be changed. Switch it off and restart the backend first." },
+        statusCode: StatusCodes.Status409Conflict);
+
     private static async Task<ProviderResult<bool>> CheckAsync(IPsaProvider? provider, CancellationToken ct) =>
         provider is null ? Gone() : await provider.CheckAsync(ct).ConfigureAwait(false);
 
@@ -182,6 +216,13 @@ public static partial class IntegrationsEndpoint
     /// <summary>The row exists but the factory found no credential: removed between the two reads, or the vault cannot open it.</summary>
     private static ProviderResult<bool> Gone() =>
         ProviderResult.Failure<bool>(new ProviderError(ProviderErrorKind.Unavailable, "The stored credential could not be opened.", "Enter it again in Settings → Integrations."));
+
+    /// <summary>The demo PSA and knowledge base, named so nobody can take them for ConnectWise or Hudu. No credential, so no last four.</summary>
+    private static readonly IReadOnlyList<IntegrationRow> DemoRows =
+    [
+        new(DemoNames.Psa, DemoNames.Where, string.Empty, null, null, null),
+        new(DemoNames.Kb, DemoNames.Where, string.Empty, null, null, null),
+    ];
 
     private static IntegrationRow Masked(Integration row) => new(
         row.Provider,
