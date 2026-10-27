@@ -44,18 +44,42 @@ public sealed class HeldPane
             return;
         }
 
-        _ = _going.RemoveAll(task => task.IsCompleted);
-        _going.Add(GoAsync(going));
+        lock (_going)
+        {
+            _ = _going.RemoveAll(task => task.IsCompleted);
+            _going.Add(GoAsync(going));
+        }
     }
 
     /// <summary>
     /// Lets go of the held pane as well, and finishes once every pane let go of has finished: the last
-    /// write sent and the delete's answer read, or given up on by the pane's own bound.
+    /// write sent and the delete's answer read, or given up on by the pane's own bound. That includes a
+    /// pane let go of after this was called, such as one whose load finished after the window closed.
     /// </summary>
     public Task ReleaseAsync()
     {
         Hold(null);
-        return Task.WhenAll([.. _going]);
+        return AllGoneAsync();
+    }
+
+    private async Task AllGoneAsync()
+    {
+        while (true)
+        {
+            Task[] going;
+            lock (_going)
+            {
+                going = [.. _going.Where(task => !task.IsCompleted)];
+            }
+
+            if (going.Length == 0)
+            {
+                return;
+            }
+
+            // Read again once these are done: a pane let go of in the meantime is waited for too.
+            await Task.WhenAll(going).ConfigureAwait(false);
+        }
     }
 
     private static async Task GoAsync(IAsyncDisposable pane)

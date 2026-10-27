@@ -78,6 +78,26 @@ public sealed class HeldPaneTests
     }
 
     [Fact]
+    public async Task ReleasingAlsoWaitsForAPaneLetGoOfAfterIt()
+    {
+        // A load that finishes after the window closed lets go of its pane after the release began. Quit
+        // waits on the release, so the release waits for that pane too.
+        var held = new HeldPane();
+        var shown = new Pane { Going = new TaskCompletionSource() };
+        var late = new Pane { Going = new TaskCompletionSource() };
+        held.Hold(shown);
+
+        var released = held.ReleaseAsync();
+        held.LetGo(late);
+        shown.Going.SetResult();
+        await Task.Delay(20, TestContext.Current.CancellationToken);
+
+        Assert.False(released.IsCompleted, "release finished while a pane let go of after it was still writing");
+        late.Going.SetResult();
+        await released;
+    }
+
+    [Fact]
     public async Task APaneThatArrivesTooLateIsLetGoWithoutBeingShown()
     {
         // A load superseded by another, or finished after the window closed: never held, still disposed.
