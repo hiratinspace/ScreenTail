@@ -47,6 +47,11 @@ public sealed partial class PublishViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>The backend's PSA is its Development demo (ST-090): said above the form, never a real product's name.</summary>
+    public string DemoNotice => _panel.DemoNotice ?? string.Empty;
+
+    public Visibility DemoVisibility => _panel.DemoNotice is null ? Visibility.Collapsed : Visibility.Visible;
+
     public ObservableCollection<TicketMatch> Matches { get; } = [];
 
     public ObservableCollection<ResultRow> Results { get; } = [];

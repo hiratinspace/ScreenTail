@@ -9,6 +9,14 @@
         <StackPanel Visibility="{Binding FormVisibility}">
             <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Publish" />
 
+            <!-- ST-090: the backend's Development demo PSA, named where the technician is looking. -->
+            <Border Style="{StaticResource Banner.Info}"
+                    Margin="0,10,0,0"
+                    Visibility="{Binding DemoVisibility}"
+                    AutomationProperties.Name="Demo PSA">
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding DemoNotice}" />
+            </Border>
+
             <TextBlock Margin="0,12,0,4" Style="{StaticResource Text.Muted}" Text="Ticket" />
             <TextBox Style="{StaticResource Input.Default}"
                      Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"

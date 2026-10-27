@@ -38,6 +38,12 @@ public sealed partial class IntegrationsViewModel : ObservableObject
 
     public IntegrationCardViewModel Hudu { get; }
 
+    /// <summary>Providers the backend lists beyond the two cards, by name: the Development demo (ST-090), or one this version does not know.</summary>
+    public ObservableCollection<OtherIntegration> Others { get; } = [];
+
+    [ObservableProperty]
+    public partial Visibility OthersVisibility { get; set; } = Visibility.Collapsed;
+
     public ObservableCollection<MappingRow> Mappings { get; } = [];
 
     public ObservableCollection<CompanyChoice> Companies { get; } = [];
@@ -77,6 +83,13 @@ public sealed partial class IntegrationsViewModel : ObservableObject
         await _panel.LoadAsync(ct).ConfigureAwait(true);
         ConnectWise.Refresh();
         Hudu.Refresh();
+        Others.Clear();
+        foreach (var other in _panel.Others)
+        {
+            Others.Add(other);
+        }
+
+        OthersVisibility = Others.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         ShowMappings();
     }
 

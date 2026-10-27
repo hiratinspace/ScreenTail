@@ -107,6 +107,26 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public void TheDevelopmentDemoPsaIsNamedAbovePublishSoNobodyTakesItForConnectWise()
+    {
+        // ST-090. The backend lists only the demo while it is on; the pane says so where the technician
+        // is looking, and Publish works as it would against a real PSA.
+        var panel = Panel(integrations: ["demo-psa", "demo-kb"]);
+        panel.Choose(new TicketMatch("48213", "Printer offline in reception", "Acme Dental"));
+
+        Assert.True(panel.CanPublish);
+        Assert.StartsWith("Publishing to Demo PSA (not ConnectWise)", panel.DemoNotice, StringComparison.Ordinal);
+        Assert.Contains("no real ticket", panel.DemoNotice, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARealPsaHasNoDemoNotice()
+    {
+        Assert.Null(Panel(integrations: ConnectWise).DemoNotice);
+        Assert.Null(Panel(integrations: []).DemoNotice);
+    }
+
+    [Fact]
     public void AFailedDraftHasNothingToPublish()
     {
         var panel = Panel(session: Session(draft: null));

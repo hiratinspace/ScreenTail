@@ -1,5 +1,6 @@
 using System.Globalization;
 using ScreenTail.Core.Intel;
+using ScreenTail.Core.Settings;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Core.Review.Publish;
@@ -135,6 +136,14 @@ public sealed class PublishPanel
     public IReadOnlyList<string> Integrations { get; }
 
     public bool HasIntegrations => Integrations.Count > 0;
+
+    /// <summary>
+    /// Said above Publish when the backend's PSA is its Development demo (ST-090), so nobody watching
+    /// takes the note for one on a real ticket. Null for a real PSA, or none.
+    /// </summary>
+    public string? DemoNotice => Integrations.Any(IntegrationNames.IsDemo)
+        ? $"Publishing to {IntegrationNames.Title(IntegrationNames.DemoPsa)}: the backend keeps the note in memory, and it reaches no real ticket."
+        : null;
 
     public TicketMatch? Ticket { get; private set; }
 

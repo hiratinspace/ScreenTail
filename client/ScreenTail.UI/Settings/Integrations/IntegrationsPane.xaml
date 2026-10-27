@@ -130,6 +130,27 @@
                 <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" AutomationProperties.LiveSetting="Polite" />
             </Border>
 
+            <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
+                 nobody takes it for ConnectWise or Hudu, or a provider this version does not know. -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding OthersVisibility}">
+                <ItemsControl ItemsSource="{Binding Others}" AutomationProperties.Name="Other connected providers">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,8">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                                    <ContentControl Margin="10,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    Style="{StaticResource Badge.Published}"
+                                                    Content="Connected" />
+                                </StackPanel>
+                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding SiteUrl}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
             <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" />
             <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" />
 
