@@ -1,12 +1,14 @@
 using System.Security.Principal;
 using System.Text.Json;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Install;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Speech;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Host;
+using ScreenTail.Service.Install;
 using ScreenTail.Service.Speech;
 using ScreenTail.Shared.Logging;
 
@@ -31,6 +33,21 @@ if (RunningHonestly.WhyNotToStart(Signing.IsDevelopmentBuild) is { } refusal)
 foreach (var requested in RunningHonestly.ForeignCodeRequested())
 {
     Console.Error.WriteLine($"Warning: {requested} is set, so this process may be running code that is not ScreenTail's.");
+}
+
+// ST-112: the uninstaller's own step (ADR-0007). Before anything else that could take the single-instance
+// name or wait on it: it runs while a technician's copy may still be running, stops that copy, and removes
+// what every user's ScreenTail left outside the install folder. It refuses to run for anybody but an
+// administrator, which the installer is.
+if (args.Contains(InstalledFootprint.UninstallFlag, StringComparer.Ordinal))
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("The capture service runs on Windows only.");
+        return 2;
+    }
+
+    return UninstallCleanup.Run(Console.Out);
 }
 
 // The two utility modes first, because neither is the service and neither should be stopped by one, or

@@ -7,6 +7,12 @@
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <!-- Exe for now so `dotnet run` shows logs; ST-004 decides how the per-user service is hosted. -->
     <OutputType>Exe</OutputType>
+    <!-- ST-112: the installed service starts at every sign-in (ADR-0003), and a console program would open
+         a console window on the technician's desktop each time, showing its log. The installer build is
+         a Windows program with no window; development builds stay console programs, because that window
+         is where a developer reads the log. The utility modes (capabilities, transcribe) still write to
+         their output when it is redirected. -->
+    <OutputType Condition="'$(ScreenTailInstaller)' == 'true'">WinExe</OutputType>
     <RootNamespace>ScreenTail.Service</RootNamespace>
     <AssemblyName>ScreenTail.Service</AssemblyName>
     <!-- ST-012 (ADR-0003): the runtime loads no startup hook into this process, whatever the
@@ -46,4 +52,7 @@
     <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\shared\registry\exclusions-default.json" Link="Registry\exclusions-default.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- ST-112: how the installer publishes this process (self-contained, single file). -->
+  <Import Project="..\Packaging.props" />
 </Project>

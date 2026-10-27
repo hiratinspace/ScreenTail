@@ -1,0 +1,44 @@
+<Project>
+  <!--
+    How the two processes are published for the installer (ST-112, ADR-0007). Imported by
+    ScreenTail.Service and ScreenTail.UI only; installer/build.ps1 turns it on with
+    -p:ScreenTailInstaller=true. Every other build (dotnet build, the tests, run-local.ps1, the demo)
+    is unchanged.
+
+    ADR-0003 left two gaps to packaging. The switch that stops the runtime loading startup hooks lived in
+    a runtime configuration file beside the executable, protected only as well as its folder; and the
+    managed assemblies beside a signed launcher were not signed at all. A self-contained single-file
+    build carries the runtime configuration and every managed assembly inside the one executable, which
+    the signing step then signs.
+
+    Native libraries are deliberately not packed in (IncludeNativeLibrariesForSelfExtract false). A
+    single-file build that carries them unpacks them at run time into a folder under the user's profile,
+    which the user can write to. Left beside the executable in Program Files, they sit where only an
+    administrator can change them, and the signing step signs each one that is not already signed.
+
+    The runtime's diagnostics (debugger, profiler and EventPipe attach) cannot be turned off from inside
+    the build: .NET 10 reads that switch only from the environment (ADR-0007 records the check). The
+    startup-hook switch is the one that can be, and is, in each project file.
+  -->
+  <PropertyGroup>
+    <!-- On in every build, so a call that only works when the assemblies are files on disk (Assembly.Location,
+         and friends) fails the Mac build rather than the installed one. -->
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ScreenTailInstaller)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+    <!-- The installer compresses the files; compressing them again inside the executable would cost
+         start-up time at every sign-in for a smaller folder nobody looks at. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <!-- English only (Scope: US first). Without this, every framework resource language ships. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- No symbol files in Program Files. Crash reports are stack-only either way (ST-011). -->
+    <DebugType>none</DebugType>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+</Project>

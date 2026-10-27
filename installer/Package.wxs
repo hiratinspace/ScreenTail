@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ScreenTail's Windows Installer package (ST-112, ADR-0007). Built by installer/build.ps1 with WiX 5:
+  never by hand, because the payload it harvests is the publish output that script checks first.
+
+  Per machine, into Program Files: MSP tools (Intune, RMM agents) install as the system account, and
+  Program Files is the folder an ordinary user cannot change, which is what the peer checks rely on.
+  The service starts at every sign-in from the machine's Run key (ADR-0003). The UI starts on demand,
+  from the Start menu, or at sign-in when the technician turns "Start UI at login" on in Settings.
+
+  Variables, all passed by build.ps1:
+    Version  the product version, the same one stamped into both executables (major.minor.build)
+    Payload  the folder holding the published, checked and (when configured) signed files
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="ScreenTail"
+           Manufacturer="ScreenTail"
+           Version="$(var.Version)"
+           UpgradeCode="{85199A85-ACAA-43AA-8CDC-BA38D3570929}"
+           Scope="perMachine"
+           Compressed="yes"
+           Language="1033">
+
+    <!-- The UpgradeCode above is how Windows recognises an older ScreenTail; it never changes
+         (InstallerAuthoringTests holds it). An upgrade removes the old version completely before the new
+         one is installed, and that removal is an uninstall with UPGRADINGPRODUCTCODE set, which is what
+         keeps the user-data step below from running during it. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ScreenTail is already installed. Uninstall it first to install this one." />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Nothing to choose: there are no optional features. Repair stays, because it is how an MSP puts
+         back a deleted file without uninstalling. -->
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+
+    <!-- Whisper's native libraries need the Visual C++ 2015-2022 x64 runtime, which a fresh Windows does
+         not have. Installing without it would put a service on the machine whose speech fails at the
+         first session, so the package says so instead. ScreenTail-Setup.exe installs the runtime first;
+         an MSP deploying this package on its own deploys the runtime before it. Never a reason to refuse
+         an uninstall or a repair. -->
+    <Property Id="VCRUNTIMEX64">
+      <RegistrySearch Id="VcRuntimeX64Installed"
+                      Root="HKLM"
+                      Key="SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+                      Name="Installed"
+                      Type="raw"
+                      Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR VCRUNTIMEX64 = &quot;#1&quot;"
+            Message="ScreenTail needs the Microsoft Visual C++ 2015-2022 Redistributable (x64). Install it first, or install ScreenTail with ScreenTail-Setup.exe, which includes it." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ScreenTail" />
+    </StandardDirectory>
+
+    <!-- Everything the publish produced, as it is laid out: both executables side by side at the top,
+         which the development rule of the peer checks needs while builds are unsigned (ADR-0003), the
+         native libraries beside them, and the registry files the service reads. -->
+    <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
+      <Files Include="$(var.Payload)\**" />
+    </ComponentGroup>
+
+    <!-- ADR-0003: the service starts at sign-in from a Run key, inside the user's own session, where
+         hooks and capture work. The machine's key, so it starts for whoever signs in. The value's name
+         is the development helper's (LoginStartup.ServiceValueName). -->
+    <Component Id="ServiceAtSignIn" Directory="INSTALLFOLDER" Guid="{A76EDE4A-0847-4A9D-B9B2-7295633443BC}">
+      <RegistryValue Root="HKLM"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="ScreenTail.Service"
+                     Type="string"
+                     Value="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot;"
+                     KeyPath="yes" />
+    </Component>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="{343F2DE9-FFC0-40FC-BCBF-5364C20CBE67}">
+        <Shortcut Id="UiShortcut"
+                  Name="ScreenTail"
+                  Description="ScreenTail: session notes from remote support"
+                  Target="[INSTALLFOLDER]ScreenTail.UI.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\ScreenTail" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="ScreenTail" Title="ScreenTail">
+      <ComponentGroupRef Id="Payload" />
+      <ComponentRef Id="ServiceAtSignIn" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- A running executable can be neither replaced nor removed. Every running copy, in every session,
+         is ended before the files are touched, on upgrade and uninstall alike, so an MSP push while a
+         technician is signed in finishes without "restart required". Ended, not asked: the UI answers a
+         close by asking whether to stop a recording, and nobody is there to answer a silent install. A
+         session that was recording is recovered by the service at its next start (ST-020). -->
+    <util:CloseApplication Id="CloseService"
+                           Target="ScreenTail.Service.exe"
+                           CloseMessage="no"
+                           EndSessionMessage="no"
+                           RebootPrompt="no"
+                           TerminateProcess="1" />
+    <util:CloseApplication Id="CloseUi"
+                           Target="ScreenTail.UI.exe"
+                           CloseMessage="no"
+                           EndSessionMessage="no"
+                           RebootPrompt="no"
+                           TerminateProcess="1" />
+
+    <!-- INV-12 and the ticket: an uninstall leaves nothing. Windows Installer removes what it installed;
+         this removes what ScreenTail made afterwards for each user (the data folder with the store, its
+         key and the device's token, and the UI's own Run value). The installed service does it, in its
+         uninstall mode, as the system account, before the files go. Only for an uninstall: never during
+         the uninstall step of an upgrade, which would erase every technician's sessions. Its result is
+         ignored, so a folder that cannot be removed does not leave the product half uninstalled; CI's
+         smoke test is what checks nothing was left. -->
+    <CustomAction Id="RemoveUserData"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot; --uninstall-cleanup"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RemoveUserData" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
