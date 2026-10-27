@@ -135,6 +135,23 @@ function Get-Tail {
     return @($kept | ForEach-Object { Protect-Text -Text $_ -Secrets $Secrets })
 }
 
+# The lines of a log another process may still be writing, or none. Opened for shared reading, because
+# Get-Content can fail on a file whose writer has it open.
+function Read-SharedLog([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+    try {
+        $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $reader = New-Object IO.StreamReader($stream)
+        try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        return @($text -split "`r?`n")
+    }
+    catch {
+        return @()
+    }
+}
+
 # --- Running other programs ---------------------------------------------------------------------------
 
 # Runs a console program and returns its exit code and every line it printed, stdout and stderr merged.

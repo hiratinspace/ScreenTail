@@ -247,8 +247,7 @@ Write-Note 'Waiting for it to answer (up to 90 seconds)...'
 $healthy = $false
 for ($second = 0; $second -lt 90; $second++) {
     if (Test-Path -LiteralPath $script:DemoBackendExited) {
-        $log = @()
-        if (Test-Path -LiteralPath $script:DemoBackendLog) { $log = @(Get-Content -LiteralPath $script:DemoBackendLog) }
+        $log = Read-SharedLog $script:DemoBackendLog
         $failure = Get-BackendFailure $log
         Fail -Problem $failure[0] -Detail (Get-Tail -Lines $log) -Fix @($failure[1])
     }
@@ -275,8 +274,7 @@ for ($second = 0; $second -lt 90; $second++) {
     Start-Sleep -Seconds 1
 }
 if (-not $healthy) {
-    $log = @()
-    if (Test-Path -LiteralPath $script:DemoBackendLog) { $log = @(Get-Content -LiteralPath $script:DemoBackendLog) }
+    $log = Read-SharedLog $script:DemoBackendLog
     Fail -Problem 'The backend did not answer within 90 seconds.' -Detail (Get-Tail -Lines $log) -Fix @(
         'Read the backend window. The first start after a build can be slow; try once more before digging.')
 }
