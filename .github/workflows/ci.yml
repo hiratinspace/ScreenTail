@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       client: ${{ steps.areas.outputs.client }}
+      installer: ${{ steps.areas.outputs.installer }}
       backend: ${{ steps.areas.outputs.backend }}
       web: ${{ steps.areas.outputs.web }}
       research: ${{ steps.areas.outputs.research }}
@@ -75,6 +76,8 @@ jobs:
           }
           {
             flag '^client/' client
+            # ST-112: the installer packages the client, so a client change rebuilds and smoke-tests it.
+            flag '^(client/|installer/)' installer
             # research/prompts is embedded in the backend (the note prompt in the service, the shared
             # rules and cases in its tests), so a change there is a backend change too. The research
             # tests read the client's pattern library to check the validators know its shapes, and the
@@ -317,6 +320,106 @@ jobs:
           name: gallery-screenshots
           path: ${{ runner.temp }}/gallery
           if-no-files-found: warn
+
+  # ST-112: the Windows installer, built and smoke-tested on the hosted runner, never the laptop: an
+  # install is a change to the machine, and the hosted VM is thrown away after the job. Unsigned on every
+  # run, because signing secrets never reach a pull request; installer-signed below repeats it with the
+  # certificate, on main only, once signing is switched on. docs/dev/installer.md says how.
+  installer:
+    name: Installer (Windows)
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        # Windows PowerShell 5.1, what a developer's Windows machine has, so the scripts are proved on it.
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: The runner already has an SDK that satisfies global.json
+        run: dotnet --version
+      - name: Build the payload, the package and the setup program
+        run: ./installer/build.ps1 -Version "0.1.${{ github.run_number }}"
+      - name: Build an older package from the same payload, for the upgrade check
+        run: ./installer/build.ps1 -Version "0.0.${{ github.run_number }}" -SkipPublish -NoBundle -MsiName ScreenTail-older.msi
+      - name: Smoke test (silent install, upgrade, uninstall, setup program)
+        run: >-
+          ./installer/smoke-test.ps1
+          -Msi artifacts/installer/packages/ScreenTail.msi
+          -Version "0.1.${{ github.run_number }}"
+          -OlderMsi artifacts/installer/packages/ScreenTail-older.msi
+          -Bundle artifacts/installer/packages/ScreenTail-Setup.exe
+          -Logs "${{ runner.temp }}/installer-logs"
+      - name: Upload the unsigned installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: screentail-installer-unsigned
+          path: |
+            artifacts/installer/packages/ScreenTail.msi
+            artifacts/installer/packages/ScreenTail-Setup.exe
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload the installer logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-logs
+          path: ${{ runner.temp }}/installer-logs
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The same build with the certificate. Only on main, never for a pull request (the signing secrets
+  # would otherwise be one workflow edit away from a branch), only after the unsigned build passed, and
+  # only when the repository variable SCREENTAIL_SIGNING is 'true'. The secrets live in the 'signing'
+  # environment, which the owner restricts to main. SCREENTAIL_REQUIRE_SIGNING makes a misconfigured run
+  # fail rather than upload an unsigned build under the signed name.
+  installer-signed:
+    name: Installer (Windows, signed)
+    needs: [changes, installer]
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      vars.SCREENTAIL_SIGNING == 'true' &&
+      needs.changes.outputs.installer == 'true'
+    runs-on: windows-latest
+    environment: signing
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build, signing every executable, library and installer
+        env:
+          SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: ./installer/build.ps1 -Version "0.1.${{ github.run_number }}"
+      - name: Smoke test the signed build (the peer checks now take the signed path)
+        run: >-
+          ./installer/smoke-test.ps1
+          -Msi artifacts/installer/packages/ScreenTail.msi
+          -Version "0.1.${{ github.run_number }}"
+          -Bundle artifacts/installer/packages/ScreenTail-Setup.exe
+          -Logs "${{ runner.temp }}/installer-logs"
+      - name: Upload the signed installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: screentail-installer
+          path: |
+            artifacts/installer/packages/ScreenTail.msi
+            artifacts/installer/packages/ScreenTail-Setup.exe
+          retention-days: 7
+          if-no-files-found: error
 
   backend:
     name: Backend (build, test, container)
@@ -693,6 +796,41 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
 
+      # ST-112. The installer jobs change the machine they run on and the signed one holds the signing
+      # credentials, so where they run and when is checked here rather than trusted to review: both on
+      # the hosted runner, never the laptop's labels; the signed one never for a pull request and only on
+      # main; and no other job in this file names a secret at all.
+      - name: The installer jobs run on hosted runners, and only main can sign
+        run: |
+          python3 - <<'EOF'
+          import re, sys, yaml
+
+          text = open('.github/workflows/ci.yml').read()
+          jobs = yaml.safe_load(text)['jobs']
+          bad = []
+          for name in ('installer', 'installer-signed'):
+              job = jobs.get(name)
+              if job is None:
+                  bad.append(f"job {name!r} is missing")
+                  continue
+              if job.get('runs-on') != 'windows-latest':
+                  bad.append(f"{name} runs on {job.get('runs-on')!r}; it must be the hosted windows-latest, never the laptop")
+          signed = jobs.get('installer-signed', {})
+          condition = str(signed.get('if', ''))
+          for needed in ("github.event_name != 'pull_request'", "github.ref == 'refs/heads/main'", "vars.SCREENTAIL_SIGNING == 'true'"):
+              if needed not in condition:
+                  bad.append(f"installer-signed must run only when {needed}")
+          if signed.get('environment') != 'signing':
+              bad.append("installer-signed must take its secrets from the 'signing' environment")
+          for name, job in jobs.items():
+              if name != 'installer-signed' and re.search(r'\$\{\{\s*secrets\.', yaml.safe_dump(job)):
+                  bad.append(f"job {name!r} names a secret; only installer-signed may")
+          for line in bad:
+              print(f"::error file=.github/workflows/ci.yml::{line}")
+          print("\n".join(bad) if bad else "the installer jobs are on hosted runners and only main can sign")
+          sys.exit(1 if bad else 0)
+          EOF
+
       - name: No duplicate keys, every job has steps
         run: |
           python3 - <<'EOF'
@@ -867,7 +1005,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, backend, web, research, schema, design, scripts, commits, workflows, hardware-gate]
+    needs: [changes, client, installer, installer-signed, backend, web, research, schema, design, scripts, commits, workflows, hardware-gate]
     runs-on: ubuntu-latest
     steps:
       - env:
