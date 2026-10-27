@@ -16,7 +16,7 @@ to trust it and where to change it.
 
 | File | Read it for |
 |---|---|
-| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch. Last refreshed 2026-09-22 |
+| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-10-27 |
 | `ipc-contract.md` | The service–UI pipe contract, versioned. Kept at the root because three source files and the backlog cite it by this path |
 | `adr/000N-*.md` | Architecture decisions. All six are Accepted. `adr/evidence/` holds the measurements they rest on, with its own README |
 | `review/weaknesses.md` | The 2026-09-15 adversarial review, closed 2026-09-22: every finding says what fixed it, and the one still open says where it is tracked. Kept because code comments cite its numbers |
@@ -25,7 +25,8 @@ to trust it and where to change it.
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
 | `dev/first-draft-end-to-end.md` | Getting one real session to produce one real note: the M1 step list, everything on the laptop |
 | `dev/demo.md` | Running the demo on the laptop with `scripts/windows/demo/` (setup, start, stop), in plain words, and the demo story |
-| `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box, and what keeps strangers' code off the laptop |
+| `dev/demo-psa.md` | The demo PSA that stands in for ConnectWise in Development, what the technician sees, and what it does not prove |
+| `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box, getting the laptop ready for a CI run, and what keeps strangers' code off the laptop |
 
 ## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)
 
