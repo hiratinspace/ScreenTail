@@ -266,8 +266,25 @@ public sealed class PsaGatewayTests
         Assert.Empty(audit.Rows);
     }
 
-    private static PsaGateway Gateway(HttpMessageHandler handler, IAuditLog? audit = null) =>
-        new(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => "a-device-token", audit);
+    [Fact]
+    public async Task AnAuditRowThatCannotBeWrittenIsLoggedByItsTypeAlone()
+    {
+        // INV-10. An audit store's own words may quote what it held, so the line names the fault's type and
+        // carries nothing of its message, nor the session it was for.
+        using var handler = new RecordingHandler(Json(JsonDocument.Parse(Contract("response")).RootElement));
+        using var lines = new StringWriter();
+        using var logs = new ScreenTail.Shared.Logging.ScrubbingLoggerProvider(lines, Microsoft.Extensions.Logging.LogLevel.Information);
+
+        _ = await Gateway(handler, new ThrowingAudit(), logs.CreateLogger("publish")).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        var log = lines.ToString();
+        Assert.Contains(nameof(InvalidOperationException), log, StringComparison.Ordinal);
+        Assert.DoesNotContain("locked", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("s-0001", log, StringComparison.Ordinal);
+    }
+
+    private static PsaGateway Gateway(HttpMessageHandler handler, IAuditLog? audit = null, Microsoft.Extensions.Logging.ILogger? logger = null) =>
+        new(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => "a-device-token", audit, logger);
 
     private static PublishWire Wire() => new()
     {
