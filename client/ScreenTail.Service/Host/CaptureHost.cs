@@ -257,7 +257,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new CachedCapabilityProbe(new WindowsCapabilityProbe()),
             store,
             new ReviewCommands(store, new WindowsFrameMasker()),
-            new PublishCommands(store, psa, metrics, new StyleLearner(style, store)),
+            // The logger, so a publish whose metrics or style bookkeeping failed says so in the service's
+            // log, by the fault's type alone (INV-10). Without it the fault was kept and nobody was told.
+            new PublishCommands(store, psa, metrics, new StyleLearner(style, store), logger),
             new DeviceCommands(device),
             new SettingsCommands(
                 settingsStore,
