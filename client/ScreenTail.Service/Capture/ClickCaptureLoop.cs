@@ -27,15 +27,19 @@ internal sealed partial class ClickCaptureLoop
     private readonly WindowsInputHooksAccessor _hooks;
     private readonly SessionRecorder _recorder;
     private readonly ILogger _logger;
+    private readonly TimeProvider _time;
     private long _failedDrains;
 
+    /// <param name="time">The clock the drain timer runs on. The system's when null.</param>
     public ClickCaptureLoop(
         SessionMachine machine,
         WindowsInputHooksAccessor hooks,
         IScreenshotCapturer capturer,
         Func<ScopeDecision?> currentScope,
-        ILogger logger)
+        ILogger logger,
+        TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _machine = machine;
         _hooks = hooks;
         _logger = logger;
@@ -65,7 +69,7 @@ internal sealed partial class ClickCaptureLoop
     {
         // Drained on a timer rather than on every signal: the callbacks must stay free of everything but a
         // buffer write, and a click is worth a frame a few tens of milliseconds later just as much.
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50), _time);
 
         // One bad batch costs that batch. This loop used to end on the first exception of any kind, and
         // then on any OperationCanceledException, which is also what a call that timed out throws: either

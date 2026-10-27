@@ -23,14 +23,18 @@ internal sealed partial class SceneSampleLoop
 {
     private readonly SceneRecorder _recorder;
     private readonly ILogger _logger;
+    private readonly TimeProvider _time;
 
+    /// <param name="time">The clock the sampling timer runs on. The system's when null.</param>
     public SceneSampleLoop(
         SessionMachine machine,
         IScreenshotCapturer capturer,
         Func<ScopeDecision?> currentScope,
         ILogger logger,
-        SceneSampler? sampler = null)
+        SceneSampler? sampler = null,
+        TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _logger = logger;
         _recorder = new SceneRecorder(machine, capturer, currentScope, sampler);
         _recorder.FrameMissed += () => LogNoFrame(logger);
@@ -51,7 +55,7 @@ internal sealed partial class SceneSampleLoop
 
     public async Task RunAsync(CancellationToken ct)
     {
-        using var timer = new PeriodicTimer(_recorder.Options.SampleEvery);
+        using var timer = new PeriodicTimer(_recorder.Options.SampleEvery, _time);
 
         // One sample that cannot be taken or stored costs that sample. This loop used to end on the first
         // exception of any kind, and a session then went on with clicks and no scene frames at all.

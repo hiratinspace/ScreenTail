@@ -64,6 +64,7 @@ public sealed class PasswordFieldGuard(
     private readonly PasswordFieldOptions _options = options ?? new PasswordFieldOptions();
     private readonly SemaphoreSlim _focusMoved = new(0);
     private long _failures;
+    private long _passes;
 
     /// <summary>
     /// True while the session keeps this guard's hold, which a pause does not end. Asked of the session
@@ -96,6 +97,8 @@ public sealed class PasswordFieldGuard(
     /// </summary>
     public async Task<bool> TickAsync(CancellationToken ct = default)
     {
+        _ = Interlocked.Increment(ref _passes);
+
         // Nothing to hold, so nothing to ask about.
         //
         // Read() is a cross-process UI Automation call -- ADR-0001 measured p95 9.5-21 ms and a worst
@@ -153,6 +156,9 @@ public sealed class PasswordFieldGuard(
 
     /// <summary>How many passes ended in an exception. A rising count means the guard is struggling, not gone.</summary>
     public long Failures => Interlocked.Read(ref _failures);
+
+    /// <summary>How many passes there have been, for any reason. Each is a wakeup (ST-031).</summary>
+    internal long Passes => Interlocked.Read(ref _passes);
 
     /// <summary>Told when a pass fails, so the host can log it. The type only, never the message (INV-10).</summary>
     public event Action<Exception>? Failed;
