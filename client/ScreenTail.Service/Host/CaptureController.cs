@@ -132,6 +132,20 @@ internal sealed class CaptureController(
             return savedCapture;
         }
 
+        // INV-4: the gate a session the service starts by itself already waits on. A report the UI has
+        // made recently, the zero-size one of a pill put away between sessions included (owner decision,
+        // 2026-10-25); with none, nothing on screen says capture is on, and the start is refused rather
+        // than begun unseen. Asked of the same reports the indicator guard reads, so the two cannot differ.
+        if (command is StartCommand && !indicators.Showing)
+        {
+            return new CommandResult
+            {
+                RequestId = command.RequestId,
+                Ok = false,
+                Error = "No recording indicator is showing, so the session was not started.",
+            };
+        }
+
         var accepted = command switch
         {
             // Manual start (Ctrl+Alt+R, tray). ST-023's detector starts sessions with the real tool.
