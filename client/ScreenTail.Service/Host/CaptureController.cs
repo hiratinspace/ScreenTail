@@ -33,7 +33,11 @@ namespace ScreenTail.Service.Host;
 /// </param>
 /// <param name="indicators">
 /// What the service knows about whether anything on screen says capture is happening (INV-4). The UI
-/// reports it here; <c>IndicatorGuard</c> reads it.
+/// reports it here; <c>IndicatorGuard</c> reads it, and so does a start over the pipe.
+/// </param>
+/// <param name="sessionPolicy">
+/// Local-only as it is in force now and the policy's version, for a start over the pipe: the same
+/// function the host gives the automatic start, so the two cannot start sessions under different rules.
 /// </param>
 internal sealed class CaptureController(
     SessionMachine machine,
@@ -46,8 +50,11 @@ internal sealed class CaptureController(
     CaptureSettingsCommands captureSettings,
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
-    IndicatorReports indicators) : IIpcCommandHandler
+    IndicatorReports indicators,
+    Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy) : IIpcCommandHandler
 {
+    private readonly ManualStart _start = new(machine, () => indicators.Showing, sessionPolicy);
+
     public CaptureStateSnapshot CurrentState => machine.Snapshot;
 
     // Probed on each request rather than cached: a technician can revoke microphone access mid-session.
@@ -132,24 +139,17 @@ internal sealed class CaptureController(
             return savedCapture;
         }
 
-        // INV-4: the gate a session the service starts by itself already waits on. A report the UI has
-        // made recently, the zero-size one of a pill put away between sessions included (owner decision,
-        // 2026-10-25); with none, nothing on screen says capture is on, and the start is refused rather
-        // than begun unseen. Asked of the same reports the indicator guard reads, so the two cannot differ.
-        if (command is StartCommand && !indicators.Showing)
+        // A start over the pipe (the onboarding wizard's test session) waits for the indicator as an
+        // automatic start does (INV-4), and starts under the tenant's policy as it stands now, with the
+        // same local-only flag and policy version (ST-047). ManualStart, in Core, holds both and says why
+        // when it refuses. Ctrl+Alt+R and the tray go through the coordinator.
+        if (command is StartCommand start)
         {
-            return new CommandResult
-            {
-                RequestId = command.RequestId,
-                Ok = false,
-                Error = "No recording indicator is showing, so the session was not started.",
-            };
+            return await _start.StartAsync(start, ct).ConfigureAwait(false);
         }
 
         var accepted = command switch
         {
-            // Manual start (Ctrl+Alt+R, tray). ST-023's detector starts sessions with the real tool.
-            StartCommand => await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Other }, ct: ct).ConfigureAwait(false),
             PauseCommand => await machine.PauseAsync(ct).ConfigureAwait(false),
             ResumeCommand => await machine.ResumeAsync(ct).ConfigureAwait(false),
             StopCommand => await machine.StopAsync(ct).ConfigureAwait(false),

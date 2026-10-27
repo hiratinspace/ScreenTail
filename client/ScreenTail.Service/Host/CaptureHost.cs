@@ -246,6 +246,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // What the UI reports about the pill being on screen, and what the indicator guard reads. A
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
+        // ST-047: every session starts under the tenant's policy as it stands now, local-only as the admin
+        // or the technician set it and the policy's version for its audit log. One function for the
+        // automatic start and the pipe's, so the two cannot start sessions under different rules.
+        Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy = () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version);
         // The registry is read here, ahead of the controller, because Settings → Capture lists its tools.
         var registry = RemoteToolRegistry.Load(await File.ReadAllTextAsync(
             Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
@@ -289,7 +293,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 lifetime.StopApplication();
                 return Task.FromResult(true);
             },
-            indicators);
+            indicators,
+            sessionPolicy);
         await using var server = new IpcServer(
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
@@ -349,7 +354,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             () => indicator.Indicated,
             logger,
             Platform.Clipboard.ClipboardText.ReadOnce,
-            () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version),
+            sessionPolicy,
             () => captureStore.Load().AutoStart);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch

@@ -369,9 +369,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     [Fact]
     public async Task AStartOverThePipeIsRefusedWhileNothingShowsCaptureIsOn()
     {
-        // INV-4. A session the service starts by itself waits for something on screen to say so; a start
-        // sent over the pipe went straight to the machine, so a UI with no pill, or no UI at all behind a
-        // connection, could begin a recording nobody was shown. The same gate now, and closed.
+        // INV-4. A start over the pipe waits for something on screen to say capture is on, as a session
+        // the service starts by itself does: the same gate, closed while no report is current.
         var ct = TestContext.Current.CancellationToken;
         var store = await OpenAsync(ct);
         var machine = Machine(store);
@@ -382,7 +381,25 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         Assert.False(result.Ok);
         Assert.Equal(SessionState.Idle, machine.State);
         Assert.Null(machine.SessionId);
-        Assert.Contains("indicat", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ManualStart.NotIndicated, result.Error);
+    }
+
+    [Fact]
+    public async Task AStartOverThePipeStartsUnderTheTenantsPolicy()
+    {
+        // ST-047, INV-8. A start over the pipe takes the same local-only flag and policy version as the
+        // automatic start, and the session records them.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine, indicators: new IndicatorReports(), sessionPolicy: () => (true, "v7"));
+
+        Assert.True((await controller.HandleAsync(new IndicatorShowingCommand { RequestId = 1, X = 10, Y = 10, Width = 200, Height = 40 }, Window, ct)).Ok);
+        Assert.True((await controller.HandleAsync(new StartCommand { RequestId = 2 }, Window, ct)).Ok);
+
+        var stored = (await store.LoadSessionAsync(machine.SessionId!, ct))!;
+        Assert.True(stored.LocalOnly);
+        Assert.Equal("v7", stored.PolicyVersion);
     }
 
     [Theory]
@@ -456,7 +473,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         Func<DiagnosticsReported>? diagnostics = null,
         Func<CancellationToken, Task<bool>>? erase = null,
         SessionMachine? machine = null,
-        IndicatorReports? indicators = null) =>
+        IndicatorReports? indicators = null,
+        Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null) =>
         new(
             machine ?? new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter()),
             new AlwaysCapableProbe(),
@@ -478,7 +496,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
                 _ => { }),
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)),
-            indicators ?? new IndicatorReports());
+            indicators ?? new IndicatorReports(),
+            sessionPolicy ?? (() => (false, "default")));
 
     private sealed class NoCredentials : ScreenTail.Core.Net.IDeviceCredentials
     {
