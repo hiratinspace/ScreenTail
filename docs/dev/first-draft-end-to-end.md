@@ -234,6 +234,8 @@ If it does, that is M1, and the next thing is the eval corpus rather than more p
   handed on; there is no web admin and no mail provider yet.
 - **A real PSA** (ST-091–097 are built against recorded shapes). Publishing goes through Settings →
   Integrations once a ConnectWise sandbox or a Hudu key is stored; nothing in this runbook exercises it.
+  For a demonstration without one, `docs/dev/demo-psa.md` switches on a clearly labelled in-memory demo
+  PSA in Development and shows the published note on its ticket.
 - **Signing** (ST-112). Fresh service builds have tripped the laptop's Application Control policy.
 
 Each of those is a ticket rather than an oversight, and this document should shrink as they land.
