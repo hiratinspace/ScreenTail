@@ -23,10 +23,15 @@ public sealed record NarrationOptions
     /// How long to wait between looking for a session when none is running.
     ///
     /// A fallback, not the mechanism: the host nudges the recorder when the capture state changes, and
-    /// this only decides how long a missed nudge costs. Half a second is short enough that the worst
-    /// case is the opening word of a session and long enough that an idle service is doing nothing.
+    /// this only decides how long a missed nudge costs. A nudge cannot be missed once it is sent (a
+    /// release while nothing waits is kept for the next wait), so what this covers is a host that never
+    /// sends one.
+    ///
+    /// It was half a second, which was not an idle service doing nothing: it was two wakeups a second
+    /// for the whole of a day with no session (ST-031). Five seconds still bounds the forgotten-wiring
+    /// case to the first few seconds of a session and costs an idle day a tenth as much.
     /// </summary>
-    public TimeSpan Idle { get; init; } = TimeSpan.FromMilliseconds(500);
+    public TimeSpan Idle { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 /// <summary>
