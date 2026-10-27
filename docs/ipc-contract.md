@@ -147,8 +147,8 @@ ST-071's panel, answered by the service because the UI has no store, no hooks an
 Every field is a state, a count or a device name. `scope` is the scope decision's own words — a process
 name and what is being done about it — never a window title, because this text goes on a clipboard and
 into tickets (INV-10). `suppression` is absent when nothing is suppressing capture. `redaction_backlog`
-is the depth of the in-memory queue (ADR-0006); `frames_dropped` counts frames deleted because they
-could not be checked (INV-1). `local_only` and `egress_blocked` come from the same policy object the
+is the depth of the in-memory queue (ADR-0006); `frames_dropped` counts frames lost unchecked (INV-1),
+whether deleted because they could not be read or refused because that queue was full. `local_only` and `egress_blocked` come from the same policy object the
 guard enforces with, so the panel cannot say one thing while the guard does another.
 
 ### `list_sessions` → `sessions`

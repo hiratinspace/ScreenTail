@@ -22,7 +22,10 @@ namespace ScreenTail.Core.Shell;
 /// <param name="Microphone">The device name, or null when there is none. A device name, never audio.</param>
 /// <param name="Suppression">Why capture is currently suppressed, or null when it is not.</param>
 /// <param name="RedactionBacklog">Frames waiting to be read and masked.</param>
-/// <param name="FramesDropped">Frames deleted because they could not be checked (INV-1).</param>
+/// <param name="FramesDropped">
+/// Frames lost unchecked (INV-1): deleted because they could not be read, or refused because the queue of
+/// frames waiting to be read was full.
+/// </param>
 /// <param name="KeystrokesDropped">Keyboard events dropped for being out of scope (INV-6).</param>
 /// <param name="EgressBlocked">Requests the egress guard refused (INV-8).</param>
 public sealed record Diagnostics(

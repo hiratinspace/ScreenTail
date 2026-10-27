@@ -29,6 +29,7 @@ public sealed class ServiceDiagnosticsTests
             isHeld: reason => reason is CaptureStateReason.PasswordField,
             redactionBacklog: 4,
             redaction,
+            framesRefused: 0,
             keystrokesDropped: 17,
             egressBlocked: 5,
             localOnly: true,
@@ -86,6 +87,32 @@ public sealed class ServiceDiagnosticsTests
     }
 
     [Fact]
+    public void AFrameTheQueueRefusedIsADroppedFrame()
+    {
+        // A frame that found the queue of frames waiting to be read full was refused and is gone, as
+        // surely as one the worker could not read (ADR-0006, INV-1). The machine counts it against the
+        // session, and the panel's "frames dropped" said 0 because it only added up what the worker saw.
+        var redaction = new RedactionProgress(Frames: 40, Unreadable: 1, Unread: 2, Masked: new Dictionary<MaskKind, long>());
+
+        var reported = ServiceDiagnostics.Report(
+            serviceVersion: "0.1.0",
+            scope: null,
+            microphone: null,
+            new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", PendingRedactions = 0 },
+            isHeld: _ => false,
+            redactionBacklog: 0,
+            redaction,
+            framesRefused: 5,
+            keystrokesDropped: null,
+            egressBlocked: 0,
+            localOnly: false,
+            policyVersion: "default",
+            workingSetBytes: 0);
+
+        Assert.Equal(8, reported.FramesDropped);
+    }
+
+    [Fact]
     public void BeforeAnythingIsWiredTheCountsAreZeroAndNothingIsInFront()
     {
         // The report the controller can be asked for before the capture loops exist. Zeros are honest
@@ -98,6 +125,7 @@ public sealed class ServiceDiagnosticsTests
             isHeld: _ => false,
             redactionBacklog: 0,
             redaction: null,
+            framesRefused: 0,
             keystrokesDropped: null,
             egressBlocked: 0,
             localOnly: false,

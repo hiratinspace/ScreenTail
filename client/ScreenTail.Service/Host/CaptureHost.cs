@@ -709,8 +709,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     /// <summary>
     /// What the diagnostics panel shows: this process's live sources, mapped by
     /// <see cref="ServiceDiagnostics.Report"/> in Core, where the Mac suite holds each field to its source.
-    /// The suppression comes from the machine's state and holds, and the backlog from the queue of frames
-    /// waiting to be read.
+    /// The suppression comes from the machine's state and holds, and the backlog and the frames it refused
+    /// for want of room from the queue of frames waiting to be read.
     /// </summary>
     private static DiagnosticsReported Diagnostics(
         string version,
@@ -732,6 +732,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             isHeld: machine.IsHeld,
             redactionBacklog: pending.Depth,
             redaction: redaction,
+            framesRefused: pending.Dropped,
             keystrokesDropped: keystrokesDropped,
             egressBlocked: egress.Blocked,
             localOnly: egressPolicy.Settings.LocalOnly,
