@@ -18,10 +18,12 @@
           Version="$(var.Version)"
           UpgradeCode="{B06B249C-CE0B-47AF-AD9E-C7FF7D00A4C0}">
 
-    <!-- The standard setup window: one button, a progress bar, no options. ST-111's privacy policy URL is
-         linked here once it exists (its AC: "linked from installer"). -->
+    <!-- No setup window of its own: the runtime installs as a prerequisite with a small progress window,
+         and then the package shows its own progress (with /quiet, nothing at all). The standard setup
+         window would need licence terms to show, and ScreenTail has none to put there yet; ST-111's
+         privacy policy link belongs in the product once it exists. -->
     <BootstrapperApplication>
-      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" SuppressOptionsUI="yes" />
+      <bal:WixInternalUIBootstrapperApplication />
     </BootstrapperApplication>
 
     <util:RegistrySearch Id="VcRuntimeX64Installed"
@@ -49,7 +51,8 @@
                   InstallArguments="/install /quiet /norestart"
                   Permanent="yes"
                   PerMachine="yes"
-                  Vital="yes">
+                  Vital="yes"
+                  bal:PrereqPackage="yes">
         <ExitCode Value="1638" Behavior="success" />
         <ExitCode Value="3010" Behavior="scheduleReboot" />
       </ExePackage>
