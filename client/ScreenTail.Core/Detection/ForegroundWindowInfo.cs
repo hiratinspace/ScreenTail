@@ -11,8 +11,10 @@ namespace ScreenTail.Core.Detection;
 /// For a browser, the active tab's title with the browser's own suffix removed. Null for everything else.
 /// </param>
 /// <param name="IsElevated">
-/// True when the window belongs to a process this one can't open. Capture is blind to those windows, so
-/// they must be treated as "we can't see it" rather than "nothing happened" (Spec §5 S2).
+/// True when the window's process runs above the service's own integrity level, as
+/// <see cref="ProcessElevation"/> judges it, or when either level cannot be read, which includes a process
+/// that cannot be opened at all. Capture is blind to those windows, so they must be treated as "we can't
+/// see it" rather than "nothing happened" (Spec §5 S2, INV-6).
 /// </param>
 public sealed record ForegroundWindowInfo(
     nint Handle,
