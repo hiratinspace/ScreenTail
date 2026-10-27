@@ -23,7 +23,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `type` | Fields | Meaning |
 |---|---|---|
 | `hello` | `contract_version`, `token`, `client_name`, `client_version?` | Authenticate the connection |
-| `start` | — | Start a session now (manual start, Ctrl+Alt+R). Refused while no `indicator_showing` report is current, as a start the service makes by itself is (INV-4), with a `result` error saying why and what to do. Starts under the tenant's policy as it stands now: the same local-only flag and policy version as every other start (ST-047) |
+| `start` | — | Start a session now. Sent only by the onboarding wizard's test session; Ctrl+Alt+R is a hotkey the service registers and handles itself, and the tray has no start item. Refused while no `indicator_showing` report is current, as a start the service makes by itself is (INV-4), with a `result` error saying why and what to do. Starts under the tenant's policy as it stands now: the same local-only flag and policy version as every other start (ST-047) |
 | `pause` | — | Pause capture |
 | `resume` | — | Resume capture |
 | `stop` | — | Stop and draft |

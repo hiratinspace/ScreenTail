@@ -139,10 +139,11 @@ internal sealed class CaptureController(
             return savedCapture;
         }
 
-        // A start over the pipe (the onboarding wizard's test session) waits for the indicator as an
-        // automatic start does (INV-4), and starts under the tenant's policy as it stands now, with the
-        // same local-only flag and policy version (ST-047). ManualStart, in Core, holds both and says why
-        // when it refuses. Ctrl+Alt+R and the tray go through the coordinator.
+        // A start over the pipe, whose only sender is the onboarding wizard's test session, waits for the
+        // indicator as an automatic start does (INV-4), and starts under the tenant's policy as it stands
+        // now, with the same local-only flag and policy version (ST-047). ManualStart, in Core, holds both
+        // and says why when it refuses. Ctrl+Alt+R is the service's own hotkey and starts through the
+        // coordinator; the tray has no start item.
         if (command is StartCommand start)
         {
             return await _start.StartAsync(start, ct).ConfigureAwait(false);

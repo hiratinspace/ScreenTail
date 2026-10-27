@@ -4,8 +4,9 @@ using ScreenTail.Shared.Ipc;
 namespace ScreenTail.Tests.Sessions;
 
 /// <summary>
-/// A start over the pipe, under the same two rules as the tray's and the automatic one: something on
-/// screen says capture is on (INV-4), and the session starts under the tenant's policy as it stands now
+/// A start over the pipe, whose only sender is the onboarding wizard's test session, under the same two
+/// rules as the sessions the service starts itself, automatically or from its Ctrl+Alt+R hotkey: something
+/// on screen says capture is on (INV-4), and the session starts under the tenant's policy as it stands now
 /// (ST-047, INV-8), recorded on the session as for any other start.
 /// </summary>
 public sealed class ManualStartTests

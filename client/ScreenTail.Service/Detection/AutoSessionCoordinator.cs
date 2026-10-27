@@ -108,8 +108,8 @@ internal sealed partial class AutoSessionCoordinator
     public void Observe(ForegroundWindowInfo window) => _windows.Writer.TryWrite(window);
 
     /// <summary>
-    /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord and the tray's "Start capture"
-    /// (ST-029).
+    /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord, a hotkey the service registers
+    /// itself (ST-029). The tray has no start item.
     ///
     /// The coordinator is asked rather than the machine directly, because starting needs a remote tool to
     /// attribute the session to and only this knows what the technician is looking at. A window it does not

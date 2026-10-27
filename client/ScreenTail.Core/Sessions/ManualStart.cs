@@ -4,8 +4,9 @@ using ScreenTail.Shared.Schema;
 namespace ScreenTail.Core.Sessions;
 
 /// <summary>
-/// A start sent over the pipe, which today is the onboarding wizard's test session (ST-020, ST-083),
-/// under the same two rules as the tray's start and the automatic one.
+/// A start sent over the pipe (ST-020). Its only sender is the onboarding wizard's test session (ST-083):
+/// the tray has no start item, and Ctrl+Alt+R is a hotkey the service registers itself and starts through
+/// the coordinator. It keeps the same two rules as the sessions the service starts.
 ///
 /// <b>Something on screen says capture is on (INV-4).</b> The same indicator reports the guard and the
 /// automatic start read; with none current nothing starts. A zero-size report, the pill put away between
