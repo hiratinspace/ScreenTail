@@ -188,6 +188,13 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     /// <summary>Call on a UI timer. Cheap when there is nothing to write.</summary>
     public async Task TickAsync(CancellationToken ct = default)
     {
+        // The shell disposes the pane as it takes it off the screen, and the view's timer can tick once
+        // more before the view is unloaded. A retry due then would reach the autosave's disposed gate.
+        if (_disposed)
+        {
+            return;
+        }
+
         await _save.TickAsync(ct).ConfigureAwait(true);
         OnPropertyChanged(nameof(SaveLabel));
     }
