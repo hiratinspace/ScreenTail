@@ -154,8 +154,10 @@ same names. It is not the fakes: it has no failure switch, and it is registered,
 `Providers:Demo` is on, which the service refuses outside Development. With it on, every tenant's PSA and
 knowledge base are the demo, the integrations list names only `demo-psa` and `demo-kb`, and what is
 published is kept in memory for the life of the process as text with a count of its screenshots (the
-bytes are not kept, INV-7). `GET /dev/demo-psa` shows it to a browser on the same machine and to nobody
-else. `docs/dev/demo-psa.md` is the runbook. `ProviderRegistrationTests` and `DemoPsaTests` hold it to
+bytes are not kept, INV-7). While it is on, a KB publish matches companies against the demo's in memory
+and never touches the tenant's company mappings, and changes to mappings and credentials are refused.
+`GET /dev/demo-psa` shows it to a browser on the same machine and to nobody else: loopback at both ends,
+no proxy headers, and a local Host name. `docs/dev/demo-psa.md` is the runbook. `ProviderRegistrationTests` and `DemoPsaTests` hold it to
 the same rule as the fakes: without the switch, nothing of it is registered or mapped.
 
 ## Attachments
