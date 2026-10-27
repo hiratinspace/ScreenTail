@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Net;
+using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 using static ScreenTail.Tests.Review.ReviewFixture;
 
@@ -216,8 +219,55 @@ public sealed class PsaGatewayTests
         Assert.Equal(0, handler.Requests);
     }
 
-    private static PsaGateway Gateway(HttpMessageHandler handler) =>
-        new(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => "a-device-token");
+    [Theory]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task APublishWritesTheBundleSentRowWithItsBytesAndHost(HttpStatusCode status)
+    {
+        // A publish carries the note and its screenshots off the machine, and the audit export's "bytes
+        // sent, and to which host" had a row only for the draft. Accepted or refused, the bytes left.
+        using var handler = new RecordingHandler(status == HttpStatusCode.OK
+            ? Json(JsonDocument.Parse(Contract("response")).RootElement)
+            : new HttpResponseMessage(status));
+        var audit = new RecordingAudit();
+
+        _ = await Gateway(handler, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        var row = Assert.Single(audit.Rows);
+        Assert.Equal((AuditTypes.BundleSent, "s-0001", "api.screentail.example"), (row.Type, row.SessionId, row.Detail));
+        Assert.Equal(Encoding.UTF8.GetByteCount(handler.Body!), row.Count);
+    }
+
+    [Fact]
+    public async Task AnAuditLogThatFailsDoesNotCostThePublishItsResults()
+    {
+        // The note is on the ticket by the time the answer is read. The row comes after it, and a row
+        // that cannot be written is no reason to tell the technician the publish failed.
+        using var handler = new RecordingHandler(Json(JsonDocument.Parse(Contract("response")).RootElement));
+
+        var answer = await Gateway(handler, new ThrowingAudit()).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.True(answer.Ok);
+        Assert.Equal(3, answer.Value!.Count);
+    }
+
+    [Fact]
+    public async Task NothingIsRecordedAsSentWhenNothingWasSentOrNoSessionWent()
+    {
+        // No answer means whether the bytes left is unknown, and the audit log does not guess. A search or
+        // the integrations list carries no session, so it is not a bundle.
+        var audit = new RecordingAudit();
+        using var unreachable = new ThrowingHandler();
+        using var answering = new RecordingHandler(Json(new { tickets = Array.Empty<object>(), integrations = Array.Empty<object>() }));
+
+        _ = await Gateway(unreachable, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+        _ = await Gateway(answering, audit).SearchTicketsAsync("printer", TestContext.Current.CancellationToken);
+
+        Assert.Empty(audit.Rows);
+    }
+
+    private static PsaGateway Gateway(HttpMessageHandler handler, IAuditLog? audit = null) =>
+        new(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => "a-device-token", audit);
 
     private static PublishWire Wire() => new()
     {
@@ -310,5 +360,24 @@ public sealed class PsaGatewayTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
             throw new HttpRequestException("no route to host");
+    }
+
+    /// <summary>Keeps every row it is asked to write.</summary>
+    internal sealed class RecordingAudit : IAuditLog
+    {
+        public List<(string Type, string? SessionId, long? Count, string? Detail)> Rows { get; } = [];
+
+        public Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default)
+        {
+            Rows.Add((type, sessionId, count, detail));
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>Fails the way a locked audit table does.</summary>
+    internal sealed class ThrowingAudit : IAuditLog
+    {
+        public Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default) =>
+            throw new InvalidOperationException("the audit table is locked");
     }
 }

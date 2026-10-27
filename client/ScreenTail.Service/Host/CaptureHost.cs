@@ -172,15 +172,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         _ = Task.Run(() => StartupOrder.RenewDeviceAsync(device, tokenReady, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "device renewal", ex.GetType().Name)), stoppingToken);
         // ST-067: what the technician keeps changing about drafts, as hints on the next one.
         var style = new StyleStore(Path.Combine(DataDirectory, "style.json"));
-        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints);
-        var psa = new PsaGateway(draftHttp, () => device.CurrentToken);
+        // Each of the three writes a bundle_sent row for what it sent, the host and the bytes, and logs a
+        // row it could not write by the fault's type alone (ST-045, INV-10).
+        var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints, logger: logger);
+        var psa = new PsaGateway(draftHttp, () => device.CurrentToken, audit: store, logger: logger);
         var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(DataDirectory, "policy.json")), TimeProvider.System);
         _policySync = policySync;
 
         // ST-098: metrics ride the same queue, so an offline afternoon queues them rather than losing
         // them. Telemetry is the technician's setting (ST-081), off until switched on. A drafted session
         // reports once the draft lands; a published one reports again.
-        var metricsSender = new MetricsSender(draftHttp, () => device.CurrentToken);
+        var metricsSender = new MetricsSender(draftHttp, () => device.CurrentToken, audit: store, logger: logger);
         MetricsReporter? metrics = null;
         var outbox = new Core.Outbox.Outbox(
             store,

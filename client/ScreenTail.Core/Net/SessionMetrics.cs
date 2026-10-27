@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using ScreenTail.Core.Audit;
 using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -72,7 +74,12 @@ public static class EditRate
 }
 
 /// <summary>Posts a queued metric. A backend that is away is retried by the outbox; one that refuses is not.</summary>
-public sealed class MetricsSender(HttpClient http, Func<string?> token)
+/// <param name="audit">
+/// Where a metric the backend answered is written down as a <c>bundle_sent</c> row: the host and the
+/// bytes (<see cref="SentAudit"/>). Null writes nothing.
+/// </param>
+/// <param name="logger">Where a failed audit write is reported, by exception type only. Null reports nothing.</param>
+public sealed class MetricsSender(HttpClient http, Func<string?> token, IAuditLog? audit = null, ILogger? logger = null)
 {
     public static JsonSerializerOptions Json { get; } = new(JsonSerializerDefaults.Web);
 
@@ -97,6 +104,7 @@ public sealed class MetricsSender(HttpClient http, Func<string?> token)
         using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/metrics/sessions", UriKind.Relative), EgressPurpose.Backend);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         request.Content = new StringContent(item.Payload, System.Text.Encoding.UTF8, "application/json");
+        var bytes = request.Content.Headers.ContentLength;
         HttpResponseMessage response;
         try
         {
@@ -113,13 +121,18 @@ public sealed class MetricsSender(HttpClient http, Func<string?> token)
 
         using (response)
         {
-            return response.StatusCode switch
+            var outcome = response.StatusCode switch
             {
                 HttpStatusCode.NoContent or HttpStatusCode.OK => SendOutcome.Done(null),
                 HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => SendOutcome.Failed("This device may not send metrics."),
                 HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity => SendOutcome.Failed("The backend refused the metric."),
                 _ => SendOutcome.Retry($"The backend answered {(int)response.StatusCode}."),
             };
+
+            // An answer came back, so the bytes left, whatever it said. Written after the outcome is
+            // decided, and a row that cannot be written leaves the outcome as it is.
+            await SentAudit.RecordAsync(audit, item.SessionId, bytes, response.RequestMessage?.RequestUri ?? request.RequestUri, _http.BaseAddress, logger).ConfigureAwait(false);
+            return outcome;
         }
     }
 }
