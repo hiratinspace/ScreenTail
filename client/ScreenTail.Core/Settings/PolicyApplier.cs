@@ -40,6 +40,7 @@ public sealed class PolicyApplier
     private readonly ExclusionList? _exclusions;
     private ClientSettings _settings;
     private CaptureSettings _capture;
+    private AppliedPolicy? _last;
 
     /// <param name="policy">The sync whose <see cref="PolicySync.Current"/> is the policy in force. Every fetch that brings a different one applies it.</param>
     /// <param name="settings">The technician's settings as they are on disk now.</param>
@@ -81,6 +82,17 @@ public sealed class PolicyApplier
     /// </summary>
     public event Action<AppliedPolicy>? Applied;
 
+    /// <summary>
+    /// The local-only flag and policy version a session starting now records (ST-047), both from the last
+    /// apply, one record read whole. Read from the guard and the sync apart, a start during a policy change
+    /// could pair the new version with the old flag.
+    ///
+    /// Before the first apply the flag is on: the host applies before it opens the pipe or starts the
+    /// coordinator, so nothing should ask sooner, and if something does the closed answer is the one given.
+    /// </summary>
+    public (bool LocalOnly, string PolicyVersion) ForNewSession() =>
+        Volatile.Read(ref _last) is { } last ? (last.LocalOnly, last.Version) : (true, _policy.Current.Version);
+
     /// <summary>Applies the policy in force and the settings last handed over. The host calls it once at start.</summary>
     public AppliedPolicy Apply() => Apply(null, null);
 
@@ -106,6 +118,7 @@ public sealed class PolicyApplier
             _settings = settings ?? _settings;
             _capture = capture ?? _capture;
             applied = PolicyApplication.Resolve(_policy.Current, _settings);
+            Volatile.Write(ref _last, applied);
 
             // The guard first: of everything here it is the one a request on another thread is waiting on.
             _egress.Apply(applied.LocalOnly, applied.Enforced);

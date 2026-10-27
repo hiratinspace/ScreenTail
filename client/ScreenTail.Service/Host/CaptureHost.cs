@@ -247,9 +247,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
         // ST-047: every session starts under the tenant's policy as it stands now, local-only as the admin
-        // or the technician set it and the policy's version for its audit log. One function for the
-        // automatic start and the pipe's, so the two cannot start sessions under different rules.
-        Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy = () => (egressPolicy.Settings.LocalOnly, policySync.Current.Version);
+        // or the technician set it and the policy's version for its audit log, both from the applier's
+        // last apply (set below, once it exists; local-only until then). One function for the automatic
+        // start and the pipe's, so the two cannot start sessions under different rules.
+        Func<(bool LocalOnly, string? PolicyVersion)> appliedPolicy = () => (true, TenantPolicy.Default.Version);
+        Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy = () => appliedPolicy();
         // The registry is read here, ahead of the controller, because Settings → Capture lists its tools.
         var registry = RemoteToolRegistry.Load(await File.ReadAllTextAsync(
             Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
@@ -353,8 +355,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             trigger,
             () => indicator.Indicated,
             logger,
-            Platform.Clipboard.ClipboardText.ReadOnce,
             sessionPolicy,
+            Platform.Clipboard.ClipboardText.ReadOnce,
             () => captureStore.Load().AutoStart);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
@@ -364,6 +366,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var applier = new PolicyApplier(policySync, settingsStore.Load(), captureSettings, egressPolicy, retentionOptions, policy, trigger, sampler, redactionEngine);
         applier.Applied += applied => LogPolicy(logger, applied.Version, (int)applied.Retention.TotalDays, applied.LocalOnly, applied.Enforced, applied.CaptureAllWindows);
         applySettings = settings => applier.Apply(settings);
+        appliedPolicy = () => applier.ForNewSession();
         applyCapture = capture =>
         {
             _ = applier.Apply(capture);

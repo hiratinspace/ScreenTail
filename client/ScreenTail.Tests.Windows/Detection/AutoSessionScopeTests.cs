@@ -383,6 +383,7 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
             _trigger,
             indicated ?? (() => true),
             NullLogger.Instance,
+            () => (false, "default"),
             clipboard,
             autoStart: autoStart,
             time: time);

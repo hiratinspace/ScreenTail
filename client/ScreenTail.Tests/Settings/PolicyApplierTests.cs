@@ -61,6 +61,35 @@ public sealed class PolicyApplierTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ANewSessionTakesItsFlagAndVersionFromOneAppliedPolicy()
+    {
+        // ST-047. A session records the local-only flag and the policy version it started under, and the
+        // two must come from the same apply: read from two places, a start during a policy change could
+        // pair the new version with the old flag.
+        using var rig = new Rig(new ClientSettings { LocalOnly = false });
+        _ = rig.Applier.Apply();
+        rig.Backend.Policy = new TenantPolicy("p2", 7, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: false);
+        Assert.True(await rig.Sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal((true, "p2"), rig.Applier.ForNewSession());
+
+        // The guard moved by something other than an apply is not what the session records: the
+        // applied record is.
+        rig.Egress.Apply(localOnly: false, enforced: false);
+        Assert.Equal((true, "p2"), rig.Applier.ForNewSession());
+    }
+
+    [Fact]
+    public void BeforeAnythingIsAppliedANewSessionIsLocalOnly()
+    {
+        // The host applies before it opens the pipe or starts the coordinator, so nothing should ask
+        // sooner. If something does, the closed answer is the one given.
+        using var rig = new Rig(new ClientSettings { LocalOnly = false });
+
+        Assert.True(rig.Applier.ForNewSession().LocalOnly);
+    }
+
+    [Fact]
     public async Task ALockedLocalOnlyFromTheBackendStopsDraftingWithoutARestart()
     {
         using var rig = new Rig(new ClientSettings { LocalOnly = false });

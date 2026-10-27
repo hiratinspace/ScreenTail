@@ -32,7 +32,7 @@ internal sealed partial class AutoSessionCoordinator
     private readonly Func<bool> _indicated;
     private readonly ILogger _logger;
     private readonly Func<string?>? _clipboard;
-    private readonly Func<(bool LocalOnly, string? PolicyVersion)>? _sessionPolicy;
+    private readonly Func<(bool LocalOnly, string? PolicyVersion)> _sessionPolicy;
     private readonly Func<bool>? _autoStart;
     private readonly TimeProvider _time;
 
@@ -47,6 +47,10 @@ internal sealed partial class AutoSessionCoordinator
     /// a recording nobody was told about (INV-4), and one that should never have begun is worse than one
     /// suppressed a moment later: it leaves a start time in the timeline that nobody witnessed.
     /// </param>
+    /// <param name="sessionPolicy">
+    /// The local-only flag and policy version a session starting now records (ST-047). Required: with no
+    /// answer there is no flag to start a session under.
+    /// </param>
     /// <param name="time">The clock the auto-stop timer runs on, so a test can run the grace out without waiting for it.</param>
     public AutoSessionCoordinator(
         SessionMachine machine,
@@ -54,8 +58,8 @@ internal sealed partial class AutoSessionCoordinator
         SessionTrigger trigger,
         Func<bool> indicated,
         ILogger logger,
+        Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
         Func<string?>? clipboard = null,
-        Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null,
         Func<bool>? autoStart = null,
         TimeProvider? time = null)
     {
@@ -65,7 +69,7 @@ internal sealed partial class AutoSessionCoordinator
         _indicated = indicated ?? throw new ArgumentNullException(nameof(indicated));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _clipboard = clipboard;
-        _sessionPolicy = sessionPolicy;
+        _sessionPolicy = sessionPolicy ?? throw new ArgumentNullException(nameof(sessionPolicy));
         _autoStart = autoStart;
         _time = time ?? TimeProvider.System;
 
@@ -177,7 +181,7 @@ internal sealed partial class AutoSessionCoordinator
     /// </summary>
     private Task<bool> StartUnderPolicyAsync(RemoteTool tool, string? suggestedTicket, CancellationToken ct)
     {
-        var (localOnly, policyVersion) = _sessionPolicy?.Invoke() ?? (false, null);
+        var (localOnly, policyVersion) = _sessionPolicy();
         return _machine.StartAsync(tool, localOnly, policyVersion, suggestedTicket, ct);
     }
 
