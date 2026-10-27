@@ -61,6 +61,41 @@ public sealed class ExclusionListTests
     }
 
     [Theory]
+    [InlineData("acme.okta.com", "identity-urls")]
+    [InlineData("acme-corp.auth0.com", "identity-urls")]
+    [InlineData("Billing | Xero", "banking-urls")]
+    [InlineData("secure.firstbank.example", "banking-urls")]
+    public void AnIdentityProviderTabIsExcludedByItsAddress(string tab, string rule)
+    {
+        // The URL-fragment rules are the third way a tab is judged, and no title pattern reaches these: an
+        // Okta tenant page says nothing about signing in, and "Billing | Xero" has no "billing portal" in
+        // it. Without the fragment loop all four would be captured (INV-6; 2026-10-12 review, T-37). The
+        // rows are chosen so that only the fragment loop can answer: "login.microsoftonline.com" and
+        // "vault." are reached by the sign-in and vault title patterns first, so they prove nothing here.
+        var matched = Defaults().Match(Window(process: "msedge", browserTab: tab));
+
+        Assert.NotNull(matched);
+        Assert.Equal(rule, matched!.Id);
+    }
+
+    [Theory]
+    [InlineData("CredentialUIBroker")]
+    [InlineData("CredentialUIBroker.exe")]
+    [InlineData("consent")]
+    [InlineData("LogonUI")]
+    public void AWindowsCredentialPromptIsNeverCaptured(string process)
+    {
+        // The in-session credential dialog: a UAC prompt or a "Windows Security" box asking for the
+        // customer's domain password, drawn by Windows itself rather than by any application. It is on
+        // the default list and was never pinned, so a list edit could drop it without a test going red
+        // (2026-10-12 review, T-54).
+        var matched = Defaults().Match(Window(process: process, title: "Windows Security"));
+
+        Assert.NotNull(matched);
+        Assert.Equal("windows-credentials", matched!.Id);
+    }
+
+    [Theory]
     [InlineData("Print Spooler Properties")]
     [InlineData("Services")]
     [InlineData("Acme Dental — ticket 4821 — ConnectWise")]

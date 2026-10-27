@@ -85,16 +85,38 @@ public sealed class PatternLibraryGapTests
     }
 
     [Fact]
-    public void ATenantPatternMatchingNothingStillSearchesTheWholeText()
+    public void ATenantPatternWithAnEmptyMatchStillFindsItsLaterMatches()
     {
-        // A zero-length match used to end the scan where it occurred, leaving the rest unsearched and
-        // reported clean. The card after it has to still be found.
-        var policy = RedactionPolicy.Default with { CustomPatterns = [@"(?=x)"] };
+        // A zero-length match used to end the scan where it occurred, leaving the rest of the text
+        // unsearched and reported clean. The earlier form of this test put a card number after the empty
+        // match, and the Cards rule masked it whatever the custom loop did, so the test passed on the
+        // loop it was written against (2026-10-12 review, T-53). The later match has to belong to the
+        // same tenant pattern, so only that pattern's own loop can find it.
+        var policy = RedactionPolicy.Default with { CustomPatterns = [@"(?=x)|ACME-[0-9]{4}"] };
 
-        var result = new RedactionEngine(policy).ScrubText("x marks the spot, card 4532 7891 2345 6789");
+        var result = new RedactionEngine(policy).ScrubText("x marks the spot, asset ACME-1234 was replaced");
 
         Assert.True(result.Complete);
-        Assert.DoesNotContain("4532", result.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("ACME-1234", result.Text, StringComparison.Ordinal);
+        Assert.StartsWith("x marks the spot, asset ", result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TwoSecretsInOneOcrWordBecomeOneMarker()
+    {
+        // Two rules each claim part of one OCR word: a card and an SSN with a slash between them, as a
+        // cramped form or a terminal line reads. Each match is widened to the whole word, so the two
+        // widened spans are the same span. Written one after the other they would overlap, and Replace
+        // walks a cursor forward: without the merge it threw, the worker counted the frame as failed,
+        // and the screenshot vanished with nothing to say why (2026-10-12 review, T-45).
+        var redaction = Engine.RedactFrame(Words("card", "4111111111111111/123-45-6789", "ok"));
+
+        Assert.True(redaction.Complete);
+        Assert.Equal("card [CARD] ok", redaction.Text);
+        Assert.DoesNotContain(redaction.Text, char.IsDigit);
+        Assert.Equal(1, redaction.Counts[MaskKind.Card]);
+        Assert.Equal(1, redaction.Counts[MaskKind.Ssn]);
+        Assert.All(redaction.Regions, region => Assert.Equal(Words("card", "4111111111111111/123-45-6789")[1].X, region.X));
     }
 
     [Theory]

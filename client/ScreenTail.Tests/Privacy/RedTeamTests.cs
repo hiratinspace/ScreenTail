@@ -69,6 +69,18 @@ public sealed class RedTeamTests
         Row("R26", "PIN: 4821", "4821");
         Row("R27", "their passcode is 0791", "0791");
         Row("R28", "password=P%40ssw0rd&username=jo", "P%40ssw0rd");
+
+        // A colon or an equals sign after the cue asserts a value as much as "is" does, and is the only
+        // thing that does here: the word after it is plain English, so narrowing the assertion would let
+        // both of these through (2026-10-12 review, T-42).
+        Row("R29", "Wi-Fi password: sunshine", "sunshine");
+        Row("R30", "pin=letmein", "letmein");
+
+        // A JWT with nothing in front of it, and an opaque bearer token that is not a Google one. The JWT
+        // shape was never exercised, and the bearer cue only ever beside ya29 (2026-10-12 review, T-43).
+        var jwt = J("eyJ", "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", ".", "eyJzdWIiOiJqbyIsInJvbGUiOiJhZG1pbiJ9", ".", "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c");
+        Row("R31", jwt, "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c");
+        Row("R32", "Authorization: Bearer " + J("x7Qp9", "LmZ2vK4tR8wB1nY6cD3hF5jG0sA"), "LmZ2vK4tR8wB1nY6cD3hF5jG0sA");
         return data;
     }
 
@@ -97,6 +109,10 @@ public sealed class RedTeamTests
     [InlineData("N10", "reset the password and the PIN for the user, then had them sign in")]
     [InlineData("N11", "asked them to choose a new password at first login")]
     [InlineData("N12", "the API key in the vault is fine; the client was pointing at the wrong region")]
+    // The inverse of R29 and R30: a plain word after a cue, with nothing asserting a value and no joining
+    // word behind it. A rule that treated every cue as an assertion would mask "hint" (2026-10-12 review,
+    // T-42).
+    [InlineData("N13", "the password hint reads favourite colour")]
     public void AnOrdinarySentenceIsLeftAlone(string scenario, string text)
     {
         var scrubbed = Engine.ScrubText(text);

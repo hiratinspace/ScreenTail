@@ -354,6 +354,41 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         Assert.Equal(1, progress.Masked[MaskKind.Ssn]);
     }
 
+    [Fact]
+    public async Task WhatWasMaskedIsAuditedByKindAndNothingElse()
+    {
+        // ST-045 through the real store, which is the only IAuditLog the worker ever meets: the test
+        // wrappers elsewhere implement ISessionStore alone, so the "store is IAuditLog" branch is skipped
+        // there without a word (2026-10-12 review, T-48). One row per kind, its count how many, its detail
+        // the kind's name and nothing more. AuditDetail allows digits because a destination host may hold
+        // them; here nothing may, because the only digits in reach are the card and the SSN themselves
+        // (INV-10).
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        var worker = Worker(store, Reads(
+            new OcrWord("Card", 10, 40, 50, 20),
+            new OcrWord("4111111111111111", 70, 40, 200, 20),
+            new OcrWord("SSN", 10, 80, 50, 20),
+            new OcrWord("123-45-6789", 70, 80, 120, 20),
+            new OcrWord("and", 10, 120, 40, 20),
+            new OcrWord("5500-0000-0000-0004", 70, 120, 200, 20)));
+
+        Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        var rows = await store.GetAuditRecordsAsync("s1", TestContext.Current.CancellationToken);
+        var redacted = rows.Where(r => r.Type == AuditTypes.FrameRedacted).OrderBy(r => r.Detail, StringComparer.Ordinal).ToList();
+        Assert.Collection(
+            redacted,
+            card => Assert.Equal((MaskKind.Card.ToString(), 2L), (card.Detail, card.Count)),
+            ssn => Assert.Equal((MaskKind.Ssn.ToString(), 1L), (ssn.Detail, ssn.Count)));
+        Assert.All(rows, row =>
+        {
+            Assert.True(row.Detail is null || Enum.TryParse<MaskKind>(row.Detail, ignoreCase: false, out _), $"a detail that is not a mask kind: {row.Type}");
+            Assert.DoesNotContain(row.Detail ?? string.Empty, char.IsDigit);
+        });
+        Assert.DoesNotContain(rows, r => r.Type == AuditTypes.FramesPurgedUnredacted);
+    }
+
     [Theory]
     [InlineData(true, "Windows Security Password")]
     [InlineData(true, "Sign in Username Password Remember me")]
@@ -365,6 +400,30 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     [InlineData(true, "Log On to Windows User name Domain")]
     [InlineData(true, "Sign-in Email Continue")]
     [InlineData(true, "Log-in Account Submit")]
+    // Two strong cues with no password word and no supporting words: an MFA or PIN prompt. Only the
+    // two-strong rule says yes to these, so losing it would miss them (INV-6; 2026-10-12 review, T-40).
+    [InlineData(true, "Enter your PIN Unlock")]
+    [InlineData(true, "MFA Verification code")]
+    [InlineData(true, "Authenticate One-time code")]
+    // A cue whose first occurrence is inside another word and whose second is the word itself. A match
+    // that stopped at the first occurrence would count "pin" as absent and see one strong cue, not two.
+    [InlineData(true, "Mapping PIN Unlock")]
+    // The substring cases: "pin" inside "shipping", "ok" inside "token" and "broken". Substring matching
+    // scored a strong cue and two supporting ones here and suppressed the technician's own documenting.
+    [InlineData(false, "Shipping options Token broken Next")]
+    [InlineData(false, "Mapping PIN")]
+    [InlineData(false, "Unlock achievements")]
+    // Localised prompts (S-11). The password word counts on its own in every language, the way "password"
+    // does, and the surrounding words of a localised form add up the way the English ones do.
+    [InlineData(true, "Kennwort")]
+    [InlineData(true, "Benutzername Kennwort Anmelden")]
+    [InlineData(true, "Nom d'utilisateur Mot de passe Se connecter")]
+    [InlineData(true, "Usuario Contraseña Iniciar sesión")]
+    [InlineData(true, "Anmelden Benutzername Domäne Weiter")]
+    [InlineData(true, "Connexion Compte Suivant")]
+    [InlineData(true, "Entsperren PIN")]
+    [InlineData(false, "Druckwarteschlange Beendet Automatisch")]
+    [InlineData(false, "Boîte de réception 4 nouveaux messages")]
     [InlineData(false, "Print Spooler Stopped Automatic")]
     [InlineData(false, "Inbox 4 new messages")]
     [InlineData(false, "Services Local Computer")]

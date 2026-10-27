@@ -29,10 +29,9 @@ internal static partial class PatternLibrary
     {
         "incorrect", "wrong", "correct", "expired", "reset", "resets", "changed", "change", "changing", "updated",
         "required", "policy", "manager", "field", "prompt", "box", "again", "here", "there", "empty", "blank",
-        "the", "a", "an", "it", "that", "this", "his", "her", "their", "my", "your", "our", "not", "never",
-        "and", "or", "but", "so", "then", "when", "which", "what", "who", "why", "how", "if", "for", "to",
+        "the", "a", "an", "it", "this", "his", "her", "their", "my", "your", "our", "not", "never",
+        "and", "or", "but", "so", "then", "what", "who", "why", "how", "if", "for", "to",
     };
-
 
     /// <summary>
     /// Words that join a password cue to the password, or that a person says while thinking.
@@ -51,8 +50,43 @@ internal static partial class PatternLibrary
         "its", "new", "old",
     };
 
-    /// <summary>How many joining words to walk past before giving up on finding a secret.</summary>
-    private const int MaxConnectives = 4;
+    /// <summary>
+    /// Words that join a cue to the clause that states its value. "which", "when" and "that" used to end
+    /// the walk, so "the password, which is Winter2026" was stored whole (2026-10-12 review, S-12).
+    /// Walked past like <see cref="Connectives"/>, but kept apart from them: an ordinary word is only
+    /// carried over on a joining word proper, so that "the password is tomato, which they changed" still
+    /// masks "tomato".
+    ///
+    /// Only words the old walk stopped on belong here. "has", "have" and "been" do not: the old walk
+    /// read them as ordinary words and masked one reached through an assertion ("the passphrase is have
+    /// fun"), so skipping them would store what it masked. Read as ordinary words they still reach a
+    /// value further on: the walk carries on past prose ("has been reset to Spring2027"), and a mask
+    /// that lands on one runs on to the value (see <see cref="Through"/>).
+    /// </summary>
+    private static readonly HashSet<string> Clause = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "which", "when", "that",
+    };
+
+    /// <summary>
+    /// Words after which a number is a reference, not a credential: "the password for the user on ticket
+    /// 48213". Consulted only where the walk is reading past prose that used to end it, with nothing yet
+    /// asserting a value; an assertion ("is 48213", "pin: 48213") always wins.
+    /// </summary>
+    private static readonly HashSet<string> References = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ticket", "case", "order", "invoice", "port", "ext", "extension", "build", "version", "line", "id",
+        "number", "no", "ref", "reference",
+    };
+
+    /// <summary>
+    /// How many words past a cue are read before giving up on finding a secret.
+    ///
+    /// A person says what a password is for before saying what it is: "the password for the domain
+    /// admin account is Winter2026" puts the secret seventh. Bounded all the same, because a cue early
+    /// in a long paragraph must not put the whole paragraph under suspicion.
+    /// </summary>
+    private const int MaxWalk = 10;
 
     /// <summary>
     /// The joining words that assert a value — "is", "was", "set to" — as opposed to the articles and
@@ -85,6 +119,14 @@ internal static partial class PatternLibrary
     /// "expired", "blank" — stop it dead, because masking those is what makes a technician turn the rule
     /// off. And a password said as two words ("Winter 2026") has to be masked as two, or the year stays
     /// in the transcript with an audit row claiming otherwise (2026-09-20 review).
+    ///
+    /// The walk used to give up on the first ordinary word that had no joining word behind it, and after
+    /// five words, so "the password for the domain admin account is Winter2026" was stored verbatim with
+    /// no audit row (2026-10-12 review, S-12). It reads on now: the words between the cue and the
+    /// assertion say what the credential is for, and the secret is the first secret-like word after
+    /// them, or a plain word once something has asserted a value. This is the on-device rule (INV-1),
+    /// so it only ever grows: every decision the old walk made is made the same way here, and the new
+    /// reading starts exactly where the old walk returned null.
     /// </summary>
     private static (int Start, int Length)? SecretAfter(string text, int from)
     {
@@ -92,7 +134,12 @@ internal static partial class PatternLibrary
 
         // A colon or an equals sign right after the cue asserts as much as "is" does: "pass: hunter2".
         var asserted = text.AsSpan(from, Math.Min(4, text.Length - from)).IndexOfAny(':', '=') >= 0;
-        for (var steps = 0; steps <= MaxConnectives; steps++)
+
+        // Set where the old walk gave up: an ordinary word with nothing asserting a value and no joining
+        // word behind it. From there the reading is new, and a number is held to a higher standard.
+        var pastProse = false;
+        var previous = string.Empty;
+        for (var steps = 0; steps < MaxWalk; steps++)
         {
             var word = NextWord(text, at);
             if (word is null)
@@ -101,8 +148,13 @@ internal static partial class PatternLibrary
             }
 
             var (start, length) = word.Value;
+
+            // A colon or an equals sign crossed later in the sentence asserts just the same: "password
+            // for the admin account: Winter2026".
+            asserted |= text.AsSpan(at, start - at).IndexOfAny(':', '=') >= 0;
+
             var value = text.Substring(start, length);
-            if (Connectives.Contains(value))
+            if (Connectives.Contains(value) || Clause.Contains(value))
             {
                 asserted |= Assertive.Contains(value);
                 at = start + length;
@@ -115,28 +167,151 @@ internal static partial class PatternLibrary
                 return null;
             }
 
-            // An ordinary word with a joining word behind it is still part of the run-up: "the password
-            // on the router is Winter2026" reaches "router" here, and the secret is two words further
-            // on. A word that looks like a secret is taken as one immediately, so "the PIN to 4821 for
-            // her" does not walk past 4821 and mask "her".
-            if (!LooksLikeSecret(value) && NextWord(text, start + length) is { } following
-                && Connectives.Contains(text.Substring(following.Start, following.Length)))
+            var secretLike = LooksLikeSecret(value);
+            if (!secretLike && FollowedByConnective(text, start + length))
             {
+                // An ordinary word with a joining word behind it is still part of the run-up: "the
+                // password on the router is Winter2026" reaches "router" here, and the secret is two
+                // words further on.
+                previous = value;
                 at = start + length;
                 continue;
             }
 
-            // An ordinary word reached without anything asserting a value is the sentence carrying on.
-            if (!LooksLikeSecret(value) && !asserted)
+            if (secretLike)
             {
-                return null;
+                // Taken as the secret at once ("the PIN to 4821 for her" does not walk past 4821 and
+                // mask "her"), with one exception: while reading past prose the old walk ended on, with
+                // nothing yet asserting a value, a number after "ticket" or "port" is a reference, so
+                // "reset the password for the user on ticket 48213" stays as written.
+                if (asserted || !pastProse || !References.Contains(previous))
+                {
+                    // Shouted on a screen, "HAS" and "BEEN" look like secrets too, and so does a dash
+                    // standing between words; they are the sentence on its way to one ("PASSWORD HAS
+                    // BEEN RESET TO SPRING2027", "password - is Winter2026"), so their mask runs on.
+                    var end = SecretEnd(text, start + length);
+                    return Auxiliary.Contains(value) || IsPunctuation(value)
+                        ? Through(text, start, end, MaxWalk - steps - 1, asserted, takePlain: asserted)
+                        : (start, end - start);
+                }
+            }
+            else if (asserted)
+            {
+                // An ordinary word reached through an assertion is taken as the secret however plain it
+                // looks: "Wi-Fi password: sunshine", "the wifi password on the router is sunshine" (ST-115).
+                // It may also be the sentence carrying on to the secret ("password: has been reset to
+                // Spring2027", "the password is probably Winter2026"), so the mask runs on to a later
+                // secret-like word when there is one. It never covers less than the plain word alone.
+                return Through(text, start, SecretEnd(text, start + length), MaxWalk - steps - 1, asserted: true, takePlain: Auxiliary.Contains(value));
             }
 
-            return (start, SecretEnd(text, start + length) - start);
+            // Where the old walk returned null. The sentence is still saying what the credential is for
+            // ("the password for the domain admin account is Winter2026" reaches "domain" here), and the
+            // walk goes on to the assertion.
+            pastProse = true;
+            previous = value;
+            at = start + length;
         }
 
         return null;
     }
+
+    /// <summary>
+    /// The words that carry a sentence from a cue to its value ("has been reset to") without being part
+    /// of either. Read as ordinary words, because the walk has always masked one reached through an
+    /// assertion, and a passphrase can start with one ("is have fun"). Where the walk lands on one of
+    /// them, its mask runs on to the secret-like word after it instead of stopping short of it.
+    /// </summary>
+    private static readonly HashSet<string> Auxiliary = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "has", "have", "had", "been",
+    };
+
+    /// <summary>
+    /// The span from <paramref name="start"/> to the first secret-like word after
+    /// <paramref name="end"/>, within <paramref name="budget"/> words, or the span to
+    /// <paramref name="end"/> when there is none. Never shorter than what it was given, so a word the
+    /// walk took as the secret stays masked whatever follows it. Stops at a full stop, at a word that
+    /// ends a sentence about a password ("but", "expired"), and, with nothing asserting a value,
+    /// before a number that follows "ticket" or "port", the same as the walk.
+    /// </summary>
+    /// <param name="takePlain">
+    /// Whether a plain word counts as the end of the secret too, as it does after an asserted
+    /// <see cref="Auxiliary"/> word.
+    /// </param>
+    private static (int Start, int Length) Through(string text, int start, int end, int budget, bool asserted, bool takePlain)
+    {
+        var at = end;
+        var previous = string.Empty;
+        for (var steps = 0; steps < budget; steps++)
+        {
+            if (NextWord(text, at) is not { } word)
+            {
+                break;
+            }
+
+            asserted |= text.AsSpan(at, word.Start - at).IndexOfAny(':', '=') >= 0;
+            var value = text.Substring(word.Start, word.Length);
+            asserted |= Assertive.Contains(value);
+            var joining = Connectives.Contains(value) || Clause.Contains(value) || Auxiliary.Contains(value) || IsPunctuation(value);
+            if (!joining && NotSecrets.Contains(value))
+            {
+                break;
+            }
+
+            if (!joining && LooksLikeSecret(value))
+            {
+                if (!asserted && References.Contains(previous))
+                {
+                    break;
+                }
+
+                return (start, SecretEnd(text, word.Start + word.Length) - start);
+            }
+
+            // After an asserted "has", "been" or dash, the first plain word is taken too, the way the
+            // walk takes one straight after "is": "pwd=has, tomato", "the passphrase is have fun". With
+            // a joining word behind it the sentence is still on its way, and the reading goes on.
+            if (!joining && takePlain && !FollowedByJoining(text, word.Start + word.Length))
+            {
+                return (start, SecretEnd(text, word.Start + word.Length) - start);
+            }
+
+            previous = value;
+            at = word.Start + word.Length;
+        }
+
+        return (start, end - start);
+    }
+
+    /// <summary>A word with no letter or digit in it: a dash or a slash standing between words.</summary>
+    private static bool IsPunctuation(string value)
+    {
+        foreach (var c in value)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether the next word is any of those <see cref="Through"/> reads past: "has since been".</summary>
+    private static bool FollowedByJoining(string text, int after)
+    {
+        if (NextWord(text, after) is not { } following)
+        {
+            return false;
+        }
+
+        var value = text.Substring(following.Start, following.Length);
+        return Connectives.Contains(value) || Clause.Contains(value) || Auxiliary.Contains(value) || IsPunctuation(value);
+    }
+
+    private static bool FollowedByConnective(string text, int after) =>
+        NextWord(text, after) is { } following && Connectives.Contains(text.Substring(following.Start, following.Length));
 
     /// <summary>
     /// How far the secret runs past its first word.

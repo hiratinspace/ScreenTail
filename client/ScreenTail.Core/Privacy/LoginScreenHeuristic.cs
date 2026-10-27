@@ -22,26 +22,61 @@ public static class LoginScreenHeuristic
     public static readonly TimeSpan Suppression = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// The password word itself, in the languages a technician's remote sessions land in. Any one of
+    /// these on its own is enough: on a screen we cannot inspect, that word beside a box is the whole
+    /// situation this exists for, and a German or French prompt is no less a prompt. Only the English
+    /// words used to count alone, so "Kennwort" above a box never suppressed anything (2026-10-12
+    /// review, S-11). Windows says Kennwort and most German web forms say Passwort, so both are here.
+    /// </summary>
+    private static readonly string[] PasswordWords =
+    [
+        "password", "passphrase",
+        "passwort", "kennwort",
+        "mot de passe",
+        "contraseña",
+        "senha",
+        "wachtwoord",
+        "hasło",
+        "lösenord",
+    ];
+
+    /// <summary>
     /// Words that mean a credential is being asked for. Two of these together is the signal.
     ///
     /// The spellings are deliberately redundant. OCR returns what is drawn, so "Sign-in" arrives as one
     /// token and never matches "sign in"; and Windows says "Log On" with a space in the places that matter
     /// most — the classic logon banner an RDP session lands on, and the Services "Log On" tab, which has a
     /// real password field on it. A cue list that knows "logon" but not "log on" misses both.
+    ///
+    /// The localised verbs are the ones Windows, Microsoft 365, Google and Okta draw on their sign-in
+    /// and unlock screens in German, French, Spanish and Dutch, so a credential prompt inside a remote
+    /// session to a customer in those languages is scored the way an English one is.
     /// </summary>
     private static readonly string[] Strong =
     [
-        "password", "passwort", "contraseña", "mot de passe", "passphrase", "passcode",
+        .. PasswordWords,
+        "passcode",
         "sign in", "sign-in", "signin", "log in", "log-in", "login", "log on", "log-on", "logon",
         "credentials", "authenticate",
         "unlock", "pin", "one-time code", "verification code", "two-factor", "mfa",
+        "anmelden", "anmeldung", "entsperren", "bestätigungscode", "einmalkennwort", "anmeldedaten",
+        "se connecter", "connexion", "s'identifier", "déverrouiller", "code de vérification", "identifiants",
+        "iniciar sesión", "acceder", "desbloquear", "código de verificación", "credenciales",
+        "aanmelden", "inloggen", "ontgrendelen", "verificatiecode",
     ];
 
-    /// <summary>Weaker on their own — a form asking for a name is not a login — but they add up.</summary>
+    /// <summary>
+    /// Weaker on their own, since a form asking for a name is not a login, but they add up. The localised
+    /// words are the labels and buttons that sit beside a password box in the same four languages.
+    /// </summary>
     private static readonly string[] Supporting =
     [
         "username", "user name", "email", "account", "domain", "remember me",
         "forgot", "next", "continue", "submit", "ok", "cancel", "smartcard", "windows security",
+        "benutzername", "benutzer", "e-mail", "konto", "domäne", "angemeldet bleiben", "vergessen", "weiter", "abbrechen",
+        "utilisateur", "compte", "domaine", "rester connecté", "oublié", "suivant", "annuler",
+        "usuario", "cuenta", "dominio", "siguiente", "cancelar",
+        "gebruikersnaam", "volgende", "annuleren",
     ];
 
     /// <param name="words">What the recogniser read. Order is irrelevant; presence is what counts.</param>
@@ -64,10 +99,10 @@ public static class LoginScreenHeuristic
             return false;
         }
 
-        // "Password" alone is enough: on a screen we cannot inspect, that word beside a box is the whole
-        // situation this exists for. Anything else needs a second cue so a help article about passwords
-        // doesn't suppress a session.
-        if (Mentions(text, "password") || Mentions(text, "passphrase"))
+        // The password word alone is enough, in any of its languages: on a screen we cannot inspect, that
+        // word beside a box is the whole situation this exists for. Anything else needs a second cue so a
+        // help article about signing in doesn't suppress a session.
+        if (PasswordWords.Any(cue => Mentions(text, cue)))
         {
             return true;
         }
