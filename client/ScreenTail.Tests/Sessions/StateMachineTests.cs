@@ -732,9 +732,14 @@ public sealed class StateMachineTests : IAsyncDisposable
             recogniser,
             (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
             () => machine.Hearing,
+            hearing: () => true,
             backlog: machine.Narration);
 
-        var running = recorder.RunAsync(TestContext.Current.CancellationToken);
+        // The recorder's own token. Once Stop is seen the recorder waits for the next session rather than
+        // returning, and it only returns by itself when the microphone runs out first. Under load Stop can
+        // come first, and the test then waited on it until the run timed out.
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var running = recorder.RunAsync(listening.Token);
         for (var i = 0; i < 250 && recogniser.Asked == 0; i++)
         {
             await Task.Delay(20);
@@ -748,6 +753,7 @@ public sealed class StateMachineTests : IAsyncDisposable
 
         recogniser.Blocked.SetResult();
         Assert.True(await stopping);
+        await listening.CancelAsync();
         await running;
 
         Assert.Equal(["and that fixed the spooler"], drafted);
@@ -777,6 +783,7 @@ public sealed class StateMachineTests : IAsyncDisposable
             recogniser,
             (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
             () => machine.Hearing,
+            hearing: () => true,
             backlog: machine.Narration);
         machine.StateChanged += _ => recorder.Nudge();
         using var stop = new CancellationTokenSource();
@@ -825,6 +832,7 @@ public sealed class StateMachineTests : IAsyncDisposable
 
                 return machine.Hearing;
             },
+            hearing: () => true,
             backlog: machine.Narration);
 
         await recorder.RunAsync(TestContext.Current.CancellationToken);
