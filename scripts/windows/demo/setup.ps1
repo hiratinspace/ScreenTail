@@ -135,6 +135,14 @@ $sdk = Assert-DotNetSdk
 Write-Ok ".NET SDK $sdk"
 Write-Ok "Repository at $script:DemoRepo"
 
+# A running backend holds its build output open, so building under it fails with an error that reads
+# like a broken clone.
+$running = @(Get-DemoState | Where-Object { Get-EntryProcess $_ })
+if ($running.Count -gt 0) {
+    Stop-Demo -Problem 'The demo is running. Setup rebuilds the backend, which cannot be done while it runs.' -Fix @(
+        'Run scripts\windows\demo\stop.cmd, then setup again.')
+}
+
 switch (Get-RunnerState) {
     'job' { Write-Caution 'A GitHub Actions job is running on this laptop right now. Setup carries on; do not start the demo until it finishes.' }
     'idle' { Write-Note 'The GitHub Actions runner is on this laptop. Before the audience arrives, close its window so no CI job can take over the screen (docs\dev\demo.md says how).' }
@@ -250,12 +258,14 @@ if ($connection -and -not $NewDatabasePassword) {
 }
 else {
     $connection = $null
-    $services = Get-PostgresServices
+    $services = @(Get-PostgresServices)
     $docker = Get-DockerState
     $winget = 'winget install --id PostgreSQL.PostgreSQL.17 -e --source winget'
 
     if ($services.Count -gt 0) {
-        $service = $services[0]
+        # A running service first: after an upgrade the old version's service often sits stopped beside it.
+        $service = @($services | Where-Object { $_.Status -eq 'Running' }) | Select-Object -First 1
+        if (-not $service) { $service = $services[0] }
         Write-Ok "Found the Windows service $($service.Name) ($($service.Status))."
         if ($service.Status -ne 'Running') {
             try {
@@ -337,10 +347,14 @@ if ($installed -eq $efVersion) {
 else {
     if ($installed) { $verb = 'update' } else { $verb = 'install' }
     Write-Note "Running: dotnet tool $verb --global dotnet-ef --version $efVersion"
-    $tool = Invoke-Native -FilePath 'dotnet' -ArgumentList @('tool', $verb, '--global', 'dotnet-ef', '--version', $efVersion)
+    $toolArguments = @('tool', $verb, '--global', 'dotnet-ef', '--version', $efVersion)
+    # A newer dotnet-ef (installed by hand for the runbook, say) is replaced with the pinned one, which
+    # 'update' refuses to do without being told.
+    if ($verb -eq 'update') { $toolArguments += '--allow-downgrade' }
+    $tool = Invoke-Native -FilePath 'dotnet' -ArgumentList $toolArguments
     if ($tool.ExitCode -ne 0) {
         Stop-Demo -Problem "Could not $verb dotnet-ef $efVersion." -Detail (Get-Tail -Lines $tool.Lines) -Fix @(
-            'Check the internet connection (it downloads from nuget.org) and run setup again.')
+            'Read the lines above. Most often it is the internet connection (it downloads from nuget.org); then run setup again.')
     }
     Write-Ok "dotnet-ef $efVersion is installed."
 }

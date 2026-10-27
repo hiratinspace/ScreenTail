@@ -10,7 +10,9 @@
       - No secret is printed. Output captured from a tool is passed through Protect-Text before any of it
         is shown, and the Gemini key, the database password and the device token are never echoed.
       - The only file a secret is written to is the API project's user-secrets file, the same file
-        'dotnet user-secrets set' writes. It lives in the user profile, outside the repository.
+        'dotnet user-secrets set' writes. It lives in the user profile, outside the repository. (When
+        setup creates the Docker database, Docker also keeps that database's password in the container's
+        own configuration, as it does for any container; 'docker inspect' shows it to this user.)
       - No check is weakened. TLS is validated by Windows exactly as the client validates it; nothing here
         installs a certificate callback or turns a guard off.
 #>
@@ -117,7 +119,7 @@ function Protect-Text {
             $clean = $clean.Replace($secret, '***')
         }
     }
-    $clean = [regex]::Replace($clean, '(?i)(password|pwd)\s*=\s*[^;"\s]*', '$1=***')
+    $clean = [regex]::Replace($clean, '(?i)(password|pwd)\s*=\s*("[^"]*"|''[^'']*''|[^;"\s]*)', '$1=***')
     $clean = [regex]::Replace($clean, 'SCREENTAIL_DEVICE_TOKEN=\S+', 'SCREENTAIL_DEVICE_TOKEN=***')
     $clean = [regex]::Replace($clean, 'eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+', '<token>')
     $clean = [regex]::Replace($clean, 'AIza[0-9A-Za-z_\-]{20,}', '<key>')
@@ -366,13 +368,15 @@ function New-ConnectionString {
     $builder['Database'] = 'screentail'
     $builder['Username'] = $User
     $builder['Password'] = $Password
-    return $builder.ConnectionString
+    # get_/set_ rather than .ConnectionString: the builder is a dictionary, and PowerShell turns
+    # property syntax on a dictionary into a key named "ConnectionString".
+    return $builder.get_ConnectionString()
 }
 
 # Host, port and password from a connection string, for probing and for scrubbing output.
 function Get-ConnectionParts([string]$ConnectionString) {
     $builder = New-Object System.Data.Common.DbConnectionStringBuilder
-    $builder.ConnectionString = $ConnectionString
+    $builder.set_ConnectionString($ConnectionString)
     $hostName = 'localhost'
     $port = 5432
     $password = ''
@@ -448,18 +452,22 @@ function Wait-DbContainerReady {
 function Resolve-PostgresDown {
     param([string]$HostName, [int]$Port)
 
-    $services = Get-PostgresServices
-    foreach ($service in $services) {
-        if ($service.Status -ne 'Running') {
-            Stop-Demo -Problem "PostgreSQL is installed but its Windows service '$($service.Name)' is $($service.Status)." -Fix @(
-                'Start it. Either open the Services app, find the PostgreSQL entry and press Start, or in a PowerShell',
-                "window opened with 'Run as administrator' type:  Start-Service $($service.Name)",
-                'Then run this script again.')
-        }
+    # An old version's service, stopped or disabled beside a running new one, is not the problem, so a
+    # stopped service is blamed only when none is running.
+    $services = @(Get-PostgresServices)
+    $running = @($services | Where-Object { $_.Status -eq 'Running' })
+    if ($services.Count -gt 0 -and $running.Count -eq 0) {
+        $service = $services[0]
+        Stop-Demo -Problem "PostgreSQL is installed but its Windows service '$($service.Name)' is $($service.Status)." -Fix @(
+            'Start it. Either open the Services app, find the PostgreSQL entry and press Start, or in a PowerShell',
+            "window opened with 'Run as administrator' type:  Start-Service $($service.Name)",
+            'Then run this script again.')
     }
 
     $docker = Get-DockerState
-    if ($docker -eq 'running' -and (Get-DbContainerStatus)) {
+    $containerStatus = $null
+    if ($docker -eq 'running') { $containerStatus = Get-DbContainerStatus }
+    if ($containerStatus -and $containerStatus -notmatch '^Up') {
         Write-Note "Starting the demo database container ($script:DemoDbContainer)..."
         $started = Invoke-Native -FilePath 'docker' -ArgumentList @('start', $script:DemoDbContainer)
         if ($started.ExitCode -ne 0) {
@@ -475,6 +483,12 @@ function Resolve-PostgresDown {
     if ($docker -eq 'stopped' -and $services.Count -eq 0) {
         Stop-Demo -Problem "Nothing answers on $($HostName):$Port, and Docker is installed but not running." -Fix @(
             'Start Docker Desktop and wait until it says it is running, then run this script again.')
+    }
+
+    if ($containerStatus) {
+        Stop-Demo -Problem "The $script:DemoDbContainer container is running but nothing answers on $($HostName):$Port." -Fix @(
+            "See why:  docker logs $script:DemoDbContainer",
+            'If the saved connection points somewhere else, run setup with -NewDatabasePassword to enter it again.')
     }
 
     if ($services.Count -gt 0) {

@@ -35,7 +35,7 @@ $order = @('ui', 'service', 'service-window', 'backend', 'backend-window', 'data
 Write-Host 'Stopping the ScreenTail demo.'
 Assert-Windows
 
-$entries = Get-DemoState
+$entries = @(Get-DemoState)
 if ($entries.Count -eq 0) {
     Write-Ok 'Nothing to stop: there is no record of a demo started by start.cmd.'
     $others = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
@@ -50,6 +50,7 @@ if ($entries.Count -eq 0) {
 
 Write-Step 'Stopping'
 $failed = @()
+$keep = @()
 foreach ($role in $order) {
     foreach ($entry in @($entries | Where-Object { $_.Role -eq $role })) {
         $label = $labels[$role]
@@ -67,6 +68,7 @@ foreach ($role in $order) {
             else {
                 Write-Caution "Could not stop $label. Stop it in Docker Desktop if it matters."
                 $failed += $label
+                $keep += $entry
             }
             continue
         }
@@ -108,7 +110,8 @@ foreach ($role in $order) {
 }
 
 if ($failed.Count -gt 0) {
-    Save-DemoState @($entries | Where-Object { Get-EntryProcess $_ })
+    # What is still running, and a container that would not stop, so that stop.cmd can try again.
+    Save-DemoState (@($entries | Where-Object { Get-EntryProcess $_ }) + @($keep))
     Stop-Demo -Problem ('Some of the demo is still running: ' + ($failed -join '; ') + '.') -Fix @(
         'Close it from Task Manager, or run stop.cmd again.')
 }

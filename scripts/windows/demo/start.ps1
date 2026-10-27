@@ -74,7 +74,8 @@ $sdk = Assert-DotNetSdk
 Write-Ok ".NET SDK $sdk"
 
 # An earlier start that is still running, or one that was stopped some other way.
-$previous = Get-DemoState
+# @() because a single entry comes back as one object, and on PowerShell 5.1 that has no Count.
+$previous = @(Get-DemoState)
 if ($previous.Count -gt 0) {
     $alive = @($previous | Where-Object { Get-EntryProcess $_ })
     if ($alive.Count -gt 0) {
@@ -87,7 +88,10 @@ if ($previous.Count -gt 0) {
         Stop-Demo -Problem "Part of an earlier start is still running ($($roles -join ', ')), and part of it is not." -Fix @(
             'Run scripts\windows\demo\stop.cmd, then start.cmd again.')
     }
-    Remove-Item -LiteralPath $script:DemoStateFile -Force
+    # Nothing of the last start is running. A database container it started is carried over, so that
+    # stop still stops it.
+    $entries = @($previous | Where-Object { $_.Kind -eq 'container' })
+    Save-DemoState $entries
 }
 
 switch (Get-RunnerState) {
@@ -157,7 +161,8 @@ foreach ($name in @('SCREENTAIL_BACKEND', 'SCREENTAIL_DEVICE_TOKEN')) {
 Write-Step 'PostgreSQL'
 $database = Get-ConnectionParts $secrets[$script:KeyDatabase]
 if (-not (Test-TcpPort -HostName $database.Host -Port $database.Port)) {
-    if ((Resolve-PostgresDown -HostName $database.Host -Port $database.Port) -eq 'docker-started') {
+    if ((Resolve-PostgresDown -HostName $database.Host -Port $database.Port) -eq 'docker-started' -and
+        @($entries | Where-Object { $_.Kind -eq 'container' }).Count -eq 0) {
         Add-Entry ([pscustomobject]@{ Role = 'database'; Kind = 'container'; Id = 0; Name = $script:DemoDbContainer; StartTicks = 0 })
         Write-Ok "Started the $script:DemoDbContainer container (stop.cmd stops it again)."
     }
@@ -245,7 +250,8 @@ Add-Entry $backendWindowEntry
 
 Write-Note 'Waiting for it to answer (up to 90 seconds)...'
 $healthy = $false
-for ($second = 0; $second -lt 90; $second++) {
+$clock = [Diagnostics.Stopwatch]::StartNew()
+while ($clock.Elapsed.TotalSeconds -lt 90) {
     if (Test-Path -LiteralPath $script:DemoBackendExited) {
         $log = Read-SharedLog $script:DemoBackendLog
         $failure = Get-BackendFailure $log
@@ -443,9 +449,13 @@ Add-Entry (New-ProcessEntry -Role 'service-window' -Process $serviceWindow)
 Write-Note 'Waiting for the capture service to open its pipe (up to 30 seconds)...'
 $service = $null
 $listening = $false
+$pipesUnknown = $false
 for ($second = 0; $second -lt 30; $second++) {
     if (Test-Path -LiteralPath $script:DemoServiceExited) {
-        $reason = ([IO.File]::ReadAllText($script:DemoServiceExited)).Trim()
+        # The window may still be writing it.
+        Start-Sleep -Milliseconds 300
+        $reason = ((Read-SharedLog $script:DemoServiceExited) -join ' ').Trim()
+        if (-not $reason) { $reason = '(no reason recorded)' }
         if ($reason -match 'Application Control|blocked by|group policy') {
             Fail -Problem 'Windows blocked the capture service from running (an Application Control policy). Fresh unsigned builds trip it on this laptop.' -Detail @($reason) -Fix @(
                 'Allow it in Windows Security > App & browser control, or ask the developer (ticket ST-112 is the signing fix).')
@@ -461,10 +471,16 @@ for ($second = 0; $second -lt 30; $second++) {
         $pipes = @([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object { $_ -like '*\ScreenTail.*' })
     }
     catch {
+        # .NET Framework refuses to list the pipes when any pipe on the machine has a name that is not a
+        # valid path. Then all that can be said is that the service is still running after a few seconds.
         $pipes = @()
+        $pipesUnknown = $true
     }
     if ($service -and $pipes.Count -gt 0) {
         $listening = $true
+        break
+    }
+    if ($service -and $pipesUnknown -and $second -ge 5) {
         break
     }
     Start-Sleep -Seconds 1
@@ -474,6 +490,9 @@ if (-not $service) {
 }
 if ($listening) {
     Write-Ok 'The capture service is running and listening for the UI.'
+}
+elseif ($pipesUnknown) {
+    Write-Ok 'The capture service is running. (Windows would not list its pipe, so whether the UI can reach it shows on the tray icon.)'
 }
 else {
     Write-Caution 'The capture service is running, but its pipe did not appear in 30 seconds. The UI may show "service unavailable" for a moment.'
