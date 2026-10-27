@@ -132,8 +132,7 @@
                                                             Content="{Binding Label}"
                                                             Tag="{Binding Id}"
                                                             Command="{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            CommandParameter="{Binding Id}"
-                                                            Click="OnFrameChip" />
+                                                            CommandParameter="{Binding Id}" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
