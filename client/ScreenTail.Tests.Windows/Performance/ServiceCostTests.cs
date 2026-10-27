@@ -18,6 +18,11 @@ namespace ScreenTail.Tests.Windows.Performance;
 /// service's code adds and the spread across slices is in the report. Nothing here depends on a timer
 /// firing on time: every rate is divided by the time that actually passed.
 ///
+/// Processor time is counted in cycles (<see cref="CycleCounter"/>). Windows' own figure, the one Task
+/// Manager shows, charges a whole 15.625 ms clock tick to whichever thread was running when the tick
+/// came, which is the right total for a busy process and a coin toss for an idle one; it is in the report
+/// beside the cycle figure.
+///
 /// They run everywhere and skip nowhere: the skip budgets are full (docs/dev/windows-test-loop.md). On a
 /// hosted runner the windows are a few seconds, the numbers are reported and nothing is enforced, because a
 /// shared cloud VM's timings say nothing about a technician's laptop.
@@ -70,7 +75,7 @@ public sealed class ServiceCostTests
             CultureInfo.InvariantCulture,
             $"Service at idle, no session, {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices after {SettleFor.TotalSeconds:F0} s to settle: "
             + $"**{cpu:F3}%** of one core net of the test host, median slice against median slice ({cpu / Environment.ProcessorCount:F3}% of {Environment.ProcessorCount} logical processors; "
-            + $"service {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {CostWindow.Spread(host.CpuBySlice, "F3")}), "
+            + $"service {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {CostWindow.Spread(host.CpuBySlice, "F3")}; by clock ticks, as Task Manager counts, service {CostWindow.Spread(idle.TickCpuBySlice, "F3")}), "
             + $"**{wakeups:F1} wakeups/s** net (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}), "
             + $"private memory {ProcessCost.Megabytes(idle.Last.PrivateBytes - host.Last.PrivateBytes)} over the host's {ProcessCost.Megabytes(host.Last.PrivateBytes)} "
             + $"(budget {IdleBudgetPercentOfOneCore:F0}% of one core, enforced: {Counts}; wakeups and memory reported, not enforced)"));
@@ -166,7 +171,7 @@ public sealed class ServiceCostTests
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Service recording (no speech), {recording.Elapsed.TotalSeconds:F0} s in {(Slice * 2).TotalSeconds:F0} s slices: **{cpu:F2}%** of one core net of the test host, median slice against median slice "
-                + $"({cpu / Environment.ProcessorCount:F2}% of {Environment.ProcessorCount} logical processors; service {CostWindow.Spread(recording.CpuBySlice)}, host alone {CostWindow.Spread(host.CpuBySlice)}), "
+                + $"({cpu / Environment.ProcessorCount:F2}% of {Environment.ProcessorCount} logical processors; service {CostWindow.Spread(recording.CpuBySlice)}, host alone {CostWindow.Spread(host.CpuBySlice)}; by clock ticks, service {CostWindow.Spread(recording.TickCpuBySlice)}), "
                 + $"{recording.MedianWakeups - host.MedianWakeups:F0} wakeups/s net ({recording.ThreadsWoken()}), "
                 + $"private memory {ProcessCost.Megabytes(recording.Last.PrivateBytes - host.Last.PrivateBytes)} over the host "
                 + $"(budget {RecordingBudgetPercentOfOneCore:F0}% of one core = 15% of four cores, enforced: {Counts})"));

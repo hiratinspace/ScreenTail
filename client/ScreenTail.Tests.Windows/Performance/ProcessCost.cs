@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -8,12 +9,18 @@ namespace ScreenTail.Tests.Windows.Performance;
 /// What this process had spent at one moment (ST-031): processor time, how many times its threads were
 /// switched in, and the memory it holds.
 /// </summary>
+/// <param name="Cpu">Processor time as Windows reports it, charged a clock tick (15.625 ms) at a time to
+/// whichever thread was running when the tick came. Fine for a busy process and a coin toss for an idle
+/// one, so it is the cross-check, not the figure.</param>
+/// <param name="Cycles">Processor cycles this process has run for, counted exactly, which is what an idle
+/// figure is taken from (<see cref="CycleCounter"/>).</param>
 /// <param name="Switches">Context switches so far, by thread id. A switch in is a wakeup, which is the
 /// number an idle process should keep near zero: each one is a core leaving a low-power state to run a
 /// timer callback that, at idle, usually decides there was nothing to do.</param>
 internal sealed record ProcessSample(
     long Timestamp,
     TimeSpan Cpu,
+    ulong Cycles,
     IReadOnlyDictionary<long, uint> Switches,
     long PrivateBytes,
     long WorkingSet,
@@ -38,6 +45,7 @@ internal static class ProcessCost
         return new ProcessSample(
             Stopwatch.GetTimestamp(),
             self.TotalProcessorTime,
+            CycleCounter.OfThisProcess(),
             ThreadSwitches.Read(self.Id),
             self.PrivateMemorySize64,
             self.WorkingSet64,
@@ -52,6 +60,9 @@ internal static class ProcessCost
     /// </summary>
     public static async Task<CostWindow> MeasureAsync(TimeSpan slice, int slices, CancellationToken ct)
     {
+        // Calibrated before the first sample: the calibration spins, and a spin inside a window would be
+        // three tenths of a second of the test's work counted as the service's.
+        _ = CycleCounter.PerSecond;
         var samples = new List<ProcessSample>(slices + 1) { Sample() };
         for (var i = 0; i < slices; i++)
         {
@@ -95,7 +106,7 @@ internal sealed class CostWindow
 
     public TimeSpan Elapsed => Stopwatch.GetElapsedTime(First.Timestamp, Last.Timestamp);
 
-    /// <summary>Processor time over the whole window as a percentage of one core.</summary>
+    /// <summary>Processor time over the whole window as a percentage of one core, from cycles.</summary>
     public double CpuPercentOfOneCore => Percent(First, Last);
 
     /// <summary>The same, as a share of every logical processor this machine has.</summary>
@@ -104,8 +115,18 @@ internal sealed class CostWindow
     /// <summary>Threads switched in per second over the whole window.</summary>
     public double WakeupsPerSecond => Wakeups(First, Last);
 
-    /// <summary>Each slice's processor time as a percentage of one core.</summary>
+    /// <summary>Each slice's processor time as a percentage of one core, from cycles.</summary>
     public IReadOnlyList<double> CpuBySlice => Slices(Percent);
+
+    /// <summary>
+    /// Each slice's processor time as Windows' clock-tick accounting has it, as a percentage of one core.
+    ///
+    /// Reported beside the cycle figure because it is what Task Manager shows, and because the second
+    /// laptop run showed how far off it is at idle: a five-second slice can only read 0, 0.31, 0.62 or
+    /// 0.94 per cent and so on, and the idle service's median came out at 0.94, three ticks, for about
+    /// twenty-five wakeups a second.
+    /// </summary>
+    public IReadOnlyList<double> TickCpuBySlice => Slices(TickPercent);
 
     /// <summary>Each slice's wakeups per second.</summary>
     public IReadOnlyList<double> WakeupsBySlice => Slices(Wakeups);
@@ -157,6 +178,12 @@ internal sealed class CostWindow
     private static double Percent(ProcessSample from, ProcessSample to)
     {
         var elapsed = Stopwatch.GetElapsedTime(from.Timestamp, to.Timestamp);
+        return elapsed <= TimeSpan.Zero ? 0 : (to.Cycles - from.Cycles) / CycleCounter.PerSecond / elapsed.TotalSeconds * 100;
+    }
+
+    private static double TickPercent(ProcessSample from, ProcessSample to)
+    {
+        var elapsed = Stopwatch.GetElapsedTime(from.Timestamp, to.Timestamp);
         return elapsed <= TimeSpan.Zero ? 0 : (to.Cpu - from.Cpu).TotalMilliseconds / elapsed.TotalMilliseconds * 100;
     }
 
@@ -188,6 +215,60 @@ internal sealed class CostWindow
             culture,
             $"median {sorted[sorted.Count / 2].ToString(format, culture)} ({sorted[0].ToString(format, culture)} to {sorted[^1].ToString(format, culture)})");
     }
+}
+
+/// <summary>
+/// The processor cycles this process has run for, and how many of them make a second.
+///
+/// Windows keeps an exact count of the cycles each thread runs for, beside the clock-tick charge that
+/// <see cref="Process.TotalProcessorTime"/> reports. On the processors ScreenTail supports the counter
+/// runs at a constant rate whatever the clock speed, so cycles convert to time once the rate is known,
+/// and the rate is measured rather than assumed: a thread spins for a tenth of a second three times and
+/// the fastest rate seen is kept, because a spin the scheduler interrupted counts fewer cycles, never
+/// more.
+/// </summary>
+internal static class CycleCounter
+{
+    private static readonly Lazy<double> Rate = new(Calibrate);
+
+    /// <summary>Cycles in a second of running.</summary>
+    public static double PerSecond => Rate.Value;
+
+    public static ulong OfThisProcess() =>
+        QueryProcessCycleTime(GetCurrentProcess(), out var cycles) ? cycles : throw new Win32Exception(Marshal.GetLastWin32Error());
+
+    private static double Calibrate()
+    {
+        var fastest = 0.0;
+        var thread = GetCurrentThread();
+        for (var i = 0; i < 3; i++)
+        {
+            _ = QueryThreadCycleTime(thread, out var before);
+            var start = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetElapsedTime(start) < TimeSpan.FromMilliseconds(100))
+            {
+            }
+
+            _ = QueryThreadCycleTime(thread, out var after);
+            fastest = Math.Max(fastest, (after - before) / Stopwatch.GetElapsedTime(start).TotalSeconds);
+        }
+
+        return fastest > 0 ? fastest : throw new InvalidOperationException("The cycle counter did not advance during a spin.");
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryProcessCycleTime(IntPtr process, out ulong cycles);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryThreadCycleTime(IntPtr thread, out ulong cycles);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentThread();
 }
 
 /// <summary>

@@ -125,6 +125,38 @@ public sealed class IdleWakeupTests : IAsyncDisposable
         Assert.True(woke, "the guard did not look when the session started");
     }
 
+    [Fact]
+    public async Task WithNoSessionTheNarrationRecorderLooksRarelyAndANudgeWakesItAtOnce()
+    {
+        // The host nudges the recorder on every state change, and the nudge cannot be lost: a release
+        // while nothing waits leaves the count for the next wait. The timed look is a backstop for a host
+        // that forgot to wire it, and it used to come round twice a second all day.
+        var ct = TestContext.Current.CancellationToken;
+        var looks = 0;
+        using var recorder = new ScreenTail.Core.Speech.NarrationRecorder(
+            new Speech.NarrationRecorderTests.FakeMicrophone(),
+            new Speech.NarrationRecorderTests.FakeRecogniser("unused"),
+            (_, _, _) => Task.FromResult(true),
+            recording: () =>
+            {
+                _ = Interlocked.Increment(ref looks);
+                return null;
+            },
+            hearing: () => true);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var running = recorder.RunAsync(stopping.Token);
+
+        await Task.Delay(2_000, ct);
+        var idleLooks = Volatile.Read(ref looks);
+        recorder.Nudge();
+        var woke = await UntilAsync(() => Volatile.Read(ref looks) > idleLooks);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.True(idleLooks <= 2, $"the recorder looked {idleLooks} times in two seconds with no session");
+        Assert.True(woke, "a nudge did not wake the recorder");
+    }
+
     private async Task<MachineHarness> HarnessAsync() => _harness ??= await MachineHarness.StartAsync();
 
     private static async Task<bool> UntilAsync(Func<bool> condition)
