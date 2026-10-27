@@ -7,6 +7,24 @@ using ScreenTail.Core.Settings;
 
 namespace ScreenTail.UI.Settings.Integrations;
 
+/// <summary>A provider without a card of its own, bound: the badge only for the demo, the backend's last error when there is one.</summary>
+public sealed record OtherIntegrationRow(OtherIntegration Integration)
+{
+    public string Title => Integration.Title;
+
+    public string SiteUrl => Integration.SiteUrl;
+
+    public string Status => Integration.Status;
+
+    public string LastError => Integration.LastError ?? string.Empty;
+
+    public Visibility BadgeVisibility => Integration.Connected ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility StatusVisibility => Integration.Connected ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility ErrorVisibility => string.IsNullOrEmpty(Integration.LastError) ? Visibility.Collapsed : Visibility.Visible;
+}
+
 /// <summary>One row of the company mapping table, worded.</summary>
 public sealed record MappingRow(string PsaCompany, string DocCompanyName, string Confidence)
 {
@@ -39,7 +57,7 @@ public sealed partial class IntegrationsViewModel : ObservableObject
     public IntegrationCardViewModel Hudu { get; }
 
     /// <summary>Providers the backend lists beyond the two cards, by name: the Development demo (ST-090), or one this version does not know.</summary>
-    public ObservableCollection<OtherIntegration> Others { get; } = [];
+    public ObservableCollection<OtherIntegrationRow> Others { get; } = [];
 
     [ObservableProperty]
     public partial Visibility OthersVisibility { get; set; } = Visibility.Collapsed;
@@ -86,7 +104,7 @@ public sealed partial class IntegrationsViewModel : ObservableObject
         Others.Clear();
         foreach (var other in _panel.Others)
         {
-            Others.Add(other);
+            Others.Add(new OtherIntegrationRow(other));
         }
 
         OthersVisibility = Others.Count == 0 ? Visibility.Collapsed : Visibility.Visible;

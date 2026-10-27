@@ -9,7 +9,17 @@ public sealed record IntegrationDetail(string Provider, string SiteUrl, string S
 /// A provider the backend lists that has no card of its own: the backend's Development demo (ST-090), or
 /// one this version does not know yet. Shown by name and site; there is nothing here to change or test.
 /// </summary>
-public sealed record OtherIntegration(string Provider, string Title, string SiteUrl);
+/// <param name="LastError">The backend's last word on it, shown as it came.</param>
+public sealed record OtherIntegration(string Provider, string Title, string SiteUrl, string? LastError = null)
+{
+    /// <summary>
+    /// Only the demo is called connected: it answers from the backend's memory, so it is. Of any other
+    /// provider this version knows nothing, and cannot say it works (review 2026-10-27).
+    /// </summary>
+    public bool Connected => IntegrationNames.IsDemo(Provider);
+
+    public string Status => Connected ? "Connected" : "Not supported by this version";
+}
 
 /// <summary>What each provider is called on screen. The backend names providers; the words are the client's.</summary>
 public static class IntegrationNames
@@ -351,7 +361,7 @@ public sealed class IntegrationsPanel
 
         Others = rows is null
             ? []
-            : [.. rows.Where(r => !Cards.Any(c => c.Provider == r.Provider)).Select(r => new OtherIntegration(r.Provider, IntegrationNames.Title(r.Provider), r.SiteUrl))];
+            : [.. rows.Where(r => !Cards.Any(c => c.Provider == r.Provider)).Select(r => new OtherIntegration(r.Provider, IntegrationNames.Title(r.Provider), r.SiteUrl, r.LastError))];
 
         await RefreshMappingsAsync(ct).ConfigureAwait(false);
     }

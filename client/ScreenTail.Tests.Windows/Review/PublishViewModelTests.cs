@@ -102,6 +102,21 @@ public sealed class PublishViewModelTests
         Assert.Equal([Destination.TicketNote], notes[^1].Destinations);
     }
 
+    [Fact]
+    public void TheDiscussionHintIsBoundAndSaysNoProductDuringTheDemo()
+    {
+        // Review 2026-10-27: the XAML line was fixed text naming ConnectWise, shown during the demo.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var real = Pane([]);
+        var demo = Pane([], integrations: ["demo-psa", "demo-kb"]);
+
+        Assert.Equal("Discussion notes are visible to the customer in ConnectWise.", real.DiscussionHint);
+        Assert.Equal(System.Windows.Visibility.Collapsed, real.DemoVisibility);
+        Assert.Equal("Discussion notes would be visible to the customer in a real PSA.", demo.DiscussionHint);
+        Assert.Equal(System.Windows.Visibility.Visible, demo.DemoVisibility);
+        Assert.StartsWith("Publishing to Demo PSA (not ConnectWise)", demo.DemoNotice, StringComparison.Ordinal);
+    }
+
     private static async Task<NoteType> PublishedAsAsync(Action<PublishViewModel> choose)
     {
         var sent = new List<PublishRequest>();
@@ -111,13 +126,13 @@ public sealed class PublishViewModelTests
         return Assert.Single(sent).NoteType;
     }
 
-    private static PublishViewModel Pane(List<PublishRequest> sent, Func<Destination, bool>? landed = null)
+    private static PublishViewModel Pane(List<PublishRequest> sent, Func<Destination, bool>? landed = null, IReadOnlyList<string>? integrations = null)
     {
         var session = Session(Frames(1));
         var tries = 0;
         var panel = new PublishPanel(
             session,
-            ConnectWise,
+            integrations ?? ConnectWise,
             (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
             (request, _) =>
             {

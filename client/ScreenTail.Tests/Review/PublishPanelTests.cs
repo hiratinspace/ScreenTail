@@ -127,6 +127,18 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public void TheDiscussionHintNamesConnectWiseOnlyWhenTheDemoIsNotWhatPublishReaches()
+    {
+        // Review 2026-10-27: the line under the note type said ConnectWise during the demo.
+        Assert.Equal("Discussion notes are visible to the customer in ConnectWise.", Panel(integrations: ConnectWise).DiscussionHint);
+        Assert.Equal("Discussion notes are visible to the customer in ConnectWise.", Panel(integrations: []).DiscussionHint);
+
+        var demo = Panel(integrations: ["demo-psa", "demo-kb"]).DiscussionHint;
+        Assert.Equal("Discussion notes would be visible to the customer in a real PSA.", demo);
+        Assert.DoesNotContain("ConnectWise", demo, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AFailedDraftHasNothingToPublish()
     {
         var panel = Panel(session: Session(draft: null));

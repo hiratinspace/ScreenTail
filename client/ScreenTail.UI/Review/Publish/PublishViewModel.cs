@@ -52,6 +52,9 @@ public sealed partial class PublishViewModel : ObservableObject
 
     public Visibility DemoVisibility => _panel.DemoNotice is null ? Visibility.Collapsed : Visibility.Visible;
 
+    /// <summary>The line under the note type: ConnectWise's wording, or a real PSA's during the demo.</summary>
+    public string DiscussionHint => _panel.DiscussionHint;
+
     public ObservableCollection<TicketMatch> Matches { get; } = [];
 
     public ObservableCollection<ResultRow> Results { get; } = [];

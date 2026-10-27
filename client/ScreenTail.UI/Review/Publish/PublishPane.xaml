@@ -48,7 +48,7 @@
                 <RadioButton Content="Internal" IsChecked="{Binding IsInternal}" Foreground="{DynamicResource Brush.text.primary}" GroupName="NoteType" />
                 <RadioButton Margin="16,0,0,0" Content="Discussion" IsChecked="{Binding IsDiscussion}" Foreground="{DynamicResource Brush.text.primary}" GroupName="NoteType" />
             </StackPanel>
-            <TextBlock Style="{StaticResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="Discussion notes are visible to the customer in ConnectWise." Margin="0,2,0,0" />
+            <TextBlock Style="{StaticResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="{Binding DiscussionHint}" Margin="0,2,0,0" />
 
             <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Muted}" Text="Time entry" />
             <StackPanel Orientation="Horizontal">

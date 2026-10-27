@@ -142,9 +142,12 @@
                                     <ContentControl Margin="10,0,0,0"
                                                     VerticalAlignment="Center"
                                                     Style="{StaticResource Badge.Published}"
-                                                    Content="Connected" />
+                                                    Content="Connected"
+                                                    Visibility="{Binding BadgeVisibility}" />
                                 </StackPanel>
+                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" />
                                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding SiteUrl}" />
+                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding LastError}" Visibility="{Binding ErrorVisibility}" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

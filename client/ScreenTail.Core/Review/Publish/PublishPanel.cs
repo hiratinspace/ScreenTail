@@ -145,6 +145,14 @@ public sealed class PublishPanel
         ? $"Publishing to {IntegrationNames.Title(IntegrationNames.DemoPsa)}: the backend keeps the note in memory, and it reaches no real ticket."
         : null;
 
+    /// <summary>
+    /// The line under the note type. It names ConnectWise, the v1 PSA, except during the demo, when no
+    /// note reaches a real PSA and naming one would say otherwise (review 2026-10-27).
+    /// </summary>
+    public string DiscussionHint => DemoNotice is null
+        ? "Discussion notes are visible to the customer in ConnectWise."
+        : "Discussion notes would be visible to the customer in a real PSA.";
+
     public TicketMatch? Ticket { get; private set; }
 
     public IReadOnlyList<TicketMatch> Matches { get; private set; } = [];

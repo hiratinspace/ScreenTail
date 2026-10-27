@@ -52,6 +52,8 @@ public sealed class IntegrationsPanelTests
 
         Assert.Equal(["Demo PSA (not ConnectWise)", "Demo knowledge base (not Hudu)"], panel.Others.Select(o => o.Title));
         Assert.All(panel.Others, o => Assert.Equal("In memory on this backend, Development only", o.SiteUrl));
+        Assert.All(panel.Others, o => Assert.True(o.Connected));
+        Assert.All(panel.Others, o => Assert.Equal("Connected", o.Status));
         Assert.False(panel.ConnectWise.Connected);
         Assert.False(panel.Hudu.Connected);
         Assert.Equal("ConnectWise Manage", panel.ConnectWise.Title);
@@ -59,11 +61,14 @@ public sealed class IntegrationsPanelTests
     }
 
     [Fact]
-    public async Task AProviderThisVersionDoesNotKnowIsListedByItsOwnName()
+    public async Task AProviderThisVersionDoesNotKnowIsListedByItsOwnNameAndNotCalledConnected()
     {
+        // Review 2026-10-27: it was badged Connected, which this version cannot know, and its last
+        // error was dropped. Only the demo is Connected; anything else says this version does not
+        // support it, and keeps the backend's last error.
         var gateway = new FakeIntegrations
         {
-            Rows = [new IntegrationDetail("halopsa", "https://acme.halopsa.com", "••••4321", DateTimeOffset.UnixEpoch, null, null)],
+            Rows = [new IntegrationDetail("halopsa", "https://acme.halopsa.com", "••••4321", DateTimeOffset.UnixEpoch, null, "HaloPSA rejected the key. Update it in Settings.")],
         };
         var panel = new IntegrationsPanel(gateway);
 
@@ -71,6 +76,9 @@ public sealed class IntegrationsPanelTests
 
         var other = Assert.Single(panel.Others);
         Assert.Equal(("halopsa", "halopsa", "https://acme.halopsa.com"), (other.Provider, other.Title, other.SiteUrl));
+        Assert.False(other.Connected);
+        Assert.Equal("Not supported by this version", other.Status);
+        Assert.Equal("HaloPSA rejected the key. Update it in Settings.", other.LastError);
     }
 
     [Fact]
