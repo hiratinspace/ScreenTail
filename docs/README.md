@@ -24,6 +24,7 @@ to trust it and where to change it.
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
 | `dev/first-draft-end-to-end.md` | Getting one real session to produce one real note: the M1 step list, everything on the laptop |
+| `dev/demo.md` | Running the demo on the laptop with `scripts/windows/demo/` (setup, start, stop), in plain words, and the demo story |
 | `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box, and what keeps strangers' code off the laptop |
 
 ## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)

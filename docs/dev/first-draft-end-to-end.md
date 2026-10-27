@@ -10,6 +10,11 @@ by a model, from a session you recorded. That is M1. It does not prove the note 
 the eval corpus (ST-062) and a technician's judgement — and it does not prove any of it is publishable,
 because there is nowhere to publish to yet (ST-077, ST-078).
 
+**The short way (2026-10-27).** `scripts\windows\demo\setup.cmd` once, then `scripts\windows\demo\start.cmd`
+each time, does every step below and checks each one; `stop.cmd` undoes the second. `docs/dev/demo.md`
+is the plain-words guide to them. This document stays as the long way, and as the explanation of why each
+step is there.
+
 ---
 
 ## Where everything runs: the laptop
@@ -58,8 +63,10 @@ winget install --id PostgreSQL.PostgreSQL.17 -e
 
 The installer asks for a password for the `postgres` user. Write it down; it goes into the connection
 string in step 3. Everything else can be left at its default. (If Docker Desktop is already on the
-laptop, `docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentail-db postgres:17-alpine`
-does the same job and the password is `dev`.)
+laptop, `docker run -d --name screentail-db --restart unless-stopped -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail -v screentail-pgdata:/var/lib/postgresql/data postgres:17-alpine`
+does the same job and the password is `dev`. This line used to carry `--rm`, which deletes the
+container, and with it the database, the first time it stops; and it published the port on every
+network interface rather than on this machine only.)
 
 ## 1. Trust the development certificate (once)
 
@@ -75,9 +82,15 @@ backend fails certificate validation and the outbox reports a send failure rathe
 ```powershell
 cd C:\src\ScreenTail\backend\src\ScreenTail.Api
 dotnet user-secrets set "Summarization:ApiKey" "<the Gemini key>"
-dotnet user-secrets set "Jwt:SigningKey" ([Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(48)))
+$bytes = New-Object byte[] 48; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+dotnet user-secrets set "Jwt:SigningKey" ([Convert]::ToBase64String($bytes))
 dotnet user-secrets list
 ```
+
+The signing key is made in two lines because the one-line form this used to show,
+`[System.Security.Cryptography.RandomNumberGenerator]::GetBytes(48)`, exists only in .NET 6 and later.
+Windows PowerShell 5.1 runs on .NET Framework, where that call fails with "does not contain a method
+named 'GetBytes'", so the step failed on the laptop's own PowerShell.
 
 The last line prints both values, so mind who is looking. The signing key has no default and the service
 refuses to start without one, deliberately: a development default becomes a production key the first time
@@ -96,20 +109,26 @@ Each line matters:
 
 - **`Development`** is not the default. The API project has no `launchSettings.json`, so without this
   the host runs as Production: it reads no user secrets, so it has no key and no signing key, and
-  `--enrol-dev-device` refuses. The symptom is the service starting and then saying nothing useful.
+  `--enrol-dev-device` refuses. The symptom is the host refusing to start, with "Jwt:SigningKey must be
+  set to at least 32 bytes" (the connection string below is there, so the signing key is the first
+  missing setting it meets, and it checks that before listening).
 - **The URLs** are set so the address is known rather than defaulted.
-- **The connection string is an environment variable**, not a user secret, because `dotnet ef` reads it
-  from the environment.
+- **The connection string is an environment variable**, because `dotnet ef` reads it from the
+  environment and from nowhere else. The API itself also reads it from user secrets in Development, which
+  is where the demo scripts keep it.
 
 ## 4. Create the database (once, and after any new migration)
 
 ```powershell
 dotnet tool install --global dotnet-ef --version 10.0.12
+$env:Path += ";$env:USERPROFILE\.dotnet\tools"
 dotnet ef database update --project src\ScreenTail.Api --startup-project src\ScreenTail.Api
 ```
 
 This creates the `screentail` database if it is not there and applies every migration. The first line
-fails harmlessly if the tool is already installed.
+fails harmlessly if the tool is already installed. The second is needed only in the window the tool was
+first installed from: the installer adds its folder to PATH for windows opened afterwards, so without it
+`dotnet ef` says it cannot find the command.
 
 ## 5. Enrol a device (whenever the token has expired)
 
@@ -147,6 +166,12 @@ Invoke-RestMethod https://localhost:5001/health
 
 `status ok` means the certificate is trusted and the service is listening. A certificate error here means
 step 1 did not complete.
+
+"Could not create SSL/TLS secure channel" is something else: Windows PowerShell 5.1 can default to TLS 1.0,
+which the backend does not accept. Run
+`[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 'Tls12'`
+in that window and ask again, or ask with `curl.exe https://localhost:5001/health`, which uses the
+Windows defaults. Neither changes how the certificate is checked.
 
 ## 7. Point the client at it and start it
 
@@ -210,7 +235,7 @@ own timing.
 | A certificate error in the service window | Step 1 was skipped or declined |
 | "This device is not enrolled yet" | `SCREENTAIL_DEVICE_TOKEN` is unset or expired — step 5 again |
 | "No summarization provider is configured" | `SCREENTAIL_BACKEND` is unset in the shell that started the client |
-| 501 `not_configured` from the backend | The API is running without the key: usually `ASPNETCORE_ENVIRONMENT` was not set, so user secrets were never read (step 3) |
+| 501 `not_configured` from the backend | The API is running without the Gemini key: `Summarization:ApiKey` is not in user secrets (step 2). Without `ASPNETCORE_ENVIRONMENT` (step 3) the API does not get this far: it refuses to start for want of the signing key |
 | Connection refused | The backend is not running, or is not on port 5001 (step 6) |
 | A blocked-host message | The address in step 7 does not match what the guard was told to allow |
 | "reached its drafting budget for today" | The daily cap, which is $0.10 a session and $10 a day by default |
@@ -251,8 +276,11 @@ curl -X POST "$BACKEND/v1/devices/activate" -H "Content-Type: application/json" 
 curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d '{"refreshToken":"…"}'
 ```
 
-The client does not do this itself yet; until it does, put the access token in `SCREENTAIL_DEVICE_TOKEN`
-as before. `--offboard-tenant <id>` deletes every row of a tenant.
+The client does this itself now: the setup wizard's Activate step (ST-083) and Settings both take the
+code, keep the refresh token under DPAPI in `%LOCALAPPDATA%\ScreenTail\device.cred`, and renew the access
+token on their own. Once a device is activated, `SCREENTAIL_DEVICE_TOKEN` is ignored. To go back to the
+environment's token, delete that file while the service is stopped. The `curl` lines above are the same
+two calls made by hand. `--offboard-tenant <id>` deletes every row of a tenant.
 
 These operator commands (`--invite`, `--offboard-tenant`, `--set-policy`, `--rotate-vault-keys`) run with
 the service's own configuration, so they need `Jwt:SigningKey` as well as the connection string: the host
