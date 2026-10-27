@@ -7,6 +7,7 @@ using ScreenTail.Api.Endpoints;
 using ScreenTail.Api.Logging;
 using ScreenTail.Api.Providers;
 using ScreenTail.Api.Providers.ConnectWise;
+using ScreenTail.Api.Providers.Demo;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
@@ -117,6 +118,18 @@ builder.Services.AddSingleton<HuduCompanyCache>();
 builder.Services.AddHttpClient(nameof(HuduProvider), ProviderHttp.Configure)
     .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();
+
+// ST-090. A demo PSA and knowledge base in place of the tenant's, for showing a drafted note land on a
+// ticket while there is no ConnectWise sandbox. Off unless Providers:Demo is on, and refused outside
+// Development: a deployment with it on would say a note was published when it went nowhere anybody can
+// read. docs/dev/demo-psa.md says how to switch it on and how to show the note.
+var demo = builder.Configuration.GetSection(DemoOptions.Section).Get<DemoOptions>() ?? new DemoOptions();
+demo.Validate(builder.Environment.IsDevelopment());
+builder.Services.AddSingleton(demo);
+if (demo.Demo)
+{
+    _ = builder.Services.AddDemoProviders();
+}
 
 // Revocation for every route under /v1, as a policy on the group rather than a line in each handler
 // (2026-10-12 review). A refused caller gets the same 401 as a bad token, before its body is read.
@@ -251,6 +264,13 @@ app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")));
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi("/swagger/v1/swagger.json");
+}
+
+// ST-090. What the demo PSA holds, for the audience to see the note on the ticket. Mapped only with the
+// demo on, which is only ever Development, and answered only to this machine (DemoPsaEndpoint).
+if (app.Environment.IsDevelopment() && demo.Demo)
+{
+    _ = app.MapDemoPsa();
 }
 
 // The two calls a device makes before it has a token (ST-010). Anonymous, and outside the group below.
