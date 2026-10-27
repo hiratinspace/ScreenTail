@@ -211,6 +211,80 @@ public sealed class ShellViewModelLifetimeTests
         Assert.All(tokens, t => Assert.True(t.IsCancellationRequested));
     }
 
+    [Fact]
+    public async Task ClosingTheWindowLetsGoOfTheReviewPaneAndWaitsForIt()
+    {
+        // T-169. The pane's DisposeAsync writes the last of the note and commits a pending delete, and
+        // nothing called it: closing the window dropped both.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var state = new ShellState();
+        var pane = new Pane { Going = new TaskCompletionSource() };
+        var model = new ShellViewModel(state, loadReview: (_, _) => Task.FromResult<object?>(pane));
+        state.Connected(DraftReady("s1"));
+        Assert.Same(pane, model.Content);
+
+        model.Dispose();
+
+        Assert.Equal(1, pane.Disposed);
+        Assert.False(model.Released.IsCompleted, "the close finished before the pane had written its last");
+        pane.Going.SetResult();
+        await model.Released;
+    }
+
+    [Fact]
+    public void AnotherSessionsPaneLetsGoOfTheOneBefore()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var state = new ShellState();
+        var panes = new Dictionary<string, Pane>();
+        using var model = new ShellViewModel(state, loadReview: (id, _) => Task.FromResult<object?>(panes[id] = new Pane()));
+
+        state.Connected(DraftReady("s1"));
+        state.Observe(DraftReady("s2"));
+
+        Assert.Same(panes["s2"], model.Content);
+        Assert.Equal(1, panes["s1"].Disposed);
+        Assert.Equal(0, panes["s2"].Disposed);
+    }
+
+    [Fact]
+    public void GoingToHistoryAndBackKeepsThePaneAndItsEdits()
+    {
+        // The control for the two above: leaving the Review view is not letting go of its pane (T-159).
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var state = new ShellState();
+        var pane = new Pane();
+        using var model = new ShellViewModel(
+            state,
+            loadReview: (_, _) => Task.FromResult<object?>(pane),
+            history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>([])));
+        state.Connected(DraftReady("s1"));
+
+        state.Navigate(ShellView.History);
+        state.Navigate(ShellView.Review);
+
+        Assert.Same(pane, model.Content);
+        Assert.Equal(0, pane.Disposed);
+    }
+
+    [Fact]
+    public async Task APaneThatArrivesAfterTheCloseIsLetGoOf()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var state = new ShellState();
+        var arriving = new TaskCompletionSource<object?>();
+        var model = new ShellViewModel(state, loadReview: (_, _) => arriving.Task);
+        state.Connected(DraftReady("s1"));
+
+        model.Dispose();
+        var pane = new Pane();
+        arriving.SetResult(pane);
+        await model.Released;
+
+        Assert.Equal(1, pane.Disposed);
+        Assert.NotSame(pane, model.Content);
+    }
+
     /// <summary>Not inlined, so no local in the test keeps the model reachable when the collector runs.</summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static WeakReference OpenAndClose(ShellState state)
@@ -225,6 +299,23 @@ public sealed class ShellViewModelLifetimeTests
 
     private static CaptureStateSnapshot Recording() =>
         new() { State = "recording", SessionId = "s9" };
+
+    /// <summary>A Review pane as the shell sees one: something to show, and something to let go of.</summary>
+    private sealed class Pane : IAsyncDisposable
+    {
+        public int Disposed { get; private set; }
+
+        public TaskCompletionSource? Going { get; init; }
+
+        public async ValueTask DisposeAsync()
+        {
+            Disposed++;
+            if (Going is { } going)
+            {
+                await going.Task;
+            }
+        }
+    }
 
     /// <summary>Every Settings panel's gateway, counting what reaches the service and keeping the token each was handed.</summary>
     private sealed class CountingGateways : IDeviceGateway, ICaptureGateway, IPrivacyGateway, IIntegrationsGateway

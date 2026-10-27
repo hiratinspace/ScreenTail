@@ -490,7 +490,39 @@ public sealed class LiveShell : IAsyncDisposable
             Send(id => new StopCommand { RequestId = id });
         }
 
-        Application.Current?.Shutdown();
+        _ = ShutDownAfterReviewAsync();
+    }
+
+    /// <summary>
+    /// How long Quit waits for the Review pane's last writes. Longer than the strip's own bound on a
+    /// delete's answer, and short enough that Quit is still Quit when the pipe has gone.
+    /// </summary>
+    private static readonly TimeSpan ReviewWait = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Closes the shell window and waits for its Review pane to write the last of the note and commit a
+    /// pending delete (T-169), then shuts down. Waited for here, asynchronously on the UI thread, because
+    /// the application's own Dispose blocks that thread on <see cref="DisposeAsync"/>, and a pane's writes
+    /// come back to it. The pill and the tray icon stay up while it waits, which is the safe side of INV-4.
+    /// </summary>
+    private async Task ShutDownAfterReviewAsync()
+    {
+        try
+        {
+            if (_window is { } window)
+            {
+                window.Close();
+                await window.Released.WaitAsync(ReviewWait).ConfigureAwait(true);
+            }
+        }
+        catch (TimeoutException)
+        {
+            // The pane's writes go on until the process ends; Quit does not wait for them any longer.
+        }
+        finally
+        {
+            Application.Current?.Shutdown();
+        }
     }
 
     private void ShowDiagnostics()
