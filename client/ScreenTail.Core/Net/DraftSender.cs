@@ -39,7 +39,7 @@ namespace ScreenTail.Core.Net;
 /// because enrolment is a thing that happens later, not a thing that has gone wrong.
 /// </param>
 /// <param name="logger">Where a failed audit write is reported, by exception type only. Null reports nothing.</param>
-public sealed partial class DraftSender(
+public sealed class DraftSender(
     HttpClient http,
     ISessionStore store,
     Func<string?> token,
@@ -166,62 +166,12 @@ public sealed partial class DraftSender(
                 // "bytes sent, to which host" section is made of (2026-10-12 review, S-15). The host and
                 // the count, never the body (INV-10). A request that threw above is not recorded: whether
                 // its bytes left is unknown, and the audit log does not guess.
-                await RecordSentAsync(item.SessionId, body.Length, response.RequestMessage?.RequestUri ?? request.RequestUri).ConfigureAwait(false);
+                // The same row, written the same way, as the publish call and the metric (SentAudit): never
+                // costing the draft, not cancellable once the bytes have left, a failure logged by type.
+                await SentAudit.RecordAsync(_audit, item.SessionId, body.Length, response.RequestMessage?.RequestUri ?? request.RequestUri, http.BaseAddress, logger).ConfigureAwait(false);
             }
         }
     }
-
-    /// <summary>
-    /// The audit row for a send, which never costs the draft: a row that cannot be written is reported
-    /// by its exception's type and the send's outcome stands. Not cancellable, because the bytes have
-    /// already left and a shutdown in between should not leave them unrecorded.
-    /// </summary>
-    private async Task RecordSentAsync(string sessionId, long bytes, Uri? destination)
-    {
-        if (_audit is null)
-        {
-            return;
-        }
-
-        // HttpClient resolves the relative endpoint against its base address before sending, so the
-        // request's own URI is absolute by now; the base address is the fallback for a handler that
-        // did not keep it.
-        var absolute = destination is { IsAbsoluteUri: true } ? destination
-            : http.BaseAddress is { } @base ? new Uri(@base, Endpoint)
-            : null;
-        if (absolute is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _audit.RecordAsync(AuditTypes.BundleSent, sessionId, bytes, HostLabel(absolute), CancellationToken.None).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // The draft is kept already; nothing about the audit write may undo that.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            if (logger is not null)
-            {
-                LogAuditFailed(logger, ex.GetType().Name);
-            }
-        }
-    }
-
-    /// <summary>
-    /// The host as an audit label: an address without its brackets, an international name in its ASCII
-    /// form. Anything still outside what a label may hold (a zone id, say) is recorded as
-    /// <see cref="UnnamedHost"/>, so the bytes are still counted.
-    /// </summary>
-    internal static string HostLabel(Uri destination)
-    {
-        var host = destination.IdnHost.Trim('[', ']');
-        return AuditDetail.IsValid(host) && host.Length > 0 ? host : UnnamedHost;
-    }
-
-    [LoggerMessage(EventId = 6401, Level = LogLevel.Warning, Message = "The bundle_sent audit row could not be written ({ExceptionType}); the draft is kept.")]
-    private static partial void LogAuditFailed(ILogger logger, string exceptionType);
 
     /// <summary>How long drafting is still held, or null when it is not.</summary>
     private TimeSpan? HeldFor()
