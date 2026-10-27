@@ -22,6 +22,7 @@ namespace ScreenTail.Service.Capture;
 internal sealed partial class SceneSampleLoop
 {
     private readonly SceneRecorder _recorder;
+    private readonly SessionMachine _machine;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
 
@@ -35,6 +36,7 @@ internal sealed partial class SceneSampleLoop
         TimeProvider? time = null)
     {
         _time = time ?? TimeProvider.System;
+        _machine = machine;
         _logger = logger;
         _recorder = new SceneRecorder(machine, capturer, currentScope, sampler);
         _recorder.FrameMissed += () => LogNoFrame(logger);
@@ -55,15 +57,19 @@ internal sealed partial class SceneSampleLoop
 
     public async Task RunAsync(CancellationToken ct)
     {
-        using var timer = new PeriodicTimer(_recorder.Options.SampleEvery, _time);
-
+        // Only while a session is under way (ST-031): with none, every sample found the machine not
+        // recording and returned, once a second all day. The period is read as each session starts, so a
+        // change to it in Settings applies from the next session.
+        //
         // One sample that cannot be taken or stored costs that sample. This loop used to end on the first
         // exception of any kind, and a session then went on with clicks and no scene frames at all.
-        await ResilientLoop.RunAsync(
-            next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
-            step: _recorder.SampleAsync,
-            onFailure: failure => LogSampleFailed(_logger, failure.GetType().Name),
-            ct).ConfigureAwait(false);
+        await SessionLoop.RunAsync(
+            _machine,
+            _recorder.Options.SampleEvery,
+            _recorder.SampleAsync,
+            failure => LogSampleFailed(_logger, failure.GetType().Name),
+            ct,
+            _time).ConfigureAwait(false);
     }
 
     // The type and never the message: a store error can quote what it was asked to write (INV-10).

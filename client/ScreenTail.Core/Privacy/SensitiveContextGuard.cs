@@ -103,17 +103,22 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
     /// <summary>Told when a pass fails, so the host can log it. The type only, never the message (INV-10).</summary>
     public event Action<Exception>? Failed;
 
-    public async Task RunAsync(CancellationToken ct)
-    {
-        using var timer = new PeriodicTimer(_tick, _time);
-        await ResilientLoop.RunAsync(
-            next: async token => await timer.WaitForNextTickAsync(token).ConfigureAwait(false),
-            step: TickAsync,
-            onFailure: failure =>
+    /// <summary>
+    /// Ticks while a session is under way and not otherwise (ST-031): with none there is nothing to
+    /// suppress, and this checked four times a second all day to find that out. A sighting can only come
+    /// from a frame, and frames come from sessions. The first tick is the session starting, so a sighting
+    /// still in its window when one begins holds it from its first moment rather than from the next tick.
+    /// </summary>
+    public Task RunAsync(CancellationToken ct) =>
+        SessionLoop.RunAsync(
+            machine,
+            _tick,
+            TickAsync,
+            failure =>
             {
                 _ = Interlocked.Increment(ref _failures);
                 Failed?.Invoke(failure);
             },
-            ct).ConfigureAwait(false);
-    }
+            ct,
+            _time);
 }

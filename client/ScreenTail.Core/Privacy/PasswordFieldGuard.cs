@@ -177,7 +177,12 @@ public sealed class PasswordFieldGuard(
             return ResilientLoop.RunAsync(
                 next: async token =>
                 {
-                    _ = await _focusMoved.WaitAsync(_options.PollEvery, token).ConfigureAwait(false);
+                    // The poll is a backstop for a session (ST-031). With none, and no hold left to let
+                    // go of, a pass decides nothing, and this woke once a second all day to decide it.
+                    // A session starting releases the same signal a focus change does, so the wait
+                    // ends the moment there is something to look at.
+                    var backstop = SessionLoop.IsUnderWay(machine.State) || Holding ? _options.PollEvery : Timeout.InfiniteTimeSpan;
+                    _ = await _focusMoved.WaitAsync(backstop, token).ConfigureAwait(false);
                     return true;
                 },
                 step: TickAsync,

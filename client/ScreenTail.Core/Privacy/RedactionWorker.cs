@@ -182,17 +182,34 @@ public sealed class RedactionWorker(
         {
             while (!ct.IsCancellationRequested)
             {
-                if (!await StepAsync(ct).ConfigureAwait(false))
+                switch (await StepAsync(ct).ConfigureAwait(false))
                 {
-                    // Nothing waiting. Frames arrive on clicks, so idling briefly costs nothing and keeps
-                    // the worker off the CPU while the technician is reading rather than clicking.
-                    await Task.Delay(TimeSpan.FromMilliseconds(200), _time, ct).ConfigureAwait(false);
+                    case Step.Empty:
+                        // Nothing waiting, so wait for a frame to arrive (ST-031). This used to look again
+                        // every 200 ms, two workers at five times a second each for the life of the
+                        // service, on a machine that records for a fraction of the day. The queue says
+                        // when a frame arrives, and a frame taken at once is a backlog that clears sooner.
+                        await pending.WaitToTakeAsync(ct).ConfigureAwait(false);
+                        break;
+
+                    case Step.Failed:
+                        // Something outside a frame's own redaction is wrong. Waiting before trying again
+                        // keeps a broken store from becoming a loop that spins on it.
+                        await Task.Delay(TimeSpan.FromMilliseconds(200), _time, ct).ConfigureAwait(false);
+                        break;
                 }
             }
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private enum Step
+    {
+        Worked,
+        Empty,
+        Failed,
     }
 
     /// <summary>
@@ -207,11 +224,11 @@ public sealed class RedactionWorker(
     /// <see cref="ProcessOneAsync"/> already handles a frame that fails; this catches everything else, so
     /// that no future change can end the loop by throwing somewhere new.
     /// </summary>
-    private async Task<bool> StepAsync(CancellationToken ct)
+    private async Task<Step> StepAsync(CancellationToken ct)
     {
         try
         {
-            return await ProcessOneAsync(ct).ConfigureAwait(false);
+            return await ProcessOneAsync(ct).ConfigureAwait(false) ? Step.Worked : Step.Empty;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -220,8 +237,8 @@ public sealed class RedactionWorker(
                 _failed++;
             }
 
-            // False, so the loop waits before trying again rather than spinning on whatever is wrong.
-            return false;
+            // So the loop waits before trying again rather than spinning on whatever is wrong.
+            return Step.Failed;
         }
     }
 

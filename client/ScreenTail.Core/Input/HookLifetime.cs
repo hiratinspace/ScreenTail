@@ -75,10 +75,8 @@ public sealed class HookLifetime(
     /// </summary>
     public async Task ApplyAsync(CancellationToken ct = default)
     {
-        var wanted = machine.State is SessionState.Recording
-            or SessionState.Paused
-            or SessionState.Suppressed
-            or SessionState.Finalizing;
+        // The same states the drain that empties the hooks' buffer runs in (SessionLoop, ST-031).
+        var wanted = SessionLoop.IsUnderWay(machine.State);
 
         await _one.WaitAsync(ct).ConfigureAwait(false);
         try
