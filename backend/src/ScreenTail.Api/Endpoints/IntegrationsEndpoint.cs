@@ -55,8 +55,13 @@ public static partial class IntegrationsEndpoint
         .WithName("ListIntegrations")
         .WithSummary("The tenant's integrations, with each credential's last four characters and nothing more.");
 
-        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, ProviderNetworkOptions network, TimeProvider time, CancellationToken ct) =>
+        group.MapPut("/integrations/{provider}", async (string provider, StoreIntegrationRequest request, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, ProviderNetworkOptions network, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
+            if (demo.Demo)
+            {
+                return DemoOn();
+            }
+
             if (!ProviderName().IsMatch(provider))
             {
                 return Results.BadRequest(new { error = "bad_provider", message = "A provider is a short lowercase name, like connectwise or hudu." });
@@ -129,8 +134,13 @@ public static partial class IntegrationsEndpoint
         .WithName("StoreIntegration")
         .WithSummary("Stores or replaces the tenant's credential for a provider. It is never returned.");
 
-        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, TimeProvider time, CancellationToken ct) =>
+        group.MapDelete("/integrations/{provider}", async (string provider, Caller who, IIntegrationVault vault, ScreenTailContext db, HuduCompanyCache companies, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
         {
+            if (demo.Demo)
+            {
+                return DemoOn();
+            }
+
             if (provider != Hudu)
             {
                 return await vault.RemoveAsync(who.TenantId, provider, ct).ConfigureAwait(false)
@@ -187,6 +197,15 @@ public static partial class IntegrationsEndpoint
 
         return group;
     }
+
+    /// <summary>
+    /// The refusal of any change to a tenant's credentials or company mappings while the demo is on
+    /// (ST-090, review 2026-10-27). Settings shows the demo then, so a change would land on rows nobody can
+    /// see: a credential stored or removed, or a mapping overwritten with a demo company or deleted.
+    /// </summary>
+    internal static IResult DemoOn() => Results.Json(
+        new { error = "demo_on", message = $"The demo PSA is on ({DemoOptions.Setting}), so integrations and company mappings cannot be changed. Switch it off and restart the backend first." },
+        statusCode: StatusCodes.Status409Conflict);
 
     private static async Task<ProviderResult<bool>> CheckAsync(IPsaProvider? provider, CancellationToken ct) =>
         provider is null ? Gone() : await provider.CheckAsync(ct).ConfigureAwait(false);

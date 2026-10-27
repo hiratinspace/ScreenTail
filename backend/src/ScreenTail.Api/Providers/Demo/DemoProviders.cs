@@ -1,7 +1,9 @@
 using System.Globalization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Hudu;
+using ScreenTail.Api.Publish;
 
 namespace ScreenTail.Api.Providers.Demo;
 
@@ -324,6 +326,36 @@ public sealed class DemoDocProviderFactory(DemoStore store) : IDocProviderFactor
 {
     public Task<IDocProvider?> ForTenantAsync(Guid tenantId, CancellationToken ct = default) =>
         Task.FromResult<IDocProvider?>(new DemoDocProvider(store));
+}
+
+/// <summary>
+/// The company mappings a publish uses while the demo is on (review 2026-10-27): none remembered, none
+/// written, none forgotten. A tenant's real mappings point into its real knowledge base; held against the
+/// demo's companies they look stale and would be deleted, a hand-confirmed one included. So the demo
+/// matches the ticket's company against its own list, in memory, for this publish only: an exact name is
+/// filed there, anything else is asked about and not remembered.
+/// </summary>
+public sealed class DemoCompanyMappings : ICompanyMappings
+{
+    public Task<CompanyMapping?> FindAsync(string psaCompany, CancellationToken ct = default) =>
+        Task.FromResult<CompanyMapping?>(null);
+
+    public Task<CompanyMapping> RememberAsync(string psaCompany, CompanyRef company, string confidence, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(psaCompany);
+        ArgumentNullException.ThrowIfNull(company);
+        return Task.FromResult(new CompanyMapping
+        {
+            Id = Guid.Empty,
+            PsaCompany = psaCompany.Trim(),
+            DocCompanyId = company.Id,
+            DocCompanyName = company.Name,
+            Confidence = confidence,
+        });
+    }
+
+    public Task<bool> ForgetIfUnchangedAsync(CompanyMapping stale, CancellationToken ct = default) =>
+        Task.FromResult(false);
 }
 
 public static class DemoRegistration

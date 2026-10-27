@@ -32,7 +32,7 @@ public static partial class Publisher
         IPsaProvider psa,
         PublishBundle bundle,
         IDocProvider? docs = null,
-        CompanyMappings? mappings = null,
+        ICompanyMappings? mappings = null,
         PublishOptions? options = null,
         TimeProvider? time = null,
         TimeSpan spent = default,
@@ -72,7 +72,7 @@ public static partial class Publisher
         string text,
         IReadOnlyList<NoteAttachment> attachments,
         IDocProvider? docs,
-        CompanyMappings? mappings,
+        ICompanyMappings? mappings,
         ILogger? log,
         CancellationToken deadline,
         CancellationToken request)
@@ -190,7 +190,7 @@ public static partial class Publisher
     /// on a move, would otherwise file the article under whoever holds that number on the new site. The
     /// list is the one the platform checks the article against anyway, so this asks it for nothing more.
     /// </summary>
-    private static async Task<PublishResultJson> ArticleAsync(string destination, IDocProvider docs, CompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, Sending sent, CancellationToken ct)
+    private static async Task<PublishResultJson> ArticleAsync(string destination, IDocProvider docs, ICompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, Sending sent, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(bundle.Company))
         {

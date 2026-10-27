@@ -8,9 +8,11 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using ScreenTail.Api.Auth;
@@ -196,6 +198,181 @@ public sealed class DemoPsaTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Theory]
+    [InlineData("192.168.1.20", "192.168.1.5", "X-Forwarded-For", "127.0.0.1")]
+    [InlineData("192.168.1.20", "192.168.1.5", "X-Forwarded-For", "::1")]
+    [InlineData("192.168.1.20", "127.0.0.1", "X-Forwarded-For", "127.0.0.1")]
+    [InlineData("203.0.113.9", "127.0.0.1", "X-Forwarded-For", "::1")]
+    public async Task AForwardedForThatClaimsThisMachineIsRefusedEvenWhenTheFrameworkBelievesIt(string peer, string listener, string header, string claimed)
+    {
+        // Review 2026-10-27. With ASPNETCORE_FORWARDEDHEADERS_ENABLED=true the framework trusts every
+        // proxy, so a caller on the LAN that says it is 127.0.0.1 becomes 127.0.0.1 before the page is
+        // asked. The forwarding middleware runs here exactly that way, and the page still says 404.
+        using var host = Demo(from: IPAddress.Parse(peer), at: IPAddress.Parse(listener), trustForwarding: true);
+        using var anonymous = host.CreateClient();
+
+        foreach (var path in new[] { "/dev/demo-psa", "/dev/demo-psa/tickets/48213", "/dev/demo-psa/tickets/48213/view" })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(path, UriKind.Relative));
+            request.Headers.Add(header, claimed);
+            using var response = await anonymous.SendAsync(request, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+    }
+
+    [Theory]
+    [InlineData("X-Forwarded-For", "127.0.0.1")]
+    [InlineData("X-Forwarded-Host", "localhost")]
+    [InlineData("Forwarded", "for=127.0.0.1")]
+    [InlineData("X-Original-For", "127.0.0.1:50000")]
+    [InlineData("X-Original-Host", "localhost")]
+    [InlineData("X-Real-IP", "127.0.0.1")]
+    public async Task ARequestThatCameThroughAProxyIsRefusedEvenFromThisMachine(string header, string value)
+    {
+        // A proxy or tunnel on the laptop (nginx, ngrok, cloudflared) connects from loopback on behalf of
+        // somebody else. Whatever it says about them, it says it in one of these, and a browser opened on
+        // the laptop never sends any.
+        using var host = Demo(from: IPAddress.Loopback);
+        using var anonymous = host.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("/dev/demo-psa/tickets/48213", UriKind.Relative));
+        request.Headers.Add(header, value);
+
+        using var response = await anonymous.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ALoopbackPeerOnAListenerThatIsNotLoopbackIsRefused()
+    {
+        using var host = Demo(from: IPAddress.Loopback, at: IPAddress.Parse("192.168.1.5"));
+        using var anonymous = host.CreateClient();
+
+        using var response = await anonymous.GetAsync(new Uri("/dev/demo-psa/tickets/48213", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("localhost:5001", HttpStatusCode.OK)]
+    [InlineData("localhost", HttpStatusCode.OK)]
+    [InlineData("127.0.0.1:5001", HttpStatusCode.OK)]
+    [InlineData("[::1]:5001", HttpStatusCode.OK)]
+    [InlineData("attacker.example", HttpStatusCode.NotFound)]
+    [InlineData("rebind.attacker.example:5001", HttpStatusCode.NotFound)]
+    [InlineData("192.168.1.5:5001", HttpStatusCode.NotFound)]
+    [InlineData("localhost.attacker.example", HttpStatusCode.NotFound)]
+    public async Task OnlyALocalHostNameIsAnswered(string hostHeader, HttpStatusCode expected)
+    {
+        // DNS rebinding: a page opened during the demo points its own name at 127.0.0.1 and reads the
+        // JSON from the browser. Its requests still carry its own name, so a name that is not this
+        // machine's is not answered.
+        using var host = Demo(from: IPAddress.Loopback);
+        using var anonymous = host.CreateClient();
+        using var response = await anonymous.GetAsync(new Uri($"http://{hostHeader}/dev/demo-psa/tickets/48213"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TheJsonIsNeitherCachedNorSniffed()
+    {
+        using var host = Demo(from: IPAddress.Loopback);
+        using var anonymous = host.CreateClient();
+
+        using var response = await anonymous.GetAsync(new Uri("/dev/demo-psa/tickets/48213", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        Assert.Equal("no-store", response.Headers.GetValues("Cache-Control").Single());
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+    }
+
+    [Fact]
+    public async Task WhileTheDemoIsOnAnArticleNeitherReadsNorWritesTheTenantsMappings()
+    {
+        // Review 2026-10-27. A real, hand-confirmed mapping of Acme Dental to a Hudu company is not the
+        // demo's company, so the publish found it stale and deleted it. The demo matches in memory and
+        // leaves the table as it was.
+        using var host = Demo();
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        _ = await MapByHandAsync(tenantId);
+        var before = await MappingsOfAsync(tenantId);
+        using var client = Client(host, Token(tenantId, userId, deviceId));
+        var request = JsonNode.Parse(Contract())!;
+        request["destinations"] = new JsonArray("kb_article");
+
+        using var response = await client.PostAsync(
+            new Uri("/v1/sessions/publish", UriKind.Relative),
+            new StringContent(request.ToJsonString(), Encoding.UTF8, "application/json"),
+            TestContext.Current.CancellationToken);
+        var result = Assert.Single(JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList());
+
+        Assert.True(result.GetProperty("ok").GetBoolean(), result.ToString());
+        Assert.Equal("demo-kb-1", Assert.Single(host.Services.GetRequiredService<DemoStore>().Articles()).CompanyId);
+        Assert.Equal(["Acme Dental=hudu-77/Acme Dental Ltd/manual"], before);
+        Assert.Equal(before, await MappingsOfAsync(tenantId));
+    }
+
+    [Fact]
+    public async Task WhileTheDemoIsOnACompanyTheDemoDoesNotHaveIsAskedAboutAndNothingIsWritten()
+    {
+        using var host = Demo();
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, Token(tenantId, userId, deviceId));
+        var request = JsonNode.Parse(Contract())!;
+        request["destinations"] = new JsonArray("kb_article");
+        request["company"] = "Somebody Else";
+
+        using var response = await client.PostAsync(
+            new Uri("/v1/sessions/publish", UriKind.Relative),
+            new StringContent(request.ToJsonString(), Encoding.UTF8, "application/json"),
+            TestContext.Current.CancellationToken);
+        var result = Assert.Single(JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList());
+
+        Assert.False(result.GetProperty("ok").GetBoolean());
+        Assert.Equal("needs_mapping", result.GetProperty("kind").GetString());
+        Assert.Empty(host.Services.GetRequiredService<DemoStore>().Articles());
+        Assert.Empty(await MappingsOfAsync(tenantId));
+    }
+
+    [Fact]
+    public async Task WhileTheDemoIsOnTheTenantsMappingsAndCredentialsCannotBeChanged()
+    {
+        // The demo is what Settings shows while it is on, so a change made there would land on the
+        // tenant's real rows unseen: a demo company over a real mapping, or a mapping or credential gone.
+        using var host = Demo();
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        _ = await MapByHandAsync(tenantId);
+        using (var scope = host.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IIntegrationVault>().StoreAsync(tenantId, "hudu", "https://acme.huducloud.com", "hudu-key-0001", TestContext.Current.CancellationToken);
+        }
+
+        var before = await MappingsOfAsync(tenantId);
+        using var client = Client(host, Token(tenantId, userId, deviceId));
+
+        using var map = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), new MapCompanyRequest("Acme Dental", "demo-kb-1"), TestContext.Current.CancellationToken);
+        using var unmap = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var store = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-0002"), TestContext.Current.CancellationToken);
+        using var remove = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        var listed = await client.GetFromJsonAsync<CompanyMappingsResponse>(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        foreach (var refused in new[] { map, unmap, store, remove })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.Contains("demo_on", body, StringComparison.Ordinal);
+            Assert.Contains("Providers:Demo", body, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(before, await MappingsOfAsync(tenantId));
+        Assert.Equal("https://acme.huducloud.com", await api.UseAsync(db => db.Integrations.Where(i => i.TenantId == tenantId && i.Provider == "hudu").Select(i => i.SiteUrl).SingleAsync()));
+        Assert.Equal(["Acme Dental", "Borough Legal", "Harbour Vets"], listed!.Companies.Select(c => c.Name));
+        Assert.Empty(listed.Mappings);
+    }
+
+    [Theory]
     [InlineData("127.0.0.1", true)]
     [InlineData("::1", true)]
     [InlineData("::ffff:127.0.0.1", true)]
@@ -253,15 +430,32 @@ public sealed class DemoPsaTests(ApiFixture api) : IClassFixture<ApiFixture>
             .Select(e => "/" + e.RoutePattern.RawText!.TrimStart('/'))
             .Where(p => p.StartsWith("/dev", StringComparison.Ordinal))];
 
-    /// <summary>Development with the demo switched on, and every request arriving from <paramref name="from"/>.</summary>
-    private WebApplicationFactory<Program> Demo(IPAddress? from = null) => api.WithWebHostBuilder(builder =>
+    /// <summary>
+    /// Development with the demo switched on, and every request arriving from <paramref name="from"/> at
+    /// <paramref name="at"/> (loopback unless said). With <paramref name="trustForwarding"/>, the forwarding
+    /// middleware runs next and trusts every proxy, as <c>ASPNETCORE_FORWARDEDHEADERS_ENABLED=true</c> does.
+    /// </summary>
+    private WebApplicationFactory<Program> Demo(IPAddress? from = null, IPAddress? at = null, bool trustForwarding = false) => api.WithWebHostBuilder(builder =>
     {
         _ = builder.UseSetting(DemoOptions.Setting, "true");
         if (from is not null)
         {
-            _ = builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(new ArrivingFrom(from)));
+            _ = builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(new ArrivingFrom(from, at ?? IPAddress.Loopback, trustForwarding)));
         }
     });
+
+    private async Task<Guid> MapByHandAsync(Guid tenantId) => await api.UseAsync(async db =>
+    {
+        var id = Guid.NewGuid();
+        db.CompanyMappings.Add(new CompanyMapping { Id = id, TenantId = tenantId, PsaCompany = "Acme Dental", DocCompanyId = "hudu-77", DocCompanyName = "Acme Dental Ltd", Confidence = "manual", CreatedAt = DateTimeOffset.UnixEpoch });
+        _ = await db.SaveChangesAsync();
+        return id;
+    });
+
+    private Task<List<string>> MappingsOfAsync(Guid tenantId) => api.UseAsync(db => db.CompanyMappings
+        .Where(m => m.TenantId == tenantId)
+        .Select(m => m.PsaCompany + "=" + m.DocCompanyId + "/" + m.DocCompanyName + "/" + m.Confidence)
+        .ToListAsync());
 
     private static HttpClient Client(WebApplicationFactory<Program> host, string token)
     {
@@ -296,16 +490,25 @@ public sealed class DemoPsaTests(ApiFixture api) : IClassFixture<ApiFixture>
         return document.RootElement.GetProperty("request").GetRawText();
     }
 
-    /// <summary>The test server says nothing about where a request came from; this says it, first thing.</summary>
-    private sealed class ArrivingFrom(IPAddress address) : IStartupFilter
+    /// <summary>The test server says nothing about where a request came from or arrived; this says it, first thing.</summary>
+    private sealed class ArrivingFrom(IPAddress remote, IPAddress local, bool trustForwarding) : IStartupFilter
     {
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
         {
             _ = app.Use((HttpContext context, RequestDelegate following) =>
             {
-                context.Connection.RemoteIpAddress = address;
+                context.Connection.RemoteIpAddress = remote;
+                context.Connection.LocalIpAddress = local;
                 return following(context);
             });
+            if (trustForwarding)
+            {
+                var options = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.All };
+                options.KnownIPNetworks.Clear();
+                options.KnownProxies.Clear();
+                _ = app.UseForwardedHeaders(options);
+            }
+
             next(app);
         };
     }

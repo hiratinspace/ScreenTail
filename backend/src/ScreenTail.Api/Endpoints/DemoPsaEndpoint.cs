@@ -10,10 +10,17 @@ namespace ScreenTail.Api.Endpoints;
 /// What the demo PSA holds, for showing an audience that the note landed on the ticket (ST-090).
 ///
 /// Mapped only when <c>Providers:Demo</c> is on, which the service allows only in Development, and
-/// answered only to this machine: a caller from anywhere else gets the same 404 as a route that does not
-/// exist. There is no token to present, the way there is none for the API document in Development, so a
-/// browser on the laptop can open the page while the audience watches. Nothing here is under /v1, and
-/// nothing here writes.
+/// answered only to a browser on this machine: a caller from anywhere else gets the same 404 as a route
+/// that does not exist. There is no token to present, the way there is none for the API document in
+/// Development, so a browser on the laptop can open the page while the audience watches. Nothing here is
+/// under /v1, and nothing here writes.
+///
+/// "This machine" is four checks, because each alone can be talked around (review 2026-10-27). The peer
+/// and the listening address are both loopback; the request carries no proxy header, because with
+/// <c>ASPNETCORE_FORWARDEDHEADERS_ENABLED=true</c> the framework believes any <c>X-Forwarded-For</c> and a
+/// LAN caller claiming 127.0.0.1 becomes it, and a proxy or tunnel on the laptop connects from loopback for
+/// somebody else; and the Host is this machine's own name, so a page that rebinds its DNS name to
+/// 127.0.0.1 cannot read the JSON from the audience's browser.
 /// </summary>
 public static class DemoPsaEndpoint
 {
@@ -30,7 +37,18 @@ public static class DemoPsaEndpoint
             .AllowAnonymous()
             .ExcludeFromDescription()
             .AddEndpointFilter(async (context, next) =>
-                FromThisMachine(context.HttpContext.Connection.RemoteIpAddress) ? await next(context).ConfigureAwait(false) : Results.NotFound());
+            {
+                var http = context.HttpContext;
+                if (!OnlyThisMachine(http))
+                {
+                    return Results.NotFound();
+                }
+
+                // On every answer, the JSON as much as the pages: it holds the note's text.
+                http.Response.Headers.XContentTypeOptions = "nosniff";
+                http.Response.Headers.CacheControl = "no-store";
+                return await next(context).ConfigureAwait(false);
+            });
 
         _ = group.MapGet("/", (HttpContext http, DemoStore store) => Page(http, Index(store)))
             .WithName("DemoPsaIndex");
@@ -48,15 +66,29 @@ public static class DemoPsaEndpoint
         return app;
     }
 
+    /// <summary>What a proxy or a tunnel adds, and a browser opened on this machine never sends.</summary>
+    private static readonly string[] ProxyHeaders = ["Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Original-For", "X-Original-Host", "X-Real-IP"];
+
+    /// <summary>The names this machine answers to, without the port.</summary>
+    private static readonly string[] LocalNames = ["localhost", "127.0.0.1", "[::1]"];
+
     /// <summary>The loopback address, either family. Null is a caller nobody can vouch for, and is refused.</summary>
     public static bool FromThisMachine(IPAddress? remote) =>
         remote is not null && IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote);
 
+    /// <summary>A browser on this machine, asking for this machine by name, with no proxy between.</summary>
+    public static bool OnlyThisMachine(HttpContext http)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        return FromThisMachine(http.Connection.RemoteIpAddress)
+            && FromThisMachine(http.Connection.LocalIpAddress)
+            && !ProxyHeaders.Any(http.Request.Headers.ContainsKey)
+            && LocalNames.Contains(http.Request.Host.Host, StringComparer.OrdinalIgnoreCase);
+    }
+
     private static IResult Page(HttpContext http, string html)
     {
         http.Response.Headers.ContentSecurityPolicy = Policy;
-        http.Response.Headers.XContentTypeOptions = "nosniff";
-        http.Response.Headers.CacheControl = "no-store";
         return Results.Content(html, "text/html; charset=utf-8", Encoding.UTF8);
     }
 
