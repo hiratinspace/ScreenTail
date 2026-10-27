@@ -30,13 +30,24 @@ Services run in session 0, which has no desktop. There, low-level hooks never fi
 Both of these cost a failed run before the real work started, so jobs that run on the laptop differ from the hosted ones:
 
 - **It isn't an administrator,** so `actions/setup-dotnet` fails: it installs into `C:\Program Files\dotnet`, which the runner account can't write to. The laptop job uses the SDKs that `setup-test-laptop.ps1` installed and fails with a clear message if they're missing.
-- **It has no PowerShell 7.** Hosted runners do, so `shell: pwsh` works there. Every laptop step runs through `powershell -ExecutionPolicy Bypass`, because the runner account's execution policy is Restricted by default and the runner invokes each step as a script file — without the flag every step dies with `UnauthorizedAccess` before running a line. `setup-test-laptop.ps1` sets the policy too, so neither depends on the other.
+- **It has no PowerShell 7.** Hosted runners do, so `shell: pwsh` works there. Every laptop step runs through `powershell -ExecutionPolicy Bypass`, because the runner account's execution policy is Restricted by default and the runner invokes each step as a script file; without the flag every step dies with `UnauthorizedAccess` before running a line. `setup-test-laptop.ps1` sets the policy too, so neither depends on the other.
 - **Its PowerShell reads a BOM-less `.ps1` as ANSI.** One non-ASCII character corrupts everything after it and the parser then fails somewhere unrelated, complaining about an unterminated string eighty lines away. The scripts are ASCII, and the `Windows scripts parse` job in `ci.yml` parse-checks them with Windows PowerShell 5.1 and refuses a non-ASCII byte.
 - Windows PowerShell 5.1 writes a byte-order mark with `Out-File -Encoding utf8`, which corrupts `GITHUB_PATH`. Append to GitHub's files with `[System.IO.File]::AppendAllText` instead.
 
+### Before a laptop run
+
+Every laptop failure during the client P2 merges (2026-10-25) was the machine, not the code. Before re-running a failed or stuck laptop job, check these:
+
+- **The runner is running.** If laptop jobs sit "queued", no runner is connected. The runner starts from the Startup folder when the account signs in, in a minimized window whose title ends in `run.cmd`; closing that window stops it. To start it by hand: Windows+R, `C:\actions-runner2\run.cmd`, and wait for "Listening for Jobs". Jobs queued for an offline runner expire after about a day, so re-run them once it is back.
+- **It is still registered.** GitHub deletes a runner that has been offline for 14 days. It happened on 2026-10-19, and the runner was registered again into `C:\actions-runner2` with `setup-test-laptop.ps1 -RunnerDir C:\actions-runner2`, because the script skips registration in a folder that already holds a `.runner` file. A 404 from the registration step means a mistyped token.
+- **It does not sleep or lock.** Settings, System, Power: never sleep when plugged in.
+- **Smart App Control is off.** With it on, Windows refuses freshly built files ("An Application Control policy has blocked this file", 0x800711C7) and no test runs. It was turned off on 2026-10-25. To check: `reg query HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`; `VerifiedAndReputablePolicyState` must be `0x0`.
+- **Nothing elevated is in front, and nobody touches it.** The input-injection job clicks and types. An administrator window in front (PowerShell, Settings, Event Viewer) swallows the injected clicks, and `InputHookTests.HooksComeBackForTheSecondSession` fails with an empty collection. Leave the laptop on the plain desktop.
+- **The demo is not running.** The laptop is also where the demo runs (`docs/dev/demo.md`); a test job that starts during a demo takes over the keyboard, mouse and screen. Close the runner's window for the demo, and it comes back at the next sign-in.
+
 ## The skip gate (ST-018)
 
-`dotnet test` exits 0 when every test skips, so a green tick used to mean "nothing went wrong" rather than "the checks ran". On a machine that exists to answer questions no other machine can, those are very different claims — and on 2026-09-13 the laptop's session went away mid-afternoon, every test that needs a window started skipping, and both hardware jobs went on passing.
+`dotnet test` exits 0 when every test skips, so a green tick used to mean "nothing went wrong" rather than "the checks ran". On a machine that exists to answer questions no other machine can, those are very different claims, and on 2026-09-13 the laptop's session went away mid-afternoon, every test that needs a window started skipping, and both hardware jobs went on passing.
 
 Three things close that hole.
 
@@ -61,7 +72,7 @@ five minutes for evidence that is never coming and then says so. If the reverse,
 without the laptop seeing it.
 
 Both directions happened on 2026-09-16. The speech pipeline, which opens a real microphone, was in
-neither list. Then the shared files — `ci.yml` itself among them — were in the flag and not in the
+neither list. Then the shared files (`ci.yml` itself among them) were in the flag and not in the
 filter, so the pull request fixing the first problem failed its own gate. They were brought into line by
 narrowing the flag rather than widening the filter, because widening meant a one-line workflow edit took
 over the laptop's keyboard, and the hosted Windows job builds and tests everything either way.
@@ -78,16 +89,29 @@ gate already ran, so re-checking the merge buys nothing.
 
 When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs-hardware-evidence`** and writes into the run summary that nothing needing a real desktop, screen or input has been checked. An unverified branch should say so rather than leave it to be inferred from a workflow that quietly did not run.
 
+**When several pull requests wait for the laptop,** it runs their jobs one at a time and `Hardware evidence` gives up after thirty-five minutes. Cancel the queued laptop runs of pull requests that will be updated anyway, so the one about to merge is not starved. After the laptop is fixed, re-run the failed jobs of both the `hardware-checks` run and the `ci` run.
+
+**One re-run per suspected flake.** A test that fails once on a runner and passes on one re-run is noted and watched, as `AuditExportOverThePipeTests` was when it timed out once on the hosted runner. A second failure is a bug to fix, not a reason to re-run again.
+
 ### Security
 
-- A self-hosted runner executes whatever the repository's workflows tell it to, inside a signed-in desktop session. This line used to read "never attach this runner to a public repo", written when the repository was private. **The repository is public now** — hosted runner minutes are free for public repositories and are not for private ones — and for several days the rule was simply broken: any stranger's pull request could have built and run its code on this laptop behind one "Approve and run" click. Found in the 2026-09-19 review; no fork existed and every run was the owner's.
+- A self-hosted runner executes whatever the repository's workflows tell it to, inside a signed-in desktop session. This line used to read "never attach this runner to a public repo", written when the repository was private. **The repository is public now**, because hosted runner minutes are free for public repositories and are not for private ones, and for several days the rule was simply broken: any stranger's pull request could have built and run its code on this laptop behind one "Approve and run" click. Found in the 2026-09-19 review; no fork existed and every run was the owner's.
 - What keeps strangers' code off the laptop is **three repository settings, not anything in a workflow file.** A pull request runs its own copy of the workflows, so a guard written in one can be deleted by the pull request it is guarding against, and a stranger can add a new workflow that targets the laptop's label. The settings live where a pull request cannot reach:
   - *Settings → General → Pull requests:* only collaborators may open them (`pull_request_creation_policy = collaborators_only`). This is the one that matters. The repository is public to read and closed to contribute.
   - *Settings → Actions → General → Fork pull request workflows:* require approval for **all** outside contributors, not only first-time ones. If the first setting is ever loosened, nothing from a fork runs without a click.
   - *Settings → Actions → General → Actions permissions:* GitHub-owned actions only. Actions run on the laptop too.
-- **Before loosening any of those, take the runner offline or set `HW_RUNNER=false`.** Accepting outside contributions and having this laptop attached are not compatible, and the second lock in the workflows — laptop jobs skip pull requests from forks — is there for the day somebody forgets, not as a substitute.
+- **Before loosening any of those, take the runner offline or set `HW_RUNNER=false`.** Accepting outside contributions and having this laptop attached are not compatible, and the second lock in the workflows (laptop jobs skip pull requests from forks) is there for the day somebody forgets, not as a substitute.
 - Never click "Approve and run" on a pull request you have not read. Approval is the last barrier, and what it approves is code execution on a machine in your house.
 - The remaining risk is a compromised dependency running during a build on the laptop. That was equally true when the repository was private.
 - Autologon stores the account password as an LSA secret. Use a local account that isn't used anywhere else.
 - **Keep the laptop signed out of everything**, the browser above all. It should hold nothing worth stealing. The review found Chrome on it signed in to GitHub as the owner, which would have turned code execution on the laptop into the owner's GitHub account.
 - CI captures the laptop's desktop, and artifacts on a public repository can be downloaded by anyone signed in to GitHub. The laptop jobs delete every image before uploading and keep what is left for seven days; the verdicts are text. One artifact uploaded before this showed the owner's browser, and all of the laptop's earlier artifacts were deleted on 2026-09-19.
+
+## Writing Windows tests
+
+The Windows-only suite (`client/ScreenTail.Tests.Windows`) runs its tests one at a time in one process, because they share the desktop (`AssemblyInfo.cs` says why). Some WPF rules follow from that one process:
+
+- **Only one WPF `Application` can exist per process,** and once it shuts down no XAML component loads again. `PrivacyViewModelTests` owns it and runs last, through `WpfApplicationOwner` and the collection orderer in `AssemblyInfo.cs`. A new test that makes an `Application` must join that collection.
+- **A WPF items control with no presentation source makes no item containers,** so a test that reads them gets nulls. Host the control in a hidden `HwndSource` (`Review/UiThread.Hosted`).
+- **Once anything in the process is DPI aware, text is drawn at the screen's scale.** The laptop's screen is scaled, so OCR fixtures are drawn at a fixed 96 dpi (`OcrTests`) rather than whatever the process happens to be using.
+- **The skip budgets are full** (hosted 10 of 10, `laptop-capabilities` 4 of 4). A new Windows test must run on every job, not skip.
