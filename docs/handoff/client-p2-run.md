@@ -1,65 +1,102 @@
-# Client P2 run: handoff (as of 2026-10-25, 11:00 CDT)
+# Client P2 run: handoff (as of 2026-10-26, 00:30 UTC)
 
-The 2026-10-12 review's client P2 findings are being fixed in nine groups, one branch and one PR each.
+The 2026-10-12 review's client P2 findings were fixed in nine groups, one branch and one PR each. Eight are
+merged; one PR (#214, c5 redaction) is reviewed, approved, up to date with main and waits only on the spare
+laptop's CI job.
 The review text itself is private and stays on the owner's Mac (`docs/review/*.local.md`, untracked). It is
-not needed to continue: each branch's commits say what was fixed, and the open items below say what is left.
-Never copy review findings, or any description of how to get past a control, into this public repo.
+not needed to continue. Never copy review findings, or any description of how to get past a control, into
+this public repo.
+
+## Resuming from a terminal (read this first)
+
+1. `git fetch origin` and look at PR #214: `ci-ok` must be green on its current head.
+2. If its laptop jobs (`hardware-checks` workflow) are queued or failed, the laptop is the problem, not the
+   code: see "Spare laptop checklist" below, ask the owner to fix it, then re-run the failed jobs of both
+   the `hardware-checks` run and the `ci` run (the `Hardware evidence` job waits 35 minutes for the laptop).
+3. If main has moved since #214 was last updated, merge main into `st-042-redaction-p2` (a merge commit,
+   never a rebase or force-push), build and run the tests, push, and wait for CI again.
+4. On a green `ci-ok`, squash-merge #214 with the title and message in "c5 squash message" below, word for
+   word.
+5. Then: close out the run (see "When the run is done").
 
 ## Where each group stands
 
-Heads move: always `git fetch origin` and work from the branch's latest commit.
+| Group | Branch | PR | Laptop | State |
+| --- | --- | --- | --- | --- |
+| c4 pipe | st-004-ipc-p2 | #207 | yes | merged |
+| c9 sessions, input, CI | st-020-sessions-input-p2 | #208 | yes | merged |
+| c2 review, publish | st-075-review-publish-p2 | #210 | yes | merged |
+| c3 settings, net | st-046-settings-net-p2 | #215 | no | merged |
+| c7 store, host | st-049-store-host-p2 | #213 | yes | merged |
+| c1 shell, HUD | st-070-shell-hud-p2 | #211 | yes | merged |
+| c6 speech | st-027-speech-p2 | #212 | yes | merged |
+| c8 capture, detection | st-022-capture-detection-p2 | #216 | yes | merged |
+| c5 redaction | st-042-redaction-p2 | #214 | yes | approved; main merged in at 267ed6d; hosted checks green; laptop job pending |
 
-| Group | Branch | Ticket | Laptop | State | Next |
-| --- | --- | --- | --- | --- | --- |
-| c4 pipe | st-004-ipc-p2 | ST-004 | yes | PR #207 open, reviewed and approved, hosted checks green | merge once the laptop job is green |
-| c9 sessions, input, CI | st-020-sessions-input-p2 | ST-020 | yes | PR #208 open, reviewed twice, last gap fixed | merge once all checks are green |
-| c1 shell, HUD | st-070-shell-hud-p2 | ST-070 | yes | review asked for changes; fix round in progress | finish the fix round (below), re-review, open PR |
-| c2 review, publish | st-075-review-publish-p2 | ST-075 | no | PR #210 open, review findings fixed | let the hosted Windows run settle the UI tests (the two key tests and the KeyDown control); merge on green |
-| c3 settings, net | st-046-settings-net-p2 | ST-046 | no | review asked for changes; fix round in progress | finish the fix round, re-review, open PR |
-| c5 redaction | st-042-redaction-p2 | ST-042 | yes | still being built | see the c5 rule below |
-| c6 speech | st-027-speech-p2 | ST-027 | yes | built; in review | review, then fix round or PR |
-| c7 store, host | st-049-store-host-p2 | ST-049 | yes | built; in review | review, then fix round or PR |
-| c8 capture, detection | st-022-capture-detection-p2 | ST-022 | yes | review found a blocker; fix round in progress | finish the fix round, re-review, open PR |
+"Laptop yes" means `ci-ok` waits for the self-hosted laptop runner (SCREENTRAIL, label `screentail-win`).
 
-"Laptop yes" means the PR touches hardware-gated paths, so `ci-ok` waits for the self-hosted laptop runner
-(SCREENTRAIL, label `screentail-win`). If it is offline, gated PRs wait; ask the owner to turn the laptop on.
+## Spare laptop checklist (SCREENTRAIL)
 
-## Open items per group
+Every laptop failure on 2026-10-25 was the machine, not the code. Before re-running, make sure:
 
-- **c1:** Settings must reload when the service reconnects (and never over unsaved edits); the pill's
-  re-dock must use real monitor rectangles like the on-screen check; add the Quit test
-  (`QuittingWhileConnectedClosesThePillAndTheIconWithoutThrowing`, a Window on an STA thread needs no
-  Application); dispose the connection even if closing the pill throws; honour the current local-only
-  setting when Review opens; replace the em dashes in the pill and tray status strings; update the INV-4
-  wording in IndicatorReports.cs, IpcMessages.cs and docs/ipc-contract.md to match the decision below; the
-  PR body must say it needs the laptop.
-- **c2:** done except what the hosted Windows run shows. If the detached-control key tests fail there, give them a real STA host that needs no Application.
-- **c3:** the draft sender must save a paid draft before writing its audit row, and the audit row must
-  accept IPv6-literal and internationalised hosts; widen the release-surface check for unguarded network
-  types (target-typed and initializer construction, subclasses, raw sockets, string-aware comment
-  stripping) with a self-test per shape; add a backend-suite mirror of the style-hint test (do not edit
-  ci.yml); a zero or past Retry-After uses the default hold; clamp the hold on read; return the hold as
-  the 402/501 Retry-After; a not-attempted outcome must not fail an outbox item; tighten the sample-window
-  check; a dated ST-064 Status note.
-- **c5 rule:** a redaction change must be at least as strict as main. The builder must prove it
-  mechanically: run every pattern test input and a broad generated corpus through main's PatternLibrary and
-  the branch's, and show zero inputs that main masks and the branch does not. Two earlier attempts loosened
-  the spoken-password walk (an automated security review caught both). If the proof cannot be made,
-  revert only the unproven behaviour and keep the tests.
-- **c6 review focus:** speech under way when capture is suppressed (a password field or excluded app takes
-  focus) or when an out-of-scope window comes to the front must be dropped, never kept; keeping it there is a
-  blocker whatever the docs say. Also the idle model unload's native lifetime and the open-sentence backlog
-  count.
-- **c7 review focus:** the erase marker must never let the service start while the store, its key, a
-  credential or the IPC token is owed; refused saves for discarded sessions must not wedge finalize; the
-  outbox's wait for a first policy fetch must not deadlock, and must fit c3's outbox change.
-- **c8 (blocker):** the auto-stop grace must run from when the tool LOSES focus. On the branch, a
-  technician working inside a tool is stopped after the grace, and a manual start outside any tool dies after
-  it; main keeps both running. Refresh the trigger on each tick while a remote tool (or a manual session's
-  own window) is in front; add `ASessionInTheToolPastTheGraceKeepsRunning`. Also: elevation is "above the
-  service's own level, or High while the service runs at Medium" (UAC-off machines must still capture);
-  any foreign window above the target counts as cover, not only topmost ones; dated ST-022/ST-023 Status
-  notes.
+- **The runner is running.** If jobs sit "queued", the runner is not connected: on the laptop, Windows+R,
+  `C:\actions-runner2\run.cmd`, and wait for "Listening for Jobs". Closing that window stops the runner.
+- **It does not sleep or lock.** Settings, System, Power: never sleep when plugged in.
+- **Smart App Control is off.** With it on, Windows refuses freshly built files ("An Application Control
+  policy has blocked this file", 0x800711C7) and no test runs. The owner turned it off on 2026-10-25.
+  Check: `reg query HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, VerifiedAndReputablePolicyState
+  must be 0x0.
+- **Nothing elevated is in front, and nobody touches it.** The input-injection job clicks and types; an
+  admin window in front (PowerShell, Settings, Event Viewer) swallows the injected clicks, and
+  `InputHookTests.HooksComeBackForTheSecondSession` fails with an empty collection. Leave it on the plain
+  desktop.
+
+## c5 squash message
+
+Some c5 branch commit messages quantify or give an example of masking gaps that are still open. They are
+public on the branch already; keep them out of main by merging with exactly this:
+
+- Title: `fix(privacy): the spoken-password walk masks more, never less, than before, and a login screen is recognised in more wordings (#214)`
+- Message:
+
+  ```
+  The spoken-password walk carries on through more clause and filler words after a cue and masks through
+  to the secret where it used to stop short. Wherever the old walk masked, the new one starts at the same
+  word and masks at least as far; it only acts where the old one masked nothing. The login-screen
+  heuristic recognises more wordings and keeps every word it had. SpokenPasswordFloorTests keeps a frozen
+  copy of the old walk and fails on any character it masks that the live library does not.
+
+  Refs: ST-042
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  ```
+
+## When the run is done
+
+- Update `docs/STATUS.md` (it is a 2026-09-28 snapshot), delete this handoff note and its pointer in
+  CLAUDE.md, in one docs PR.
+- The next milestone is M1, the first real end-to-end session on the laptop: `docs/dev/first-draft-end-to-end.md`.
+
+## Decisions waiting for the owner (fail-closed defaults are in place)
+
+- #211: the pill and tray say "Paused: ..." with a colon, not the spec's em dash. Confirm or give wording.
+- #216: a session inside a remote tool never times out while the tool stays in front (main stopped it after
+  the grace). Should there be an input-idle limit?
+- #216: elevation is relative to the service's own level; a service started elevated with UAC on would
+  capture elevated windows. Add a token elevation-type check?
+- #213: drafts, publishes and metrics wait for the first policy fetch with a token.
+- #215: with no backend configured, an outbox item fails after a day rather than waiting quietly.
+
+## Lessons from merging (keep for later runs)
+
+- Only one WPF Application can exist per process, and once it shuts down no XAML component loads again.
+  `PrivacyViewModelTests` owns it and runs last through `WpfApplicationOwner` and the collection orderer in
+  `ScreenTail.Tests.Windows/AssemblyInfo.cs`. A new test that makes an Application must join that collection.
+- A WPF items control with no presentation source makes no item containers: host it in a hidden
+  `HwndSource` (`Review/UiThread.Hosted`).
+- `Hardware evidence` waits 35 minutes for the laptop. Cancel stale queued laptop runs of PRs that will be
+  updated anyway, so the PR being merged is not starved.
+- One re-run per suspected flake: `AuditExportOverThePipeTests` timed out once on the hosted runner and
+  passed on re-run.
 
 ## Decisions already taken by the owner
 
@@ -95,6 +132,10 @@ Heads move: always `git fetch origin` and work from the branch's latest commit.
 
 - .NET 10 SDK: `curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0`, then
   `$HOME/.dotnet/dotnet`. The whole client solution compiles off Windows: `dotnet build client/ScreenTail.sln`.
+  Where dot.net is blocked by the proxy, `apt-get install -y dotnet-sdk-10.0` works; that SDK band flags a
+  CA1869 in ScreenTail.Service that CI's does not, so build locally with `-p:NoWarn=CA1869` and never commit
+  a change for it.
+- As root, five `EraseEverythingTests` fail (a delete cannot be refused to root); they pass as a normal user.
 - Runnable tests: `dotnet client/ScreenTail.Tests/bin/Debug/net10.0/ScreenTail.Tests.dll` (xunit v3; filter
   with `-method "*Name*"` or `-class "*Class*"`). Backend: `backend/tests/ScreenTail.Api.Tests` the same way.
   Research: `python -m pytest` in `research/`.
