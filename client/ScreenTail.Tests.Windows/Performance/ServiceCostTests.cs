@@ -48,9 +48,9 @@ public sealed class ServiceCostTests
 
     private static bool Counts => Hardware.PerformanceCounts;
 
-    private static TimeSpan Slice => Counts ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(1);
+    private static TimeSpan Slice => Counts ? TimeSpan.FromSeconds(5) : TimeSpan.FromMilliseconds(500);
 
-    private static TimeSpan SettleFor => Counts ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(2);
+    private static TimeSpan SettleFor => Counts ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(1);
 
     [Fact]
     public async Task WithNoSessionTheServiceIsAlmostSilent()
@@ -125,7 +125,7 @@ public sealed class ServiceCostTests
                         window.ShowContrast(second % 4 == 0 ? ContrastLayout.SideBySide : ContrastLayout.Stacked);
                     }
 
-                    if (second % 6 == 0)
+                    if (second % 6 == 1)
                     {
                         var image = frames[staged % frames.Count];
                         var frame = new StagedFrame(Guid.NewGuid().ToString("N"), rig.Machine.NowMs, FrameTrigger.Click, 1920, 1080, null, image);

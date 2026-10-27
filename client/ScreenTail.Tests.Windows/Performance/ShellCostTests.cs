@@ -25,9 +25,9 @@ public sealed class ShellCostTests
 
     private static bool Counts => Hardware.PerformanceCounts;
 
-    private static TimeSpan Slice => Counts ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(1);
+    private static TimeSpan Slice => Counts ? TimeSpan.FromSeconds(5) : TimeSpan.FromMilliseconds(500);
 
-    private static TimeSpan SettleFor => Counts ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(2);
+    private static TimeSpan SettleFor => Counts ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(1);
 
     [Fact]
     public async Task WithNoSessionTheShellIsAlmostSilent()
