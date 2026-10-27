@@ -4,28 +4,30 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 using ScreenTail.Core.Install;
 using ScreenTail.Platform.Ipc;
 
 namespace ScreenTail.Service.Install;
 
 /// <summary>
-/// The uninstaller's own step (ST-112, ADR-0007): what an installed ScreenTail leaves outside its folder,
-/// removed once for the whole machine.
+/// The uninstaller's own step (ST-112, ADR-0007): what an installed ScreenTail made outside its folder,
+/// for every user, cleared once for the whole machine.
 ///
 /// Windows Installer removes what it installed: the files, the machine Run value, the shortcut. It does
-/// not know about what the product made afterwards, per user: every technician's data folder (the
+/// not know about what the product made afterwards, per user: each technician's data folder (the
 /// encrypted store, its key, the device's refresh token, the speech models, settings, crash reports) and
-/// the Run value the UI writes for "Start UI at login". The ticket says an uninstall leaves nothing, and
-/// INV-12 says the tokens go with the data, so the installer runs this, as the system account, after it
-/// has closed every running copy and before it removes the files. Never during an upgrade: the package's
-/// condition sees to that, and InstallerAuthoringTests holds it.
+/// the Run value the UI writes for "Start UI at login". The installer runs this as the system account,
+/// after it has closed every running copy and before it removes the files, and never during an upgrade.
 ///
-/// It deletes in folders that other users own, with the system account's rights, so it is careful about
-/// what it follows. Every path is worked out by <see cref="InstalledFootprint"/>, which skips anything
-/// it cannot read plainly; a folder that is a link, or sits under one, is left alone; the delete never
-/// descends into a link; and where Windows offers it, the process refuses to follow junctions that an
-/// ordinary user made. What it prints is counts, never a path or a name (INV-10).
+/// The system account deletes nothing inside a user's profile on its own account.
+/// <see cref="InstalledFootprint.PlanDataRemoval"/> decides: a folder is deleted only for a user who is
+/// signed in, and the delete runs under that user's own token, so it has no more rights than the folder's
+/// owner whatever the folder turns out to point at. A link anywhere between the profile and the folder
+/// leaves it alone, checked again under the owner's token just before the delete. A user who is not
+/// signed in keeps their folder; it is counted in what this prints, which the installer writes into its
+/// log, and the operator doc says that the in-app "Delete everything" is how a technician erases their
+/// own data (INV-12). What it prints is counts, never a path or a name (INV-10).
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class UninstallCleanup
@@ -38,14 +40,14 @@ internal static class UninstallCleanup
         Path.GetFileNameWithoutExtension(InstalledFootprint.UiExecutable),
     ];
 
-    /// <returns>0 when everything is gone, 1 when something was left, 2 when it was not allowed to run.</returns>
+    /// <returns>0 when nothing was left, 1 when something was, 2 when it was not allowed to run.</returns>
     public static int Run(TextWriter output)
     {
         ArgumentNullException.ThrowIfNull(output);
 
-        // For the uninstaller, which runs it as the system account. An ordinary user who found the flag
-        // gets a sentence and nothing removed: "delete everything" for one person is the Settings button,
-        // which asks first.
+        // For the uninstaller, which runs it as the system account: holding another user's token needs
+        // that account's privilege anyway. An ordinary user who found the flag gets a sentence and
+        // nothing removed; "delete everything" for one person is the Settings button, which asks first.
         using (var identity = WindowsIdentity.GetCurrent())
         {
             if (!identity.IsSystem && !new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
@@ -55,23 +57,37 @@ internal static class UninstallCleanup
             }
         }
 
-        var guarded = RedirectionGuard.TryEnable();
         var installDirectory = AppContext.BaseDirectory;
-
         var stopped = StopInstalledCopies(installDirectory);
-        var (foldersRemoved, foldersLeft) = RemoveDataFolders();
+
+        var decisions = new Dictionary<DataFolderAction, int>();
+        var failed = 0;
+        foreach (var (action, ok) in RemoveDataFolders())
+        {
+            decisions[action] = decisions.GetValueOrDefault(action) + 1;
+            failed += ok ? 0 : 1;
+        }
+
         var (valuesRemoved, valuesLeft) = RemoveRunValues(installDirectory);
 
+        var deleted = decisions.GetValueOrDefault(DataFolderAction.DeleteAsOwner) - failed;
+        var notSignedIn = decisions.GetValueOrDefault(DataFolderAction.LeaveNotSignedIn);
+        var linked = decisions.GetValueOrDefault(DataFolderAction.LeaveLinked);
+        var unreadable = decisions.GetValueOrDefault(DataFolderAction.LeaveUnreadablePath);
+        output.WriteLine($"ScreenTail uninstall: {stopped} running copies stopped.");
+        output.WriteLine($"ScreenTail uninstall: {deleted} data folders deleted as their signed-in owner, {failed} could not be deleted.");
         output.WriteLine(
-            $"ScreenTail uninstall: {stopped} running copies stopped, {foldersRemoved} data folders removed, {foldersLeft} left, "
-            + $"{valuesRemoved} Run values removed, {valuesLeft} left, junction guard {(guarded ? "on" : "not available on this Windows")}.");
-        return foldersLeft == 0 && valuesLeft == 0 ? 0 : 1;
+            $"ScreenTail uninstall: left in place: {notSignedIn} data folders whose owner is not signed in, {linked} reached through a link, "
+            + $"{unreadable} profiles whose path could not be read plainly. A technician erases their own data with Delete everything in Settings.");
+        output.WriteLine($"ScreenTail uninstall: {valuesRemoved} Run values removed, {valuesLeft} could not be removed.");
+
+        return failed + notSignedIn + linked + unreadable + valuesLeft == 0 ? 0 : 1;
     }
 
     /// <summary>
     /// Every service and UI started from this installation, in every session. The installer has already
-    /// asked them to close; this is for one that started since, and it is what lets the store be deleted,
-    /// since an open database file cannot be.
+    /// closed them; this is for one that started since, and it is what lets a store be deleted, since an
+    /// open database file cannot be.
     /// </summary>
     private static int StopInstalledCopies(string installDirectory)
     {
@@ -113,133 +129,146 @@ internal static class UninstallCleanup
         return stopped;
     }
 
-    private static (int Removed, int Left) RemoveDataFolders()
+    /// <summary>Each profile's decision, and for a delete whether it happened.</summary>
+    private static IEnumerable<(DataFolderAction Action, bool Done)> RemoveDataFolders()
     {
-        var removed = 0;
-        var left = 0;
-        foreach (var (profile, data) in DataFolders())
+        var owners = SignedInUsers();
+        try
         {
-            if (!Directory.Exists(data))
+            var plan = InstalledFootprint.PlanDataRemoval(Profiles(), owners.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), Probe);
+            foreach (var decision in plan)
             {
-                continue;
-            }
+                if (decision.Action != DataFolderAction.DeleteAsOwner)
+                {
+                    yield return (decision.Action, true);
+                    continue;
+                }
 
-            if (PassesThroughALink(profile, data))
-            {
-                left++;
-                continue;
-            }
-
-            if (TryDelete(data))
-            {
-                removed++;
-            }
-            else
-            {
-                left++;
+                var done = WindowsIdentity.RunImpersonated(owners[decision.Sid].AccessToken, () => DeleteAsOwner(decision.Profile!, decision.Folder!));
+                yield return (decision.Action, done);
             }
         }
-
-        return (removed, left);
+        finally
+        {
+            foreach (var owner in owners.Values)
+            {
+                owner.Dispose();
+            }
+        }
     }
 
-    /// <summary>Every profile Windows has on this machine, paired with its ScreenTail data folder.</summary>
-    private static IEnumerable<(string Profile, string Data)> DataFolders()
+    /// <summary>
+    /// Runs as the folder's owner. The link check is asked again here, under the owner's token, and the
+    /// delete only follows it; whatever happens between the two, the delete can do nothing its owner
+    /// could not. .NET's recursive delete removes a link it meets inside rather than descending into it.
+    /// </summary>
+    private static bool DeleteAsOwner(string profile, string folder)
     {
+        if (InstalledFootprint.BelowProfile(profile).Select(Probe).Contains(PathState.Link))
+        {
+            return false;
+        }
+
+        try
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Reported as could-not-delete; the owner's own Delete everything is the way out.
+        }
+
+        return !Directory.Exists(folder);
+    }
+
+    /// <summary>What a folder is, without following it.</summary>
+    private static PathState Probe(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            // A file where a folder should be is left alone along with a link: neither is ours to clear.
+            return attributes.HasFlag(FileAttributes.ReparsePoint) || !attributes.HasFlag(FileAttributes.Directory)
+                ? PathState.Link
+                : PathState.Folder;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return PathState.Missing;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Cannot tell, so it is treated as the case that is left alone.
+            return PathState.Link;
+        }
+    }
+
+    /// <summary>Every profile Windows lists on this machine: its owner and its folder.</summary>
+    private static List<KeyValuePair<string, string?>> Profiles()
+    {
+        var profiles = new List<KeyValuePair<string, string?>>();
         using var list = Registry.LocalMachine.OpenSubKey(ProfileList);
         if (list is null)
         {
-            yield break;
+            return profiles;
         }
 
         foreach (var sid in list.GetSubKeyNames())
         {
             using var entry = list.OpenSubKey(sid);
 
-            // REG_EXPAND_SZ, expanded by GetValue. InstalledFootprint skips anything that is still not a
-            // plain local folder after that.
-            var profile = entry?.GetValue("ProfileImagePath") as string;
-            foreach (var data in InstalledFootprint.DataDirectories([profile]))
-            {
-                yield return (profile!.Trim(), data);
-            }
+            // REG_EXPAND_SZ, expanded by GetValue. The plan leaves anything that is still not a plain
+            // local folder after that.
+            profiles.Add(new(sid, entry?.GetValue("ProfileImagePath") as string));
         }
+
+        return profiles;
     }
 
     /// <summary>
-    /// Whether any folder from just below the profile down to the data folder is a link (a junction or a
-    /// symbolic link). The profile folder itself is Windows' own; everything under it is the user's, and
-    /// a link there would point this delete at somebody else's files.
+    /// The identity of every user with a session on this machine, keyed by their security identifier.
+    /// Asking for a session's token needs the system account's privilege; for anybody else this is
+    /// empty, and the plan then deletes nothing.
     /// </summary>
-    private static bool PassesThroughALink(string profile, string data)
+    private static Dictionary<string, WindowsIdentity> SignedInUsers()
     {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(profile));
-        for (var current = new DirectoryInfo(data); current is not null; current = current.Parent)
+        var users = new Dictionary<string, WindowsIdentity>(StringComparer.OrdinalIgnoreCase);
+        if (!WTSEnumerateSessions(IntPtr.Zero, 0, 1, out var sessions, out var count))
         {
-            if (string.Equals(Path.TrimEndingDirectorySeparator(current.FullName), root, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (current.Attributes.HasFlag(FileAttributes.ReparsePoint))
-            {
-                return true;
-            }
+            return users;
         }
-
-        // Walked to the drive without meeting the profile: not a folder under it at all.
-        return true;
-    }
-
-    /// <summary>
-    /// Deletes the folder and everything in it. .NET's recursive delete removes a link it meets instead
-    /// of descending into it. A read-only file stops it, so a first failure clears that attribute on
-    /// what is left (without following links either) and tries once more.
-    /// </summary>
-    private static bool TryDelete(string folder)
-    {
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            try
-            {
-                Directory.Delete(folder, recursive: true);
-                return true;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                if (attempt == 0)
-                {
-                    ClearReadOnly(folder);
-                }
-            }
-        }
-
-        return !Directory.Exists(folder);
-    }
-
-    private static void ClearReadOnly(string folder)
-    {
-        var options = new EnumerationOptions
-        {
-            RecurseSubdirectories = true,
-            AttributesToSkip = FileAttributes.ReparsePoint,
-            IgnoreInaccessible = true,
-        };
 
         try
         {
-            foreach (var file in new DirectoryInfo(folder).EnumerateFiles("*", options))
+            var size = Marshal.SizeOf<WtsSessionInfo>();
+            for (var i = 0; i < count; i++)
             {
-                if (file.Attributes.HasFlag(FileAttributes.ReadOnly))
+                var session = Marshal.PtrToStructure<WtsSessionInfo>(sessions + (i * size));
+                if (!WTSQueryUserToken(session.SessionId, out var token))
                 {
-                    file.Attributes &= ~FileAttributes.ReadOnly;
+                    continue;
+                }
+
+                using (token)
+                {
+                    var identity = new WindowsIdentity(token.DangerousGetHandle());
+                    if (identity.User?.Value is { } sid && !users.ContainsKey(sid))
+                    {
+                        users[sid] = identity;
+                    }
+                    else
+                    {
+                        identity.Dispose();
+                    }
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        finally
         {
-            // The retry reports what is left.
+            WTSFreeMemory(sessions);
         }
+
+        return users;
     }
 
     /// <summary>
@@ -290,25 +319,25 @@ internal static class UninstallCleanup
         return (removed, left);
     }
 
-    /// <summary>
-    /// Windows 11's redirection guard: this process stops following file-system junctions that a
-    /// non-administrator created. It is the part of the careful delete that does not depend on checking
-    /// first and deleting second. Older Windows does not have it, and says so by refusing the call.
-    /// </summary>
-    private static class RedirectionGuard
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WtsSessionInfo
     {
-        private const int ProcessRedirectionTrustPolicy = 16;
-        private const uint EnforceRedirectionTrust = 1;
-
-        public static bool TryEnable()
-        {
-            var flags = EnforceRedirectionTrust;
-            return SetProcessMitigationPolicy(ProcessRedirectionTrustPolicy, ref flags, sizeof(uint));
-        }
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetProcessMitigationPolicy(int policy, ref uint buffer, nuint length);
+        public int SessionId;
+        public IntPtr WinStationName;
+        public int State;
     }
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSEnumerateSessions(IntPtr server, int reserved, int version, out IntPtr sessions, out int count);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSQueryUserToken(int sessionId, out SafeAccessTokenHandle token);
+
+    [DllImport("wtsapi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern void WTSFreeMemory(IntPtr memory);
 }

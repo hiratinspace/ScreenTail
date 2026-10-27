@@ -79,13 +79,18 @@ public sealed class InstallerAuthoringTests
     [Fact]
     public void TheRemovalRunsOnceForTheMachineAsTheSystemAccount()
     {
-        // Deferred and not impersonated: it has to reach every profile on the machine, and it runs the
-        // installed service's own uninstall mode, which refuses to run for anybody but an administrator.
+        // Deferred and not impersonated: only the system account may hold a signed-in user's token, which
+        // is what each user's folder is deleted with. It runs the installed service's own uninstall mode,
+        // which refuses to run for anybody but an administrator, through WixQuietExec so what it reports
+        // (how many folders it deleted and how many it left) is in the uninstall log.
         var action = RemovalAction();
 
         Assert.Equal("deferred", (string?)action.Attribute("Execute"));
         Assert.Equal("no", (string?)action.Attribute("Impersonate"));
-        Assert.Equal("INSTALLFOLDER", (string?)action.Attribute("Directory"));
+        Assert.Equal("WixQuietExec", (string?)action.Attribute("DllEntry"));
+        Assert.Equal(
+            $"\"[INSTALLFOLDER]{InstalledFootprint.ServiceExecutable}\" {InstalledFootprint.UninstallFlag}",
+            (string?)Package().Descendants(Wix + "SetProperty").Single(p => (string?)p.Attribute("Id") == (string?)action.Attribute("Id")).Attribute("Value"));
 
         // Ignored rather than checked: a data folder that cannot be removed should not leave the product
         // half uninstalled. The smoke test in CI is what notices one that was left.
@@ -199,8 +204,13 @@ public sealed class InstallerAuthoringTests
         Assert.True(mode > 0 && mode < mutex, "the uninstall mode is dispatched before the single-instance mutex is taken");
     }
 
-    private static XElement RemovalAction() =>
-        Package().Descendants(Wix + "CustomAction").Single(a => ((string?)a.Attribute("ExeCommand"))?.Contains(InstalledFootprint.UninstallFlag, StringComparison.Ordinal) == true);
+    /// <summary>The custom action whose command line (set, for a deferred action, by a property of its name) is the uninstall mode.</summary>
+    private static XElement RemovalAction()
+    {
+        var command = Package().Descendants(Wix + "SetProperty")
+            .Single(p => ((string?)p.Attribute("Value"))?.Contains(InstalledFootprint.UninstallFlag, StringComparison.Ordinal) == true);
+        return Package().Descendants(Wix + "CustomAction").Single(a => (string?)a.Attribute("Id") == (string?)command.Attribute("Id"));
+    }
 
     private static XDocument Package() => XDocument.Load(Repo.File("installer", "Package.wxs"));
 

@@ -6,10 +6,11 @@ namespace ScreenTail.Core.Install;
 /// What an installed ScreenTail puts on a machine outside its own folder, and how the uninstall finds it
 /// again (ST-112, ADR-0007).
 ///
-/// The installer is per machine. Its uninstall runs once, as the system account, and must leave nothing
-/// behind (INV-12): every technician's data folder under their local app data, and every Run value the UI
-/// wrote for "Start UI at login". It cannot ask Windows for "the" user's folders, because there is no
-/// one user; it reads every profile and works the paths out itself.
+/// The installer is per machine. Its uninstall runs once, as the system account, and clears what each
+/// technician's ScreenTail made outside the install folder: their data folder under their local app data
+/// and any Run value the UI wrote for "Start UI at login". It cannot ask Windows for "the" user's folders,
+/// because there is no one user; it reads every profile and works the paths out itself. Which folders it
+/// may delete, and with whose rights, is <see cref="PlanDataRemoval"/>'s decision.
 ///
 /// The paths are Windows paths handled as text, so the rules hold on any machine the tests run on. And
 /// the rule for anything the uninstall will delete is that it is never a guess: a path this cannot read
@@ -43,24 +44,63 @@ public static class InstalledFootprint
     private static readonly SearchValues<char> NotInAPath = SearchValues.Create("\"<>|*?:%");
 
     /// <summary>
-    /// Each profile's ScreenTail data folder, once each, for the profile folders Windows lists. A profile
-    /// path that is not a plain local folder is skipped.
+    /// What the uninstall does with each profile's data folder. The uninstall runs as the system account
+    /// and every folder under a profile is its owner's to change, so the system account deletes nothing
+    /// there on its own account: a folder is deleted only for a user who is signed in, with that user's
+    /// token, so whatever the folder turns out to point at, the delete has no more rights than its owner.
+    /// A link anywhere from just below the profile down to the data folder leaves it alone, and so does a
+    /// profile path that cannot be read plainly. Everything left is reported, never silently skipped.
     /// </summary>
-    public static IReadOnlyList<string> DataDirectories(IEnumerable<string?> profileDirectories)
+    /// <param name="profiles">Each profile's owner (a security identifier) and folder, as Windows lists them.</param>
+    /// <param name="signedIn">The owners who have a session on the machine now, whose tokens the uninstall holds.</param>
+    /// <param name="probe">What a folder is, asked without following it.</param>
+    public static IReadOnlyList<DataFolderDecision> PlanDataRemoval(
+        IEnumerable<KeyValuePair<string, string?>> profiles,
+        IReadOnlySet<string> signedIn,
+        Func<string, PathState> probe)
     {
-        ArgumentNullException.ThrowIfNull(profileDirectories);
+        ArgumentNullException.ThrowIfNull(profiles);
+        ArgumentNullException.ThrowIfNull(signedIn);
+        ArgumentNullException.ThrowIfNull(probe);
 
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var directories = new List<string>();
-        foreach (var profile in profileDirectories)
+        var decisions = new List<DataFolderDecision>();
+        foreach (var (sid, path) in profiles)
         {
-            if (Normalise(profile) is { } folder && seen.Add(folder))
+            if (Normalise(path) is not { } profile)
             {
-                directories.Add(folder + @"\" + DataUnderProfile);
+                decisions.Add(new DataFolderDecision(sid, null, null, DataFolderAction.LeaveUnreadablePath));
+                continue;
             }
+
+            var below = BelowProfile(profile);
+            var folder = below[^1];
+            var states = below.Select(probe).ToList();
+            var action = states.Contains(PathState.Link) ? DataFolderAction.LeaveLinked
+                : states[^1] == PathState.Missing ? DataFolderAction.Absent
+                : !signedIn.Contains(sid) ? DataFolderAction.LeaveNotSignedIn
+                : DataFolderAction.DeleteAsOwner;
+            decisions.Add(new DataFolderDecision(sid, profile, folder, action));
         }
 
-        return directories;
+        return decisions;
+    }
+
+    /// <summary>
+    /// The folders from just below the profile down to the data folder: the ones a user could replace
+    /// with a link. The profile folder itself is Windows' own, in a folder only administrators change.
+    /// </summary>
+    public static IReadOnlyList<string> BelowProfile(string profile)
+    {
+        var root = Normalise(profile) ?? throw new ArgumentException("Not a plain local folder.", nameof(profile));
+        var folders = new List<string>();
+        var current = root;
+        foreach (var segment in DataUnderProfile.Split('\\'))
+        {
+            current += @"\" + segment;
+            folders.Add(current);
+        }
+
+        return folders;
     }
 
     /// <summary>

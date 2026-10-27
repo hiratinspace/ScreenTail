@@ -18,19 +18,18 @@ public sealed class InstalledFootprintTests
     [Fact]
     public void EveryProfileHasItsDataFolderUnderLocalAppData()
     {
-        var directories = InstalledFootprint.DataDirectories([@"C:\Users\ana", @"D:\Profiles\ben"]);
+        var folders = Folders(@"C:\Users\ana", @"D:\Profiles\ben");
 
-        Assert.Equal([@"C:\Users\ana\AppData\Local\ScreenTail", @"D:\Profiles\ben\AppData\Local\ScreenTail"], directories);
+        Assert.Equal([@"C:\Users\ana\AppData\Local\ScreenTail", @"D:\Profiles\ben\AppData\Local\ScreenTail"], folders);
     }
 
     [Fact]
     public void AProfilePathIsReadTheWayWindowsReadsIt()
     {
-        // A trailing separator, forward slashes and a doubled separator all name the same folder, and the
-        // same folder twice (Windows paths are case-insensitive) is one folder to remove, not two.
-        var directories = InstalledFootprint.DataDirectories([@"C:\Users\ana\", "C:/Users/ana", @"c:\users\ANA", @"C:\Users\\ben"]);
+        // A trailing separator, forward slashes and a doubled separator all name the same folder.
+        var folders = Folders(@"C:\Users\ana\", "C:/Users/ana", @"C:\Users\\ben");
 
-        Assert.Equal([@"C:\Users\ana\AppData\Local\ScreenTail", @"C:\Users\ben\AppData\Local\ScreenTail"], directories);
+        Assert.Equal([@"C:\Users\ana\AppData\Local\ScreenTail", @"C:\Users\ana\AppData\Local\ScreenTail", @"C:\Users\ben\AppData\Local\ScreenTail"], folders);
     }
 
     [Theory]
@@ -48,10 +47,13 @@ public sealed class InstalledFootprintTests
     [InlineData(@"C:\")]
     public void AProfilePathThatIsNotAPlainLocalFolderIsNotGuessedAt(string? profile)
     {
-        // The uninstall deletes what this returns, as the system account. A path it would have to
-        // interpret (unexpanded, relative, on another machine, climbing out with "..", naming an
-        // alternate stream) is skipped rather than resolved, so nothing it removes is a guess.
-        Assert.Empty(InstalledFootprint.DataDirectories([profile]));
+        // A path the uninstall would have to interpret (unexpanded, relative, on another machine,
+        // climbing out with "..", naming an alternate stream) is left alone rather than resolved, so
+        // nothing it touches is a guess.
+        var decision = Assert.Single(InstalledFootprint.PlanDataRemoval([new("S-1-5-21-1", profile)], new HashSet<string>(["S-1-5-21-1"]), _ => PathState.Folder));
+
+        Assert.Equal(DataFolderAction.LeaveUnreadablePath, decision.Action);
+        Assert.Null(decision.Folder);
     }
 
     [Theory]
@@ -123,4 +125,12 @@ public sealed class InstalledFootprintTests
         Assert.Empty(InstalledFootprint.RunValuesToRemove(values, @"C:\"));
         Assert.False(InstalledFootprint.IsInside(@"C:\Windows\notepad.exe", @"C:\"));
     }
+
+    private static string?[] Folders(params string[] profiles) =>
+        [
+            .. InstalledFootprint.PlanDataRemoval(
+                profiles.Select((p, i) => new KeyValuePair<string, string?>($"S-1-5-21-{i}", p)),
+                new HashSet<string>(),
+                _ => PathState.Folder).Select(d => d.Folder),
+        ];
 }
