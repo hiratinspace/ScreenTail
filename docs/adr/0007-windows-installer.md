@@ -4,8 +4,8 @@
   confirms the uninstall's treatment of technicians who are not signed in (below, "Upgrade and
   uninstall") before this leaves Proposed. Amends ADR-0003 in one place: an installed service starts
   from the machine's Run key, not the user's. Revised 2026-10-28 after review: the install folder is
-  fixed, signing credentials reach only the signing steps, and the uninstall removes the key and
-  credentials of technicians who are not signed in.
+  fixed, signing runs in a job of its own that runs no build code, and the uninstall removes the key
+  and credentials of technicians who are not signed in.
 - **Date:** 2026-10-27
 - **Ticket:** ST-112 (ST-113, auto-update, builds on it)
 - **Deciders:** project owner; build agent
@@ -69,7 +69,10 @@ later version. Moving up is a decision for the owner once there is revenue.
   without the runtime, with a message naming it, rather than install a service whose speech fails; an
   MSP that already deploys the runtime can use the MSI alone.
 - **`installer/build.ps1`** builds both, the same way on a developer's Windows machine and on CI:
-  whole, or one stage at a time (payload, package, setup program, reattach), and a stage never signs.
+  whole, or the payload alone (`-Stage Payload`, which never signs). Wrapping the payload is
+  **`installer/package.ps1`**, one step at a time (package, setup program, detach the engine, reattach
+  it), with WiX 5.0.2 and its Util and Bal extensions downloaded at the versions and SHA-256 hashes
+  pinned in `installer/tools.json`.
 
 ### How the processes are published
 
@@ -145,18 +148,43 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   signer, because the peer checks compare signers.
 - **Recommended: Azure Artifact Signing** (formerly Trusted Signing): no key to hold, and the
   certificate chains to a root Windows trusts. CI signs through **workload identity federation**: the
-  Azure app registration trusts this repository's `signing` environment, the signed job alone has
-  `id-token: write`, and `sign.ps1` exchanges the job's GitHub OIDC token. No client secret exists. A certificate on a hardware
-  token or a cloud HSM works too, through the Windows certificate store. No key file is supported: a
+  Azure app registration trusts this repository's `signing` environment, the signing job alone has
+  `id-token: write`, and `sign.ps1` exchanges the job's GitHub OIDC token. No client secret exists.
+  A certificate on a hardware token or a cloud HSM works too, through the Windows certificate store. No key file is supported: a
   private key in a file is the thing a public repository must never hold.
 - **Unconfigured, it signs nothing and says so**, listing what it would have signed. An unsigned build
   is a development build, and the peer checks treat it as one; nothing about them changed.
-- In CI the unsigned job runs everywhere; the signed job runs only on main, only when the repository
-  variable `SCREENTAIL_SIGNING` is `true`, in the `signing` environment. **The credential reaches only
-  the signing steps**: the build runs in stages with no signing setting in their environment, each
-  stage drops the OIDC request variables before running any build code (NuGet packages' build targets,
-  WiX, downloads), and a `sign.ps1` step between stages is the only place the token is asked for. A
-  check in the workflows job holds all of this.
+- **Each layer is signed before the next one wraps it.** The MSI carries the payload, and the setup
+  program carries the MSI and its own engine, so the order is fixed: sign the payload, build the MSI
+  from it, sign the MSI, build the setup program, detach its engine, sign the engine, reattach it, sign
+  the setup program, then check every file (`sign.ps1 -Verify`: signatures Windows accepts, both
+  executables on one certificate, everything else ours or arrived signed by Microsoft, every signature
+  of ours timestamped). Signing only the outer files would ship unsigned executables in a signed
+  package, which the peer checks would read as a development build.
+- **In CI, signing is a job of its own that runs no build code.** A job that builds and signs lets build
+  code (NuGet packages' build targets, the repository's own code) run where the signing token can be
+  asked for, and it could change the files the signing steps run. So the unsigned job (`installer`),
+  which runs everywhere, has no token and no signing setting. On a push to main with the repository
+  variable `SCREENTAIL_SIGNING` set to `true`, it hands the checked payload, and nothing else, to
+  `installer-sign`. That job always runs in the `signing` environment, which only main may deploy to.
+  It is the only job with `id-token: write`, and Azure's federated credential trusts that environment
+  alone. It checks out the same commit and runs exactly the sequence above, one command per step:
+  `sign.ps1`, and `package.ps1`, which runs only WiX at the pinned versions and hashes, downloaded,
+  verified and extracted fresh in that job, never taken from the build (the Visual C++ runtime
+  installer it wraps is downloaded there too, and checked to be Microsoft-signed). It runs no restore, build,
+  tool restore or `build.ps1`, nothing compiled from the repository, and no tool from the build's
+  artifact. A third job with no token smoke-tests the signed build. The unsigned job runs the same
+  sequence with signing switched off, so every pull request exercises it.
+- **The WiX authoring runs nothing while it builds.** WiX executes no custom action at build time.
+  Its extensions are code, which is why only the two pinned ones are allowed. The authoring has no
+  preprocessor directive, reads no variable but its own inputs, and has exactly two custom actions,
+  both run by Windows Installer on the target machine at install time: an error message (the install
+  folder rule) and the uninstall cleanup through WiX's own quiet-exec.
+- **A check in the workflows job holds all of this** (`scripts/ci/check_installer_jobs.py`): the
+  signing job's exact steps and how they run, its conditions and permissions, the action pins and
+  inputs, the tool pins and the authoring rules above. It tries itself first on samples that must
+  pass and must fail. It is a second layer: what actually protects the token is the job's conditions,
+  the environment's branch rule and Azure trusting that environment alone.
 - **Artifact Signing issues short-lived certificates that rotate.** Both executables are signed in one
   `signtool` call, and `sign.ps1` fails unless every file in a call has the same signer, so the peer
   checks' leaf-thumbprint comparison holds for an installed pair. Anything that compares builds made

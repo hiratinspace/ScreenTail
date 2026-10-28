@@ -31,16 +31,20 @@ powershell -ExecutionPolicy Bypass -File .\installer\build.ps1 -Version 0.1.0
 
 The packages land in `artifacts\installer\packages`. The script prints each step: the payload it
 published and checked, what the native libraries need, what it signed (or would have signed), and the
-sizes against the ticket's 250 MB limit. It downloads WiX 5 (a local .NET tool), two WiX extensions and
-Microsoft's runtime installer, and checks the signature of each.
+sizes against the ticket's 250 MB limit. It downloads WiX 5 and its two extensions from nuget.org, and
+refuses each unless its SHA-256 is the one pinned in `installer\tools.json` and its NuGet signatures
+verify. It also downloads Microsoft's runtime installer and checks that Microsoft signed it.
 
-`-Stage Payload`, `Package`, `Bundle` and `Reattach` run one part at a time and never sign; CI uses them
-so that only its `sign.ps1` steps could ever reach a signing credential (ADR-0007). On a developer's
-machine the whole build, without `-Stage`, is the one to use.
+`-Stage Payload` publishes and checks the payload alone, and never signs. `installer\package.ps1`
+wraps a payload one step at a time (`-Step Msi`, `Bundle`, `Detach`, `Reattach`) and signs nothing;
+`build.ps1` calls it with a `sign.ps1` step between each, because every layer is signed before the next
+one wraps it (ADR-0007). On a developer's machine the whole build, without `-Stage`, is the one to use.
+To move to a newer WiX or signing client, change its version and hash in `tools.json` in a reviewed
+pull request.
 
 CI builds it on every pull request that touches `client/` or `installer/` (the **Installer (Windows)**
-job): it installs, upgrades over an older build, runs both installed programs, uninstalls, and checks
-what each step left. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
+job): it runs the same steps the signing job runs, with nothing signed, then installs, upgrades over an
+older build, runs both installed programs, uninstalls, and checks what each step left. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
 kept seven days. To try one: download it from the run's summary page, on a throwaway VM.
 
 `installer\smoke-test.ps1` is that check, and can be run on a VM by hand. It uninstalls ScreenTail and
@@ -54,35 +58,55 @@ repository cannot see it, and `installer\sign.ps1` is already the step every fil
 **Recommended: Azure Artifact Signing** (formerly Trusted Signing). No key to keep, CI can sign, and
 Windows trusts the certificate's root.
 
-1. Create an Artifact Signing account and a certificate profile in Azure (identity validation takes
+### Owner steps (done by the repository owner in Azure and in GitHub's settings, not by a pull request)
+
+None of these is in the repository, and nothing in CI creates or changes them.
+
+1. **Azure:** create an Artifact Signing account and a certificate profile (identity validation takes
    a few days). Note the account's endpoint, its name and the profile's name.
-2. Create an app registration and give it the certificate profile signer role on the profile
-   (*Trusted Signing Certificate Profile Signer* before the service was renamed). **Do not create a
-   client secret.** Instead add a *federated credential* to it: scenario *GitHub Actions deploying Azure
-   resources*, organisation `hiratinspace`, repository `ScreenTail`, entity type *Environment*, name
-   `signing`. Azure then accepts this repository's signing job, and nothing else, with no secret.
-3. In GitHub, *Settings → Environments → New environment* `signing`. Under *Deployment branches*, allow
-   `main` only. Add the environment **variables** (none of these is secret) `AZURE_TENANT_ID`,
-   `AZURE_CLIENT_ID` (the app registration's), `SCREENTAIL_SIGNING_ENDPOINT`,
-   `SCREENTAIL_SIGNING_ACCOUNT` and `SCREENTAIL_SIGNING_PROFILE`.
-4. *Settings → Secrets and variables → Actions → Variables*: add the repository variable
-   `SCREENTAIL_SIGNING` = `true`. This is the switch.
+2. **Azure:** create an app registration and give it the certificate profile signer role on the
+   profile (*Trusted Signing Certificate Profile Signer* before the service was renamed). **Do not
+   create a client secret.** Add a *federated credential* to it instead: scenario *GitHub Actions
+   deploying Azure resources*, organisation `hiratinspace`, repository `ScreenTail`, entity type
+   *Environment*, name `signing`. Its subject is then exactly
+   `repo:hiratinspace/ScreenTail:environment:signing`, so Azure accepts a token from the signing job
+   in that environment and from nothing else.
+3. **GitHub, *Settings → Environments → New environment*:** `signing`. Under *Deployment branches and
+   tags*, choose *Selected branches and tags* and allow `main` only. Optionally add *Required
+   reviewers*, so every signing run waits for a person to approve it. Add these environment
+   **variables** (none of them is a credential): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` (the app
+   registration's), `SCREENTAIL_SIGNING_ENDPOINT`, `SCREENTAIL_SIGNING_ACCOUNT` and
+   `SCREENTAIL_SIGNING_PROFILE`.
+4. **GitHub, *Settings → Secrets and variables → Actions → Variables*:** add the repository variable
+   `SCREENTAIL_SIGNING` = `true`. This is the switch, and the last step: before it, no signing job runs.
 
-The signed job is the only one with permission to ask GitHub for an OIDC token. It builds in stages
-with no signing setting in reach, and between stages a `sign.ps1` step asks for the token, hands it to
-`signtool` in a temporary file and deletes it. No job in the repository names a secret.
+### What CI then does
 
-What actually keeps the signing credential safe is the signed job's own conditions (main only, the
-`signing` environment restricted to main) and Azure trusting that environment alone. The check in the
-`workflows` job that holds the shape of these jobs is a second layer, meant to catch an edit that would
-weaken those or widen what can reach the token before it merges, not the protection itself. It tries
-itself first on made-up workflows that must pass and must fail, so a check that waved everything through
-would fail rather than be trusted.
+Every merge to main that touches the client or the installer runs three installer jobs:
 
-From then on every merge that touches the client also runs **Installer (Windows, signed)**: the same
-build with every executable, library and installer signed and timestamped, the same smoke test (now with
-the peer checks taking the signed path), and the artifact `screentail-installer`. It never runs for a
-pull request, and it fails rather than uploading an unsigned build if the configuration is incomplete.
+- **Installer (Windows)**, as on a pull request, with no token and no signing setting. It also hands
+  the checked payload, and only that, to the next job as the artifact `screentail-installer-payload`
+  (kept one day).
+- **Installer (Windows, signing)**, the only job that may ask GitHub for an OIDC token, always in the
+  `signing` environment. It checks out the same commit and runs one exact command per step: sign the
+  payload, build the MSI from it, sign the MSI, build the setup program from that, detach its engine,
+  sign the engine, reattach it, sign the setup program, check every signature, upload the artifact
+  `screentail-installer`. It runs no restore, no build and nothing compiled from the repository, and
+  nothing it runs comes from the first job: WiX is downloaded and checked against `tools.json` in this
+  job. Each `sign.ps1` step asks for the token itself, hands it to `signtool` in a temporary file and
+  deletes it. It fails rather than upload an unsigned build if the configuration is incomplete.
+- **Installer (Windows, signed, smoke test)**, with no token: the smoke test on the signed build, now
+  with the peer checks taking the signed path.
+
+None of them runs for a pull request.
+
+What actually keeps the signing token safe is the signing job's own conditions (a push to main, the
+switch), the `signing` environment's branch rule, and Azure trusting that environment alone. The check
+in the `workflows` job (`scripts/ci/check_installer_jobs.py`) is a second layer: it holds the signing
+job's exact steps, how they run, its permissions, the pinned actions and tools, and the WiX authoring,
+so an edit that would weaken them fails before it merges. It tries itself first on made-up samples
+that must pass and must fail, so a check that waved everything through would fail rather than be
+trusted.
 
 **On a developer's machine**, set the same three `SCREENTAIL_SIGNING_*` variables in the shell and sign in
 with `az login`, or, for a certificate on a hardware token or a cloud HSM that appears in the Windows
