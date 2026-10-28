@@ -10,6 +10,8 @@ obj/
 .vs/
 TestResults/
 *.nupkg
+# installer/build.ps1 writes the published payload, the packages and its downloads here (ST-112).
+artifacts/
 
 # Node
 node_modules/

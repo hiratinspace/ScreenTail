@@ -38,7 +38,7 @@ request, and eight of the nine waited for the laptop's hardware jobs. The fixes 
 landed together as #220. The findings themselves stay in an untracked local file. What the run left
 for the owner to decide is in §5.
 
-**Of 85 tickets, 66 are Done or built, 5 are Partial and 14 are Open** (counted from the Status lines on
+**Of 85 tickets, 66 are Done or built, 6 are Partial and 13 are Open** (counted from the Status lines on
 2026-10-27).
 
 - **45 are done outright.**
@@ -48,13 +48,13 @@ for the owner to decide is in §5.
   and ST-083 are built and not yet seen on a real screen; ST-010 (the device side), ST-062 (the harness;
   the corpus is owed), ST-065 (the on-device draft; the local model is owed), ST-084 (the static half)
   and ST-115 (round one) each owe their second half.
-- **5 are Partial,** and each says what it waits for: ST-014 (two technician sessions), ST-031 (measured
-  and enforced on the laptop; the golden replay, the throttle and the nightly harness are owed), ST-027 (the WER
-  number needs a human recording), ST-042 (the recall gate needs ST-030's labelled frames), ST-114 (the
-  security-lead review).
-- **14 are Open:** ST-007 (hosting), ST-013 (the VM end-to-end harness), ST-017 (the usability round),
-  ST-030 (golden sessions), ST-099 (the web admin), ST-110, ST-111, ST-112
-  (the signed installer), ST-113 (auto-update) and ST-116 (the pilot), and the four v1.1 and v1.2 tickets
+- **6 are Partial,** and each says what it waits for: ST-014 (two technician sessions), ST-027 (the WER
+  number needs a human recording), ST-031 (measured and enforced on the laptop; the golden replay, the
+  throttle and the nightly harness are owed), ST-042 (the recall gate needs ST-030's labelled frames),
+  ST-112 (the installer is built and smoke-tested unsigned in CI; signing needs the certificate), ST-114
+  (the security-lead review).
+- **13 are Open:** ST-007 (hosting), ST-013 (the VM end-to-end harness), ST-017 (the usability round),
+  ST-030 (golden sessions), ST-099 (the web admin), ST-110, ST-111, ST-113 (auto-update) and ST-116 (the pilot), and the four v1.1 and v1.2 tickets
   ST-120 to ST-123.
 
 Phases A and B of the ordered plan (backlog Part C) are complete apart from what needs the owner: ST-030
@@ -121,7 +121,8 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   dark, light and high contrast.
 
 **Not built:** the microphone picker and level meter in Settings, Capture (ST-080's AC3); the local text
-model (ST-065); a signed installer (ST-112) and auto-update (ST-113); hosting (ST-007); the web admin
+model (ST-065); the installer's signature (ST-112 is built and smoke-tested unsigned, ADR-0007) and
+auto-update (ST-113); hosting (ST-007); the web admin
 (ST-099); mail for invites (ST-010 prints the code for the operator to hand on).
 
 ### Seen on real hardware, and not
@@ -188,7 +189,9 @@ the heaviest bundle a client may send, not on a recorded session.
       right and wrong. The free Gemini tier is enough for this.
 - [ ] **Choose cloud hosting** (ST-007). Nothing is deployed until then; PostgreSQL on a laptop is fine
       for M1 and the demo.
-- [ ] **Buy a code-signing certificate** for the signed installer (ST-112).
+- [ ] **Get code signing** for the installer (ST-112): Azure Artifact Signing is recommended, and
+      `docs/dev/installer.md` says how to switch it on. Read ADR-0007 (Proposed) first; it lists the
+      decisions it needs.
 - [ ] **A ConnectWise sandbox or API member** for the real check of ST-091 to ST-094
       (`docs/integrations/connectwise.md`). The demo PSA does not replace it.
 - [ ] **A Hudu API key** for the real check of ST-095 to ST-097.

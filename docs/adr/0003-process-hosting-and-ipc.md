@@ -1,6 +1,6 @@
 # ADR-0003: Process hosting and the service–UI channel
 
-- **Status:** **Accepted 2026-09-12** (ST-004 merged). Status line updated 2026-09-15.
+- **Status:** **Accepted 2026-09-12** (ST-004 merged). Status line updated 2026-09-15. ADR-0007 (proposed 2026-10-27, ST-112) starts an installed service from the machine's Run key rather than the user's, and records what single-file packaging closes of the gaps below.
 - **Date:** 2026-09-12
 - **Deciders:** project owner; build agent
 

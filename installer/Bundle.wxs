@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ScreenTail-Setup.exe (ST-112, ADR-0007): the Visual C++ runtime ScreenTail's speech needs, then
+  ScreenTail.msi. For a machine that may not have the runtime, which is every fresh Windows install.
+  An MSP that already deploys the runtime can deploy ScreenTail.msi on its own instead.
+
+  Variables, all passed by build.ps1:
+    Version        the product version, the same as the package's
+    Msi            the built (and, when configured, signed) ScreenTail.msi
+    VcRedist       Microsoft's vc_redist.x64.exe, downloaded by build.ps1 and checked to be Microsoft-signed
+    VcRedistBuild  that runtime's build number, so an older runtime already on the machine is upgraded
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Bundle Name="ScreenTail"
+          Manufacturer="ScreenTail"
+          Version="$(var.Version)"
+          UpgradeCode="{B06B249C-CE0B-47AF-AD9E-C7FF7D00A4C0}">
+
+    <!-- No setup window of its own: the runtime installs as a prerequisite with a small progress window,
+         and then the package shows its own progress (with /quiet, nothing at all). The standard setup
+         window would need licence terms to show, and ScreenTail has none to put there yet; ST-111's
+         privacy policy link belongs in the product once it exists. -->
+    <BootstrapperApplication>
+      <bal:WixInternalUIBootstrapperApplication />
+    </BootstrapperApplication>
+
+    <util:RegistrySearch Id="VcRuntimeX64Installed"
+                         Root="HKLM"
+                         Key="SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+                         Value="Installed"
+                         Variable="VcRuntimeX64Installed"
+                         Result="value"
+                         Bitness="always64" />
+    <util:RegistrySearch Id="VcRuntimeX64Build"
+                         Root="HKLM"
+                         Key="SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+                         Value="Bld"
+                         Variable="VcRuntimeX64Build"
+                         Result="value"
+                         Bitness="always64" />
+
+    <Chain>
+      <!-- Shared with other software, so permanent: uninstalling ScreenTail never takes it away. Skipped
+           when the same or a newer build is already there; 1638 is the runtime's own "a newer version is
+           installed", which is success here. -->
+      <ExePackage Id="VcRuntimeX64"
+                  SourceFile="$(var.VcRedist)"
+                  DetectCondition="VcRuntimeX64Installed = 1 AND VcRuntimeX64Build &gt;= $(var.VcRedistBuild)"
+                  InstallArguments="/install /quiet /norestart"
+                  Permanent="yes"
+                  PerMachine="yes"
+                  Vital="yes"
+                  bal:PrereqPackage="yes">
+        <ExitCode Value="1638" Behavior="success" />
+        <ExitCode Value="3010" Behavior="scheduleReboot" />
+      </ExePackage>
+
+      <MsiPackage Id="ScreenTail" SourceFile="$(var.Msi)" />
+    </Chain>
+  </Bundle>
+</Wix>

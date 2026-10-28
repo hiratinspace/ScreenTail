@@ -1,0 +1,24 @@
+{
+  "packages": [
+    {
+      "id": "wix",
+      "version": "5.0.2",
+      "sha256": "f30ef0c74e2a986126539c5780be93ac24e8136eaf723b1937b26272703ae173"
+    },
+    {
+      "id": "WixToolset.Util.wixext",
+      "version": "5.0.2",
+      "sha256": "dda1cc1b4d3b2305b1246f167c6af6fcded5000be84b3bbff3dda4f442bf4740"
+    },
+    {
+      "id": "WixToolset.Bal.wixext",
+      "version": "5.0.2",
+      "sha256": "22422b50a925477e33c2b5f78d2965a9a09c6622d17ba5aa5365b20ec662b7c8"
+    },
+    {
+      "id": "Microsoft.ArtifactSigning.Client",
+      "version": "1.0.146",
+      "sha256": "7761e5d8f31e54b764da21d33cd8b0a2940e1b05526c7dfcb5e94b0431426f70"
+    }
+  ]
+}
