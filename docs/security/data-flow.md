@@ -136,7 +136,12 @@ For drafting, the note can be produced two ways:
   A tenant can lock this on for every machine.
 - **By a hosted model.** A redacted bundle is sent for one request. **The backend never writes frames to
   storage** (INV-7) — they are held in memory for the duration of the request and are not persisted, and
-  the backend's tests assert that its storage does not grow.
+  the backend's tests assert that its storage does not grow. The model is the one the deployment's
+  `Summarization:Provider` names, and no other: Anthropic's Claude (`api.anthropic.com`, under the
+  operator's Anthropic account) when it is `claude`, Google's Gemini Flash when it is `gemini-flash`, the
+  default. What either receives is the screenshots after redaction, the masked text read from them and the
+  masked transcript (INV-1), inline in the request, plus a second request carrying the reasons when the
+  first answer breaks a rule.
 
 **Logs contain no content** (INV-10). Not window titles, not OCR text, not transcript, not note text, not
 company or ticket names. The record the diagnostics panel is built from has nowhere to put any of those,

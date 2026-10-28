@@ -88,6 +88,29 @@ export Summarization__InputCostPerMillionUsd=0.75
 export Summarization__OutputCostPerMillionUsd=3.75
 ```
 
+**Drafting on Claude instead.** Set the provider to `claude` and give it an Anthropic key; everything
+else has a Claude default, and anything set explicitly is kept:
+
+```bash
+export Summarization__Provider=claude
+export Summarization__ApiKey='…'            # an Anthropic key, sk-ant-…
+# Optional, with their defaults when Provider is claude:
+export Summarization__Model=claude-opus-5-5 # or claude-sonnet-5-5, claude-haiku-5-5
+export Summarization__Effort=medium         # low, medium, high, xhigh, max
+export Summarization__RefusalFallback=default   # Anthropic's recommended fallback; a model list; or none
+export Summarization__MaxOutputTokens=16000 # thinking counts against it
+export Summarization__Timeout=00:01:25
+export Summarization__MaxSessionCostUsd=0.60
+export Summarization__DailyCostCapUsd=30
+```
+
+The rates follow the model (Claude Opus 5.5: $4 input, $20 output, $0.20 cache reads per million, read
+from Anthropic's pricing page on 2026-10-28). `SummarizationOptions` explains each default, and the
+sixty-cent reservation is worked out from the documented image cost: no key was available to measure
+Claude with. The request goes through Anthropic's own C# SDK to `api.anthropic.com` only; the SDK is
+given the key and the address explicitly, so `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in the
+environment are never read in their place.
+
 **The model name is a setting, and it expires.** The first build of this asked for `gemini-2.0-flash`;
 by the time a key was pointed at it Google had retired that name, and every draft was a 404. Retirements
 are announced months ahead, and the 404 names the replacement, so this is an outage an operator can end

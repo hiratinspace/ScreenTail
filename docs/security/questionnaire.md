@@ -147,9 +147,22 @@ request and let go, and the backend's tests count every row in every table befor
 *(INV-7. The backend is built and runs locally; it is not yet deployed — ST-007.)*
 
 **3.6 What is the hosted model provider?**
-Google Gemini Flash, via the Generative Language API, US region. One request per session, with frames
-sent at low resolution and a per-tenant daily spending cap checked before the call. Anthropic and OpenAI
-are swappable behind the same interface. *(ST-063.)*
+Whichever one the deployment is configured with, and only that one: `Summarization:Provider` names it, and
+the key it is given belongs to it.
+
+- **Anthropic (Claude)** when the setting is `claude`: `claude-opus-5-5` by default, through Anthropic's
+  Messages API at `api.anthropic.com`, under the operator's own Anthropic account and its data-retention
+  terms. Anthropic is then the sub-processor for drafting.
+- **Google (Gemini Flash)** when it is `gemini-flash`, the default: the Generative Language API, US
+  region, with frames sent at low resolution. Google is then the sub-processor for drafting.
+
+What is sent is the same either way: one request per session (two when the first answer breaks a rule
+and is sent back to be corrected), carrying the screenshots after redaction (sensitive regions painted
+over on the device), the text read from them after masking, and the masked transcript, with the session's
+ids and timings. Nothing unredacted is ever in the bundle to send (INV-1). The pictures are sent inline
+rather than uploaded, so none is left in the provider's file storage, and the backend keeps nothing
+(INV-7). A per-tenant daily spending cap is checked before the call. OpenAI could be added behind the same
+interface. *(ST-063; Claude added 2026-10-28.)*
 
 **3.7 Do logs contain customer data?**
 No. Logs and metrics have no content-carrying fields — no window titles, OCR text, transcript, note text,

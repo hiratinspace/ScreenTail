@@ -5,12 +5,13 @@
 
 .DESCRIPTION
     Gets the laptop to the point where start.ps1 can run the whole loop (record, redact, draft with
-    Gemini, review):
+    Claude or Gemini, review):
       1. checks Windows and the .NET 10 SDK the repository asks for;
       2. trusts the ASP.NET Core development certificate, so the client's HTTPS call to the backend on
          https://localhost:5001 is validated like any other (Windows asks you to confirm once);
-      3. asks for the Gemini API key without showing it, checks it with Google, and saves it as the API
-         project's user secret Summarization:ApiKey;
+      3. asks which company drafts the notes (Claude from Anthropic, or Gemini from Google), asks for that
+         company's API key without showing it, checks it with that company, and saves the key as the API
+         project's user secret Summarization:ApiKey and the choice as Summarization:Provider;
       4. generates the JWT signing key (Jwt:SigningKey) if there is none;
       5. finds PostgreSQL (a Windows service, or Docker), asks for its password if it needs one, saves the
          connection string as the user secret ConnectionStrings:Postgres, and creates or migrates the
@@ -20,8 +21,13 @@
     (%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json), the same file 'dotnet user-secrets'
     writes. Nothing is printed, logged or put on a command line.
 
-.PARAMETER NewGeminiKey
-    Ask for the Gemini key again even though one is saved.
+.PARAMETER Provider
+    Who drafts the notes: 'claude' (Anthropic) or 'gemini' (Google). Left out, setup keeps what is saved;
+    on a laptop with nothing saved it asks, and Enter means Claude. Changing it asks for the other
+    company's key, because the saved key belongs to the company it was checked with.
+
+.PARAMETER NewKey
+    Ask for the drafting key again even though one is saved. -NewGeminiKey still works and means the same.
 
 .PARAMETER NewDatabasePassword
     Ask for the database password again even though a connection string is saved.
@@ -30,17 +36,23 @@
     PostgreSQL's port when it is a Windows service or something setup did not create. 5432 by default.
 
 .PARAMETER SkipKeyCheck
-    Do not ask Google whether the key works. For a laptop that is offline while you set it up.
+    Do not ask Anthropic or Google whether the key works. For a laptop that is offline while you set it up.
 
 .EXAMPLE
     scripts\windows\demo\setup.cmd
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\scripts\windows\demo\setup.ps1 -NewGeminiKey
+    scripts\windows\demo\setup.cmd -Provider claude
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\scripts\windows\demo\setup.ps1 -NewKey
 #>
 [CmdletBinding()]
 param(
-    [switch]$NewGeminiKey,
+    [ValidateSet('claude', 'gemini')]
+    [string]$Provider = '',
+    [Alias('NewGeminiKey')]
+    [switch]$NewKey,
     [switch]$NewDatabasePassword,
     [int]$DatabasePort = 5432,
     [switch]$SkipKeyCheck
@@ -48,17 +60,81 @@ param(
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 
-function Get-SummarizationModel([hashtable]$Secrets) {
-    if ($Secrets['Summarization:Model']) {
-        return $Secrets['Summarization:Model']
+function Get-SummarizationModel([hashtable]$Secrets, [string]$Provider) {
+    if ($Secrets[$script:KeyModel]) {
+        return $Secrets[$script:KeyModel]
     }
     # The default lives in the code, so it is read from the code rather than copied here to go stale.
+    if ($Provider -eq 'claude') { $constant = 'DefaultClaudeModel' } else { $constant = 'DefaultGeminiModel' }
     $source = Join-Path $script:DemoApiDir 'Summarize\SummarizationOptions.cs'
     if (Test-Path -LiteralPath $source) {
-        $match = [regex]::Match([IO.File]::ReadAllText($source), 'public string Model \{ get; set; \} = "([^"]+)"')
+        $match = [regex]::Match([IO.File]::ReadAllText($source), 'public const string ' + $constant + ' = "([^"]+)"')
         if ($match.Success) { return $match.Groups[1].Value }
     }
     return $null
+}
+
+# Asks Anthropic which models the key may use, with the key in a header (never in the URL). This lists
+# models; it drafts nothing and costs nothing. The version header is the one the backend's SDK sends.
+function Test-ClaudeKey([string]$Key, [string]$Model) {
+    $probe = Invoke-Probe -Url 'https://api.anthropic.com/v1/models?limit=1000' -Headers @{ 'x-api-key' = $Key; 'anthropic-version' = '2026-10-21' } -TimeoutSeconds 15
+    if ($probe.Status -eq 200) {
+        try {
+            $listed = @(($probe.Body | ConvertFrom-Json).data | ForEach-Object { $_.id })
+        }
+        catch {
+            return 'ok'
+        }
+        if ($listed -contains $Model) { return 'ok' }
+        return 'model'
+    }
+    if ($probe.Status -eq 0) { return 'offline' }
+    if ($probe.Status -eq 401) { return 'invalid' }
+    if ($probe.Status -eq 402) { return 'billing' }
+    if ($probe.Status -eq 403) { return 'forbidden' }
+    if ($probe.Status -eq 429) { return 'quota' }
+    return "http $($probe.Status)"
+}
+
+# What Test-ClaudeKey's answer means. Returns $true when the key should be saved.
+function Show-ClaudeKeyVerdict([string]$Verdict, [string]$Model) {
+    switch -Regex ($Verdict) {
+        '^ok$' {
+            Write-Ok "Anthropic accepts the key, and the model '$Model' is available to it."
+            return $true
+        }
+        '^offline$' {
+            Write-Caution 'Could not reach Anthropic to check the key (no internet, or a proxy). Keeping it unchecked.'
+            Write-Note 'Drafting needs the internet on the day either way.'
+            return $true
+        }
+        '^quota$' {
+            Write-Caution 'Anthropic knows the key but is rate limiting it right now.'
+            Write-Note 'The key is fine. Drafting works again in a minute.'
+            return $true
+        }
+        '^billing$' {
+            Write-Caution 'Anthropic knows the key but says the account has a billing problem (out of credit?).'
+            Write-Note 'The key is kept. Add credit in the Claude Console (Settings > Billing) before the demo.'
+            return $true
+        }
+        '^model$' {
+            Write-Caution "The key works, but Anthropic does not list the model '$Model' for it."
+            return $true
+        }
+        '^forbidden$' {
+            Write-Caution 'Anthropic recognises the key but refuses it for this (workspace or organization permissions).'
+            return $false
+        }
+        '^invalid$' {
+            Write-Caution 'Anthropic says this is not a valid API key. It may be mistyped, cut short, or revoked.'
+            return $false
+        }
+        default {
+            Write-Caution "Anthropic answered $Verdict, which this script does not recognise. Keeping the key unchecked."
+            return $true
+        }
+    }
 }
 
 # Asks Google about the model the backend will use, with the key in a header (never in the URL, which
@@ -167,31 +243,76 @@ else {
     Write-Ok 'The development certificate is installed and trusted.'
 }
 
-# --- 3. The Gemini key ----------------------------------------------------------------------------------
+# --- 3. Who drafts, and their key ---------------------------------------------------------------------
 
-Write-Step 'The Gemini API key'
+Write-Step 'Who drafts the notes, and their API key'
 $secrets = Read-UserSecrets
-$model = Get-SummarizationModel $secrets
-$saved = $secrets[$script:KeyGemini]
-$verdict = 'unchecked'
+$savedProvider = Get-DraftingProvider $secrets
+$saved = $secrets[$script:KeyDrafting]
 
-if ($saved -and -not $NewGeminiKey) {
-    Write-Ok 'A Gemini key is already saved. Keeping it (run setup with -NewGeminiKey to replace it).'
+if ($Provider -eq 'claude') { $chosen = 'claude' }
+elseif ($Provider -eq 'gemini') { $chosen = 'gemini-flash' }
+elseif ($saved) { $chosen = $savedProvider }
+else {
+    Write-Note 'The notes can be drafted by Claude (Anthropic) or by Gemini (Google).'
+    $answer = Read-Host -Prompt 'Type C for Claude or G for Gemini, then Enter (just Enter means Claude)'
+    if ($answer -and $answer.Trim().ToUpperInvariant().StartsWith('G')) { $chosen = 'gemini-flash' } else { $chosen = 'claude' }
+}
+
+$label = Get-ProviderLabel $chosen
+$switching = $saved -and ($chosen -ne $savedProvider)
+if ($switching) {
+    Write-Note ("Switching from " + (Get-ProviderLabel $savedProvider) + " to $label. The saved key is the other company's, so a new one is needed.")
+}
+Write-Ok "Drafting: $label."
+
+# A model saved for the other company would be asked for by name and refused on every draft.
+$savedModel = $secrets[$script:KeyModel]
+if ($savedModel) {
+    $family = 'gemini-'
+    if ($chosen -eq 'claude') { $family = 'claude-' }
+    if (-not $savedModel.StartsWith($family)) {
+        Stop-Demo -Problem "The user secret $script:KeyModel is '$savedModel', which is not a $label model. Every draft would be refused." -Fix @(
+            'Remove it so the backend uses its default model:',
+            "  dotnet user-secrets remove $script:KeyModel --project backend\src\ScreenTail.Api",
+            'Then run setup again.')
+    }
+}
+
+$model = Get-SummarizationModel $secrets $chosen
+$verdict = 'unchecked'
+if ($chosen -eq 'claude') { $keyName = 'Claude API key' } else { $keyName = 'Gemini API key' }
+
+function Test-DraftingKey([string]$Key) {
+    if ($chosen -eq 'claude') { return Test-ClaudeKey -Key $Key -Model $model }
+    return Test-GeminiKey -Key $Key -Model $model
+}
+
+function Show-DraftingKeyVerdict([string]$Verdict) {
+    if ($chosen -eq 'claude') { return Show-ClaudeKeyVerdict -Verdict $Verdict -Model $model }
+    return Show-KeyVerdict -Verdict $Verdict -Model $model
+}
+
+if ($saved -and -not $NewKey -and -not $switching) {
+    Write-Ok "A $keyName is already saved. Keeping it (run setup with -NewKey to replace it)."
     if (-not $SkipKeyCheck -and $model) {
-        $verdict = Test-GeminiKey -Key $saved.Trim() -Model $model
-        if (-not (Show-KeyVerdict -Verdict $verdict -Model $model)) {
-            Stop-Demo -Problem 'The saved Gemini key does not work.' -Fix @(
-                'Get the key again (on the Mac: cd backend/src/ScreenTail.Api; dotnet user-secrets list) and run:',
-                '  scripts\windows\demo\setup.cmd -NewGeminiKey')
+        $verdict = Test-DraftingKey $saved.Trim()
+        if (-not (Show-DraftingKeyVerdict $verdict)) {
+            Stop-Demo -Problem "The saved $keyName does not work." -Fix @(
+                'Get the key again and run:',
+                '  scripts\windows\demo\setup.cmd -NewKey')
         }
     }
 }
 else {
+    if ($chosen -eq 'claude') {
+        Write-Note 'The key is in the Claude Console (platform.claude.com > API keys). It starts with sk-ant-.'
+    }
     Write-Note 'Paste the key and press Enter. Nothing appears while you paste or type; that is on purpose.'
     Write-Note '(Right-click pastes in a PowerShell window.)'
     $accepted = $false
     for ($attempt = 1; $attempt -le 3 -and -not $accepted; $attempt++) {
-        $key = (Read-Masked 'Gemini API key').Trim()
+        $key = (Read-Masked $keyName).Trim()
         if (-not $key) {
             Write-Caution 'Nothing was entered.'
             continue
@@ -206,26 +327,32 @@ else {
             $accepted = $true
         }
         else {
-            $verdict = Test-GeminiKey -Key $key -Model $model
-            $accepted = Show-KeyVerdict -Verdict $verdict -Model $model
+            $verdict = Test-DraftingKey $key
+            $accepted = Show-DraftingKeyVerdict $verdict
         }
         if ($accepted) {
-            Set-UserSecret -Name $script:KeyGemini -Value $key
-            Write-Ok "Saved as the user secret $script:KeyGemini."
+            Set-UserSecret -Name $script:KeyDrafting -Value $key
+            Write-Ok "Saved as the user secret $script:KeyDrafting."
         }
     }
     $key = $null
     if (-not $accepted) {
-        Stop-Demo -Problem 'No working Gemini key was entered.' -Fix @(
-            'Copy the key again (Google AI Studio > Get API key, or on the Mac: dotnet user-secrets list in backend/src/ScreenTail.Api).',
+        Stop-Demo -Problem "No working $keyName was entered." -Fix @(
+            'Copy the key again (Claude Console > API keys, or Google AI Studio > Get API key).',
             'Then run setup again.')
     }
 }
 
+# Saved after the key, so a provider is never saved beside the other company's key.
+if ((Read-UserSecrets)[$script:KeyProvider] -ne $chosen) {
+    Set-UserSecret -Name $script:KeyProvider -Value $chosen
+    Write-Ok "Saved the choice as the user secret $script:KeyProvider ($chosen)."
+}
+
 if ($verdict -eq 'model') {
-    Stop-Demo -Problem "The key is saved, but the backend asks Google for the model '$model', which Google no longer offers to it. Every draft would fail." -Fix @(
-        'Ask the developer for the current Gemini Flash model name, then run (with that name in place of NAME):',
-        '  dotnet user-secrets set Summarization:Model NAME --project backend\src\ScreenTail.Api',
+    Stop-Demo -Problem "The key is saved, but the backend asks for the model '$model', which is not offered to it. Every draft would fail." -Fix @(
+        'Ask the developer for a model name the account can use, then run (with that name in place of NAME):',
+        "  dotnet user-secrets set $script:KeyModel NAME --project backend\src\ScreenTail.Api",
         'and run setup again.')
 }
 
@@ -442,6 +569,6 @@ $connection = $null
 
 Write-Step 'Setup is complete'
 Write-Note 'Saved in user secrets (values not shown):'
-Write-Note "  $script:KeyGemini, $script:KeySigning, $script:KeyDatabase"
+Write-Note "  $script:KeyDrafting, $script:KeyProvider, $script:KeySigning, $script:KeyDatabase"
 Write-Host ''
 Write-Host 'Next: scripts\windows\demo\start.cmd' -ForegroundColor Green
