@@ -55,6 +55,19 @@
       <Directory Id="INSTALLFOLDER" Name="ScreenTail" />
     </StandardDirectory>
 
+    <!-- Only ever C:\Program Files\ScreenTail (or wherever this machine's 64-bit Program Files is).
+         INSTALLFOLDER is a public property, so a command line could otherwise put ScreenTail in a folder
+         ordinary users can change, and the uninstall would run the service from there as the system
+         account. The expected folder comes from the environment, not from a property the same command
+         line could set. Checked once the folders are resolved, in both sequences, so a silent install
+         refuses too. -->
+    <SetProperty Id="EXPECTEDINSTALLFOLDER" Value="[%ProgramW6432]\ScreenTail\" Before="CostInitialize" Sequence="both" />
+    <CustomAction Id="RefuseInstallFolder"
+                  Error="ScreenTail installs only into its folder under Program Files. Remove INSTALLFOLDER from the command line and install again." />
+    <InstallUISequence>
+      <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="NOT Installed AND INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
+    </InstallUISequence>
+
     <!-- Everything the publish produced, as it is laid out: both executables side by side at the top,
          which the development rule of the peer checks needs while builds are unsigned (ADR-0003), the
          native libraries beside them, and the registry files the service reads. -->
@@ -91,23 +104,28 @@
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>
 
-    <!-- A running executable can be neither replaced nor removed. Every running copy, in every session,
-         is ended before the files are touched, on upgrade and uninstall alike, so an MSP push while a
-         technician is signed in finishes without "restart required". Ended, not asked: the UI answers a
-         close by asking whether to stop a recording, and nobody is there to answer a silent install. A
-         session that was recording is recovered by the service at its next start (ST-020). -->
+    <!-- A running executable can be neither replaced nor removed. On an upgrade or an uninstall, and on
+         nothing else, every running copy is ended before the files are touched, so an MSP push while a
+         technician is signed in finishes without "restart required"; in every session when the installer
+         runs as the system account, as MSP tools run it. Ended, not asked: the UI answers a close by
+         asking whether to stop a recording, and nobody is there to answer a silent install. After an
+         upgrade the service is down until the next sign-in, and a session that was recording is
+         recovered at that start (ST-020). A first install has nothing to close, and a repair must not
+         end a recording. -->
     <util:CloseApplication Id="CloseService"
                            Target="ScreenTail.Service.exe"
                            CloseMessage="no"
                            EndSessionMessage="no"
                            RebootPrompt="no"
-                           TerminateProcess="1" />
+                           TerminateProcess="1"
+                           Condition="WIX_UPGRADE_DETECTED OR REMOVE~=&quot;ALL&quot;" />
     <util:CloseApplication Id="CloseUi"
                            Target="ScreenTail.UI.exe"
                            CloseMessage="no"
                            EndSessionMessage="no"
                            RebootPrompt="no"
-                           TerminateProcess="1" />
+                           TerminateProcess="1"
+                           Condition="WIX_UPGRADE_DETECTED OR REMOVE~=&quot;ALL&quot;" />
 
     <!-- INV-12 and the ticket. Windows Installer removes what it installed; this clears what ScreenTail
          made afterwards for each user: the data folder (the store, its key, the device's token) and the
@@ -130,6 +148,7 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
+      <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="NOT Installed AND INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
       <Custom Action="RemoveUserData" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>

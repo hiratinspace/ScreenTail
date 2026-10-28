@@ -87,9 +87,9 @@ function Invoke-Process([string]$File, [string]$Arguments, [int]$TimeoutSeconds 
     return $process.ExitCode
 }
 
-function Invoke-Msi([string]$Action, [string]$Package, [string]$LogName) {
+function Invoke-Msi([string]$Action, [string]$Package, [string]$LogName, [string]$Properties = '') {
     $log = Join-Path $Logs $LogName
-    $code = Invoke-Process 'msiexec.exe' "$Action `"$Package`" /qn /norestart /l*v `"$log`""
+    $code = Invoke-Process 'msiexec.exe' "$Action `"$Package`" /qn /norestart /l*v `"$log`" $Properties"
     if ($code -ne 0 -and (Test-Path $log)) {
         Write-Host "--- last lines of $LogName"
         Get-Content $log -Tail 40 | ForEach-Object { Write-Host "    $_" }
@@ -216,6 +216,15 @@ try {
 }
 $signedIn = [bool]$sessionLine
 Write-Host "This account has a session on the machine: $signedIn"
+
+# --- An install folder outside Program Files is refused -------------------------------------------------
+Write-Step 'A silent install into another folder is refused'
+$elsewhere = Join-Path $env:SystemDrive 'ScreenTailElsewhere'
+$code = Invoke-Msi '/i' $Msi 'install-elsewhere.log' "INSTALLFOLDER=$elsewhere"
+Check 'msiexec /i with INSTALLFOLDER outside Program Files fails' ($code -ne 0) "exit $code"
+Check 'and installs nothing there' (-not (Test-Path (Join-Path $elsewhere 'ScreenTail.Service.exe')))
+Check 'and registers nothing' (@(Get-ArpEntries).Count -eq 0)
+Remove-Item $elsewhere -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- Install (and upgrade) -----------------------------------------------------------------------------
 if ($OlderMsi) {

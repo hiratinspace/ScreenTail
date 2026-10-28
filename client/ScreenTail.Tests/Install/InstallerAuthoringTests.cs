@@ -109,6 +109,31 @@ public sealed class InstallerAuthoringTests
             closed.Select(c => (string)c.Attribute("Target")!).Order(StringComparer.Ordinal));
         Assert.All(closed, c => Assert.NotNull(c.Attribute("TerminateProcess")));
         Assert.All(closed, c => Assert.Equal("no", (string?)c.Attribute("RebootPrompt")));
+
+        // Only when files are about to be replaced or removed: an upgrade, or an uninstall. A first
+        // install has nothing running, and a repair must not end a technician's recording.
+        Assert.All(closed, c => Assert.Equal("WIX_UPGRADE_DETECTED OR REMOVE~=\"ALL\"", (string?)c.Attribute("Condition")));
+    }
+
+    [Fact]
+    public void TheInstallFolderCannotBeMovedOutOfProgramFiles()
+    {
+        // INSTALLFOLDER is a public property, so a command line could install somewhere ordinary users
+        // can write, and the uninstall would then run the service from there as the system account. The
+        // package refuses any folder but ScreenTail under the machine's own Program Files, worked out
+        // from the environment rather than from a property the same command line could set.
+        var expected = Package().Descendants(Wix + "SetProperty").Single(p => (string?)p.Attribute("Id") == "EXPECTEDINSTALLFOLDER");
+        Assert.Equal(@"[%ProgramW6432]\ScreenTail\", (string?)expected.Attribute("Value"));
+
+        var refusal = Package().Descendants(Wix + "CustomAction").Single(a => (string?)a.Attribute("Id") == "RefuseInstallFolder");
+        Assert.False(string.IsNullOrWhiteSpace((string?)refusal.Attribute("Error")));
+
+        foreach (var sequence in new[] { "InstallUISequence", "InstallExecuteSequence" })
+        {
+            var scheduled = Package().Descendants(Wix + sequence).Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == "RefuseInstallFolder");
+            Assert.Equal("CostFinalize", (string?)scheduled.Attribute("After"));
+            Assert.Equal("NOT Installed AND INSTALLFOLDER ~<> EXPECTEDINSTALLFOLDER", (string?)scheduled.Attribute("Condition"));
+        }
     }
 
     [Fact]
