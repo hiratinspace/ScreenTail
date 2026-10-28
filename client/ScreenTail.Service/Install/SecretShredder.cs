@@ -27,14 +27,30 @@ internal static class SecretShredder
         LeftInDoubt,
     }
 
-    /// <summary>One outcome per name in <see cref="InstalledFootprint.Secrets"/>, in its order.</summary>
-    public static IReadOnlyList<Outcome> Shred(string profile)
+    /// <summary>
+    /// An outcome and, when it is in doubt, a short token saying why (an NTSTATUS, a Win32 error, or which
+    /// check refused it). Numbers and fixed words only, never a path or a name (INV-10).
+    /// </summary>
+    internal readonly record struct Result(Outcome Outcome, string? Reason);
+
+    /// <summary>One result per name in <see cref="InstalledFootprint.Secrets"/>, in its order.</summary>
+    public static IReadOnlyList<Result> Shred(string profile)
     {
         var all = InstalledFootprint.Secrets.Count;
-        using var root = OpenRoot(profile);
-        if (root is null || !Describe(root, out var rootInfo) || !IsPlainDirectory(rootInfo))
+        using var root = OpenRoot(profile, out var rootError);
+        if (root is null)
         {
-            return Enumerable.Repeat(Outcome.LeftInDoubt, all).ToList();
+            return Repeat(all, Outcome.LeftInDoubt, $"root-open:{rootError:x}");
+        }
+
+        if (!Describe(root, out var rootInfo, out var rootDescribe))
+        {
+            return Repeat(all, Outcome.LeftInDoubt, $"root-describe:{rootDescribe:x}");
+        }
+
+        if (!IsPlainDirectory(rootInfo))
+        {
+            return Repeat(all, Outcome.LeftInDoubt, "root-not-a-plain-directory");
         }
 
         var opened = new List<SafeFileHandle>();
@@ -46,18 +62,28 @@ internal static class SecretShredder
                 var status = OpenRelative(parent, segment, directory: true, out var child);
                 if (status is StatusObjectNameNotFound or StatusObjectPathNotFound)
                 {
-                    return Enumerable.Repeat(Outcome.Absent, all).ToList();
+                    return Repeat(all, Outcome.Absent, null);
                 }
 
                 if (child is null)
                 {
-                    return Enumerable.Repeat(Outcome.LeftInDoubt, all).ToList();
+                    return Repeat(all, Outcome.LeftInDoubt, $"dir-open:{status:x8}");
                 }
 
                 opened.Add(child);
-                if (!Describe(child, out var info) || !IsPlainDirectory(info) || info.VolumeSerialNumber != rootInfo.VolumeSerialNumber)
+                if (!Describe(child, out var info, out var describe))
                 {
-                    return Enumerable.Repeat(Outcome.LeftInDoubt, all).ToList();
+                    return Repeat(all, Outcome.LeftInDoubt, $"dir-describe:{describe:x}");
+                }
+
+                if (!IsPlainDirectory(info))
+                {
+                    return Repeat(all, Outcome.LeftInDoubt, "dir-not-a-plain-directory");
+                }
+
+                if (info.VolumeSerialNumber != rootInfo.VolumeSerialNumber)
+                {
+                    return Repeat(all, Outcome.LeftInDoubt, "dir-other-volume");
                 }
 
                 parent = child;
@@ -74,35 +100,52 @@ internal static class SecretShredder
         }
     }
 
-    private static Outcome ShredOne(SafeFileHandle folder, string name, uint volume)
+    private static List<Result> Repeat(int count, Outcome outcome, string? reason) =>
+        [.. Enumerable.Repeat(new Result(outcome, reason), count)];
+
+    private static Result ShredOne(SafeFileHandle folder, string name, uint volume)
     {
         var status = OpenRelative(folder, name, directory: false, out var file);
         if (status is StatusObjectNameNotFound or StatusObjectPathNotFound)
         {
-            return Outcome.Absent;
+            return new Result(Outcome.Absent, null);
         }
 
         if (file is null)
         {
-            return Outcome.LeftInDoubt;
+            return new Result(Outcome.LeftInDoubt, $"open:{status:x8}");
         }
 
         using (file)
         {
-            if (!Describe(file, out var info)
-                || (info.Attributes & (FileAttributeReparsePoint | FileAttributeDirectory)) != 0
-                || info.NumberOfLinks != 1
-                || info.VolumeSerialNumber != volume)
+            if (!Describe(file, out var info, out var describe))
             {
-                return Outcome.LeftInDoubt;
+                return new Result(Outcome.LeftInDoubt, $"describe:{describe:x}");
             }
 
-            return MarkForDeletion(file) ? Outcome.Removed : Outcome.LeftInDoubt;
+            if ((info.Attributes & (FileAttributeReparsePoint | FileAttributeDirectory)) != 0)
+            {
+                return new Result(Outcome.LeftInDoubt, "link-or-directory");
+            }
+
+            if (info.NumberOfLinks != 1)
+            {
+                return new Result(Outcome.LeftInDoubt, "hard-linked");
+            }
+
+            if (info.VolumeSerialNumber != volume)
+            {
+                return new Result(Outcome.LeftInDoubt, "other-volume");
+            }
+
+            return MarkForDeletion(file, out var deleteError)
+                ? new Result(Outcome.Removed, null)
+                : new Result(Outcome.LeftInDoubt, $"delete:{deleteError}");
         }
     }
 
     /// <summary>The profile folder itself, opened without following it if it is a link.</summary>
-    private static SafeFileHandle? OpenRoot(string profile)
+    private static SafeFileHandle? OpenRoot(string profile, out int error)
     {
         var handle = CreateFileW(
             @"\\?\" + profile,
@@ -112,6 +155,7 @@ internal static class SecretShredder
             OpenExisting,
             FileFlagBackupSemantics | FileFlagOpenReparsePoint,
             IntPtr.Zero);
+        error = handle.IsInvalid ? Marshal.GetLastWin32Error() : 0;
         if (handle.IsInvalid)
         {
             handle.Dispose();
@@ -122,8 +166,10 @@ internal static class SecretShredder
     }
 
     /// <summary>
-    /// One name, relative to an open folder, without following a link at it: the link itself is opened,
-    /// and the checks above then refuse it. OBJ_DONT_REPARSE makes the system refuse to follow one too.
+    /// One name, relative to an open folder, opening the link itself if the name is a link rather than
+    /// following it (FILE_OPEN_REPARSE_POINT); the checks above then refuse it. Because the walk opens one
+    /// component at a time this way, a link at any level is opened as a link and refused, so a link cannot
+    /// redirect the step, and no whole path is ever resolved.
     /// </summary>
     private static int OpenRelative(SafeFileHandle parent, string name, bool directory, out SafeFileHandle? handle)
     {
@@ -143,7 +189,7 @@ internal static class SecretShredder
                 Length = Marshal.SizeOf<ObjectAttributes>(),
                 RootDirectory = parent.DangerousGetHandle(),
                 ObjectName = unicode,
-                Attributes = ObjCaseInsensitive | ObjDontReparse,
+                Attributes = ObjCaseInsensitive,
             };
 
             var access = directory
@@ -172,15 +218,17 @@ internal static class SecretShredder
         }
     }
 
-    private static bool Describe(SafeFileHandle handle, out Description description)
+    private static bool Describe(SafeFileHandle handle, out Description description, out int error)
     {
         description = default;
         if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, out var tag, (uint)Marshal.SizeOf<AttributeTagInfo>())
             || !GetFileInformationByHandle(handle, out var info))
         {
+            error = Marshal.GetLastWin32Error();
             return false;
         }
 
+        error = 0;
         description = new Description(tag.FileAttributes, info.VolumeSerialNumber, info.NumberOfLinks);
         return true;
     }
@@ -189,17 +237,27 @@ internal static class SecretShredder
         (info.Attributes & FileAttributeDirectory) != 0 && (info.Attributes & FileAttributeReparsePoint) == 0;
 
     /// <summary>Through the handle that was checked: the name goes when the handle closes, or at once.</summary>
-    private static bool MarkForDeletion(SafeFileHandle file)
+    private static bool MarkForDeletion(SafeFileHandle file, out string error)
     {
         var flags = DispositionDelete | DispositionPosixSemantics | DispositionIgnoreReadOnly;
         if (SetFileInformationByHandle(file, FileDispositionInfoEx, ref flags, sizeof(uint)))
         {
+            error = "0";
             return true;
         }
 
+        var ex = Marshal.GetLastWin32Error();
+
         // Older file systems take only the original form, which needs a writable file.
         byte delete = 1;
-        return SetFileInformationByHandle(file, FileDispositionInfo, ref delete, 1);
+        if (SetFileInformationByHandle(file, FileDispositionInfo, ref delete, 1))
+        {
+            error = "0";
+            return true;
+        }
+
+        error = $"{ex:x}/{Marshal.GetLastWin32Error():x}";
+        return false;
     }
 
     private readonly record struct Description(uint Attributes, uint VolumeSerialNumber, uint NumberOfLinks);
@@ -222,7 +280,6 @@ internal static class SecretShredder
     private const uint FileNonDirectoryFile = 0x00000040;
     private const uint FileOpenReparsePoint = 0x00200000;
     private const uint ObjCaseInsensitive = 0x00000040;
-    private const uint ObjDontReparse = 0x00001000;
 
     private const uint FileAttributeDirectory = 0x10;
     private const uint FileAttributeReparsePoint = 0x400;

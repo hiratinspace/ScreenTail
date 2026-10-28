@@ -62,6 +62,9 @@ internal static class UninstallCleanup
         public int Linked { get; set; }
 
         public int Unreadable { get; set; }
+
+        /// <summary>Why files were left in doubt, by reason token, counted. No path or name (INV-10).</summary>
+        public Dictionary<string, int> DoubtReasons { get; } = new(StringComparer.Ordinal);
     }
 
     /// <returns>0 when nothing was left in doubt, 1 when something was, 2 when it was not allowed to run.</returns>
@@ -106,6 +109,12 @@ internal static class UninstallCleanup
             + $"({tally.SecretsRemoved} files), so the store left in them cannot be read; {tally.SecretsInDoubt} files left in doubt.");
         output.WriteLine(
             $"ScreenTail uninstall: left alone: {tally.Linked} reached through a link, {tally.Unreadable} profiles whose path could not be read plainly.");
+        if (tally.DoubtReasons.Count > 0)
+        {
+            var reasons = string.Join(", ", tally.DoubtReasons.OrderBy(r => r.Key, StringComparer.Ordinal).Select(r => $"{r.Key}={r.Value}"));
+            output.WriteLine($"ScreenTail uninstall: files left in doubt, by reason: {reasons}.");
+        }
+
         output.WriteLine($"ScreenTail uninstall: {valuesRemoved} Run values removed, {valuesLeft} could not be removed.");
 
         return tally.PartlyDeleted + tally.SecretsInDoubt + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
@@ -219,15 +228,19 @@ internal static class UninstallCleanup
 
     private static void Shred(string profile, Tally tally)
     {
-        var outcomes = SecretShredder.Shred(profile);
-        if (outcomes.All(o => o == SecretShredder.Outcome.Absent))
+        var results = SecretShredder.Shred(profile);
+        if (results.All(r => r.Outcome == SecretShredder.Outcome.Absent))
         {
             return;
         }
 
         tally.Shredded++;
-        tally.SecretsRemoved += outcomes.Count(o => o == SecretShredder.Outcome.Removed);
-        tally.SecretsInDoubt += outcomes.Count(o => o == SecretShredder.Outcome.LeftInDoubt);
+        tally.SecretsRemoved += results.Count(r => r.Outcome == SecretShredder.Outcome.Removed);
+        tally.SecretsInDoubt += results.Count(r => r.Outcome == SecretShredder.Outcome.LeftInDoubt);
+        foreach (var reason in results.Where(r => r.Outcome == SecretShredder.Outcome.LeftInDoubt && r.Reason is not null))
+        {
+            tally.DoubtReasons[reason.Reason!] = tally.DoubtReasons.GetValueOrDefault(reason.Reason!) + 1;
+        }
     }
 
     private enum OwnerDelete
