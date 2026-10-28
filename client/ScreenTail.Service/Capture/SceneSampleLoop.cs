@@ -58,8 +58,8 @@ internal sealed partial class SceneSampleLoop
     public async Task RunAsync(CancellationToken ct)
     {
         // Only while a session is under way (ST-031): with none, every sample found the machine not
-        // recording and returned, once a second all day. The period is read as each session starts, so a
-        // change to it in Settings applies from the next session.
+        // recording and returned, once a second all day. The period is read once, here, as it always was,
+        // so a different sampling interval takes effect when the service next starts.
         //
         // One sample that cannot be taken or stored costs that sample. This loop used to end on the first
         // exception of any kind, and a session then went on with clicks and no scene frames at all.

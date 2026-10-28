@@ -107,7 +107,8 @@ public sealed class SensitiveContextGuard(SessionMachine machine, TimeProvider? 
     /// Ticks while a session is under way and not otherwise (ST-031): with none there is nothing to
     /// suppress, and this checked four times a second all day to find that out. A sighting can only come
     /// from a frame, and frames come from sessions. The first tick is the session starting, so a sighting
-    /// still in its window when one begins holds it from its first moment rather than from the next tick.
+    /// still in its window when one begins is acted on at the guard's first turn, as the session starts,
+    /// rather than at the next tick.
     /// </summary>
     public Task RunAsync(CancellationToken ct) =>
         SessionLoop.RunAsync(

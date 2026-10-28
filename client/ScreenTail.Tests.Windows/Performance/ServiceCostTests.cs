@@ -38,6 +38,10 @@ public sealed class ServiceCostTests
     /// names: it is set from the laptop. The service woke 129 times a second with no session before its
     /// loops learned to wait (2026-10-27), and 17 and 14 in two runs after, with slices from 15 to 21. Forty
     /// leaves room for that spread and still fails a loop polling at ten a second coming back.
+    ///
+    /// It may not catch a single new loop at four or five a second, which would land inside the spread.
+    /// The Mac suite's counting-clock tests (IdleWakeupTests, SessionLoopTests) are what hold each loop to
+    /// making no timer at idle; this is the whole-service check behind them.
     /// </summary>
     private const double IdleWakeupCeiling = 40;
 
@@ -50,7 +54,9 @@ public sealed class ServiceCostTests
     /// <summary>
     /// The busy twenty-minute session the Mac suite's disk test assumes (SessionStoreTests): 25 click frames
     /// and ST-026's cap of 60 scene frames. The disk budget is held against that many frames of the size
-    /// measured here, because the rate this test stages at is its own choice and the size is the fact.
+    /// measured here, because the rate this test stages at is its own choice and the size is the fact. What
+    /// is enforced is the measured size times this count; the per-twenty-minutes figure at the test's own
+    /// rate, nearer 28 MB, is reported and not enforced.
     /// </summary>
     private const int BusySessionFrames = 25 + 60;
 
@@ -67,7 +73,7 @@ public sealed class ServiceCostTests
         var ct = TestContext.Current.CancellationToken;
 
         ProcessCost.Settle();
-        var host = await ProcessCost.MeasureAsync(Slice, 3, ct);
+        var host = await ProcessCost.MeasureAsync(Slice, 6, ct);
 
         await using var rig = await ServiceRig.StartAsync(scope: null, ct);
         await Task.Delay(SettleFor, ct);
@@ -112,10 +118,12 @@ public sealed class ServiceCostTests
         window.ShowContrast(ContrastLayout.SideBySide);
 
         // Drawn before anything is measured, so the test's own drawing is not counted as the service's.
+        // What is counted is conservative: the window repainting itself and the staging calls happen in
+        // this process during the window, so they are in the recording figure beside the service's work.
         var frames = Enumerable.Range(0, 24).Select(RenderDialog).ToList();
 
         ProcessCost.Settle();
-        var host = await ProcessCost.MeasureAsync(Slice, 3, ct);
+        var host = await ProcessCost.MeasureAsync(Slice, 6, ct);
 
         var scope = new ScopeDecision(CaptureScope.RemoteTool, "rdp", RemoteToolKind.Rdp, "Capturing", window.Handle);
         await using var rig = await ServiceRig.StartAsync(() => scope, ct);
@@ -194,7 +202,7 @@ public sealed class ServiceCostTests
                 CultureInfo.InvariantCulture,
                 $"Disk: the store grew {ProcessCost.Megabytes(grew)} over {minutes:F1} min for {stored} stored frames, "
                 + $"**{perFrame / 1024:F0} KB a frame**, {ProcessCost.Megabytes((long)perMinute)} per session-minute at this rate, "
-                + $"{perTwenty:F1} MB per 20 minutes at this test's rate of one text frame every 6 s; "
+                + $"{perTwenty:F1} MB per 20 minutes at this test's rate of one text frame every 6 s (reported, not enforced); "
                 + $"the busy session of {BusySessionFrames} frames comes to **{busy:F1} MB** (budget {DiskBudgetMegabytesPerTwentyMinutes:F0} MB, enforced: {Counts}), "
                 + $"and the budget holds {fit:F0} frames of this size"));
 

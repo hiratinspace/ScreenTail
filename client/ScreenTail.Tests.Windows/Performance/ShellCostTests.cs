@@ -36,7 +36,7 @@ public sealed class ShellCostTests
         var ct = TestContext.Current.CancellationToken;
 
         ProcessCost.Settle();
-        var host = await ProcessCost.MeasureAsync(Slice, 3, ct);
+        var host = await ProcessCost.MeasureAsync(Slice, 6, ct);
 
         CostWindow? idle = null;
         var connected = false;

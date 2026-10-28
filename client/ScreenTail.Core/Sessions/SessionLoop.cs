@@ -14,7 +14,7 @@ namespace ScreenTail.Core.Sessions;
 ///
 /// <b>Three rules keep the loops doing what they did.</b> The step runs at once when a session begins,
 /// rather than a period later, so a session that starts over something a guard should act on is acted on
-/// at its first moment. It runs on the period for as long as the session is under way, in every state a
+/// at its first turn, as the session starts. It runs on the period for as long as the session is under way, in every state a
 /// step has something to do in: recording, paused, suppressed and finalizing, the states in which the
 /// input hooks are in. And it runs once more after the session has ended, so a step that tidies up on
 /// seeing a session over (the scene sampler forgetting its baseline, the drain emptying what the hooks
