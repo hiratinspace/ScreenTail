@@ -12,7 +12,8 @@ namespace ScreenTail.Api.Tests.Summarize;
 /// under ten cents a session.
 ///
 /// <b>Skipped unless somebody asks for it</b>, because it calls a paid API. Set
-/// <c>SCREENTAIL_LIVE_LLM=1</c> and it runs against the key in <c>dotnet user-secrets</c>; leave it
+/// <c>SCREENTAIL_LIVE_LLM=1</c> and it runs against the key in <c>dotnet user-secrets</c>, with the
+/// provider <c>Summarization:Provider</c> names there (Gemini unless it says <c>claude</c>); leave it
 /// unset — as CI does, and as every other developer does — and it skips. Nothing else in this suite is
 /// allowed to touch a real provider, which <c>NoLiveProviderInTestsTests</c> enforces.
 ///
@@ -29,8 +30,15 @@ public sealed class LiveDraftingBudgetTests
     /// <summary>ST-063 AC1. The technician is watching Review when this is running.</summary>
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
 
-    /// <summary>Scope §6's per-session ceiling.</summary>
-    private const decimal CostCeilingUsd = 0.10m;
+    /// <summary>
+    /// Scope §6's per-session ceiling on Gemini. On Claude, the per-session reservation its defaults
+    /// make, which is the figure the cap assumes (ST-063, 2026-10-28).
+    /// </summary>
+    private static decimal CostCeilingUsd(string provider)
+    {
+        var options = new SummarizationOptions { Provider = provider };
+        return options.IsClaude ? options.MaxSessionCostUsd : 0.10m;
+    }
 
     /// <summary>What <c>BundleOptions.MaxFrames</c> lets the client send.</summary>
     private const int HeaviestFrameCount = 25;
@@ -59,9 +67,9 @@ public sealed class LiveDraftingBudgetTests
     [Fact]
     public async Task TheHeaviestSessionAClientCanSendDraftsInsideTheBudget()
     {
-        var key = KeyOrSkip();
+        var (key, provider) = KeyOrSkip();
         var bundle = Heaviest();
-        var runs = await MeasureAsync(key, bundle, "heaviest");
+        var runs = await MeasureAsync(key, provider, bundle, "heaviest");
 
         var slowest = runs.Max(run => run.Elapsed);
         var mean = runs.Average(run => run.CostUsd);
@@ -70,8 +78,8 @@ public sealed class LiveDraftingBudgetTests
             slowest <= Budget,
             $"Slowest draft took {slowest.TotalSeconds:F1} s against a {Budget.TotalSeconds:F0} s budget.");
         Assert.True(
-            mean <= CostCeilingUsd,
-            $"Mean draft cost ${mean:F4} against a ${CostCeilingUsd:F2} ceiling.");
+            mean <= CostCeilingUsd(provider),
+            $"Mean draft cost ${mean:F4} against a ${CostCeilingUsd(provider):F2} ceiling.");
     }
 
     [Fact]
@@ -79,19 +87,19 @@ public sealed class LiveDraftingBudgetTests
     {
         // The three-frame printer call in the fixtures: what most sessions actually look like. Measured
         // separately so the average an MSP sees on its bill is not read off the worst case.
-        var key = KeyOrSkip();
+        var (key, provider) = KeyOrSkip();
         var bundle = Fixture("spooler-stopped-screenconnect");
-        var runs = await MeasureAsync(key, bundle, "everyday");
+        var runs = await MeasureAsync(key, provider, bundle, "everyday");
 
         Assert.True(runs.Max(run => run.Elapsed) <= Budget);
-        Assert.True(runs.Average(run => run.CostUsd) <= CostCeilingUsd);
+        Assert.True(runs.Average(run => run.CostUsd) <= CostCeilingUsd(provider));
     }
 
     /// <summary>
     /// Drafts the bundle <see cref="Runs"/> times and reports what happened, retrying past the
     /// provider's own bad moments rather than reporting them as ours.
     /// </summary>
-    private static async Task<IReadOnlyList<Run>> MeasureAsync(string key, SummarizeBundle bundle, string name)
+    private static async Task<IReadOnlyList<Run>> MeasureAsync(string key, string provider, SummarizeBundle bundle, string name)
     {
         List<Run> runs = [];
         var transient = 0;
@@ -107,7 +115,7 @@ public sealed class LiveDraftingBudgetTests
                     await Task.Delay(Pace, TestContext.Current.CancellationToken);
                 }
 
-                run = await DraftOnceAsync(key, bundle);
+                run = await DraftOnceAsync(key, provider, bundle);
                 if (run.Ok || run.Status != SummarizeStatus.Unavailable || ++attempt >= TransientAttempts)
                 {
                     break;
@@ -119,7 +127,7 @@ public sealed class LiveDraftingBudgetTests
             runs.Add(run);
         }
 
-        Report(name, bundle, runs, transient);
+        Report($"{name}, {provider}", bundle, runs, transient);
 
         // A provider that never answered is not a budget this code missed, and reporting it as one would
         // be a red suite that says nothing. The free tier allows twenty requests a day per model, so a
@@ -133,17 +141,18 @@ public sealed class LiveDraftingBudgetTests
         return [.. runs.Where(run => run.Ok)];
     }
 
-    private static async Task<Run> DraftOnceAsync(string key, SummarizeBundle bundle)
+    private static async Task<Run> DraftOnceAsync(string key, string provider, SummarizeBundle bundle)
     {
-        var options = new SummarizationOptions { ApiKey = key };
+        var options = new SummarizationOptions { ApiKey = key, Provider = provider };
         using var http = new HttpClient
         {
-            BaseAddress = new Uri("https://generativelanguage.googleapis.com/"),
+            BaseAddress = new Uri(options.IsClaude ? "https://api.anthropic.com/" : "https://generativelanguage.googleapis.com/"),
             Timeout = options.Timeout,
         };
 
+        using var claude = options.IsClaude ? new ClaudeProvider(http, options, PromptLibrary.Note()) : null;
         var service = new SummarizationService(
-            new GeminiProvider(http, options, PromptLibrary.Note()),
+            claude is not null ? claude : new GeminiProvider(http, options, PromptLibrary.Note()),
             fallback: null,
             new Tally(),
             options);
@@ -299,7 +308,7 @@ public sealed class LiveDraftingBudgetTests
     /// The developer's key, from the same user secrets store ST-063 documents. Never from a file in the
     /// repository, and never printed.
     /// </summary>
-    private static string KeyOrSkip()
+    private static (string Key, string Provider) KeyOrSkip()
     {
         Assert.SkipUnless(
             Environment.GetEnvironmentVariable("SCREENTAIL_LIVE_LLM") == "1",
@@ -315,7 +324,7 @@ public sealed class LiveDraftingBudgetTests
             string.IsNullOrWhiteSpace(key),
             "No provider key. Set one with: dotnet user-secrets set \"Summarization:ApiKey\" <key>");
 
-        return key!;
+        return (key!, configuration["Summarization:Provider"] is { Length: > 0 } provider ? provider : SummarizationOptions.Gemini);
     }
 
     private static string Fixtures()
