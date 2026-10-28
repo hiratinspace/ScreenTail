@@ -1,7 +1,11 @@
 # ADR-0007: The Windows installer
 
-- **Status:** **Proposed 2026-10-27** (ST-112). Built and smoke-tested in CI; the owner decides. Amends
-  ADR-0003 in one place: an installed service starts from the machine's Run key, not the user's.
+- **Status:** **Proposed 2026-10-27** (ST-112). Built and smoke-tested in CI; the owner decides, and
+  confirms the uninstall's treatment of technicians who are not signed in (below, "Upgrade and
+  uninstall") before this leaves Proposed. Amends ADR-0003 in one place: an installed service starts
+  from the machine's Run key, not the user's. Revised 2026-10-28 after review: the install folder is
+  fixed, signing credentials reach only the signing steps, and the uninstall removes the key and
+  credentials of technicians who are not signed in.
 - **Date:** 2026-10-27
 - **Ticket:** ST-112 (ST-113, auto-update, builds on it)
 - **Deciders:** project owner; build agent
@@ -55,13 +59,17 @@ later version. Moving up is a decision for the owner once there is revenue.
 
 - **`ScreenTail.msi`**: per machine, x64, into `C:\Program Files\ScreenTail`, both executables side by
   side with the native libraries and the registry files the service reads. A fixed UpgradeCode, so a
-  newer version replaces the old one; a downgrade is refused.
+  newer version replaces the old one; a downgrade is refused. **The folder cannot be changed**: the
+  package works out the machine's own Program Files from the environment and refuses any
+  `INSTALLFOLDER` that differs, because the uninstall runs the installed service as the system
+  account and that file must sit where only administrators can change it.
 - **`ScreenTail-Setup.exe`**: Microsoft's Visual C++ runtime installer (downloaded at build time and
   checked to be Microsoft-signed), skipped when the same or a newer runtime is there and never removed
   on uninstall because other software shares it, then the MSI. The MSI on its own refuses to install
   without the runtime, with a message naming it, rather than install a service whose speech fails; an
   MSP that already deploys the runtime can use the MSI alone.
-- **`installer/build.ps1`** builds both, the same way on a developer's Windows machine and on CI.
+- **`installer/build.ps1`** builds both, the same way on a developer's Windows machine and on CI:
+  whole, or one stage at a time (payload, package, setup program, reattach), and a stage never signs.
 
 ### How the processes are published
 
@@ -95,20 +103,38 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
 
 ### Upgrade and uninstall
 
-- **Running copies are ended** in every session before files are replaced or removed, on upgrade and
-  uninstall alike, so a silent push while somebody is signed in needs no restart. A session that was
-  recording is recovered at the next start (ST-020).
+- **Running copies are ended** before files are replaced or removed, on an upgrade or an uninstall and
+  on nothing else (a first install has nothing to close, and a repair must not end a recording), so a
+  silent push while somebody is signed in needs no restart. That reaches every session when the
+  installer runs as the system account, as MSP tools run it. **After an upgrade the service is down
+  until the technician's next sign-in**; a session that was recording is recovered then (ST-020).
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
-  as the system account: it stops any running copy, removes the Run values the UI wrote in signed-in
-  users' registries, and deletes a technician's data folder (`%LOCALAPPDATA%\ScreenTail`: the store,
-  its key, the device's refresh token, models, settings, crash reports) **only while that technician is
-  signed in, and with that technician's own token**. The system account deletes nothing inside a profile
-  on its own account; a link anywhere between the profile and the data folder leaves it alone. A user
-  who is not signed in keeps their folder. The step writes how many folders it deleted and how many it
-  left, and why, into the uninstall log.
-- So INV-12 holds the way it already did: **"Delete everything" in Settings is how a technician erases
-  their data**, and an uninstall is not a substitute for it. The operator doc says this plainly.
+  as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in
+  users' registries, and then, for each profile's data folder (`%LOCALAPPDATA%\ScreenTail`):
+  - **A technician who is signed in:** the whole folder is deleted **with that technician's own token**,
+    the store's key and the device's credentials first (Delete everything's order), so the delete has
+    no more rights than the folder's owner. If that fails, the next rule applies.
+  - **A technician who is not signed in** (an RMM uninstall at night): the system account never deletes
+    a folder in somebody else's profile. It removes **only the store's key, the device's refresh token
+    and its temporary file, and the pipe token**, one file at a time: the profile folder is opened
+    without following a link, each folder below it and then each file is opened by name relative to the
+    folder above with links refused, checked through its handle (not a link, the expected kind, the
+    same volume, a file with one name) and deleted through that handle. **The encrypted store stays and
+    cannot be read without its key** (crypto-shredding). Also left: files with no session content
+    (settings, the cached tenant policy, the UI's preferences, the speech models, stack-only crash
+    reports), and the folder itself. Anything in doubt is left and counted.
+  - **A link anywhere between the profile and the data folder, or a profile path that cannot be read
+    plainly:** nothing there is touched.
+  The step writes how many of each into the uninstall log, as counts only.
+- **INV-12 after an uninstall**: a signed-in technician's data is gone; a signed-out technician's store
+  is unreadable and their device credential is gone, with the empty shell of the folder left for them or
+  an administrator to delete. The retention purge does not run once the service is uninstalled, which is
+  why the key goes rather than waiting for it. **This is the practical default the owner asked for and
+  is a decision to confirm**: the alternative is a component that runs at each technician's next
+  sign-in to delete the rest (see Alternatives).
+- A technician whose Local AppData has been redirected somewhere other than `AppData\Local` in their
+  profile (Windows does not support that, though policies exist) is not found, and keeps their folder.
 
 ### Signing
 
@@ -117,14 +143,24 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   SHA-256 with an RFC 3161 timestamp, so a signature stays valid after its certificate expires, which is
   what `Authenticode.cs` expects. Afterwards every file must verify, carry a timestamp, and share one
   signer, because the peer checks compare signers.
-- **Recommended: Azure Artifact Signing** (formerly Trusted Signing): no key to hold, CI signs through
-  a service principal, and the certificate chains to a root Windows trusts. A certificate on a hardware
+- **Recommended: Azure Artifact Signing** (formerly Trusted Signing): no key to hold, and the
+  certificate chains to a root Windows trusts. CI signs through **workload identity federation**: the
+  Azure app registration trusts this repository's `signing` environment, the signed job alone has
+  `id-token: write`, and `sign.ps1` exchanges the job's GitHub OIDC token. No client secret exists. A certificate on a hardware
   token or a cloud HSM works too, through the Windows certificate store. No key file is supported: a
   private key in a file is the thing a public repository must never hold.
 - **Unconfigured, it signs nothing and says so**, listing what it would have signed. An unsigned build
   is a development build, and the peer checks treat it as one; nothing about them changed.
 - In CI the unsigned job runs everywhere; the signed job runs only on main, only when the repository
-  variable `SCREENTAIL_SIGNING` is `true`, with its secrets in the `signing` environment.
+  variable `SCREENTAIL_SIGNING` is `true`, in the `signing` environment. **The credential reaches only
+  the signing steps**: the build runs in stages with no signing setting in their environment, each
+  stage drops the OIDC request variables before running any build code (NuGet packages' build targets,
+  WiX, downloads), and a `sign.ps1` step between stages is the only place the token is asked for. A
+  check in the workflows job holds all of this.
+- **Artifact Signing issues short-lived certificates that rotate.** Both executables are signed in one
+  `signtool` call, and `sign.ps1` fails unless every file in a call has the same signer, so the peer
+  checks' leaf-thumbprint comparison holds for an installed pair. Anything that compares builds made
+  at different times must compare the publisher's identity instead (next section).
 
 ### The seam for ST-113 (auto-update)
 
@@ -135,8 +171,11 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   one of: the MSP's own tool pushing updates (the usual MSP answer); a scheduled task the installer
   registers that runs an elevated updater as the system account; or a small Windows service that only
   updates. It also needs the release feed (ST-007's bucket), a check that a downloaded package is
-  signed by the same publisher as the running service (`Authenticode.VerifiedSignerThumbprint` already
-  answers that), and "never during a session", which the service knows.
+  signed by the same publisher as the running service, and "never during a session", which the service
+  knows. **That check must compare publisher identity (the certificate's subject, or its chain up to
+  the Artifact Signing identity), not the leaf thumbprint**: Artifact Signing rotates its certificates
+  every few days, so next week's release carries a different leaf from today's install.
+  `Authenticode.VerifiedSignerThumbprint` answers the narrower question and is not enough on its own.
 
 ## Consequences
 
@@ -144,17 +183,22 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   uninstall within this ADR's definition, and size are checked by CI's smoke test on every client
   change. "No SmartScreen or antivirus warning on a fresh Windows 11" needs the certificate, and with
   Artifact Signing, reputation that builds over the first downloads; it can only be checked then.
-- A technician who is not signed in when an MSP uninstalls keeps their data folder until they use
-  "Delete everything" or remove it themselves; a value they wrote for "Start UI at login" stays in their
-  registry, naming a program that no longer exists, which Windows passes over.
+- A technician who is not signed in when an MSP uninstalls keeps an unreadable store and the files
+  listed above in their profile, until they or an administrator delete the folder; a value they wrote
+  for "Start UI at login" stays in their registry, naming a program that no longer exists, which
+  Windows passes over. "Delete everything" in Settings remains the full erase while ScreenTail is
+  installed.
 - The backend address is still read from `SCREENTAIL_BACKEND` only. How an installed client learns it
   (a built-in default, an MSI property, the invite code) is not decided here.
 
 ## Alternatives considered
 
-- **A Windows Service for the update and cleanup work.** Would let the uninstall reach every user's
+- **A Windows Service for the update and cleanup work.** Would let the uninstall finish every user's
   data at their next sign-in and give ST-113 its elevated updater, at the cost of a privileged process
   running all day. Left for ST-113 to decide.
+- **Deleting signed-out technicians' whole folders as the system account.** Rejected: the system
+  account does not delete folders inside a profile its owner controls. The handle-bound removal of four
+  named files is the most it does there.
 - **Active Setup for per-user cleanup.** Runs a command as each user at their next sign-in, but leaves a
   machine key behind for ever and would run against a later reinstall's data unless carefully versioned.
 - **Shipping the Visual C++ runtime files beside Whisper.** Removes the setup program, but depends on
