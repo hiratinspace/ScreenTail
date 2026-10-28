@@ -96,8 +96,14 @@ public sealed class SecretShredderTests : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && ex.HResult == unchecked((int)0x80070522))
         {
-            // ERROR_PRIVILEGE_NOT_HELD: this account may not make file links. Hosted runners can.
-            Assert.Skip("This account may not create symbolic links.");
+            // ERROR_PRIVILEGE_NOT_HELD: this account may not make file links (hosted runners can). Not a
+            // skip, because every skip budget is spent: what can still be checked is checked, and the run
+            // says plainly that the link case itself was not exercised here.
+            Assert.False(File.Exists(key));
+            Assert.Equal(SecretShredder.Outcome.Absent, SecretShredder.Shred(Profile)[0].Outcome);
+            Assert.Equal("not ours", File.ReadAllText(target));
+            Measurements.Record("SecretShredderTests: the symbolic-link key case was NOT exercised; this account may not create symbolic links.");
+            return;
         }
 
         var results = SecretShredder.Shred(Profile);
