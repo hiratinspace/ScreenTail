@@ -64,13 +64,25 @@ builder.Services
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
 var summarization = builder.Configuration.GetSection(SummarizationOptions.Section).Get<SummarizationOptions>()
     ?? new SummarizationOptions();
+
+// An unknown provider stops the service here: the key would otherwise go to a company it was not for.
+summarization.Validate();
 builder.Services.AddSingleton(summarization);
 builder.Services.AddScoped<ICostLedger, CostLedger>();
 
+// One fixed host per provider, and nothing else. The backend has no general egress list for drafting:
+// each model is reached through a named client whose base address is set here and nowhere else, and the
+// Claude provider pins the SDK to that address and that key, so neither ANTHROPIC_BASE_URL nor
+// ANTHROPIC_API_KEY in the environment can redirect a customer's session.
 var prompt = PromptLibrary.Note();
 builder.Services.AddHttpClient(nameof(GeminiProvider), client =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
+    client.Timeout = summarization.Timeout;
+});
+builder.Services.AddHttpClient(nameof(ClaudeProvider), client =>
+{
+    client.BaseAddress = new Uri("https://api.anthropic.com/");
     client.Timeout = summarization.Timeout;
 });
 
@@ -78,11 +90,18 @@ builder.Services.AddHttpClient(nameof(GeminiProvider), client =>
 // resolves a plain HttpClient from the container, which is the unnamed one — no base address, so the
 // provider's relative URL threw before anything was sent, and the default timeout rather than ours.
 // Drafting could not have worked on any deployment (2026-09-20 review).
+//
+// Registered as itself, scoped, so the container disposes the Claude provider's SDK client with the
+// request. Summarization:Provider picks which; Gemini is the default and unchanged.
+builder.Services.AddScoped<ILlmProvider>(services =>
+{
+    var clients = services.GetRequiredService<IHttpClientFactory>();
+    return summarization.IsClaude
+        ? new ClaudeProvider(clients.CreateClient(nameof(ClaudeProvider)), summarization, prompt)
+        : new GeminiProvider(clients.CreateClient(nameof(GeminiProvider)), summarization, prompt);
+});
 builder.Services.AddScoped<SummarizationService>(services => new SummarizationService(
-    new GeminiProvider(
-        services.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiProvider)),
-        summarization,
-        prompt),
+    services.GetRequiredService<ILlmProvider>(),
     fallback: null,
     services.GetRequiredService<ICostLedger>(),
     summarization));
@@ -141,9 +160,11 @@ builder.Services.AddOpenApi();
 // without that line this was a registration with no effect (2026-09-19 review).
 builder.Services.AddRequestTimeouts(timeouts =>
 {
-    // Longer than the drafting deadline, which is 60 s and is enforced by the summarisation service
-    // itself with a message a technician can act on. This is the backstop for everything else.
-    timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(90) };
+    // Longer than the drafting deadline (60 s on Gemini, 85 s on Claude), which the summarisation
+    // service enforces itself with a message a technician can act on. This is the backstop for
+    // everything else, and stays thirty seconds clear of that deadline whatever it is set to.
+    var backstop = summarization.Timeout + TimeSpan.FromSeconds(30);
+    timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = backstop > TimeSpan.FromSeconds(90) ? backstop : TimeSpan.FromSeconds(90) };
 });
 
 var app = builder.Build();

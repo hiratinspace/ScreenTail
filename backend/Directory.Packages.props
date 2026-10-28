@@ -14,6 +14,8 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+    <!-- ST-063. The official Anthropic SDK, for drafting on Claude when Summarization:Provider is claude. -->
+    <PackageVersion Include="Anthropic" Version="13.3.0" />
     <!-- xUnit v3 runs on Microsoft.Testing.Platform (global.json "test.runner"); no VSTest packages needed. -->
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
   </ItemGroup>
