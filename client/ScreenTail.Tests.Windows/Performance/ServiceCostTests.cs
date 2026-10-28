@@ -33,6 +33,14 @@ public sealed class ServiceCostTests
     /// <summary>ST-031: idle CPU under 1%. Held against one core, which is stricter than the budget read as a share of the machine; see docs/dev/performance.md.</summary>
     private const double IdleBudgetPercentOfOneCore = 1.0;
 
+    /// <summary>
+    /// A ceiling on the idle service's wakeups, net of the host, by median slice. Not a budget ST-031
+    /// names: it is set from the laptop. The service woke 129 times a second with no session before its
+    /// loops learned to wait (2026-10-27), and 17 and 14 in two runs after, with slices from 15 to 21. Forty
+    /// leaves room for that spread and still fails a loop polling at ten a second coming back.
+    /// </summary>
+    private const double IdleWakeupCeiling = 40;
+
     /// <summary>ST-031: recording CPU under 15% of a four-core machine, which is 60% of one core on any machine.</summary>
     private const double RecordingBudgetPercentOfOneCore = 15.0 * 4;
 
@@ -78,11 +86,14 @@ public sealed class ServiceCostTests
             + $"service {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {CostWindow.Spread(host.CpuBySlice, "F3")}; by clock ticks, as Task Manager counts, service {CostWindow.Spread(idle.TickCpuBySlice, "F3")}), "
             + $"**{wakeups:F1} wakeups/s** net (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}), "
             + $"private memory {ProcessCost.Megabytes(idle.Last.PrivateBytes - host.Last.PrivateBytes)} over the host's {ProcessCost.Megabytes(host.Last.PrivateBytes)} "
-            + $"(budget {IdleBudgetPercentOfOneCore:F0}% of one core, enforced: {Counts}; wakeups and memory reported, not enforced)"));
+            + $"(budget {IdleBudgetPercentOfOneCore:F0}% of one core and a ceiling of {IdleWakeupCeiling:F0} wakeups/s, both enforced: {Counts}; memory reported, not enforced)"));
 
         Assert.True(
             !Counts || cpu < IdleBudgetPercentOfOneCore,
             $"the idle service used {cpu:F3}% of one core net of the host, budget {IdleBudgetPercentOfOneCore:F0}%");
+        Assert.True(
+            !Counts || wakeups < IdleWakeupCeiling,
+            $"the idle service woke {wakeups:F1} times a second net of the host, ceiling {IdleWakeupCeiling:F0}; something is polling where it could wait");
     }
 
     [Fact]
