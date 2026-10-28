@@ -164,7 +164,7 @@ public sealed class ClaudeProviderTests
         {
             Frames =
             [
-                new BundleFrame("f1", 1_000, "Services") { Image = "++//QUJD", MediaType = "image/png" },
+                new BundleFrame("f1", 1_000, "Services") { Image = "++//QUJD", MediaType = "Image/PNG" },
                 new BundleFrame("f2", 2_000, "Spooler") { Image = "QUJD" },
                 new BundleFrame("f3", 3_000, "No picture"),
             ],
@@ -177,6 +177,8 @@ public sealed class ClaudeProviderTests
         Assert.Equal("base64", images[0].GetProperty("source").GetProperty("type").GetString());
         Assert.Equal("image/png", images[0].GetProperty("source").GetProperty("media_type").GetString());
         Assert.Equal("image/jpeg", images[1].GetProperty("source").GetProperty("media_type").GetString());
+
+        Assert.Equal("image/png", images[0].GetProperty("source").GetProperty("media_type").GetString());
 
         // The picture arrives as the client sent it. (The SDK writes '+' as an escape on the wire, about
         // eight per cent more bytes of base64; the API decodes it, so no token and no cent depends on it.)
@@ -238,7 +240,29 @@ public sealed class ClaudeProviderTests
 
         Assert.DoesNotContain(key, handler.Uri!.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(key, handler.Body!, StringComparison.Ordinal);
-        Assert.Contains(handler.Headers!, header => header.Value.Any(value => value.Contains(key, StringComparison.Ordinal)));
+
+        // Exactly one credential: SDK 13 sends an API key as a bearer token, which the API accepts on
+        // version 2026-10-21. Two would be a 401 (both headers set is one of the documented causes).
+        Assert.Equal($"Bearer {key}", Assert.Single(handler.Headers!.GetValues("Authorization")));
+        Assert.False(handler.Headers!.Contains("x-api-key"));
+        Assert.Single(handler.Headers!, header => header.Value.Any(value => value.Contains(key, StringComparison.Ordinal)));
+    }
+
+    [Theory]
+    [InlineData("Authorization", true)]
+    [InlineData("anthropic-version", true)]
+    [InlineData("anthropic-beta", true)]
+    [InlineData("X-Stainless-Runtime-Version", true)]
+    [InlineData("User-Agent", true)]
+    [InlineData("X-Leak", false)]
+    [InlineData("anthropic-workspace-id", false)]
+    [InlineData("x-api-key", false)]
+    public void OnlyTheHeadersADraftNeedsAreSent(string header, bool sent)
+    {
+        // The SDK adds whatever ANTHROPIC_CUSTOM_HEADERS names, and reads it once per process, so a test
+        // that sets the variable is decisive only when it runs first (ClaudeEnvironmentTests). This is the
+        // rule itself, whatever ran before.
+        Assert.Equal(sent, ClaudeProvider.Sent(header));
     }
 
     // --- The refusal fallback ------------------------------------------------------------------------------
@@ -320,6 +344,44 @@ public sealed class ClaudeProviderTests
 
         Assert.True(result.Ok, result.Error?.ToString());
         Assert.Equal(0.04m + 0.05m + 0.05m, result.Value!.CostUsd);
+    }
+
+    [Fact]
+    public async Task AnAnswerFromAnotherModelIsPricedAsThatModel()
+    {
+        // No iterations, but the answer names the model that wrote it. A fallback that served the whole
+        // turn (a sticky one has no iterations block to say so) bills at its own price.
+        var handler = new RecordingHandler(Envelope($$"""
+            { "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5",
+              "content": [ { "type": "text", "text": {{JsonSerializer.Serialize(Draft())}} } ],
+              "stop_reason": "end_turn", "stop_sequence": null,
+              "usage": { "input_tokens": 10000, "output_tokens": 2000 } }
+            """));
+
+        var result = await Provider(handler).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(0.05m + 0.05m, result.Value!.CostUsd);
+    }
+
+    [Fact]
+    public async Task AnIterationThatCannotBeReadLeavesTheTopLevelBill()
+    {
+        var handler = new RecordingHandler(Envelope($$"""
+            { "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
+              "content": [ { "type": "text", "text": {{JsonSerializer.Serialize(Draft())}} } ],
+              "stop_reason": "end_turn", "stop_sequence": null,
+              "usage": { "input_tokens": 10000, "output_tokens": 2000,
+                "iterations": [
+                  { "type": "message", "model": "claude-opus-5-5", "input_tokens": 10000, "output_tokens": 0 },
+                  { "type": "message", "model": "claude-opus-5-5", "input_tokens": "many" },
+                  { "type": "something_new", "tokens": 7 } ] } }
+            """));
+
+        var result = await Provider(handler).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(0.04m + 0.04m, result.Value!.CostUsd);
     }
 
     [Fact]
@@ -505,6 +567,20 @@ public sealed class ClaudeProviderTests
 
         Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
         Assert.Equal(TimeSpan.FromSeconds(26), result.Error.RetryAfter);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "api_error")]
+    [InlineData((HttpStatusCode)529, "overloaded_error")]
+    public async Task AnOutageKeepsTheTimeAnthropicSaidToComeBackToo(HttpStatusCode status, string type)
+    {
+        var reply = Failure(status, type);
+        reply.Headers.Add("retry-after", "40");
+
+        var result = await Provider(new RecordingHandler(reply)).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
+        Assert.Equal(TimeSpan.FromSeconds(40), result.Error.RetryAfter);
     }
 
     [Fact]

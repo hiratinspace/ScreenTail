@@ -54,13 +54,17 @@ public sealed class SummarizationOptionsTests
         Assert.Equal(cacheRead, options.CacheReadCostPerMillionUsd);
     }
 
-    [Fact]
-    public void AModelWithNoListedPriceIsPricedHighRatherThanLow()
+    [Theory]
+    [InlineData("claude-something-new")]
+    [InlineData("claude-fable-5-1")]
+    public void AModelWithNoListedPriceIsPricedAtTheDearestRateRatherThanACheapOne(string model)
     {
-        var options = new SummarizationOptions { Provider = "claude", Model = "claude-something-new" };
+        // Claude Fable 5.1 lists at $10 and $50. Pricing an unknown model at anything less could count
+        // half of what a newer model really costs, which is a cap that lets twice the money through.
+        var options = new SummarizationOptions { Provider = "claude", Model = model };
 
-        Assert.True(options.InputCostPerMillionUsd >= 4m);
-        Assert.True(options.OutputCostPerMillionUsd >= 20m);
+        Assert.True(options.InputCostPerMillionUsd >= 10m);
+        Assert.True(options.OutputCostPerMillionUsd >= 50m);
     }
 
     [Fact]
@@ -147,6 +151,23 @@ public sealed class SummarizationOptionsTests
     public void TheTwoProvidersAreAccepted(string provider)
     {
         new SummarizationOptions { Provider = provider }.Validate();
+    }
+
+    [Fact]
+    public void ANamedFallbackOnAModelWithoutFallbacksIsRefusedAtStartup()
+    {
+        // Claude Haiku 5.5 has no server-side fallback: a list of fallback models is a 400 on every
+        // draft. "default" is accepted there and simply runs the model alone.
+        var thrown = Assert.Throws<InvalidOperationException>(() => new SummarizationOptions
+        {
+            Provider = "claude",
+            Model = "claude-haiku-5-5",
+            RefusalFallback = "claude-opus-5",
+        }.Validate());
+
+        Assert.Contains("Summarization:RefusalFallback", thrown.Message, StringComparison.Ordinal);
+        new SummarizationOptions { Provider = "claude", Model = "claude-haiku-5-5" }.Validate();
+        new SummarizationOptions { Provider = "claude", Model = "claude-haiku-5-5", RefusalFallback = "none" }.Validate();
     }
 
     [Fact]
