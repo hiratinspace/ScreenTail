@@ -248,21 +248,120 @@ public sealed class ClaudeProviderTests
         Assert.Single(handler.Headers!, header => header.Value.Any(value => value.Contains(key, StringComparison.Ordinal)));
     }
 
-    [Theory]
-    [InlineData("Authorization", true)]
-    [InlineData("anthropic-version", true)]
-    [InlineData("anthropic-beta", true)]
-    [InlineData("X-Stainless-Runtime-Version", true)]
-    [InlineData("User-Agent", true)]
-    [InlineData("X-Leak", false)]
-    [InlineData("anthropic-workspace-id", false)]
-    [InlineData("x-api-key", false)]
-    public void OnlyTheHeadersADraftNeedsAreSent(string header, bool sent)
+    [Fact]
+    public void AHeaderNamedLikeTheSdksOwnIsStillRemoved()
     {
-        // The SDK adds whatever ANTHROPIC_CUSTOM_HEADERS names, and reads it once per process, so a test
-        // that sets the variable is decisive only when it runs first (ClaudeEnvironmentTests). This is the
-        // rule itself, whatever ran before.
-        Assert.Equal(sent, ClaudeProvider.Sent(header));
+        // ANTHROPIC_CUSTOM_HEADERS can name anything, including X-Stainless-Something, which a filter by
+        // prefix let through (security review of 2026-10-28). Names are matched exactly.
+        using var request = Outgoing();
+        _ = request.Headers.TryAddWithoutValidation("X-Stainless-Anything", "collector");
+        _ = request.Headers.TryAddWithoutValidation("X-Leak", "yes");
+        _ = request.Headers.TryAddWithoutValidation("anthropic-workspace-id", "wrkspc_elsewhere");
+        _ = request.Headers.TryAddWithoutValidation("x-api-key", "another-key");
+
+        ClaudeProvider.Scrub(request, "the-key", beta: null);
+
+        Assert.Equal(
+            ["Authorization", "User-Agent", "X-Stainless-Lang", "anthropic-version"],
+            request.Headers.Select(header => header.Key).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ASecondCredentialIsReplacedByTheConfiguredOne()
+    {
+        using var request = Outgoing();
+        _ = request.Headers.TryAddWithoutValidation("Authorization", "Bearer someone-elses-key");
+
+        ClaudeProvider.Scrub(request, "the-key", beta: null);
+
+        Assert.Equal("Bearer the-key", Assert.Single(request.Headers.GetValues("Authorization")));
+    }
+
+    [Theory]
+    [InlineData("server-side-fallback-2026-07-01")]
+    [InlineData(null)]
+    public void TheBetasAndTheVersionAreExactlyTheProvidersOwn(string? beta)
+    {
+        using var request = Outgoing();
+        _ = request.Headers.TryAddWithoutValidation("anthropic-beta", "something-the-environment-wanted");
+        _ = request.Headers.Remove("anthropic-version");
+        _ = request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+
+        ClaudeProvider.Scrub(request, "the-key", beta);
+
+        Assert.Equal("2026-10-21", Assert.Single(request.Headers.GetValues("anthropic-version")));
+        if (beta is null)
+        {
+            Assert.False(request.Headers.Contains("anthropic-beta"));
+        }
+        else
+        {
+            Assert.Equal(beta, Assert.Single(request.Headers.GetValues("anthropic-beta")));
+        }
+    }
+
+    [Theory]
+    [InlineData("AnthropicClient/C#,13.3.0", "AnthropicClient/C#,13.3.0, injected")]
+    [InlineData("AnthropicClient/C#,13.3.0", null)]
+    public void ADescriptionHeaderWithASecondValueOrAnOddOneIsRemoved(string first, string? second)
+    {
+        using var request = Outgoing();
+        _ = request.Headers.Remove("User-Agent");
+        _ = request.Headers.TryAddWithoutValidation("User-Agent", first);
+        if (second is not null)
+        {
+            _ = request.Headers.TryAddWithoutValidation("User-Agent", second);
+        }
+
+        _ = request.Headers.TryAddWithoutValidation("X-Stainless-OS", "https://collector.example/?k=v");
+
+        ClaudeProvider.Scrub(request, "the-key", beta: null);
+
+        Assert.Equal(second is null, request.Headers.Contains("User-Agent"));
+        Assert.False(request.Headers.Contains("X-Stainless-OS"));
+    }
+
+    [Fact]
+    public void TheBodyIsDeclaredAsJson()
+    {
+        using var request = Outgoing();
+        request.Content!.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+
+        ClaudeProvider.Scrub(request, "the-key", beta: null);
+
+        Assert.Equal("application/json", request.Content.Headers.ContentType!.MediaType);
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData("claude-opus-5")]
+    [InlineData("none")]
+    public async Task TheBetaOnTheWireIsTheOneTheRequestAskedFor(string fallback)
+    {
+        // Scrub sets anthropic-beta from Beta(options), so the two must say the same thing as the body's
+        // fallback form, or every draft with a fallback is a 400.
+        var handler = new RecordingHandler(Answer());
+
+        _ = await Provider(handler, options => options.RefusalFallback = fallback).DraftAsync(Bundle(), null, TestContext.Current.CancellationToken);
+
+        var expected = ClaudeProvider.Beta(new SummarizationOptions { Provider = "claude", RefusalFallback = fallback });
+        var sent = handler.Headers!.TryGetValues("anthropic-beta", out var values) ? string.Join(",", values) : null;
+        Assert.Equal(expected, sent);
+        Assert.Equal("2026-10-21", Assert.Single(handler.Headers!.GetValues("anthropic-version")));
+    }
+
+    /// <summary>A request with the headers SDK 13.3.0 puts on a messages call, values shortened.</summary>
+    private static HttpRequestMessage Outgoing()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages")
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        };
+        _ = request.Headers.TryAddWithoutValidation("User-Agent", "AnthropicClient/C#,13.3.0+a0cdd4c");
+        _ = request.Headers.TryAddWithoutValidation("X-Stainless-Lang", "csharp");
+        _ = request.Headers.TryAddWithoutValidation("anthropic-version", "2026-10-21");
+        _ = request.Headers.TryAddWithoutValidation("Authorization", "Bearer the-key");
+        return request;
     }
 
     // --- The refusal fallback ------------------------------------------------------------------------------

@@ -67,6 +67,11 @@ var summarization = builder.Configuration.GetSection(SummarizationOptions.Sectio
 
 // An unknown provider stops the service here: the key would otherwise go to a company it was not for.
 summarization.Validate();
+
+// Before any Anthropic client exists: the SDK adds every header ANTHROPIC_CUSTOM_HEADERS names to every
+// request, reads it once per process, and offers no setting that stops it. ClaudeProvider also rewrites
+// each request's headers, as a second layer.
+ClaudeProvider.ForgetEnvironmentHeaders();
 builder.Services.AddSingleton(summarization);
 builder.Services.AddScoped<ICostLedger, CostLedger>();
 

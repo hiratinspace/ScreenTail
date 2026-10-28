@@ -188,13 +188,9 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
             request.Content = new TrackedContent(content, departure);
         }
 
-        // Only the headers the SDK itself needs. The SDK also adds whatever ANTHROPIC_CUSTOM_HEADERS
-        // names (it reads the variable once per process), and a header somebody left in a server's
-        // environment would go out with every customer's session (review of 2026-10-28).
-        foreach (var name in request.Headers.Select(header => header.Key).Where(name => !Sent(name)).ToList())
-        {
-            _ = request.Headers.Remove(name);
-        }
+        // The second layer behind Program.cs clearing ANTHROPIC_CUSTOM_HEADERS: whatever the SDK or the
+        // environment put on the request, it leaves with exactly the headers below.
+        Scrub(request, _options.ApiKey, Beta(_options));
 
         var response = await next(request, ct).ConfigureAwait(false);
 
@@ -208,23 +204,98 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
         return response;
     }
 
-    /// <summary>
-    /// The request headers a draft may carry: the credential, the API version and betas, the SDK's own
-    /// client description, and content negotiation. Anything else is dropped before it leaves.
-    /// </summary>
-    internal static bool Sent(string header) =>
-        header.StartsWith("X-Stainless-", StringComparison.OrdinalIgnoreCase)
-        || SentHeaders.Contains(header);
+    /// <summary>The API version this provider is written and tested against, which SDK 13.3.0 sends.</summary>
+    internal const string ApiVersion = "2026-10-21";
 
-    private static readonly HashSet<string> SentHeaders = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>
+    /// The SDK's own description of itself, by exact name: every <c>X-Stainless-*</c> header SDK 13.3.0
+    /// sends on a messages call, read from the SDK. Informational; the API needs none of them.
+    /// </summary>
+    private static readonly HashSet<string> Described = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Authorization",
-        "anthropic-version",
-        "anthropic-beta",
-        "Accept",
-        "Accept-Encoding",
         "User-Agent",
+        "X-Stainless-Arch",
+        "X-Stainless-Lang",
+        "X-Stainless-OS",
+        "X-Stainless-Package-Version",
+        "X-Stainless-Runtime",
+        "X-Stainless-Runtime-Version",
+        "X-Stainless-Timeout",
+        "X-Stainless-Retry-Count",
     };
+
+    /// <summary>What a description header's value may look like: a short version or platform word.</summary>
+    private static readonly System.Text.RegularExpressions.Regex Description = new(
+        @"^[A-Za-z0-9 .,+#/()_-]{1,120}$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(100));
+
+    /// <summary>
+    /// Leaves the request with exactly the headers a draft needs, holding exactly the values this
+    /// provider means (review of 2026-10-28).
+    ///
+    /// The SDK adds whatever <c>ANTHROPIC_CUSTOM_HEADERS</c> names, even when its own extra headers are
+    /// set to none, and reads the variable once per process. A header somebody left in a server's
+    /// environment would otherwise go out with every customer's session, and one named like the SDK's
+    /// own, or a second <c>Authorization</c>, would pass a filter by name alone. So:
+    /// <list type="bullet">
+    /// <item>the credential, the API version and the betas are set here, to the configured key, the
+    /// version above and the betas this request asked for, replacing whatever was there;</item>
+    /// <item>the SDK's description headers are kept by exact name, only with a single value of a plain
+    /// shape;</item>
+    /// <item>every other header is removed, and the body is declared as JSON.</item>
+    /// </list>
+    /// </summary>
+    internal static void Scrub(HttpRequestMessage request, string key, string? beta)
+    {
+        foreach (var header in request.Headers.ToList())
+        {
+            var keep = Described.Contains(header.Key)
+                && header.Value.Count() == 1
+                && Description.IsMatch(header.Value.First());
+            if (!keep)
+            {
+                _ = request.Headers.Remove(header.Key);
+            }
+        }
+
+        _ = request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {key}");
+        _ = request.Headers.TryAddWithoutValidation("anthropic-version", ApiVersion);
+        if (beta is not null)
+        {
+            _ = request.Headers.TryAddWithoutValidation("anthropic-beta", beta);
+        }
+
+        if (request.Content is { } content)
+        {
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        }
+    }
+
+    /// <summary>
+    /// The beta this deployment's requests carry: one for each form of the refusal fallback, none
+    /// without it. <see cref="Fallback"/> sends the same one, and a test holds the two together.
+    /// </summary>
+    internal static string? Beta(SummarizationOptions options)
+    {
+        var setting = options.RefusalFallback?.Trim() ?? string.Empty;
+        if (setting.Length == 0 || string.Equals(setting, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return string.Equals(setting, "default", StringComparison.OrdinalIgnoreCase)
+            ? "server-side-fallback-2026-07-01"
+            : "server-side-fallback-2026-06-01";
+    }
+
+    /// <summary>
+    /// Clears <c>ANTHROPIC_CUSTOM_HEADERS</c> from this process, so the SDK never reads it. Called by
+    /// Program.cs before any client is made: the SDK takes the variable once per process, and setting
+    /// its own extra headers to none does not stop it. The backend has no use for the variable.
+    /// </summary>
+    public static void ForgetEnvironmentHeaders() =>
+        Environment.SetEnvironmentVariable("ANTHROPIC_CUSTOM_HEADERS", null);
 
     // --- The answer --------------------------------------------------------------------------------------
 

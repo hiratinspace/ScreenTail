@@ -92,6 +92,44 @@ public sealed class ClaudeEnvironmentTests
         Assert.Equal($"Bearer {key}", Assert.Single(handler.Headers!.GetValues("Authorization")));
     }
 
+    [Fact]
+    public void TheServiceForgetsTheCustomHeadersBeforeAnyClientIsMade()
+    {
+        // The first layer: the SDK cannot read what is no longer there.
+        using var environment = new Environment(new() { ["ANTHROPIC_CUSTOM_HEADERS"] = "X-Leak: yes" });
+
+        ScreenTail.Api.Providers.Llm.ClaudeProvider.ForgetEnvironmentHeaders();
+
+        Assert.Null(System.Environment.GetEnvironmentVariable("ANTHROPIC_CUSTOM_HEADERS"));
+    }
+
+    [Fact]
+    public void ProgramForgetsThemAtStartup()
+    {
+        var source = File.ReadAllText(ProgramPath());
+        var at = source.IndexOf("ClaudeProvider.ForgetEnvironmentHeaders()", StringComparison.Ordinal);
+
+        Assert.True(at > 0, "Program.cs no longer clears ANTHROPIC_CUSTOM_HEADERS.");
+        Assert.True(at < source.IndexOf("new ClaudeProvider(", StringComparison.Ordinal), "It has to happen before a client is made.");
+    }
+
+    private static string ProgramPath()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "backend", "src", "ScreenTail.Api", "Program.cs");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("Program.cs is not above the test binary.");
+    }
+
     private static SummarizeBundle Bundle() => new()
     {
         SessionId = "s1",

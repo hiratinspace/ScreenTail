@@ -114,9 +114,12 @@ same call, and both attempts are billed (about $0.97 at worst, once, against a s
 **The environment cannot redirect a draft.** The request goes through Anthropic's own C# SDK to
 `api.anthropic.com` only. The SDK is given the address, the key and its tracing setting explicitly, so
 `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_OPEN_TELEMETRY*` are not
-read in their place, and every request header outside the few a draft needs is removed before it leaves,
-which drops anything `ANTHROPIC_CUSTOM_HEADERS` or `ANTHROPIC_WORKSPACE_ID` would add.
-`ClaudeEnvironmentTests` sets each of them and looks at what was sent.
+read in their place. `ANTHROPIC_CUSTOM_HEADERS` is cleared from the process at startup, because the SDK
+adds whatever it names to every request and has no setting that stops it. As a second layer each request
+leaves with exactly the configured `Authorization: Bearer` key, the pinned `anthropic-version`, the
+betas that request asked for and a JSON content type, plus the SDK's own description headers matched by
+exact name with one plain value each; anything else, `ANTHROPIC_WORKSPACE_ID`'s header included, is
+removed. `ClaudeEnvironmentTests` and the `Scrub` tests in `ClaudeProviderTests` pin both layers.
 
 **The model name is a setting, and it expires.** The first build of this asked for `gemini-2.0-flash`;
 by the time a key was pointed at it Google had retired that name, and every draft was a 404. Retirements
