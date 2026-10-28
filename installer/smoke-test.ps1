@@ -336,7 +336,8 @@ if ($env:GITHUB_STEP_SUMMARY) {
     Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($lines -join "`n")
 }
 # Said explicitly either way. CI's PowerShell wrapper exits with the last native command's code when the
-# script does not, and query.exe answers 1 on a machine with a disconnected session; the checks decide.
+# script does not, and a tool asked a question above (query.exe, for one) may leave a non-zero one behind.
+# The checks decide.
 if ($failed.Count -gt 0) {
     exit 1
 }
