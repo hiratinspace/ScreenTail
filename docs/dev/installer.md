@@ -70,8 +70,14 @@ Windows trusts the certificate's root.
 
 The signed job is the only one with permission to ask GitHub for an OIDC token. It builds in stages
 with no signing setting in reach, and between stages a `sign.ps1` step asks for the token, hands it to
-`signtool` in a temporary file and deletes it. No job in the repository names a secret, and the
-workflows check fails a change that adds one.
+`signtool` in a temporary file and deletes it. No job in the repository names a secret.
+
+What actually keeps the signing credential safe is the signed job's own conditions (main only, the
+`signing` environment restricted to main) and Azure trusting that environment alone. The check in the
+`workflows` job that holds the shape of these jobs is a second layer, meant to catch an edit that would
+weaken those or widen what can reach the token before it merges, not the protection itself. It tries
+itself first on made-up workflows that must pass and must fail, so a check that waved everything through
+would fail rather than be trusted.
 
 From then on every merge that touches the client also runs **Installer (Windows, signed)**: the same
 build with every executable, library and installer signed and timestamped, the same smoke test (now with

@@ -412,7 +412,7 @@ jobs:
       run:
         shell: powershell
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - name: Publish and check the payload (no signing credential in reach)
@@ -468,7 +468,7 @@ jobs:
           -Bundle artifacts/installer/packages/ScreenTail-Setup.exe
           -Logs "${{ runner.temp }}/installer-logs"
       - name: Upload the signed installer
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: screentail-installer
           path: |
@@ -852,50 +852,157 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
 
-      # ST-112. The installer jobs change the machine they run on and the signed one can sign, so where
-      # they run and when is checked here rather than trusted to review: both on the hosted runner,
-      # never the laptop's labels; the signed one never for a pull request and only on main; no job in
-      # this file names a secret in any form; only the signed job may ask for an OIDC token; and in it
-      # the signing settings are on sign.ps1 steps alone, while every other step drops the token's
-      # request variables before it runs anything.
+      # ST-112. A second layer behind the real lock, which is the signed job's own conditions (main only,
+      # the 'signing' environment restricted to main, the repository variable) and Azure's federated
+      # credential trusting that environment alone. This catches the edit that would weaken those, or
+      # widen what can reach the signing token, before it merges:
+      #   - both installer jobs on the hosted runner, never the laptop's labels;
+      #   - the signed job only on main, only with the switch, only in the 'signing' environment;
+      #   - only the signed job may ask for an OIDC token;
+      #   - no signing setting (AZURE_*, SCREENTAIL_SIGNING*) in workflow or job env, and no secret named
+      #     in any form anywhere except in a signing step's own env;
+      #   - in the signed job, a step that has signing settings or runs sign.ps1 must be exactly one
+      #     allowlisted sign.ps1 command and nothing else; every other run step must begin with the exact
+      #     statement that drops the OIDC request variables; and the only actions it uses are checkout and
+      #     upload-artifact, pinned to a commit.
+      # The checks are tried first on made-up workflows that must pass and must fail, so a check that
+      # waved everything through would fail here rather than be trusted.
       - name: The installer jobs run on hosted runners, and only main can sign
         run: |
           python3 - <<'EOF'
-          import re, sys, yaml
+          import copy, re, sys, yaml
 
-          jobs = yaml.safe_load(open('.github/workflows/ci.yml').read())['jobs']
-          bad = []
-          for name in ('installer', 'installer-signed'):
-              job = jobs.get(name)
-              if job is None:
-                  bad.append(f"job {name!r} is missing")
-                  continue
-              if job.get('runs-on') != 'windows-latest':
-                  bad.append(f"{name} runs on {job.get('runs-on')!r}; it must be the hosted windows-latest, never the laptop")
-          signed = jobs.get('installer-signed', {})
-          condition = str(signed.get('if', ''))
-          for needed in ("github.event_name != 'pull_request'", "github.ref == 'refs/heads/main'", "vars.SCREENTAIL_SIGNING == 'true'"):
-              if needed not in condition:
-                  bad.append(f"installer-signed must run only when {needed}")
-          if signed.get('environment') != 'signing':
-              bad.append("installer-signed must run in the 'signing' environment")
-          secret = re.compile(r'secrets\s*[.\[]|toJSON\(\s*secrets', re.IGNORECASE)
-          for name, job in jobs.items():
-              if secret.search(yaml.safe_dump(job)):
-                  bad.append(f"job {name!r} names a secret; signing uses OIDC and needs none")
-              if name != 'installer-signed' and (job.get('permissions') or {}).get('id-token'):
-                  bad.append(f"job {name!r} asks for an OIDC token; only installer-signed may")
-          for step in signed.get('steps', []):
-              run = str(step.get('run', ''))
-              env = step.get('env') or {}
-              signing_env = [k for k in env if k.startswith(('AZURE_', 'SCREENTAIL_SIGNING'))]
-              if signing_env and not run.startswith('./installer/sign.ps1'):
-                  bad.append(f"installer-signed step {step.get('name')!r} gets signing settings but does not run sign.ps1")
-              if run and not run.startswith('./installer/sign.ps1') and not run.startswith('Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN'):
-                  bad.append(f"installer-signed step {step.get('name')!r} runs without first dropping the OIDC request variables")
+          DROP = 'Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue;'
+          SIGN = re.compile(r'\./installer/sign\.ps1 (-Path|-Folder) [\w./-]+')
+          SECRET = re.compile(r'secrets\s*[.\[]|toJSON\(\s*secrets', re.IGNORECASE)
+          SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING')
+          PINNED = {
+              'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+              'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
+          }
+          CONDITIONS = ("github.event_name != 'pull_request'", "github.ref == 'refs/heads/main'", "vars.SCREENTAIL_SIGNING == 'true'")
+
+          def signing_keys(env):
+              return [k for k in (env or {}) if str(k).upper().startswith(SIGNING_ENV)]
+
+          def is_signing_step(step):
+              return bool(signing_keys(step.get('env'))) or 'sign.ps1' in str(step.get('run', ''))
+
+          def check(workflow):
+              bad = []
+              jobs = workflow.get('jobs') or {}
+              if signing_keys(workflow.get('env')):
+                  bad.append('the workflow env names a signing setting')
+              for name in ('installer', 'installer-signed'):
+                  if name not in jobs:
+                      bad.append(f'job {name} is missing')
+                  elif jobs[name].get('runs-on') != 'windows-latest':
+                      bad.append(f'{name} must run on the hosted windows-latest, never the laptop')
+              signed = jobs.get('installer-signed') or {}
+              condition = str(signed.get('if', ''))
+              for needed in CONDITIONS:
+                  if needed not in condition:
+                      bad.append(f'installer-signed must run only when {needed}')
+              if signed.get('environment') != 'signing':
+                  bad.append("installer-signed must run in the 'signing' environment")
+              for name, job in jobs.items():
+                  if signing_keys(job.get('env')):
+                      bad.append(f'job {name} has a signing setting in its job env')
+                  if name != 'installer-signed' and (job.get('permissions') or {}).get('id-token'):
+                      bad.append(f'job {name} asks for an OIDC token; only installer-signed may')
+                  for key, value in job.items():
+                      if key != 'steps' and SECRET.search(yaml.safe_dump({key: value})):
+                          bad.append(f'job {name} names a secret in {key}')
+                  for step in job.get('steps') or []:
+                      allowed = name == 'installer-signed' and is_signing_step(step)
+                      outside = {k: v for k, v in step.items() if k != 'env'} if allowed else step
+                      if SECRET.search(yaml.safe_dump(outside)):
+                          bad.append(f'job {name} step {step.get("name")!r} names a secret outside a signing step env')
+                      if name != 'installer-signed' and signing_keys(step.get('env')):
+                          bad.append(f'job {name} step {step.get("name")!r} has signing settings outside the signed job')
+              for step in signed.get('steps') or []:
+                  label = step.get('name') or step.get('uses') or '?'
+                  if 'uses' in step:
+                      if step['uses'] not in PINNED:
+                          bad.append(f'installer-signed uses {step["uses"]}; only checkout and upload-artifact pinned to a commit are allowed')
+                      if is_signing_step(step):
+                          bad.append(f'installer-signed step {label!r} gives signing settings to an action')
+                      continue
+                  run = step.get('run')
+                  if not isinstance(run, str):
+                      bad.append(f'installer-signed step {label!r} is neither an allowed action nor a run step')
+                      continue
+                  if is_signing_step(step):
+                      if not SIGN.fullmatch(run) or any(c in run for c in (';', '|', '&', '`', '$(', '\n', '\r')):
+                          bad.append(f'installer-signed step {label!r} can reach the signing settings and is not exactly one sign.ps1 command')
+                  elif not run.startswith(DROP):
+                      bad.append(f'installer-signed step {label!r} does not begin by dropping the OIDC request variables')
+              return bad
+
+          def sample():
+              drop = DROP + ' ./installer/build.ps1 -Stage Payload'
+              return {
+                  'env': {'DOTNET_NOLOGO': '1'},
+                  'jobs': {
+                      'installer': {'runs-on': 'windows-latest', 'steps': [{'run': './installer/build.ps1'}]},
+                      'installer-signed': {
+                          'runs-on': 'windows-latest',
+                          'environment': 'signing',
+                          'permissions': {'contents': 'read', 'id-token': 'write'},
+                          'if': ' && '.join(CONDITIONS),
+                          'steps': [
+                              {'uses': sorted(PINNED)[0]},
+                              {'name': 'build', 'run': drop},
+                              {'name': 'sign', 'env': {'AZURE_CLIENT_ID': '${{ vars.AZURE_CLIENT_ID }}'}, 'run': './installer/sign.ps1 -Folder artifacts/installer/payload'},
+                              {'uses': sorted(PINNED)[1]},
+                          ],
+                      },
+                  },
+              }
+
+          def mutate(change):
+              workflow = sample()
+              change(workflow)
+              return workflow
+
+          steps = lambda w: w['jobs']['installer-signed']['steps']
+          must_fail = {
+              'sign with a separator': lambda w: steps(w)[2].update(run='./installer/sign.ps1 -Folder x; curl evil'),
+              'sign with a newline': lambda w: steps(w)[2].update(run='./installer/sign.ps1 -Folder x\ncurl evil'),
+              'sign with a pipe': lambda w: steps(w)[2].update(run='./installer/sign.ps1 -Folder x | tee y'),
+              'sign with a subexpression': lambda w: steps(w)[2].update(run='./installer/sign.ps1 -Path $(evil)'),
+              'sign with another flag': lambda w: steps(w)[2].update(run='./installer/sign.ps1 -Query'),
+              'build without the drop': lambda w: steps(w)[1].update(run='./installer/build.ps1'),
+              'something before the drop': lambda w: steps(w)[1].update(run='evil; ' + DROP + ' ./installer/build.ps1'),
+              'signing env on a build step': lambda w: steps(w)[1].update(env={'SCREENTAIL_SIGNING_ENDPOINT': 'x'}),
+              'an unpinned action': lambda w: steps(w).append({'uses': 'actions/checkout@v7'}),
+              'a third-party action': lambda w: steps(w).append({'uses': 'someone/login@abc'}),
+              'job env with a signing setting': lambda w: w['jobs']['installer-signed'].update(env={'AZURE_TENANT_ID': 'x'}),
+              'workflow env with a signing setting': lambda w: w['env'].update(SCREENTAIL_SIGNING_PROFILE='x'),
+              'a secret in a build step': lambda w: steps(w)[1].update(run=DROP + ' echo ${{ secrets.X }}'),
+              'a secret by index': lambda w: w['jobs']['installer']['steps'].append({'run': 'echo ${{ secrets["X"] }}'}),
+              'all secrets as JSON': lambda w: w['jobs']['installer']['steps'].append({'env': {'ALL': '${{ toJSON(secrets) }}'}, 'run': 'x'}),
+              'an OIDC token elsewhere': lambda w: w['jobs']['installer'].update(permissions={'id-token': 'write'}),
+              'signing on pull requests': lambda w: w['jobs']['installer-signed'].update(**{'if': "github.ref == 'refs/heads/main'"}),
+              'signing on the laptop': lambda w: w['jobs']['installer-signed'].update(**{'runs-on': ['self-hosted', 'Windows']}),
+              'no signing environment': lambda w: w['jobs']['installer-signed'].pop('environment'),
+          }
+          selfbad = []
+          if check(sample()):
+              selfbad.append(f'the made-up good workflow failed: {check(sample())}')
+          for label, change in must_fail.items():
+              if not check(mutate(change)):
+                  selfbad.append(f'the check passed a workflow with {label}')
+          if selfbad:
+              for line in selfbad:
+                  print(f'::error file=.github/workflows/ci.yml::{line}')
+              sys.exit(1)
+          print(f'the check passed the good sample and failed all {len(must_fail)} bad ones')
+
+          bad = check(yaml.safe_load(open('.github/workflows/ci.yml').read()))
           for line in bad:
-              print(f"::error file=.github/workflows/ci.yml::{line}")
-          print("\n".join(bad) if bad else "the installer jobs are on hosted runners, only main can sign, and only sign.ps1 steps can reach the credential")
+              print(f'::error file=.github/workflows/ci.yml::{line}')
+          print('\n'.join(bad) if bad else 'the installer jobs are on hosted runners, only main can sign, and only exact sign.ps1 steps can reach the signing settings')
           sys.exit(1 if bad else 0)
           EOF
 
