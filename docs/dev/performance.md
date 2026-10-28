@@ -7,20 +7,19 @@ Windows 11, 8 logical processors).
 
 ## The budgets
 
-The latest figures are from laptop run 40623805201 (2026-10-28, commit 56522a3). The run for the
-review fixes that followed (9f4113d) is queued until SCREENTRAIL is back online; those fixes changed no
-idle or recording loop.
+The latest figures are from laptop run 40626688381 (2026-10-28, commit 9f4113d, the branch's last code
+change).
 
 | Budget | Measured by | Enforced | Latest on the laptop |
 |---|---|---|---|
-| Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.33% of one core net (0.04% of the machine) |
+| Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.41% of one core net (0.05% of the machine) |
 | Idle CPU, UI, under 1% | `ShellCostTests.WithNoSessionTheShellIsAlmostSilent` | Yes, on the laptop, against 1% of one core | 0.0% net (0.22% of one core gross, the test host included) |
-| Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 16 a second net (14 to 17 across three runs), down from 129 |
+| Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 17 a second net (14 to 17 across four runs), down from 129 |
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
-| Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.5% of one core without speech (4.4 to 4.9% across three runs); conservative, since the test's own repainting and staging are counted with it |
-| Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 68 KB a stored frame, 5.6 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.4 MB per session-minute, 28 MB per 20 minutes; that figure is reported, not enforced |
-| Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 108 µs typing 860 keys, 1.0 µs per click |
-| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 148 MB loaded; the unload gives back 158 MB |
+| Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.7% of one core without speech (4.4 to 4.9% across four runs); conservative, since the test's own repainting and staging are counted with it |
+| Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 70 KB a stored frame, 5.8 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.5 MB per session-minute, about 30 MB per 20 minutes; that figure is reported, not enforced |
+| Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 145 µs typing 860 keys, 0.9 µs per click |
+| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB |
 | Memory under 600 MB with speech, whole process | `scripts/windows/measure-idle.ps1`, run by hand | No | Not run yet; ADR-0001 measured 505 MB with continuous transcription |
 
 Idle CPU is held against one core rather than the machine, which is stricter than the budget: 1% of
@@ -71,6 +70,7 @@ carries on.
 | 40588642451, narration too | 17 a second | 0.32% net by cycles (0.94% by clock ticks) |
 | 40623029883, same code again | 14 a second | 0.36% net by cycles (0.62% by clock ticks) |
 | 40623805201, with the ceiling | 16 a second | 0.33% net by cycles (0.31% by clock ticks) |
+| 40626688381, after the review fixes | 17 a second | 0.41% net by cycles |
 
 ## What still wakes at idle, and why
 
