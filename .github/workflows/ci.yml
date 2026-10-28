@@ -874,7 +874,8 @@ jobs:
 
           DROP = 'Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue;'
           SIGN = re.compile(r'\./installer/sign\.ps1 (-Path|-Folder) [\w./-]+')
-          SECRET = re.compile(r'secrets\s*[.\[]|toJSON\(\s*secrets', re.IGNORECASE)
+          SECRET = re.compile(r'\$\{\{[^}]*secrets', re.IGNORECASE)
+          def expr(inner): return '$' + '{{ ' + inner + ' }}'
           SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING')
           PINNED = {
               'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
@@ -953,7 +954,7 @@ jobs:
                           'steps': [
                               {'uses': sorted(PINNED)[0]},
                               {'name': 'build', 'run': drop},
-                              {'name': 'sign', 'env': {'AZURE_CLIENT_ID': '${{ vars.AZURE_CLIENT_ID }}'}, 'run': './installer/sign.ps1 -Folder artifacts/installer/payload'},
+                              {'name': 'sign', 'env': {'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID')}, 'run': './installer/sign.ps1 -Folder artifacts/installer/payload'},
                               {'uses': sorted(PINNED)[1]},
                           ],
                       },
@@ -979,9 +980,9 @@ jobs:
               'a third-party action': lambda w: steps(w).append({'uses': 'someone/login@abc'}),
               'job env with a signing setting': lambda w: w['jobs']['installer-signed'].update(env={'AZURE_TENANT_ID': 'x'}),
               'workflow env with a signing setting': lambda w: w['env'].update(SCREENTAIL_SIGNING_PROFILE='x'),
-              'a secret in a build step': lambda w: steps(w)[1].update(run=DROP + ' echo ${{ secrets.X }}'),
-              'a secret by index': lambda w: w['jobs']['installer']['steps'].append({'run': 'echo ${{ secrets["X"] }}'}),
-              'all secrets as JSON': lambda w: w['jobs']['installer']['steps'].append({'env': {'ALL': '${{ toJSON(secrets) }}'}, 'run': 'x'}),
+              'a secret in a build step': lambda w: steps(w)[1].update(run=DROP + ' echo ' + expr('secrets.X')),
+              'a secret by index': lambda w: w['jobs']['installer']['steps'].append({'run': 'echo ' + expr("secrets['X']")}),
+              'all secrets as JSON': lambda w: w['jobs']['installer']['steps'].append({'env': {'ALL': expr('toJSON(secrets)')}, 'run': 'x'}),
               'an OIDC token elsewhere': lambda w: w['jobs']['installer'].update(permissions={'id-token': 'write'}),
               'signing on pull requests': lambda w: w['jobs']['installer-signed'].update(**{'if': "github.ref == 'refs/heads/main'"}),
               'signing on the laptop': lambda w: w['jobs']['installer-signed'].update(**{'runs-on': ['self-hosted', 'Windows']}),
