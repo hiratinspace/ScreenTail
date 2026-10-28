@@ -66,9 +66,7 @@ Windows trusts the certificate's root.
    `AZURE_CLIENT_ID` (the app registration's), `SCREENTAIL_SIGNING_ENDPOINT`,
    `SCREENTAIL_SIGNING_ACCOUNT` and `SCREENTAIL_SIGNING_PROFILE`.
 4. *Settings → Secrets and variables → Actions → Variables*: add the repository variable
-   `SCREENTAIL_SIGNING` = `true`. This is the switch. Create the `signing` environment (step 3) first:
-   the signed job names that environment only while the switch is on, and GitHub holds a run that names
-   an environment which does not exist.
+   `SCREENTAIL_SIGNING` = `true`. This is the switch.
 
 The signed job is the only one with permission to ask GitHub for an OIDC token. It builds in stages
 with no signing setting in reach, and between stages a `sign.ps1` step asks for the token, hands it to
