@@ -24,8 +24,15 @@ reach the signing token, before it merges:
   - every action the installer jobs use is pinned to a commit, with only the inputs listed here;
   - no signing setting outside installer-sign's signing steps, and no credential context named in any
     expression anywhere in the workflow;
+  - the workflow-level env is exactly the two harmless .NET switches ci.yml sets, and nothing that
+    changes which program or module runs (PATH, PSModulePath, DOTNET_*, NUGET_*, COR_*, CORECLR_* and
+    the like) is set for installer-sign at workflow, job or step level beyond that;
   - the scripts the signing job runs fetch WiX and the signing client only through the pinned,
-    hash-checked download, and start no build, restore, tool restore or other build script;
+    hash-checked download, and start no build, restore, tool restore or other build script. These
+    script checks read PowerShell as text, so they are a tripwire for the obvious edit (a build or
+    tool command, another script dot-sourced, a process started, a call on anything but dotnet and
+    signtool, a WiX extension or the payload used another way, a change of folder), not a proof;
+    the structural rules above are what hold the job's shape;
   - installer/tools.json pins each package to one version and a SHA-256;
   - the WiX authoring has no preprocessor directive, no variable but its own inputs, no extension
     beyond Util and Bal, and no custom action except the two that run at install time on the target
@@ -85,6 +92,10 @@ BUILD_OUTPUTS = {
 SIGN_OUTPUTS = {'installer-artifact-id': expr('steps.signed.outputs.artifact-id')}
 SIGN_PERMISSIONS = {'contents': 'read', 'actions': 'read', IDT: 'write'}
 PINNED = re.compile(r'[\w.-]+/[\w.-]+@[0-9a-f]{40}')
+# The workflow-level env applies to every step of installer-sign, so it is held exactly.
+WORKFLOW_ENV = {'DOTNET_NOLOGO': '1', 'DOTNET_CLI_TELEMETRY_OPTOUT': '1'}
+# Variables that change which program, module, runtime or package a step ends up running.
+RISKY_ENV = re.compile(r'(PATH|PATHEXT|COMSPEC|PSModulePath|PSExecutionPolicyPreference|DOTNET_\w*|NUGET_\w*|COR_\w*|CORECLR_\w*|MSBUILD\w*)', re.IGNORECASE)
 
 VERSION = '"0.1.' + expr('github.run_number') + '"'
 SIGN_SETTINGS = {
@@ -163,7 +174,19 @@ NEVER = [
     (re.compile(r'tool\s+restore|dotnet-tools', re.IGNORECASE), 'restores a .NET tool'),
     (re.compile(r'(?:[&.]\s*|Join-Path\s+\S+\s+)["\']?[\w$:/\\.-]*(?:build|smoke-test)\.ps1', re.IGNORECASE), 'starts the build or the smoke test'),
     (re.compile(r'Invoke-Expression|\biex\b', re.IGNORECASE), 'evaluates a string as code'),
+    (re.compile(r'Start-Process|Start-Job|Invoke-Command|Invoke-Item|Diagnostics\.Process|\bsaps\b', re.IGNORECASE), 'starts a process another way'),
+    (re.compile(r'Import-Module|using\s+module|Add-Type\s+-(?:Path|LiteralPath)', re.IGNORECASE), 'loads code from a file'),
+    (re.compile(r'Set-Location|\bcd\s|\bsl\s', re.IGNORECASE), 'changes folder'),
 ]
+DOT_SOURCE = ". (Join-Path $PSScriptRoot 'tools.ps1')"
+CALL_TARGETS = {'$dotnet', '$signtool'}
+EXTENSIONS = {'$util': "Get-Extension 'WixToolset.Util.wixext'", '$bal': "Get-Extension 'WixToolset.Bal.wixext'"}
+PAYLOAD_LINES = {
+    "$payload = Join-Path $Output 'payload'",
+    "if (-not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {",
+    'throw "There is no payload in $payload. Run build.ps1 -Stage Payload first."',
+    "'-d', \"Payload=$payload\",",
+}
 
 PACKAGES = {'wix', 'WixToolset.Util.wixext', 'WixToolset.Bal.wixext', 'Microsoft.ArtifactSigning.Client'}
 WIX_FAMILY = ('wix', 'WixToolset.Util.wixext', 'WixToolset.Bal.wixext')
@@ -247,6 +270,10 @@ def check_workflow(workflow):
         bad.append(f'the workflow-level permissions grant {IDT}; only {SIGN} may ask for one')
     if signing_keys(workflow.get('env')):
         bad.append('the workflow env names a signing setting')
+    if (workflow.get('env') or {}) != WORKFLOW_ENV:
+        bad.append(f'the workflow env must be exactly {WORKFLOW_ENV}; it applies to every signing step')
+    for key in risky(workflow.get('env'), allowed=WORKFLOW_ENV):
+        bad.append(f'the workflow env sets {key}, which changes what the signing steps run')
     if any(names_context(t) for t in strings(workflow)):
         bad.append(f'an expression in the workflow names the {CTX} context')
 
@@ -329,10 +356,21 @@ def check_handoff(jobs):
     return bad
 
 
+def risky(env, allowed=()):
+    if not isinstance(env, dict):
+        return [] if env is None else ['(not a mapping)']
+    return [str(k) for k in env if RISKY_ENV.fullmatch(str(k)) and k not in allowed]
+
+
 def check_sign_job(job):
     bad = []
     if not job:
         return bad
+    for key in risky(job.get('env')):
+        bad.append(f'{SIGN} sets {key} for the whole job')
+    for step in job.get('steps') or []:
+        for key in risky(step.get('env')):
+            bad.append(f'{SIGN} step {step.get("name") or step.get("uses") or "?"!r} sets {key}')
     extra = set(job) - SIGN_JOB_KEYS
     if extra:
         bad.append(f'{SIGN} has job keys that are not allowed: {sorted(extra)}')
@@ -401,6 +439,30 @@ def check_scripts(texts):
             match = pattern.search(code)
             if match:
                 bad.append(f'{path} {what}: {match.group(0)!r}')
+        bad += script_shape(path, code)
+    return bad
+
+
+def script_shape(path, code):
+    bad = []
+    for line in code.split('\n'):
+        text = line.strip()
+        if re.match(r'\.(?:\s|\(|[\'"$])', text) and text != DOT_SOURCE:
+            bad.append(f'{path} dot-sources something other than tools.ps1: {text!r}')
+        if re.search(r'\$payload\b', text, re.IGNORECASE) and text not in PAYLOAD_LINES:
+            bad.append(f'{path} uses the payload folder other than in its check and as WiX\'s Payload: {text!r}')
+        assigned = re.match(r'\$(util|bal)\s*=\s*(.*)', text, re.IGNORECASE)
+        if assigned and not assigned.group(2).startswith(EXTENSIONS['$' + assigned.group(1).lower()]):
+            bad.append(f'{path} sets ${assigned.group(1)} from something other than its pinned extension: {text!r}')
+    for match in re.finditer(r'[\'"]-ext[\'"]\s*,\s*([^\s,)]+)', code):
+        if match.group(1) not in EXTENSIONS:
+            bad.append(f'{path} gives WiX an extension that is not from Get-Extension: {match.group(1)!r}')
+    for match in re.finditer(r'(?:^|[\s(|=;{])&\s*([^\s]+)', code, re.MULTILINE):
+        if match.group(1) not in CALL_TARGETS:
+            bad.append(f'{path} calls something other than $dotnet or $signtool: {match.group(1)!r}')
+    for match in re.finditer(r'Push-Location\s+(\S+)', code, re.IGNORECASE):
+        if match.group(1) != '$Into':
+            bad.append(f'{path} changes to a folder other than $Into: {match.group(1)!r}')
     return bad
 
 
@@ -486,7 +548,7 @@ def sample_workflow():
         steps.append(step)
     return {
         'permissions': {'contents': 'read'},
-        'env': {'DOTNET_NOLOGO': '1'},
+        'env': dict(WORKFLOW_ENV),
         'jobs': {
             BUILD: {
                 'runs-on': HOSTED,
@@ -531,6 +593,7 @@ SAMPLE_FILES = {
         "function Get-Dotnet { Join-Path $env:ProgramFiles 'dotnet\\dotnet.exe' }",
         "$hash = (Get-FileHash -Algorithm SHA256 -Path $package).Hash",
         "if ($hash -ne $pin.sha256) {",
+        "Push-Location $Into",
         "& $dotnet nuget verify $package --all | Out-Host",
     ]),
     'installer/package.ps1': "\n".join([
@@ -540,6 +603,13 @@ SAMPLE_FILES = {
         "$wix = Join-Path (Get-PinnedPackage 'wix' $tools) 'tools\\net6.0\\any\\wix.dll'",
         "$util = Get-Extension 'WixToolset.Util.wixext' 'wixext5\\WixToolset.Util.wixext.dll'",
         "$bal = Get-Extension 'WixToolset.Bal.wixext' 'wixext5\\WixToolset.BootstrapperApplications.wixext.dll'",
+        "$payload = Join-Path $Output 'payload'",
+        "if (-not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {",
+        "    throw \"There is no payload in $payload. Run build.ps1 -Stage Payload first.\"",
+        "}",
+        "Invoke-Wix 'x' @('build', '-ext', $util,",
+        "    '-d', \"Payload=$payload\",",
+        "    '-ext', $bal)",
         "& $dotnet $wix @Arguments | Out-Host",
     ]),
     'installer/manifest.ps1': "\n".join([
@@ -554,6 +624,8 @@ SAMPLE_FILES = {
         "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue",
         ". (Join-Path $PSScriptRoot 'tools.ps1')",
         "$dlib = Join-Path (Get-PinnedPackage 'Microsoft.ArtifactSigning.Client' $Into) 'bin\\x64\\Azure.CodeSigning.Dlib.dll'",
+        "$response = Invoke-RestMethod -Uri \"$($TokenRequestUrl)&audience=api://AzureADTokenExchange\"",
+        "& $signtool @arguments @toSign | Out-Host",
     ]),
     'installer/tools.json': json.dumps({'packages': [
         {'id': 'wix', 'version': '5.0.2', 'sha256': 'a' * 64},
@@ -643,6 +715,16 @@ MUST_FAIL = {
     'the build script in the signing job': on_workflow(lambda w: sign_steps(w).insert(2, {'run': './installer/build.ps1 -Stage Payload'})),
     'a restore in the signing job': on_workflow(lambda w: sign_steps(w).insert(2, {'run': 'dotnet restore'})),
     'a step dropped from the signing job': on_workflow(lambda w: sign_steps(w).pop(7)),
+    # Environment.
+    'a startup hook for the whole workflow': on_workflow(lambda w: w['env'].update(DOTNET_STARTUP_HOOKS='C:\\hook.dll')),
+    'PATH for the whole workflow': on_workflow(lambda w: w['env'].update(PATH='C:\\evil')),
+    'a harmless-looking extra workflow variable': on_workflow(lambda w: w['env'].update(FOO='1')),
+    'a changed workflow switch': on_workflow(lambda w: w['env'].update(DOTNET_NOLOGO='0')),
+    'a profiler for the signing job': on_workflow(lambda w: w['jobs'][SIGN].update(env={'COR_ENABLE_PROFILER': '1'})),
+    'a NuGet folder on a package step': on_workflow(lambda w: first_build(w).update(env={'NUGET_PACKAGES': 'C:\\x'})),
+    'a module path on a sign step': on_workflow(lambda w: first_sign(w)['env'].update(PSModulePath='C:\\x')),
+    'a CoreCLR profiler on the verify step': on_workflow(lambda w: sign_steps(w)[-2]['env'].update(CORECLR_PROFILER_PATH='C:\\x')),
+    'a startup hook on the payload check': on_workflow(lambda w: handoff_check(w)['env'].update(DOTNET_STARTUP_HOOKS='C:\\x')),
     'signing settings on a package step': on_workflow(lambda w: first_build(w).update(env={'SCREENTAIL_SIGNING_ENDPOINT': 'x'})),
     'an extra variable on a sign step': on_workflow(lambda w: first_sign(w)['env'].update(PSModulePath='x')),
     'a sign step without the require switch': on_workflow(lambda w: first_sign(w)['env'].pop('SCREENTAIL_REQUIRE_SIGNING')),
@@ -705,6 +787,20 @@ MUST_FAIL = {
     'the context in the signing job': on_workflow(lambda w: first_sign(w)['env'].update(AZURE_CLIENT_ID=expr(CTX + '.AZURE_CLIENT_ID'))),
     # The scripts the signing job runs.
     'a build hidden after a comment block': edit_file('installer/package.ps1', lambda t: t + '\n<# note #> dotnet build x.csproj'),
+    # Script shape (a tripwire).
+    'an extension path of its own': edit_file('installer/package.ps1', lambda t: t.replace("'-ext', $util,", "'-ext', 'C:\\evil.dll',")),
+    'an extension variable not from Get-Extension': edit_file('installer/package.ps1', lambda t: t.replace("$util = Get-Extension 'WixToolset.Util.wixext'", "$util = 'C:\\evil.dll' #")),
+    'the payload copied elsewhere': edit_file('installer/package.ps1', lambda t: t + '\nCopy-Item $payload $tools -Recurse'),
+    'the payload passed to WiX another way': edit_file('installer/package.ps1', lambda t: t.replace('"Payload=$payload"', '"Other=$payload"')),
+    'another script dot-sourced': edit_file('installer/package.ps1', lambda t: t + "\n. (Join-Path $PSScriptRoot 'other.ps1')"),
+    'a script dot-sourced from the payload': edit_file('installer/sign.ps1', lambda t: t + '\n.$payload\\x.ps1'),
+    'a process started': edit_file('installer/manifest.ps1', lambda t: t + '\nStart-Process cmd.exe'),
+    'a process started through .NET': edit_file('installer/tools.ps1', lambda t: t + '\n[System.Diagnostics.Process]::Start("x")'),
+    'a call on WiX directly': edit_file('installer/package.ps1', lambda t: t + '\n& $wix build'),
+    'a call on a path': edit_file('installer/sign.ps1', lambda t: t + "\n& 'C:\\tools\\x.exe'"),
+    'a folder change': edit_file('installer/tools.ps1', lambda t: t.replace('Push-Location $Into', 'Push-Location $PSScriptRoot')),
+    'Set-Location': edit_file('installer/package.ps1', lambda t: t + '\nSet-Location C:\\'),
+    'a module imported': edit_file('installer/sign.ps1', lambda t: t + '\nImport-Module x'),
     'a tool restore in package.ps1': edit_file('installer/package.ps1', lambda t: t + '\ndotnet tool restore'),
     'a build in package.ps1': edit_file('installer/package.ps1', lambda t: t + '\n& $dotnet build x.csproj'),
     'the build script from sign.ps1': edit_file('installer/sign.ps1', lambda t: t + "\n& (Join-Path $PSScriptRoot 'build.ps1')"),
