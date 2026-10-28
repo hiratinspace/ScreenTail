@@ -274,6 +274,31 @@ Check 'the installed UI renders its gallery (WPF from the single file)' ($code -
 
 Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
 
+# --- A second technician, never signed in, with data and a planted link --------------------------------
+# A real local account with a real profile that has never been used, which is what an MSP's uninstall
+# meets for every technician who is not at their desk. Its data folder gets a key, a credential and a
+# store, and in place of the credential's temporary file a symbolic link to a file outside the profile.
+# The uninstall must remove the key and the credential, leave the store, and leave the link and what it
+# points at untouched.
+Write-Step 'A second technician who is not signed in, with data and a planted link'
+Add-Type -Namespace ScreenTailSmoke -Name Profiles -MemberDefinition '[DllImport("userenv.dll", CharSet = CharSet.Unicode)] public static extern int CreateProfile(string sid, string name, System.Text.StringBuilder path, uint size);'
+$otherName = 'stsmoke' + (Get-Random -Minimum 1000 -Maximum 9999)
+$password = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + 'Aa1!') -AsPlainText -Force
+New-LocalUser -Name $otherName -Password $password -Description 'ScreenTail installer smoke test' | Out-Null
+$otherSid = (New-Object Security.Principal.NTAccount($otherName)).Translate([Security.Principal.SecurityIdentifier]).Value
+$profilePath = New-Object System.Text.StringBuilder 260
+$hr = [ScreenTailSmoke.Profiles]::CreateProfile($otherSid, $otherName, $profilePath, 260)
+$otherProfile = $profilePath.ToString()
+Check 'a profile exists for a second technician who has never signed in' ($hr -eq 0 -and $otherProfile -and (Test-Path $otherProfile)) ('result 0x{0:X8}' -f $hr)
+$otherData = Join-Path $otherProfile 'AppData\Local\ScreenTail'
+$outside = Join-Path $env:SystemDrive 'ScreenTailSmokeOutside'
+New-Item -ItemType Directory -Force -Path $otherData, $outside | Out-Null
+foreach ($name in @('store.key', 'device.cred', 'store.db')) {
+    Set-Content -Path (Join-Path $otherData $name) -Value 'smoke'
+}
+Set-Content -Path (Join-Path $outside 'target.txt') -Value 'must survive the uninstall'
+New-Item -ItemType SymbolicLink -Path (Join-Path $otherData 'device.cred.tmp') -Target (Join-Path $outside 'target.txt') | Out-Null
+
 # --- Uninstall -----------------------------------------------------------------------------------------
 Write-Step 'Silent uninstall while the service is running'
 $since = Get-Date
@@ -282,7 +307,7 @@ Check 'msiexec /x /qn exits 0, with no restart needed' ($code -eq 0) "exit $code
 Test-Removed
 $report = Get-UninstallReport $Logs $since
 $report | ForEach-Object { Write-Host "  $_" }
-Check 'the uninstall step reported what it did in the log' ($report.Count -ge 3)
+Check 'the uninstall step reported what it did in the log' ($report.Count -ge 5)
 Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)
 Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinue
@@ -290,14 +315,26 @@ Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinu
 if ($signedIn) {
     Check 'the data folder is gone (deleted as its signed-in owner)' (-not (Test-Path $dataDir))
 } else {
-    # The rule, not a gap in the test: nobody signed in means no token to delete with, and the system
-    # account does not delete inside a profile on its own. Left, and said so in the log.
-    Check 'the data folder is left in place because its owner has no session' (Test-Path $dataDir)
-    Check 'and the uninstall log says it left one for that reason' (@($report | Where-Object { $_ -match '\b1 data folders whose owner is not signed in' }).Count -eq 1)
+    # The rule, not a gap in the test: nobody signed in means no token to delete the folder with. Only
+    # the key and the credentials go, and the store stays, unreadable.
+    Check "this account's store key is gone" (-not (Test-Path (Join-Path $dataDir 'store.key')))
+    Check "and its store stays, unreadable without the key" (Test-Path (Join-Path $dataDir 'store.db'))
 }
 if (Test-Path $dataDir) {
     Remove-Item $dataDir -Recurse -Force
 }
+
+Check "the signed-out technician's store key is gone" (-not (Test-Path (Join-Path $otherData 'store.key')))
+Check "the signed-out technician's device credential is gone" (-not (Test-Path (Join-Path $otherData 'device.cred')))
+Check "the signed-out technician's store stays, unreadable without the key" (Test-Path (Join-Path $otherData 'store.db'))
+$link = Get-Item -LiteralPath (Join-Path $otherData 'device.cred.tmp') -Force -ErrorAction SilentlyContinue
+Check 'the planted link is left as it was' ($null -ne $link -and ($link.Attributes -band [IO.FileAttributes]::ReparsePoint))
+Check 'and what it points at, outside the profile, is untouched' (Test-Path (Join-Path $outside 'target.txt'))
+Check 'the uninstall log counts the signed-out folder and the file it left in doubt' (@($report | Where-Object { $_ -match 'not signed in: [1-9]\d* data folders had their key and credentials removed' -and $_ -match '[1-9]\d* files left in doubt' }).Count -eq 1)
+
+Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $otherSid } | Remove-CimInstance -ErrorAction SilentlyContinue
+Remove-LocalUser -Name $otherName -ErrorAction SilentlyContinue
+Remove-Item $outside -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- The setup program, and a link where the data folder would be --------------------------------------
 if ($Bundle) {
@@ -324,7 +361,7 @@ if ($Bundle) {
     $report = Get-UninstallReport $Logs $since
     $report | ForEach-Object { Write-Host "  $_" }
     Check 'what the link points at is untouched' (Test-Path (Join-Path $sentinel 'keep.txt'))
-    Check 'the uninstall log says it left a folder reached through a link' (@($report | Where-Object { $_ -match '\b1 reached through a link' }).Count -eq 1)
+    Check 'the uninstall log says it left a folder reached through a link' (@($report | Where-Object { $_ -match 'left alone: 1 reached through a link' }).Count -eq 1)
 
     if (Test-Path $dataDir) {
         # Removes the junction, not what it points at.

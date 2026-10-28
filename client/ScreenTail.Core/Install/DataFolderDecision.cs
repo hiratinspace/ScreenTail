@@ -19,8 +19,12 @@ public enum DataFolderAction
     /// <summary>There is nothing to delete.</summary>
     Absent,
 
-    /// <summary>Left: the owner is not signed in, so there is no token to delete it with.</summary>
-    LeaveNotSignedIn,
+    /// <summary>
+    /// The owner is not signed in, so there is no token to delete the folder with. The system account
+    /// removes only <see cref="InstalledFootprint.Secrets"/>, each through a handle that refuses links,
+    /// which leaves the rest of the store unreadable; the folder and the rest stay.
+    /// </summary>
+    ShredSecrets,
 
     /// <summary>Left: a folder between the profile and the data folder, or the data folder, is a link.</summary>
     LeaveLinked,

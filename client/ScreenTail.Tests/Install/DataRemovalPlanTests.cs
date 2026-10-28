@@ -6,10 +6,11 @@ namespace ScreenTail.Tests.Install;
 /// ST-112: which technicians' data folders an uninstall deletes, and as whom (INV-12, ADR-0007).
 ///
 /// The uninstall runs as the system account, and a data folder sits in a profile its owner controls. So
-/// the rule is that the system account deletes nothing there by itself: a folder is deleted only for a
-/// user who is signed in, with that user's own rights, and a link anywhere between the profile and the
-/// data folder means it is left alone. Everybody else's folder is left and counted, and the operator doc
-/// says that the in-app "Delete everything" is how a technician erases their own data.
+/// the system account never deletes a folder there: a folder is deleted only for a user who is signed in,
+/// with that user's own rights. For a user who is not signed in, the system account removes only the
+/// store's key and the device's credentials, one file at a time through handles that refuse links, which
+/// leaves what remains of the store unreadable. A link anywhere between the profile and the data folder
+/// means nothing there is touched, and everything left is counted.
 /// </summary>
 public sealed class DataRemovalPlanTests
 {
@@ -37,23 +38,44 @@ public sealed class DataRemovalPlanTests
     }
 
     [Fact]
-    public void AUserWhoIsNotSignedInKeepsTheirFolderAndItIsCounted()
+    public void AUserWhoIsNotSignedInHasOnlyTheirKeyAndCredentialsRemoved()
     {
-        // There is no token to delete it with, and the system account does not delete in somebody
-        // else's profile on its own. It is left, and reported as left, not silently skipped.
+        // There is no token to delete the folder with, and the system account does not delete folders
+        // in somebody else's profile. Removing the key makes the store that stays unreadable.
         var plan = Plan(signedIn: [AnaSid], Clean);
 
         var ben = Assert.Single(plan, d => d.Sid == BenSid);
-        Assert.Equal(DataFolderAction.LeaveNotSignedIn, ben.Action);
+        Assert.Equal(DataFolderAction.ShredSecrets, ben.Action);
     }
 
     [Fact]
-    public void NobodySignedInMeansNothingIsDeleted()
+    public void NobodySignedInMeansNoFolderIsDeleted()
     {
         // An RMM uninstall at night, with every technician signed out.
         var plan = Plan(signedIn: [], Clean);
 
-        Assert.All(plan, d => Assert.NotEqual(DataFolderAction.DeleteAsOwner, d.Action));
+        Assert.All(plan, d => Assert.Equal(DataFolderAction.ShredSecrets, d.Action));
+    }
+
+    [Fact]
+    public void TheFilesRemovedForAUserWhoIsNotSignedInAreTheErasersSecretsInItsOrder()
+    {
+        // Delete everything's own list (LocalDataEraser): the store's key first, because without it the
+        // store is unreadable, then the device's refresh token and the file a save writes before it, then
+        // the pipe token. Read from the eraser's source so the two cannot drift apart.
+        var eraser = File.ReadAllText(Repo("client", "ScreenTail.Core", "Store", "RetentionJob.cs"));
+
+        Assert.Contains("SecretsFirst = [\"store.key\", \"device.cred\", \"device.cred.tmp\"]", eraser, StringComparison.Ordinal);
+        Assert.Contains("[.. SecretsFirst, \"ipc.token\",", eraser, StringComparison.Ordinal);
+        Assert.Equal(["store.key", "device.cred", "device.cred.tmp", "ipc.token"], InstalledFootprint.Secrets);
+    }
+
+    [Fact]
+    public void TheDataFolderIsReachedOneFolderAtATime()
+    {
+        // The system-side removal opens each of these relative to the one before, never a whole path.
+        Assert.Equal(["AppData", "Local", "ScreenTail"], InstalledFootprint.DataSegments);
+        Assert.All(InstalledFootprint.Secrets.Concat(InstalledFootprint.DataSegments), name => Assert.DoesNotContain('\\', name));
     }
 
     [Theory]
@@ -114,6 +136,20 @@ public sealed class DataRemovalPlanTests
             });
 
         Assert.Equal([@"C:\Users\ana\AppData", @"C:\Users\ana\AppData\Local", @"C:\Users\ana\AppData\Local\ScreenTail"], asked);
+    }
+
+    private static string Repo(params string[] parts)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var candidate = Path.Combine([directory.FullName, .. parts]);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"{string.Join('/', parts)} was not found above {AppContext.BaseDirectory}.");
     }
 
     private static IReadOnlyList<DataFolderDecision> Plan(string[] signedIn, Dictionary<string, PathState> states) =>

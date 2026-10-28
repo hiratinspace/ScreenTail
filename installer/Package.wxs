@@ -131,8 +131,9 @@
          made afterwards for each user: the data folder (the store, its key, the device's token) and the
          UI's own Run value. The installed service does it in its uninstall mode, run as the system
          account before the files go. It deletes a user's folder only while that user is signed in, under
-         their own token, and leaves every other user's folder in place, saying how many in this log
-         (WixQuietExec writes the program's output into it). Only for an uninstall: never during the
+         their own token. For every other user it removes only the store's key and the device's
+         credentials, through handles that refuse links, so the store left behind cannot be read. It says
+         how many of each in this log (WixQuietExec writes the program's output into it). Only for an uninstall: never during the
          uninstall step of an upgrade, which would erase every technician's sessions. Its result is
          ignored, so a folder that cannot be removed does not leave the product half uninstalled. -->
     <SetProperty Id="RemoveUserData"

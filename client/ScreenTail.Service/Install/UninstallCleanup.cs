@@ -20,14 +20,20 @@ namespace ScreenTail.Service.Install;
 /// the Run value the UI writes for "Start UI at login". The installer runs this as the system account,
 /// after it has closed every running copy and before it removes the files, and never during an upgrade.
 ///
-/// The system account deletes nothing inside a user's profile on its own account.
-/// <see cref="InstalledFootprint.PlanDataRemoval"/> decides: a folder is deleted only for a user who is
-/// signed in, and the delete runs under that user's own token, so it has no more rights than the folder's
-/// owner whatever the folder turns out to point at. A link anywhere between the profile and the folder
-/// leaves it alone, checked again under the owner's token just before the delete. A user who is not
-/// signed in keeps their folder; it is counted in what this prints, which the installer writes into its
-/// log, and the operator doc says that the in-app "Delete everything" is how a technician erases their
-/// own data (INV-12). What it prints is counts, never a path or a name (INV-10).
+/// <see cref="InstalledFootprint.PlanDataRemoval"/> decides, per profile:
+/// <list type="bullet">
+/// <item>A user who is signed in: the whole folder is deleted under that user's own token, the store's
+/// key and the device's credentials first (Delete everything's order), so it has no more rights than the
+/// folder's owner whatever the folder turns out to point at. If that fails, the user is treated as below.</item>
+/// <item>A user who is not signed in: the system account never deletes a folder. <see cref="SecretShredder"/>
+/// removes only the key and the credentials, through handles that refuse links, and the store that stays
+/// cannot be read without its key.</item>
+/// <item>A link anywhere between the profile and the folder, or a profile path that cannot be read
+/// plainly: nothing is touched.</item>
+/// </list>
+/// Everything left is counted in what this prints, which the installer writes into its log. What it
+/// prints is counts, never a path or a name (INV-10). A failure for one user is counted and the next user
+/// is handled; the Run values are removed whatever happened before.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class UninstallCleanup
@@ -40,7 +46,25 @@ internal static class UninstallCleanup
         Path.GetFileNameWithoutExtension(InstalledFootprint.UiExecutable),
     ];
 
-    /// <returns>0 when nothing was left, 1 when something was, 2 when it was not allowed to run.</returns>
+    /// <summary>What happened to the data, counted across every profile.</summary>
+    private sealed class Tally
+    {
+        public int Deleted { get; set; }
+
+        public int PartlyDeleted { get; set; }
+
+        public int Shredded { get; set; }
+
+        public int SecretsRemoved { get; set; }
+
+        public int SecretsInDoubt { get; set; }
+
+        public int Linked { get; set; }
+
+        public int Unreadable { get; set; }
+    }
+
+    /// <returns>0 when nothing was left in doubt, 1 when something was, 2 when it was not allowed to run.</returns>
     public static int Run(TextWriter output)
     {
         ArgumentNullException.ThrowIfNull(output);
@@ -60,28 +84,31 @@ internal static class UninstallCleanup
         var installDirectory = AppContext.BaseDirectory;
         var stopped = StopInstalledCopies(installDirectory);
 
-        var decisions = new Dictionary<DataFolderAction, int>();
-        var failed = 0;
-        foreach (var (action, ok) in RemoveDataFolders())
+        var tally = new Tally();
+        try
         {
-            decisions[action] = decisions.GetValueOrDefault(action) + 1;
-            failed += ok ? 0 : 1;
+            RemoveData(tally);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or Win32Exception or InvalidOperationException)
+        {
+            // Counted as in doubt rather than thrown: the Run values below are removed either way.
+            tally.SecretsInDoubt++;
         }
 
         var (valuesRemoved, valuesLeft) = RemoveRunValues(installDirectory);
 
-        var deleted = decisions.GetValueOrDefault(DataFolderAction.DeleteAsOwner) - failed;
-        var notSignedIn = decisions.GetValueOrDefault(DataFolderAction.LeaveNotSignedIn);
-        var linked = decisions.GetValueOrDefault(DataFolderAction.LeaveLinked);
-        var unreadable = decisions.GetValueOrDefault(DataFolderAction.LeaveUnreadablePath);
         output.WriteLine($"ScreenTail uninstall: {stopped} running copies stopped.");
-        output.WriteLine($"ScreenTail uninstall: {deleted} data folders deleted as their signed-in owner, {failed} could not be deleted.");
         output.WriteLine(
-            $"ScreenTail uninstall: left in place: {notSignedIn} data folders whose owner is not signed in, {linked} reached through a link, "
-            + $"{unreadable} profiles whose path could not be read plainly. A technician erases their own data with Delete everything in Settings.");
+            $"ScreenTail uninstall: signed in: {tally.Deleted} data folders deleted with their owner's rights, "
+            + $"{tally.PartlyDeleted} only partly (key and credentials gone, the rest left).");
+        output.WriteLine(
+            $"ScreenTail uninstall: not signed in: {tally.Shredded} data folders had their key and credentials removed "
+            + $"({tally.SecretsRemoved} files), so the store left in them cannot be read; {tally.SecretsInDoubt} files left in doubt.");
+        output.WriteLine(
+            $"ScreenTail uninstall: left alone: {tally.Linked} reached through a link, {tally.Unreadable} profiles whose path could not be read plainly.");
         output.WriteLine($"ScreenTail uninstall: {valuesRemoved} Run values removed, {valuesLeft} could not be removed.");
 
-        return failed + notSignedIn + linked + unreadable + valuesLeft == 0 ? 0 : 1;
+        return tally.PartlyDeleted + tally.SecretsInDoubt + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
     }
 
     /// <summary>
@@ -129,8 +156,7 @@ internal static class UninstallCleanup
         return stopped;
     }
 
-    /// <summary>Each profile's decision, and for a delete whether it happened.</summary>
-    private static IEnumerable<(DataFolderAction Action, bool Done)> RemoveDataFolders()
+    private static void RemoveData(Tally tally)
     {
         var owners = SignedInUsers();
         try
@@ -138,14 +164,48 @@ internal static class UninstallCleanup
             var plan = InstalledFootprint.PlanDataRemoval(Profiles(), owners.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), Probe);
             foreach (var decision in plan)
             {
-                if (decision.Action != DataFolderAction.DeleteAsOwner)
+                switch (decision.Action)
                 {
-                    yield return (decision.Action, true);
-                    continue;
-                }
+                    case DataFolderAction.DeleteAsOwner:
+                        var owned = OwnerDelete.Failed;
+                        try
+                        {
+                            owned = WindowsIdentity.RunImpersonated(owners[decision.Sid].AccessToken, () => DeleteAsOwner(decision.Profile!, decision.Folder!));
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or Win32Exception or InvalidOperationException)
+                        {
+                            owned = OwnerDelete.Failed;
+                        }
 
-                var done = WindowsIdentity.RunImpersonated(owners[decision.Sid].AccessToken, () => DeleteAsOwner(decision.Profile!, decision.Folder!));
-                yield return (decision.Action, done);
+                        if (owned == OwnerDelete.Deleted)
+                        {
+                            tally.Deleted++;
+                        }
+                        else if (owned == OwnerDelete.SecretsOnly)
+                        {
+                            tally.PartlyDeleted++;
+                        }
+                        else
+                        {
+                            // The owner's own rights were not enough, or something failed under them: the
+                            // system-side removal of the key and credentials is the fallback.
+                            Shred(decision.Profile!, tally);
+                        }
+
+                        break;
+                    case DataFolderAction.ShredSecrets:
+                        Shred(decision.Profile!, tally);
+                        break;
+                    case DataFolderAction.LeaveLinked:
+                        tally.Linked++;
+                        break;
+                    case DataFolderAction.LeaveUnreadablePath:
+                        tally.Unreadable++;
+                        break;
+                    case DataFolderAction.Absent:
+                    default:
+                        break;
+                }
             }
         }
         finally
@@ -157,16 +217,49 @@ internal static class UninstallCleanup
         }
     }
 
+    private static void Shred(string profile, Tally tally)
+    {
+        var outcomes = SecretShredder.Shred(profile);
+        if (outcomes.All(o => o == SecretShredder.Outcome.Absent))
+        {
+            return;
+        }
+
+        tally.Shredded++;
+        tally.SecretsRemoved += outcomes.Count(o => o == SecretShredder.Outcome.Removed);
+        tally.SecretsInDoubt += outcomes.Count(o => o == SecretShredder.Outcome.LeftInDoubt);
+    }
+
+    private enum OwnerDelete
+    {
+        Deleted,
+        SecretsOnly,
+        Failed,
+    }
+
     /// <summary>
-    /// Runs as the folder's owner. The link check is asked again here, under the owner's token, and the
-    /// delete only follows it; whatever happens between the two, the delete can do nothing its owner
-    /// could not. .NET's recursive delete removes a link it meets inside rather than descending into it.
+    /// Runs as the folder's owner, so it can do nothing its owner could not. The link check is asked again
+    /// here, under the owner's token. The key and the credentials go first, in Delete everything's order,
+    /// so a folder that cannot be removed in full is at least unreadable; then the folder, with .NET's
+    /// recursive delete, which removes a link it meets inside rather than descending into it.
     /// </summary>
-    private static bool DeleteAsOwner(string profile, string folder)
+    private static OwnerDelete DeleteAsOwner(string profile, string folder)
     {
         if (InstalledFootprint.BelowProfile(profile).Select(Probe).Contains(PathState.Link))
         {
-            return false;
+            return OwnerDelete.Failed;
+        }
+
+        foreach (var secret in InstalledFootprint.Secrets)
+        {
+            try
+            {
+                File.Delete(Path.Combine(folder, secret));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return OwnerDelete.Failed;
+            }
         }
 
         try
@@ -175,10 +268,10 @@ internal static class UninstallCleanup
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Reported as could-not-delete; the owner's own Delete everything is the way out.
+            // The secrets are gone; what is left is reported as partly deleted.
         }
 
-        return !Directory.Exists(folder);
+        return Directory.Exists(folder) ? OwnerDelete.SecretsOnly : OwnerDelete.Deleted;
     }
 
     /// <summary>What a folder is, without following it.</summary>

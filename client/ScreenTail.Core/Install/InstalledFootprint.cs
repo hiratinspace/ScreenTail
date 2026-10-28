@@ -41,6 +41,20 @@ public static class InstalledFootprint
     /// <summary>Under each profile, the folder every ScreenTail process keeps its data in.</summary>
     private const string DataUnderProfile = @"AppData\Local\ScreenTail";
 
+    /// <summary>
+    /// The data folder below a profile, one folder at a time, for a removal that opens each relative to
+    /// the one before. Windows' default local app data: a technician whose Local AppData is redirected
+    /// somewhere else by policy (Windows does not support that, but it happens) is not found here.
+    /// </summary>
+    public static IReadOnlyList<string> DataSegments { get; } = DataUnderProfile.Split('\\');
+
+    /// <summary>
+    /// What is removed from a data folder whose owner is not signed in: Delete everything's own secrets
+    /// (LocalDataEraser), the store's key first, then the device's refresh token and the file a save
+    /// writes before it, then the pipe token. Without the key, the store that stays cannot be read.
+    /// </summary>
+    public static IReadOnlyList<string> Secrets { get; } = ["store.key", "device.cred", "device.cred.tmp", "ipc.token"];
+
     private static readonly SearchValues<char> NotInAPath = SearchValues.Create("\"<>|*?:%");
 
     /// <summary>
@@ -77,7 +91,7 @@ public static class InstalledFootprint
             var states = below.Select(probe).ToList();
             var action = states.Contains(PathState.Link) ? DataFolderAction.LeaveLinked
                 : states[^1] == PathState.Missing ? DataFolderAction.Absent
-                : !signedIn.Contains(sid) ? DataFolderAction.LeaveNotSignedIn
+                : !signedIn.Contains(sid) ? DataFolderAction.ShredSecrets
                 : DataFolderAction.DeleteAsOwner;
             decisions.Add(new DataFolderDecision(sid, profile, folder, action));
         }
