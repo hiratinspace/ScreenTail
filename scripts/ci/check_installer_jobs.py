@@ -147,6 +147,7 @@ MUST_CONTAIN = {
     ],
     'installer/sign.ps1': [
         "Get-PinnedPackage 'Microsoft.ArtifactSigning.Client'",
+        "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN",
     ],
     'installer/manifest.ps1': [
         "actions/artifacts/$id",
@@ -550,6 +551,7 @@ SAMPLE_FILES = {
         "$problems.Add(\"not in the build's manifest: $name\")",
     ]),
     'installer/sign.ps1': "\n".join([
+        "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue",
         ". (Join-Path $PSScriptRoot 'tools.ps1')",
         "$dlib = Join-Path (Get-PinnedPackage 'Microsoft.ArtifactSigning.Client' $Into) 'bin\\x64\\Azure.CodeSigning.Dlib.dll'",
     ]),
@@ -711,6 +713,7 @@ MUST_FAIL = {
     'no hash check': edit_file('installer/tools.ps1', lambda t: t.replace('if ($hash -ne $pin.sha256) {', '')),
     'no signature check': edit_file('installer/tools.ps1', lambda t: t.replace('nuget verify', 'nuget help')),
     'WiX not from the pinned download': edit_file('installer/package.ps1', lambda t: t.replace("Get-PinnedPackage 'wix' $tools", "Get-ChildItem artifacts")),
+    'the token variables kept by sign.ps1': edit_file('installer/sign.ps1', lambda t: t.replace('Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL', 'Write-Host')),
     'the token variables kept for WiX': edit_file('installer/package.ps1', lambda t: t.replace('Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL', 'Write-Host')),
     'a missing script': lambda w, f: f.pop('installer/tools.ps1'),
     # The pins.

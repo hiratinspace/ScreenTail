@@ -66,6 +66,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
+# GitHub's OIDC request settings, taken out of the environment before anything else, so no program this
+# script starts (dotnet, signtool) inherits them. Only the token request below uses them; signtool gets
+# the token it needs as AZURE_FEDERATED_TOKEN_FILE.
+$TokenRequestUrl = $env:ACTIONS_ID_TOKEN_REQUEST_URL
+$TokenRequestToken = $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN
+Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue
+
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
 $ArtifactSigningTimestamp = 'http://timestamp.acs.microsoft.com'
@@ -230,14 +237,14 @@ try {
         }
         $others = @('ManagedIdentityCredential', 'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential',
             'AzureCliCredential', 'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
-        if (-not $env:AZURE_CLIENT_SECRET -and $env:ACTIONS_ID_TOKEN_REQUEST_URL -and $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+        if (-not $env:AZURE_CLIENT_SECRET -and $TokenRequestUrl -and $TokenRequestToken) {
             # GitHub Actions with the id-token permission: a short-lived token for this job, exchanged by
             # Azure for access to the signing account. Masked before anything could print it, written to
             # a file in the scratch folder for the Azure SDK, and gone when this step ends.
             if (-not ($env:AZURE_TENANT_ID -and $env:AZURE_CLIENT_ID)) {
                 throw 'OIDC signing needs AZURE_TENANT_ID and AZURE_CLIENT_ID (the app registration that trusts this repository).'
             }
-            $response = Invoke-RestMethod -UseBasicParsing -Uri "$($env:ACTIONS_ID_TOKEN_REQUEST_URL)&audience=api://AzureADTokenExchange" -Headers @{ Authorization = "Bearer $($env:ACTIONS_ID_TOKEN_REQUEST_TOKEN)" }
+            $response = Invoke-RestMethod -UseBasicParsing -Uri "$($TokenRequestUrl)&audience=api://AzureADTokenExchange" -Headers @{ Authorization = "Bearer $($TokenRequestToken)" }
             Write-Host "::add-mask::$($response.value)"
             $tokenFile = Join-Path $scratch 'oidc.jwt'
             Set-Content -Path $tokenFile -Value $response.value -NoNewline -Encoding ASCII
