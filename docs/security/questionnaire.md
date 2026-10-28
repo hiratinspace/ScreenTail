@@ -159,7 +159,10 @@ the key it is given belongs to it.
 What is sent is the same either way: one request per session (two when the first answer breaks a rule
 and is sent back to be corrected), carrying the screenshots after redaction (sensitive regions painted
 over on the device), the text read from them after masking, and the masked transcript, with the session's
-ids and timings. Nothing unredacted is ever in the bundle to send (INV-1). The pictures are sent inline
+ids and timings. Nothing unredacted is ever in the bundle to send (INV-1). With Anthropic, a session
+its safety checks decline may be run again on a second Anthropic model (Claude Opus 5 or Opus 4.8, chosen by Anthropic) inside the same
+call, and after such a fallback Anthropic keeps a content-hash routing record, not the content, for about
+an hour so the conversation stays on that model (not kept for zero-data-retention organizations). The pictures are sent inline
 rather than uploaded, so none is left in the provider's file storage, and the backend keeps nothing
 (INV-7). A per-tenant daily spending cap is checked before the call. OpenAI could be added behind the same
 interface. *(ST-063; Claude added 2026-10-28.)*

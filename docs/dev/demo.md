@@ -31,7 +31,9 @@ The scripts are in `scripts\windows\demo\`. They do what the manual runbook
 the key you give setup belongs to that one.
 
 **What a draft costs on Claude.** About $0.31 for the longest session (25 screenshots), and about $0.08
-for an everyday one, from the Anthropic account's credits. The backend stops drafting for the day at $30.
+for an everyday one, from the Anthropic account's credits (a session Claude declines and hands to a
+second model costs up to about $0.97, both attempts counted). The backend stops drafting for the day at
+$30.
 Each session you stop and draft uses one call, or two when the first answer breaks a rule. A new
 Anthropic account is also limited in how many calls a minute it may make; a rehearsal will not reach it.
 

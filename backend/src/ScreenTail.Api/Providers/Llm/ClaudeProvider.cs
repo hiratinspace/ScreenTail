@@ -118,7 +118,7 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
                 ProviderErrorKind.Unavailable,
                 "The drafting model is rate limiting this deployment.",
                 "The session is queued and will be drafted shortly.",
-                departure.RetryAfter is { } wait && wait >= TimeSpan.Zero ? wait : null));
+                departure.Wait));
         }
         catch (AnthropicUnauthorizedException)
         {
@@ -144,11 +144,13 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
         }
         catch (Anthropic5xxException)
         {
-            return ProviderResult.Failure<LlmDraft>(Outage());
+            // A 503 or a 529 can say when to come back as well as a 429 can.
+            return ProviderResult.Failure<LlmDraft>(Outage() with { RetryAfter = departure.Wait });
         }
         catch (AnthropicApiException ex)
         {
-            return ProviderResult.Failure<LlmDraft>(ByStatus(ex.StatusCode));
+            var failure = ByStatus(ex.StatusCode);
+            return ProviderResult.Failure<LlmDraft>(failure.Kind == ProviderErrorKind.Unavailable ? failure with { RetryAfter = departure.Wait } : failure);
         }
         catch (AnthropicInvalidDataException)
         {
@@ -186,6 +188,14 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
             request.Content = new TrackedContent(content, departure);
         }
 
+        // Only the headers the SDK itself needs. The SDK also adds whatever ANTHROPIC_CUSTOM_HEADERS
+        // names (it reads the variable once per process), and a header somebody left in a server's
+        // environment would go out with every customer's session (review of 2026-10-28).
+        foreach (var name in request.Headers.Select(header => header.Key).Where(name => !Sent(name)).ToList())
+        {
+            _ = request.Headers.Remove(name);
+        }
+
         var response = await next(request, ct).ConfigureAwait(false);
 
         // The SDK's exceptions carry the status and the body, not the headers, and Anthropic says when to
@@ -197,6 +207,24 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
 
         return response;
     }
+
+    /// <summary>
+    /// The request headers a draft may carry: the credential, the API version and betas, the SDK's own
+    /// client description, and content negotiation. Anything else is dropped before it leaves.
+    /// </summary>
+    internal static bool Sent(string header) =>
+        header.StartsWith("X-Stainless-", StringComparison.OrdinalIgnoreCase)
+        || SentHeaders.Contains(header);
+
+    private static readonly HashSet<string> SentHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Authorization",
+        "anthropic-version",
+        "anthropic-beta",
+        "Accept",
+        "Accept-Encoding",
+        "User-Agent",
+    };
 
     // --- The answer --------------------------------------------------------------------------------------
 
@@ -325,12 +353,38 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
                 return null;
             }
 
-            decimal? total = null;
-            foreach (var iteration in usage.Iterations ?? [])
+            var answered = Optional(() => message.Model?.Raw());
+            var whole = Cost(answered, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens);
+
+            return Iterations(usage) ?? whole;
+        }
+        catch (Exception ex) when (ex is AnthropicInvalidDataException or JsonException or InvalidOperationException)
+        {
+            // A usage block we cannot read is no bill, which the caller settles at the estimate. Reading
+            // it as zero would settle a paid call at nothing (review round 1 of the 2026-10-12 fixes).
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Every attempt's cost added up, or null when there are no iterations or any one of them cannot be
+    /// read, in which case the top-level usage is the bill. Half a list of attempts is not a bill.
+    /// </summary>
+    private decimal? Iterations(BetaUsage usage)
+    {
+        try
+        {
+            if (usage.Iterations is not { Count: > 0 } iterations)
+            {
+                return null;
+            }
+
+            var total = 0m;
+            foreach (var iteration in iterations)
             {
                 if (iteration.TryPickBetaMessageIterationUsage(out var attempt) && attempt is not null)
                 {
-                    total = (total ?? 0m) + Cost(
+                    total += Cost(
                         Optional(() => attempt.Model?.Raw()),
                         attempt.InputTokens,
                         attempt.OutputTokens,
@@ -339,21 +393,25 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
                 }
                 else if (iteration.TryPickBetaFallbackMessageIterationUsage(out var fallback) && fallback is not null)
                 {
-                    total = (total ?? 0m) + Cost(
+                    total += Cost(
                         Optional(() => fallback.Model?.Raw()),
                         fallback.InputTokens,
                         fallback.OutputTokens,
                         Optional<long?>(() => fallback.CacheReadInputTokens),
                         Optional<long?>(() => fallback.CacheCreationInputTokens));
                 }
+                else
+                {
+                    // A kind of attempt this code does not know. Its tokens are somewhere in the bill and
+                    // not in ours, so the list as a whole is not trusted.
+                    return null;
+                }
             }
 
-            return total ?? Cost(null, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens);
+            return total;
         }
         catch (Exception ex) when (ex is AnthropicInvalidDataException or JsonException or InvalidOperationException)
         {
-            // A usage block we cannot read is no bill, which the caller settles at the estimate. Reading
-            // it as zero would settle a paid call at nothing (review round 1 of the 2026-10-12 fixes).
             return null;
         }
     }
@@ -442,7 +500,9 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
         {
             content.Add(new BetaImageBlockParam
             {
-                Source = new BetaBase64ImageSource { Data = frame.Image!, MediaType = frame.MediaType },
+                // Lower case: the API's media types are an enum and compare exactly, and "image/PNG" is a 400
+                // for the whole draft rather than for one picture.
+                Source = new BetaBase64ImageSource { Data = frame.Image!, MediaType = frame.MediaType.Trim().ToLowerInvariant() },
             });
         }
 
@@ -559,6 +619,9 @@ public sealed class ClaudeProvider : ILlmProvider, IDisposable
 
         /// <summary>The <c>retry-after</c> the answer carried, if it did.</summary>
         public TimeSpan? RetryAfter { get; set; }
+
+        /// <summary>The wait to pass on: the one the answer named, when it named one that has not passed.</summary>
+        public TimeSpan? Wait => RetryAfter is { } wait && wait >= TimeSpan.Zero ? wait : null;
     }
 
     /// <summary>

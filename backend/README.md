@@ -105,11 +105,18 @@ export Summarization__DailyCostCapUsd=30
 ```
 
 The rates follow the model (Claude Opus 5.5: $4 input, $20 output, $0.20 cache reads per million, read
-from Anthropic's pricing page on 2026-10-28). `SummarizationOptions` explains each default, and the
+from Anthropic's pricing page on 2026-10-28); a model the table does not list is priced as the dearest
+one it does, Claude Fable 5.1 at $10 and $50. `SummarizationOptions` explains each default, and the
 sixty-cent reservation is worked out from the documented image cost: no key was available to measure
-Claude with. The request goes through Anthropic's own C# SDK to `api.anthropic.com` only; the SDK is
-given the key and the address explicitly, so `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in the
-environment are never read in their place.
+Claude with. With the refusal fallback on, a declined session can be run again on Claude Opus 5 or Opus 4.8 (both $5 and $25) in the
+same call, and both attempts are billed (about $0.97 at worst, once, against a sixty-cent reservation).
+
+**The environment cannot redirect a draft.** The request goes through Anthropic's own C# SDK to
+`api.anthropic.com` only. The SDK is given the address, the key and its tracing setting explicitly, so
+`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_OPEN_TELEMETRY*` are not
+read in their place, and every request header outside the few a draft needs is removed before it leaves,
+which drops anything `ANTHROPIC_CUSTOM_HEADERS` or `ANTHROPIC_WORKSPACE_ID` would add.
+`ClaudeEnvironmentTests` sets each of them and looks at what was sent.
 
 **The model name is a setting, and it expires.** The first build of this asked for `gemini-2.0-flash`;
 by the time a key was pointed at it Google had retired that name, and every draft was a 404. Retirements

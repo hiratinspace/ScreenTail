@@ -141,7 +141,9 @@ For drafting, the note can be produced two ways:
   operator's Anthropic account) when it is `claude`, Google's Gemini Flash when it is `gemini-flash`, the
   default. What either receives is the screenshots after redaction, the masked text read from them and the
   masked transcript (INV-1), inline in the request, plus a second request carrying the reasons when the
-  first answer breaks a rule.
+  first answer breaks a rule. On Anthropic, a session its safety checks decline may be re-run on a second
+  Anthropic model in the same call; Anthropic then keeps a content-hash routing record (not the content)
+  for about an hour, except for zero-data-retention organizations.
 
 **Logs contain no content** (INV-10). Not window titles, not OCR text, not transcript, not note text, not
 company or ticket names. The record the diagnostics panel is built from has nowhere to put any of those,

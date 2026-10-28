@@ -246,7 +246,7 @@ own timing.
 | 501 `not_configured` from the backend | The API is running without a drafting key: `Summarization:ApiKey` is not in user secrets (step 2). A key for the other company (a Gemini key with `Summarization:Provider` set to `claude`, or the reverse) is answered the same way once a draft is tried, with a 401 in the backend window. Without `ASPNETCORE_ENVIRONMENT` (step 3) the API does not get this far: it refuses to start for want of the signing key |
 | Connection refused | The backend is not running, or is not on port 5001 (step 6) |
 | A blocked-host message | The address in step 7 does not match what the guard was told to allow |
-| "reached its drafting budget for today" | The daily cap, which is $0.10 a session and $10 a day by default |
+| "reached its drafting budget for today" | The daily cap: by default $0.10 reserved a session and $10 a day on Gemini, $0.60 a session and $30 a day on Claude |
 | 401 from the backend | The token expired. It lasts an hour |
 
 ## 10. Write down what actually happened

@@ -245,6 +245,15 @@ public sealed class SummarizationOptions
     /// at $20 a million, $0.32, for $0.57 in all. The Gemini figure would have charged a Claude timeout a
     /// sixth of what it may have cost. Only a bundle near the server's own text ceiling
     /// (<see cref="BundleLimits.MaxTotalTextChars"/>) overshoots it, by up to about twice.
+    ///
+    /// <b>A refusal fallback can make one call two attempts.</b> With <see cref="RefusalFallback"/> at
+    /// <c>default</c>, a session Claude Opus 5.5 declines is run again on another model (Claude Opus 5 or Opus 4.8, both at
+    /// $5 and $25) inside the same call, and both attempts are billed. The worst such call is the declined
+    /// attempt's input ($0.25) plus a full fallback answer (63,000 tokens in, 16,000 out: $0.72), about
+    /// $0.97. That is not what the reservation is sized for, because a declined IT support session is
+    /// rare and the real figure replaces the reservation as soon as the call ends; the cap only lets one
+    /// such call per tenant overshoot by the difference. Set this higher, or the fallback to <c>none</c>,
+    /// where that matters.
     /// </summary>
     public decimal MaxSessionCostUsd
     {
@@ -331,6 +340,20 @@ public sealed class SummarizationOptions
         {
             throw new InvalidOperationException(
                 $"Summarization:Effort is \"{Effort}\". It must be one of: {string.Join(", ", Efforts)}.");
+        }
+
+        // Claude Haiku 5.5 has no server-side fallback, and a list of fallback models is a 400 on every
+        // draft. "default" and "none" are both fine there: with "default" the model runs alone.
+        var fallback = RefusalFallback?.Trim() ?? string.Empty;
+        if (IsClaude
+            && Model.Trim().StartsWith("claude-haiku-5-5", StringComparison.OrdinalIgnoreCase)
+            && fallback.Length > 0
+            && !string.Equals(fallback, "default", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(fallback, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Summarization:RefusalFallback names models (\"{fallback}\"), and {Model} has no fallback: "
+                + "every draft would be refused. Set it to default or none.");
         }
     }
 }
