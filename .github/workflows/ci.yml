@@ -334,6 +334,12 @@ jobs:
     if: needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
+    # What binds the handoff: the signing job downloads this artifact by its id, checks its digest, and
+    # checks every file against this manifest before it signs anything.
+    outputs:
+      payload-artifact-id: ${{ steps.payload.outputs.artifact-id }}
+      payload-artifact-digest: ${{ steps.payload.outputs.artifact-digest }}
+      payload-manifest: ${{ steps.manifest.outputs.files }}
     defaults:
       run:
         # Windows PowerShell 5.1, what a developer's Windows machine has, so the scripts are proved on it.
@@ -346,7 +352,11 @@ jobs:
         run: dotnet --version
       - name: Publish and check the payload
         run: ./installer/build.ps1 -Stage Payload -Version "0.1.${{ github.run_number }}"
+      - name: Record the SHA-256 of every payload file
+        id: manifest
+        run: ./installer/manifest.ps1 -Write -Folder artifacts/installer/payload
       - name: Hand the payload to the signing job
+        id: payload
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTAIL_SIGNING == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -407,21 +417,26 @@ jobs:
   # with id-token: write, and sign.ps1 asks for the OIDC token itself; nothing is stored anywhere.
   #
   # It runs nothing compiled from this repository and nothing from the build job: a fresh checkout of the
-  # same commit, the payload to sign, sign.ps1, and package.ps1, which runs only WiX at the versions and
-  # SHA-256 hashes pinned in installer/tools.json, fetched and verified here. Each layer is signed before
-  # the next one wraps it: the payload, then the MSI built from it, then the setup program built from
-  # that, its engine on its own, and the whole. Every step is one exact command, and the check in the
-  # workflows job holds the list.
+  # same commit, the payload to sign (downloaded by the id the build job reported, its digest and every
+  # file checked against the build's own record first), sign.ps1, and package.ps1, which runs only WiX
+  # at the versions and SHA-256 hashes pinned in installer/tools.json, fetched and verified here. Each
+  # layer is signed before the next one wraps it: the payload, then the MSI built from it, then the
+  # setup program built from that, its engine on its own, and the whole. Every step is one exact
+  # command, and the check in the workflows job holds the list.
   installer-sign:
     name: Installer (Windows, signing)
     needs: installer
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTAIL_SIGNING == 'true'
     runs-on: windows-latest
     environment: signing
+    # actions: read is for one thing: reading the payload artifact's digest back from GitHub's API.
     permissions:
       contents: read
+      actions: read
       id-token: write
     timeout-minutes: 30
+    outputs:
+      installer-artifact-id: ${{ steps.signed.outputs.artifact-id }}
     defaults:
       run:
         shell: powershell
@@ -431,11 +446,18 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Download the payload to sign
+      - name: Download the payload to sign, by the id the build job reported
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: screentail-installer-payload
+          artifact-ids: ${{ needs.installer.outputs.payload-artifact-id }}
           path: artifacts/installer/payload
+      - name: Check the payload is the one the build job made (digest, and every file)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAYLOAD_ARTIFACT_ID: ${{ needs.installer.outputs.payload-artifact-id }}
+          PAYLOAD_ARTIFACT_DIGEST: ${{ needs.installer.outputs.payload-artifact-digest }}
+          PAYLOAD_MANIFEST: ${{ needs.installer.outputs.payload-manifest }}
+        run: ./installer/manifest.ps1 -Check -Folder artifacts/installer/payload
       - name: Sign the payload
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
@@ -485,6 +507,7 @@ jobs:
           SCREENTAIL_REQUIRE_SIGNING: '1'
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
       - name: Upload the signed installer
+        id: signed
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: screentail-installer
@@ -511,10 +534,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Download the signed installer
+      - name: Download the signed installer, by the id the signing job reported
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: screentail-installer
+          artifact-ids: ${{ needs.installer-sign.outputs.installer-artifact-id }}
           path: artifacts/installer/packages
       - name: Smoke test the signed build
         run: >-

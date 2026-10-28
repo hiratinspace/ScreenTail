@@ -9,7 +9,12 @@ reach the signing token, before it merges:
   - the installer jobs run on the hosted runner, never on the laptop's labels;
   - installer-sign is the only job that may ask for an OIDC token, runs only for a push to main with
     the switch on, always in the 'signing' environment, needs the unsigned build, and has no
-    permission beyond reading the repository and asking for the token;
+    permission beyond reading the repository and its artifacts and asking for the token;
+  - the payload handoff is bound: the build job reports the artifact's id, its digest and the SHA-256
+    of every file as job outputs; installer-sign downloads by that id and nothing else, and checks the
+    digest and every file before the first signature; the signed smoke test downloads the signed
+    build by the id installer-sign reported; and no other job or step uploads an artifact under
+    either name;
   - installer-sign runs exactly the reviewed steps, in order: a pinned checkout of the same commit, the
     payload download, then sign.ps1 and package.ps1 commands, each layer signed before the next one
     wraps it, the verification, and the upload. Each run step is one exact command with no other key,
@@ -68,9 +73,17 @@ DOWNLOAD = 'actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131'
 # run's artifacts) is a change to argue for in review.
 INPUTS = {
     CHECKOUT: {'ref', 'persist-credentials'},
-    DOWNLOAD: {'name', 'path'},
+    DOWNLOAD: {'artifact-ids', 'path'},
     UPLOAD: {'name', 'path', 'retention-days', 'if-no-files-found'},
 }
+PAYLOAD_ARTIFACT, SIGNED_ARTIFACT = 'screentail-installer-payload', 'screentail-installer'
+BUILD_OUTPUTS = {
+    'payload-artifact-id': expr('steps.payload.outputs.artifact-id'),
+    'payload-artifact-digest': expr('steps.payload.outputs.artifact-digest'),
+    'payload-manifest': expr('steps.manifest.outputs.files'),
+}
+SIGN_OUTPUTS = {'installer-artifact-id': expr('steps.signed.outputs.artifact-id')}
+SIGN_PERMISSIONS = {'contents': 'read', 'actions': 'read', IDT: 'write'}
 PINNED = re.compile(r'[\w.-]+/[\w.-]+@[0-9a-f]{40}')
 
 VERSION = '"0.1.' + expr('github.run_number') + '"'
@@ -83,15 +96,23 @@ SIGN_SETTINGS = {
     'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
 }
 VERIFY_SETTINGS = {'SCREENTAIL_REQUIRE_SIGNING': '1'}
+HANDOFF_SETTINGS = {
+    'GH_TOKEN': expr('github.token'),
+    'PAYLOAD_ARTIFACT_ID': expr('needs.installer.outputs.payload-artifact-id'),
+    'PAYLOAD_ARTIFACT_DIGEST': expr('needs.installer.outputs.payload-artifact-digest'),
+    'PAYLOAD_MANIFEST': expr('needs.installer.outputs.payload-manifest'),
+}
 PAYLOAD = 'artifacts/installer/payload'
 MSI = 'artifacts/installer/packages/ScreenTail.msi'
 ENGINE = 'artifacts/installer/work/engine.exe'
 SETUP = 'artifacts/installer/packages/ScreenTail-Setup.exe'
 
-# installer-sign, step by step. ('uses', action, inputs) or (kind, command, env).
+# installer-sign, step by step. ('uses', action, inputs) or ('run', command, env); an optional fourth
+# item is the step's id, the only place a step may have one.
 SEQUENCE = [
     ('uses', CHECKOUT, {'ref': expr('github.sha'), 'persist-credentials': False}),
-    ('uses', DOWNLOAD, {'name': 'screentail-installer-payload', 'path': PAYLOAD}),
+    ('uses', DOWNLOAD, {'artifact-ids': expr('needs.installer.outputs.payload-artifact-id'), 'path': PAYLOAD}),
+    ('run', './installer/manifest.ps1 -Check -Folder ' + PAYLOAD, HANDOFF_SETTINGS),
     ('run', './installer/sign.ps1 -Folder ' + PAYLOAD, SIGN_SETTINGS),
     ('run', './installer/package.ps1 -Step Msi -Version ' + VERSION, None),
     ('run', './installer/sign.ps1 -Path ' + MSI, SIGN_SETTINGS),
@@ -101,15 +122,16 @@ SEQUENCE = [
     ('run', './installer/package.ps1 -Step Reattach -Version ' + VERSION, None),
     ('run', './installer/sign.ps1 -Path ' + SETUP, SIGN_SETTINGS),
     ('run', './installer/sign.ps1 -Verify -Folder ' + PAYLOAD + ' -Path ' + ','.join([MSI, ENGINE, SETUP]), VERIFY_SETTINGS),
-    ('uses', UPLOAD, {'name': 'screentail-installer', 'path': MSI + '\n' + SETUP + '\n', 'retention-days': 7, 'if-no-files-found': 'error'}),
+    ('uses', UPLOAD, {'name': SIGNED_ARTIFACT, 'path': MSI + '\n' + SETUP + '\n', 'retention-days': 7, 'if-no-files-found': 'error'}, 'signed'),
 ]
-SIGN_JOB_KEYS = {'name', 'needs', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'defaults', 'steps'}
+SIGN_JOB_KEYS = {'name', 'needs', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'outputs', 'defaults', 'steps'}
+MANIFEST_WRITE = './installer/manifest.ps1 -Write -Folder ' + PAYLOAD
 RUN_STEP_KEYS = {'name', 'env', 'run'}
 USES_STEP_KEYS = {'name', 'uses', 'with'}
 UNSAFE = (';', '|', '&', '`', '$(', '\n', '\r')
 
 # What the scripts the signing job runs must do, and must never do.
-SCRIPTS = ('installer/package.ps1', 'installer/sign.ps1', 'installer/tools.ps1')
+SCRIPTS = ('installer/package.ps1', 'installer/sign.ps1', 'installer/tools.ps1', 'installer/manifest.ps1')
 MUST_CONTAIN = {
     'installer/tools.ps1': [
         "Get-FileHash -Algorithm SHA256 -Path $package",
@@ -125,6 +147,14 @@ MUST_CONTAIN = {
     ],
     'installer/sign.ps1': [
         "Get-PinnedPackage 'Microsoft.ArtifactSigning.Client'",
+    ],
+    'installer/manifest.ps1': [
+        "actions/artifacts/$id",
+        "if ($actual -ne $expected) {",
+        "if ([string]$artifact.workflow_run.id -ne [string]$env:GITHUB_RUN_ID) {",
+        "$problems.Add(\"missing: $name\")",
+        "$problems.Add(\"different from the build's: $name\")",
+        "$problems.Add(\"not in the build's manifest: $name\")",
     ],
 }
 NEVER = [
@@ -247,11 +277,54 @@ def check_workflow(workflow):
                 if any(SIGNING_VARS.search(t) for t in strings(step)):
                     bad.append(f'job {name} step {label!r} reads a signing variable outside {SIGN}')
 
+    bad += check_handoff(jobs)
     bad += check_sign_job(jobs.get(SIGN) or {})
 
     signed_check = jobs.get(CHECK) or {}
     if signed_check and signed_check.get('needs') not in (SIGN, [SIGN]):
         bad.append(f'{CHECK} must need {SIGN}')
+    return bad
+
+
+def is_upload(step):
+    return str(step.get('uses', '')).startswith('actions/upload-artifact@')
+
+
+def check_handoff(jobs):
+    bad = []
+    build = jobs.get(BUILD) or {}
+    if build and build.get('outputs') != BUILD_OUTPUTS:
+        bad.append(f'{BUILD} must have exactly the outputs {sorted(BUILD_OUTPUTS)}, from its manifest and payload upload steps')
+    steps = build.get('steps') or []
+    manifest = [st for st in steps if st.get('id') == 'manifest']
+    if build and (len(manifest) != 1 or manifest[0].get('run') != MANIFEST_WRITE or manifest[0].get('env')):
+        bad.append(f'{BUILD} must have one step with id manifest that runs exactly: {MANIFEST_WRITE}')
+    payload = [st for st in steps if st.get('id') == 'payload']
+    if build and (len(payload) != 1 or payload[0].get('uses') != UPLOAD
+                  or (payload[0].get('with') or {}).get('name') != PAYLOAD_ARTIFACT
+                  or (payload[0].get('with') or {}).get('path') != PAYLOAD):
+        bad.append(f'{BUILD} must have one step with id payload that uploads {PAYLOAD} as {PAYLOAD_ARTIFACT}')
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get('steps') or []:
+            if not is_upload(step):
+                continue
+            artifact = (step.get('with') or {}).get('name')
+            if artifact == PAYLOAD_ARTIFACT and not (name == BUILD and step.get('id') == 'payload'):
+                bad.append(f'job {name} uploads an artifact named {PAYLOAD_ARTIFACT}; only the payload step of {BUILD} may')
+            if artifact == SIGNED_ARTIFACT and not (name == SIGN and step.get('id') == 'signed'):
+                bad.append(f'job {name} uploads an artifact named {SIGNED_ARTIFACT}; only {SIGN} may')
+            if 'overwrite' in (step.get('with') or {}):
+                bad.append(f'job {name} replaces an artifact (overwrite)')
+    sign = jobs.get(SIGN) or {}
+    if sign and sign.get('outputs') != SIGN_OUTPUTS:
+        bad.append(f'{SIGN} must have exactly the outputs {sorted(SIGN_OUTPUTS)}')
+    signed_check = jobs.get(CHECK) or {}
+    downloads = [st for st in signed_check.get('steps') or [] if str(st.get('uses', '')).startswith('actions/download-artifact@')]
+    wanted = {'artifact-ids': expr('needs.' + SIGN + '.outputs.installer-artifact-id'), 'path': 'artifacts/installer/packages'}
+    if signed_check and (len(downloads) != 1 or downloads[0].get('with') != wanted):
+        bad.append(f'{CHECK} must download the signed build once, by the id {SIGN} reported')
     return bad
 
 
@@ -268,8 +341,8 @@ def check_sign_job(job):
         bad.append(f'{SIGN} must run exactly when {CONDITION}')
     if job.get('environment') != ENVIRONMENT:
         bad.append(f"{SIGN} must always run in the '{ENVIRONMENT}' environment")
-    if job.get('permissions') != {'contents': 'read', IDT: 'write'}:
-        bad.append(f'{SIGN} must have exactly contents: read and {IDT}: write')
+    if job.get('permissions') != SIGN_PERMISSIONS:
+        bad.append(f'{SIGN} must have exactly the permissions {SIGN_PERMISSIONS}')
     if job.get('defaults') != {'run': {'shell': 'powershell'}}:
         bad.append(f'{SIGN} defaults must be exactly run.shell: powershell')
 
@@ -282,8 +355,12 @@ def check_sign_job(job):
             if key in step:
                 bad.append(f'{label} sets {key}')
         kind = expected[0]
+        step_id = expected[3] if len(expected) > 3 else None
+        if step.get('id') != step_id:
+            bad.append(f'{label} must have ' + (f'the id {step_id}' if step_id else 'no id'))
+        step = {k: v for k, v in step.items() if k != 'id'}
         if kind == 'uses':
-            _, action, inputs = expected
+            _, action, inputs = expected[:3]
             if set(step) - USES_STEP_KEYS:
                 bad.append(f'{label} has keys that are not allowed on an action step: {sorted(set(step) - USES_STEP_KEYS)}')
             if step.get('uses') != action:
@@ -291,7 +368,7 @@ def check_sign_job(job):
             if (step.get('with') or {}) != inputs:
                 bad.append(f'{label} must give exactly the inputs {inputs}')
             continue
-        _, command, env = expected
+        _, command, env = expected[:3]
         if set(step) - RUN_STEP_KEYS:
             bad.append(f'{label} has keys that are not allowed on a run step: {sorted(set(step) - RUN_STEP_KEYS)}')
         run = step.get('run')
@@ -395,14 +472,17 @@ def check(workflow, files):
 
 def sample_workflow():
     steps = []
-    for kind, value, extra in SEQUENCE:
+    for item in SEQUENCE:
+        kind, value, extra = item[:3]
         if kind == 'uses':
-            steps.append({'name': value.split('@')[0], 'uses': value, 'with': copy.deepcopy(extra)})
+            step = {'name': value.split('@')[0], 'uses': value, 'with': copy.deepcopy(extra)}
         else:
             step = {'name': value.split(' ')[0], 'run': value}
             if extra:
                 step['env'] = dict(extra)
-            steps.append(step)
+        if len(item) > 3:
+            step['id'] = item[3]
+        steps.append(step)
     return {
         'permissions': {'contents': 'read'},
         'env': {'DOTNET_NOLOGO': '1'},
@@ -410,10 +490,13 @@ def sample_workflow():
             BUILD: {
                 'runs-on': HOSTED,
                 'defaults': {'run': {'shell': 'powershell'}},
+                'outputs': dict(BUILD_OUTPUTS),
                 'steps': [
                     {'uses': CHECKOUT, 'with': {'persist-credentials': False}},
                     {'run': './installer/build.ps1 -Stage Payload'},
-                    {'if': CONDITION, 'uses': UPLOAD, 'with': {'name': 'screentail-installer-payload', 'path': PAYLOAD}},
+                    {'id': 'manifest', 'run': MANIFEST_WRITE},
+                    {'id': 'payload', 'if': CONDITION, 'uses': UPLOAD, 'with': {'name': PAYLOAD_ARTIFACT, 'path': PAYLOAD}},
+                    {'uses': UPLOAD, 'with': {'name': 'screentail-installer-unsigned', 'path': 'x'}},
                 ],
             },
             SIGN: {
@@ -422,8 +505,9 @@ def sample_workflow():
                 'if': CONDITION,
                 'runs-on': HOSTED,
                 'environment': ENVIRONMENT,
-                'permissions': {'contents': 'read', IDT: 'write'},
+                'permissions': dict(SIGN_PERMISSIONS),
                 'timeout-minutes': 30,
+                'outputs': dict(SIGN_OUTPUTS),
                 'defaults': {'run': {'shell': 'powershell'}},
                 'steps': steps,
             },
@@ -432,7 +516,7 @@ def sample_workflow():
                 'runs-on': HOSTED,
                 'steps': [
                     {'uses': CHECKOUT, 'with': {'ref': expr('github.sha'), 'persist-credentials': False}},
-                    {'uses': DOWNLOAD, 'with': {'name': 'screentail-installer', 'path': 'x'}},
+                    {'uses': DOWNLOAD, 'with': {'artifact-ids': expr('needs.' + SIGN + '.outputs.installer-artifact-id'), 'path': 'artifacts/installer/packages'}},
                     {'run': './installer/smoke-test.ps1'},
                 ],
             },
@@ -456,6 +540,14 @@ SAMPLE_FILES = {
         "$util = Get-Extension 'WixToolset.Util.wixext' 'wixext5\\WixToolset.Util.wixext.dll'",
         "$bal = Get-Extension 'WixToolset.Bal.wixext' 'wixext5\\WixToolset.BootstrapperApplications.wixext.dll'",
         "& $dotnet $wix @Arguments | Out-Host",
+    ]),
+    'installer/manifest.ps1': "\n".join([
+        "$artifact = Invoke-RestMethod -Uri \"https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/actions/artifacts/$id\"",
+        "if ([string]$artifact.workflow_run.id -ne [string]$env:GITHUB_RUN_ID) {",
+        "if ($actual -ne $expected) {",
+        "$problems.Add(\"missing: $name\")",
+        "$problems.Add(\"different from the build's: $name\")",
+        "$problems.Add(\"not in the build's manifest: $name\")",
     ]),
     'installer/sign.ps1': "\n".join([
         ". (Join-Path $PSScriptRoot 'tools.ps1')",
@@ -492,12 +584,20 @@ def sign_steps(w):
     return w['jobs'][SIGN]['steps']
 
 
-def first_sign(w):
+def handoff_check(w):
     return sign_steps(w)[2]
 
 
-def first_build(w):
+def first_sign(w):
     return sign_steps(w)[3]
+
+
+def first_build(w):
+    return sign_steps(w)[4]
+
+
+def build_steps(w):
+    return w['jobs'][BUILD]['steps']
 
 
 def edit_file(path, change):
@@ -516,7 +616,28 @@ MUST_FAIL = {
     'a sign step with a subexpression': on_workflow(lambda w: first_sign(w).update(run='./installer/sign.ps1 -Path $(evil)')),
     'a sign step with a backtick': on_workflow(lambda w: first_sign(w).update(run='./installer/sign.ps1 -Path `evil')),
     'a sign step with another flag': on_workflow(lambda w: first_sign(w).update(run='./installer/sign.ps1 -Query')),
-    'the package built before the payload is signed': on_workflow(lambda w: sign_steps(w).insert(2, sign_steps(w).pop(3))),
+    'the package built before the payload is signed': on_workflow(lambda w: sign_steps(w).insert(3, sign_steps(w).pop(4))),
+    'signing before the payload is checked': on_workflow(lambda w: sign_steps(w).insert(2, sign_steps(w).pop(3))),
+    'the payload check dropped': on_workflow(lambda w: sign_steps(w).pop(2)),
+    'the payload check without the manifest': on_workflow(lambda w: handoff_check(w)['env'].pop('PAYLOAD_MANIFEST')),
+    'the payload check against a digest of its own': on_workflow(lambda w: handoff_check(w)['env'].update(PAYLOAD_ARTIFACT_DIGEST='0' * 64)),
+    'the payload downloaded by name': on_workflow(lambda w: sign_steps(w)[1].update(**{'with': {'name': PAYLOAD_ARTIFACT, 'path': PAYLOAD}})),
+    'the payload downloaded by a fixed id': on_workflow(lambda w: sign_steps(w)[1]['with'].update(**{'artifact-ids': '12345'})),
+    'the payload downloaded by an id from elsewhere': on_workflow(lambda w: sign_steps(w)[1]['with'].update(**{'artifact-ids': expr('github.event.inputs.id')})),
+    'the payload downloaded by a pattern': on_workflow(lambda w: sign_steps(w)[1]['with'].update(pattern='*')),
+    'another job uploading the payload name': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': PAYLOAD_ARTIFACT, 'path': 'x'}})),
+    'a second payload upload in the build job': on_workflow(lambda w: build_steps(w).append({'uses': UPLOAD, 'with': {'name': PAYLOAD_ARTIFACT, 'path': 'x'}})),
+    'another job uploading the signed name': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': SIGNED_ARTIFACT, 'path': 'x'}})),
+    'an upload that overwrites': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': 'x', 'path': 'x', 'overwrite': True}})),
+    'build outputs from elsewhere': on_workflow(lambda w: w['jobs'][BUILD]['outputs'].update(**{'payload-manifest': expr('steps.other.outputs.files')})),
+    'no build outputs': on_workflow(lambda w: w['jobs'][BUILD].pop('outputs')),
+    'the manifest step changed': on_workflow(lambda w: build_steps(w)[2].update(run=MANIFEST_WRITE + ' -Skip')),
+    'the payload upload of another folder': on_workflow(lambda w: build_steps(w)[3]['with'].update(path='artifacts')),
+    'the signed check downloading by name': on_workflow(lambda w: w['jobs'][CHECK]['steps'][1].update(**{'with': {'name': SIGNED_ARTIFACT, 'path': 'artifacts/installer/packages'}})),
+    'signing outputs from elsewhere': on_workflow(lambda w: w['jobs'][SIGN]['outputs'].update(**{'installer-artifact-id': '1'})),
+    'an id on another signing step': on_workflow(lambda w: first_sign(w).update(id='x')),
+    'no manifest comparison': edit_file('installer/manifest.ps1', lambda t: t.replace('not in the build', 'unknown to the build')),
+    'no digest comparison': edit_file('installer/manifest.ps1', lambda t: t.replace('if ($actual -ne $expected) {', 'if ($false) {')),
     'the build script in the signing job': on_workflow(lambda w: sign_steps(w).insert(2, {'run': './installer/build.ps1 -Stage Payload'})),
     'a restore in the signing job': on_workflow(lambda w: sign_steps(w).insert(2, {'run': 'dotnet restore'})),
     'a step dropped from the signing job': on_workflow(lambda w: sign_steps(w).pop(7)),
@@ -556,6 +677,7 @@ MUST_FAIL = {
     'another environment': on_workflow(lambda w: w['jobs'][SIGN].update(environment='production')),
     'signing without the build': on_workflow(lambda w: w['jobs'][SIGN].update(needs=[])),
     'a broader permission': on_workflow(lambda w: w['jobs'][SIGN]['permissions'].update(contents='write')),
+    'artifacts writable by the signing job': on_workflow(lambda w: w['jobs'][SIGN]['permissions'].update(actions='write')),
     'another permission': on_workflow(lambda w: w['jobs'][SIGN]['permissions'].update(packages='write')),
     'a job env on the signing job': on_workflow(lambda w: w['jobs'][SIGN].update(env={'X': '1'})),
     'continue-on-error on the signing job': on_workflow(lambda w: w['jobs'][SIGN].update(**{'continue-on-error': True})),

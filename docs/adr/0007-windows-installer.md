@@ -166,10 +166,13 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   asked for, and it could change the files the signing steps run. So the unsigned job (`installer`),
   which runs everywhere, has no token and no signing setting. On a push to main with the repository
   variable `SCREENTAIL_SIGNING` set to `true`, it hands the checked payload, and nothing else, to
-  `installer-sign`. That job always runs in the `signing` environment, which only main may deploy to.
-  It is the only job with `id-token: write`, and Azure's federated credential trusts that environment
-  alone. It checks out the same commit and runs exactly the sequence above, one command per step:
-  `sign.ps1`, and `package.ps1`, which runs only WiX at the pinned versions and hashes, downloaded,
+  `installer-sign`. The handoff is bound: the build job reports the artifact's id, its digest and the
+  SHA-256 of every payload file, and the signing job downloads by that id, reads the artifact's digest
+  back from GitHub (its only extra permission is `actions: read`) and refuses to sign anything missing,
+  extra or different. That job always runs in the `signing` environment, which only main may deploy
+  to. It is the only job with `id-token: write`, and Azure's federated credential trusts that
+  environment alone. It checks out the same commit and runs exactly the sequence above, one command
+  per step: `sign.ps1`, and `package.ps1`, which runs only WiX at the pinned versions and hashes, downloaded,
   verified and extracted fresh in that job, never taken from the build (the Visual C++ runtime
   installer it wraps is downloaded there too, and checked to be Microsoft-signed). It runs no restore, build,
   tool restore or `build.ps1`, nothing compiled from the repository, and no tool from the build's

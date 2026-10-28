@@ -86,10 +86,11 @@ Every merge to main that touches the client or the installer runs three installe
 
 - **Installer (Windows)**, as on a pull request, with no token and no signing setting. It also hands
   the checked payload, and only that, to the next job as the artifact `screentail-installer-payload`
-  (kept one day).
+  (kept one day), with the artifact's id, its digest and the SHA-256 of every file as job outputs.
 - **Installer (Windows, signing)**, the only job that may ask GitHub for an OIDC token, always in the
-  `signing` environment. It checks out the same commit and runs one exact command per step: sign the
-  payload, build the MSI from it, sign the MSI, build the setup program from that, detach its engine,
+  `signing` environment. It checks out the same commit, downloads the payload by the id the first job
+  reported, and refuses to sign unless the artifact's digest and every file match what the first job
+  recorded. Then it runs one exact command per step: sign the payload, build the MSI from it, sign the MSI, build the setup program from that, detach its engine,
   sign the engine, reattach it, sign the setup program, check every signature, upload the artifact
   `screentail-installer`. It runs no restore, no build and nothing compiled from the repository, and
   nothing it runs comes from the first job: WiX is downloaded and checked against `tools.json` in this
