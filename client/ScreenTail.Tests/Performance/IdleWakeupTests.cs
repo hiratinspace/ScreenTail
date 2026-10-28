@@ -102,6 +102,44 @@ public sealed class IdleWakeupTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AListenerThatThrowsDoesNotKeepTheGuardsAsleep()
+    {
+        // The guards learn that a session started from StateChanged alone, now that they do not tick at
+        // idle. A multicast invoke stops at the first handler that throws, so a faulty listener added
+        // earlier would leave every later one asleep for the session: a guard failing open (2026-10-27
+        // review). Each listener is called on its own now, and a failure is counted.
+        var harness = await HarnessAsync();
+        var ct = TestContext.Current.CancellationToken;
+        harness.Machine.StateChanged += _ => throw new InvalidOperationException("a listener with a bug");
+        var guard = new SensitiveContextGuard(harness.Machine, new CountingTime(frozen: true));
+        using var password = new PasswordFieldGuard(harness.Machine, new NotAPassword(), options: new PasswordFieldOptions { PollEvery = TimeSpan.FromMinutes(5) });
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var guarding = guard.RunAsync(stopping.Token);
+        var watching = password.RunAsync(stopping.Token);
+        await Task.Delay(100, ct);
+
+        guard.Seen(LoginScreenHeuristic.Suppression);
+        try
+        {
+            _ = await harness.Machine.StartAsync(Rdp, ct: ct);
+        }
+        catch (InvalidOperationException)
+        {
+            // What the faulty listener used to do to the transition itself.
+        }
+
+        var held = await UntilAsync(() => harness.Machine.State == SessionState.Suppressed);
+        var looked = await UntilAsync(() => password.Passes > 0);
+        await stopping.CancelAsync();
+        await guarding;
+        await watching;
+
+        Assert.True(held, "a listener that threw kept the sensitive-context guard from hearing that the session started");
+        Assert.True(looked, "a listener that threw kept the password-field guard from hearing that the session started");
+        Assert.True(harness.Machine.ListenerFailures > 0, "the listener's failure was not counted");
+    }
+
+    [Fact]
     public async Task WithNoSessionThePasswordFieldGuardDoesNotPoll()
     {
         var harness = await HarnessAsync();
