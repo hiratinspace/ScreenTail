@@ -12,7 +12,8 @@ namespace ScreenTail.Tests.Windows.Shell;
 /// </summary>
 internal static class StaThread
 {
-    public static void Run(Func<Task> body)
+    /// <param name="within">How long the body may take. A minute unless a test measures for longer.</param>
+    public static void Run(Func<Task> body, TimeSpan? within = null)
     {
         ExceptionDispatchInfo? failure = null;
         var thread = new Thread(() =>
@@ -33,7 +34,7 @@ internal static class StaThread
         { IsBackground = true, Name = "shell ui test" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "The UI thread did not finish.");
+        Assert.True(thread.Join(within ?? TimeSpan.FromSeconds(60)), "The UI thread did not finish.");
         failure?.Throw();
     }
 

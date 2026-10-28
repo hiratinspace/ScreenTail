@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- ST-031: the counting clock the Mac suite uses to say a loop does not poll, shared rather than copied. -->
+    <Compile Include="..\ScreenTail.Tests\CountingTime.cs" Link="CountingTime.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The Review views' XAML, so a test can pin which routed event a handler is attached to. The views
          themselves cannot be built here: their styles need the one WPF Application a process may have, and
          PrivacyViewModelTests is the test that makes it. -->

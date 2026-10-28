@@ -72,6 +72,7 @@ public sealed class SessionMachine : IAsyncDisposable
     private string? _draftFailureReason;
     private int _pendingRedactions;
     private int _draftsReady;
+    private long _listenerFailures;
 
     public SessionMachine(
         ISessionStore store,
@@ -89,6 +90,12 @@ public sealed class SessionMachine : IAsyncDisposable
 
     /// <summary>Raised after a transition has been persisted. Handlers must not block.</summary>
     public event Action<CaptureStateSnapshot>? StateChanged;
+
+    /// <summary>
+    /// How many times a <see cref="StateChanged"/> listener threw. Counts only, never the message: an
+    /// exception can quote what it was handling (INV-10).
+    /// </summary>
+    public long ListenerFailures => Interlocked.Read(ref _listenerFailures);
 
     public SessionState State
     {
@@ -817,7 +824,38 @@ public sealed class SessionMachine : IAsyncDisposable
             snapshot = Snapshot;
         }
 
-        StateChanged?.Invoke(snapshot);
+        Announce(snapshot);
+    }
+
+    /// <summary>
+    /// Tells every listener, each on its own.
+    ///
+    /// The guards learn that a session started from this alone now that they do not tick at idle
+    /// (ST-031). A multicast invoke stops at the first listener that throws, so one faulty listener
+    /// added earlier would leave every later one asleep for the whole session, and a guard asleep is a
+    /// guard failing open (INV-6). A listener that throws is counted and the rest are still told; the
+    /// transition, already persisted, stands.
+    /// </summary>
+    private void Announce(CaptureStateSnapshot snapshot)
+    {
+        if (StateChanged is not { } listeners)
+        {
+            return;
+        }
+
+        foreach (var listener in listeners.GetInvocationList().Cast<Action<CaptureStateSnapshot>>())
+        {
+            try
+            {
+                listener(snapshot);
+            }
+#pragma warning disable CA1031 // The point: no listener's fault may keep the next one from hearing.
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+                _ = Interlocked.Increment(ref _listenerFailures);
+            }
+        }
     }
 
     private static Shared.Schema.CaptureState? SchemaState(SessionState state) => state switch

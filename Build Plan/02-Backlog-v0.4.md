@@ -755,7 +755,7 @@ Developer flag exporting full bundles from scripted VM scenarios against real RD
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Partial, 2026-10-27.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. Still owed: AC1 (the 30-minute golden replay needs ST-030), AC2 (throttling sampling and OCR first when over budget is not built), AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
 
 **Description:**
 Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, disk < 40 MB per 20 min; self-throttle sampling/OCR first; live figures in "What's being captured".

@@ -107,6 +107,10 @@ When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs
 - **Keep the laptop signed out of everything**, the browser above all. It should hold nothing worth stealing. The review found Chrome on it signed in to GitHub as the owner, which would have turned code execution on the laptop into the owner's GitHub account.
 - CI captures the laptop's desktop, and artifacts on a public repository can be downloaded by anyone signed in to GitHub. The laptop jobs delete every image before uploading and keep what is left for seven days; the verdicts are text. One artifact uploaded before this showed the owner's browser, and all of the laptop's earlier artifacts were deleted on 2026-09-19.
 
+## Performance measurements
+
+ST-031's budgets are measured in the capabilities job by `client/ScreenTail.Tests.Windows/Performance`, and the numbers go to the job summary and `measurements.txt` like the redaction figures. They take about three and a half minutes of the laptop's time. `docs/dev/performance.md` lists each budget, whether it is enforced, and the latest numbers; `scripts/windows/measure-idle.ps1` measures the real service and UI processes by hand.
+
 ## Writing Windows tests
 
 The Windows-only suite (`client/ScreenTail.Tests.Windows`) runs its tests one at a time in one process, because they share the desktop (`AssemblyInfo.cs` says why). Some WPF rules follow from that one process:
