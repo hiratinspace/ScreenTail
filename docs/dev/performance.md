@@ -7,16 +7,20 @@ Windows 11, 8 logical processors).
 
 ## The budgets
 
-| Budget | Measured by | Enforced | Latest on the laptop (2026-10-27) |
+The latest figures are from laptop run 40623805201 (2026-10-28, commit 56522a3). The run for the
+review fixes that followed (9f4113d) is queued until SCREENTRAIL is back online; those fixes changed no
+idle or recording loop.
+
+| Budget | Measured by | Enforced | Latest on the laptop |
 |---|---|---|---|
-| Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.32% of one core net (0.04% of the machine) |
+| Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.33% of one core net (0.04% of the machine) |
 | Idle CPU, UI, under 1% | `ShellCostTests.WithNoSessionTheShellIsAlmostSilent` | Yes, on the laptop, against 1% of one core | 0.0% net (0.22% of one core gross, the test host included) |
-| Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 14 to 17 a second net, down from 129 |
+| Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 16 a second net (14 to 17 across three runs), down from 129 |
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
-| Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.4% and 4.9% of one core in two runs, without speech |
-| Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop, for the 85-frame session `SessionStoreTests` assumes | 76 KB a stored frame, 6.3 MB for 85 frames; 1.4 MB per session-minute at one text frame every 6 s |
-| Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 107 µs typing 860 keys, 3.6 µs per click |
-| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 147 MB loaded; the unload gives back 156 MB |
+| Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.5% of one core without speech (4.4 to 4.9% across three runs); conservative, since the test's own repainting and staging are counted with it |
+| Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 68 KB a stored frame, 5.6 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.4 MB per session-minute, 28 MB per 20 minutes; that figure is reported, not enforced |
+| Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 108 µs typing 860 keys, 1.0 µs per click |
+| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 148 MB loaded; the unload gives back 158 MB |
 | Memory under 600 MB with speech, whole process | `scripts/windows/measure-idle.ps1`, run by hand | No | Not run yet; ADR-0001 measured 505 MB with continuous transcription |
 
 Idle CPU is held against one core rather than the machine, which is stricter than the budget: 1% of
@@ -25,7 +29,9 @@ not catch a regression that matters.
 
 Wakeups: two laptop runs of the same code measured 17 and 14 a second net, with slices from 15 to 21,
 so a ceiling of 40 is enforced. It leaves room for that spread and still fails a ten-a-second poll
-coming back. The UI's figure is within the host's own noise (one to five a second either way), so it is
+coming back. It may not catch a single new loop at four or five a second, which would land inside the
+spread; the Mac suite's counting-clock tests (`IdleWakeupTests`, `SessionLoopTests`) hold each loop to
+making no timer at idle, and this is the whole-service check behind them. The UI's figure is within the host's own noise (one to five a second either way), so it is
 reported, not enforced.
 
 ## What was fixed
@@ -38,14 +44,25 @@ core** (median slice, clock ticks), over the 1% budget, and that run failed the 
 |---|---|---|
 | Click drain (`ClickCaptureLoop`) | 20 a second, empty buffer | A timer only while a session is under way |
 | Redaction workers (`RedactionWorker`) | 2 workers, 5 a second each | Wait for a frame to arrive; back off only after a failure |
-| Sensitive-context guard | 4 a second | Only while a session is under way; acts at the session's first moment |
+| Sensitive-context guard | 4 a second | Only while a session is under way; its first turn comes as the session starts |
 | Scene sampler | 1 a second | Only while a session is under way |
 | Password-field guard | 1 a second backstop | Backstop only during a session or a hold; focus changes still wake it |
 | Narration recorder | 2 a second backstop | Every 5 s; the nudge on each state change is the mechanism |
 
 `SessionLoop` (Core) is the shared rule: a timer exists only in the states the input hooks are in
 (recording, paused, suppressed, finalizing), the step runs at once when a session begins and once more
-after it ends. Nothing on the hook path changed.
+after it ends, and a test ends a session inside a turn on a frozen clock to hold it to that last turn.
+Nothing on the hook path changed.
+
+The guards now hear that a session started from `StateChanged` alone, so the state machine tells each
+listener on its own: one that throws is counted and the rest are still told, instead of a multicast
+invoke stopping at the fault and leaving a guard asleep for the session. The password-field guard's
+one-second poll still runs during a session and while a hold is in place; two tests flip the field with
+no focus event and require the poll to suppress and to release.
+
+The review also found a pre-existing fault: a cancellation nobody asked for (a call timing out) ended a
+redaction worker for the life of the service. It now costs that frame, let go of unread, and the worker
+carries on.
 
 | Laptop run | Service idle wakeups (net) | Service idle CPU, median slice |
 |---|---|---|
@@ -53,6 +70,7 @@ after it ends. Nothing on the hook path changed.
 | 40587029859, loops fixed | 25 a second | 0.94% by clock ticks, which is three ticks |
 | 40588642451, narration too | 17 a second | 0.32% net by cycles (0.94% by clock ticks) |
 | 40623029883, same code again | 14 a second | 0.36% net by cycles (0.62% by clock ticks) |
+| 40623805201, with the ceiling | 16 a second | 0.33% net by cycles (0.31% by clock ticks) |
 
 ## What still wakes at idle, and why
 
