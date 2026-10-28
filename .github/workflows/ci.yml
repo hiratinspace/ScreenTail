@@ -874,7 +874,52 @@ jobs:
 
           DROP = 'Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue;'
           SIGN = re.compile(r'\./installer/sign\.ps1 (-Path|-Folder) [\w./-]+')
-          SECRET = re.compile(r'\$\{\{[^}]*secrets', re.IGNORECASE)
+          OPEN = '$' + '{{'
+          def expressions(text):
+              # Every expression in a string, read the way Actions reads one: up to the closing braces that
+              # are not inside a quoted string, where a doubled quote is a quote.
+              found, i = [], 0
+              while True:
+                  j = text.find(OPEN, i)
+                  if j < 0:
+                      return found
+                  k, quoted, inner = j + 3, False, []
+                  while k < len(text):
+                      c = text[k]
+                      if quoted:
+                          if c == "'" and text[k + 1:k + 2] == "'":
+                              inner.append("''")
+                              k += 2
+                              continue
+                          quoted = c != "'"
+                      elif c == "'":
+                          quoted = True
+                      elif text.startswith('}}', k):
+                          break
+                      inner.append(c)
+                      k += 1
+                  found.append(''.join(inner))
+                  i = k + 2
+          def names_secret(text):
+              # The secrets context named anywhere in an expression, outside its quoted strings.
+              for inner in expressions(text):
+                  bare = re.sub(r"'(?:[^']|'')*'", "''", inner)
+                  if re.search(r'\bsecrets\b', bare, re.IGNORECASE):
+                      return True
+              return False
+          def strings(value):
+              # Every key and value in parsed YAML, so nothing depends on how a dump would quote them.
+              if isinstance(value, dict):
+                  for k, v in value.items():
+                      yield from strings(k)
+                      yield from strings(v)
+              elif isinstance(value, list):
+                  for v in value:
+                      yield from strings(v)
+              elif isinstance(value, str):
+                  yield value
+          def uses_secret(value):
+              return any(names_secret(text) for text in strings(value))
           def expr(inner): return '$' + '{{ ' + inner + ' }}'
           SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING')
           PINNED = {
@@ -912,12 +957,12 @@ jobs:
                   if name != 'installer-signed' and (job.get('permissions') or {}).get('id-token'):
                       bad.append(f'job {name} asks for an OIDC token; only installer-signed may')
                   for key, value in job.items():
-                      if key != 'steps' and SECRET.search(yaml.safe_dump({key: value})):
+                      if key != 'steps' and uses_secret({key: value}):
                           bad.append(f'job {name} names a secret in {key}')
                   for step in job.get('steps') or []:
                       allowed = name == 'installer-signed' and is_signing_step(step)
                       outside = {k: v for k, v in step.items() if k != 'env'} if allowed else step
-                      if SECRET.search(yaml.safe_dump(outside)):
+                      if uses_secret(outside):
                           bad.append(f'job {name} step {step.get("name")!r} names a secret outside a signing step env')
                       if name != 'installer-signed' and signing_keys(step.get('env')):
                           bad.append(f'job {name} step {step.get("name")!r} has signing settings outside the signed job')
@@ -983,12 +1028,25 @@ jobs:
               'a secret in a build step': lambda w: steps(w)[1].update(run=DROP + ' echo ' + expr('secrets.X')),
               'a secret by index': lambda w: w['jobs']['installer']['steps'].append({'run': 'echo ' + expr("secrets['X']")}),
               'all secrets as JSON': lambda w: w['jobs']['installer']['steps'].append({'env': {'ALL': expr('toJSON(secrets)')}, 'run': 'x'}),
+              'a secret behind a quoted brace': lambda w: w['jobs']['installer']['steps'].append({'run': 'echo ' + expr("format('{0}', secrets.X)")}),
+              'a secret in a step name expression': lambda w: w['jobs']['installer']['steps'].append({'name': expr('secrets.X'), 'run': 'x'}),
               'an OIDC token elsewhere': lambda w: w['jobs']['installer'].update(permissions={'id-token': 'write'}),
               'signing on pull requests': lambda w: w['jobs']['installer-signed'].update(**{'if': "github.ref == 'refs/heads/main'"}),
               'signing on the laptop': lambda w: w['jobs']['installer-signed'].update(**{'runs-on': ['self-hosted', 'Windows']}),
               'no signing environment': lambda w: w['jobs']['installer-signed'].pop('environment'),
           }
           selfbad = []
+          caught = [expr("format('{0}', secrets.X)"), expr("secrets['X']"), expr('toJSON(secrets)'),
+                    expr('SeCrEtS.X'), expr('toJSON(  secrets  )'), expr("format('}}', secrets.X)"),
+                    'pre ' + expr('github.sha') + ' mid ' + expr('secrets.Y')]
+          passed = ['rotate the secrets every quarter', 'echo no secrets here # secrets', expr("'secrets.X'"),
+                    expr('vars.AZURE_CLIENT_ID'), expr("format('secrets {0}', github.sha)")]
+          for text in caught:
+              if not names_secret(text):
+                  selfbad.append(f'the secret scanner missed {text!r}')
+          for text in passed:
+              if names_secret(text):
+                  selfbad.append(f'the secret scanner flagged {text!r}, which names no secret')
           if check(sample()):
               selfbad.append(f'the made-up good workflow failed: {check(sample())}')
           for label, change in must_fail.items():
@@ -998,7 +1056,7 @@ jobs:
               for line in selfbad:
                   print(f'::error file=.github/workflows/ci.yml::{line}')
               sys.exit(1)
-          print(f'the check passed the good sample and failed all {len(must_fail)} bad ones')
+          print(f'the secret scanner caught {len(caught)} and passed {len(passed)}; the check passed the good sample and failed all {len(must_fail)} bad ones')
 
           bad = check(yaml.safe_load(open('.github/workflows/ci.yml').read()))
           for line in bad:
