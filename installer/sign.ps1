@@ -15,8 +15,14 @@
         SCREENTAIL_SIGNING_ENDPOINT   for example https://eus.codesigning.azure.net
         SCREENTAIL_SIGNING_ACCOUNT    the Artifact Signing account name
         SCREENTAIL_SIGNING_PROFILE    the certificate profile name
-        and a credential the Azure SDK finds: AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET
-        for a service principal (CI), or an 'az login' session on a developer's machine.
+        and a credential the Azure SDK finds:
+          in CI, GitHub's own OIDC token for the job (workload identity federation): AZURE_TENANT_ID
+          and AZURE_CLIENT_ID of an app registration that trusts this repository's 'signing'
+          environment, and the job's id-token permission. No client secret exists anywhere. The token
+          is asked for here, in the signing step, and handed to signtool in a file that is deleted
+          afterwards;
+          on a developer's machine, an 'az login' session (or AZURE_CLIENT_SECRET for a service
+          principal, which CI does not use).
 
       A certificate in the Windows certificate store (a hardware token, or a cloud HSM's key provider):
         SCREENTAIL_SIGNING_THUMBPRINT the certificate's SHA-1 thumbprint, current user's store
@@ -32,12 +38,16 @@
 .PARAMETER Path
     The files to sign.
 
+.PARAMETER Folder
+    Sign every .exe and .dll under this folder (the published payload).
+
 .PARAMETER Query
     Print the signing mode ('artifact-signing', 'certificate' or 'none') and exit.
 #>
 [CmdletBinding()]
 param(
     [string[]]$Path = @(),
+    [string]$Folder,
     [switch]$Query
 )
 
@@ -106,7 +116,13 @@ if ($Query) {
     return $mode
 }
 
-$Path = @($Path | Where-Object { $_ })
+if ($Folder) {
+    if (-not (Test-Path $Folder)) {
+        throw "$Folder does not exist."
+    }
+    $Path += @(Get-ChildItem $Folder -Recurse -Include '*.exe', '*.dll' | ForEach-Object { $_.FullName })
+}
+$Path = @($Path | Where-Object { $_ } | ForEach-Object { (Resolve-Path $_).Path })
 if ($Path.Count -eq 0) {
     return
 }
@@ -154,12 +170,27 @@ try {
             CodeSigningAccountName = $env:SCREENTAIL_SIGNING_ACCOUNT
             CertificateProfileName = $env:SCREENTAIL_SIGNING_PROFILE
         }
-        if ($env:AZURE_CLIENT_SECRET) {
-            # A service principal in the environment (CI): ask for that credential and nothing else, so
-            # the client does not spend a minute probing for a managed identity the runner does not have.
-            $metadata.ExcludeCredentials = @('ManagedIdentityCredential', 'WorkloadIdentityCredential', 'SharedTokenCacheCredential',
-                'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzureCliCredential', 'AzurePowerShellCredential',
-                'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
+        $others = @('ManagedIdentityCredential', 'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential',
+            'AzureCliCredential', 'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
+        if (-not $env:AZURE_CLIENT_SECRET -and $env:ACTIONS_ID_TOKEN_REQUEST_URL -and $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+            # GitHub Actions with the id-token permission: a short-lived token for this job, exchanged by
+            # Azure for access to the signing account. Masked before anything could print it, written to
+            # a file in the scratch folder for the Azure SDK, and gone when this step ends.
+            if (-not ($env:AZURE_TENANT_ID -and $env:AZURE_CLIENT_ID)) {
+                throw 'OIDC signing needs AZURE_TENANT_ID and AZURE_CLIENT_ID (the app registration that trusts this repository).'
+            }
+            $response = Invoke-RestMethod -UseBasicParsing -Uri "$($env:ACTIONS_ID_TOKEN_REQUEST_URL)&audience=api://AzureADTokenExchange" -Headers @{ Authorization = "Bearer $($env:ACTIONS_ID_TOKEN_REQUEST_TOKEN)" }
+            Write-Host "::add-mask::$($response.value)"
+            $tokenFile = Join-Path $scratch 'oidc.jwt'
+            Set-Content -Path $tokenFile -Value $response.value -NoNewline -Encoding ASCII
+            $env:AZURE_FEDERATED_TOKEN_FILE = $tokenFile
+            $metadata.ExcludeCredentials = @('EnvironmentCredential') + $others
+            Write-Host '  credential: this job''s GitHub OIDC token (workload identity federation)'
+        } elseif ($env:AZURE_CLIENT_SECRET) {
+            # A service principal in the environment: ask for that credential and nothing else, so the
+            # client does not spend a minute probing for a managed identity the machine does not have.
+            $metadata.ExcludeCredentials = @('WorkloadIdentityCredential') + $others
+            Write-Host '  credential: a service principal from the environment'
         }
         $metadataFile = Join-Path $scratch 'metadata.json'
         $metadata | ConvertTo-Json | Set-Content -Path $metadataFile -Encoding ASCII
@@ -178,6 +209,7 @@ try {
         throw "signtool failed with exit code $LASTEXITCODE."
     }
 } finally {
+    Remove-Item Env:AZURE_FEDERATED_TOKEN_FILE -ErrorAction SilentlyContinue
     Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }
 

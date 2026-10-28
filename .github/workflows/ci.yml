@@ -76,8 +76,9 @@ jobs:
           }
           {
             flag '^client/' client
-            # ST-112: the installer packages the client, so a client change rebuilds and smoke-tests it.
-            flag '^(client/|installer/)' installer
+            # ST-112: the installer packages the client, so a client change rebuilds and smoke-tests it,
+            # and a workflow change runs it so an edit to the installer jobs themselves is exercised.
+            flag '^(client/|installer/|\.github/workflows/)' installer
             # research/prompts is embedded in the backend (the note prompt in the service, the shared
             # rules and cases in its tests), so a change there is a backend change too. The research
             # tests read the client's pattern library to check the validators know its shapes, and the
@@ -323,8 +324,9 @@ jobs:
 
   # ST-112: the Windows installer, built and smoke-tested on the hosted runner, never the laptop: an
   # install is a change to the machine, and the hosted VM is thrown away after the job. Unsigned on every
-  # run, because signing secrets never reach a pull request; installer-signed below repeats it with the
-  # certificate, on main only, once signing is switched on. docs/dev/installer.md says how.
+  # run; installer-signed below repeats the same steps with signing, on main only, once signing is
+  # switched on. Both run the build in stages, so the sign.ps1 steps are the only ones that would ever
+  # hold a signing credential, and this job exercises the very sequence the signed one runs.
   installer:
     name: Installer (Windows)
     needs: changes
@@ -341,10 +343,24 @@ jobs:
           persist-credentials: false
       - name: The runner already has an SDK that satisfies global.json
         run: dotnet --version
-      - name: Build the payload, the package and the setup program
-        run: ./installer/build.ps1 -Version "0.1.${{ github.run_number }}"
+      - name: Publish and check the payload (no signing credential in reach)
+        run: ./installer/build.ps1 -Stage Payload -Version "0.1.${{ github.run_number }}"
+      - name: Sign the payload
+        run: ./installer/sign.ps1 -Folder artifacts/installer/payload
+      - name: Build the package (no signing credential in reach)
+        run: ./installer/build.ps1 -Stage Package -Version "0.1.${{ github.run_number }}"
+      - name: Sign the package
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail.msi
+      - name: Build the setup program and detach its engine (no signing credential in reach)
+        run: ./installer/build.ps1 -Stage Bundle -Version "0.1.${{ github.run_number }}"
+      - name: Sign the setup engine
+        run: ./installer/sign.ps1 -Path artifacts/installer/work/engine.exe
+      - name: Reattach the engine (no signing credential in reach)
+        run: ./installer/build.ps1 -Stage Reattach -Version "0.1.${{ github.run_number }}"
+      - name: Sign the setup program
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
       - name: Build an older package from the same payload, for the upgrade check
-        run: ./installer/build.ps1 -Version "0.0.${{ github.run_number }}" -SkipPublish -NoBundle -MsiName ScreenTail-older.msi
+        run: ./installer/build.ps1 -Stage Package -Version "0.0.${{ github.run_number }}" -MsiName ScreenTail-older.msi
       - name: Smoke test (silent install, upgrade, uninstall, setup program)
         run: >-
           ./installer/smoke-test.ps1
@@ -371,11 +387,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # The same build with the certificate. Only on main, never for a pull request (the signing secrets
-  # would otherwise be one workflow edit away from a branch), only after the unsigned build passed, and
-  # only when the repository variable SCREENTAIL_SIGNING is 'true'. The secrets live in the 'signing'
-  # environment, which the owner restricts to main. SCREENTAIL_REQUIRE_SIGNING makes a misconfigured run
-  # fail rather than upload an unsigned build under the signed name.
+  # The same steps with signing. Only on main, never for a pull request, only after the unsigned build
+  # passed, and only when the repository variable SCREENTAIL_SIGNING is 'true'. No secret exists: Azure
+  # Artifact Signing trusts this repository's 'signing' environment through workload identity
+  # federation, and sign.ps1 asks GitHub for the job's OIDC token itself, which is why this one job has
+  # id-token: write. The build stages remove the token's request variables before they run, and the
+  # signing settings are on the sign.ps1 steps alone. SCREENTAIL_REQUIRE_SIGNING makes a misconfigured
+  # run fail rather than upload an unsigned build under the signed name.
   installer-signed:
     name: Installer (Windows, signed)
     needs: [changes, installer]
@@ -386,6 +404,9 @@ jobs:
       needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
     environment: signing
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 40
     defaults:
       run:
@@ -394,18 +415,53 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Build, signing every executable, library and installer
+      - name: Publish and check the payload (no signing credential in reach)
+        run: Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue; ./installer/build.ps1 -Stage Payload -Version "0.1.${{ github.run_number }}"
+      - name: Sign the payload
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
           SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
           SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
           SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        run: ./installer/build.ps1 -Version "0.1.${{ github.run_number }}"
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        run: ./installer/sign.ps1 -Folder artifacts/installer/payload
+      - name: Build the package (no signing credential in reach)
+        run: Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue; ./installer/build.ps1 -Stage Package -Version "0.1.${{ github.run_number }}"
+      - name: Sign the package
+        env:
+          SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail.msi
+      - name: Build the setup program and detach its engine (no signing credential in reach)
+        run: Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue; ./installer/build.ps1 -Stage Bundle -Version "0.1.${{ github.run_number }}"
+      - name: Sign the setup engine
+        env:
+          SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        run: ./installer/sign.ps1 -Path artifacts/installer/work/engine.exe
+      - name: Reattach the engine (no signing credential in reach)
+        run: Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue; ./installer/build.ps1 -Stage Reattach -Version "0.1.${{ github.run_number }}"
+      - name: Sign the setup program
+        env:
+          SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
       - name: Smoke test the signed build (the peer checks now take the signed path)
         run: >-
+          Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue;
           ./installer/smoke-test.ps1
           -Msi artifacts/installer/packages/ScreenTail.msi
           -Version "0.1.${{ github.run_number }}"
@@ -796,17 +852,18 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
 
-      # ST-112. The installer jobs change the machine they run on and the signed one holds the signing
-      # credentials, so where they run and when is checked here rather than trusted to review: both on
-      # the hosted runner, never the laptop's labels; the signed one never for a pull request and only on
-      # main; and no other job in this file names a secret at all.
+      # ST-112. The installer jobs change the machine they run on and the signed one can sign, so where
+      # they run and when is checked here rather than trusted to review: both on the hosted runner,
+      # never the laptop's labels; the signed one never for a pull request and only on main; no job in
+      # this file names a secret in any form; only the signed job may ask for an OIDC token; and in it
+      # the signing settings are on sign.ps1 steps alone, while every other step drops the token's
+      # request variables before it runs anything.
       - name: The installer jobs run on hosted runners, and only main can sign
         run: |
           python3 - <<'EOF'
           import re, sys, yaml
 
-          text = open('.github/workflows/ci.yml').read()
-          jobs = yaml.safe_load(text)['jobs']
+          jobs = yaml.safe_load(open('.github/workflows/ci.yml').read())['jobs']
           bad = []
           for name in ('installer', 'installer-signed'):
               job = jobs.get(name)
@@ -821,13 +878,24 @@ jobs:
               if needed not in condition:
                   bad.append(f"installer-signed must run only when {needed}")
           if signed.get('environment') != 'signing':
-              bad.append("installer-signed must take its secrets from the 'signing' environment")
+              bad.append("installer-signed must run in the 'signing' environment")
+          secret = re.compile(r'secrets\s*[.\[]|toJSON\(\s*secrets', re.IGNORECASE)
           for name, job in jobs.items():
-              if name != 'installer-signed' and re.search(r'\$\{\{\s*secrets\.', yaml.safe_dump(job)):
-                  bad.append(f"job {name!r} names a secret; only installer-signed may")
+              if secret.search(yaml.safe_dump(job)):
+                  bad.append(f"job {name!r} names a secret; signing uses OIDC and needs none")
+              if name != 'installer-signed' and (job.get('permissions') or {}).get('id-token'):
+                  bad.append(f"job {name!r} asks for an OIDC token; only installer-signed may")
+          for step in signed.get('steps', []):
+              run = str(step.get('run', ''))
+              env = step.get('env') or {}
+              signing_env = [k for k in env if k.startswith(('AZURE_', 'SCREENTAIL_SIGNING'))]
+              if signing_env and not run.startswith('./installer/sign.ps1'):
+                  bad.append(f"installer-signed step {step.get('name')!r} gets signing settings but does not run sign.ps1")
+              if run and not run.startswith('./installer/sign.ps1') and not run.startswith('Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN'):
+                  bad.append(f"installer-signed step {step.get('name')!r} runs without first dropping the OIDC request variables")
           for line in bad:
               print(f"::error file=.github/workflows/ci.yml::{line}")
-          print("\n".join(bad) if bad else "the installer jobs are on hosted runners and only main can sign")
+          print("\n".join(bad) if bad else "the installer jobs are on hosted runners, only main can sign, and only sign.ps1 steps can reach the credential")
           sys.exit(1 if bad else 0)
           EOF
 

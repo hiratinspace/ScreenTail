@@ -15,6 +15,16 @@
          ScreenTail-Setup.exe, which installs that runtime and then the package. Signs it.
       5. Reports sizes against the ticket's 250 MB limit.
 
+    By default it does all of that in one go, signing as it goes when signing is configured. With
+    -Stage it does one part and never signs, so CI's signed job can build with no signing credential
+    in reach and pass the credential only to the steps that run sign.ps1:
+
+      Payload   step 1
+      Package   step 3 from the payload already there, without signing
+      Bundle    step 4 without signing, leaving the setup program's engine detached in work\engine.exe
+                for signing on its own
+      Reattach  puts work\engine.exe back into the setup program, and reports sizes
+
     Needs Windows, the .NET 10 SDK and network access (NuGet and Microsoft's download site). Writes
     only under -Output.
 
@@ -25,11 +35,8 @@
 .PARAMETER Output
     Where everything is written. Default: artifacts\installer in the repository.
 
-.PARAMETER SkipPublish
-    Reuse the payload already in -Output (CI uses this to build an older package for the upgrade check).
-
-.PARAMETER NoBundle
-    Build only the package.
+.PARAMETER Stage
+    All (the default), or one of Payload, Package, Bundle, Reattach as above.
 
 .PARAMETER MsiName
     The package's file name. Default ScreenTail.msi.
@@ -41,8 +48,7 @@
 param(
     [string]$Version = '0.1.0',
     [string]$Output,
-    [switch]$SkipPublish,
-    [switch]$NoBundle,
+    [ValidateSet('All', 'Payload', 'Package', 'Bundle', 'Reattach')][string]$Stage = 'All',
     [string]$MsiName = 'ScreenTail.msi'
 )
 
@@ -132,9 +138,25 @@ $sign = Join-Path $PSScriptRoot 'sign.ps1'
 New-Item -ItemType Directory -Force -Path $work, $packages | Out-Null
 
 $signing = & $sign -Query
-Write-Host "ScreenTail installer $Version. Signing: $signing."
+$whole = $Stage -eq 'All'
+if ($whole) {
+    Write-Host "ScreenTail installer $Version. Signing: $signing."
+} else {
+    Write-Host "ScreenTail installer $Version, stage $Stage. This stage signs nothing; sign.ps1 runs as its own step."
+}
 
-if (-not $SkipPublish) {
+# Signing inside this script happens only for the whole build. A stage leaves it to its own step.
+function Invoke-Sign([string[]]$Files) {
+    if ($whole) {
+        & $sign -Path $Files
+    }
+}
+
+$msi = Join-Path $packages $MsiName
+$bundle = Join-Path $packages 'ScreenTail-Setup.exe'
+$engine = Join-Path $work 'engine.exe'
+
+if ($Stage -in 'All', 'Payload') {
     Write-Step 'Publishing the capture service and the UI (self-contained, single file, win-x64)'
     $publish = Join-Path $work 'publish'
     foreach ($folder in @($payload, $publish)) {
@@ -255,11 +277,17 @@ if (-not $SkipPublish) {
     }
     Write-Host ('Payload: {0} files, {1}.' -f $rows.Count, (Format-Size ((Get-ChildItem $payload -Recurse -File | Measure-Object Length -Sum).Sum)))
 
-    Write-Step 'Signing the payload'
-    $binaries = @(Get-ChildItem $payload -Recurse -Include '*.exe', '*.dll' | ForEach-Object { $_.FullName })
-    & $sign -Path $binaries
-} elseif (-not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {
-    throw "-SkipPublish was given but there is no payload in $payload. Run once without it first."
+    if ($whole) {
+        Write-Step 'Signing the payload'
+        Invoke-Sign @(Get-ChildItem $payload -Recurse -Include '*.exe', '*.dll' | ForEach-Object { $_.FullName })
+    }
+}
+
+if ($Stage -eq 'Payload') {
+    return
+}
+if ($Stage -eq 'Package' -and -not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {
+    throw "There is no payload in $payload. Run -Stage Payload first."
 }
 
 Write-Step 'Getting WiX 5 and its extensions'
@@ -284,20 +312,23 @@ function Invoke-Wix([string]$What, [string[]]$Arguments) {
     }
 }
 
-Write-Step "Building $MsiName"
-$msi = Join-Path $packages $MsiName
-Invoke-Wix "Building $MsiName" @(
-    'build', (Join-Path $PSScriptRoot 'Package.wxs'),
-    '-arch', 'x64',
-    '-ext', $ext['WixToolset.Util.wixext'],
-    '-d', "Version=$Version",
-    '-d', "Payload=$payload",
-    '-o', $msi
-)
-& $sign -Path @($msi)
+if ($Stage -in 'All', 'Package') {
+    Write-Step "Building $MsiName"
+    Invoke-Wix "Building $MsiName" @(
+        'build', (Join-Path $PSScriptRoot 'Package.wxs'),
+        '-arch', 'x64',
+        '-ext', $ext['WixToolset.Util.wixext'],
+        '-d', "Version=$Version",
+        '-d', "Payload=$payload",
+        '-o', $msi
+    )
+    Invoke-Sign @($msi)
+}
 
-$built = @($msi)
-if (-not $NoBundle) {
+if ($Stage -in 'All', 'Bundle') {
+    if (-not (Test-Path $msi)) {
+        throw "There is no $MsiName in $packages. Run -Stage Package first."
+    }
     Write-Step 'Getting the Visual C++ runtime installer'
     $vcRedist = Join-Path $work 'vc_redist.x64.exe'
     if (Test-Path $vcRedist) {
@@ -322,7 +353,6 @@ if (-not $NoBundle) {
     Write-Host "  vc_redist.x64.exe $vcVersion, signed by Microsoft"
 
     Write-Step 'Building ScreenTail-Setup.exe'
-    $bundle = Join-Path $packages 'ScreenTail-Setup.exe'
     Invoke-Wix 'Building ScreenTail-Setup.exe' @(
         'build', (Join-Path $PSScriptRoot 'Bundle.wxs'),
         '-arch', 'x64',
@@ -335,17 +365,28 @@ if (-not $NoBundle) {
         '-o', $bundle
     )
 
-    if ($signing -ne 'none') {
-        # A setup program carries its engine inside it, and the engine is what runs first, so it is
-        # signed on its own before the whole is signed: detach, sign, reattach, sign.
-        $engine = Join-Path $work 'engine.exe'
-        Invoke-Wix 'Detaching the setup engine' @('burn', 'detach', $bundle, '-engine', $engine)
-        & $sign -Path @($engine)
-        Invoke-Wix 'Reattaching the signed engine' @('burn', 'reattach', $bundle, '-engine', $engine, '-o', $bundle)
+    # A setup program carries its engine inside it, and the engine is what runs first, so it is signed
+    # on its own before the whole is signed: detach, sign, reattach, sign. Done every time, signed or
+    # not, so the round trip is the one CI exercises.
+    if (Test-Path $engine) {
+        Remove-Item $engine -Force
     }
-    & $sign -Path @($bundle)
-    $built += $bundle
+    Invoke-Wix 'Detaching the setup engine' @('burn', 'detach', $bundle, '-engine', $engine)
+    Invoke-Sign @($engine)
 }
+
+if ($Stage -in 'All', 'Reattach') {
+    if (-not (Test-Path $engine) -or -not (Test-Path $bundle)) {
+        throw "There is no detached engine or setup program in $Output. Run -Stage Bundle first."
+    }
+    Invoke-Wix 'Reattaching the setup engine' @('burn', 'reattach', $bundle, '-engine', $engine, '-o', $bundle)
+    Invoke-Sign @($bundle)
+}
+
+if ($Stage -eq 'Bundle') {
+    return
+}
+$built = @(@($msi, $bundle) | Where-Object { Test-Path $_ })
 
 Write-Step 'Sizes'
 $tooBig = $false
