@@ -47,7 +47,7 @@ internal static class UninstallCleanup
     ];
 
     /// <summary>What happened to the data, counted across every profile.</summary>
-    private sealed class Tally
+    internal sealed class Tally
     {
         public int Deleted { get; set; }
 
@@ -58,6 +58,9 @@ internal static class UninstallCleanup
         public int SecretsRemoved { get; set; }
 
         public int SecretsInDoubt { get; set; }
+
+        /// <summary>Signed-out data folders the shredder would not or could not open, left as they are.</summary>
+        public int FoldersUnopened { get; set; }
 
         public int Linked { get; set; }
 
@@ -106,18 +109,19 @@ internal static class UninstallCleanup
             + $"{tally.PartlyDeleted} only partly (key and credentials gone, the rest left).");
         output.WriteLine(
             $"ScreenTail uninstall: not signed in: {tally.Shredded} data folders had their key and credentials removed "
-            + $"({tally.SecretsRemoved} files), so the store left in them cannot be read; {tally.SecretsInDoubt} files left in doubt.");
+            + $"({tally.SecretsRemoved} files), so the store left in them cannot be read; {tally.SecretsInDoubt} files left in doubt; "
+            + $"{tally.FoldersUnopened} data folders could not be opened safely and were left as they are.");
         output.WriteLine(
             $"ScreenTail uninstall: left alone: {tally.Linked} reached through a link, {tally.Unreadable} profiles whose path could not be read plainly.");
         if (tally.DoubtReasons.Count > 0)
         {
             var reasons = string.Join(", ", tally.DoubtReasons.OrderBy(r => r.Key, StringComparer.Ordinal).Select(r => $"{r.Key}={r.Value}"));
-            output.WriteLine($"ScreenTail uninstall: files left in doubt, by reason: {reasons}.");
+            output.WriteLine($"ScreenTail uninstall: left in doubt, by reason (files, or folders not opened): {reasons}.");
         }
 
         output.WriteLine($"ScreenTail uninstall: {valuesRemoved} Run values removed, {valuesLeft} could not be removed.");
 
-        return tally.PartlyDeleted + tally.SecretsInDoubt + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
+        return tally.PartlyDeleted + tally.SecretsInDoubt + tally.FoldersUnopened + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
     }
 
     /// <summary>
@@ -198,12 +202,12 @@ internal static class UninstallCleanup
                         {
                             // The owner's own rights were not enough, or something failed under them: the
                             // system-side removal of the key and credentials is the fallback.
-                            Shred(decision.Profile!, tally);
+                            Shred(decision.Profile!, tally, SecretShredder.Shred);
                         }
 
                         break;
                     case DataFolderAction.ShredSecrets:
-                        Shred(decision.Profile!, tally);
+                        Shred(decision.Profile!, tally, SecretShredder.Shred);
                         break;
                     case DataFolderAction.LeaveLinked:
                         tally.Linked++;
@@ -226,22 +230,67 @@ internal static class UninstallCleanup
         }
     }
 
-    private static void Shred(string profile, Tally tally)
+    /// <summary>
+    /// One signed-out profile. A failure here is counted for this profile and the next one is still
+    /// handled.
+    /// </summary>
+    internal static void Shred(string profile, Tally tally, Func<string, IReadOnlyList<SecretShredder.Result>> shred)
     {
-        var results = SecretShredder.Shred(profile);
+        IReadOnlyList<SecretShredder.Result> results;
+        try
+        {
+            results = shred(profile);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException
+            or Win32Exception or InvalidOperationException or ArgumentException or ExternalException)
+        {
+            tally.FoldersUnopened++;
+            AddReason(tally, "exception");
+            return;
+        }
+
+        Record(results, tally);
+    }
+
+    /// <summary>
+    /// What one profile's results add up to. A folder counts as shredded only when it lost at least one
+    /// file; one the shredder refused to open (a link on the way, or a folder it could not open) is
+    /// counted as such, once, not as four files in doubt.
+    /// </summary>
+    internal static void Record(IReadOnlyList<SecretShredder.Result> results, Tally tally)
+    {
         if (results.All(r => r.Outcome == SecretShredder.Outcome.Absent))
         {
             return;
         }
 
-        tally.Shredded++;
-        tally.SecretsRemoved += results.Count(r => r.Outcome == SecretShredder.Outcome.Removed);
-        tally.SecretsInDoubt += results.Count(r => r.Outcome == SecretShredder.Outcome.LeftInDoubt);
-        foreach (var reason in results.Where(r => r.Outcome == SecretShredder.Outcome.LeftInDoubt && r.Reason is not null))
+        var removed = results.Count(r => r.Outcome == SecretShredder.Outcome.Removed);
+        var doubt = results.Where(r => r.Outcome == SecretShredder.Outcome.LeftInDoubt).ToList();
+        if (removed == 0 && doubt.Count == results.Count && doubt.All(r => IsFolderLevel(r.Reason)))
         {
-            tally.DoubtReasons[reason.Reason!] = tally.DoubtReasons.GetValueOrDefault(reason.Reason!) + 1;
+            tally.FoldersUnopened++;
+            AddReason(tally, doubt[0].Reason!);
+            return;
+        }
+
+        if (removed > 0)
+        {
+            tally.Shredded++;
+        }
+
+        tally.SecretsRemoved += removed;
+        tally.SecretsInDoubt += doubt.Count;
+        foreach (var reason in doubt.Where(r => r.Reason is not null))
+        {
+            AddReason(tally, reason.Reason!);
         }
     }
+
+    private static bool IsFolderLevel(string? reason) =>
+        reason is not null && (reason.StartsWith("root-", StringComparison.Ordinal) || reason.StartsWith("dir-", StringComparison.Ordinal));
+
+    private static void AddReason(Tally tally, string reason) =>
+        tally.DoubtReasons[reason] = tally.DoubtReasons.GetValueOrDefault(reason) + 1;
 
     private enum OwnerDelete
     {
