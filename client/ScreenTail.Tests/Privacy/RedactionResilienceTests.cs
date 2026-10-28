@@ -158,6 +158,42 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         Assert.Equal(0, worker.Progress.Failed);
     }
 
+    [Fact]
+    public async Task ACancellationNobodyAskedForCostsOneFrameAndNotTheWorker()
+    {
+        // A call that times out throws OperationCanceledException with nobody having cancelled anything.
+        // The worker read every one of those as "stop" and ended for the life of the service: one worker
+        // here, so no screenshot was redacted again until a restart (2026-10-27 review). It costs the frame
+        // it happened on, which is let go of unread and never written (INV-1), and the next is redacted.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        var worker = new RedactionWorker(
+            store, new TimesOutOnce(), new PassThroughMasker(), new RedactionEngine(), _pending, new RedactionOptions { Concurrency = 1 });
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(() => worker.Progress.Frames >= 1);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.Equal(1, worker.Progress.Frames);
+        Assert.Equal(1, worker.Progress.Failed);
+        Assert.Equal(0, _pending.Depth);
+        var session = (await store.LoadSessionAsync("s1"))!;
+        Assert.Equal(["f2"], session.Frames.Select(f => f.Id));
+    }
+
+    private sealed class TimesOutOnce : IFrameTextRecogniser
+    {
+        private int _calls;
+
+        public Task<RecognisedText> ReadAsync(ReadOnlyMemory<byte> image, CancellationToken ct = default) =>
+            Interlocked.Increment(ref _calls) == 1
+                ? throw new OperationCanceledException("the recogniser timed out")
+                : Task.FromResult(new RecognisedText([new OcrWord("Services", 0, 0, 60, 12)], 0.9));
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);

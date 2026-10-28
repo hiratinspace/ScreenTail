@@ -27,6 +27,7 @@ to trust it and where to change it.
 | `dev/demo.md` | Running the demo on the laptop with `scripts/windows/demo/` (setup, start, stop), in plain words, and the demo story |
 | `dev/demo-psa.md` | The demo PSA that stands in for ConnectWise in Development, what the technician sees, and what it does not prove |
 | `dev/installer.md` | Building the Windows installer, switching signing on, deploying it silently as an MSP, and what an uninstall removes (ST-112) |
+| `dev/performance.md` | ST-031's budgets: how each is measured on the laptop, whether CI enforces it, the latest numbers, and what still wakes at idle |
 | `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box, getting the laptop ready for a CI run, and what keeps strangers' code off the laptop |
 
 ## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)

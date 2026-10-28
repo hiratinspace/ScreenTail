@@ -291,6 +291,10 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
         // The undo is for a transition that did not happen. A listener throwing after the state has
         // moved is not that: capture is off, so the hold stays, and undoing it would leave the session
         // Suppressed with nothing holding it. The same goes for a release.
+        //
+        // The listener's fault no longer reaches the caller at all (ST-031 review): each listener is told
+        // on its own and a throw is counted, so one faulty listener cannot keep a guard after it from
+        // hearing that a session started. The transition stands either way.
         var machine = await RecordingAsync();
         var ct = TestContext.Current.CancellationToken;
         var throwOnce = true;
@@ -303,14 +307,16 @@ public sealed class SuppressionHoldsTests : IAsyncDisposable
             }
         };
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.True(await machine.SuppressAsync(CaptureStateReason.PasswordField, ct));
         Assert.Equal(SessionState.Suppressed, machine.State);
         Assert.True(machine.IsHeld(CaptureStateReason.PasswordField));
+        Assert.Equal(1, machine.ListenerFailures);
 
         throwOnce = true;
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
+        Assert.True(await machine.UnsuppressAsync(CaptureStateReason.PasswordField, ct));
         Assert.Equal(SessionState.Recording, machine.State);
         Assert.False(machine.IsHeld(CaptureStateReason.PasswordField));
+        Assert.Equal(2, machine.ListenerFailures);
     }
 
     [Fact]
