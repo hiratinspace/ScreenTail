@@ -403,7 +403,11 @@ jobs:
       vars.SCREENTAIL_SIGNING == 'true' &&
       needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
-    environment: signing
+    # Named only when signing is switched on. A run that names an environment which does not exist yet is
+    # held by GitHub before any job starts, whatever the job's own condition says, so a static name here
+    # held every CI run until the owner created it. With the switch off this names none and the job is
+    # skipped; with it on it is 'signing', the environment the owner creates first (docs/dev/installer.md).
+    environment: ${{ vars.SCREENTAIL_SIGNING == 'true' && 'signing' || '' }}
     permissions:
       contents: read
       id-token: write
@@ -921,6 +925,7 @@ jobs:
           def uses_secret(value):
               return any(names_secret(text) for text in strings(value))
           def expr(inner): return '$' + '{{ ' + inner + ' }}'
+          ENVIRONMENT = expr("vars.SCREENTAIL_SIGNING == 'true' && 'signing' || ''")
           SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING')
           PINNED = {
               'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
@@ -949,8 +954,8 @@ jobs:
               for needed in CONDITIONS:
                   if needed not in condition:
                       bad.append(f'installer-signed must run only when {needed}')
-              if signed.get('environment') != 'signing':
-                  bad.append("installer-signed must run in the 'signing' environment")
+              if signed.get('environment') != ENVIRONMENT:
+                  bad.append("installer-signed must run in the 'signing' environment, named only when the switch is on")
               for name, job in jobs.items():
                   if signing_keys(job.get('env')):
                       bad.append(f'job {name} has a signing setting in its job env')
@@ -993,7 +998,7 @@ jobs:
                       'installer': {'runs-on': 'windows-latest', 'steps': [{'run': './installer/build.ps1'}]},
                       'installer-signed': {
                           'runs-on': 'windows-latest',
-                          'environment': 'signing',
+                          'environment': ENVIRONMENT,
                           'permissions': {'contents': 'read', 'id-token': 'write'},
                           'if': ' && '.join(CONDITIONS),
                           'steps': [
@@ -1034,6 +1039,7 @@ jobs:
               'signing on pull requests': lambda w: w['jobs']['installer-signed'].update(**{'if': "github.ref == 'refs/heads/main'"}),
               'signing on the laptop': lambda w: w['jobs']['installer-signed'].update(**{'runs-on': ['self-hosted', 'Windows']}),
               'no signing environment': lambda w: w['jobs']['installer-signed'].pop('environment'),
+              'another environment': lambda w: w['jobs']['installer-signed'].update(environment='production'),
           }
           selfbad = []
           caught = [expr("format('{0}', secrets.X)"), expr("secrets['X']"), expr('toJSON(secrets)'),
