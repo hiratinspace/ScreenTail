@@ -407,7 +407,6 @@ jobs:
     # held by GitHub before any job starts, whatever the job's own condition says, so a static name here
     # held every CI run until the owner created it. With the switch off this names none and the job is
     # skipped; with it on it is 'signing', the environment the owner creates first (docs/dev/installer.md).
-    environment: ${{ vars.SCREENTAIL_SIGNING == 'true' && 'signing' || '' }}
     timeout-minutes: 40
     defaults:
       run:
