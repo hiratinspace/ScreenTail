@@ -78,6 +78,43 @@ public sealed class SessionLoopTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ASessionThatEndsDuringATurnStillGetsATurnThatSeesItOver()
+    {
+        // The case the extra turn exists for. The session ends while a turn is running, so that turn saw
+        // it recording and the next look finds it over before any tick could come round. The clock is
+        // frozen, so no timer can supply the turn: only the loop's own last turn can.
+        var harness = await HarnessAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var seen = new List<SessionState>();
+        var stopped = 0;
+
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var running = SessionLoop.RunAsync(
+            harness.Machine,
+            TimeSpan.FromMilliseconds(10),
+            async token =>
+            {
+                await Record(seen, harness.Machine.State);
+                if (Interlocked.Exchange(ref stopped, 1) == 0)
+                {
+                    Assert.True(await harness.Machine.StopAsync(token));
+                }
+            },
+            null,
+            stopping.Token,
+            new CountingTime(frozen: true));
+        Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
+
+        var sawItOver = await UntilAsync(() => Count(seen) >= 2);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.True(sawItOver, $"after the turn in which the session ended, no turn saw it over (turns: {Count(seen)})");
+        Assert.Equal(SessionState.Recording, seen[0]);
+        Assert.False(SessionLoop.IsUnderWay(Last(seen)), $"the last turn saw {Last(seen)}");
+    }
+
+    [Fact]
     public async Task ATurnThatThrowsCostsThatTurnAndTheLoopGoesOn()
     {
         var harness = await HarnessAsync();
