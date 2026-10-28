@@ -71,12 +71,17 @@ None of these is in the repository, and nothing in CI creates or changes them.
    *Environment*, name `signing`. Its subject is then exactly
    `repo:hiratinspace/ScreenTail:environment:signing`, so Azure accepts a token from the signing job
    in that environment and from nothing else.
-3. **GitHub, *Settings → Environments → New environment*:** `signing`. Under *Deployment branches and
-   tags*, choose *Selected branches and tags* and allow `main` only. Optionally add *Required
-   reviewers*, so every signing run waits for a person to approve it. Add these environment
-   **variables** (none of them is a credential): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` (the app
-   registration's), `SCREENTAIL_SIGNING_ENDPOINT`, `SCREENTAIL_SIGNING_ACCOUNT` and
-   `SCREENTAIL_SIGNING_PROFILE`.
+3. **GitHub, *Settings → Environments → New environment*:** `signing`.
+   - **Mandatory: under *Deployment branches and tags*, choose *Selected branches and tags* and allow
+     `main` only.** Azure trusts the environment, not the branch. Without this rule, a workflow run
+     from any other branch that names the `signing` environment gets a token Azure accepts, and can
+     sign whatever that branch builds. The job's own "main only" condition lives in a file a branch
+     can change; this rule does not.
+   - **Recommended by default: *Required reviewers*** (the owner), so every signing run waits for a
+     person to approve it.
+   - Add these environment **variables** (none of them is a credential): `AZURE_TENANT_ID`,
+     `AZURE_CLIENT_ID` (the app registration's), `SCREENTAIL_SIGNING_ENDPOINT`,
+     `SCREENTAIL_SIGNING_ACCOUNT` and `SCREENTAIL_SIGNING_PROFILE`.
 4. **GitHub, *Settings → Secrets and variables → Actions → Variables*:** add the repository variable
    `SCREENTAIL_SIGNING` = `true`. This is the switch, and the last step: before it, no signing job runs.
 
@@ -99,7 +104,9 @@ Every merge to main that touches the client or the installer runs three installe
 - **Installer (Windows, signed, smoke test)**, with no token: the smoke test on the signed build, now
   with the peer checks taking the signed path.
 
-None of them runs for a pull request.
+**Installer (Windows)** runs on every pull request that touches the client or the installer, as
+above. Only the payload handoff, the signing job and the signed smoke test never run for a pull
+request.
 
 What actually keeps the signing token safe is the signing job's own conditions (a push to main, the
 switch), the `signing` environment's branch rule, and Azure trusting that environment alone. The check

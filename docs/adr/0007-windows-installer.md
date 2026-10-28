@@ -185,9 +185,13 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   folder rule) and the uninstall cleanup through WiX's own quiet-exec.
 - **A check in the workflows job holds all of this** (`scripts/ci/check_installer_jobs.py`): the
   signing job's exact steps and how they run, its conditions and permissions, the action pins and
-  inputs, the tool pins and the authoring rules above. It tries itself first on samples that must
-  pass and must fail. It is a second layer: what actually protects the token is the job's conditions,
-  the environment's branch rule and Azure trusting that environment alone.
+  inputs, the workflow-level and signing-step environment, the tool pins and the authoring rules
+  above. It also reads the scripts the signing job runs, as text: that part is a tripwire for the
+  obvious edit (a build or tool command, another script, a process started another way, a WiX
+  extension or the payload used another way), not a proof, beside the structural rules. It tries
+  itself first on samples that must pass and must fail. It is a second layer: what actually protects
+  the token is the job's conditions, the environment's main-only branch rule (mandatory) and Azure
+  trusting that environment alone.
 - **Artifact Signing issues short-lived certificates that rotate.** Both executables are signed in one
   `signtool` call, and `sign.ps1` fails unless every file in a call has the same signer, so the peer
   checks' leaf-thumbprint comparison holds for an installed pair. Anything that compares builds made
