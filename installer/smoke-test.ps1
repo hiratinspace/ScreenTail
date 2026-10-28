@@ -227,6 +227,12 @@ Check 'and registers nothing' (@(Get-ArpEntries).Count -eq 0)
 Remove-Item $elsewhere -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- Install (and upgrade) -----------------------------------------------------------------------------
+# A fresh profile need not have a Run key of its own yet (some hosted images do not), and the checks
+# below plant values in it.
+if (-not (Test-Path $userRun)) {
+    New-Item -Path $userRun -Force | Out-Null
+}
+
 if ($OlderMsi) {
     Write-Step 'Silent install of the older package'
     $code = Invoke-Msi '/i' (Resolve-Path $OlderMsi).Path 'install-older.log'
