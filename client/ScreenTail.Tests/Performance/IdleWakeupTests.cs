@@ -79,10 +79,11 @@ public sealed class IdleWakeupTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ASightingJustBeforeASessionStartsHoldsItFromItsFirstMoment()
+    public async Task ASightingJustBeforeASessionStartsHoldsItAtItsFirstTurn()
     {
         // The login prompt was read seconds before the session began and is still on screen. The guard
-        // used to find out on its next tick; it acts on the session starting now, which is the event.
+        // used to find out on its next tick; it now takes its first turn as the session starts, which is
+        // the event, with no timer needed to get there.
         var harness = await HarnessAsync();
         var ct = TestContext.Current.CancellationToken;
         var guard = new SensitiveContextGuard(harness.Machine, new CountingTime(frozen: true));
@@ -123,6 +124,54 @@ public sealed class IdleWakeupTests : IAsyncDisposable
 
         Assert.Equal(0, idlePasses);
         Assert.True(woke, "the guard did not look when the session started");
+    }
+
+    [Fact]
+    public async Task DuringASessionThePasswordFieldPollStillCatchesAFieldNoEventReported()
+    {
+        // INV-6's safety net. A remote canvas or a control that raises no focus event can put a password
+        // field in front without FocusMoved ever being called; the poll is what notices. Taking the poll
+        // away at idle must not take it away here.
+        var harness = await HarnessAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var probe = new SwitchableProbe();
+        using var guard = new PasswordFieldGuard(harness.Machine, probe, options: new PasswordFieldOptions { PollEvery = TimeSpan.FromMilliseconds(10) });
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var running = guard.RunAsync(stopping.Token);
+        Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
+        Assert.True(await UntilAsync(() => guard.Passes > 0), "the guard did not look when the session started");
+
+        probe.Focused = FocusedField.Password;
+        var held = await UntilAsync(() => harness.Machine.State == SessionState.Suppressed);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.True(held, "a password field that raised no focus event was recorded over: the poll did not run during the session");
+    }
+
+    [Fact]
+    public async Task WhileAHoldIsInPlaceThePollStillLetsGoOfIt()
+    {
+        // The reverse: focus leaves the field without an event, and the poll is what ends the hold.
+        // Without it the session stays suppressed for the rest of the day.
+        var harness = await HarnessAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var probe = new SwitchableProbe { Focused = FocusedField.Password };
+        using var guard = new PasswordFieldGuard(harness.Machine, probe, options: new PasswordFieldOptions { PollEvery = TimeSpan.FromMilliseconds(10) });
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var running = guard.RunAsync(stopping.Token);
+        Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
+        Assert.True(await UntilAsync(() => harness.Machine.State == SessionState.Suppressed), "the field in focus at the start was not held");
+        var passes = guard.Passes;
+        Assert.True(await UntilAsync(() => guard.Passes > passes), "the guard did not look again after taking the hold");
+
+        probe.Focused = FocusedField.NotPassword;
+        var released = await UntilAsync(() => harness.Machine.State == SessionState.Recording);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.True(released, "focus left the field without an event and the hold was never let go of");
+        Assert.False(guard.Holding);
     }
 
     [Fact]
@@ -198,5 +247,19 @@ public sealed class IdleWakeupTests : IAsyncDisposable
     private sealed class NotAPassword : IFocusedFieldProbe
     {
         public FocusedField Read() => FocusedField.NotPassword;
+    }
+
+    /// <summary>What has focus, changed by the test with no focus event to say so.</summary>
+    private sealed class SwitchableProbe : IFocusedFieldProbe
+    {
+        private volatile int _focused = (int)FocusedField.NotPassword;
+
+        public FocusedField Focused
+        {
+            get => (FocusedField)_focused;
+            set => _focused = (int)value;
+        }
+
+        public FocusedField Read() => Focused;
     }
 }
