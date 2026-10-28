@@ -324,7 +324,10 @@ internal static class SecretShredder
         public uint ReparseTag;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    // BY_HANDLE_FILE_INFORMATION's times are FILETIMEs, two 32-bit halves aligned to four bytes. Held as
+    // 64-bit fields they would be aligned to eight, every field after the first would be read four bytes
+    // late, and the link count would be the file index instead (SecretShredderTests).
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct ByHandleFileInformation
     {
         public uint FileAttributes;
