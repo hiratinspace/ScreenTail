@@ -30,10 +30,18 @@
 
     With neither, it signs nothing, lists what it would have signed, and exits successfully: an
     unsigned build is a development build, and the peer checks treat it as one (ADR-0003). With
-    SCREENTAIL_REQUIRE_SIGNING=1 (CI's signed job sets it) an unconfigured run fails instead, so a job
+    SCREENTAIL_REQUIRE_SIGNING=1 (CI's signing job sets it) an unconfigured run fails instead, so a job
     that is meant to sign can never produce an unsigned build by accident.
 
-    It prints file names and the signing mode, never a credential.
+    With -Verify it signs nothing and checks the finished build instead: every file's signature is one
+    Windows accepts; both executables have one and the same signing certificate; everything else in the
+    payload is signed by that same publisher or arrived signed by Microsoft; the MSI, the setup program
+    and its engine are signed by that publisher; and every signature of ours carries a timestamp. An
+    unsigned build passes with a notice, unless SCREENTAIL_REQUIRE_SIGNING=1.
+
+    It prints file names and the signing mode, never a credential. The signing tools run by absolute
+    path: signtool from the Windows SDK, and Microsoft's Artifact Signing client at the version and
+    SHA-256 pinned in installer/tools.json.
 
 .PARAMETER Path
     The files to sign.
@@ -43,18 +51,23 @@
 
 .PARAMETER Query
     Print the signing mode ('artifact-signing', 'certificate' or 'none') and exit.
+
+.PARAMETER Verify
+    Check the signatures of the files given, as above, instead of signing them.
 #>
 [CmdletBinding()]
 param(
     [string[]]$Path = @(),
     [string]$Folder,
-    [switch]$Query
+    [switch]$Query,
+    [switch]$Verify
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ArtifactSigningClient = @{ Id = 'Microsoft.ArtifactSigning.Client'; Version = '1.0.146' }
+. (Join-Path $PSScriptRoot 'tools.ps1')
+
 $ArtifactSigningTimestamp = 'http://timestamp.acs.microsoft.com'
 
 function Get-SigningMode {
@@ -86,29 +99,67 @@ function Find-SignTool {
 }
 
 function Get-ArtifactSigningDlib([string]$Into) {
-    # Microsoft's client library, from nuget.org, its repository signature verified, and the library
-    # itself checked to be Microsoft-signed before signtool loads it.
-    $id = $ArtifactSigningClient.Id
-    $version = $ArtifactSigningClient.Version
-    $folder = Join-Path $Into "$id.$version"
-    $dlib = Join-Path $folder 'bin\x64\Azure.CodeSigning.Dlib.dll'
+    # Microsoft's client library, at the version and SHA-256 pinned in tools.json, its NuGet signatures
+    # verified, and the library itself checked to be Microsoft-signed before signtool loads it.
+    $dlib = Join-Path (Get-PinnedPackage 'Microsoft.ArtifactSigning.Client' $Into) 'bin\x64\Azure.CodeSigning.Dlib.dll'
     if (-not (Test-Path $dlib)) {
-        New-Item -ItemType Directory -Force -Path $Into | Out-Null
-        $lower = $id.ToLowerInvariant()
-        $package = Join-Path $Into "$lower.$version.nupkg"
-        Invoke-WebRequest -UseBasicParsing -Uri "https://api.nuget.org/v3-flatcontainer/$lower/$version/$lower.$version.nupkg" -OutFile $package
-        dotnet nuget verify $package --all | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "The signature of $id $version did not verify."
-        }
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [IO.Compression.ZipFile]::ExtractToDirectory($package, $folder)
+        throw 'The pinned Artifact Signing client package has no bin\x64\Azure.CodeSigning.Dlib.dll.'
     }
     $signature = Get-AuthenticodeSignature $dlib
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
         throw "The Artifact Signing client library is not validly signed by Microsoft ($($signature.Status))."
     }
     return $dlib
+}
+
+function Test-Build([string[]]$Files) {
+    # The finished build, checked as a whole: what the peer checks and Windows will see.
+    $mine = @('ScreenTail.Service.exe', 'ScreenTail.UI.exe')
+    $signatures = @{}
+    $unsigned = New-Object System.Collections.Generic.List[string]
+    foreach ($file in $Files) {
+        $signature = Get-AuthenticodeSignature $file
+        $name = Split-Path $file -Leaf
+        if ($signature.Status -eq 'NotSigned') {
+            $unsigned.Add($name)
+        } elseif ($signature.Status -ne 'Valid') {
+            throw "$name carries a signature Windows does not accept ($($signature.Status))."
+        }
+        $signatures[$file] = $signature
+    }
+    if ($unsigned.Count -gt 0) {
+        if ($env:SCREENTAIL_REQUIRE_SIGNING -eq '1') {
+            throw "SCREENTAIL_REQUIRE_SIGNING is set and $($unsigned.Count) file(s) are not signed: $($unsigned -join ', ')"
+        }
+        Write-Host "  unsigned development build, $($unsigned.Count) file(s) not signed; nothing else to check"
+        return
+    }
+
+    $exes = @($signatures.Keys | Where-Object { (Split-Path $_ -Leaf) -in $mine })
+    if ($exes.Count -ne 2) {
+        throw 'Verifying a build needs both ScreenTail.Service.exe and ScreenTail.UI.exe among the files.'
+    }
+    $thumbprints = @($exes | ForEach-Object { $signatures[$_].SignerCertificate.Thumbprint } | Sort-Object -Unique)
+    if ($thumbprints.Count -ne 1) {
+        throw 'The two executables were signed with different certificates. The peer checks accept only the same one.'
+    }
+    $publisher = $signatures[$exes[0]].SignerCertificate.Subject
+    $ours = 0
+    foreach ($file in $signatures.Keys) {
+        $signature = $signatures[$file]
+        $name = Split-Path $file -Leaf
+        $subject = $signature.SignerCertificate.Subject
+        $inPayload = $Folder -and $file.StartsWith((Resolve-Path $Folder).Path + '\', [StringComparison]::OrdinalIgnoreCase)
+        if ($subject -eq $publisher) {
+            if (-not $signature.TimeStamperCertificate) {
+                throw "$name was signed without a timestamp. An untimestamped signature stops verifying when its certificate expires."
+            }
+            $ours++
+        } elseif (-not ($inPayload -and $subject -match 'O=Microsoft Corporation')) {
+            throw "$name is signed by $subject, which is neither this build's publisher nor, for a library that came with the payload, Microsoft."
+        }
+    }
+    Write-Host "  $($signatures.Count) file(s) verified; $ours signed and timestamped by: $publisher"
 }
 
 $mode = Get-SigningMode
@@ -124,6 +175,13 @@ if ($Folder) {
 }
 $Path = @($Path | Where-Object { $_ } | ForEach-Object { (Resolve-Path $_).Path })
 if ($Path.Count -eq 0) {
+    if ($Verify) {
+        throw 'There is nothing to verify.'
+    }
+    return
+}
+if ($Verify) {
+    Test-Build $Path
     return
 }
 

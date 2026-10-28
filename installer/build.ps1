@@ -15,15 +15,12 @@
          ScreenTail-Setup.exe, which installs that runtime and then the package. Signs it.
       5. Reports sizes against the ticket's 250 MB limit.
 
-    By default it does all of that in one go, signing as it goes when signing is configured. With
-    -Stage it does one part and never signs, so CI's signed job can build with no signing credential
-    in reach and pass the credential only to the steps that run sign.ps1:
-
-      Payload   step 1
-      Package   step 3 from the payload already there, without signing
-      Bundle    step 4 without signing, leaving the setup program's engine detached in work\engine.exe
-                for signing on its own
-      Reattach  puts work\engine.exe back into the setup program, and reports sizes
+    By default it does all of that in one go, signing as it goes when signing is configured. Steps 3
+    to 5 are installer/package.ps1, which needs nothing from this repository but the authoring and
+    runs only WiX at the versions and hashes pinned in installer/tools.json. With -Stage Payload it
+    does step 1 alone and signs nothing: CI builds the payload that way, with no signing credential
+    anywhere in the job, and its signing job signs it and runs package.ps1 and sign.ps1 one step at a
+    time, each layer signed before the next one wraps it (ADR-0007).
 
     Needs Windows, the .NET 10 SDK and network access (NuGet and Microsoft's download site). Writes
     only under -Output.
@@ -36,7 +33,7 @@
     Where everything is written. Default: artifacts\installer in the repository.
 
 .PARAMETER Stage
-    All (the default), or one of Payload, Package, Bundle, Reattach as above.
+    All (the default), or Payload for step 1 alone.
 
 .PARAMETER MsiName
     The package's file name. Default ScreenTail.msi.
@@ -48,20 +45,12 @@
 param(
     [string]$Version = '0.1.0',
     [string]$Output,
-    [ValidateSet('All', 'Payload', 'Package', 'Bundle', 'Reattach')][string]$Stage = 'All',
+    [ValidateSet('All', 'Payload')][string]$Stage = 'All',
     [string]$MsiName = 'ScreenTail.msi'
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-
-# The pinned tools. Changing a version here is a reviewed change, like any other dependency.
-$WixExtensions = @(
-    @{ Id = 'WixToolset.Util.wixext'; Version = '5.0.2'; Dll = 'wixext5\WixToolset.Util.wixext.dll' },
-    @{ Id = 'WixToolset.Bal.wixext'; Version = '5.0.2'; Dll = 'wixext5\WixToolset.BootstrapperApplications.wixext.dll' }
-)
-$VcRedistUrls = @('https://aka.ms/vc14/vc_redist.x64.exe', 'https://aka.ms/vs/17/release/vc_redist.x64.exe')
-$SizeLimitBytes = 250MB
 
 function Write-Step([string]$Title) {
     Write-Host ''
@@ -100,26 +89,6 @@ function Test-Managed([string]$Path) {
 
 function Format-Size([long]$Bytes) {
     return ('{0:N1} MB' -f ($Bytes / 1MB))
-}
-
-function Save-NuGetPackage([string]$Id, [string]$PackageVersion, [string]$Into) {
-    # Downloaded from nuget.org and its repository signature verified before anything in it is used.
-    $folder = Join-Path $Into "$Id.$PackageVersion"
-    if (Test-Path (Join-Path $folder '.verified')) {
-        return $folder
-    }
-    New-Item -ItemType Directory -Force -Path $Into | Out-Null
-    $lower = $Id.ToLowerInvariant()
-    $package = Join-Path $Into "$lower.$PackageVersion.nupkg"
-    Invoke-WebRequest -UseBasicParsing -Uri "https://api.nuget.org/v3-flatcontainer/$lower/$PackageVersion/$lower.$PackageVersion.nupkg" -OutFile $package
-    Invoke-Checked "Verifying the signature of $Id $PackageVersion" { dotnet nuget verify $package --all | Out-Host }
-    if (Test-Path $folder) {
-        Remove-Item $folder -Recurse -Force
-    }
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [IO.Compression.ZipFile]::ExtractToDirectory($package, $folder)
-    Set-Content -Path (Join-Path $folder '.verified') -Value $PackageVersion
-    return $folder
 }
 
 if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)$' -or [int]$Matches[1] -gt 255 -or [int]$Matches[2] -gt 255 -or [int]$Matches[3] -gt 65535) {
@@ -286,129 +255,19 @@ if ($Stage -in 'All', 'Payload') {
 if ($Stage -eq 'Payload') {
     return
 }
-if ($Stage -eq 'Package' -and -not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {
-    throw "There is no payload in $payload. Run -Stage Payload first."
-}
 
-Write-Step 'Getting WiX 5 and its extensions'
-Push-Location $PSScriptRoot
-try {
-    Invoke-Checked 'Restoring the WiX tool' { dotnet tool restore | Out-Host }
-} finally {
-    Pop-Location
-}
-$ext = @{}
-foreach ($extension in $WixExtensions) {
-    $folder = Save-NuGetPackage $extension.Id $extension.Version (Join-Path $work 'nuget')
-    $ext[$extension.Id] = Join-Path $folder $extension.Dll
-}
+# Steps 3 to 5, each layer signed before the next one wraps it: the MSI holds the signed payload, the
+# setup program holds the signed MSI, and the setup program's engine is signed on its own before the
+# whole is signed. The same sequence CI's signing job runs, one step at a time.
+$package = Join-Path $PSScriptRoot 'package.ps1'
+& $package -Step Msi -Version $Version -Output $Output -MsiName $MsiName
+Invoke-Sign @($msi)
+& $package -Step Bundle -Version $Version -Output $Output -MsiName $MsiName
+& $package -Step Detach -Version $Version -Output $Output -MsiName $MsiName
+Invoke-Sign @($engine)
+& $package -Step Reattach -Version $Version -Output $Output -MsiName $MsiName
+Invoke-Sign @($bundle)
 
-function Invoke-Wix([string]$What, [string[]]$Arguments) {
-    Push-Location $PSScriptRoot
-    try {
-        Invoke-Checked $What { dotnet tool run wix @Arguments | Out-Host }
-    } finally {
-        Pop-Location
-    }
-}
-
-if ($Stage -in 'All', 'Package') {
-    Write-Step "Building $MsiName"
-    Invoke-Wix "Building $MsiName" @(
-        'build', (Join-Path $PSScriptRoot 'Package.wxs'),
-        '-arch', 'x64',
-        '-ext', $ext['WixToolset.Util.wixext'],
-        '-d', "Version=$Version",
-        '-d', "Payload=$payload",
-        '-o', $msi
-    )
-    Invoke-Sign @($msi)
-}
-
-if ($Stage -in 'All', 'Bundle') {
-    if (-not (Test-Path $msi)) {
-        throw "There is no $MsiName in $packages. Run -Stage Package first."
-    }
-    Write-Step 'Getting the Visual C++ runtime installer'
-    $vcRedist = Join-Path $work 'vc_redist.x64.exe'
-    if (Test-Path $vcRedist) {
-        Remove-Item $vcRedist -Force
-    }
-    foreach ($url in $VcRedistUrls) {
-        try {
-            Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $vcRedist
-            break
-        } catch {
-            Write-Host "  $url did not answer: $($_.Exception.Message)"
-        }
-    }
-    if (-not (Test-Path $vcRedist)) {
-        throw 'Could not download the Visual C++ runtime installer.'
-    }
-    $signature = Get-AuthenticodeSignature $vcRedist
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-        throw "The downloaded Visual C++ runtime installer is not validly signed by Microsoft ($($signature.Status), $($signature.SignerCertificate.Subject))."
-    }
-    $vcVersion = [version](Get-Item $vcRedist).VersionInfo.FileVersion
-    Write-Host "  vc_redist.x64.exe $vcVersion, signed by Microsoft"
-
-    Write-Step 'Building ScreenTail-Setup.exe'
-    Invoke-Wix 'Building ScreenTail-Setup.exe' @(
-        'build', (Join-Path $PSScriptRoot 'Bundle.wxs'),
-        '-arch', 'x64',
-        '-ext', $ext['WixToolset.Bal.wixext'],
-        '-ext', $ext['WixToolset.Util.wixext'],
-        '-d', "Version=$Version",
-        '-d', "Msi=$msi",
-        '-d', "VcRedist=$vcRedist",
-        '-d', "VcRedistBuild=$($vcVersion.Build)",
-        '-o', $bundle
-    )
-
-    # A setup program carries its engine inside it, and the engine is what runs first, so it is signed
-    # on its own before the whole is signed: detach, sign, reattach, sign. Done every time, signed or
-    # not, so the round trip is the one CI exercises.
-    if (Test-Path $engine) {
-        Remove-Item $engine -Force
-    }
-    Invoke-Wix 'Detaching the setup engine' @('burn', 'detach', $bundle, '-engine', $engine)
-    Invoke-Sign @($engine)
-}
-
-if ($Stage -in 'All', 'Reattach') {
-    if (-not (Test-Path $engine) -or -not (Test-Path $bundle)) {
-        throw "There is no detached engine or setup program in $Output. Run -Stage Bundle first."
-    }
-    Invoke-Wix 'Reattaching the setup engine' @('burn', 'reattach', $bundle, '-engine', $engine, '-o', $bundle)
-    Invoke-Sign @($bundle)
-}
-
-if ($Stage -eq 'Bundle') {
-    return
-}
-$built = @(@($msi, $bundle) | Where-Object { Test-Path $_ })
-
-Write-Step 'Sizes'
-$tooBig = $false
-foreach ($file in $built) {
-    $length = (Get-Item $file).Length
-    $verdict = 'within the 250 MB limit'
-    if ($length -gt $SizeLimitBytes) {
-        $verdict = 'OVER the 250 MB limit'
-        $tooBig = $true
-    }
-    Write-Host ('  {0}: {1}, {2}' -f (Split-Path $file -Leaf), (Format-Size $length), $verdict)
-}
-if ($env:GITHUB_STEP_SUMMARY) {
-    $lines = @("### Installer $Version", '', "Signing: $signing", '', '| File | Size |', '|---|---|')
-    foreach ($file in $built) {
-        $lines += ('| {0} | {1} |' -f (Split-Path $file -Leaf), (Format-Size (Get-Item $file).Length))
-    }
-    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($lines -join "`n")
-}
-if ($tooBig) {
-    throw 'An installer is over the 250 MB the ticket allows (models excluded; the models are downloaded, not shipped).'
-}
-
-Write-Host ''
-Write-Host "Built: $($built -join ', ')"
+Write-Step 'Checking every signature'
+& $sign -Verify -Folder $payload -Path $msi, $engine, $bundle
+Write-Host "Signing: $signing."
