@@ -200,8 +200,9 @@ public sealed class RedactionWorker(
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // The service is stopping. Any other cancellation is a step that failed (StepAsync).
         }
     }
 
@@ -230,8 +231,12 @@ public sealed class RedactionWorker(
         {
             return await ProcessOneAsync(ct).ConfigureAwait(false) ? Step.Worked : Step.Empty;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            // Including a cancellation nobody asked for, which is what a call that timed out throws.
+            // Reading it as "stop" ended the worker for the life of the service, and with it every
+            // screenshot after (2026-10-27 review). The frame it happened on was let go of unread in
+            // ProcessOneAsync's finally and never written (INV-1).
             lock (_counters)
             {
                 _failed++;
