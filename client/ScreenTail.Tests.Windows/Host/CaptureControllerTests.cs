@@ -422,6 +422,25 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         Assert.Equal(SessionState.Recording, machine.State);
     }
 
+    [Theory]
+    [InlineData(200, 40, true)]
+    [InlineData(0, 0, false)]
+    public async Task TheReportsRectangleSaysWhetherThePillIsUp(double width, double height, bool pill)
+    {
+        // Both reports count for a start. Only the one with the pill's rectangle counts once a session
+        // runs, so the size has to reach the service rather than stop at the controller (owner decision,
+        // 2026-10-25).
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var indicators = new IndicatorReports();
+        var controller = Controller(store, indicators: indicators);
+
+        Assert.True((await controller.HandleAsync(new IndicatorShowingCommand { RequestId = 1, X = 10, Y = 10, Width = width, Height = height }, Window, ct)).Ok);
+
+        Assert.True(indicators.Showing);
+        Assert.Equal(pill, indicators.PillShowing);
+    }
+
     /// <summary>Starts a session and says which, so a test can check it is still there afterwards.</summary>
     private static async Task<string> RecordingAsync(SessionMachine machine, CancellationToken ct)
     {

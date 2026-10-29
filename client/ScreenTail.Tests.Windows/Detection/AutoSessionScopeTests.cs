@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
+using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Detection;
@@ -149,6 +151,42 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
 
         Assert.False(await coordinator.StartFromForegroundAsync(ct));
         Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    [Fact]
+    public async Task APillPutAwayBetweenSessionsStillLetsTheToolStartASession()
+    {
+        // Owner decision, 2026-10-25: the technician put the pill away between sessions, the UI says so
+        // with a zero-size report, and the next session starts. Gated through the indicator guard over
+        // the UI's reports, as the host wires it. Once the session runs, that report is not the pill.
+        var ct = TestContext.Current.CancellationToken;
+        var reports = new IndicatorReports();
+        IndicatorGuard? guard = null;
+        var coordinator = await CoordinatorAsync(ct, indicated: () => guard!.Indicated);
+        guard = new IndicatorGuard(_machine!, reports);
+        reports.Report(Guid.NewGuid(), 0, 0);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+
+        Assert.Equal(SessionState.Recording, _machine!.State);
+        Assert.False(guard.Indicated);
+    }
+
+    [Fact]
+    public async Task TheChordStartsASessionWithThePillPutAwayToo()
+    {
+        // The hotkey's start has the same gate as the automatic one, the zero-size report included.
+        var ct = TestContext.Current.CancellationToken;
+        var reports = new IndicatorReports();
+        IndicatorGuard? guard = null;
+        var coordinator = await CoordinatorAsync(ct, indicated: () => guard!.Indicated, autoStart: () => false);
+        guard = new IndicatorGuard(_machine!, reports);
+        reports.Report(Guid.NewGuid(), 0, 0);
+
+        Assert.True(await coordinator.StartFromForegroundAsync(ct));
+
+        Assert.Equal(SessionState.Recording, _machine!.State);
+        Assert.False(guard.Indicated);
     }
 
     // ---- the trigger follows the machine (S-6, T-22) ------------------------------------------------
