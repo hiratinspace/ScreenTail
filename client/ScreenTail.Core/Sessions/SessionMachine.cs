@@ -538,6 +538,18 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// What a session says, in the pill and in Review, when recovery finds it draft_pending with nothing
+    /// left in the outbox to settle it.
+    /// </summary>
+    public const string DraftNoLongerQueuedReason = "The draft was no longer on its way to the backend when ScreenTail restarted, so it will not arrive.";
+
+    /// <summary>
+    /// The kind of error that kept recovery from adopting a queued session, by type name only (INV-10),
+    /// for the host to log. Null when nothing did.
+    /// </summary>
+    public string? AdoptionFault { get; private set; }
+
     /// <summary>What a session failed by retention says, in the pill and in Review.</summary>
     public const string PurgedBeforeDraftedReason = "The session's screenshots and transcript were removed by retention before it could be drafted.";
 
