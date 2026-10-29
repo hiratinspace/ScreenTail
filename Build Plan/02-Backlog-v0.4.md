@@ -332,7 +332,9 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
   a queued draft reported as failed and never reaching draft_ready, the "Draft ready" notification's
   missing title, and `SCREENTAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
   replay with its event-count and redaction-count criteria (needs ST-030's sessions), CPU, RAM and disk per
-  run, and the nightly schedule with a team-channel notification.
+  run, and the nightly schedule with a team-channel notification. Also owed: a passing laptop run with real
+  hotkeys and clicks (its first stopped at setup because a ScreenTail UI was already running), and making
+  the CI job a required check.
 
 **Description:**
 Windows 11 VM job installing the built client, replaying golden sessions through the real service and asserting bundle contents, redaction results and performance budgets. Nightly and on release branches.
@@ -436,7 +438,7 @@ Pixel-level Review (Spec §5 S3) in both themes; clickable prototype covering �
 - **Epic/Feature:** DESIGN
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done 2026-09-12.
+- **Status:** Done 2026-09-12. **Restyled 2026-10-29 (#228)** with no change in behaviour: tokens v0.5.0 (layered neutral surfaces, a Fluent blue accent, Segoe UI Variable, six new state tints held to the same contrast tests) and every control and screen redrawn to a Windows 11 look, rendered by CI in both themes and high contrast. Still owed: the owner accepting spec amendment v0.5.0, the brand colour and logo (the blue and the text wordmark are placeholders), and a look on Windows at what the gallery does not render: dropdowns, tool tips, hover and pressed states, the typed-confirmation dialogs, the enlarged frame and a Narrator pass.
 
 **Description:**
 Implement Spec §2 tokens as `/shared/design/tokens.json` consumed by WPF resource dictionaries and web CSS variables; base components from Spec §3 with a gallery window.
