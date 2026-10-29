@@ -71,7 +71,7 @@ public sealed class UpdateReviewTests : IDisposable
 
             first = new ChunkedStream(big, afterFirstChunk: () => _busy = true);
             return first;
-        });
+        }, size: big.Length);
         var updates = Service(feed);
 
         var stopped = await updates.CheckAsync(TestContext.Current.CancellationToken);
@@ -111,6 +111,111 @@ public sealed class UpdateReviewTests : IDisposable
 
         Assert.Equal(UpdateState.Ready, again.State);
         Assert.Equal(big, await File.ReadAllBytesAsync(updates.Ready!.Path, TestContext.Current.CancellationToken));
+    }
+
+    public static TheoryData<string> BadResumes() => ["416", "206 at the wrong offset", "206 of another total", "206 with no range"];
+
+    [Theory]
+    [MemberData(nameof(BadResumes))]
+    public async Task AResumeAnsweredWronglyThrowsTheKeptBytesAwaySoTheNextCheckStartsFromZero(string answer)
+    {
+        // Second review: anything but a 200 or a 206 whose Content-Range starts at the bytes kept and
+        // totals the manifest's size is a feed that cannot be trusted to continue this file. The kept
+        // bytes go, nothing of the answer is written, and the next check starts again from the beginning.
+        var (updates, feed, big, kept) = await InterruptedAsync();
+        feed.Resume = from => answer switch
+        {
+            "416" => new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable),
+            "206 at the wrong offset" => Partial(big, from - 10, big.Length),
+            "206 of another total" => Partial(big, from, big.Length + 1),
+            _ => new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent(big[(int)from..]) },
+        };
+
+        var status = await updates.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(UpdateState.Failed, status.State);
+        Assert.Empty(Directory.GetFiles(_dir, "*.partial"));
+        Assert.DoesNotContain(_log.Lines, l => l.Level >= LogLevel.Warning);
+
+        feed.Resume = null;
+        var again = await updates.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(UpdateState.Ready, again.State);
+        Assert.Equal([kept], feed.RangesAsked);
+        Assert.Equal(big, await File.ReadAllBytesAsync(updates.Ready!.Path, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task InstallDoesNotWaitBehindARunningCheck()
+    {
+        // Second review: Install is answered on the pipe's worker. Waiting there for a check that is
+        // downloading 100 MB would hold every other question behind it, so it answers at once instead.
+        var feed = new FakeFeed().Answer(StableManifest, Envelope(_signer, Payload())).Answer(PackageUrl(), Package);
+        var updates = Service(feed);
+        _ = await updates.CheckAsync(TestContext.Current.CancellationToken);
+        using var publisher = new BlockingPublisher();
+        publisher.Release(Identity("CN=Ours"));
+        var installer = new UpdateInstaller(updates, publisher, new NeverLauncher(), Identity("CN=Ours"), _ => Task.FromResult<IDisposable?>(new NoHold()));
+        using var running = await updates.ExclusiveAsync(TestContext.Current.CancellationToken);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var answer = await installer.InstallAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(UpdateInstaller.CheckRunning, answer.Refusal);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"answered in {watch.Elapsed}");
+        Assert.False(installer.Installing);
+    }
+
+    [Fact]
+    public void StalePackagesAreLeftAloneInAFolderThatIsALink()
+    {
+        // Second review: the folder is prepared (and so refused when it is a link) before anything in it
+        // is deleted, so a link planted where the folder belongs cannot point the clean-up elsewhere.
+        var elsewhere = Path.Combine(_dir, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        File.WriteAllText(Path.Combine(elsewhere, "ScreenTail-0.1.5.msi"), "x");
+        var link = Path.Combine(_dir, "Updates");
+        Directory.CreateSymbolicLink(link, elsewhere);
+
+        Service(new FakeFeed(), new PlainUpdateFolder(link)).RemoveStalePackages();
+
+        Assert.True(File.Exists(Path.Combine(elsewhere, "ScreenTail-0.1.5.msi")));
+    }
+
+    private static HttpResponseMessage Partial(byte[] package, long from, long total)
+    {
+        var content = new ByteArrayContent(package[(int)Math.Max(from, 0)..]);
+        content.Headers.ContentRange = new System.Net.Http.Headers.ContentRangeHeaderValue(from, package.Length - 1, total);
+        return new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = content };
+    }
+
+    /// <summary>A download a session stopped part of the way through, with what it kept on disk.</summary>
+    private async Task<(UpdateService Updates, StreamingFeed Feed, byte[] Package, long Kept)> InterruptedAsync()
+    {
+        var big = RandomNumberGenerator.GetBytes(512 * 1024);
+        var payload = Payload(edit: p =>
+        {
+            p["package"]!["sha256"] = Convert.ToHexStringLower(SHA256.HashData(big));
+            p["package"]!["size"] = big.Length;
+        });
+        var first = true;
+        var feed = new StreamingFeed(Envelope(_signer, payload), range =>
+        {
+            if (range is { } from)
+            {
+                return new ChunkedStream(big[(int)from..]);
+            }
+
+            var interrupt = first;
+            first = false;
+            return new ChunkedStream(big, afterFirstChunk: () => _busy = interrupt);
+        }, size: big.Length);
+        var updates = Service(feed);
+        Assert.Equal(UpdateState.Available, (await updates.CheckAsync(TestContext.Current.CancellationToken)).State);
+        _busy = false;
+        var kept = new FileInfo(Assert.Single(Directory.GetFiles(_dir, "*.partial"))).Length;
+        return (updates, feed, big, kept);
     }
 
     [Fact]
@@ -287,10 +392,16 @@ public sealed class UpdateReviewTests : IDisposable
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
-    /// <summary>The manifest, and a package body made per request; honours Range unless told not to.</summary>
-    private sealed class StreamingFeed(byte[] manifest, Func<long?, Stream> package, bool honourRange = true) : HttpMessageHandler
+    /// <summary>
+    /// The manifest, and a package body made per request. Honours Range with a 206 and its Content-Range
+    /// unless told not to; <see cref="Resume"/> overrides how a ranged request is answered.
+    /// </summary>
+    private sealed class StreamingFeed(byte[] manifest, Func<long?, Stream> package, bool honourRange = true, long? size = null) : HttpMessageHandler
     {
         public List<long> RangesAsked { get; } = [];
+
+        /// <summary>When set, answers a ranged request instead of the honest 206.</summary>
+        public Func<long, HttpResponseMessage>? Resume { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -303,11 +414,18 @@ public sealed class UpdateReviewTests : IDisposable
             if (from is { } start)
             {
                 RangesAsked.Add(start);
+                if (Resume is { } resume)
+                {
+                    return Task.FromResult(resume(start));
+                }
             }
 
-            if (from is not null && honourRange)
+            if (from is { } offset && honourRange)
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new StreamContent(package(from)) });
+                var content = new StreamContent(package(offset));
+                var total = size ?? throw new InvalidOperationException("A feed that honours Range needs the package's size.");
+                content.Headers.ContentRange = new System.Net.Http.Headers.ContentRangeHeaderValue(offset, total - 1, total);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = content });
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(package(null)) });

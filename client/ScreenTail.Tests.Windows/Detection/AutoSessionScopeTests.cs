@@ -185,8 +185,28 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.Equal(SessionState.Idle, _machine.State);
 
         hold!.Dispose();
-        await coordinator.RetryAsync(ct);
+        Assert.True(await coordinator.RetryAsync(Window(handle: 111), _ => true, ct));
 
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
+    [Fact]
+    public async Task ARetryReadsTheWindowInFrontNowAndSkipsOneThatIsGone()
+    {
+        // Second review: the window the hold refused may have closed by the time the hold goes. The retry
+        // asks for the window in front now, and does nothing when there is none or it no longer exists,
+        // rather than replaying the window last decided.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+        var hold = await _machine!.HoldStartsAsync(ct);
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        hold!.Dispose();
+
+        Assert.False(await coordinator.RetryAsync(Window(handle: 111), _ => false, ct));
+        Assert.False(await coordinator.RetryAsync(ForegroundWindowInfo.None(At), _ => true, ct));
+        Assert.Equal(SessionState.Idle, _machine.State);
+
+        Assert.True(await coordinator.RetryAsync(Window(handle: 333), handle => handle == 333, ct));
         Assert.Equal(SessionState.Recording, _machine.State);
     }
 

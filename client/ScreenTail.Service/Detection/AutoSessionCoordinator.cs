@@ -109,19 +109,39 @@ internal sealed partial class AutoSessionCoordinator
 
     /// <summary>
     /// Decides the window in front again (ST-113): when the update's hold on new sessions is released,
-    /// a tool that took focus meanwhile was refused its session and is still in front. The window goes
-    /// through the same queue as any foreground change, so every rule a focus change meets applies.
+    /// a tool that took focus meanwhile was refused its session and may still be in front.
+    ///
+    /// The window in front <i>now</i>, as the caller reads it, and only if it still exists: not the window
+    /// last decided, which may have closed while the hold was in force (second review). It goes through the
+    /// same queue as any foreground change, so every rule a focus change meets applies.
     /// </summary>
-    public void Retry()
+    /// <returns>False when there was no window in front, or it no longer exists.</returns>
+    public bool Retry(ForegroundWindowInfo current, Func<nint, bool> exists)
     {
-        if (_decided?.Window is { } window)
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(exists);
+        if (current.IsNone || !exists(current.Handle))
         {
-            Observe(window);
+            return false;
         }
+
+        Observe(current);
+        return true;
     }
 
-    /// <summary>The same, awaited, for the tests.</summary>
-    internal Task RetryAsync(CancellationToken ct) => _decided?.Window is { } window ? HandleAsync(window, ct) : Task.CompletedTask;
+    /// <summary>The same, handled at once rather than queued, for the tests.</summary>
+    internal async Task<bool> RetryAsync(ForegroundWindowInfo current, Func<nint, bool> exists, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(exists);
+        if (current.IsNone || !exists(current.Handle))
+        {
+            return false;
+        }
+
+        await HandleAsync(current, ct).ConfigureAwait(false);
+        return true;
+    }
 
     /// <summary>
     /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord, a hotkey the service registers

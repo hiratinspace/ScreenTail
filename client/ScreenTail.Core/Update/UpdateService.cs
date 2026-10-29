@@ -294,6 +294,10 @@ public sealed partial class UpdateService : IDisposable
         return new Exclusive(_checking);
     }
 
+    /// <summary>The same lock, or null when a check still holds it after <paramref name="wait"/>.</summary>
+    internal async Task<IDisposable?> TryExclusiveAsync(TimeSpan wait, CancellationToken ct) =>
+        await _checking.WaitAsync(wait, ct).ConfigureAwait(false) ? new Exclusive(_checking) : null;
+
     private sealed class Exclusive(SemaphoreSlim gate) : IDisposable
     {
         private SemaphoreSlim? _gate = gate;

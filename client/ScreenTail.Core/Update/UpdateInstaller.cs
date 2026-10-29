@@ -53,6 +53,11 @@ public sealed class UpdateInstaller(
 
     public const string NothingReady = "No update is ready to install.";
 
+    public const string CheckRunning = "A check for updates is running. Try again in a moment.";
+
+    /// <summary>How long Install waits for a check in progress before it says so instead.</summary>
+    private static readonly TimeSpan CheckWait = TimeSpan.FromSeconds(2);
+
     private readonly UpdateService _updates = updates ?? throw new ArgumentNullException(nameof(updates));
     private readonly IPackagePublisher _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
     private readonly IInstallerLauncher _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
@@ -89,7 +94,14 @@ public sealed class UpdateInstaller(
         {
             // The check's own lock, so a check that finds a new release cannot replace the package this
             // is verifying, nor a refusal here delete the one that check kept (2026-10-29 review).
-            exclusive = await _updates.ExclusiveAsync(ct).ConfigureAwait(false);
+            // Briefly: Install is answered on the pipe's worker, and a check may be downloading a package
+            // for minutes. Waiting that long would hold every other question behind it (second review).
+            exclusive = await _updates.TryExclusiveAsync(CheckWait, ct).ConfigureAwait(false);
+            if (exclusive is null)
+            {
+                return Refused(CheckRunning);
+            }
+
             if (_updates.Status.State != UpdateState.Ready || _updates.Ready is not { } ready)
             {
                 return Refused(NothingReady);

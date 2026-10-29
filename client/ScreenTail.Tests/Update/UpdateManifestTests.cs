@@ -120,10 +120,13 @@ public sealed class UpdateManifestTests : IDisposable
     public void TheSameSignatureInDerFormIsRefused()
     {
         var bytes = Encoding.UTF8.GetBytes(Payload().ToJsonString());
-        var der = DerOf(_signer.Sign(bytes));
+        // Signed in that form by the runtime itself. Re-encoding r and s by hand failed whenever either had
+        // a leading zero byte, about one run in a hundred (2026-10-29 review).
+        var der = _signer.SignDer(bytes);
 
         var verdict = Read(Envelope(bytes, der, _signer.Id), _signer.Public);
 
+        Assert.NotEqual(64, der.Length);
         Assert.Equal(ManifestOutcome.Refused, verdict.Outcome);
     }
 
@@ -245,17 +248,4 @@ public sealed class UpdateManifestTests : IDisposable
     }
 
     public void Dispose() => _signer.Dispose();
-
-    /// <summary>r and s as an ASN.1 SEQUENCE of two INTEGERs, the other common encoding of the same signature.</summary>
-    private static byte[] DerOf(byte[] p1363)
-    {
-        var writer = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
-        using (writer.PushSequence())
-        {
-            writer.WriteIntegerUnsigned(p1363.AsSpan(0, 32));
-            writer.WriteIntegerUnsigned(p1363.AsSpan(32, 32));
-        }
-
-        return writer.Encode();
-    }
 }

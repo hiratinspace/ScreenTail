@@ -420,7 +420,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         _ = Task.Run(() => StartupOrder.SyncPolicyAsync(policySync, tokenReady.Task, policyFetched, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "policy", ex.GetType().Name)), stoppingToken);
         foreground.Changed += coordinator.Observe;
-        retryForeground = coordinator.Retry;
+        retryForeground = () => _ = coordinator.Retry(foreground.Current, WindowsForegroundWatcher.Exists);
 
         // A download that a session stopped continues once the session is over, rather than at the
         // loop's next half-hourly retry.

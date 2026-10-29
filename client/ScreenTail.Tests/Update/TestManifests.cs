@@ -23,6 +23,10 @@ internal sealed class TestSigner : IDisposable
     public byte[] Sign(byte[] message) =>
         _key.SignData(message, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
 
+    /// <summary>The same signature in its other common encoding: an ASN.1 SEQUENCE of r and s.</summary>
+    public byte[] SignDer(byte[] message) =>
+        _key.SignData(message, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+
     public void Dispose() => _key.Dispose();
 }
 
