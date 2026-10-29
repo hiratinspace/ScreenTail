@@ -141,9 +141,35 @@ SEQUENCE = [
     ('run', './installer/package.ps1 -Step Reattach -Version ' + VERSION, None),
     ('run', './installer/sign.ps1 -Path ' + SETUP, SIGN_SETTINGS),
     ('run', './installer/sign.ps1 -Verify -Folder ' + PAYLOAD + ' -Path ' + ','.join([MSI, ENGINE, SETUP]), VERIFY_SETTINGS),
-    ('run', './installer/update-manifest.ps1 -Msi ' + MSI + ' -Version ' + VERSION + ' -Out ' + MANIFESTS, UPDATE_SETTINGS),
+    ('run', './installer/update-manifest.ps1 -Channel pilot -Msi ' + MSI + ' -Version ' + VERSION + ' -Out ' + MANIFESTS, UPDATE_SETTINGS),
     ('uses', UPLOAD, {'name': SIGNED_ARTIFACT, 'path': MSI + '\n' + SETUP + '\n', 'retention-days': 7, 'if-no-files-found': 'error'}, 'signed'),
     ('uses', UPLOAD, {'name': MANIFEST_ARTIFACT, 'path': MANIFESTS, 'retention-days': 90, 'if-no-files-found': 'ignore'}),
+]
+# ST-113: stable is signed only here, by hand, for a release already signed for pilot, in an environment
+# of its own that the owner protects with required reviewers and a main-only branch rule. Its own
+# workflow file, so ci.yml's triggers are untouched.
+PROMOTE_FILE = '.github/workflows/promote-stable.yml'
+PROMOTE_JOB, PROMOTE_ENVIRONMENT, STABLE_ARTIFACT = 'promote', 'release-stable', 'screentail-stable-manifest'
+PROMOTE_CONDITION = "github.ref == 'refs/heads/main'"
+PROMOTE_INPUTS = {'pilot-run', 'version'}
+PROMOTE_PERMISSIONS = {'contents': 'read', 'actions': 'read', IDT: 'write'}
+PROMOTE_JOB_KEYS = {'name', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'defaults', 'steps'}
+PROMOTE_SETTINGS = {
+    'SCREENTAIL_STABLE_RELEASE': expr('vars.SCREENTAIL_STABLE_RELEASE'),
+    'SCREENTAIL_UPDATE_KEY': expr('vars.SCREENTAIL_UPDATE_KEY'),
+    'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
+    'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
+    'PROMOTE_VERSION': expr('inputs.version'),
+}
+# Every other workflow file, parsed, under this key: none of them may ask for a token or upload a manifest.
+OTHERS = '_others'
+PILOT_DOWNLOAD = 'artifacts/installer/pilot'
+STABLE_OUT = 'artifacts/installer/stable'
+PROMOTE_SEQUENCE = [
+    ('uses', CHECKOUT, {'ref': expr('github.sha'), 'persist-credentials': False}),
+    ('uses', DOWNLOAD, {'name': 'screentail-update-manifests', 'run-id': expr('inputs.pilot-run'), 'github-token': expr('github.token'), 'path': PILOT_DOWNLOAD}),
+    ('run', './installer/update-manifest.ps1 -Channel stable -Promote ' + PILOT_DOWNLOAD + '/pilot/win-x64.json -Out ' + STABLE_OUT, PROMOTE_SETTINGS),
+    ('uses', UPLOAD, {'name': STABLE_ARTIFACT, 'path': STABLE_OUT, 'retention-days': 1, 'if-no-files-found': 'error'}),
 ]
 SIGN_JOB_KEYS = {'name', 'needs', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'outputs', 'defaults', 'steps'}
 MANIFEST_WRITE = './installer/manifest.ps1 -Write -Folder ' + PAYLOAD
@@ -181,6 +207,11 @@ MUST_CONTAIN = {
         "if (@($trust.packageHosts) -notcontains $packageHost) {",
         "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
         "return $ecdsa.VerifyData($SignedBytes, $Signature)",
+        # The channel is required, one of two, and stable only through the gated promotion.
+        "if ($Channel -notin @('pilot', 'stable')) {",
+        "throw 'Stable is signed only by promotion",
+        "if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {",
+        "if ($pilot.channel -cne 'pilot'",
     ],
     'installer/manifest.ps1': [
         "actions/artifacts/$id",
@@ -409,11 +440,17 @@ def check_sign_job(job):
     if job.get('defaults') != {'run': {'shell': 'powershell'}}:
         bad.append(f'{SIGN} defaults must be exactly run.shell: powershell')
 
-    steps = job.get('steps') or []
-    if len(steps) != len(SEQUENCE):
-        bad.append(f'{SIGN} has {len(steps)} steps; the reviewed sequence has {len(SEQUENCE)}')
-    for index, (step, expected) in enumerate(zip(steps, SEQUENCE)):
-        label = f'{SIGN} step {index + 1} ({step.get("name") or step.get("uses") or "?"})'
+    return bad + check_steps(SIGN, job.get('steps') or [], SEQUENCE)
+
+
+def check_steps(name, steps, sequence):
+    # A job's steps against its reviewed sequence: each one exact, nothing added, nothing that changes
+    # how a step runs.
+    bad = []
+    if len(steps) != len(sequence):
+        bad.append(f'{name} has {len(steps)} steps; the reviewed sequence has {len(sequence)}')
+    for index, (step, expected) in enumerate(zip(steps, sequence)):
+        label = f'{name} step {index + 1} ({step.get("name") or step.get("uses") or "?"})'
         for key in ('shell', 'working-directory', 'continue-on-error'):
             if key in step:
                 bad.append(f'{label} sets {key}')
@@ -660,6 +697,10 @@ SAMPLE_FILES = {
         "$answer = Invoke-RestMethod -Method Post -Uri \"$($vaultKey)/sign?api-version=7.4\"",
         "    if (Test-Signature $signedBytes $signature $key.spki) {",
         "    throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
+        "if ($Channel -notin @('pilot', 'stable')) {",
+        "    throw 'Stable is signed only by promotion (promote-stable.yml), never by a build.'",
+        "    if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {",
+        "    if ($pilot.channel -cne 'pilot' -or $pilot.version -cne $env:PROMOTE_VERSION) {",
     ]),
     'installer/tools.json': json.dumps({'packages': [
         {'id': 'wix', 'version': '5.0.2', 'sha256': 'a' * 64},
@@ -686,6 +727,61 @@ SAMPLE_FILES = {
 </Wix>
 """,
 }
+
+
+def steps_from(sequence):
+    steps = []
+    for item in sequence:
+        kind, value, extra = item[:3]
+        if kind == 'uses':
+            step = {'name': value.split('@')[0], 'uses': value, 'with': copy.deepcopy(extra)}
+        else:
+            step = {'name': value.split(' ')[0], 'run': value}
+            if extra:
+                step['env'] = dict(extra)
+        if len(item) > 3:
+            step['id'] = item[3]
+        steps.append(step)
+    return steps
+
+
+def sample_promote():
+    return {
+        'on': {'workflow_dispatch': {'inputs': {name: {'required': True, 'description': name} for name in PROMOTE_INPUTS}}},
+        'permissions': {'contents': 'read'},
+        'env': dict(WORKFLOW_ENV),
+        'jobs': {
+            PROMOTE_JOB: {
+                'name': 'promote',
+                'if': PROMOTE_CONDITION,
+                'runs-on': HOSTED,
+                'environment': PROMOTE_ENVIRONMENT,
+                'permissions': dict(PROMOTE_PERMISSIONS),
+                'timeout-minutes': 15,
+                'defaults': {'run': {'shell': 'powershell'}},
+                'steps': steps_from(PROMOTE_SEQUENCE),
+            },
+        },
+    }
+
+
+def sample_files():
+    files = dict(SAMPLE_FILES)
+    files[PROMOTE_FILE] = sample_promote()
+    files[OTHERS] = {'.github/workflows/other.yml': {'on': {'pull_request': None}, 'permissions': {'contents': 'read'}, 'jobs': {'x': {'runs-on': 'ubuntu-latest', 'steps': [{'run': 'true'}]}}}}
+    return files
+
+
+def on_promote(change):
+    return lambda w, f: change(f[PROMOTE_FILE])
+
+
+def promote_job(p):
+    return p['jobs'][PROMOTE_JOB]
+
+
+def promote_steps(p):
+    return promote_job(p)['steps']
 
 
 def sign_steps(w):
@@ -764,6 +860,40 @@ MUST_FAIL = {
     'the manifest script keeps the token variables': edit_file('installer/update-manifest.ps1', lambda t: t.replace('Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL', 'Write-Host')),
     'a process started by the manifest script': edit_file('installer/update-manifest.ps1', lambda t: t + '\nStart-Process cmd.exe'),
     'the manifest script missing': lambda w, f: f.pop('installer/update-manifest.ps1'),
+    # ST-113 review: stable is never signed by an ordinary CI run.
+    'the signing job signing stable': on_workflow(lambda w: sign_steps(w)[12].update(run=sign_steps(w)[12]['run'].replace('-Channel pilot', '-Channel stable'))),
+    'the signing job with no channel': on_workflow(lambda w: sign_steps(w)[12].update(run=sign_steps(w)[12]['run'].replace('-Channel pilot ', ''))),
+    'the build job signing stable': on_workflow(lambda w: build_steps(w).append({'run': './installer/update-manifest.ps1 -Channel stable -Msi x -Version 1 -Out y'})),
+    'the build job with no channel': on_workflow(lambda w: build_steps(w).append({'run': './installer/update-manifest.ps1 -Msi x -Version 1 -Out y'})),
+    'a stable manifest uploaded by ci': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': STABLE_ARTIFACT, 'path': 'x'}})),
+    'the script without its channel check': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($Channel -notin @('pilot', 'stable')) {", 'if ($false) {')),
+    'the script signing stable without promotion': edit_file('installer/update-manifest.ps1', lambda t: t.replace("throw 'Stable is signed only by promotion", "Write-Host 'Stable")),
+    'the script without the release gate': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {", 'if ($false) {')),
+    'the script promoting what was not a pilot release': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($pilot.channel -cne 'pilot'", "if ($false")),
+    # The promotion workflow.
+    'the promotion workflow missing': lambda w, f: f.pop(PROMOTE_FILE),
+    'promotion with no environment': on_promote(lambda p: promote_job(p).pop('environment')),
+    'promotion in another environment': on_promote(lambda p: promote_job(p).update(environment='signing')),
+    'promotion in a computed environment': on_promote(lambda p: promote_job(p).update(environment=expr("inputs.x"))),
+    'promotion from any branch': on_promote(lambda p: promote_job(p).pop('if')),
+    'promotion on the laptop': on_promote(lambda p: promote_job(p).update(**{'runs-on': ['self-hosted', 'Windows']})),
+    'promotion with a broader permission': on_promote(lambda p: promote_job(p)['permissions'].update(contents='write')),
+    'promotion with permissions at workflow level': on_promote(lambda p: p['permissions'].update(**{IDT: 'write'})),
+    'promotion on a push': on_promote(lambda p: p['on'].update(push={'branches': ['main']})),
+    'promotion with another input': on_promote(lambda p: p['on']['workflow_dispatch']['inputs'].update(extra={'required': False})),
+    'promotion with an input in the command': on_promote(lambda p: promote_steps(p)[2].update(run=promote_steps(p)[2]['run'] + ' -Version ' + expr('inputs.version'))),
+    'promotion without its gate variable': on_promote(lambda p: promote_steps(p)[2]['env'].pop('SCREENTAIL_STABLE_RELEASE')),
+    'promotion with a gate set in the file': on_promote(lambda p: promote_steps(p)[2]['env'].update(SCREENTAIL_STABLE_RELEASE='true')),
+    'promotion signing something it built': on_promote(lambda p: promote_steps(p).insert(2, {'run': './installer/build.ps1 -Stage Payload'})),
+    'promotion downloading from another repository': on_promote(lambda p: promote_steps(p)[1]['with'].update(repository='someone/else')),
+    'promotion keeping the stable manifest longer': on_promote(lambda p: promote_steps(p)[3]['with'].update(**{'retention-days': 90})),
+    'promotion with a job env': on_promote(lambda p: promote_job(p).update(env={'PATH': 'C:\\x'})),
+    'promotion with an unpinned action': on_promote(lambda p: promote_steps(p)[0].update(uses='actions/checkout@v7')),
+    'promotion with a second job': on_promote(lambda p: p['jobs'].update(other={'runs-on': HOSTED, 'steps': [{'run': 'x'}]})),
+    'promotion naming the credential context': on_promote(lambda p: promote_steps(p)[2]['env'].update(AZURE_CLIENT_ID=expr(CTX + '.X'))),
+    'another workflow asking for a token': lambda w, f: f[OTHERS]['.github/workflows/other.yml'].update(permissions={IDT: 'write'}),
+    'another workflow asking for a token in a job': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x'].update(permissions='write-all'),
+    'another workflow uploading the stable manifest': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x']['steps'].append({'uses': UPLOAD, 'with': {'name': STABLE_ARTIFACT, 'path': 'x'}}),
     # Environment.
     'a startup hook for the whole workflow': on_workflow(lambda w: w['env'].update(DOTNET_STARTUP_HOOKS='C:\\hook.dll')),
     'PATH for the whole workflow': on_workflow(lambda w: w['env'].update(PATH='C:\\evil')),
@@ -896,11 +1026,11 @@ def self_test():
     for text in PASSED:
         if names_context(text):
             bad.append(f'the expression scanner flagged {text!r}, which names no such context')
-    good = check(sample_workflow(), dict(SAMPLE_FILES))
+    good = check(sample_workflow(), sample_files())
     if good:
         bad.append(f'the made-up good sample failed: {good}')
     for label, change in MUST_FAIL.items():
-        workflow, files = sample_workflow(), dict(SAMPLE_FILES)
+        workflow, files = sample_workflow(), sample_files()
         change(workflow, files)
         if not check(workflow, files):
             bad.append(f'the check passed a sample with {label}')
@@ -922,6 +1052,14 @@ def main():
         file = root / path
         if file.exists():
             files[path] = file.read_text()
+    promote = root / PROMOTE_FILE
+    if promote.exists():
+        files[PROMOTE_FILE] = yaml.safe_load(promote.read_text())
+    files[OTHERS] = {}
+    for other in sorted((root / '.github/workflows').glob('*.yml')):
+        relative = other.relative_to(root).as_posix()
+        if relative not in ('.github/workflows/ci.yml', PROMOTE_FILE):
+            files[OTHERS][relative] = yaml.safe_load(other.read_text())
     bad = check(workflow, files)
     for line in bad:
         print(f'::error file=.github/workflows/ci.yml::{line}')

@@ -1,6 +1,6 @@
 # The Windows installer
 
-**Written 2026-10-27, revised 2026-10-28, ST-112.** Why it is built this way is ADR-0007. This page is how to build it, how
+**Written 2026-10-27, revised 2026-10-29, ST-112 and ST-113.** Why it is built this way is ADR-0007, and ADR-0008 for updates. This page is how to build it, how
 signing is switched on, how an MSP deploys it, and what an uninstall removes.
 
 Two files come out of a build:

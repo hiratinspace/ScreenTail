@@ -48,6 +48,36 @@ public sealed class ManifestScriptTests : IDisposable
         Assert.NotEqual(0, Run(bad, trustPath));
     }
 
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void ABuildSignsPilotOnlyAndTheChannelHasNoDefault()
+    {
+        // ST-113 review: a build never signs stable, and nothing picks a channel for the caller. All three
+        // are refused before the package is read or the vault is asked for anything.
+        Directory.CreateDirectory(_dir);
+        var msi = Path.Combine(_dir, "ScreenTail.msi");
+        File.WriteAllBytes(msi, new byte[1024]);
+        string[] release = ["-Msi", msi, "-Version", "0.1.20", "-Out", Path.Combine(_dir, "out")];
+
+        Assert.Contains("channel", Fails([.. release]), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("channel", Fails(["-Channel", "all", .. release]), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("promotion", Fails(["-Channel", "stable", .. release]), StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.Exists(Path.Combine(_dir, "out", "stable")));
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void PromotionIsRefusedOutsideTheReleaseEnvironment()
+    {
+        // The gate is a variable only the owner's release-stable environment holds. Without it nothing
+        // is read and nothing is signed: an environment GitHub created on first use, with no reviewers,
+        // does not have it.
+        Directory.CreateDirectory(_dir);
+        var pilot = Path.Combine(_dir, "pilot.json");
+        File.WriteAllText(pilot, "{}");
+
+        Assert.Contains("release-stable", Fails(["-Channel", "stable", "-Promote", pilot, "-Out", Path.Combine(_dir, "out")]), StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(_dir, "out")));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
@@ -69,7 +99,17 @@ public sealed class ManifestScriptTests : IDisposable
         return path;
     }
 
-    private static int Run(string manifest, string trust)
+    private static int Run(string manifest, string trust) => Script(["-Verify", manifest, "-Trust", trust]).Exit;
+
+    /// <summary>Runs the script, which must fail, and returns what it said.</summary>
+    private static string Fails(string[] arguments)
+    {
+        var (exit, output) = Script(arguments);
+        Assert.NotEqual(0, exit);
+        return output;
+    }
+
+    private static (int Exit, string Output) Script(string[] arguments)
     {
         var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"))
         {
@@ -77,17 +117,24 @@ public sealed class ManifestScriptTests : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        foreach (var argument in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Script(), "-Verify", manifest, "-Trust", trust })
+        foreach (var argument in (string[])["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", Script(), .. arguments])
         {
             start.ArgumentList.Add(argument);
+        }
+
+        // Nothing of a real signing configuration reaches the script from the test's environment.
+        foreach (var name in (string[])["SCREENTAIL_STABLE_RELEASE", "SCREENTAIL_UPDATE_KEY", "SCREENTAIL_UPDATE_BASE", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "PROMOTE_VERSION"])
+        {
+            _ = start.Environment.Remove(name);
         }
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("PowerShell did not start.");
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         Assert.True(process.WaitForExit(60_000), "the script finished within a minute");
-        TestContext.Current.SendDiagnosticMessage(output.Result + error.Result);
-        return process.ExitCode;
+        var said = output.Result + error.Result;
+        TestContext.Current.SendDiagnosticMessage(said);
+        return (process.ExitCode, said);
     }
 
     private static string Script()

@@ -170,6 +170,19 @@ public sealed class UpdateManifestTests : IDisposable
         Assert.Null(verdict.Manifest);
     }
 
+    [Theory]
+    [InlineData("stable", UpdateChannel.Pilot)]
+    [InlineData("pilot", UpdateChannel.Stable)]
+    public void AManifestSignedForOneChannelIsRefusedOnTheOther(string signedFor, UpdateChannel device)
+    {
+        // The channel is inside the signed bytes, so a pilot release cannot be served to stable devices
+        // by copying its manifest to the stable path, nor the other way round.
+        var verdict = Read(Envelope(_signer, Payload(edit: p => p["channel"] = signedFor)), _signer.Public, device);
+
+        Assert.Equal(ManifestOutcome.Refused, verdict.Outcome);
+        Assert.Equal(UpdateManifestReader.WrongChannel, verdict.Reason);
+    }
+
     [Fact]
     public void APilotManifestIsReadOnThePilotChannel()
     {
