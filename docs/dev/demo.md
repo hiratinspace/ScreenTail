@@ -1,7 +1,8 @@
 # Running the ScreenTail demo
 
 **What this is for.** Showing the whole of ScreenTail on one Windows laptop: a support call is recorded,
-a password typed during it is kept out, Gemini drafts the ticket note, and you review it. Two commands
+a password typed during it is kept out, Claude (or Gemini, if you choose it) drafts the ticket note, and
+you review it. Two commands
 start it and one stops it. Each of them says in plain words what is wrong when something is missing.
 
 **Read this first.** As of 2026-10-27 the whole loop has never run on a real machine. The pieces are
@@ -21,16 +22,28 @@ The scripts are in `scripts\windows\demo\`. They do what the manual runbook
 | Your own copy of the repository | For example `C:\src\ScreenTail`. Not the CI runner's folder. If you do not have one: `git clone https://github.com/hiratinspace/ScreenTail.git C:\src\ScreenTail`. If you do: `git pull` in it |
 | The .NET 10 SDK | Already on the laptop (the runner's setup installed it). Setup checks |
 | PostgreSQL, or Docker Desktop | If neither is there, setup prints the one line to install PostgreSQL and stops |
-| The Gemini API key | The free tier is enough. On the Mac: `cd backend/src/ScreenTail.Api && dotnet user-secrets list` shows it (mind who is looking) |
-| Internet | Gemini is on the internet, and so is the speech model ScreenTail downloads the first time |
+| A Claude API key (or the Gemini key, if you draft with Gemini) | Claude: make one in the Claude Console, platform.claude.com, under API keys, on the account with the credits. It starts with `sk-ant-`. Gemini: the free tier is enough; on the Mac, `cd backend/src/ScreenTail.Api && dotnet user-secrets list` shows it (mind who is looking) |
+| Internet | Anthropic (or Google) is on the internet, and so is the speech model ScreenTail downloads the first time |
 | For showing recording start by itself: a second Windows PC or a virtual machine you can connect to with Remote Desktop | Optional. See "Two ways to run it" |
 
-**The free Gemini key allows about 20 drafts a day, and 5 a minute.** Each session you stop and draft
-uses one or two. Rehearse with that in mind, and do not rehearse the morning of the demo more than a
-couple of times.
+**Which one drafts.** Setup asks, and Enter means Claude: the notes are drafted by Anthropic's
+`claude-opus-5-5`. Gemini is still there (`setup.cmd -Provider gemini`). Only one is used at a time, and
+the key you give setup belongs to that one.
 
-**Use only made-up details in the demo.** The note is drafted by Google's Gemini, and on the free tier
-Google may use what it is sent to improve its products. The story below is invented for that reason.
+**What a draft costs on Claude.** About $0.31 for the longest session (25 screenshots), and about $0.08
+for an everyday one, from the Anthropic account's credits (a session Claude declines and hands to a
+second model costs up to about $0.97, both attempts counted). The backend stops drafting for the day at
+$30.
+Each session you stop and draft uses one call, or two when the first answer breaks a rule. A new
+Anthropic account is also limited in how many calls a minute it may make; a rehearsal will not reach it.
+
+**The free Gemini key allows about 20 drafts a day, and 5 a minute**, if you draft with Gemini. Rehearse
+with that in mind, and do not rehearse the morning of the demo more than a couple of times.
+
+**Use only made-up details in the demo.** The note is drafted by a company outside this laptop: with
+Claude, Anthropic receives the session after redaction under the owner's Anthropic account and its data
+terms; with the free Gemini tier, Google may use what it is sent to improve its products. The story below
+is invented for that reason.
 
 ---
 
@@ -52,8 +65,11 @@ It works through five things and says "ok" after each:
 - **The development certificate.** The first time, Windows shows a *Security Warning* about installing a
   certificate for "localhost". Answer **Yes**. This is what lets the laptop's ScreenTail talk to the
   laptop's backend over HTTPS without switching any safety check off.
-- **The Gemini key.** It asks you to paste it. **Nothing appears while you paste; that is on purpose.**
-  Right-click pastes in PowerShell. Then press Enter. It asks Google whether the key works and says so.
+- **Who drafts, and their key.** The first time it asks Claude or Gemini (Enter means Claude), then asks
+  you to paste that company's key. **Nothing appears while you paste; that is on purpose.** Right-click
+  pastes in PowerShell. Then press Enter. It asks Anthropic (or Google) whether the key works, without
+  drafting anything or spending anything, and says so. A laptop already set up with a Gemini key keeps
+  Gemini until you run `setup.cmd -Provider claude`.
 - **The signing key.** Made for you. Nothing to do.
 - **PostgreSQL.** If PostgreSQL is installed, it asks for the password you chose when you installed it.
   If only Docker Desktop is there and running, it creates a small database container for you and makes up
@@ -73,9 +89,11 @@ They are never shown on screen or written anywhere else.
 
 | To... | Run |
 |---|---|
-| Replace the Gemini key | `scripts\windows\demo\setup.cmd -NewGeminiKey` |
+| Draft with Claude (asks for the Claude key) | `scripts\windows\demo\setup.cmd -Provider claude` |
+| Draft with Gemini (asks for the Gemini key) | `scripts\windows\demo\setup.cmd -Provider gemini` |
+| Replace the key | `scripts\windows\demo\setup.cmd -NewKey` |
 | Enter the database password again | `scripts\windows\demo\setup.cmd -NewDatabasePassword` |
-| Set up while offline (skip asking Google about the key) | `scripts\windows\demo\setup.cmd -SkipKeyCheck` |
+| Set up while offline (skip asking about the key) | `scripts\windows\demo\setup.cmd -SkipKeyCheck` |
 
 ---
 
@@ -233,7 +251,9 @@ windows** off again (see above).
 | The pill says "Not capturing: ..." | The window in front is not one ScreenTail records. Way B needs **All windows** on |
 | "This device is not enrolled yet" in Review | The one-hour token ran out. `stop.cmd`, `start.cmd`; the waiting session is then drafted |
 | "reached its drafting budget for today" | The backend's own daily cap. Unlikely in a demo; drafting resumes tomorrow |
-| The draft fails and the backend window shows a 429 from Google | The free key's quota is used up (20 a day, 5 a minute). Wait a minute, or until tomorrow |
+| The draft fails and the backend window shows a 429 | The drafting company is rate limiting the key. With Gemini's free key, the quota is used up (20 a day, 5 a minute): wait a minute, or until tomorrow. With Claude, wait a minute; the session is queued and drafts by itself |
+| Review says drafting is not set up, and the backend window shows a 401 | The key does not belong to the company that drafts (a Gemini key with Claude chosen, or the reverse), or it was revoked. `stop.cmd`, `setup.cmd -NewKey`, `start.cmd` |
+| Review says the model declined to draft the session | Claude's safety check refused this session, and so did the model it hands refusals to. Write that note by hand; it is not a fault in the demo |
 | No "Draft ready" after two minutes | Look at the backend window: one request to `/v1/sessions/summarize` should be there. If not, the capture service window says why |
 | A certificate error in the capture service window | Run `setup.cmd` again (answer Yes to the certificate) and start again |
 
@@ -249,10 +269,10 @@ the file `%LOCALAPPDATA%\ScreenTail\device.cred`, and run `start.cmd`.
 
 | What | Where |
 |---|---|
-| The Gemini key, the signing key, the database password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only |
+| The drafting key (Claude's or Gemini's), which one drafts, the signing key, the database password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only |
 | Recorded sessions and drafts (encrypted) | `%LOCALAPPDATA%\ScreenTail`, the product's own folder |
 | The demo's own working files: the published programs, which processes start opened, and the backend's log (no session content in it) | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
-| What is sent to Google for each draft | The session after redaction: screenshots, what was said, and the clicks, through the backend. Nothing is published anywhere without the Publish click |
+| What is sent for each draft, and to whom | To Anthropic (`api.anthropic.com`) when Claude drafts, to Google when Gemini does, through the backend: the session after redaction, which is the screenshots with sensitive regions painted over, the text read from them after masking, and the masked transcript of what was said. Nothing is published anywhere without the Publish click |
 
 Nothing is set in the Windows environment for good: the two settings the capture service needs
 (`SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`) are given to that one process when start launches it.

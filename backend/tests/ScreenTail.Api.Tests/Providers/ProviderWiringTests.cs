@@ -48,6 +48,44 @@ public sealed class ProviderWiringTests(ApiFixture api) : IClassFixture<ApiFixtu
         Assert.Equal(SummarizeStatus.Unavailable, result.Status);
     }
 
+    [Fact]
+    public async Task ClaudeDraftsWhenTheProviderSettingSaysSoThroughItsOwnClient()
+    {
+        // Summarization:Provider=claude. The handler is on the Claude client only, so a service still
+        // wired to Gemini, or to an unnamed client, never reaches it.
+        var provider = new RecordingHandler();
+        using var host = api.WithWebHostBuilder(builder =>
+        {
+            _ = builder.UseSetting("Summarization:Provider", "claude");
+            _ = builder.UseSetting("Summarization:ApiKey", "not-a-real-key");
+            _ = builder.ConfigureTestServices(services => services.Configure<HttpClientFactoryOptions>(
+                nameof(ClaudeProvider),
+                options => options.HttpMessageHandlerBuilderActions.Add(handler => handler.PrimaryHandler = provider)));
+        });
+
+        using var scope = host.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<SummarizationService>();
+
+        var result = await service.DraftAsync(Guid.NewGuid(), Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("https", provider.Asked!.Scheme);
+        Assert.Equal("api.anthropic.com", provider.Asked.Host);
+        Assert.Equal("/v1/messages", provider.Asked.AbsolutePath);
+        Assert.Equal(SummarizeStatus.Unavailable, result.Status);
+        Assert.Equal(TimeSpan.FromSeconds(85), host.Services.GetRequiredService<SummarizationOptions>().Timeout);
+    }
+
+    [Fact]
+    public void AProviderTheServiceDoesNotKnowStopsItStarting()
+    {
+        // A typo in the setting would otherwise send an Anthropic key to Google, or the reverse.
+        using var host = api.WithWebHostBuilder(builder => builder.UseSetting("Summarization:Provider", "anthropic"));
+
+        var thrown = Assert.ThrowsAny<Exception>(() => host.Services);
+
+        Assert.Contains("Summarization:Provider", thrown.ToString(), StringComparison.Ordinal);
+    }
+
     private static SummarizeBundle Bundle() => new()
     {
         SessionId = "s1",

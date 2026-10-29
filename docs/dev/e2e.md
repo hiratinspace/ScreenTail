@@ -145,8 +145,11 @@ nothing and goes through the same validator as a model's note; if the validator 
 the repair keeps only the counts.
 
 It is also how to rehearse the demo offline, or past the free Gemini key's daily limit: start the backend
-with `$env:Summarization__Provider = 'scripted'` added. The note it writes says what it is, so it is not
-something to show an audience as ScreenTail's drafting.
+with `$env:Summarization__Provider = 'scripted'` added. For the demo scripts, set it in the PowerShell
+window before `scripts\windows\demo\start.cmd`: start says it is drafting with the scripted provider and
+passes the setting to the backend in place of the saved Claude or Gemini choice, which it leaves as it
+was. The note it writes says what it is, so it is not something to show an audience as ScreenTail's
+drafting.
 
 ## The secret
 

@@ -16,6 +16,9 @@
     <!-- ST-063: the prompt ships with the service, so a deployment cannot drift from the version its
          post-conditions were written against. -->
     <EmbeddedResource Include="..\..\..\research\prompts\note_v1.md" LogicalName="ScreenTail.Api.Prompts.note_v1.md" />
+    <!-- The note's JSON schema, which ClaudeProvider asks for as structured output. The same file the
+         prompt and DraftValidator are written against, so the three cannot drift apart. -->
+    <EmbeddedResource Include="..\..\..\research\prompts\schema.json" LogicalName="ScreenTail.Api.Prompts.schema.json" />
     <!-- ST-061: the character data DraftValidator reads text with, shared with research/prompts/checks.py.
          Embedded because the API runs with InvariantGlobalization, where string.Normalize does nothing
          to non-ASCII text, so the NFKC tables have to travel with the service. -->
@@ -35,5 +38,6 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Anthropic" />
   </ItemGroup>
 </Project>

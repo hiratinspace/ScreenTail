@@ -30,7 +30,7 @@ So the backend runs on the laptop and the client reaches it as `https://localhos
 backend on the Mac would need a certificate the laptop trusts for the Mac's name, which is more machinery
 than the first run deserves.
 
-One consequence worth stating: **the Gemini key in the Mac's user secrets is the Mac's.** User secrets
+One consequence worth stating: **the drafting key in the Mac's user secrets is the Mac's.** User secrets
 live in the user profile of the machine they were set on. The laptop needs its own copy, set once in
 step 2. Read the value off the Mac without retyping it from memory:
 
@@ -46,10 +46,18 @@ cd backend/src/ScreenTail.Api && dotnet user-secrets list   # prints values; min
 | The .NET 10 SDK on it | `dotnet --version` should say `10.x`. `setup-test-laptop.ps1` installed it for the runner; if a fresh shell cannot find it, `winget install Microsoft.DotNet.SDK.10` |
 | Your own clone of the repository | Anywhere outside the runner's `_work` folder, for example `C:\src\ScreenTail`. The runner's checkout is the runner's |
 | PostgreSQL on the laptop | The API refuses to start without one. Step 0 |
-| The Gemini key | The free tier is enough: 20 requests a day, and this needs one |
+| A drafting key: Claude's or Gemini's | Claude: an Anthropic API key from the Claude Console (it starts with `sk-ant-`), on the account with credits. Gemini: the free tier is enough, 20 requests a day, and this needs one |
 
-The free tier genuinely suffices. Billing matters for *measuring* the model (thinking-token budget,
-repair rate) and not for proving the loop.
+**Which company drafts is one setting.** `Summarization:Provider` is `claude` or `gemini-flash` (the
+default when it is not set; `scripted`, the Development-only test provider in `docs/dev/e2e.md`, drafts
+with no model and no key), and `Summarization:ApiKey` holds that company's key. With `claude`, the
+backend drafts with `claude-opus-5-5` at medium effort; `Summarization:Model` chooses another
+(`claude-sonnet-5-5`, `claude-haiku-5-5`), and the cost cap and per-session reservation follow Claude's
+prices unless you set them. Only the redacted screenshots and the masked OCR text and transcript are sent,
+to `api.anthropic.com` or to Google, never both.
+
+The free Gemini tier genuinely suffices. Billing matters for *measuring* the model (thinking-token
+budget, repair rate) and not for proving the loop.
 
 Steps 0 to 2 are done once. Steps 3 onward are done every time.
 
@@ -77,11 +85,12 @@ dotnet dev-certs https --trust
 Windows asks whether to install the certificate. Yes. Without this the service's HTTPS request to the
 backend fails certificate validation and the outbox reports a send failure rather than a note.
 
-## 2. Save the two secrets (once)
+## 2. Save the secrets (once)
 
 ```powershell
 cd C:\src\ScreenTail\backend\src\ScreenTail.Api
-dotnet user-secrets set "Summarization:ApiKey" "<the Gemini key>"
+dotnet user-secrets set "Summarization:Provider" "claude"     # or leave it out to draft with Gemini
+dotnet user-secrets set "Summarization:ApiKey" "<the Claude key, or the Gemini key without the line above>"
 $bytes = New-Object byte[] 48; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
 dotnet user-secrets set "Jwt:SigningKey" ([Convert]::ToBase64String($bytes))
 dotnet user-secrets list
@@ -235,10 +244,10 @@ own timing.
 | A certificate error in the service window | Step 1 was skipped or declined |
 | "This device is not enrolled yet" | `SCREENTAIL_DEVICE_TOKEN` is unset or expired — step 5 again |
 | "No summarization provider is configured" | `SCREENTAIL_BACKEND` is unset in the shell that started the client |
-| 501 `not_configured` from the backend | The API is running without the Gemini key: `Summarization:ApiKey` is not in user secrets (step 2). Without `ASPNETCORE_ENVIRONMENT` (step 3) the API does not get this far: it refuses to start for want of the signing key |
+| 501 `not_configured` from the backend | The API is running without a drafting key: `Summarization:ApiKey` is not in user secrets (step 2). A key for the other company (a Gemini key with `Summarization:Provider` set to `claude`, or the reverse) is answered the same way once a draft is tried, with a 401 in the backend window. Without `ASPNETCORE_ENVIRONMENT` (step 3) the API does not get this far: it refuses to start for want of the signing key |
 | Connection refused | The backend is not running, or is not on port 5001 (step 6) |
 | A blocked-host message | The address in step 7 does not match what the guard was told to allow |
-| "reached its drafting budget for today" | The daily cap, which is $0.10 a session and $10 a day by default |
+| "reached its drafting budget for today" | The daily cap: by default $0.10 reserved a session and $10 a day on Gemini, $0.60 a session and $30 a day on Claude |
 | 401 from the backend | The token expired. It lasts an hour |
 
 ## 10. Write down what actually happened

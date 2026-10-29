@@ -88,6 +88,43 @@ export Summarization__InputCostPerMillionUsd=0.75
 export Summarization__OutputCostPerMillionUsd=3.75
 ```
 
+**Drafting on Claude instead.** Set the provider to `claude` and give it an Anthropic key; everything
+else has a Claude default, and anything set explicitly is kept:
+
+```bash
+export Summarization__Provider=claude
+export Summarization__ApiKey='…'            # an Anthropic key, sk-ant-…
+# Optional, with their defaults when Provider is claude:
+export Summarization__Model=claude-opus-5-5 # or claude-sonnet-5-5, claude-haiku-5-5
+export Summarization__Effort=medium         # low, medium, high, xhigh, max
+export Summarization__RefusalFallback=default   # Anthropic's recommended fallback; a model list; or none
+export Summarization__MaxOutputTokens=16000 # thinking counts against it
+export Summarization__Timeout=00:01:25
+export Summarization__MaxSessionCostUsd=0.60
+export Summarization__DailyCostCapUsd=30
+```
+
+The rates follow the model (Claude Opus 5.5: $4 input, $20 output, $0.20 cache reads per million, read
+from Anthropic's pricing page on 2026-10-28); a model the table does not list is priced as the dearest
+one it does, Claude Fable 5.1 at $10 and $50. `SummarizationOptions` explains each default, and the
+sixty-cent reservation is worked out from the documented image cost: no key was available to measure
+Claude with. With the refusal fallback on, a declined session can be run again on Claude Opus 5 or Opus 4.8 (both $5 and $25) in the
+same call, and both attempts are billed (about $0.97 at worst, once, against a sixty-cent reservation).
+
+**Any other provider stops the service at startup**, so a typo cannot send one company's key to the
+other. The one more name it knows is `scripted`, the Development-only test provider that writes a
+labelled note without a model (ST-013, `docs/dev/e2e.md`); outside Development it is refused the same way.
+
+**The environment cannot redirect a draft.** The request goes through Anthropic's own C# SDK to
+`api.anthropic.com` only. The SDK is given the address, the key and its tracing setting explicitly, so
+`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_OPEN_TELEMETRY*` are not
+read in their place. `ANTHROPIC_CUSTOM_HEADERS` is cleared from the process at startup, because the SDK
+adds whatever it names to every request and has no setting that stops it. As a second layer each request
+leaves with exactly the configured `Authorization: Bearer` key, the pinned `anthropic-version`, the
+betas that request asked for and a JSON content type, plus the SDK's own description headers matched by
+exact name with one plain value each; anything else, `ANTHROPIC_WORKSPACE_ID`'s header included, is
+removed. `ClaudeEnvironmentTests` and the `Scrub` tests in `ClaudeProviderTests` pin both layers.
+
 **The model name is a setting, and it expires.** The first build of this asked for `gemini-2.0-flash`;
 by the time a key was pointed at it Google had retired that name, and every draft was a 404. Retirements
 are announced months ahead, and the 404 names the replacement, so this is an outage an operator can end
