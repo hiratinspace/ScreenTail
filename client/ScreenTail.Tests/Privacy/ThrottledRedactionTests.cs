@@ -82,25 +82,29 @@ public sealed class ThrottledRedactionTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AClickBurstAtTheDeepestLevelIsAllStoredWhenOcrKeepsUp()
+    public async Task ABurstOfClicksAtTheDeepestLevelIsAllStoredWhenOcrKeepsUp()
     {
-        // Click screenshots are never throttled (2026-10-29 review). The deepest level used to pause the one
-        // reader 2 s after every frame, and with the production queue of four a burst of clicks was refused
-        // at the door. A frozen clock: any pause the reader takes never ends.
+        // Click screenshots are never paused or skipped (2026-10-29 review). The deepest level used to pause
+        // the one reader 2 s after every frame, and with the production queue of four a burst of clicks was
+        // refused at the door. A frozen clock: any pause the reader takes never ends.
         var (worker, recogniser, store) = await StartAsync(
             Throttles.At(CaptureLevel.OcrClicksOnly),
             new CountingTime(frozen: true),
             pendingDepth: PendingFrames.DefaultDepth);
         recogniser.Release();
-        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var running = worker.RunAsync(stopping.Token);
 
+        // Eight clicks 50 ms apart, eight times faster than the click debouncer's 400 ms lets real ones come,
+        // and nothing waits for one to be read before the next is offered.
         for (var click = 0; click < 8; click++)
         {
             _ = await TryStageAsync($"c{click}");
-            _ = await UntilAsync(() => worker.Progress.Frames == click + 1, attempts: 100);
+            await Task.Delay(50, ct);
         }
 
+        _ = await UntilAsync(() => worker.Progress.Frames == 8);
         await stopping.CancelAsync();
         await running;
 
