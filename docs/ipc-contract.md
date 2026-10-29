@@ -193,14 +193,20 @@ none is reported, `IndicatorGuard` suppresses capture after a short grace for UI
 A report with a zero width and height means the technician chose tray-only between sessions, and the
 pill returns as a session starts (owner decision, 2026-10-25). INV-4 allows tray-only as the technician's
 choice, and the report keeps a session the service starts by itself from being refused for want of the
-pill they put away. A session that starts must be followed by a real pill report: if the pill fails to
-come back, or comes back on no monitor, the zero-size report expires and `IndicatorGuard` suppresses after
-its grace, so capture runs without a pill for at most one report's lifetime (six seconds) plus that grace.
+pill they put away. Once a session is recording, paused or suppressed, a zero-size report no longer
+counts: only a report with the pill's rectangle does. The pill has the same grace a UI restart has to
+come back, counted from the moment the session started (not from the report's time), and if no real
+report arrives within it, because the pill failed to come back or came back on no monitor,
+`IndicatorGuard` suppresses capture as it does for a missing pill. So capture runs without a pill for at
+most that grace after a start. A zero-size report that arrives later in a session, from a UI that missed
+the state change, is not the pill either, and since the grace from the start is long over, capture is
+suppressed at once until a real report comes. A width or height that is not above zero reads as zero.
 A pill that is up but on no monitor is not reported at all. The wire format is unchanged and the version
 is not bumped.
 
 The same reports gate `start`: with none current the service answers a failed `result` and starts
-nothing, as it does for a session it would start by itself. A zero-size report counts, as above.
+nothing, as it does for a session it would start by itself. A zero-size report counts for a start, as
+above, on every start path: the pipe's, the hotkey's and the automatic one.
 
 ### Review over the pipe: `get_session`, `get_frame`, the edits
 

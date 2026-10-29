@@ -15,10 +15,10 @@ namespace ScreenTail.Core.Ipc;
 /// A report with a zero width and height says something narrower: the technician chose tray-only between
 /// sessions, and the pill returns as a session starts (owner decision, 2026-10-25). It is accepted here
 /// like any other, so a session the service starts by itself is not refused for want of a pill the
-/// technician put away. Once that session starts the UI must follow with a real pill report: if it does
-/// not, because the pill failed to come back or landed on no monitor, the zero-size report expires and
-/// the guard suppresses after its grace, so the most capture can run without a pill is one report's
-/// lifetime plus that grace.
+/// technician put away. It is not a pill, and <see cref="PillShowing"/> says so: once a session runs,
+/// the guard counts only a report with the pill's rectangle, gives the pill its grace from the start to
+/// come back, and suppresses after that. So the most capture can run without a pill after a start is that
+/// grace, not one report's lifetime plus it.
 ///
 /// <b>What this is not.</b> The service cannot verify the claim, and a process that would lie about it
 /// is a process that could just as well connect and say nothing, which is exactly what used to be
@@ -38,7 +38,7 @@ public sealed class IndicatorReports(TimeProvider? time = null)
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly Lock _gate = new();
-    private readonly Dictionary<Guid, DateTimeOffset> _reports = [];
+    private readonly Dictionary<Guid, (DateTimeOffset At, bool Pill)> _reports = [];
 
     /// <summary>Whether anything is currently claiming to show the indicator.</summary>
     public bool Showing
@@ -65,16 +65,35 @@ public sealed class IndicatorReports(TimeProvider? time = null)
         }
     }
 
-    /// <summary>Whether a current report has the pill's own rectangle rather than a zero-size one.</summary>
-    public bool PillShowing => Showing;
+    /// <summary>
+    /// Whether a current report has the pill's own rectangle: the pill up and on a monitor, rather than
+    /// put away. What a running session needs.
+    /// </summary>
+    public bool PillShowing
+    {
+        get
+        {
+            lock (_gate)
+            {
+                Forget();
+                return _reports.Values.Any(report => report.Pill);
+            }
+        }
+    }
 
-    /// <summary>One window saying it is showing the indicator, now, with the pill's size.</summary>
+    /// <summary>
+    /// One window saying it is showing the indicator, now, with the pill's size.
+    ///
+    /// Only a rectangle with an area is the pill. Anything else, zero, negative or not a number, is read
+    /// as the pill put away, which is the reading that stops counting once a session runs. A window's
+    /// latest report replaces its last, so a pill followed by a zero-size report is the pill gone.
+    /// </summary>
     public void Report(Guid window, double width, double height)
     {
         lock (_gate)
         {
             Forget();
-            _reports[window] = _time.GetUtcNow();
+            _reports[window] = (_time.GetUtcNow(), width > 0 && height > 0);
         }
     }
 
@@ -108,7 +127,7 @@ public sealed class IndicatorReports(TimeProvider? time = null)
         }
 
         var stale = _time.GetUtcNow() - GoodFor;
-        foreach (var window in _reports.Where(entry => entry.Value <= stale).Select(entry => entry.Key).ToList())
+        foreach (var window in _reports.Where(entry => entry.Value.At <= stale).Select(entry => entry.Key).ToList())
         {
             _ = _reports.Remove(window);
         }

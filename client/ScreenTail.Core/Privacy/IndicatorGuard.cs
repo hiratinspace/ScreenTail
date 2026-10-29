@@ -21,17 +21,37 @@ namespace ScreenTail.Core.Privacy;
 ///
 /// The grace period is the whole subtlety. The UI reconnects a moment after a restart, and suppressing
 /// on every blink would fill the timeline with intervals that mean nothing.
+///
+/// <b>The pill put away counts between sessions only.</b> Between sessions the technician may hide the
+/// pill, and the UI then says so with a zero-size report, which lets the next session start (owner
+/// decision, 2026-10-25). Once a session runs, only the pill counts. The pill has the same grace a UI
+/// restart has to come back, counted from the moment the session started rather than from the report's
+/// time or this guard's first look, and after that capture is suppressed as for a missing pill. The
+/// zero-size report used to go on counting for its whole lifetime, plus the grace after it, and for as
+/// long as a UI that had missed the start went on sending it.
 /// </summary>
+/// <param name="showing">Whether any indicator report is current, the pill put away included.</param>
+/// <param name="pill">
+/// Whether a current report has the pill's own rectangle. What a running session needs. Null for a caller
+/// whose reports are all of the pill, so the two read the same.
+/// </param>
 public sealed class IndicatorGuard(
     SessionMachine machine,
     Func<bool> showing,
     TimeProvider? time = null,
-    IndicatorOptions? options = null)
+    IndicatorOptions? options = null,
+    Func<bool>? pill = null)
 {
+    /// <summary>
+    /// The guard over the UI's reports, as the service wires it: any report counts between sessions, and
+    /// only the pill during one.
+    /// </summary>
     public IndicatorGuard(SessionMachine machine, IndicatorReports reports, TimeProvider? time = null, IndicatorOptions? options = null)
-        : this(machine, () => reports.Showing, time, options)
+        : this(machine, () => reports.Showing, time, options, () => reports.PillShowing)
     {
     }
+
+    private readonly Func<bool> _pill = pill ?? showing;
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly IndicatorOptions _options = options ?? new IndicatorOptions();
@@ -69,8 +89,11 @@ public sealed class IndicatorGuard(
     /// The service cannot verify the report, and a process that would lie about it could just as well
     /// connect and say nothing, which is what used to be enough. This catches the accidents, not a
     /// hostile client.
+    ///
+    /// Between sessions any report counts, the pill put away included, so every start has the same gate:
+    /// automatic, the hotkey and the pipe. While a session runs only the pill counts.
     /// </summary>
-    public bool Indicated => showing();
+    public bool Indicated => UnderWay(machine.State) ? _pill() : showing();
 
     /// <summary>
     /// One pass: bring the session into line with whether anything is showing the indicator.
@@ -80,13 +103,18 @@ public sealed class IndicatorGuard(
     public async Task<bool> TickAsync(CancellationToken ct = default)
     {
         var now = _time.GetUtcNow();
-        if (Indicated)
+        var underWay = UnderWay(machine.State);
+        if (underWay ? _pill() : showing())
         {
             _goneSince = null;
         }
         else
         {
-            _goneSince ??= now;
+            // Only the pill put away, in a session: the pill has been missing since the session started,
+            // so its grace runs from then, and the session's own clock says how long ago that was. With
+            // nothing reported at all, the grace runs from the first pass that noticed, as for a restart.
+            var missing = underWay && showing() ? now - TimeSpan.FromMilliseconds(machine.NowMs) : now;
+            _goneSince = _goneSince is { } gone && gone <= missing ? gone : missing;
         }
 
         // Asked of the session, not remembered: the session keeps one hold per guard, a pause keeps
@@ -117,6 +145,10 @@ public sealed class IndicatorGuard(
         _ = await machine.UnsuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
         return false;
     }
+
+    /// <summary>Running, paused or suppressed: a session under way, in which only the pill counts.</summary>
+    private static bool UnderWay(SessionState state) =>
+        state is SessionState.Recording or SessionState.Paused or SessionState.Suppressed;
 
     public async Task RunAsync(CancellationToken ct)
     {
