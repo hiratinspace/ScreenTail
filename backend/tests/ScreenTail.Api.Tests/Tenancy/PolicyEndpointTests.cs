@@ -63,7 +63,7 @@ public sealed class PolicyEndpointTests(ApiFixture api) : IClassFixture<ApiFixtu
         using var contract = JsonDocument.Parse(Contract("response"));
 
         using var defaults = JsonDocument.Parse(await client.GetStringAsync(new Uri("/v1/policy", UriKind.Relative), TestContext.Current.CancellationToken));
-        _ = await api.UseAsync(db => Policies.SetAsync(db, tenantId, retentionDays: 3, localOnly: true, localOnlyLocked: true, captureAllWindows: true, TimeProvider.System));
+        _ = await api.UseAsync(db => Policies.SetAsync(db, tenantId, retentionDays: 3, localOnly: true, localOnlyLocked: true, captureAllWindows: true, new Policies.UpdateSettings("pilot", ChannelLocked: true, CheckHours: 6, UnderLocalOnly: true), TimeProvider.System));
         using var set = JsonDocument.Parse(await client.GetStringAsync(new Uri("/v1/policy", UriKind.Relative), TestContext.Current.CancellationToken));
 
         Assert.Equal(Shape(contract.RootElement), Shape(defaults.RootElement));
