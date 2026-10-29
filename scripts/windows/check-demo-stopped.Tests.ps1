@@ -40,13 +40,22 @@ function Entry {
     [pscustomobject]@{ Role = $Role; Kind = 'process'; Id = $Id; Name = $Name; StartTicks = $Ticks }
 }
 
+# A case's session: -1 leaves -SessionId off, so the check uses its own (the job's); the other is any other.
+$here = -1
+$elsewhere = $self.SessionId + 1000
+# The process line names each process and its id: this script's own powershell is one of them.
+$unrecorded = "$($self.ProcessName) (pid $PID)"
+$closeIt = 'was not started by the demo, so stop.cmd will not stop it. Close it, then re-run this job.'
+
 $cases = @(
-    [pscustomobject]@{ Name = 'no state file and no ScreenTail process passes'; Entries = $null; Names = @($nobody); ExpectExit = 0; MustSay = $idle },
-    [pscustomobject]@{ Name = 'a state file with nothing in it passes'; Entries = @(); Names = @($nobody); ExpectExit = 0; MustSay = $idle },
-    [pscustomobject]@{ Name = 'a live capture service that start.cmd launched fails'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($nobody); ExpectExit = 1; MustSay = $busy },
-    [pscustomobject]@{ Name = 'a recorded process that has since exited passes'; Entries = @((Entry 'service' $PID $self.ProcessName ($selfTicks - 36000000000))); Names = @($nobody); ExpectExit = 0; MustSay = $idle },
-    [pscustomobject]@{ Name = 'a recorded id that now belongs to another program passes'; Entries = @((Entry 'service' $PID 'ScreenTail.Service' $selfTicks)); Names = @($nobody); ExpectExit = 0; MustSay = $idle },
-    [pscustomobject]@{ Name = 'a ScreenTail process in this session fails without any state file'; Entries = $null; Names = @($self.ProcessName); ExpectExit = 1; MustSay = $busy }
+    [pscustomobject]@{ Name = 'no state file and no ScreenTail process passes'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'a state file with nothing in it passes'; Entries = @(); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'a live capture service that start.cmd launched fails'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($busy) },
+    [pscustomobject]@{ Name = 'a recorded process that has since exited passes'; Entries = @((Entry 'service' $PID $self.ProcessName ($selfTicks - 36000000000))); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'a recorded id that now belongs to another program passes'; Entries = @((Entry 'service' $PID 'ScreenTail.Service' $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'a ScreenTail process the demo did not start is named with its id and is to be closed'; Entries = $null; Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($unrecorded, $closeIt) },
+    [pscustomobject]@{ Name = 'a ScreenTail process in another desktop session passes'; Entries = $null; Names = @($self.ProcessName); Session = $elsewhere; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'the demo running says stop.cmd, even with a process beside it'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($busy) }
 )
 
 $bad = 0
@@ -58,16 +67,21 @@ foreach ($case in $cases) {
         Write-State -Path $state -Entries $case.Entries
     }
 
-    $output = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $check `
-        -StateFile $state -Names $case.Names 2>&1 | Out-String
+    # The session is passed only when it is not the check's own, which is how the workflow calls it.
+    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $check, '-StateFile', $state, '-Names', ($case.Names -join ','))
+    if ($case.Session -ge 0) {
+        $arguments += @('-SessionId', [string]$case.Session)
+    }
+    $output = & powershell.exe @arguments 2>&1 | Out-String
     $exit = $LASTEXITCODE
 
-    $ok = ($exit -eq $case.ExpectExit) -and ($output.Contains($case.MustSay))
+    $missing = @($case.MustSay | Where-Object { -not $output.Contains($_) })
+    $ok = ($exit -eq $case.ExpectExit) -and ($missing.Count -eq 0)
     if ($ok) {
         Write-Host "ok   $($case.Name) (exit $exit)"
     } else {
         $bad++
-        Write-Host "::error file=scripts/windows/check-demo-stopped.ps1::$($case.Name): expected exit $($case.ExpectExit) saying '$($case.MustSay)', got exit $exit."
+        Write-Host "::error file=scripts/windows/check-demo-stopped.ps1::$($case.Name): expected exit $($case.ExpectExit) saying '$($case.MustSay -join ''' and ''')', got exit $exit."
         Write-Host $output
     }
 }
