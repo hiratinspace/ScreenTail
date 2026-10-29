@@ -198,7 +198,11 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var running = throttle.RunAsync(harness.Machine, null, stopping.Token);
+        var reads = rig.Cpu.Reads;
         Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
+
+        // The session's first turn is a fresh baseline, so nothing is driven until it has been taken.
+        Assert.True(await UntilAsync(() => rig.Cpu.Reads > reads), "the loop took no turn as the session started");
 
         // The loop's own readings take it down: a minute of every core flat out between two of them, four
         // times. Between minutes the hand-moved clock stands still, so those readings say nothing.
