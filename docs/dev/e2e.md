@@ -128,6 +128,13 @@ failure names the join of the loop that broke and what was there instead.
 | teardown-05 no-crash | Neither process left a crash report (crash reports are switched on for the run) |
 | teardown-06 no-secret-in-logs | The run's made-up secret, or any five-letter run of it, is in no log (the backend's, the service's, the UI's, the runner's) and no crash report |
 
+## Known follow-ups
+
+- **A queued draft is not adopted after a restart.** When the capture service restarts with a session
+  still `draft_pending`, the new machine starts idle and does not rest on that session. Its draft still
+  lands and the draft count updates, but the pill does not show it as the session in front of the
+  technician. Adopting a `draft_pending` row on recovery is left for a later change.
+
 ## The scripted test provider
 
 `Summarization:Provider=scripted` (backend, `Providers/Llm/ScriptedProvider.cs`). Development only: the

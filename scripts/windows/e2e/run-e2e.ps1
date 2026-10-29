@@ -503,13 +503,24 @@ finally {
     }
 
     # The technician's capture settings as they were before the run, byte for byte. The driver puts All
-    # windows back over the pipe too; this holds even when it never got the chance (INV-5).
+    # windows back over the pipe too; this holds even when it never got the chance (INV-5). Only when this
+    # run started the service, which is the only way the file could have been changed by it, and only when
+    # the bytes differ: a run that stopped early, or a technician's own change made meanwhile while no
+    # service of ours was up, is left alone.
     try {
-        if ($null -ne $captureBefore) {
-            [IO.File]::WriteAllBytes($captureFile, $captureBefore)
-        }
-        elseif (Test-Path -LiteralPath $captureFile) {
-            Remove-Item -LiteralPath $captureFile -Force
+        $startedService = @($script:Started | Where-Object { $_.Role -eq 'service' }).Count -gt 0
+        $captureNow = $null
+        if (Test-Path -LiteralPath $captureFile) { $captureNow = [IO.File]::ReadAllBytes($captureFile) }
+        $same = ($null -eq $captureBefore -and $null -eq $captureNow) -or
+            ($null -ne $captureBefore -and $null -ne $captureNow -and [Convert]::ToBase64String($captureBefore) -eq [Convert]::ToBase64String($captureNow))
+        if ($startedService -and -not $same) {
+            if ($null -ne $captureBefore) {
+                [IO.File]::WriteAllBytes($captureFile, $captureBefore)
+            }
+            else {
+                Remove-Item -LiteralPath $captureFile -Force
+            }
+            Write-Line '  the capture settings file was put back as it was before the run'
         }
     }
     catch {
