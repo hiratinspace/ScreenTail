@@ -119,10 +119,16 @@ in the Privacy document, which is saved whole.
   for the technician, the system account and administrators only, applied to a folder that already
   existed too, and refused if it is a link. A session that starts during a download stops it after the
   chunk in hand; what arrived is kept, and the next check (woken when the session ends) continues it with
-  a `Range` request, or starts again if the feed ignores the range. The bytes read are capped at the
-  manifest's size whether or not the feed sends a length. The file is kept only if its size and SHA-256
-  over every byte match the manifest; anything else is deleted and logged. Older packages are removed
-  after a download, and at every start those no newer than the installed version.
+  a `Range` request, or starts again if the feed answers with the whole file (200). A resume is believed
+  only as a 206 whose `Content-Range` starts at exactly the bytes kept and totals exactly the manifest's
+  size; any other answer (416, another offset or total, no range) throws the kept bytes away, writes
+  nothing, and the next check starts from zero. The partial file is opened once, with no sharing, to
+  hash what was kept and append after it. The bytes read are capped at the manifest's size whether or not
+  the feed sends a length. The file is kept only if its size and SHA-256 over every byte match the
+  manifest; anything else is deleted and logged. Older packages are removed after a download, and at
+  every start those no newer than the installed version, after the folder is prepared (so a folder that
+  is a link is left alone). Install does not wait behind a check that is running: it waits two seconds
+  at most and otherwise says a check is running, so the pipe's worker is never held for a download.
 - **A channel that is behind:** a validly signed manifest older than the installed version (a
   technician who moved from pilot to stable while stable is behind) is "up to date, newer than that
   channel", not a refusal logged on every check. An older manifest than one already seen on that channel
@@ -134,7 +140,8 @@ in the Privacy document, which is saved whole.
   transition lock every start takes, and while it is held every start path (automatic, the hotkey, the
   pipe) is refused, with the pipe saying an update is being installed. It is released if any check fails
   or when Windows Installer exits, and then the window in front is decided again, so a tool that took
-  focus meanwhile gets its session without the technician clicking away and back. There is no timeout
+  focus meanwhile gets its session without the technician clicking away and back. It is the window in
+  front at that moment, read afresh, and nothing happens if there is none or it has closed. There is no timeout
   after which sessions may start while Windows Installer runs, and the pill has no "installing" state
   (both are decisions for the owner, below). Install's checks take the update check's own lock, so a
   check that finds a new release cannot replace the package being verified, and a refusal deletes only
@@ -174,8 +181,9 @@ every pull request. The pilot manifest is its own artifact, kept 90 days so a la
 **Stable is signed only by promotion** (`.github/workflows/promote-stable.yml`, its own file so ci.yml's
 triggers are unchanged): started by hand on main with the id of the ci run whose pilot release is
 promoted and its version, on the hosted runner, always in the `release-stable` environment. It first asks
-GitHub what that run is and stops unless it is this repository's ci.yml, started by a push, on main, and
-successful (`installer/check-pilot-run.ps1`, with the job's read-only token). Then it downloads
+GitHub what that run is and stops unless it is this repository's ci.yml, started by a push, on main,
+building this repository's own code (its head repository, not a fork's), and successful
+(`installer/check-pilot-run.ps1`, with the job's read-only token). Then it downloads
 that run's pilot manifest (a JSON file; nothing from the earlier run is executed) and the script signs,
 for stable, exactly what it describes, after checking that it verifies with the client's own keys, says
 pilot and carries the version typed. **It fails closed**: the script refuses unless

@@ -230,6 +230,9 @@ public sealed partial class UpdateService : IDisposable
                 return;
             }
 
+            // Prepared first, as every other use of the folder is: a folder that is a link is refused
+            // (Prepare throws, and nothing is deleted), so a planted link cannot aim this elsewhere.
+            Folder.Prepare();
             foreach (var file in Directory.EnumerateFiles(Folder.Path, "ScreenTail-*.msi*"))
             {
                 var name = System.IO.Path.GetFileName(file);
@@ -466,9 +469,24 @@ public sealed partial class UpdateService : IDisposable
         try
         {
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+            // A resume is believed only as a 206 whose Content-Range starts at exactly the bytes kept and
+            // totals exactly the manifest's size (second review). A 200 is the whole file again. Anything
+            // else (416, a 206 at another offset, of another total or with no range) is a feed that cannot
+            // be trusted to continue this file: the kept bytes go, nothing of the answer is written, and
+            // the next check starts from zero.
+            var range = response.Content.Headers.ContentRange;
             var resuming = have > 0
                 && response.StatusCode == System.Net.HttpStatusCode.PartialContent
-                && (response.Content.Headers.ContentRange?.From ?? have) == have;
+                && range is { HasRange: true, HasLength: true }
+                && range.From == have
+                && range.Length == size;
+            if (have > 0 && !resuming && response.StatusCode != System.Net.HttpStatusCode.OK)
+            {
+                TryDelete(partial);
+                return Settle(Failed("The update feed did not continue the download where it stopped. It starts again at the next check."));
+            }
+
             if (!resuming && response.StatusCode != System.Net.HttpStatusCode.OK)
             {
                 return Settle(Failed($"The update could not be downloaded (HTTP {(int)response.StatusCode})."));
@@ -487,22 +505,38 @@ public sealed partial class UpdateService : IDisposable
             }
 
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            if (resuming)
-            {
-                await using var kept = new FileStream(partial, FileMode.Open, FileAccess.Read, FileShare.None);
-                var chunk = new byte[81920];
-                int read;
-                while ((read = await kept.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
-                {
-                    hash.AppendData(chunk, 0, read);
-                }
-            }
-
             var total = have;
             var interrupted = false;
             await using (var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var file = new FileStream(partial, resuming ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None))
+
+            // Opened once, for reading the kept bytes into the hash and then appending after them, with
+            // nobody else allowed in: no gap between hashing and writing for the file to change in.
+            await using (var file = new FileStream(partial, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
             {
+                if (resuming)
+                {
+                    var chunk = new byte[81920];
+                    long read = 0;
+                    int got;
+                    while (read < have && (got = await file.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, have - read)), ct).ConfigureAwait(false)) > 0)
+                    {
+                        hash.AppendData(chunk, 0, got);
+                        read += got;
+                    }
+
+                    if (read != have)
+                    {
+                        throw new IOException("The kept part of the download changed while it was read.");
+                    }
+
+                    file.SetLength(have);
+                    _ = file.Seek(have, SeekOrigin.Begin);
+                }
+                else
+                {
+                    file.SetLength(0);
+                }
+
                 var buffer = new byte[81920];
                 int n;
                 while ((n = await body.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)

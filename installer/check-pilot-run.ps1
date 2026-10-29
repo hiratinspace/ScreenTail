@@ -19,7 +19,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $id = [string]$env:PILOT_RUN
-if ($id -notmatch '^\d+$') {
+# \A and \z, not ^ and $: $ also matches before a final line break, so '123<newline>' would pass.
+if ($id -notmatch '\A[0-9]+\z') {
     throw 'PILOT_RUN must be the id of a ci run: digits only.'
 }
 if (-not $env:GH_TOKEN) {
@@ -43,6 +44,11 @@ if ($run.head_branch -cne 'main') {
 }
 if ($run.conclusion -cne 'success') {
     throw "Run $id finished $($run.conclusion), not success. Nothing was promoted."
+}
+# The code the run built, not only where it ran: a pull request from a fork runs here with the fork's
+# code, and its head repository says so.
+if ([string]$run.head_repository.full_name -cne [string]$env:GITHUB_REPOSITORY) {
+    throw "Run $id built code from another repository. Nothing was promoted."
 }
 if ([string]$run.repository.full_name -cne [string]$env:GITHUB_REPOSITORY) {
     throw "Run $id belongs to another repository. Nothing was promoted."

@@ -218,7 +218,8 @@ MUST_CONTAIN = {
     ],
     # The promotion's first check: the run is this repository's ci.yml, run by a push to main, and green.
     'installer/check-pilot-run.ps1': [
-        "if ($id -notmatch '^\\d+$') {",
+        "if ($id -notmatch '\\A[0-9]+\\z') {",
+        "if ([string]$run.head_repository.full_name -cne [string]$env:GITHUB_REPOSITORY) {",
         "actions/runs/$id",
         "if ($run.path -cne '.github/workflows/ci.yml') {",
         "if ($run.event -cne 'push') {",
@@ -782,7 +783,8 @@ SAMPLE_FILES = {
         "& $signtool @arguments @toSign | Out-Host",
     ]),
     'installer/check-pilot-run.ps1': "\n".join([
-        "if ($id -notmatch '^\\d+$') {",
+        "if ($id -notmatch '\\A[0-9]+\\z') {",
+        "if ([string]$run.head_repository.full_name -cne [string]$env:GITHUB_REPOSITORY) {",
         "$run = Invoke-RestMethod -Uri \"https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/actions/runs/$id\"",
         "if ($run.path -cne '.github/workflows/ci.yml') {",
         "if ($run.event -cne 'push') {",
@@ -1003,6 +1005,8 @@ MUST_FAIL = {
     'the run check accepting any workflow': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.path -cne '.github/workflows/ci.yml') {", 'if ($false) {')),
     'the run check accepting a pull request': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.event -cne 'push') {", 'if ($false) {')),
     'the run check accepting another branch': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.head_branch -cne 'main') {", 'if ($false) {')),
+    'the run check accepting a fork': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ([string]$run.head_repository.full_name -cne [string]$env:GITHUB_REPOSITORY) {", 'if ($false) {')),
+    'the run check accepting an id with a line break': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("'\\A[0-9]+\\z'", "'^\\d+$'")),
     'the run check accepting a failed run': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.conclusion -cne 'success') {", 'if ($false) {')),
     'the run check starting a process': edit_file('installer/check-pilot-run.ps1', lambda t: t + '\nStart-Process cmd.exe'),
     # Environment.

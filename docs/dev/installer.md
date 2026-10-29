@@ -172,7 +172,9 @@ None of these is in the repository except the trust file, which changes in a rev
    --encoding DER --file key.der`, then its base64 into `shared/release/update-trust.json` under `keys`
    with an id. Never commit the key file itself to anything but that one public value.
 3. **Hosting (ST-007), in the same pull request:** the feed URL (an HTTPS folder ending in `/`) and the
-   exact host names packages are served from, into `feed` and `packageHosts`.
+   exact host names packages are served from, into `feed` and `packageHosts`. **If a CDN redirects the
+   download, list every host it redirects to, exactly, in `packageHosts` too**: the client follows a
+   redirect only onto a listed host, so an unlisted CDN edge host makes every download fail.
 4. **GitHub, the `signing` environment:** variables `SCREENTAIL_UPDATE_KEY` (the versioned key
    identifier) and `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in `/`). From then on
    every signed build on main also writes `pilot/win-x64.json` (artifact `screentail-update-manifests`,
