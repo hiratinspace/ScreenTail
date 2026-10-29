@@ -239,7 +239,9 @@ trigger, permission, filter, gate or skip budget of an existing job moved.
    `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` (the same values as on `signing`). In Azure, add a second
    federated credential to the signing app registration for entity type *Environment*, name
    `release-stable` (subject `repo:hiratinspace/ScreenTail:environment:release-stable`). Until all of this
-   exists the promotion fails closed.
+   exists the promotion fails closed. **Never set `SCREENTAIL_STABLE_RELEASE` at repository or
+   organisation level**: a job that finds no such variable on its environment falls back to those, so a
+   value there would open the gate wherever the job ran.
 6. **Each pilot release:** from the signing run's artifacts, upload `ScreenTail.msi` to `<base><version>/`
    and `pilot/win-x64.json` to the feed; check it first with `installer/update-manifest.ps1 -Verify`.
 7. **Each promotion to stable:** *Actions → promote-stable → Run workflow* on main, with that ci run's id

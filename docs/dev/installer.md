@@ -157,7 +157,9 @@ nobody signed never updates itself either.
 
 `--set-policy <tenant-id> update-channel=stable|pilot update-channel-locked=true|false update-hours=0-168
 update-local-only=true|false`. Defaults: stable, chosen by the technician, every 24 hours, and **no update
-checks under local-only** unless `update-local-only=true`.
+checks under local-only**. `update-local-only=true` lets update checks through a local-only the admin
+locked on (`local-only=true locked=true`) and nothing else: a local-only the technician turned on
+themselves stops update checks whatever this says.
 
 ### Switch it on (owner steps)
 
@@ -179,7 +181,9 @@ None of these is in the repository except the trust file, which changes in a rev
    branches `main` only, and required reviewers (the owner). Variables: `SCREENTAIL_STABLE_RELEASE` =
    `true`, `SCREENTAIL_UPDATE_KEY`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`. In Azure, a second federated
    credential on the app registration for entity type *Environment*, name `release-stable`. Until this
-   exists, the promotion workflow fails closed.
+   exists, the promotion workflow fails closed. **Never set `SCREENTAIL_STABLE_RELEASE` as a repository
+   or organisation variable**: a job falls back to those when its environment has no such variable, which
+   would open the gate.
 
 ### Release to pilot, then promote to stable
 
@@ -187,7 +191,8 @@ None of these is in the repository except the trust file, which changes in a rev
    `pilot/win-x64.json` to `<feed>pilot/win-x64.json`. Check it first:
    `powershell -File .\installer\update-manifest.ps1 -Verify pilot\win-x64.json`.
 2. To promote that release: *Actions → promote-stable → Run workflow* on main, with the ci run's id and
-   the version, and approve it. Upload the `stable/win-x64.json` it produces (artifact
+   the version, and approve it. It first checks that the run is a successful ci.yml run of a push to main,
+   and refuses anything else. Upload the `stable/win-x64.json` it produces (artifact
    `screentail-stable-manifest`, kept one day) to `<feed>stable/win-x64.json`.
 
 ### Laptop checks, with the first signed build
