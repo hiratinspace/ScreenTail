@@ -124,9 +124,10 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         var created = ProviderHttp.Read(await SendAsync(() => Post("api/v1/articles", body), ct).ConfigureAwait(false), Created, "Hudu", written: true);
         if (!created.Ok)
         {
-            // The cached list named a company Hudu has since deleted. The list is out of date, so it
-            // goes, and the next lookup (the mapping prompt's among them) asks Hudu.
-            if (created.Error!.Kind == ProviderErrorKind.NotFound)
+            // Hudu said the company must exist: the cached list named one it has since deleted. The list
+            // is out of date, so it goes, and the next lookup (the mapping prompt's among them) asks
+            // Hudu. Only on that answer: a plain 404 says nothing about the company (review finding 1).
+            if (created.Error!.CompanyGone)
             {
                 _cache.Forget(_tenantKey);
             }
@@ -210,7 +211,7 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         // An article names its company, and Hudu refuses one it no longer has. ScreenTail checked the
         // company against its cached list, so this is a company deleted since: another company is the
         // answer, not a bug report.
-        HttpStatusCode.UnprocessableEntity when CompanyGone(body) => new ProviderError(ProviderErrorKind.NotFound, "Hudu no longer has that company.", "Choose another company for the article, then publish it again."),
+        HttpStatusCode.UnprocessableEntity when CompanyGone(body) => new ProviderError(ProviderErrorKind.NotFound, "Hudu no longer has that company.", "Choose another company for the article, then publish it again.") { CompanyGone = true },
         _ => new ProviderError(ProviderErrorKind.Invalid, $"Hudu refused the request: {Reason(body)}.", "This is a ScreenTail bug; there is nothing to change on your side."),
     };
 
