@@ -17,8 +17,10 @@ namespace ScreenTail.Core.Ipc;
 /// like any other, so a session the service starts by itself is not refused for want of a pill the
 /// technician put away. It is not a pill, and <see cref="PillShowing"/> says so: once a session runs,
 /// the guard counts only a report with the pill's rectangle, gives the pill its grace from the start to
-/// come back, and suppresses after that. So the most capture can run without a pill after a start is that
-/// grace, not one report's lifetime plus it.
+/// come back, and suppresses after that. So a session that starts on the pill put away runs without a pill
+/// for at most that grace, not one report's lifetime plus it. A pill that was reported and then stops
+/// being reported still counts until its report expires, so for a pill lost during a session the bound is
+/// still one report's lifetime plus the grace.
 ///
 /// <b>What this is not.</b> The service cannot verify the claim, and a process that would lie about it
 /// is a process that could just as well connect and say nothing, which is exactly what used to be

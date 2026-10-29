@@ -197,12 +197,16 @@ pill they put away. Once a session is recording, paused or suppressed, a zero-si
 counts: only a report with the pill's rectangle does. The pill has the same grace a UI restart has to
 come back, counted from the moment the session started (not from the report's time), and if no real
 report arrives within it, because the pill failed to come back or came back on no monitor,
-`IndicatorGuard` suppresses capture as it does for a missing pill. So capture runs without a pill for at
-most that grace after a start. A zero-size report that arrives later in a session, from a UI that missed
-the state change, is not the pill either, and since the grace from the start is long over, capture is
-suppressed at once until a real report comes. A width or height that is not above zero reads as zero.
-A pill that is up but on no monitor is not reported at all. The wire format is unchanged and the version
-is not bumped.
+`IndicatorGuard` suppresses capture as it does for a missing pill. The UI sends the zero-size report the
+moment it puts the pill away, so it replaces the pill's last report rather than leaving it current. A
+session that starts on the pill put away therefore runs without a pill for at most that grace. A zero-size
+report that arrives later in a session, from a UI that missed the state change, is not the pill either,
+and since the grace from the start is long over, capture is suppressed at once until a real report comes.
+A width or height that is not above zero reads as zero. A pill that is up but on no monitor is not
+reported at all. A pill that was reported and then stops being reported (the UI froze or crashed, or its
+monitor went) is noticed as before, when its last report expires, so the outer bound for any pill lost
+during a session is still one report's lifetime (six seconds) plus the grace. The wire format is unchanged
+and the version is not bumped.
 
 The same reports gate `start`: with none current the service answers a failed `result` and starts
 nothing, as it does for a session it would start by itself. A zero-size report counts for a start, as
