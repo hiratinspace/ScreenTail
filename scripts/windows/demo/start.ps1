@@ -18,9 +18,10 @@
     Nothing is set machine-wide or user-wide, and nothing is installed. stop.ps1 stops exactly what this
     started. Running start again while the demo is running changes nothing.
 
-    What the backend and the capture service print in their windows is also copied to
+    The lines the backend's and the capture service's scrubbing loggers write are also kept in
     %LOCALAPPDATA%\ScreenTail.Dev\demo\logs (backend.log, service.log; 2 MB each, the one before kept as
-    .1.log), so report.cmd can include it. Both write only through their scrubbing log sink.
+    .1.log), so report.cmd can include them. Anything else they print (a .NET crash message, native
+    library output) shows in their window only; the log has it withheld (see common.ps1).
 
 .PARAMETER Rebuild
     Publish the capture service and the UI again even if nothing seems to have changed.
@@ -219,57 +220,45 @@ foreach ($file in @($script:DemoBackendExited, $script:DemoTokenFile, $script:De
     if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
 }
 
-# How each window copies a line to its log file, with the size cap described in common.ps1. Put into
-# both window scripts below.
-$logFunction = @'
-function Add-DemoLogLine([string]$Path, [string]$Line) {
-    try {
-        $file = New-Object IO.FileInfo($Path)
-        if ($file.Exists -and $file.Length -gt __CAP__) {
-            $older = [IO.Path]::ChangeExtension($Path, '.1.log')
-            [IO.File]::Delete($older)
-            [IO.File]::Move($Path, $older)
-        }
-    }
-    catch { }
-    try { [IO.File]::AppendAllText($Path, $Line + [Environment]::NewLine) } catch { }
-}
-'@
-$logFunction = $logFunction.Replace('__CAP__', [string]$script:DemoLogCapBytes)
+# Both windows write their log through common.ps1's DemoLogWriterSource, saved here as a file each window
+# reads: only the lines the process's scrubbing logger wrote are kept, anything else it prints is
+# withheld, and the file is capped. The window itself still shows everything.
+[IO.File]::WriteAllText($script:DemoLogWriterFile, $script:DemoLogWriterSource, (New-Object Text.UTF8Encoding $false))
 
 # The window's script. Development is what makes the host read user secrets; the variables are set
-# inside the window, for the backend only. Its output is shown and copied to logs\backend.log, which
-# holds no content (the backend's logger scrubs it, INV-10) and lets start, and report.cmd, explain a
-# failure.
+# inside the window, for the backend only. Its output is shown and copied to backend.log, which holds no
+# content (the backend's logger scrubs it, INV-10) and lets start explain a failure.
 $backendScript = @'
-__LOGFUNCTION__
+. ([scriptblock]::Create([IO.File]::ReadAllText(__LOGWRITER__)))
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'ScreenTail demo: backend'
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS = __URL__
 Set-Location -LiteralPath __DIR__
 Write-Host 'ScreenTail backend (Development). Leave this window open; stop.cmd closes it.'
+$script:DemoLog.Path = __LOG__
 $code = 'unknown'
 try {
-    & dotnet __DLL__ 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; Add-DemoLogLine __LOG__ $line }
+    & dotnet __DLL__ 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; Write-DemoLog $line }
     $code = "exit code $LASTEXITCODE"
 }
 catch {
     $code = $_.Exception.Message
     Write-Host $code -ForegroundColor Red
-    Add-DemoLogLine __LOG__ $code
+    Write-DemoLogText "[start.ps1] The backend could not run: $code"
 }
 Write-Host ''
 Write-Host "The backend has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
-Add-DemoLogLine __LOG__ "[start.ps1] The backend has stopped ($code)."
+Write-DemoLogText "[start.ps1] The backend has stopped ($code)."
+Close-DemoLog
 Set-Content -LiteralPath __EXITED__ -Value $code
 '@
-$backendScript = $backendScript.Replace('__LOGFUNCTION__', $logFunction)
 $backendScript = $backendScript.Replace('__URL__', (ConvertTo-Quoted $script:DemoBackendUrl))
 $backendScript = $backendScript.Replace('__DIR__', (ConvertTo-Quoted $script:DemoApiDir))
 $backendScript = $backendScript.Replace('__DLL__', (ConvertTo-Quoted $apiDll))
 $backendScript = $backendScript.Replace('__LOG__', (ConvertTo-Quoted $script:DemoBackendLog))
 $backendScript = $backendScript.Replace('__EXITED__', (ConvertTo-Quoted $script:DemoBackendExited))
+$backendScript = $backendScript.Replace('__LOGWRITER__', (ConvertTo-Quoted $script:DemoLogWriterFile))
 
 $backendWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_DEVICE_TOKEN' = $null } -Body {
     Start-DemoWindow -Script $backendScript
@@ -450,20 +439,23 @@ else {
 
 if (Test-Path -LiteralPath $script:DemoServiceExited) { Remove-Item -LiteralPath $script:DemoServiceExited -Force }
 
-# The service writes its own log to stderr. The window shows it and copies it to logs\service.log (no
-# content: the service's logger scrubs it, INV-10). If the service cannot start at all (an Application
-# Control policy, say), the window says so and the reason is written where start can read it.
+# The service writes its own log to stderr. The window shows it and writes the logger's lines to
+# logs\service.log through the log writer (anything else the service prints is withheld there). If the
+# service cannot start at all (an Application Control policy, say), the window says so and the reason is
+# written where start can read it.
 #
-# The log is read on a second thread rather than piped through PowerShell, because PowerShell ends a
+# The output is read on a second thread rather than piped through PowerShell, because PowerShell ends a
 # piped program the moment Ctrl+C is pressed, and Ctrl+C is how the service is asked to finish cleanly.
 # The service shares this window's console, so it still gets the Ctrl+C itself, and the second thread
-# keeps copying while it finishes.
+# keeps reading while it finishes. That thread is the log's only writer until the output ends.
 $serviceScript = @'
-__LOGFUNCTION__
+$writer = [IO.File]::ReadAllText(__LOGWRITER__)
+. ([scriptblock]::Create($writer))
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'ScreenTail demo: capture service'
 Set-Location -LiteralPath __DIR__
 Write-Host 'ScreenTail capture service. Ctrl+C here stops capture cleanly; stop.cmd closes this window.'
+$script:DemoLog.Path = __LOG__
 $code = 'unknown'
 $service = $null
 $copying = $null
@@ -475,17 +467,19 @@ try {
     $start.RedirectStandardError = $true
     $service = [Diagnostics.Process]::Start($start)
     $copy = {
-        param($Reader, $Path)
-        __LOGFUNCTION__
+        param($Reader, $Path, $Writer)
+        . ([scriptblock]::Create($Writer))
+        $script:DemoLog.Path = $Path
         while ($true) {
             $line = $Reader.ReadLine()
             if ($null -eq $line) { break }
             [Console]::WriteLine($line)
-            Add-DemoLogLine $Path $line
+            Write-DemoLog $line
         }
+        Close-DemoLog
     }
     $copier = [powershell]::Create()
-    $null = $copier.AddScript($copy.ToString()).AddArgument($service.StandardError).AddArgument(__LOG__)
+    $null = $copier.AddScript($copy.ToString()).AddArgument($service.StandardError).AddArgument(__LOG__).AddArgument($writer)
     $copying = $copier.BeginInvoke()
     while (-not $service.WaitForExit(500)) { }
     $code = "exit code $($service.ExitCode)"
@@ -493,21 +487,23 @@ try {
 catch {
     $code = $_.Exception.Message
     Write-Host $code -ForegroundColor Red
-    Add-DemoLogLine __LOG__ $code
+    if (-not $copying) { Write-DemoLogText "[start.ps1] The capture service could not run: $code" }
 }
 finally {
     if ($service) {
         # After Ctrl+C this window stops waiting at once, and the service takes a few seconds to finish.
         if ($service.WaitForExit(35000)) { $code = "exit code $($service.ExitCode)" } else { $code = 'still running; close this window to end it' }
     }
-    if ($copying) { $null = $copying.AsyncWaitHandle.WaitOne(3000) }
+    $copied = $true
+    if ($copying) { $copied = $copying.AsyncWaitHandle.WaitOne(3000) }
     Write-Host ''
     Write-Host "The capture service has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
-    Add-DemoLogLine __LOG__ "[start.ps1] The capture service has stopped ($code)."
+    if ($copied) { Write-DemoLogText "[start.ps1] The capture service has stopped ($code)." }
+    Close-DemoLog
     Set-Content -LiteralPath __EXITED__ -Value $code
 }
 '@
-$serviceScript = $serviceScript.Replace('__LOGFUNCTION__', $logFunction)
+$serviceScript = $serviceScript.Replace('__LOGWRITER__', (ConvertTo-Quoted $script:DemoLogWriterFile))
 $serviceScript = $serviceScript.Replace('__LOG__', (ConvertTo-Quoted $script:DemoServiceLog))
 $serviceScript = $serviceScript.Replace('__DIR__', (ConvertTo-Quoted $script:DemoAppDir))
 $serviceScript = $serviceScript.Replace('__EXE__', (ConvertTo-Quoted $serviceExe))

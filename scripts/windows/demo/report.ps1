@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    Writes one plain-text report about the ScreenTail demo on this laptop to the Desktop, for sending to
-    the developer.
+    Writes one plain-text report about the ScreenTail demo on this laptop to the Desktop (or, when the
+    Desktop is synced to OneDrive, to %LOCALAPPDATA%\ScreenTail.Dev\demo\reports), for sending to the
+    developer.
 
 .DESCRIPTION
     Run it after something did not work, while the demo is still running if it is. It answers, without
@@ -14,10 +15,12 @@
     report itself. The one program it runs is the capture service's own "--capabilities" check, which
     asks Windows what it allows and exits.
 
-    It never includes screenshots, OCR text, transcripts, note text, window titles, keys, tokens,
-    passwords or connection strings. The logs it copies are written through ScreenTail's scrubbing log
-    sink already (INV-10), and every line of the report goes through one more scrub before it is
-    written. The top of the report says what that scrub removed.
+    It is made to leave out screenshots, OCR text, transcripts, note text, window titles, keys, tokens,
+    passwords and connection strings. Of the logs it keeps only the lines ScreenTail's scrubbing log
+    sink wrote (INV-10): any other line a program printed (a .NET crash message, native library output)
+    is withheld and shown only as its length, and of an unhandled exception only the type is kept. Every
+    line of the report then goes through a final pattern scrub. The top of the report says what was
+    withheld and removed.
 
 .EXAMPLE
     scripts\windows\demo\report.cmd
@@ -40,16 +43,27 @@ $script:LogTail = 200
 # --- The final scrub ------------------------------------------------------------------------------------
 
 # Each rule: what it is called at the top of the report, the pattern, and what a match becomes. Broad on
-# purpose; a mangled line costs nothing, a sent key costs a key.
+# purpose; a mangled line costs nothing, a sent key costs a key. A value that already starts with "[" was
+# replaced by an earlier rule and is left as it is.
+#
+# Names written "name: value" are only matched where the name does not follow a dot, because the logger
+# writes "Namespace.Category: message" and a category such as ...TokenIssuer is not a secret's name.
+$passwordNames = 'password|passwd|pwd|psw'
+$secretNames = 'secret|token|credential|api[_\-]?key|signing[_\-]?key|access[_\-]?key|master[_\-]?key|private[_\-]?key|public[_\-]?key|client[_\-]?secret|device[_\-]?token|refresh[_\-]?token'
+$quoted = '"(?:[^"\\]|\\.)*"|''[^'']*'''
 $script:ScrubRules = @(
+    @{ Label = 'authorization headers'; Pattern = '(?i)\b((?:proxy-)?authorization)(\s*[:=]\s*)(?:(?:basic|bearer|digest|token)\s+)?(?!\[)\S+'; Replacement = '$1$2[removed]' },
+    @{ Label = 'key headers'; Pattern = '(?i)\b(x-goog-api-key|x-api-key|api-key|x-auth-token)(\s*[:=]\s*)(?!\[)\S+'; Replacement = '$1$2[removed]' },
     @{ Label = 'JWT tokens'; Pattern = 'eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+'; Replacement = '[token removed]' },
-    @{ Label = 'bearer tokens'; Pattern = '(?i)\bbearer\s+[A-Za-z0-9\-._~+/]+=*'; Replacement = 'Bearer [removed]' },
+    @{ Label = 'bearer tokens'; Pattern = '(?i)\bbearer\s+(?!\[)[A-Za-z0-9\-._~+/]+=*'; Replacement = 'Bearer [removed]' },
     @{ Label = 'Google API keys (AIza...)'; Pattern = 'AIza[0-9A-Za-z_\-]{20,}'; Replacement = '[key removed]' },
     @{ Label = 'API keys (sk-...)'; Pattern = '\bsk-[A-Za-z0-9_\-]{16,}'; Replacement = '[key removed]' },
-    @{ Label = 'passwords, secrets, keys and tokens written as name=value'; Pattern = '(?i)([A-Za-z0-9_.:\-]*(?:password|passwd|pwd|secret|token|api[_\-]?key|signing[_\-]?key|access[_\-]?key|master[_\-]?key)[A-Za-z0-9_\-]*)(\s*=\s*)("[^"]*"|''[^'']*''|[^\s;,&"'']+)'; Replacement = '$1$2[removed]' },
-    @{ Label = 'secrets written as "name": "value"'; Pattern = '(?i)("[A-Za-z0-9_.:\-]*(?:password|passwd|pwd|secret|token|api[_\-]?key|signing[_\-]?key|master[_\-]?key|connectionstring|postgres)[A-Za-z0-9_\-]*"\s*:\s*)"[^"]*"'; Replacement = '$1"[removed]"' },
-    @{ Label = 'key and authorization headers'; Pattern = '(?i)\b(x-goog-api-key|x-api-key|api-key|authorization)(\s*:\s*)(?!bearer\s)\S+'; Replacement = '$1$2[removed]' },
-    @{ Label = 'passwords in connection addresses'; Pattern = '(?i)(\b[a-z][a-z0-9+.\-]*://[^:/@\s]+:)[^@/\s]+@'; Replacement = '$1[removed]@' },
+    @{ Label = 'passwords written as name=value'; Pattern = "(?i)([A-Za-z0-9_.:\-]*(?:$passwordNames)[A-Za-z0-9_\-]*)(\s*=\s*)(?!\[)($quoted|[^;\r\n]+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'passwords written as name: value'; Pattern = "(?i)(?<![A-Za-z0-9_.:\-])([A-Za-z0-9_:\-]*(?:$passwordNames)[A-Za-z0-9_\-]*)(\s*:\s*)(?!\[)($quoted|[^;\r\n]+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'secrets, keys and tokens written as name=value'; Pattern = "(?i)([A-Za-z0-9_.:\-]*(?:$secretNames)[A-Za-z0-9_\-]*)(\s*=\s*)(?!\[)($quoted|[^\s;,&`"']+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'secrets, keys and tokens written as name: value'; Pattern = "(?i)(?<![A-Za-z0-9_.:\-])([A-Za-z0-9_:\-]*(?:$secretNames)[A-Za-z0-9_\-]*)(\s*:\s*)(?!\[)($quoted|[^\s;,&`"']+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'secrets written as "name": "value"'; Pattern = "(?i)(`"[^`"]*(?:$passwordNames|$secretNames|connectionstring|postgres)[^`"]*`"\s*:\s*)(?!`"\[)(?:`"(?:[^`"\\]|\\.)*`")"; Replacement = '$1"[removed]"' },
+    @{ Label = 'passwords in connection addresses'; Pattern = '(?i)(\b[a-z][a-z0-9+.\-]*://[^:/@\s]+:)(?!\[)[^@/\s]+@'; Replacement = '$1[removed]@' },
     @{ Label = 'email addresses'; Pattern = '[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}'; Replacement = '[email]' }
 )
 
@@ -224,9 +238,85 @@ function Invoke-WithTimeout {
     return [pscustomobject]@{ ExitCode = $process.ExitCode; Out = $out.Result; Err = $err.Result; TimedOut = $false }
 }
 
-# The last lines of a log, each indented, with a line saying how much was left out.
+# ConvertTo-DemoLogLine, the filter start's windows write their logs through.
+. ([scriptblock]::Create($script:DemoLogWriterSource))
+
+# Lines read from a log or a program's output, with every line that ScreenTail's scrubbing logger did not
+# write withheld, the same way the windows withhold them as they write. Again here because a file from an
+# older start, or a program's output read directly, was never filtered.
+function Select-DemoLogLines([string[]]$Lines) {
+    $state = @{ InLogger = $false; Reading = $true }
+    $kept = New-Object System.Collections.Generic.List[string]
+    foreach ($line in $Lines) {
+        $text = ConvertTo-DemoLogLine $line $state
+        if ($text -match '^\[line not from ScreenTail''s logger withheld, \d+ chars\]$|^Unhandled exception\. \S+ \[message and stack withheld\]$') {
+            Add-Removed 'lines not written by ScreenTail''s logger (shown only as their length, or an exception''s type)'
+        }
+        $kept.Add($text)
+    }
+    return $kept.ToArray()
+}
+
+# Which company drafts, and its name as a person says it. Through common.ps1's own functions where it has
+# them (from ST-063's Claude provider on), and the same rule here where it does not yet.
+function Get-ReportProvider([hashtable]$Secrets) {
+    if (Get-Command Get-DraftingProvider -CommandType Function -ErrorAction SilentlyContinue) {
+        return (Get-DraftingProvider $Secrets)
+    }
+    $saved = [string]$Secrets['Summarization:Provider']
+    if ($saved -and $saved.Trim().ToLowerInvariant() -eq 'claude') { return 'claude' }
+    return 'gemini-flash'
+}
+
+function Get-ReportProviderLabel([string]$Provider) {
+    if (Get-Command Get-ProviderLabel -CommandType Function -ErrorAction SilentlyContinue) {
+        return (Get-ProviderLabel $Provider)
+    }
+    if ($Provider -eq 'claude') { return 'Claude (Anthropic)' }
+    return 'Gemini (Google)'
+}
+
+# Whether a key looks like the drafting company's, without saying anything else about it.
+function Get-KeyShape([string]$Provider, [string]$Key) {
+    $Key = ([string]$Key).Trim()
+    if ($Provider -eq 'claude') { $prefix = 'sk-ant-'; $company = 'an Anthropic key' } else { $prefix = 'AIza'; $company = 'a Google key' }
+    if ($Key.StartsWith($prefix, [StringComparison]::Ordinal)) { return "shaped like $company ($prefix...)" }
+    return "NOT shaped like $company ($prefix...), which this provider needs"
+}
+
+# Where the report goes: the Desktop, unless the Desktop is synced to OneDrive, where a file is uploaded
+# the moment it is written. Then the demo's own reports folder, which stays on this laptop.
+function Get-ReportFolder([string]$Desktop) {
+    $synced = $false
+    if ($Desktop -match '(?i)\\OneDrive( - [^\\]+)?\\') { $synced = $true }
+    foreach ($root in @($env:OneDrive, $env:OneDriveCommercial, $env:OneDriveConsumer)) {
+        if ($root -and $Desktop.StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { $synced = $true }
+    }
+    if ($synced) { return [pscustomobject]@{ Folder = $script:DemoReportDir; Synced = $true } }
+    return [pscustomobject]@{ Folder = $Desktop; Synced = $false }
+}
+
+# One GET whose answer is never read: the status code, or 0 when there was no HTTP answer. Validated by
+# Windows like Invoke-Probe.
+function Get-StatusOnly([string]$Url) {
+    $response = $null
+    try {
+        $request = [Net.HttpWebRequest]::Create($Url)
+        $request.Method = 'GET'
+        $request.Timeout = 5000
+        $response = $request.GetResponse()
+    }
+    catch {
+        $exception = $_.Exception
+        while ($exception -and -not ($exception -is [Net.WebException])) { $exception = $exception.InnerException }
+        if ($exception -and $exception.Response) { $response = $exception.Response } else { return 0 }
+    }
+    try { return [int]$response.StatusCode } finally { $response.Close() }
+}
+
+# The last lines of a log, filtered, each indented, after a line saying how many there are.
 function Add-LogTail([string]$Path, [int]$Count) {
-    $lines = @(Read-SharedLog $Path)
+    $lines = @(Select-DemoLogLines @(Read-SharedLog $Path))
     while ($lines.Count -gt 0 -and -not $lines[$lines.Count - 1]) {
         if ($lines.Count -eq 1) { $lines = @() } else { $lines = @($lines[0..($lines.Count - 2)]) }
     }
@@ -345,9 +435,14 @@ Invoke-Section 'The clone' {
         Add-Fact 'git' 'not installed or not on PATH, so the commit is unknown'
         return
     }
-    $head = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'log', '-1', '--format=%H %cd %s', '--date=short')
     $branch = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'rev-parse', '--abbrev-ref', 'HEAD')
     Add-Fact 'Branch' (($branch.Lines | Select-Object -First 1))
+    # The commit's subject only when origin has the commit, so it is already public. A commit made only on
+    # this laptop is shown by its id and date.
+    $published = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'branch', '-r', '--contains', 'HEAD')
+    $onOrigin = ($published.ExitCode -eq 0 -and @($published.Lines | Where-Object { $_ -match '^\s*origin/' }).Count -gt 0)
+    if ($onOrigin) { $format = '--format=%H %cd %s' } else { $format = '--format=%H %cd (not on origin; subject not shown)' }
+    $head = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'log', '-1', $format, '--date=short')
     Add-Fact 'Commit' (($head.Lines | Select-Object -First 1))
 
     $compare = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'rev-list', '--left-right', '--count', 'origin/main...HEAD')
@@ -359,18 +454,21 @@ Invoke-Section 'The clone' {
         }
     }
 
-    # --no-optional-locks: status does not even refresh git's index file.
-    $status = Invoke-Native -FilePath 'git' -ArgumentList @('--no-optional-locks', '-C', $script:DemoRepo, 'status', '--porcelain')
+    # Changed files the repository tracks, by name. Untracked files are only counted: their names are the
+    # owner's, not the project's. --no-optional-locks: status does not even refresh git's index file.
+    $status = Invoke-Native -FilePath 'git' -ArgumentList @('--no-optional-locks', '-C', $script:DemoRepo, 'status', '--porcelain', '-uno')
     $changed = @($status.Lines | Where-Object { $_.Trim() })
     if ($changed.Count -eq 0) {
-        Add-Fact 'Local changes' 'none'
+        Add-Fact 'Changed tracked files' 'none'
     }
     else {
-        Add-Fact 'Local changes' "$($changed.Count) file(s):"
+        Add-Fact 'Changed tracked files' "$($changed.Count):"
         foreach ($line in ($changed | Select-Object -First 20)) { Add-Line ('    ' + $line) }
         if ($changed.Count -gt 20) { Add-Line "    ... and $($changed.Count - 20) more" }
         Add-Notice "The clone has $($changed.Count) changed file(s) (listed under 'The clone'). The developer may ask you to undo them."
     }
+    $untracked = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'ls-files', '--others', '--exclude-standard')
+    Add-Fact 'Untracked files (count only)' (@($untracked.Lines | Where-Object { $_.Trim() }).Count)
 }
 
 Invoke-Section 'Demo components' {
@@ -488,11 +586,12 @@ Invoke-Section 'Demo components' {
 
     if ($health.Status -eq 200) {
         # Mapped only while Providers:Demo is on, so its status says whether the running backend has it.
-        $demo = Invoke-Probe -Url "$script:DemoBackendUrl/dev/demo-psa" -TimeoutSeconds 5
-        switch ($demo.Status) {
+        # Only the status is read. The page lists the demo tickets and any note published to them.
+        $demoStatus = Get-StatusOnly "$script:DemoBackendUrl/dev/demo-psa"
+        switch ($demoStatus) {
             200 { $script:DemoLive = 'on'; Add-Fact 'Demo PSA in the running backend' 'on (Providers:Demo)' }
             404 { $script:DemoLive = 'off'; Add-Fact 'Demo PSA in the running backend' 'off (Publish has nowhere to go)' }
-            default { Add-Fact 'Demo PSA in the running backend' "unclear (HTTP $($demo.Status))" }
+            default { Add-Fact 'Demo PSA in the running backend' "unclear (HTTP $demoStatus)" }
         }
     }
 
@@ -564,26 +663,50 @@ Invoke-Section 'Settings the demo depends on (yes/no or names only)' {
     }
     $table = $script:Secrets
 
-    $provider = $table['Summarization:Provider']
-    if (-not $provider) { $provider = 'gemini-flash (the default; not set)' }
-    Add-Fact 'Summarization provider' $provider
+    # The key's setting name, as common.ps1 calls it: $KeyDrafting from ST-063's Claude provider on,
+    # $KeyGemini before it. The same setting either way.
+    $keyName = 'Summarization:ApiKey'
+    foreach ($candidate in @('KeyDrafting', 'KeyGemini')) {
+        $value = Get-Variable -Name $candidate -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+        if ($value) { $keyName = $value; break }
+    }
+
+    $provider = Get-ReportProvider $table
+    $script:Provider = $provider
+    $saved = [string]$table['Summarization:Provider']
+    if ($saved) { $how = "saved as '$saved'" } else { $how = 'not saved, so the default' }
+    Add-Fact 'Drafting provider' ((Get-ReportProviderLabel $provider) + " ($how)")
     $model = $table['Summarization:Model']
     if (-not $model) {
         $source = Join-Path $script:DemoApiDir 'Summarize\SummarizationOptions.cs'
         $model = 'unknown'
         if (Test-Path -LiteralPath $source) {
-            $match = [regex]::Match([IO.File]::ReadAllText($source), 'public string Model \{ get; set; \} = "([^"]+)"')
-            if ($match.Success) { $model = $match.Groups[1].Value + ' (the default; not set)' }
+            $code = [IO.File]::ReadAllText($source)
+            if ($provider -eq 'claude') { $constant = 'DefaultClaudeModel' } else { $constant = 'DefaultGeminiModel' }
+            $match = [regex]::Match($code, $constant + ' = "([^"]+)"')
+            if (-not $match.Success -and $provider -ne 'claude') { $match = [regex]::Match($code, 'public string Model \{ get; set; \} = "([^"]+)"') }
+            if ($match.Success) {
+                $model = $match.Groups[1].Value + ' (the default; not set)'
+            }
+            elseif ($provider -eq 'claude') {
+                $model = 'none: this clone''s backend has no Claude provider'
+                Add-Problem 24 'Claude is chosen to draft, but this clone''s backend has no Claude provider yet, so drafting cannot work.' 'Update the clone once the Claude provider is merged (git pull), or ask the developer to switch this laptop back to Gemini.'
+            }
         }
     }
-    Add-Fact 'Summarization model' $model
+    Add-Fact 'Drafting model' $model
 
-    $key = [string]$table[$script:KeyGemini]
-    $keyLine = Get-YesNo ($key.Trim())
-    if ($key.Trim()) {
-        if ($key.Trim().StartsWith('AIza')) { $keyLine += ', shaped like a Google key' } else { $keyLine += ', but not shaped like a Google key (AIza...)' }
+    $key = ([string]$table[$keyName]).Trim()
+    $keyLine = Get-YesNo $key
+    if ($key) {
+        $shape = Get-KeyShape $provider $key
+        $keyLine += ", $shape"
+        if ($shape.StartsWith('NOT')) {
+            $label = Get-ReportProviderLabel $provider
+            Add-Problem 22 "The saved drafting key does not look like a key for $label, which is the one chosen to draft. Every draft would be refused." "Run setup.cmd again and give it the $label key (setup.cmd -NewKey, or -NewGeminiKey on a clone from before the Claude provider)."
+        }
     }
-    Add-Fact 'Summarization key configured' $keyLine
+    Add-Fact "Drafting key configured ($keyName)" $keyLine
     $fallback = ([string]$table['Summarization:FallbackApiKey']).Trim()
     Add-Fact 'Fallback key configured' (Get-YesNo $fallback)
     Add-Fact 'Signing key configured' (Get-YesNo (Test-SigningKey $table[$script:KeySigning]))
@@ -613,7 +736,7 @@ Invoke-Section 'Settings the demo depends on (yes/no or names only)' {
     }
 
     $missing = @()
-    if (-not $key.Trim()) { $missing += 'the Gemini key' }
+    if (-not $key) { $missing += 'the drafting key' }
     if (-not (Test-SigningKey $table[$script:KeySigning])) { $missing += 'the signing key' }
     if (-not $table[$script:KeyDatabase]) { $missing += 'the database connection' }
     if ($missing.Count -gt 0) {
@@ -714,7 +837,9 @@ Invoke-Section 'What Windows lets the capture service do' {
             }
             if (-not $report) {
                 Add-Fact 'Capability check' "exit code $($run.ExitCode), no report"
-                foreach ($line in @(($run.Err + "`n" + $run.Out) -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 10)) { Add-Line ('    ' + $line) }
+                # Only what the service's logger or its fixed sentences say; a crash's message is withheld.
+                $said = @(Select-DemoLogLines @((($run.Err + "`n" + $run.Out) -split "`r?`n") | Where-Object { $_.Trim() }))
+                foreach ($line in @($said | Select-Object -First 10)) { Add-Line ('    ' + $line) }
             }
             else {
                 Add-Fact 'Can capture' (Get-YesNo $report.can_capture)
@@ -739,7 +864,8 @@ Invoke-Section 'What Windows lets the capture service do' {
                         Add-Notice "$($check.capability) is $($check.state): $($check.message)$hint"
                     }
                 }
-                foreach ($line in @($run.Err -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 5)) { Add-Line ('    stderr: ' + $line) }
+                $said = @(Select-DemoLogLines @(($run.Err -split "`r?`n") | Where-Object { $_.Trim() }))
+                foreach ($line in @($said | Select-Object -First 5)) { Add-Line ('    stderr: ' + $line) }
             }
         }
     }
@@ -866,7 +992,7 @@ Invoke-Section 'Capture settings and hotkeys' {
         Add-Fact 'Admin policy cached' 'no'
     }
     if ($localMine -or $localPolicy) {
-        Add-Problem 80 'Local-only mode is on, so sessions never go to the backend: notes are drafted on this laptop, plainer, not by Gemini.' 'Right-click the tray icon > Open ScreenTail > Settings > Privacy, and turn Local-only mode off.'
+        Add-Problem 80 'Local-only mode is on, so sessions never go to the backend: notes are drafted on this laptop, plainer, not by the drafting model.' 'Right-click the tray icon > Open ScreenTail > Settings > Privacy, and turn Local-only mode off.'
     }
     if ($settings) {
         Add-Fact 'Retention' "$($settings.retention_days) days"
@@ -875,7 +1001,7 @@ Invoke-Section 'Capture settings and hotkeys' {
     }
 }
 
-Invoke-Section ("Logs (the last $script:LogTail lines of each, scrubbed again)") {
+Invoke-Section ("Logs (the last $script:LogTail lines of each; only the logger's lines are kept)") {
     $logs = @(
         @{ Name = 'Capture service'; Path = $script:DemoServiceLog; Rank = 90 },
         @{ Name = 'Backend'; Path = $script:DemoBackendLog; Rank = 92 }
@@ -901,7 +1027,12 @@ Invoke-Section ("Logs (the last $script:LogTail lines of each, scrubbed again)")
             Add-Problem $log.Rank ("The $($log.Name.ToLower()) logged $($errors.Count) error(s). The first: " + $errors[0]) 'Send this report to the developer; the log below has the details.'
         }
         if ($log.Name -eq 'Backend' -and @($lines | Where-Object { $_ -match '\b429\b|RESOURCE_EXHAUSTED|quota' }).Count -gt 0) {
-            Add-Notice 'The backend log mentions a quota or HTTP 429: the free Gemini key allows about 20 drafts a day and 5 a minute. Wait a minute, or until tomorrow.'
+            if ($script:Provider -eq 'claude') {
+                Add-Notice 'The backend log mentions a quota or HTTP 429: Anthropic is rate limiting the key. Wait a minute; a waiting session drafts by itself.'
+            }
+            else {
+                Add-Notice 'The backend log mentions a quota or HTTP 429: the free Gemini key allows about 20 drafts a day and 5 a minute. Wait a minute, or until tomorrow.'
+            }
         }
     }
 
@@ -961,20 +1092,23 @@ if ($script:Notices.Count -gt 0) {
 $header = New-Object System.Collections.Generic.List[string]
 $header.Add('ScreenTail demo report')
 $header.Add('Written ' + $now.ToString('yyyy-MM-dd HH:mm:ss') + ' local time (' + $now.ToUniversalTime().ToString('yyyy-MM-dd HH:mm') + ' UTC) by scripts\windows\demo\report.cmd.')
-$header.Add('It only read things; nothing on this laptop was changed.')
+$header.Add('Apart from writing this file, it only read things; nothing else on this laptop was changed.')
 $header.Add('')
-$header.Add('This report never contains screenshots, OCR text, transcripts, note text, window titles, keys,')
-$header.Add('tokens, passwords or connection strings. Settings appear as yes/no or by name only. The logs below')
-$header.Add('were scrubbed by ScreenTail when they were written, and every line here went through one more')
-$header.Add('scrub, which replaces: saved secrets by their exact value, name=value and "name": "value" secrets,')
-$header.Add('bearer and JWT tokens, AIza and sk- keys, passwords in connection strings and addresses, email')
-$header.Add('addresses, long key-like strings, user folder paths (as %USERPROFILE%), the user name and the')
-$header.Add('computer name.')
+$header.Add('What this report is made to leave out: screenshots, OCR text, transcripts, note text, window titles,')
+$header.Add('keys, tokens, passwords and connection strings. Settings appear as yes/no or by name only. It never')
+$header.Add('opens the session store. From the logs it keeps only the lines ScreenTail''s scrubbing logger wrote')
+$header.Add('(INV-10); any other line a program printed, such as a .NET crash message or a native library''s')
+$header.Add('output, is withheld and shown only as its length, and of an unhandled exception only the type is')
+$header.Add('kept. Every line here then went through a final scrub, which replaces: saved secrets by their exact')
+$header.Add('value, secrets written as name=value, name: value or "name": "value", authorization headers, bearer')
+$header.Add('and JWT tokens, AIza and sk- keys, passwords in connection strings and addresses, email addresses,')
+$header.Add('long key-like strings, user folder paths (as %USERPROFILE%), the user name and the computer name.')
+$header.Add('Patterns can miss things, so read it before sending, as with anything.')
 if ($script:Removed.Count -eq 0) {
-    $header.Add('That final scrub found nothing to remove.')
+    $header.Add('Nothing was withheld or removed.')
 }
 else {
-    $header.Add('That final scrub removed:')
+    $header.Add('Withheld or removed:')
     foreach ($label in $script:Removed.Keys) {
         $header.Add("  - $($script:Removed[$label]) x $label")
     }
@@ -984,7 +1118,9 @@ $header.Add('== What looks wrong')
 
 $desktop = [Environment]::GetFolderPath('Desktop')
 if (-not $desktop -or -not (Test-Path -LiteralPath $desktop)) { $desktop = Join-Path $env:USERPROFILE 'Desktop' }
-$path = Join-Path $desktop ('ScreenTail-report-' + $now.ToString('yyyyMMdd-HHmm') + '.txt')
+$destination = Get-ReportFolder $desktop
+if (-not (Test-Path -LiteralPath $destination.Folder)) { New-Item -ItemType Directory -Path $destination.Folder -Force | Out-Null }
+$path = Join-Path $destination.Folder ('ScreenTail-report-' + $now.ToString('yyyyMMdd-HHmm') + '.txt')
 $all = @($header) + @($wrong) + @($script:Body)
 [IO.File]::WriteAllLines($path, [string[]]$all, (New-Object Text.UTF8Encoding $true))
 
@@ -994,8 +1130,17 @@ if ($firstText) {
     Write-Host ('Fix: ' + $firstFix) -ForegroundColor Yellow
     Write-Host ''
 }
-Write-Host 'The report is on your Desktop:' -ForegroundColor Green
+if ($destination.Synced) {
+    Write-Host 'Your Desktop is synced to OneDrive, so the report was NOT put there (OneDrive would upload it at' -ForegroundColor Green
+    Write-Host 'once). It is in this folder, which opens now:' -ForegroundColor Green
+}
+else {
+    Write-Host 'The report is on your Desktop:' -ForegroundColor Green
+}
 Write-Host "  $path" -ForegroundColor Green
 Write-Host 'Read it if you like (it opens in Notepad now), then send that one file to the developer.'
 try { Start-Process -FilePath 'notepad.exe' -ArgumentList @("`"$path`"") } catch { }
+if ($destination.Synced) {
+    try { Start-Process -FilePath 'explorer.exe' -ArgumentList @("/select,`"$path`"") } catch { }
+}
 exit 0

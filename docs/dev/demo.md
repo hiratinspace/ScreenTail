@@ -248,8 +248,9 @@ cd C:\src\ScreenTail
 scripts\windows\demo\report.cmd
 ```
 
-It takes up to a minute and changes nothing. It writes one text file to your Desktop,
-`ScreenTail-report-<date>-<time>.txt`, and opens it in Notepad. Send that file to the developer. Its top
+It takes up to a minute and changes nothing apart from writing one text file,
+`ScreenTail-report-<date>-<time>.txt`, to your Desktop, which it opens in Notepad. Send that file to
+the developer. Its top
 section, **What looks wrong**, names the first problem it found and how to fix it, in plain words.
 
 What is in it: the Windows and .NET versions, the commit the clone is on and whether it has local
@@ -259,14 +260,22 @@ or names only), the device token's expiry, what Windows lets the capture service
 language, speech model, UI Automation), the capture scope and the hotkeys, and the last 200 lines of the
 capture service's and the backend's logs.
 
-What is never in it: screenshots, OCR text, transcripts, note text, window titles, keys, tokens,
-passwords or connection strings. The logs have no session content to begin with, and every line goes
-through one more scrub before it is written (the top of the file says what that removed, for example
-your user folder, shown as `%USERPROFILE%`). Read it before sending if you like, as with anything.
+What it is made to leave out: screenshots, OCR text, transcripts, note text, window titles, keys,
+tokens, passwords and connection strings. It never opens the recorded sessions. From the logs it keeps
+only the lines ScreenTail's scrubbing logger wrote; any other line a program printed (a crash message
+from .NET, output from a native library) is withheld and shown only as its length, and of a crash only
+the exception's type is kept. Every line then goes through a final scrub for anything shaped like a
+key, a token or a password, and your user folder is shown as `%USERPROFILE%`. The top of the file says
+what was withheld and removed. Patterns can miss things, so read it before sending, as with anything.
 
-The logs come from `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs`, where `start.cmd` copies what the backend
-and capture service windows print. A demo started with an older `start.cmd` has no capture service log
-yet: run `stop.cmd`, `start.cmd`, try again, then `report.cmd`.
+If your Desktop is synced to OneDrive, the report is written to
+`%LOCALAPPDATA%\ScreenTail.Dev\demo\reports` instead, so it is not uploaded before you have read it,
+and that folder opens.
+
+The logs come from `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs`, where `start.cmd` writes the logger's
+lines from the backend and capture service windows (the windows themselves still show everything). A
+demo started with an older `start.cmd` has no capture service log yet: run `stop.cmd`, `start.cmd`, try
+again, then `report.cmd`.
 
 ## Activated device
 
@@ -282,8 +291,8 @@ the file `%LOCALAPPDATA%\ScreenTail\device.cred`, and run `start.cmd`.
 |---|---|
 | The Gemini key, the signing key, the database password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only |
 | Recorded sessions and drafts (encrypted) | `%LOCALAPPDATA%\ScreenTail`, the product's own folder |
-| The demo's own working files: the published programs and which processes start opened | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
-| The backend's and the capture service's logs (no session content in them; 2 MB each, the run before kept as `.1.log`) | `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs` |
+| The backend's and the capture service's logs: only the lines their scrubbing logger wrote, anything else withheld (2 MB each, the run before kept as `.1.log`) | `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs` |
+| The demo's own working files: the published programs, which processes start opened, and the backend's log (no session content in it) | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
 | What is sent to Google for each draft | The session after redaction: screenshots, what was said, and the clicks, through the backend. Nothing is published anywhere without the Publish click |
 
 Nothing is set in the Windows environment for good: the two settings the capture service needs
