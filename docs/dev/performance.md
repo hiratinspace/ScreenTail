@@ -99,26 +99,41 @@ held to 15% of itself.
 |---|---|---|
 | 10 s over budget | Fewer samples | The scene sampler looks at the screen every other tick (every 2 s by default) |
 | 10 s more | Fewest samples | Every fourth tick (every 4 s) |
-| 10 s more | OCR one at a time | And redaction reads one frame at a time instead of two |
-| 10 s more | OCR deferred | And waits 2 s after each frame before reading the next |
+| 10 s more | OCR one at a time | And redaction reads one frame at a time instead of two while the session records |
+| 10 s more | OCR clicks only | And the scene sampler stops looking, so OCR reads only the frames a click or a marked moment asked for |
 
 - **Back up:** one step after 30 s below 80% of the budget. Between 80% and 100% the level holds, so a
   load that sits at the budget does not flap. A reading back under the budget starts the ten seconds again.
 - **Never throttled:** the input hooks, click events and click screenshots, mark moment, and speech.
-  They still count towards the reading, so a busy transcription is paid for out of sampling and OCR.
+  They still count towards the reading, so a busy transcription is paid for out of sampling and OCR. A
+  click's screenshot is never held back or refused for the throttle: a frame that is waiting is read as
+  soon as a reader is free. An earlier draft paused 2 s after each frame at the deepest level, which could
+  refuse a burst of clicks at the four-frame queue; the 2026-10-29 review caught it and the pause is gone.
 - **Redaction is untouched (INV-1).** A skipped look is a picture never taken. A frame waiting its turn
-  waits in memory, never in the store, and is read, searched and painted exactly as at full capture. One
-  that finds the four-frame queue full is refused and counted as it always was (ADR-0006); at the deepest
-  level the queue drains in about ten seconds, inside finalize's twenty-second redaction grace.
-- **Session end** puts capture back to full and forgets the readings. With no session nothing is read
-  and no timer exists, so the idle figures above do not move.
+  waits in memory, never in the store, and is read, searched and painted exactly as at full capture.
+- **Finalize is never stretched.** One frame at a time holds only while the session records. Paused or
+  finalizing, both readers work, so the frames finalize waits for inside its twenty-second redaction grace
+  are read as fast as they ever were.
+- **Session end** puts capture back to full and forgets the readings. A discard, or a finalize shorter
+  than a second, can be followed by a new session before the next reading; that reading sees a session it
+  has not seen and forgets the last one first, so the new session starts at full. Until it comes (at most
+  a second) the new session runs at the old level. With no session nothing is read and no timer exists,
+  so the idle figures above do not move.
 - **Log (INV-10):** one line per change, `Capture throttle Full -> FewerSamples at 9.3% of the machine`.
   Nothing else.
+- **The login-screen check reacts later.** ST-041's OCR heuristic for a sign-in prompt sees a frame only
+  once it is read. With one reader, a click's frame can wait behind the frames ahead of it in the queue: at
+  most three, each taking a median of 171 ms and at most about 700 ms (ST-041's budget), so up to about
+  two seconds later than at full capture. At the deepest level a prompt that appears without a click is
+  not photographed, so the OCR check cannot see it until the next click; the password-field guard (ST-040),
+  which asks Windows rather than reading the screen, is unaffected and still suppresses capture the moment
+  focus lands in a password field.
 
 The Mac suite proves the rules on a fake processor clock and a hand-moved clock (`CaptureThrottleTests`,
 `ThrottledSamplingTests`, `ThrottledRedactionTests`). The laptop rig composes the throttle as the host
-does, and the recording measurement reports the level it ended at; at 4.7% of one core it should read
-`Full`.
+does. The recording measurement reports how often the throttle moved and the level it ended at, and on
+the laptop it fails if the throttle moved at all: a throttled service records less, and its figure would
+hide the regression that throttled it. At 4.7% of one core it should never move.
 
 ### Owner step on the laptop
 
