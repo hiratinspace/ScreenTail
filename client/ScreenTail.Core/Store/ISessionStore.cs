@@ -195,6 +195,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <param name="limit">How many rows to read. The caller shows a page; the store should not read the store.</param>
     Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default);
 
+    /// <summary>
+    /// One session's history row, or null when there is no such session. For recovery, which needs the
+    /// tool and the duration of the session it adopts and not its frames: <see cref="LoadSessionAsync"/>
+    /// reads all of them.
+    /// </summary>
+    Task<SessionSummary?> GetSessionSummaryAsync(string sessionId, CancellationToken ct = default);
+
     Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default);
 
     Task<int> GetSchemaVersionAsync(CancellationToken ct = default);

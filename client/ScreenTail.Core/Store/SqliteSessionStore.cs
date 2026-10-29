@@ -852,12 +852,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// </param>
     public Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default) =>
         QueryAsync<IReadOnlyList<SessionSummary>>(
-            """
-            SELECT s.id, s.started_at, s.duration_ms, s.remote_tool_kind, s.state, s.partial_capture,
-                   s.frames_purged_unredacted, s.raw_purged_at,
-                   json_extract(s.draft_json, '$.suggested_title'),
-                   (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0)
-            FROM sessions s
+            $"""
+            {SummarySelect}
             ORDER BY s.started_at DESC
             LIMIT @limit
             """,
@@ -866,30 +862,53 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                 var rows = new List<SessionSummary>();
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
-                    // Only the title is read out of the draft, and it is read by the database rather
-                    // than by deserialising the note. Turning the whole thing into a DraftNote pulled
-                    // every step's text out to show one line, and one field of an unexpected shape threw
-                    // and left the row with no title at all — a history saying "Draft" where the
-                    // technician had written a name.
-                    var title = reader.IsDBNull(8) ? null : reader.GetString(8);
-
-                    rows.Add(new SessionSummary(
-                        reader.GetString(0),
-                        DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
-                        reader.IsDBNull(2) ? null : reader.GetInt64(2),
-                        reader.GetString(3),
-                        reader.GetString(4),
-                        reader.GetInt64(5) != 0,
-                        reader.GetInt64(6),
-                        reader.GetInt32(9),
-                        !reader.IsDBNull(7),
-                        string.IsNullOrWhiteSpace(title) ? null : title));
+                    rows.Add(ReadSummary(reader));
                 }
 
                 return rows;
             },
             ct,
             ("@limit", limit));
+
+    public Task<SessionSummary?> GetSessionSummaryAsync(string sessionId, CancellationToken ct = default) =>
+        QueryAsync(
+            $"""
+            {SummarySelect}
+            WHERE s.id = @id
+            """,
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadSummary(reader) : null,
+            ct,
+            ("@id", sessionId));
+
+    /// <summary>A history row's columns, as <see cref="ReadSummary"/> reads them. Each caller adds its own filter and order.</summary>
+    private const string SummarySelect = """
+        SELECT s.id, s.started_at, s.duration_ms, s.remote_tool_kind, s.state, s.partial_capture,
+               s.frames_purged_unredacted, s.raw_purged_at,
+               json_extract(s.draft_json, '$.suggested_title'),
+               (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0)
+        FROM sessions s
+        """;
+
+    private static SessionSummary ReadSummary(SqliteDataReader reader)
+    {
+        // Only the title is read out of the draft, and it is read by the database rather than by
+        // deserialising the note. Turning the whole thing into a DraftNote pulled every step's text out
+        // to show one line, and one field of an unexpected shape threw and left the row with no title at
+        // all: a history saying "Draft" where the technician had written a name.
+        var title = reader.IsDBNull(8) ? null : reader.GetString(8);
+
+        return new SessionSummary(
+            reader.GetString(0),
+            DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
+            reader.IsDBNull(2) ? null : reader.GetInt64(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetInt64(5) != 0,
+            reader.GetInt64(6),
+            reader.GetInt32(9),
+            !reader.IsDBNull(7),
+            string.IsNullOrWhiteSpace(title) ? null : title);
+    }
 
     /// <summary>
     /// The audit log's rows, for one session or for all of them.

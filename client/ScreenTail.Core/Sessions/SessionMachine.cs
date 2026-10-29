@@ -572,6 +572,14 @@ public sealed class SessionMachine : IAsyncDisposable
     /// <summary>
     /// At service start: any session a crash left recording, paused, suppressed or finalizing is marked
     /// partial and taken through finalize, so its data is either drafted or cleaned up, never stranded.
+    ///
+    /// With nothing to finalize, the newest session whose draft is still queued (draft_pending) becomes
+    /// the current session again, and the machine rests on it in DraftPending as it did before the
+    /// restart. Left idle, the tray's Discard was refused and the bundle went to the backend at the next
+    /// drain: the technician had lost the way to stop it (INV-12, #230 review). Its draft settling later
+    /// moves the machine through <see cref="DraftSettledAsync"/> as usual. An older queued session is not
+    /// adopted: before the restart the machine rested only on the last session it ran, and the older one
+    /// still drains, its settling changing the count and nothing else.
     /// </summary>
     public async Task<int> RecoverAsync(CancellationToken ct = default)
     {
@@ -599,7 +607,19 @@ public sealed class SessionMachine : IAsyncDisposable
             if (orphans.Count == 0)
             {
                 await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-                SetState(SessionState.Idle, null);
+
+                // Oldest first, so the last is the newest. The tool and the active time come back too, so
+                // the tray reads as it did before the restart.
+                var queued = await _store.ListSessionsInStatesAsync([SessionStateNames.DraftPending], ct).ConfigureAwait(false);
+                if (queued.Count > 0 && await _store.GetSessionSummaryAsync(queued[^1], ct).ConfigureAwait(false) is { } adopted)
+                {
+                    _session = new ActiveSession(adopted.Id, _time.GetTimestamp(), adopted.RemoteTool, activeMs: adopted.DurationMs ?? 0);
+                    SetState(SessionState.DraftPending, null);
+                }
+                else
+                {
+                    SetState(SessionState.Idle, null);
+                }
             }
 
             return orphans.Count;
@@ -1025,9 +1045,10 @@ public sealed class SessionMachine : IAsyncDisposable
         System.Text.Json.JsonSerializer.Serialize(kind, SessionJson.Options).Trim('"');
 
     /// <summary>Per-session bookkeeping: active time excludes paused and suppressed intervals (ST-066 uses it).</summary>
-    private sealed class ActiveSession(string id, long startedAt, string? toolKind, long baseMs = 0)
+    /// <param name="activeMs">Active time already counted: the stored duration of a session adopted at recovery, 0 otherwise.</param>
+    private sealed class ActiveSession(string id, long startedAt, string? toolKind, long baseMs = 0, long activeMs = 0)
     {
-        private long _activeMs;
+        private long _activeMs = activeMs;
         private long _activeSince = startedAt;
 
         public string Id { get; } = id;
