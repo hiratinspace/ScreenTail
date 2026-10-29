@@ -41,56 +41,50 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         return answer.Ok ? ProviderResult.Success(true) : ProviderResult.Failure<bool>(answer.Error!);
     }
 
-    public async Task<ProviderResult<IReadOnlyList<CompanyRef>>> ListCompaniesAsync(CancellationToken ct = default)
-    {
-        ProviderError? failed = null;
+    public Task<ProviderResult<IReadOnlyList<CompanyRef>>> ListCompaniesAsync(CancellationToken ct = default) =>
         // The site is the client's base address, which the factory set from the vault's row: a list from
-        // any other site is not this one's.
-        var companies = await _cache.GetOrAddAsync(_tenantKey, _http.BaseAddress?.AbsoluteUri ?? string.Empty, _options.CompanyCacheFor, async token =>
+        // any other site is not this one's. The cache runs one load per tenant at a time and hands its
+        // answer, a refusal included, to every caller waiting on it.
+        _cache.GetOrAddAsync(_tenantKey, _http.BaseAddress?.AbsoluteUri ?? string.Empty, _options.CompanyCacheFor, LoadCompaniesAsync, ct);
+
+    private async Task<ProviderResult<IReadOnlyList<CompanyRef>>> LoadCompaniesAsync(CancellationToken token)
+    {
+        // Bounded twice over (2026-10-12 review): a site that answers every page in full would
+        // otherwise be paged for ever on the shared backend, and the pages are counted as well as
+        // the companies so a misconfigured page size cannot loop on empty ones.
+        var size = Math.Max(1, _options.PageSize);
+        var cap = Math.Max(0, _options.MaxCompanies);
+        var all = new List<CompanyRef>();
+        for (var page = 1; page <= (cap / size) + 1; page++)
         {
-            // Bounded twice over (2026-10-12 review): a site that answers every page in full would
-            // otherwise be paged for ever on the shared backend, and the pages are counted as well as
-            // the companies so a misconfigured page size cannot loop on empty ones.
-            var size = Math.Max(1, _options.PageSize);
-            var cap = Math.Max(0, _options.MaxCompanies);
-            var all = new List<CompanyRef>();
-            for (var page = 1; page <= (cap / size) + 1; page++)
+            var batch = ProviderHttp.Read(
+                await SendAsync(() => Get($"api/v1/companies?page={page}&page_size={size}"), token).ConfigureAwait(false),
+                Companies,
+                "Hudu",
+                written: false);
+            if (!batch.Ok)
             {
-                var batch = ProviderHttp.Read(
-                    await SendAsync(() => Get($"api/v1/companies?page={page}&page_size={size}"), token).ConfigureAwait(false),
-                    Companies,
-                    "Hudu",
-                    written: false);
-                if (!batch.Ok)
-                {
-                    failed = batch.Error;
-                    return null;
-                }
-
-                all.AddRange(batch.Value!);
-                if (all.Count > cap)
-                {
-                    break;
-                }
-
-                if (batch.Value!.Count < size)
-                {
-                    return all;
-                }
+                return ProviderResult.Failure<IReadOnlyList<CompanyRef>>(batch.Error!);
             }
 
-            // Not cached and not cut short: a list missing companies would refuse an article for one
-            // that exists, and offer a mapping screen that cannot show it.
-            failed = new ProviderError(
-                ProviderErrorKind.Invalid,
-                $"Hudu listed more than {cap} companies, which is more than ScreenTail reads.",
-                "Check the site address in Settings → Integrations, or raise Hudu:MaxCompanies on the backend.");
-            return null;
-        }, ct).ConfigureAwait(false);
+            all.AddRange(batch.Value!);
+            if (all.Count > cap)
+            {
+                break;
+            }
 
-        return companies is null
-            ? ProviderResult.Failure<IReadOnlyList<CompanyRef>>(failed ?? new ProviderError(ProviderErrorKind.Unavailable, "Hudu did not answer.", "Try again in a minute."))
-            : ProviderResult.Success(companies);
+            if (batch.Value!.Count < size)
+            {
+                return ProviderResult.Success<IReadOnlyList<CompanyRef>>(all);
+            }
+        }
+
+        // Not cached and not cut short: a list missing companies would refuse an article for one
+        // that exists, and offer a mapping screen that cannot show it.
+        return ProviderResult.Failure<IReadOnlyList<CompanyRef>>(new ProviderError(
+            ProviderErrorKind.Invalid,
+            $"Hudu listed more than {cap} companies, which is more than ScreenTail reads.",
+            "Check the site address in Settings → Integrations, or raise Hudu:MaxCompanies on the backend."));
     }
 
     public async Task<ProviderResult<PublishedArticle>> PublishArticleAsync(KbArticle article, CancellationToken ct = default)
