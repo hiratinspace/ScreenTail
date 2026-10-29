@@ -118,7 +118,7 @@ public sealed class TrayAndDiagnosticsTests
         Assert.Contains("keystrokes held  17", text, StringComparison.Ordinal);
         Assert.Contains("egress blocked   2", text, StringComparison.Ordinal);
         Assert.Contains("local-only       yes", text, StringComparison.Ordinal);
-        Assert.Contains("Not capturing — outlook", text, StringComparison.Ordinal);
+        Assert.Contains("Not capturing: outlook", text, StringComparison.Ordinal);
 
         // And nothing that could only have come from the screen or the microphone.
         Assert.DoesNotContain("Acme", text, StringComparison.OrdinalIgnoreCase);
@@ -145,11 +145,11 @@ public sealed class TrayAndDiagnosticsTests
         // What the customer over the shoulder needs to read: not the scope, but that it has stopped.
         var suppressed = Sample() with { Suppression = "a password field has focus" };
 
-        Assert.Equal("Paused — a password field has focus", suppressed.Headline);
+        Assert.Equal("Paused: a password field has focus", suppressed.Headline);
     }
 
     private static Diagnostics Sample() => new(
-        Scope: "Not capturing — outlook",
+        Scope: "Not capturing: outlook",
         Microphone: "Headset Microphone (Realtek)",
         Suppression: null,
         RedactionBacklog: 4,
@@ -251,7 +251,7 @@ public sealed class TrayAndDiagnosticsTests
         var panel = DiagnosticsPanel.From(Sample());
 
         Assert.True(panel.Answered);
-        Assert.Equal("Not capturing — outlook", panel.Headline);
+        Assert.Equal("Not capturing: outlook", panel.Headline);
         Assert.Equal("4", panel.Rows.Single(r => r.Label == "Redaction queue").Value);
         Assert.Equal("yes", panel.Rows.Single(r => r.Label == "Local-only").Value);
         Assert.Equal("240 MB", panel.Rows.Single(r => r.Label == "Memory").Value);

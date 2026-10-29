@@ -26,6 +26,8 @@
   <ItemGroup>
     <!-- The redaction tests stand in for the pattern library to simulate a detector running out of budget. -->
     <InternalsVisibleTo Include="ScreenTail.Tests" />
+    <!-- The performance rig builds an indicator guard over a plain yes, which the service itself cannot. -->
+    <InternalsVisibleTo Include="ScreenTail.Tests.Windows" />
   </ItemGroup>
 
   <ItemGroup>

@@ -358,7 +358,7 @@ public sealed class LiveShell : IAsyncDisposable
     /// service would not hand the session over, which the shell shows as a sentence rather than a crash.
     ///
     /// The note's save goes back the same way, and a save the service refused is thrown so the editor
-    /// shows "Not saved — retrying" (Spec v0.4.3) instead of a tick over a note that never landed.
+    /// shows "Not saved: retrying" (Spec v0.4.3) instead of a tick over a note that never landed.
     /// </summary>
     private async Task<object?> LoadReviewAsync(string sessionId, CancellationToken ct)
     {

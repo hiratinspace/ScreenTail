@@ -72,7 +72,7 @@ public partial class DiagnosticsWindow : Window
     /// the render check while proving nothing.
     /// </summary>
     public static CoreShell.Diagnostics Sample { get; } = new(
-        Scope: "Capturing — ScreenConnect",
+        Scope: "Capturing: ScreenConnect",
         Microphone: "Headset Microphone (Realtek)",
         Suppression: null,
         RedactionBacklog: 4,

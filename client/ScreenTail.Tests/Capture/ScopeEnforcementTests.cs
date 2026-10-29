@@ -164,7 +164,7 @@ public sealed class ScopeEnforcementTests
     {
         // INV-6 names excluded apps in the same breath as out-of-scope, and ST-043's list is what will
         // populate that branch. The rule must not be written as "out of scope only".
-        var excluded = new ScopeDecision(CaptureScope.Excluded, null, null, "Not capturing — 1Password is on your excluded list.");
+        var excluded = new ScopeDecision(CaptureScope.Excluded, null, null, "Not capturing: 1Password is on your excluded list.");
 
         Assert.False(excluded.MayCaptureFrames);
         Assert.False(excluded.MayRecord(new TypingBurstEvent { TsMs = 1, CharCount = 9 }));

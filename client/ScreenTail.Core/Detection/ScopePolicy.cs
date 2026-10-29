@@ -110,20 +110,20 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
         // still support work, and still must not be photographed (ST-043).
         if (_options.Exclusions?.Match(window) is { } excluded)
         {
-            return new ScopeDecision(CaptureScope.Excluded, excluded.Id, null, $"Not capturing — {excluded.DisplayName} is excluded.");
+            return new ScopeDecision(CaptureScope.Excluded, excluded.Id, null, $"Not capturing: {excluded.DisplayName} is excluded.");
         }
 
         // A window the technician excluded is never captured, whatever else it looks like.
         if (window.ProcessName is { } name && _options.ExcludedProcesses.Contains(name))
         {
-            return new ScopeDecision(CaptureScope.Excluded, null, null, $"Not capturing — {process} is on your excluded list.");
+            return new ScopeDecision(CaptureScope.Excluded, null, null, $"Not capturing: {process} is on your excluded list.");
         }
 
         // An elevated window cannot be captured whatever the policy says: Windows hides it from us. Saying
         // "in scope" here would promise frames that never arrive (Spec §5 S2).
         if (window.IsElevated)
         {
-            return new ScopeDecision(CaptureScope.OutOfScope, null, null, "Elevated window — screen not captured.");
+            return new ScopeDecision(CaptureScope.OutOfScope, null, null, "Elevated window: screen not captured.");
         }
 
         // The desktop, the taskbar and Task View. The desktop's rectangle is every monitor, so a frame of it
@@ -138,30 +138,30 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
         if (registry.MatchTool(window) is { } tool)
         {
             return _options.DisabledTools.Contains(tool.Id)
-                ? new ScopeDecision(CaptureScope.OutOfScope, tool.Id, tool.Kind, $"Not capturing — {tool.DisplayName} is switched off in Settings.")
-                : new ScopeDecision(CaptureScope.RemoteTool, tool.Id, tool.Kind, $"Capturing — {tool.DisplayName}", window.Handle);
+                ? new ScopeDecision(CaptureScope.OutOfScope, tool.Id, tool.Kind, $"Not capturing: {tool.DisplayName} is switched off in Settings.")
+                : new ScopeDecision(CaptureScope.RemoteTool, tool.Id, tool.Kind, $"Capturing: {tool.DisplayName}", window.Handle);
         }
 
         if (registry.MatchBrowser(window) is { } browser)
         {
             return _options.DisabledTools.Contains(browser.Id)
-                ? new ScopeDecision(CaptureScope.OutOfScope, browser.Id, RemoteToolKind.Browser, $"Not capturing — {browser.DisplayName} is switched off in Settings.")
-                : new ScopeDecision(CaptureScope.RemoteTool, browser.Id, RemoteToolKind.Browser, $"Capturing — {browser.DisplayName}", window.Handle);
+                ? new ScopeDecision(CaptureScope.OutOfScope, browser.Id, RemoteToolKind.Browser, $"Not capturing: {browser.DisplayName} is switched off in Settings.")
+                : new ScopeDecision(CaptureScope.RemoteTool, browser.Id, RemoteToolKind.Browser, $"Capturing: {browser.DisplayName}", window.Handle);
         }
 
         if (registry.MatchAdminTool(window) is { } admin)
         {
-            return new ScopeDecision(CaptureScope.AdminTool, admin.Id, null, $"Capturing — {admin.DisplayName}", window.Handle);
+            return new ScopeDecision(CaptureScope.AdminTool, admin.Id, null, $"Capturing: {admin.DisplayName}", window.Handle);
         }
 
         if (_options.CaptureAllWindows)
         {
-            return new ScopeDecision(CaptureScope.AdminTool, null, null, $"Capturing — {process} (all windows)", window.Handle);
+            return new ScopeDecision(CaptureScope.AdminTool, null, null, $"Capturing: {process} (all windows)", window.Handle);
         }
 
         return NotCapturing(process);
     }
 
     private static ScopeDecision NotCapturing(string process) =>
-        new(CaptureScope.OutOfScope, null, null, $"Not capturing — {process}");
+        new(CaptureScope.OutOfScope, null, null, $"Not capturing: {process}");
 }

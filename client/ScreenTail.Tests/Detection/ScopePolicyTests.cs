@@ -117,7 +117,7 @@ public sealed class ScopePolicyTests
 
         Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
         Assert.False(decision.MayCaptureFrames);
-        Assert.Equal("Not capturing — outlook", decision.Reason);
+        Assert.Equal("Not capturing: outlook", decision.Reason);
     }
 
     [Theory]
@@ -162,7 +162,7 @@ public sealed class ScopePolicyTests
         var decision = new ScopePolicy(Shipped).Decide(Window("mmc", "Services") with { IsElevated = true });
 
         Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
-        Assert.Equal("Elevated window — screen not captured.", decision.Reason);
+        Assert.Equal("Elevated window: screen not captured.", decision.Reason);
     }
 
     [Fact]

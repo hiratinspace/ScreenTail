@@ -30,7 +30,9 @@ public sealed class UpdatePromptTests
         var notice = UpdateNotices.For(Capture(state), Ready());
 
         Assert.NotNull(notice);
-        Assert.Equal("ScreenTail 0.1.20 is ready to install. Open Settings, Updates, to install it.", notice.Text);
+        // The label-then-detail form the other notices take since #228 ("Draft ready: ..."), no trailing
+        // full stop on the label, sentence case, nothing exclaimed.
+        Assert.Equal("Update ready: ScreenTail 0.1.20. Open Settings, then Updates, to install it", notice.Text);
         Assert.Equal("update-ready:0.1.20", notice.Key);
     }
 

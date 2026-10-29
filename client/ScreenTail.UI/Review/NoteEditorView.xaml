@@ -2,21 +2,33 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
-             Background="{DynamicResource Brush.bg.surface}"
+             Background="Transparent"
              AutomationProperties.Name="Note">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
+
+        <!-- A section's name above its field: the pane's own hierarchy, a step quieter than its title. -->
+        <Style x:Key="Note.Section" BasedOn="{StaticResource Text.Label}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
     </UserControl.Resources>
 
-    <Grid Margin="{DynamicResource Padding.pane}">
+    <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- The pane's title, like the other two. -->
+        <TextBlock Grid.Row="0"
+                   Margin="20,18,20,12"
+                   Style="{StaticResource Text.SectionHeading}"
+                   Text="Note" />
+
         <!-- Banners. Spec §7: never colour alone, so each carries a glyph and the kind as a word. -->
-        <ItemsControl Grid.Row="0" ItemsSource="{Binding Banners}" Margin="0,0,0,12">
+        <ItemsControl Grid.Row="1" Margin="20,0,20,4" ItemsSource="{Binding Banners}" Focusable="False">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <Border Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">
@@ -24,6 +36,7 @@
                             <Style TargetType="Border" BasedOn="{StaticResource Banner.Info}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsWarning}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource Brush.bg.warning}" />
                                         <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -41,11 +54,10 @@
                             <TextBlock Grid.Column="0"
                                        Style="{StaticResource Text.Body}"
                                        Text="{Binding Glyph}"
-                                       Margin="0,0,8,0"
+                                       Margin="0,0,10,0"
                                        VerticalAlignment="Top" />
                             <StackPanel Grid.Column="1">
-                                <TextBlock Style="{StaticResource Text.Muted}"
-                                           FontSize="{DynamicResource Size.xs}"
+                                <TextBlock Style="{StaticResource Text.Label}"
                                            Text="{Binding Kind}" />
                                 <TextBlock Style="{StaticResource Text.Body}"
                                            TextWrapping="Wrap"
@@ -59,38 +71,58 @@
 
         <!-- v0.4.1 Q4: a failed draft says so and offers Retry. Writing a note by hand is v1.1, so there is
              no editor to fall back to, and an empty one would look like a note nobody wrote. -->
-        <StackPanel Grid.Row="1" VerticalAlignment="Center" Visibility="{Binding DraftFailed, Converter={StaticResource Visible}}">
-            <TextBlock Style="{StaticResource Text.SectionHeading}"
-                       HorizontalAlignment="Center"
-                       Text="{Binding DraftFailedMessage}" />
-            <Button Margin="0,12,0,0"
+        <StackPanel Grid.Row="2"
+                    Margin="32,0"
+                    VerticalAlignment="Center"
+                    Visibility="{Binding DraftFailed, Converter={StaticResource Visible}}">
+            <Border Width="56"
+                    Height="56"
                     HorizontalAlignment="Center"
-                    Style="{StaticResource Button.Secondary}"
+                    Background="{DynamicResource Brush.bg.danger}"
+                    CornerRadius="28">
+                <TextBlock Style="{StaticResource EmptyState.Icon}"
+                           Foreground="{DynamicResource Brush.state.danger}"
+                           Text="&#xE7BA;" />
+            </Border>
+            <TextBlock Margin="0,16,0,0"
+                       Style="{StaticResource Text.SectionHeading}"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       Text="{Binding DraftFailedMessage}" />
+            <TextBlock Margin="0,6,0,0"
+                       Style="{StaticResource Text.Secondary}"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       Text="Your screenshots and transcript are saved." />
+            <Button Margin="0,16,0,0"
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource Button.Primary}"
                     Content="Retry"
                     Command="{Binding RetryDraftCommand}" />
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1"
+        <ScrollViewer Grid.Row="2"
+                      Padding="20,4,14,8"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="{Binding HasDraft, Converter={StaticResource Visible}}">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Problem" />
+                <TextBlock Style="{StaticResource Note.Section}" Text="Problem" />
                 <TextBox Style="{StaticResource Input.Multiline}"
-                         Margin="0,6,0,16"
+                         Margin="0,0,0,20"
                          Text="{Binding Problem, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Problem" />
 
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Steps" />
-                <ItemsControl x:Name="StepList" ItemsSource="{Binding Steps}" Margin="0,6,0,16">
+                <TextBlock Style="{StaticResource Note.Section}" Text="Steps" />
+                <ItemsControl x:Name="StepList" ItemsSource="{Binding Steps}" Margin="0,0,0,12" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type review:StepRow}">
-                            <Grid Margin="0,0,0,10">
+                            <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
                                     <!-- Reserved whether or not the rule is drawn. With Auto the column
                                          collapses when the marker clears, so pressing Alt+C slid the step
                                          thirteen pixels left and left it out of line with its neighbours. -->
-                                    <ColumnDefinition Width="13" />
+                                    <ColumnDefinition Width="11" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
 
@@ -98,7 +130,7 @@
                                 <Border Grid.Column="0"
                                         Width="3"
                                         HorizontalAlignment="Left"
-                                        CornerRadius="2"
+                                        CornerRadius="1.5"
                                         Background="{DynamicResource Brush.confidence.low}"
                                         Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />
 
@@ -108,16 +140,17 @@
                                              Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
                                              AutomationProperties.Name="Step text" />
 
-                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
                                         <!-- Glyph, word and rule: readable with no colour at all (Spec §7). -->
                                         <ContentControl Style="{StaticResource Badge.Confidence}"
                                                         Margin="0,0,6,0"
+                                                        VerticalAlignment="Center"
                                                         Content="⚠ Inferred"
                                                         ToolTip="{Binding VerificationTooltip}"
                                                         AutomationProperties.HelpText="{Binding VerificationTooltip}"
                                                         Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />
 
-                                        <ItemsControl ItemsSource="{Binding Frames}">
+                                        <ItemsControl ItemsSource="{Binding Frames}" Focusable="False">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <StackPanel Orientation="Horizontal" />
@@ -127,7 +160,7 @@
                                                 <!-- The chip selects its frame in the strip through the note's
                                                      ShowFrameCommand, which ReviewViewModel hands to the strip (T-165). -->
                                                 <DataTemplate>
-                                                    <Button Style="{StaticResource Pill.Control}"
+                                                    <Button Style="{StaticResource Chip}"
                                                             Margin="0,0,6,0"
                                                             Content="{Binding Label}"
                                                             Tag="{Binding Id}"
@@ -136,29 +169,35 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
-                                    </StackPanel>
+                                    </WrapPanel>
 
-                                    <TextBlock Style="{StaticResource Text.Mono}"
-                                               Margin="0,4,0,0"
-                                               TextWrapping="Wrap"
-                                               Foreground="{DynamicResource Brush.text.muted}"
-                                               Text="{Binding Quote}"
-                                               Visibility="{Binding HasQuote, Converter={StaticResource Visible}}" />
+                                    <!-- What was said, set as a quotation: a rule at the left and the
+                                         monospace face, so it never reads as part of the step. -->
+                                    <Border Margin="2,8,0,0"
+                                            Padding="10,0,0,0"
+                                            BorderBrush="{DynamicResource Brush.border.strong}"
+                                            BorderThickness="2,0,0,0"
+                                            Visibility="{Binding HasQuote, Converter={StaticResource Visible}}">
+                                        <TextBlock Style="{StaticResource Text.Mono}"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource Brush.text.muted}"
+                                                   Text="{Binding Quote}" />
+                                    </Border>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Result" />
+                <TextBlock Style="{StaticResource Note.Section}" Text="Result" />
                 <TextBox Style="{StaticResource Input.Multiline}"
-                         Margin="0,6,0,16"
+                         Margin="0,0,0,20"
                          Text="{Binding Result, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Result" />
 
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Follow-ups" />
+                <TextBlock Style="{StaticResource Note.Section}" Text="Follow-ups" />
                 <TextBox Style="{StaticResource Input.Multiline}"
-                         Margin="0,6,0,0"
+                         Margin="0,0,0,4"
                          Text="{Binding FollowUps, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Follow-ups, one per line" />
             </StackPanel>
@@ -166,28 +205,46 @@
 
         <!-- Footer: the save indicator, what is left to check, and the chords that apply to this pane.
              Spec §5 S3 puts the map where it is used rather than only in the ? sheet. -->
-        <Grid Grid.Row="2" Margin="0,12,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+        <Border Grid.Row="3"
+                Padding="20,10"
+                BorderBrush="{DynamicResource Brush.border.subtle}"
+                BorderThickness="0,1,0,0">
+            <!-- Two lines: what is left to do, then the chords. Side by side they wrapped into each
+                 other at the pane's usual width. -->
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center"
+                               Style="{StaticResource Text.Muted}"
+                               Foreground="{DynamicResource Brush.text.secondary}"
+                               Text="{Binding SaveLabel}"
+                               AutomationProperties.Name="Save status"
+                               AutomationProperties.LiveSetting="Polite" />
 
-            <TextBlock Grid.Column="0"
-                       Style="{StaticResource Text.Muted}"
-                       Text="{Binding SaveLabel}"
-                       AutomationProperties.Name="Save status"
-                       AutomationProperties.LiveSetting="Polite" />
+                    <!-- Spaced from the save label only when there is one, so it never starts indented. -->
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding UnverifiedLabel}">
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
+                                <Setter Property="Margin" Value="12,0,0,0" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SaveLabel}" Value="">
+                                        <Setter Property="Margin" Value="0" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SaveLabel}" Value="{x:Null}">
+                                        <Setter Property="Margin" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
 
-            <TextBlock Grid.Column="1"
-                       Margin="12,0,0,0"
-                       Style="{StaticResource Text.Muted}"
-                       Text="{Binding UnverifiedLabel}" />
-
-            <TextBlock Grid.Column="2"
-                       Style="{StaticResource Text.Muted}"
-                       FontSize="{DynamicResource Size.xs}"
-                       Text="Alt+C confirm · Alt+↑↓ reorder · Ctrl+S save" />
-        </Grid>
+                <TextBlock Margin="0,4,0,0"
+                           Style="{StaticResource Text.Muted}"
+                           FontSize="{DynamicResource Size.xs}"
+                           Text="Alt+C confirm · Alt+↑↓ reorder · Ctrl+S save" />
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

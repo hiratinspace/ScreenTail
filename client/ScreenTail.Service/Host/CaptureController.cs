@@ -81,9 +81,9 @@ internal sealed class CaptureController(
     };
 
     /// <summary>Records that this window says it is showing the indicator. Always accepted.</summary>
-    private bool Report(Guid caller)
+    private bool Report(Guid caller, IndicatorShowingCommand showing)
     {
-        indicators.Report(caller);
+        indicators.Report(caller, showing.Width, showing.Height);
         return true;
     }
 
@@ -175,7 +175,7 @@ internal sealed class CaptureController(
 
             // The UI saying the pill is on screen. Accepted from whichever connection sent it and
             // expiring on its own, so a UI that stops painting stops counting (INV-4).
-            IndicatorShowingCommand => Report(caller),
+            IndicatorShowingCommand showing => Report(caller, showing),
 
             // Not while a session is running. Erasing mid-recording destroys work the technician is in
             // the middle of and gives them nothing to look at afterwards; stopping first is one click and
