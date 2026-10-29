@@ -18,7 +18,7 @@ public enum CaptureLevel
     OcrOneAtATime,
 
     /// <summary>As few samples, one frame at a time, and a pause after each before the next is read.</summary>
-    OcrDeferred,
+    OcrClicksOnly,
 }
 
 /// <param name="From">The level before.</param>
@@ -40,7 +40,7 @@ public sealed record CaptureThrottleOptions
     /// <summary>"Well under": a reading below this share of the budget. Between it and the budget, the level holds.</summary>
     public double RecoverBelow { get; init; } = 0.8;
 
-    /// <summary>At <see cref="CaptureLevel.OcrDeferred"/>, how long the reader waits after a frame before the next.</summary>
+    /// <summary>At <see cref="CaptureLevel.OcrClicksOnly"/>, how long the reader waits after a frame before the next.</summary>
     public TimeSpan OcrPause { get; init; } = TimeSpan.FromSeconds(2);
 }
 
@@ -114,11 +114,14 @@ public sealed class CaptureThrottle
         _ => 4,
     };
 
+    /// <summary>Whether the scene sampler looks at the screen at all.</summary>
+    public bool LooksAtScenes => Level >= CaptureLevel.Full;
+
     /// <summary>Whether only one frame may be read at once.</summary>
     public bool ReadsOneFrameAtATime => Level >= CaptureLevel.OcrOneAtATime;
 
     /// <summary>How long the reader waits after a frame before it takes the next.</summary>
-    public TimeSpan OcrPause => Level >= CaptureLevel.OcrDeferred ? _options.OcrPause : TimeSpan.Zero;
+    public TimeSpan OcrPause => Level >= CaptureLevel.OcrClicksOnly ? _options.OcrPause : TimeSpan.Zero;
 
     /// <summary>Completes the next time the level moves. Taken before the level is looked at, so no move is missed.</summary>
     public Task NextChange => Volatile.Read(ref _next).Task;
@@ -151,7 +154,7 @@ public sealed class CaptureThrottle
             // Over since the start of this reading, which covers the time since the last one.
             _underSince = null;
             _overSince ??= since;
-            if (_time.GetElapsedTime(_overSince.Value, now) >= _options.OverFor && Level < CaptureLevel.OcrDeferred)
+            if (_time.GetElapsedTime(_overSince.Value, now) >= _options.OverFor && Level < CaptureLevel.OcrClicksOnly)
             {
                 Move(Level + 1, share);
                 _overSince = now;
@@ -196,20 +199,25 @@ public sealed class CaptureThrottle
             _options.ReadEvery,
             _ =>
             {
-                if (SessionLoop.IsUnderWay(machine.State))
-                {
-                    Observe();
-                }
-                else
-                {
-                    Reset();
-                }
-
+                Turn(machine);
                 return Task.CompletedTask;
             },
             onFailure,
             ct,
             _time);
+    }
+
+    /// <summary>One turn of the reading loop.</summary>
+    internal void Turn(SessionMachine machine)
+    {
+        if (SessionLoop.IsUnderWay(machine.State))
+        {
+            Observe();
+        }
+        else
+        {
+            Reset();
+        }
     }
 
     private void Move(CaptureLevel to, double share)

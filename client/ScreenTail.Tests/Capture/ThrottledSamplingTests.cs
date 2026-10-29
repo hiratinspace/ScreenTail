@@ -21,7 +21,7 @@ public sealed class ThrottledSamplingTests
     [InlineData(CaptureLevel.FewerSamples, 4)]
     [InlineData(CaptureLevel.FewestSamples, 2)]
     [InlineData(CaptureLevel.OcrOneAtATime, 2)]
-    [InlineData(CaptureLevel.OcrDeferred, 2)]
+    [InlineData(CaptureLevel.OcrClicksOnly, 0)]
     public async Task OverBudgetTheScreenIsLookedAtLessOften(CaptureLevel level, int looks)
     {
         await using var harness = await MachineHarness.StartAsync();
@@ -45,7 +45,7 @@ public sealed class ThrottledSamplingTests
         var ct = TestContext.Current.CancellationToken;
         await harness.Machine.StartAsync(ScreenConnect, ct: ct);
         var capturer = new FlippingCapturer();
-        var scenes = new SceneRecorder(harness.Machine, capturer, InScope, EagerSampler(), Throttles.At(CaptureLevel.OcrDeferred));
+        var scenes = new SceneRecorder(harness.Machine, capturer, InScope, EagerSampler(), Throttles.At(CaptureLevel.OcrOneAtATime));
 
         for (var tick = 0; tick < 8; tick++)
         {

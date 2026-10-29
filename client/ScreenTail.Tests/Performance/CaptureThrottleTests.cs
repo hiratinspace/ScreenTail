@@ -43,7 +43,7 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
         Assert.Equal(CaptureLevel.FewerSamples, throttle.Level);
         Assert.Equal(2, throttle.SampleEveryNth);
         Assert.False(throttle.ReadsOneFrameAtATime);
-        Assert.Equal(TimeSpan.Zero, throttle.OcrPause);
+        Assert.True(throttle.LooksAtScenes);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
         throttle.Changed += changes.Add;
 
         // A step every ten seconds, never sooner: each one is given its own ten seconds to work.
-        foreach (var expected in new[] { CaptureLevel.FewerSamples, CaptureLevel.FewestSamples, CaptureLevel.OcrOneAtATime, CaptureLevel.OcrDeferred })
+        foreach (var expected in new[] { CaptureLevel.FewerSamples, CaptureLevel.FewestSamples, CaptureLevel.OcrOneAtATime, CaptureLevel.OcrClicksOnly })
         {
             var before = throttle.Level;
             Run(throttle, cpu, time, share: 0.5, seconds: 9);
@@ -70,17 +70,17 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
                 (CaptureLevel.Full, CaptureLevel.FewerSamples),
                 (CaptureLevel.FewerSamples, CaptureLevel.FewestSamples),
                 (CaptureLevel.FewestSamples, CaptureLevel.OcrOneAtATime),
-                (CaptureLevel.OcrOneAtATime, CaptureLevel.OcrDeferred),
+                (CaptureLevel.OcrOneAtATime, CaptureLevel.OcrClicksOnly),
             ],
             changes.Select(change => (change.From, change.To)));
 
         // The reading that tipped it, as a share of the machine, is what the host logs.
         Assert.All(changes, change => Assert.Equal(0.5, change.Share, 6));
-        Assert.Equal(CaptureLevel.OcrDeferred, throttle.Level);
-        Assert.Equal(4, throttle.SampleEveryNth);
+        Assert.Equal(CaptureLevel.OcrClicksOnly, throttle.Level);
         Assert.True(throttle.ReadsOneFrameAtATime);
-        Assert.Equal(throttle.Options.OcrPause, throttle.OcrPause);
-        Assert.True(throttle.OcrPause > TimeSpan.Zero);
+
+        // The deepest step reads only what a click or a marked moment asked for: no scene frames at all.
+        Assert.False(throttle.LooksAtScenes);
     }
 
     [Fact]
@@ -193,7 +193,7 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
     {
         var harness = await HarnessAsync();
         var ct = TestContext.Current.CancellationToken;
-        var throttle = Throttles.At(CaptureLevel.OcrDeferred, new CaptureThrottleOptions { ReadEvery = TimeSpan.FromMilliseconds(10) });
+        var throttle = Throttles.At(CaptureLevel.OcrClicksOnly, new CaptureThrottleOptions { ReadEvery = TimeSpan.FromMilliseconds(10) });
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var running = throttle.RunAsync(harness.Machine, null, stopping.Token);
@@ -201,7 +201,7 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
         await Task.Delay(100, ct);
 
         // The hand-moved clock has not moved, so the session's readings say nothing and the level holds.
-        Assert.Equal(CaptureLevel.OcrDeferred, throttle.Level);
+        Assert.Equal(CaptureLevel.OcrClicksOnly, throttle.Level);
 
         Assert.True(await harness.Machine.StopAsync(ct));
         var back = await UntilAsync(() => throttle.Level == CaptureLevel.Full);
@@ -209,6 +209,69 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
         await running;
 
         Assert.True(back, $"the session ended and capture stayed at {throttle.Level}");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ASessionThatEndsAndAnotherThatStartsBetweenTwoReadingsStartsAtFull(bool discard)
+    {
+        // The loop looks at the machine once a second. A discard goes straight from Recording to Idle, and a
+        // short finalize is over well inside a second, so the next reading can find a new session recording
+        // without the loop ever having seen the old one end. The new session must not inherit the old
+        // level or the old readings (2026-10-29 review).
+        var harness = await HarnessAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var (throttle, cpu, time) = Rig(processors: 4);
+        Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
+        throttle.Turn(harness.Machine);
+        Run(throttle, cpu, time, share: 0.5, seconds: 40);
+        Assert.Equal(CaptureLevel.OcrClicksOnly, throttle.Level);
+
+        Assert.True(discard ? await harness.Machine.DiscardAsync(ct) : await harness.Machine.StopAsync(ct));
+        Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
+        cpu.Use(TimeSpan.FromSeconds(2));
+        time.Advance(TimeSpan.FromSeconds(1));
+        throttle.Turn(harness.Machine);
+
+        Assert.Equal(CaptureLevel.Full, throttle.Level);
+
+        // And that turn was a baseline: nine more seconds over budget are not yet ten.
+        Run(throttle, cpu, time, share: 0.5, seconds: 9);
+        Assert.Equal(CaptureLevel.Full, throttle.Level);
+    }
+
+    [Fact]
+    public void ASubscriberThatThrowsDoesNotCostTheNextStepItsTenSeconds()
+    {
+        // The host logs from Changed. A subscriber that throws must not leave the count where it was, or
+        // the next over-budget reading would take another step at once.
+        var (throttle, cpu, time) = Rig(processors: 4);
+        var thrown = 0;
+        throttle.Changed += _ =>
+        {
+            if (thrown++ == 0)
+            {
+                throw new InvalidOperationException("the logger fell over");
+            }
+        };
+
+        for (var second = 0; second < 10; second++)
+        {
+            cpu.Use(TimeSpan.FromSeconds(2));
+            time.Advance(TimeSpan.FromSeconds(1));
+            try
+            {
+                throttle.Observe();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        Assert.Equal(CaptureLevel.FewerSamples, throttle.Level);
+        Run(throttle, cpu, time, share: 0.5, seconds: 9);
+        Assert.Equal(CaptureLevel.FewerSamples, throttle.Level);
     }
 
     [Fact]

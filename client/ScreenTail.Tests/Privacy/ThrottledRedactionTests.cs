@@ -1,6 +1,7 @@
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Perf;
 using ScreenTail.Core.Privacy;
+using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 using ScreenTail.Tests.Performance;
@@ -9,10 +10,10 @@ using ScreenTail.Tests.Sessions;
 namespace ScreenTail.Tests.Privacy;
 
 /// <summary>
-/// ST-031 AC2 on the reading side: over the processor budget, OCR gives way by reading fewer frames at once
-/// and then by waiting between them. It never gives way by reading a frame less carefully (INV-1): a frame
-/// that is stored has been read, searched and painted exactly as it would have been at full capture, and a
-/// frame waiting its turn waits in memory and never reaches the store unread.
+/// ST-031 AC2 on the reading side: over the processor budget, OCR gives way by reading one frame at a time
+/// while the session records. It never gives way by reading a frame less carefully (INV-1): a frame that is
+/// stored has been read, searched and painted exactly as it would have been at full capture. Nor by holding
+/// up a click's screenshot, nor by stretching finalize.
 /// </summary>
 public sealed class ThrottledRedactionTests : IAsyncDisposable
 {
@@ -81,53 +82,73 @@ public sealed class ThrottledRedactionTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task DeferredOcrWaitsAfterEachFrameAndTheFrameWaitingIsNeverStoredUnread()
+    public async Task AClickBurstAtTheDeepestLevelIsAllStoredWhenOcrKeepsUp()
     {
-        // A frozen clock: the pause after the first frame never ends, so the second is read only if
-        // something skipped the pause.
-        var (worker, recogniser, store) = await StartAsync(Throttles.At(CaptureLevel.OcrDeferred), new CountingTime(frozen: true));
+        // Click screenshots are never throttled (2026-10-29 review). The deepest level used to pause the one
+        // reader 2 s after every frame, and with the production queue of four a burst of clicks was refused
+        // at the door. A frozen clock: any pause the reader takes never ends.
+        var (worker, recogniser, store) = await StartAsync(
+            Throttles.At(CaptureLevel.OcrClicksOnly),
+            new CountingTime(frozen: true),
+            pendingDepth: PendingFrames.DefaultDepth);
         recogniser.Release();
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var running = worker.RunAsync(stopping.Token);
-        await StageAsync("f1", "f2");
 
-        Assert.True(await UntilAsync(() => worker.Progress.Frames == 1));
-        await Task.Delay(300, TestContext.Current.CancellationToken);
-        var read = recogniser.Started;
-        var sessionId = Harness.Machine.SessionId!;
-        var stored = (await store.LoadSessionAsync(sessionId, TestContext.Current.CancellationToken))!.Frames;
-        var waiting = Harness.Pending.DepthFor(sessionId);
+        for (var click = 0; click < 8; click++)
+        {
+            _ = await TryStageAsync($"c{click}");
+            _ = await UntilAsync(() => worker.Progress.Frames == click + 1, attempts: 100);
+        }
+
         await stopping.CancelAsync();
         await running;
 
-        Assert.Equal(1, read);
-        Assert.Single(stored);
-        Assert.Equal(1, waiting);
-        Assert.Equal(0, await store.CountAllPendingFramesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, Harness.Pending.Dropped);
+        Assert.Equal(8, worker.Progress.Frames);
+        Assert.Equal(8, (await store.LoadSessionAsync(Harness.Machine.SessionId!, TestContext.Current.CancellationToken))!.Frames.Count);
     }
 
     [Fact]
-    public async Task OneFrameAtATimeWithoutTheDeferralReadsTheNextAtOnce()
+    public async Task WhileTheSessionFinalizesBothReadersWorkWhateverTheLevel()
     {
-        // The other half of the test above, on the same frozen clock: the pause belongs to the deepest
-        // level only.
-        var (worker, recogniser, _) = await StartAsync(Throttles.At(CaptureLevel.OcrOneAtATime), new CountingTime(frozen: true));
-        recogniser.Release();
-        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        // One reader at a time must not stretch finalize's redaction grace: once the technician has
+        // stopped, the frames still owed are read as fast as they were before anything was throttled.
+        var rig = new ThrottleRig(new CaptureThrottleOptions { ReadEvery = TimeSpan.FromHours(1) });
+        var (worker, recogniser, _) = await StartAsync(rig.Throttle, redactionGrace: TimeSpan.FromSeconds(20));
+        var ct = TestContext.Current.CancellationToken;
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        // The loop takes its turn as it finds the session recording, then waits an hour; the test drives
+        // the level from there on the hand-moved clock.
+        var reads = rig.Cpu.Reads;
+        var throttling = rig.Throttle.RunAsync(Harness.Machine, null, stopping.Token);
+        Assert.True(await UntilAsync(() => rig.Cpu.Reads > reads), "the reading loop took no turn as the session started");
+        rig.DriveTo(CaptureLevel.OcrOneAtATime);
+
         var running = worker.RunAsync(stopping.Token);
         await StageAsync("f1", "f2");
+        Assert.True(await UntilAsync(() => recogniser.Started == 1));
+        await Task.Delay(200, ct);
+        Assert.Equal(1, recogniser.Started);
 
-        var both = await UntilAsync(() => worker.Progress.Frames == 2);
+        var stopped = Harness.Machine.StopAsync(ct);
+        var both = await UntilAsync(() => recogniser.Started == 2);
+        var state = Harness.Machine.State;
+        recogniser.Release();
+        Assert.True(await stopped);
         await stopping.CancelAsync();
         await running;
+        await throttling;
 
-        Assert.True(both, "one frame at a time held the second frame back as if it were deferred");
+        Assert.True(both, "the second reader stayed aside while the session finalized");
+        Assert.Equal(SessionState.Finalizing, state);
     }
 
     [Theory]
     [InlineData(CaptureLevel.Full)]
     [InlineData(CaptureLevel.OcrOneAtATime)]
-    [InlineData(CaptureLevel.OcrDeferred)]
+    [InlineData(CaptureLevel.OcrClicksOnly)]
     public async Task AFrameStoredUnderAnyLevelIsRedactedExactlyAsAtFullCapture(CaptureLevel level)
     {
         // INV-1: throttling reads fewer frames, never a frame less carefully.
@@ -161,9 +182,11 @@ public sealed class ThrottledRedactionTests : IAsyncDisposable
 
     private async Task<(RedactionWorker Worker, GatedRecogniser Recogniser, SqliteSessionStore Store)> StartAsync(
         CaptureThrottle throttle,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        int pendingDepth = 1000,
+        TimeSpan? redactionGrace = null)
     {
-        _harness = await MachineHarness.StartAsync();
+        _harness = await MachineHarness.StartAsync(pendingDepth: pendingDepth, redactionGrace: redactionGrace);
         Assert.True(await _harness.Machine.StartAsync(Rdp, ct: TestContext.Current.CancellationToken));
         var recogniser = new GatedRecogniser();
         var worker = new RedactionWorker(
@@ -181,15 +204,19 @@ public sealed class ThrottledRedactionTests : IAsyncDisposable
     {
         foreach (var id in ids)
         {
-            Assert.True(await Harness.Machine.TryStageFrameAsync(
-                new StagedFrame(id, Harness.Machine.NowMs, FrameTrigger.Click, 800, 600, null, new byte[] { 1, 2, 3, 4 }),
-                TestContext.Current.CancellationToken));
+            Assert.True(await TryStageAsync(id));
         }
     }
 
-    private static async Task<bool> UntilAsync(Func<bool> condition)
+    /// <summary>A click's screenshot, offered to the machine the way the click recorder offers it.</summary>
+    private Task<bool> TryStageAsync(string id) =>
+        Harness.Machine.TryStageFrameAsync(
+            new StagedFrame(id, Harness.Machine.NowMs, FrameTrigger.Click, 800, 600, null, new byte[] { 1, 2, 3, 4 }),
+            TestContext.Current.CancellationToken);
+
+    private static async Task<bool> UntilAsync(Func<bool> condition, int attempts = 300)
     {
-        for (var i = 0; i < 300; i++)
+        for (var i = 0; i < attempts; i++)
         {
             if (condition())
             {
