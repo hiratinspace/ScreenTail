@@ -45,6 +45,9 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
     /// </summary>
     private const int MaxHops = 4;
 
+    /// <summary>The update channel's guard (ST-113). Not written yet.</summary>
+    public static EgressGuard ForUpdates(EgressPolicy policy) => new(policy);
+
     /// <summary>Where a caller declares what a request is for. Without it the request does not go out.</summary>
     public static readonly HttpRequestOptionsKey<EgressPurpose> PurposeKey = new("ScreenTail.EgressPurpose");
 

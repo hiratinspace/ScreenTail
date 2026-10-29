@@ -119,6 +119,20 @@ public sealed class PackageSignatureTests : IDisposable
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void AFolderThatAlreadyExistsIsGivenTheSamePermissions()
+    {
+        // 2026-10-29 review: a folder made by anything else first (an older build, a plain
+        // CreateDirectory) kept the profile's inherited permissions. Prepare applies them either way.
+        var path = Path.Combine(_dir, "Updates");
+        Directory.CreateDirectory(path);
+        Assert.False(new DirectoryInfo(path).GetAccessControl().AreAccessRulesProtected);
+
+        new WindowsUpdateFolder(path).Prepare();
+
+        AssertOwnersOnly(path);
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
     public async Task WhileWindowsInstallerRunsThePackageCannotBeChangedMovedOrDeleted()
     {
         // The claim the installer rests on: the file it checked is the file Windows Installer opens. The
@@ -138,6 +152,7 @@ public sealed class PackageSignatureTests : IDisposable
             () => false,
             signedBuild: true);
         Assert.Equal(UpdateState.Ready, (await updates.CheckAsync(TestContext.Current.CancellationToken)).State);
+        AssertOwnersOnly(updatesFolder);
         var dotnet = Authenticode.Publisher(Dotnet);
         var launcher = new Probing(updatesFolder);
         var installer = new UpdateInstaller(updates, new SamePublisher(dotnet), launcher, dotnet, _ => Task.FromResult<IDisposable?>(new Nothing()));
@@ -155,6 +170,17 @@ public sealed class PackageSignatureTests : IDisposable
         {
             Directory.Delete(_dir, recursive: true);
         }
+    }
+
+    private static void AssertOwnersOnly(string path)
+    {
+        var security = new DirectoryInfo(path).GetAccessControl();
+        Assert.True(security.AreAccessRulesProtected, "inheritance from the profile is cut");
+        var who = security.GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>()
+            .Select(r => r.IdentityReference.Value).Distinct().Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(
+            new[] { WindowsIdentity.GetCurrent().User!.Value, "S-1-5-18", "S-1-5-32-544" }.Order(StringComparer.Ordinal),
+            who);
     }
 
     private static byte[] Manifest(ECDsa signer, byte[] package)

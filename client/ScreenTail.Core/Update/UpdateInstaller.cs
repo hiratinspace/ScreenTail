@@ -46,7 +46,8 @@ public sealed class UpdateInstaller(
     IPackagePublisher publisher,
     IInstallerLauncher launcher,
     PublisherIdentity? running,
-    Func<CancellationToken, Task<IDisposable?>> holdSessions)
+    Func<CancellationToken, Task<IDisposable?>> holdSessions,
+    Action? sessionsReleased = null)
 {
     public const string DuringSession = "A session is recording. Finish it, then install the update.";
 
@@ -57,6 +58,7 @@ public sealed class UpdateInstaller(
     private readonly IInstallerLauncher _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
     private readonly Func<CancellationToken, Task<IDisposable?>> _holdSessions = holdSessions ?? throw new ArgumentNullException(nameof(holdSessions));
     private readonly PublisherIdentity? _running = running;
+    private readonly Action _released = sessionsReleased ?? (() => { });
 
     /// <summary>Windows Installer is running a package this started. No session may start meanwhile.</summary>
     public bool Installing { get; private set; }

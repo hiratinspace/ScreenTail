@@ -83,6 +83,23 @@ public sealed class PolicyApplierTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheAdminsUpdateExceptionDoesNotLiftALocalOnlyTheTechnicianTurnedOn()
+    {
+        // 2026-10-29 review, INV-8. The tenant leaves local-only to the technician (not locked) and allows
+        // update checks under local-only. The technician turns local-only on: that is their promise that
+        // nothing leaves, and the admin's exception was for a local-only the admin set.
+        using var rig = new Rig(new ClientSettings { LocalOnly = true });
+        rig.Backend.Policy = new TenantPolicy("p4", 7, LocalOnly: false, LocalOnlyLocked: false, CaptureAllWindows: false, UpdateChecksUnderLocalOnly: true);
+
+        Assert.True(await rig.Sync.FetchAsync(TestContext.Current.CancellationToken));
+
+        Assert.True(rig.Egress.Settings.LocalOnly);
+        Assert.False(rig.Egress.Settings.UpdatesUnderLocalOnly);
+        var update = new Uri("https://updates.screentail.example/feed/stable/win-x64.json");
+        Assert.False(new EgressPolicy(rig.Egress.Settings with { UpdateHosts = new HashSet<string> { update.Host } }).Decide(EgressPurpose.UpdateCheck, update).Allowed);
+    }
+
+    [Fact]
     public async Task ANewSessionTakesItsFlagAndVersionFromOneAppliedPolicy()
     {
         // ST-047. A session records the local-only flag and the policy version it started under, and the

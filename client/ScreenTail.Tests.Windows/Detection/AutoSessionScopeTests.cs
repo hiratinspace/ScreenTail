@@ -173,6 +173,24 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task WhenTheHoldIsReleasedTheWindowInFrontIsDecidedAgain()
+    {
+        // 2026-10-29 review: the tool took focus while Windows Installer ran and was refused. The
+        // technician cancels at the prompt, the hold goes, and the tool still in front starts its session
+        // without the technician having to click away and back.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+        var hold = await _machine!.HoldStartsAsync(ct);
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Idle, _machine.State);
+
+        hold!.Dispose();
+        await coordinator.RetryAsync(ct);
+
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
+    [Fact]
     public async Task TheChordStartsNothingWhileAnUpdateIsBeingInstalled()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -70,6 +70,21 @@ public sealed class UpdateEgressTests
     }
 
     [Fact]
+    public void TheAdminsExceptionDoesNotReachALocalOnlyTheTechnicianTurnedOn()
+    {
+        // 2026-10-29 review, INV-8. The exception is the admin's to a local-only the admin locked on. A
+        // technician who turned local-only on themselves asked for nothing to leave, and nothing does,
+        // whatever else the tenant's policy says.
+        var policy = Policy();
+        policy.Apply(localOnly: true, enforced: false, updatesUnderLocalOnly: true);
+
+        var decision = policy.Decide(EgressPurpose.UpdateCheck, Manifest);
+
+        Assert.False(decision.Allowed);
+        Assert.Contains("Local-only", decision.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ARedirectOffTheUpdateHostsIsRefusedByTheGuard()
     {
         // The package host answering 302 to somewhere else would otherwise take the download anywhere.

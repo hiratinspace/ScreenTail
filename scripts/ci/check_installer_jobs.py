@@ -50,6 +50,7 @@ import copy
 import json
 import pathlib
 import re
+import tempfile
 import sys
 import xml.etree.ElementTree as ET
 
@@ -167,6 +168,8 @@ PILOT_DOWNLOAD = 'artifacts/installer/pilot'
 STABLE_OUT = 'artifacts/installer/stable'
 PROMOTE_SEQUENCE = [
     ('uses', CHECKOUT, {'ref': expr('github.sha'), 'persist-credentials': False}),
+    # 2026-10-29 review: the run promoted is a successful ci.yml run of a push to main, asked of GitHub.
+    ('run', './installer/check-pilot-run.ps1', {'GH_TOKEN': expr('github.token'), 'PILOT_RUN': expr('inputs.pilot-run')}),
     ('uses', DOWNLOAD, {'name': 'screentail-update-manifests', 'run-id': expr('inputs.pilot-run'), 'github-token': expr('github.token'), 'path': PILOT_DOWNLOAD}),
     ('run', './installer/update-manifest.ps1 -Channel stable -Promote ' + PILOT_DOWNLOAD + '/pilot/win-x64.json -Out ' + STABLE_OUT, PROMOTE_SETTINGS),
     ('uses', UPLOAD, {'name': STABLE_ARTIFACT, 'path': STABLE_OUT, 'retention-days': 1, 'if-no-files-found': 'error'}),
@@ -178,7 +181,7 @@ USES_STEP_KEYS = {'name', 'uses', 'with'}
 UNSAFE = (';', '|', '&', '`', '$(', '\n', '\r')
 
 # What the scripts the signing job runs must do, and must never do.
-SCRIPTS = ('installer/package.ps1', 'installer/sign.ps1', 'installer/tools.ps1', 'installer/manifest.ps1', 'installer/update-manifest.ps1')
+SCRIPTS = ('installer/package.ps1', 'installer/sign.ps1', 'installer/tools.ps1', 'installer/manifest.ps1', 'installer/update-manifest.ps1', 'installer/check-pilot-run.ps1')
 MUST_CONTAIN = {
     'installer/tools.ps1': [
         "Get-FileHash -Algorithm SHA256 -Path $package",
@@ -212,6 +215,15 @@ MUST_CONTAIN = {
         "throw 'Stable is signed only by promotion",
         "if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {",
         "if ($pilot.channel -cne 'pilot'",
+    ],
+    # The promotion's first check: the run is this repository's ci.yml, run by a push to main, and green.
+    'installer/check-pilot-run.ps1': [
+        "if ($id -notmatch '^\\d+$') {",
+        "actions/runs/$id",
+        "if ($run.path -cne '.github/workflows/ci.yml') {",
+        "if ($run.event -cne 'push') {",
+        "if ($run.head_branch -cne 'main') {",
+        "if ($run.conclusion -cne 'success') {",
     ],
     'installer/manifest.ps1': [
         "actions/artifacts/$id",
@@ -769,6 +781,14 @@ SAMPLE_FILES = {
         "$response = Invoke-RestMethod -Uri \"$($TokenRequestUrl)&audience=api://AzureADTokenExchange\"",
         "& $signtool @arguments @toSign | Out-Host",
     ]),
+    'installer/check-pilot-run.ps1': "\n".join([
+        "if ($id -notmatch '^\\d+$') {",
+        "$run = Invoke-RestMethod -Uri \"https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/actions/runs/$id\"",
+        "if ($run.path -cne '.github/workflows/ci.yml') {",
+        "if ($run.event -cne 'push') {",
+        "if ($run.head_branch -cne 'main') {",
+        "if ($run.conclusion -cne 'success') {",
+    ]),
     'installer/update-manifest.ps1': "\n".join([
         "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue",
         "$TrustFile = Join-Path $PSScriptRoot '..\\shared\\release\\update-trust.json'",
@@ -962,19 +982,29 @@ MUST_FAIL = {
     'promotion with permissions at workflow level': on_promote(lambda p: p['permissions'].update(**{IDT: 'write'})),
     'promotion on a push': on_promote(lambda p: p['on'].update(push={'branches': ['main']})),
     'promotion with another input': on_promote(lambda p: p['on']['workflow_dispatch']['inputs'].update(extra={'required': False})),
-    'promotion with an input in the command': on_promote(lambda p: promote_steps(p)[2].update(run=promote_steps(p)[2]['run'] + ' -Version ' + expr('inputs.version'))),
-    'promotion without its gate variable': on_promote(lambda p: promote_steps(p)[2]['env'].pop('SCREENTAIL_STABLE_RELEASE')),
-    'promotion with a gate set in the file': on_promote(lambda p: promote_steps(p)[2]['env'].update(SCREENTAIL_STABLE_RELEASE='true')),
+    'promotion with an input in the command': on_promote(lambda p: promote_steps(p)[3].update(run=promote_steps(p)[3]['run'] + ' -Version ' + expr('inputs.version'))),
+    'promotion without its gate variable': on_promote(lambda p: promote_steps(p)[3]['env'].pop('SCREENTAIL_STABLE_RELEASE')),
+    'promotion with a gate set in the file': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTAIL_STABLE_RELEASE='true')),
     'promotion signing something it built': on_promote(lambda p: promote_steps(p).insert(2, {'run': './installer/build.ps1 -Stage Payload'})),
-    'promotion downloading from another repository': on_promote(lambda p: promote_steps(p)[1]['with'].update(repository='someone/else')),
-    'promotion keeping the stable manifest longer': on_promote(lambda p: promote_steps(p)[3]['with'].update(**{'retention-days': 90})),
+    'promotion downloading from another repository': on_promote(lambda p: promote_steps(p)[2]['with'].update(repository='someone/else')),
+    'promotion keeping the stable manifest longer': on_promote(lambda p: promote_steps(p)[4]['with'].update(**{'retention-days': 90})),
     'promotion with a job env': on_promote(lambda p: promote_job(p).update(env={'PATH': 'C:\\x'})),
     'promotion with an unpinned action': on_promote(lambda p: promote_steps(p)[0].update(uses='actions/checkout@v7')),
     'promotion with a second job': on_promote(lambda p: p['jobs'].update(other={'runs-on': HOSTED, 'steps': [{'run': 'x'}]})),
-    'promotion naming the credential context': on_promote(lambda p: promote_steps(p)[2]['env'].update(AZURE_CLIENT_ID=expr(CTX + '.X'))),
+    'promotion naming the credential context': on_promote(lambda p: promote_steps(p)[3]['env'].update(AZURE_CLIENT_ID=expr(CTX + '.X'))),
     'another workflow asking for a token': lambda w, f: f[OTHERS]['.github/workflows/other.yml'].update(permissions={IDT: 'write'}),
     'another workflow asking for a token in a job': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x'].update(permissions='write-all'),
     'another workflow uploading the stable manifest': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x']['steps'].append({'uses': UPLOAD, 'with': {'name': STABLE_ARTIFACT, 'path': 'x'}}),
+    # 2026-10-29 review: the run promoted is checked before anything is downloaded from it.
+    'promotion without checking the run': on_promote(lambda p: promote_steps(p).pop(1)),
+    'promotion checking after the download': on_promote(lambda p: promote_steps(p).insert(2, promote_steps(p).pop(1))),
+    'the run check with the run id in its command': on_promote(lambda p: promote_steps(p)[1].update(run='./installer/check-pilot-run.ps1 ' + expr('inputs.pilot-run'))),
+    'the run check without the token': on_promote(lambda p: promote_steps(p)[1]['env'].pop('GH_TOKEN')),
+    'the run check accepting any workflow': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.path -cne '.github/workflows/ci.yml') {", 'if ($false) {')),
+    'the run check accepting a pull request': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.event -cne 'push') {", 'if ($false) {')),
+    'the run check accepting another branch': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.head_branch -cne 'main') {", 'if ($false) {')),
+    'the run check accepting a failed run': edit_file('installer/check-pilot-run.ps1', lambda t: t.replace("if ($run.conclusion -cne 'success') {", 'if ($false) {')),
+    'the run check starting a process': edit_file('installer/check-pilot-run.ps1', lambda t: t + '\nStart-Process cmd.exe'),
     # Environment.
     'a startup hook for the whole workflow': on_workflow(lambda w: w['env'].update(DOTNET_STARTUP_HOOKS='C:\\hook.dll')),
     'PATH for the whole workflow': on_workflow(lambda w: w['env'].update(PATH='C:\\evil')),
@@ -1107,6 +1137,7 @@ def self_test():
     for text in PASSED:
         if names_context(text):
             bad.append(f'the expression scanner flagged {text!r}, which names no such context')
+    bad += loader_test()
     good = check(sample_workflow(), sample_files())
     if good:
         bad.append(f'the made-up good sample failed: {good}')
@@ -1118,15 +1149,9 @@ def self_test():
     return bad
 
 
-def main():
-    root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else '.')
-    selfbad = self_test()
-    if selfbad:
-        for line in selfbad:
-            print(f'::error file=scripts/ci/check_installer_jobs.py::{line}')
-        return 1
-    print(f'self-test: the scanner caught {len(CAUGHT)} and passed {len(PASSED)}; the good sample passed and all {len(MUST_FAIL)} bad ones failed')
-
+def load(root):
+    # ci.yml, the scripts and authoring as text, the promotion workflow, and every other workflow file,
+    # parsed: GitHub runs .yaml as readily as .yml, so both are read.
     workflow = yaml.safe_load((root / '.github/workflows/ci.yml').read_text())
     files = {}
     for path in SCRIPTS + AUTHORING + ('installer/tools.json',):
@@ -1137,10 +1162,37 @@ def main():
     if promote.exists():
         files[PROMOTE_FILE] = yaml.safe_load(promote.read_text())
     files[OTHERS] = {}
-    for other in sorted((root / '.github/workflows').glob('*.yml')):
+    folder = root / '.github/workflows'
+    for other in sorted(list(folder.glob('*.yml')) + list(folder.glob('*.yaml'))):
         relative = other.relative_to(root).as_posix()
         if relative not in ('.github/workflows/ci.yml', PROMOTE_FILE):
             files[OTHERS][relative] = yaml.safe_load(other.read_text())
+    return workflow, files
+
+
+def loader_test():
+    # The loader itself, on a made-up repository: a .yaml workflow asking for a token is seen.
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        (root / '.github/workflows').mkdir(parents=True)
+        (root / '.github/workflows/ci.yml').write_text('jobs: {}\n')
+        (root / '.github/workflows/sneaky.yaml').write_text('permissions:\n  ' + IDT + ': write\njobs: {}\n')
+        _, files = load(root)
+        if not check_others(files.get(OTHERS)):
+            return ['the loader did not read a .yaml workflow that asks for a token']
+    return []
+
+
+def main():
+    root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else '.')
+    selfbad = self_test()
+    if selfbad:
+        for line in selfbad:
+            print(f'::error file=scripts/ci/check_installer_jobs.py::{line}')
+        return 1
+    print(f'self-test: the scanner caught {len(CAUGHT)} and passed {len(PASSED)}; the good sample passed and all {len(MUST_FAIL)} bad ones failed')
+
+    workflow, files = load(root)
     bad = check(workflow, files)
     for line in bad:
         print(f'::error file=.github/workflows/ci.yml::{line}')

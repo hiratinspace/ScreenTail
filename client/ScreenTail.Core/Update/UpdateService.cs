@@ -216,6 +216,9 @@ public sealed partial class UpdateService : IDisposable
         }
     }
 
+    /// <summary>Removes packages no newer than the installed version. Not written yet.</summary>
+    public void RemoveStalePackages() => _ = Folder;
+
     /// <summary>Installing, for the installer: the ready package is in Windows Installer's hands.</summary>
     internal void Installing() =>
         Set(new UpdateStatus(UpdateState.Installing, Status.AvailableVersion, $"Installing ScreenTail {Status.AvailableVersion}."));

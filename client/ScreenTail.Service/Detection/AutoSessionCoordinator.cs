@@ -108,6 +108,22 @@ internal sealed partial class AutoSessionCoordinator
     public void Observe(ForegroundWindowInfo window) => _windows.Writer.TryWrite(window);
 
     /// <summary>
+    /// Decides the window in front again (ST-113): when the update's hold on new sessions is released,
+    /// a tool that took focus meanwhile was refused its session and is still in front. The window goes
+    /// through the same queue as any foreground change, so every rule a focus change meets applies.
+    /// </summary>
+    public void Retry()
+    {
+        if (_decided?.Window is { } window)
+        {
+            Observe(window);
+        }
+    }
+
+    /// <summary>The same, awaited, for the tests.</summary>
+    internal Task RetryAsync(CancellationToken ct) => _decided?.Window is { } window ? HandleAsync(window, ct) : Task.CompletedTask;
+
+    /// <summary>
     /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord, a hotkey the service registers
     /// itself (ST-029). The tray has no start item.
     ///
