@@ -28,7 +28,7 @@ public sealed class InputBoundaryTests
         new(CaptureScope.RemoteTool, "screenconnect", RemoteToolKind.Screenconnect, "Capturing ScreenConnect.", 99);
 
     private static readonly ScopeDecision PasswordManager =
-        new(CaptureScope.Excluded, null, null, "Not capturing — 1Password is on your excluded list.", 77);
+        new(CaptureScope.Excluded, null, null, "Not capturing: 1Password is on your excluded list.", 77);
 
     [Fact]
     public async Task APasswordTypedWhileCaptureIsSuppressedLeavesNoCountBehind()

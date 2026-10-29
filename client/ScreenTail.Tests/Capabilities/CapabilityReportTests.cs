@@ -80,7 +80,7 @@ public sealed class CapabilityReportTests
     {
         var check = CapabilityCopy.ElevatedWindowsInvisible();
 
-        Assert.Equal("Elevated window — screen not captured.", check.Message);
+        Assert.Equal("Elevated window: screen not captured.", check.Message);
         Assert.Equal(CapabilityState.Degraded, check.State);
     }
 

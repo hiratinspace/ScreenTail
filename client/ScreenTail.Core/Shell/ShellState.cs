@@ -182,7 +182,7 @@ public sealed class ShellState
     /// </summary>
     private static string? BannerFor(ServiceConnection connection) => connection switch
     {
-        ServiceConnection.Unavailable => "Capture service not running — Start",
+        ServiceConnection.Unavailable => "Capture service not running. Start it to capture sessions.",
         _ => null,
     };
 }

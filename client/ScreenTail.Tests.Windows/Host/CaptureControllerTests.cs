@@ -71,7 +71,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         var store = await OpenAsync(ct);
         var controller = Controller(store, () => new DiagnosticsReported
         {
-            Scope = "Capturing — ScreenConnect",
+            Scope = "Capturing: ScreenConnect",
             RedactionBacklog = 4,
             FramesDropped = 2,
             KeystrokesDropped = 17,
@@ -86,7 +86,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         var reply = await controller.ReplyToAsync(new GetDiagnosticsCommand { RequestId = 1 }, Window, ct);
 
         var diagnostics = Assert.IsType<DiagnosticsReported>(reply);
-        Assert.Equal("Capturing — ScreenConnect", diagnostics.Scope);
+        Assert.Equal("Capturing: ScreenConnect", diagnostics.Scope);
         Assert.True(diagnostics.LocalOnly);
     }
 

@@ -24,7 +24,7 @@ public sealed class NotificationTests
         var notice = Notices.For(Capture(CaptureStates.DraftReady, "Printer offline", "Acme Dental"));
 
         Assert.NotNull(notice);
-        Assert.Equal("Draft ready — Printer offline · Acme Dental", notice.Text);
+        Assert.Equal("Draft ready: Printer offline · Acme Dental", notice.Text);
         Assert.Equal(NotificationAction.Review, notice.Action);
     }
 
@@ -50,7 +50,7 @@ public sealed class NotificationTests
             new OutboxWaiting(Drafts: 1, Publishes: 0, Uncertain: 0));
 
         Assert.NotNull(notice);
-        Assert.Equal("Offline — your draft will be created when you're back online.", notice.Text);
+        Assert.Equal("Offline: your draft will be created when you're back online.", notice.Text);
         Assert.Equal(NotificationAction.None, notice.Action);
     }
 
@@ -114,7 +114,7 @@ public sealed class NotificationTests
             Assert.False(string.IsNullOrWhiteSpace(notice.Text));
 
             // Sentence case and no exclamation marks, which is what Spec §6 actually asks for. Not a
-            // trailing full stop: "Draft ready — Printer offline · Acme Dental" is a label rather than a
+            // trailing full stop: "Draft ready: Printer offline · Acme Dental" is a label rather than a
             // sentence, and the spec writes it without one.
             Assert.DoesNotContain("!", notice.Text, StringComparison.Ordinal);
             Assert.True(char.IsUpper(notice.Text[0]), $"'{notice.Text}' should start with a capital");

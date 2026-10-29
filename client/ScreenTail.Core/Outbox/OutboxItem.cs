@@ -125,7 +125,7 @@ public readonly record struct SendOutcome
     public static SendOutcome Unknown(string message) => new(OutboxState.Uncertain, null, message);
 }
 
-/// <param name="Drafts">Sessions waiting to be drafted. Spec §5 S3's "Draft pending — offline".</param>
+/// <param name="Drafts">Sessions waiting to be drafted. Spec §5 S3's "Draft pending: offline".</param>
 /// <param name="Uncertain">Work somebody has to look at, because nothing will resolve it on its own.</param>
 public readonly record struct OutboxWaiting(int Drafts, int Publishes, int Uncertain)
 {
