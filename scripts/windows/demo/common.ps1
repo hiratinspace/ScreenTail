@@ -57,6 +57,16 @@ $script:DemoServiceLog = Join-Path $script:DemoLogDir 'service.log'
 $script:DemoLogCapBytes = 2097152
 $script:DemoLogWriterFile = Join-Path $script:DemoLogDir 'log-writer.txt'
 
+# Where scripts\windows\e2e\run-e2e.ps1 writes its logs when it is not on a CI runner (a runner's job uses
+# RUNNER_TEMP): e2e.log and <role>.out.log and <role>.err.log for each process it starts. Nothing filters
+# them as they are written, so report.ps1 reads them through the same filter as the demo logs.
+$script:DemoE2eDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\e2e'
+
+# The words run-e2e.ps1 makes each run's fake secret from: a first word, four digits and a second word.
+# The secret itself is never saved, so report.ps1 removes anything made of these words by its shape.
+$script:E2eSecretFirstWords = @('Tangerine', 'Marigold', 'Juniper', 'Lavender', 'Saffron')
+$script:E2eSecretSecondWords = @('Wobble', 'Quiver', 'Ramble', 'Tumble', 'Glimmer')
+
 # Where the backend's log was before it moved into logs\. Only report.ps1 reads it, for a laptop that
 # last ran an older start.
 $script:DemoOldBackendLog = Join-Path $script:DemoStateDir 'backend.log'
@@ -351,6 +361,10 @@ function Get-DemoLogWriterHash([string]$Source) {
     }
     return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
 }
+
+# The hash of the filter as this file built it, for a reader that loads the filter the way the windows do
+# (report.ps1's end-to-end section): only if the text it is given still has this hash.
+$script:DemoLogWriterHash = Get-DemoLogWriterHash $script:DemoLogWriterSource
 
 # --- Running other programs ---------------------------------------------------------------------------
 

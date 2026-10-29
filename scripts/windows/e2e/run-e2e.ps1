@@ -58,7 +58,7 @@ $script:StepNumber = @{}
 $script:Started = @()
 
 if (-not $OutDir) {
-    if ($env:RUNNER_TEMP) { $OutDir = Join-Path $env:RUNNER_TEMP 'e2e' } else { $OutDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\e2e' }
+    if ($env:RUNNER_TEMP) { $OutDir = Join-Path $env:RUNNER_TEMP 'e2e' } else { $OutDir = $script:DemoE2eDir }
 }
 $OutDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir)
 if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
@@ -113,8 +113,9 @@ function New-FakeSecret {
     $bytes = New-Object byte[] 4
     $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
-    $first = @('Tangerine', 'Marigold', 'Juniper', 'Lavender', 'Saffron')[$bytes[0] % 5]
-    $second = @('Wobble', 'Quiver', 'Ramble', 'Tumble', 'Glimmer')[$bytes[1] % 5]
+    # The words are common.ps1's, so report.ps1 can remove a leaked secret by its shape.
+    $first = $script:E2eSecretFirstWords[$bytes[0] % $script:E2eSecretFirstWords.Count]
+    $second = $script:E2eSecretSecondWords[$bytes[1] % $script:E2eSecretSecondWords.Count]
     $digits = '{0:0000}' -f ((([int]$bytes[2]) * 256 + [int]$bytes[3]) % 10000)
     return $first + $digits + $second
 }
