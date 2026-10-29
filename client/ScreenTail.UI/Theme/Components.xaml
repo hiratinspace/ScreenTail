@@ -66,6 +66,20 @@
         <Setter Property="FontSize" Value="{DynamicResource Size.sm}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
     </Style>
+    <!-- A Windows icon-font glyph (Segoe Fluent Icons, or MDL2 before Windows 11). Decoration beside
+         words that already say the same thing, never the only signal. -->
+    <Style x:Key="Icon" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.icon}" />
+        <Setter Property="FontSize" Value="{DynamicResource Icon.control}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+    <!-- An empty or waiting pane: a large icon in a soft circle, one line of what is going on. -->
+    <Style x:Key="EmptyState.Icon" BasedOn="{StaticResource Icon}" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="28" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
 
     <!-- Button: primary, secondary, subtle (ghost), danger. 32 px tall at least; the reason a button is
          disabled goes beside it as text (v0.4.3), and in its ToolTip for the mouse. -->
@@ -1006,7 +1020,7 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="10"
+                            CornerRadius="11"
                             Padding="{TemplateBinding Padding}"
                             SnapsToDevicePixels="True">
                         <ContentPresenter VerticalAlignment="Center" />
@@ -1029,6 +1043,14 @@
         <Setter Property="Background" Value="{DynamicResource Brush.bg.success}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.published}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+    </Style>
+    <!-- The shell's capture state: the badge at body-adjacent size, because it is read, not glanced at. -->
+    <Style x:Key="Badge.Status" BasedOn="{StaticResource Badge}" TargetType="ContentControl">
+        <Setter Property="FontSize" Value="{DynamicResource Size.sm}" />
+        <Setter Property="FontWeight" Value="{DynamicResource Weight.regular}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.subtle}" />
+        <Setter Property="Padding" Value="10,3" />
     </Style>
 
     <!-- State dot: colour as indicator (Spec §2.1 v0.4.2), always next to a text label -->

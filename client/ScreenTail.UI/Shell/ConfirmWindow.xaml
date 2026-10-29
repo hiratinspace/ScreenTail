@@ -7,7 +7,7 @@
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Style="{StaticResource Window.Base}">
-    <Grid Background="{DynamicResource Brush.bg.base}" Margin="20">
+    <Grid Background="{DynamicResource Brush.bg.base}" Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -36,16 +36,16 @@
                    TextWrapping="Wrap" />
 
         <!-- Typed rather than clicked (Spec §3). The point is that agreeing takes an act rather than a
-             reflex, and a button next to "Stop and draft" is a reflex. -->
+             reflex, and a button next to "Stop and draft" is a reflex. Input.Mono, not Text.Mono: that is a
+             TextBlock style, and WPF refuses a style for another type the moment the window is built. -->
         <TextBox x:Name="Typed"
                  Grid.Row="3"
-                 Padding="8,6"
-                 Style="{StaticResource Text.Mono}"
+                 Style="{StaticResource Input.Mono}"
                  TextChanged="OnTyped"
                  AutomationProperties.Name="Type the phrase to confirm" />
 
         <StackPanel Grid.Row="4"
-                    Margin="0,20,0,0"
+                    Margin="0,24,0,0"
                     HorizontalAlignment="Right"
                     Orientation="Horizontal">
             <Button x:Name="Cancel"

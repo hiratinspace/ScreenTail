@@ -28,8 +28,8 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
-                            <TextBlock Style="{StaticResource Text.Muted}" Text="Site" />
-                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Muted}" Text="Credential" />
+                            <TextBlock Style="{StaticResource Text.Label}" Text="Site" />
+                            <TextBlock Margin="0,14,0,0" Style="{StaticResource Text.Label}" Text="Credential" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="16,0,0,0">
                             <TextBlock Style="{StaticResource Text.Body}" Text="{Binding SiteUrl}" />
@@ -44,7 +44,7 @@
 
                     <!-- Nothing saved, or Change pressed: the fields. -->
                     <StackPanel Margin="0,10,0,0" Visibility="{Binding FieldsVisibility}">
-                        <TextBlock Style="{StaticResource Text.Muted}" Text="Site" />
+                        <TextBlock Style="{StaticResource Text.Label}" Text="Site" />
                         <TextBox Margin="0,4,0,0"
                                  Style="{StaticResource Input.Default}"
                                  Text="{Binding SiteUrl, UpdateSourceTrigger=PropertyChanged}"
@@ -52,11 +52,11 @@
                                  AutomationProperties.HelpText="{Binding SitePlaceholder}" />
 
                         <StackPanel Visibility="{Binding ConnectWiseVisibility}">
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Company ID" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="Company ID" />
                             <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding CompanyId, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Company ID" />
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Public key" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="Public key" />
                             <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding PublicKey, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Public key" />
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Private key" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="Private key" />
                             <PasswordBox Margin="0,4,0,0"
                                          Tag="private"
                                          PasswordChanged="OnSecretChanged"
@@ -70,7 +70,7 @@
                         </StackPanel>
 
                         <StackPanel Visibility="{Binding HuduVisibility}">
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="API key" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="API key" />
                             <PasswordBox Margin="0,4,0,0"
                                          Tag="api"
                                          PasswordChanged="OnSecretChanged"
@@ -189,7 +189,7 @@
                     </ItemsControl>
 
                     <Border Margin="0,10,0,10" Height="1" Background="{DynamicResource Brush.border.subtle}" />
-                    <TextBlock Style="{StaticResource Text.Muted}" Text="Map a company by hand" />
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Map a company by hand" />
                     <Grid Margin="0,6,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*" />

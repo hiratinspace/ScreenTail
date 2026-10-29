@@ -29,6 +29,7 @@
   --font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI", Inter, sans-serif;
   --font-mono: "Cascadia Mono", Consolas, "JetBrains Mono", monospace;
+  --font-icon: "Segoe Fluent Icons", "Segoe MDL2 Assets";
   --size-xs: 11px;
   --size-sm: 12px;
   --size-md: 14px;

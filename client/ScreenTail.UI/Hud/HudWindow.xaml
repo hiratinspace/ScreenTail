@@ -17,12 +17,14 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
     </Window.Resources>
+    <!-- v0.5: the segments after the state are set off by a short rule, so the pill reads as
+         "state | mic | redactions" at a glance instead of one run of small grey words. -->
 
     <!-- 44 px tall, 999 radius, bg.surface on border.strong (Spec §5 S2). -->
     <Border x:Name="Pill"
             Height="44"
             CornerRadius="22"
-            Padding="16,0"
+            Padding="16,0,18,0"
             Background="{DynamicResource Brush.bg.surface}"
             BorderBrush="{DynamicResource Brush.border.strong}"
             BorderThickness="1"
@@ -60,35 +62,72 @@
                 </TextBlock.Style>
             </TextBlock>
 
+            <!-- The state in words while recording. The other states say theirs in StateText; recording's
+                 is the elapsed time, and a red dot beside a number is colour plus a clock, not a word. -->
+            <TextBlock Margin="8,0,0,0"
+                       VerticalAlignment="Center"
+                       FontFamily="{DynamicResource Font.ui}"
+                       FontSize="{DynamicResource Size.md}"
+                       FontWeight="{DynamicResource Weight.semibold}"
+                       Foreground="{DynamicResource Brush.text.primary}"
+                       Text="Recording">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Tone}" Value="Recording">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+
             <TextBlock Margin="8,0,0,0"
                        VerticalAlignment="Center"
                        Style="{DynamicResource Text.Body}"
-                       FontWeight="{DynamicResource Weight.medium}"
+                       FontWeight="{DynamicResource Weight.semibold}"
+                       Typography.NumeralAlignment="Tabular"
                        Text="{Binding StateText}"
                        ToolTip="{Binding StateTooltip}"
                        AutomationProperties.Name="Capture state"
                        AutomationProperties.LiveSetting="Assertive" />
 
-            <TextBlock Margin="16,0,0,0"
-                       VerticalAlignment="Center"
-                       Style="{DynamicResource Text.Muted}"
-                       Text="{Binding MicTooltip}"
-                       ToolTip="{Binding MicTooltip}"
-                       Visibility="{Binding ShowMic, Converter={StaticResource Visible}}" />
+            <Border Margin="12,0,0,0"
+                    Padding="12,0,0,0"
+                    VerticalAlignment="Center"
+                    BorderBrush="{DynamicResource Brush.border.subtle}"
+                    BorderThickness="1,0,0,0"
+                    Visibility="{Binding ShowMic, Converter={StaticResource Visible}}">
+                <TextBlock VerticalAlignment="Center"
+                           Style="{DynamicResource Text.Muted}"
+                           Text="{Binding MicTooltip}"
+                           ToolTip="{Binding MicTooltip}" />
+            </Border>
 
-            <TextBlock Margin="16,0,0,0"
-                       VerticalAlignment="Center"
-                       Style="{DynamicResource Text.Muted}"
-                       Text="{Binding RedactionText}"
-                       ToolTip="Screenshots still being masked. They are not readable until this reaches zero."
-                       Visibility="{Binding ShowRedactions, Converter={StaticResource Visible}}" />
+            <Border Margin="12,0,0,0"
+                    Padding="12,0,0,0"
+                    VerticalAlignment="Center"
+                    BorderBrush="{DynamicResource Brush.border.subtle}"
+                    BorderThickness="1,0,0,0"
+                    Visibility="{Binding ShowRedactions, Converter={StaticResource Visible}}">
+                <TextBlock VerticalAlignment="Center"
+                           Style="{DynamicResource Text.Muted}"
+                           Text="{Binding RedactionText}"
+                           ToolTip="Screenshots still being masked. They are not readable until this reaches zero." />
+            </Border>
 
-            <TextBlock Margin="16,0,0,0"
-                       VerticalAlignment="Center"
-                       Style="{DynamicResource Text.Muted}"
-                       Text="☁ Offline"
-                       ToolTip="{Binding CloudTooltip}"
-                       Visibility="{Binding ShowCloud, Converter={StaticResource Visible}}" />
+            <Border Margin="12,0,0,0"
+                    Padding="12,0,0,0"
+                    VerticalAlignment="Center"
+                    BorderBrush="{DynamicResource Brush.border.subtle}"
+                    BorderThickness="1,0,0,0"
+                    Visibility="{Binding ShowCloud, Converter={StaticResource Visible}}">
+                <TextBlock VerticalAlignment="Center"
+                           Style="{DynamicResource Text.Muted}"
+                           Text="☁ Offline"
+                           ToolTip="{Binding CloudTooltip}" />
+            </Border>
 
             <!-- Expanded: the last three events and Mark moment (Spec §5 S2). Counts and kinds only —
                  a HUD a customer can see over a technician's shoulder holds no content (INV-10). -->

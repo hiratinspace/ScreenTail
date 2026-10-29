@@ -5,6 +5,7 @@
     <FontFamily x:Key="Font.ui">Segoe UI Variable Text, Segoe UI, Inter, sans-serif</FontFamily>
     <FontFamily x:Key="Font.display">Segoe UI Variable Display, Segoe UI, Inter, sans-serif</FontFamily>
     <FontFamily x:Key="Font.mono">Cascadia Mono, Consolas, JetBrains Mono, monospace</FontFamily>
+    <FontFamily x:Key="Font.icon">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
     <sys:Double x:Key="Size.xs">11</sys:Double>
     <sys:Double x:Key="Size.sm">12</sys:Double>
     <sys:Double x:Key="Size.md">14</sys:Double>

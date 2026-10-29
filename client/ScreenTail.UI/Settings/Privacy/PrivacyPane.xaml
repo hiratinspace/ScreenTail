@@ -17,7 +17,7 @@
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
-                <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here. Notes are drafted on this device from what was said and shown: plainer than the model's, and marked as such in Review." />
             </StackPanel>
@@ -51,13 +51,13 @@
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Redaction patterns" />
-                <CheckBox Margin="0,8,0,0" Content="Social security numbers" IsChecked="{Binding Ssn}" Foreground="{DynamicResource Brush.text.primary}" />
-                <CheckBox Margin="0,4,0,0" Content="Card numbers" IsChecked="{Binding Cards}" Foreground="{DynamicResource Brush.text.primary}" />
-                <CheckBox Margin="0,4,0,0" Content="API keys, tokens and private keys" IsChecked="{Binding ApiKeys}" Foreground="{DynamicResource Brush.text.primary}" />
-                <CheckBox Margin="0,4,0,0" Content="Passwords, when said or typed after a cue" IsChecked="{Binding Passwords}" Foreground="{DynamicResource Brush.text.primary}" />
-                <CheckBox Margin="0,4,0,0" Content="Email addresses" IsChecked="{Binding Emails}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,8,0,0" Content="Social security numbers" IsChecked="{Binding Ssn}" />
+                <CheckBox Margin="0,4,0,0" Content="Card numbers" IsChecked="{Binding Cards}" />
+                <CheckBox Margin="0,4,0,0" Content="API keys, tokens and private keys" IsChecked="{Binding ApiKeys}" />
+                <CheckBox Margin="0,4,0,0" Content="Passwords, when said or typed after a cue" IsChecked="{Binding Passwords}" />
+                <CheckBox Margin="0,4,0,0" Content="Email addresses" IsChecked="{Binding Emails}" />
 
-                <TextBlock Margin="0,12,0,4" Style="{StaticResource Text.Muted}" Text="Custom patterns (regular expressions)" />
+                <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Custom patterns (regular expressions)" />
                 <ItemsControl ItemsSource="{Binding CustomPatterns}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -74,7 +74,7 @@
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddPatternCommand}" IsEnabled="{Binding CanAddPattern}" />
                 </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
-                <TextBlock Margin="0,10,0,4" Style="{StaticResource Text.Muted}" Text="Try it on some text" />
+                <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Try it on some text" />
                 <TextBox Style="{StaticResource Input.Default}" Text="{Binding Sample, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Sample text" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding SampleMasked}" AutomationProperties.Name="What the sample becomes" />
             </StackPanel>
@@ -86,7 +86,7 @@
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Retention" />
                 <!-- Maximum binds before Value: until it does, the slider's top is WPF's 10, and a value bound first would be clamped and pushed back. -->
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <Slider Width="260" Minimum="1" Maximum="{Binding RetentionMaximum}" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
+                    <Slider Width="280" Minimum="1" Maximum="{Binding RetentionMaximum}" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
                     <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding RetentionDays}" />
                     <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="days" />
                 </StackPanel>
@@ -99,13 +99,13 @@
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Usage telemetry" />
-                <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" Foreground="{DynamicResource Brush.text.primary}" />
+                <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Exactly these fields, and never any text from a session:" />
                 <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding TelemetryFieldList}" />
             </StackPanel>
         </Border>
 
-        <Button Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+        <Button Margin="0,4,0,0" MinWidth="96" Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
         <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
         <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" AutomationProperties.LiveSetting="Polite" />
 
