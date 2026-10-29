@@ -265,9 +265,26 @@ public sealed class HuduProviderTests : IDisposable
 
         Assert.Equal(ProviderErrorKind.NotFound, result.Error!.Kind);
         Assert.False(result.Error.Retryable);
+        Assert.True(result.Error.CompanyGone);
         Assert.Equal("Hudu no longer has that company. Choose another company for the article, then publish it again.", result.Error.ToString());
         Assert.True(_api.Requests.Count > listed, "The company list was served from the cache that still held the removed company.");
         Assert.DoesNotContain(again.Value!, c => c.Id == "7");
+    }
+
+    [Fact]
+    public async Task APlain404OnTheArticleKeepsTheCompanyListAndIsNotCalledAGoneCompany()
+    {
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _api.FailingRoute = ("/api/v1/articles", HttpStatusCode.NotFound);
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+        var listed = _api.Requests.Count;
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.NotFound, result.Error!.Kind);
+        Assert.False(result.Error.CompanyGone);
+        Assert.Equal(listed, _api.Requests.Count);
     }
 
     [Fact]

@@ -462,6 +462,34 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task APlain404OnTheArticleIsNotTakenToMeanTheCompanyIsGone()
+    {
+        // A 404 from the articles route says nothing about the company: a proxy in front of a
+        // self-hosted Hudu, the route turned off, an API change. Only Hudu's own "company must exist"
+        // says the company is gone. Anything else keeps the mapping (which a person may have confirmed)
+        // and the cache, and passes the refusal on as it was, rather than sending the technician to
+        // pick another customer's company and back round the same 404.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        hudu.FailingRoute = ("/api/v1/articles", HttpStatusCode.NotFound);
+        var listed = hudu.Requests.Count(IsCompanyList);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+        _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.False(kb.Ok);
+        Assert.Equal("notfound", kb.Kind);
+        Assert.DoesNotContain("no longer", kb.Error, StringComparison.Ordinal);
+        var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal(("7", "manual"), (mapping.DocCompanyId, mapping.Confidence));
+        Assert.Equal(listed, hudu.Requests.Count(IsCompanyList));
+    }
+
+    [Fact]
     public async Task AStaleMappingRewrittenSinceItWasReadIsKept()
     {
         // The stale row is forgotten as it was read. If a person or an exact match rewrote it in the
