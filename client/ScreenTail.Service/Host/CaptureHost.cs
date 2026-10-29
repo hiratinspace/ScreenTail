@@ -270,7 +270,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         bool SessionBusy() => machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing;
         var runningPublisher = PackageSignature.Running();
         using var updates = new UpdateService(
-            new HttpClient(egress, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(30) },
+            new HttpClient(EgressGuard.ForUpdates(egressPolicy)) { Timeout = TimeSpan.FromMinutes(30) },
             UpdateTrust.Shipped,
             ReleaseVersion.TryParse(version, out var installedVersion) ? installedVersion : new Version(0, 0, 0),
             new WindowsUpdateFolder(Path.Combine(DataDirectory, "Updates")),
@@ -286,7 +286,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 LogUpdate(logger, status.State);
             }
         };
-        var installer = new UpdateInstaller(updates, new PackageSignature(), new MsiLauncher(), runningPublisher, machine.HoldStartsAsync);
+        // A tool refused its session while the hold was in force is decided again when it goes; the
+        // coordinator is built further down.
+        Action retryForeground = () => { };
+        var installer = new UpdateInstaller(updates, new PackageSignature(), new MsiLauncher(), runningPublisher, machine.HoldStartsAsync, () => retryForeground());
         var updateCommands = new UpdateCommands(updates, installer, UpdatePolicyNow, updatePreferences, SessionBusy, updates.CheckSoon);
 
         var controller = new CaptureController(
@@ -417,6 +420,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         _ = Task.Run(() => StartupOrder.SyncPolicyAsync(policySync, tokenReady.Task, policyFetched, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "policy", ex.GetType().Name)), stoppingToken);
         foreground.Changed += coordinator.Observe;
+        retryForeground = coordinator.Retry;
+
+        // A download that a session stopped continues once the session is over, rather than at the
+        // loop's next half-hourly retry.
+        machine.StateChanged += snapshot =>
+        {
+            if (snapshot.State is CaptureStates.Idle or CaptureStates.DraftReady or CaptureStates.DraftFailed
+                && updates.Status.State == UpdateState.Available)
+            {
+                updates.CheckSoon();
+            }
+        };
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
         LogForegroundMode(logger, foreground.UsingHook ? "event hook" : "polling");

@@ -81,11 +81,15 @@ public sealed class UpdateInstaller(
             Installing = true;
         }
 
+        IDisposable? exclusive = null;
         IDisposable? hold = null;
         FileStream? package = null;
         var started = false;
         try
         {
+            // The check's own lock, so a check that finds a new release cannot replace the package this
+            // is verifying, nor a refusal here delete the one that check kept (2026-10-29 review).
+            exclusive = await _updates.ExclusiveAsync(ct).ConfigureAwait(false);
             if (_updates.Status.State != UpdateState.Ready || _updates.Ready is not { } ready)
             {
                 return Refused(NothingReady);
@@ -110,23 +114,23 @@ public sealed class UpdateInstaller(
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Discarded("The downloaded update could not be opened to be checked, so it was not installed.");
+                return Discarded(ready, "The downloaded update could not be opened to be checked, so it was not installed.");
             }
 
             if (package.Length != ready.Manifest.Package.Size)
             {
-                return await DiscardAsync(package, "The downloaded update changed size since it was downloaded, so it was not installed.").ConfigureAwait(false);
+                return await DiscardAsync(package, ready, "The downloaded update changed size since it was downloaded, so it was not installed.").ConfigureAwait(false);
             }
 
             var hash = await SHA256.HashDataAsync(package, ct).ConfigureAwait(false);
             if (!string.Equals(Convert.ToHexStringLower(hash), ready.Manifest.Package.Sha256, StringComparison.Ordinal))
             {
-                return await DiscardAsync(package, "The downloaded update changed since it was downloaded, so it was not installed.").ConfigureAwait(false);
+                return await DiscardAsync(package, ready, "The downloaded update changed since it was downloaded, so it was not installed.").ConfigureAwait(false);
             }
 
             if (PublisherIdentity.Mismatch(_running, _publisher.Read(ready.Path, package.SafeFileHandle)) is { } stranger)
             {
-                return await DiscardAsync(package, stranger).ConfigureAwait(false);
+                return await DiscardAsync(package, ready, stranger).ConfigureAwait(false);
             }
 
             _updates.Installing();
@@ -136,6 +140,7 @@ public sealed class UpdateInstaller(
         }
         finally
         {
+            exclusive?.Dispose();
             if (!started)
             {
                 if (package is not null)
@@ -143,7 +148,12 @@ public sealed class UpdateInstaller(
                     await package.DisposeAsync().ConfigureAwait(false);
                 }
 
-                hold?.Dispose();
+                if (hold is not null)
+                {
+                    hold.Dispose();
+                    _released();
+                }
+
                 lock (_gate)
                 {
                     Installing = false;
@@ -175,6 +185,10 @@ public sealed class UpdateInstaller(
             Installing = false;
         }
 
+        // A tool that took focus while the hold was in force was refused its session, so the host decides
+        // the window in front again. Nothing lets a session start while Windows Installer runs.
+        _released();
+
         // Most often this process does not see it: Windows Installer ends it to replace it.
         if (code is 0 or 3010)
         {
@@ -192,15 +206,15 @@ public sealed class UpdateInstaller(
     private static InstallAnswer Refused(string reason) => new(false, reason);
 
     /// <summary>Closes the package first: Windows will not delete a file this process holds open.</summary>
-    private async Task<InstallAnswer> DiscardAsync(FileStream package, string reason)
+    private async Task<InstallAnswer> DiscardAsync(FileStream package, ReadyUpdate checkedPackage, string reason)
     {
         await package.DisposeAsync().ConfigureAwait(false);
-        return Discarded(reason);
+        return Discarded(checkedPackage, reason);
     }
 
-    private InstallAnswer Discarded(string reason)
+    private InstallAnswer Discarded(ReadyUpdate checkedPackage, string reason)
     {
-        _updates.Discard(reason);
+        _updates.Discard(checkedPackage, reason);
         return new InstallAnswer(false, reason);
     }
 }

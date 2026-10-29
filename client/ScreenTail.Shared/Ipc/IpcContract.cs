@@ -17,11 +17,12 @@ namespace ScreenTail.Shared.Ipc;
 /// log as one string, which outgrew the frame limit within weeks (2026-10-12 review, E-2). The reply
 /// changes shape, so an older reader would fail on it.
 ///
-/// 5: ST-113 adds <c>get_update</c>, <c>install_update</c>, <c>set_update_channel</c> and the
-/// <c>update</c> reply. A UI from before them would fail to read the reply, and after an update the
-/// two processes of one installation are always the same version anyway.
+/// ST-113's <c>get_update</c>, <c>install_update</c>, <c>set_update_channel</c> and the <c>update</c>
+/// reply are new commands, and <c>update</c> is only ever sent in reply to <c>get_update</c>, so an older
+/// UI never receives it: not a breaking change, and the version is not bumped (as with
+/// <c>get_frame_thumbnail</c>).
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 5;
+    public const int Version = 4;
 }

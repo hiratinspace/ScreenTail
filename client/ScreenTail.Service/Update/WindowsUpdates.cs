@@ -61,6 +61,10 @@ internal sealed class WindowsUpdateFolder(string path) : IUpdateFolder
         {
             throw new IOException("The update folder is a link.");
         }
+
+        // A folder that was already there (an older build, or anything else that made it first) gets the
+        // same permissions, every time, rather than keeping whatever it was made with (2026-10-29 review).
+        folder.SetAccessControl(Security());
     }
 
     internal static DirectorySecurity Security()

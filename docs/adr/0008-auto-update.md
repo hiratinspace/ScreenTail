@@ -84,10 +84,23 @@ empty**: a build without a feed or a key makes no update request at all and says
 A new egress purpose, `UpdateCheck`, allowed only to the trust file's hosts. The check is one GET with
 no credential, cookie, device, tenant or version; the channel and the architecture are in the path. The
 download is a second GET under the same purpose; a redirect is followed only onto another update host,
-and only `Range` travels with it (EgressGuard's existing rules). **Under local-only no update request is
-made** unless the tenant's admin set `updateChecksUnderLocalOnly`; the technician's own local-only cannot
-be overridden from the device. No check runs before this run has fetched the tenant's policy once,
-because until then the policy in force is a cached file the technician can edit (the outbox's rule).
+and only `Range` travels with it (EgressGuard's existing rules). The update client has a guard of its own
+over the same policy (`EgressGuard.ForUpdates`), whose handler keeps no cookies, so nothing the feed sets
+comes back to it.
+
+**Under local-only no update request is made.** The one exception is the admin's, and only to a
+local-only the admin locked on: with `localOnlyLocked` and `localOnly` both set in the tenant's policy,
+`updateChecksUnderLocalOnly` lets update checks (and nothing else) through. **A local-only the technician
+turned on themselves lets no update request out, whatever `updateChecksUnderLocalOnly` says**, because
+that local-only is the technician's promise that nothing leaves; the policy applier passes the exception
+only with the admin's lock, and the egress decision itself requires both (2026-10-29 review). No check
+runs before this run has fetched the tenant's policy once, because until then the policy in force is a
+cached file the technician can edit (the outbox's rule).
+
+**Revocation is not checked**, deliberately: `WinVerifyTrust` is called with revocation checks off, as
+the peer checks are. Checking the whole chain's revocation makes Windows fetch CRLs and OCSP answers from
+the certificate authorities' hosts, which are not on the allowlist and would be egress the client did not
+decide (INV-8). The timestamp, the identity comparison and the signed manifest's SHA-256 are the checks.
 
 ### Admin policy (INV-11)
 
@@ -101,17 +114,31 @@ in the Privacy document, which is saved whole.
 ### Download and install
 
 - **Background, and only when idle:** a verified offer downloads only while no session is recording
-  (recording, paused, suppressed or finalizing), into `%LOCALAPPDATA%\ScreenTail\Updates`, created with
-  inheritance cut and access for the technician, the system account and administrators only, and refused
-  if it is a link. The file is kept only if its size and SHA-256 match the manifest; anything else is
-  deleted and logged. Older packages are removed.
+  (recording, paused, suppressed or finalizing), into `%LOCALAPPDATA%\ScreenTail\Updates`. The folder
+  is prepared before anything is read from or written in it, and every time: inheritance cut and access
+  for the technician, the system account and administrators only, applied to a folder that already
+  existed too, and refused if it is a link. A session that starts during a download stops it after the
+  chunk in hand; what arrived is kept, and the next check (woken when the session ends) continues it with
+  a `Range` request, or starts again if the feed ignores the range. The bytes read are capped at the
+  manifest's size whether or not the feed sends a length. The file is kept only if its size and SHA-256
+  over every byte match the manifest; anything else is deleted and logged. Older packages are removed
+  after a download, and at every start those no newer than the installed version.
+- **A channel that is behind:** a validly signed manifest older than the installed version (a
+  technician who moved from pilot to stable while stable is behind) is "up to date, newer than that
+  channel", not a refusal logged on every check. An older manifest than one already seen on that channel
+  is still refused.
 - **The prompt only when idle:** the tray announces a ready update once per version, never during a
   session (Spec §4's rule, `UpdateNotices`); Settings shows Install enabled only when ready and idle.
 - **Never during a session:** Install asks the session machine for a hold on new sessions
   (`SessionMachine.HoldStartsAsync`). It is granted only when no session is under way, under the same
   transition lock every start takes, and while it is held every start path (automatic, the hotkey, the
   pipe) is refused, with the pipe saying an update is being installed. It is released if any check fails
-  or when Windows Installer exits.
+  or when Windows Installer exits, and then the window in front is decided again, so a tool that took
+  focus meanwhile gets its session without the technician clicking away and back. There is no timeout
+  after which sessions may start while Windows Installer runs, and the pill has no "installing" state
+  (both are decisions for the owner, below). Install's checks take the update check's own lock, so a
+  check that finds a new release cannot replace the package being verified, and a refusal deletes only
+  the package that was checked.
 - **Re-verified immediately before it is launched:** the package is opened for reading with sharing that
   denies writing, renaming and deleting (the Windows suite shows the file, and its folder, cannot be
   changed while the handle is open); its size and SHA-256 are read through that handle and compared with
@@ -146,7 +173,9 @@ every pull request. The pilot manifest is its own artifact, kept 90 days so a la
 
 **Stable is signed only by promotion** (`.github/workflows/promote-stable.yml`, its own file so ci.yml's
 triggers are unchanged): started by hand on main with the id of the ci run whose pilot release is
-promoted and its version, on the hosted runner, always in the `release-stable` environment. It downloads
+promoted and its version, on the hosted runner, always in the `release-stable` environment. It first asks
+GitHub what that run is and stops unless it is this repository's ci.yml, started by a push, on main, and
+successful (`installer/check-pilot-run.ps1`, with the job's read-only token). Then it downloads
 that run's pilot manifest (a JSON file; nothing from the earlier run is executed) and the script signs,
 for stable, exactly what it describes, after checking that it verifies with the client's own keys, says
 pilot and carries the version typed. **It fails closed**: the script refuses unless
@@ -182,6 +211,13 @@ trigger, permission, filter, gate or skip budget of an existing job moved.
    schedule; the owner decides whether that is worth it.
 9. **The `release-stable` environment** (an owner setting this branch cannot create): its required
    reviewers (the owner by default), its main-only branch rule, and Azure trusting it for the vault key.
+10. **No timeout on the install's hold.** While Windows Installer runs no session starts, however long
+    the technician leaves the UAC prompt open. A timeout would let a session start that Windows Installer
+    then ends; the alternative is the owner's to choose.
+11. **No "installing" state on the pill.** Between Install and the service ending, nothing on screen says
+    an update is being installed except Windows' own prompt and progress. A pill state needs an IPC change
+    and a UX decision; left for the owner.
+12. **Revocation is not checked** (above): the owner may decide to allow the CA hosts for that one check.
 
 ## Owner steps
 
@@ -215,7 +251,7 @@ trigger, permission, filter, gate or skip budget of an existing job moved.
 - Nothing changes on any machine until the trust file is filled in and a signed build ships it.
 - A technician without administrator credentials cannot apply an update; the card says so before they
   press Install, and the MSP's own push keeps working as before.
-- The IPC contract moves to version 5 (`get_update`, `install_update`, `set_update_channel`, `update`).
+- The IPC contract stays at version 4: the four update messages are new commands and a reply only ever sent to `get_update`, which the contract's own rule does not bump.
 - The UAC prompt's wording, and that Windows Installer raises it under `/passive` when started without
   elevation, are checked on the laptop with the first signed build (`docs/dev/installer.md`).
 

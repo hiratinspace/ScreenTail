@@ -51,6 +51,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      # Before anything is downloaded from it: the run is this repository's ci.yml, started by a push to
+      # main, and it succeeded. Asked of GitHub with the job's own read-only token.
+      - name: Check the run being promoted is a successful ci run of a push to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PILOT_RUN: ${{ inputs.pilot-run }}
+        run: ./installer/check-pilot-run.ps1
       - name: Download the pilot manifest of the run being promoted
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:

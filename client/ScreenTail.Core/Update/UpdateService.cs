@@ -190,6 +190,7 @@ public sealed partial class UpdateService : IDisposable
     public async Task RunAsync(Task policyFetched, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(policyFetched);
+        RemoveStalePackages();
         if (Unusable() is { } never)
         {
             // Nothing will ever be checked by this build; say so once and stop.
@@ -216,8 +217,35 @@ public sealed partial class UpdateService : IDisposable
         }
     }
 
-    /// <summary>Removes packages no newer than the installed version. Not written yet.</summary>
-    public void RemoveStalePackages() => _ = Folder;
+    /// <summary>
+    /// Removes downloaded packages, finished or not, whose version is no newer than the installed one:
+    /// an update that has been installed, or one overtaken. Run as the loop starts.
+    /// </summary>
+    public void RemoveStalePackages()
+    {
+        try
+        {
+            if (!Directory.Exists(Folder.Path))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(Folder.Path, "ScreenTail-*.msi*"))
+            {
+                var name = System.IO.Path.GetFileName(file);
+                var bare = name.EndsWith(".msi.partial", StringComparison.Ordinal) ? name[..^".msi.partial".Length]
+                    : name.EndsWith(".msi", StringComparison.Ordinal) ? name[..^".msi".Length]
+                    : null;
+                if (bare is not null && ReleaseVersion.TryParse(bare["ScreenTail-".Length..], out var version) && version <= Installed)
+                {
+                    TryDelete(file);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 
     /// <summary>Installing, for the installer: the ready package is in Windows Installer's hands.</summary>
     internal void Installing() =>
@@ -239,16 +267,38 @@ public sealed partial class UpdateService : IDisposable
         Set(new UpdateStatus(UpdateState.UpToDate, null, sentence));
     }
 
-    /// <summary>The package failed a check just before it was installed: deleted, and the refusal logged.</summary>
-    internal void Discard(string reason)
+    /// <summary>
+    /// The package that was checked failed a check just before it was installed: that file is deleted,
+    /// and the refusal logged. Only that one: <see cref="Ready"/> is cleared only if it is still the
+    /// package the installer checked (2026-10-29 review).
+    /// </summary>
+    internal void Discard(ReadyUpdate checkedPackage, string reason)
     {
-        if (Ready is { } ready)
+        ArgumentNullException.ThrowIfNull(checkedPackage);
+        TryDelete(checkedPackage.Path);
+        if (Ready == checkedPackage)
         {
-            TryDelete(ready.Path);
+            Ready = null;
         }
 
-        Ready = null;
         Refuse(reason);
+    }
+
+    /// <summary>
+    /// The check's own lock, for the installer's check phase: a check that found a new release cannot
+    /// replace the ready package while Install is verifying it.
+    /// </summary>
+    internal async Task<IDisposable> ExclusiveAsync(CancellationToken ct)
+    {
+        await _checking.WaitAsync(ct).ConfigureAwait(false);
+        return new Exclusive(_checking);
+    }
+
+    private sealed class Exclusive(SemaphoreSlim gate) : IDisposable
+    {
+        private SemaphoreSlim? _gate = gate;
+
+        public void Dispose() => Interlocked.Exchange(ref _gate, null)?.Release();
     }
 
     private UpdateStatus? Unusable()
@@ -294,10 +344,32 @@ public sealed partial class UpdateService : IDisposable
             return Settle(failure);
         }
 
+        // Prepared before anything is read from or written in it, so on Windows the folder exists only
+        // with its own permissions; nothing else in this class creates it (2026-10-29 review).
+        try
+        {
+            Folder.Prepare();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Settle(Failed("The folder updates are downloaded into could not be used."));
+        }
+
         var seen = Seen.Load(Folder.Path);
         var verdict = UpdateManifestReader.Read(fetched.Body, Trust, channel, Architecture, Installed, seen.For(channel));
         if (verdict.Outcome == ManifestOutcome.Refused)
         {
+            if (verdict.Reason == UpdateManifestReader.Downgrade)
+            {
+                // Signed, verified, and only older than what is installed: a technician who moved from
+                // pilot to stable while stable is behind. Nothing to install and nothing wrong, so it is
+                // not a refusal and is not logged as one on every check.
+                return Settle(new UpdateStatus(
+                    UpdateState.UpToDate,
+                    null,
+                    $"ScreenTail {ReleaseVersion.Format(Installed)} is newer than the latest release on the {channel.ToWire()} channel. It updates once that channel catches up."));
+            }
+
             return Refuse(verdict.Reason);
         }
 
@@ -367,53 +439,95 @@ public sealed partial class UpdateService : IDisposable
     private async Task<UpdateStatus> DownloadAsync(UpdateManifest manifest, CancellationToken ct)
     {
         var version = ReleaseVersion.Format(manifest.Version);
-        string final;
-        try
+        var final = System.IO.Path.Combine(Folder.Path, $"ScreenTail-{version}.msi");
+        var partial = final + ".partial";
+        var size = manifest.Package.Size;
+
+        // What an earlier download that a session interrupted left, asked for from where it stopped. The
+        // finished file's SHA-256 is checked over every byte either way, so a partial file that was
+        // changed meanwhile only makes the download fail its check.
+        var have = File.Exists(partial) ? new FileInfo(partial).Length : 0;
+        if (have >= size)
         {
-            Folder.Prepare();
-            final = System.IO.Path.Combine(Folder.Path, $"ScreenTail-{version}.msi");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return Settle(Failed("The folder updates are downloaded into could not be used."));
+            TryDelete(partial);
+            have = 0;
         }
 
-        var partial = final + ".partial";
         using var request = Net.EgressRequest.For(HttpMethod.Get, manifest.Package.Url, Net.EgressPurpose.UpdateCheck);
+        if (have > 0)
+        {
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
+        }
+
         try
         {
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+            var resuming = have > 0
+                && response.StatusCode == System.Net.HttpStatusCode.PartialContent
+                && (response.Content.Headers.ContentRange?.From ?? have) == have;
+            if (!resuming && response.StatusCode != System.Net.HttpStatusCode.OK)
             {
                 return Settle(Failed($"The update could not be downloaded (HTTP {(int)response.StatusCode})."));
             }
 
-            if (response.Content.Headers.ContentLength is { } length && length != manifest.Package.Size)
+            if (!resuming)
             {
+                // A feed that ignored the range sends the whole file: start again rather than append it.
+                have = 0;
+            }
+
+            if (response.Content.Headers.ContentLength is { } length && length != size - have)
+            {
+                TryDelete(partial);
                 return Refuse("The downloaded package is not the size its manifest states, so it was not kept.");
             }
 
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            long total = 0;
+            if (resuming)
+            {
+                await using var kept = new FileStream(partial, FileMode.Open, FileAccess.Read, FileShare.None);
+                var chunk = new byte[81920];
+                int read;
+                while ((read = await kept.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
+                {
+                    hash.AppendData(chunk, 0, read);
+                }
+            }
+
+            var total = have;
+            var interrupted = false;
             await using (var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var file = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None))
+            await using (var file = new FileStream(partial, resuming ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 var buffer = new byte[81920];
                 int n;
                 while ((n = await body.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
                 {
                     total += n;
-                    if (total > manifest.Package.Size)
+                    if (total > size)
                     {
                         break;
                     }
 
                     hash.AppendData(buffer, 0, n);
                     await file.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+
+                    // AC1 holds for a download already under way: a session that starts stops it, and
+                    // what arrived is kept for the next check to continue from.
+                    if (total < size && SessionBusy())
+                    {
+                        interrupted = true;
+                        break;
+                    }
                 }
             }
 
-            if (total != manifest.Package.Size)
+            if (interrupted)
+            {
+                return Settle(new UpdateStatus(UpdateState.Available, version, $"ScreenTail {version} is available. It finishes downloading once no session is recording."));
+            }
+
+            if (total != size)
             {
                 TryDelete(partial);
                 return Refuse("The downloaded package is not the size its manifest states, so it was not kept.");
@@ -549,7 +663,6 @@ public sealed partial class UpdateService : IDisposable
             _versions[channel.ToWire()] = ReleaseVersion.Format(version);
             try
             {
-                _ = Directory.CreateDirectory(folder);
                 File.WriteAllText(System.IO.Path.Combine(folder, FileName), System.Text.Json.JsonSerializer.Serialize(_versions));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

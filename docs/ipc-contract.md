@@ -1,4 +1,4 @@
-# Service–UI IPC contract (v5)
+# Service–UI IPC contract (v4)
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
@@ -53,9 +53,9 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `remove_integration` | `provider` | Forgets a credential. Answered by a `result` |
 | `check_integration` | `provider` | "Test connection". Answered by `integration_checked` either way; a refusal (no backend, not enrolled) is a failed `result` |
 | `unmap_company` | `psa_company` | Forgets a company mapping. Answered by a `result` |
-| `get_update` | (none) | Where this installation stands with updates (ST-113). Answered by `update` |
-| `install_update` | (none) | Installs the update that is ready: refused with a failed `result` while a session is recording, when nothing is ready, or when the package fails its checks again just before Windows Installer is started. Until Windows Installer exits no session starts |
-| `set_update_channel` | `channel` | `stable` or `pilot`. Refused when the admin's policy chose the channel (INV-11). Answered by a `result` |
+| `get_update` | (none) | Where this installation stands with updates (ST-113). Answered by `update`. New in v4, not bumped |
+| `install_update` | (none) | Installs the update that is ready: refused with a failed `result` while a session is recording, when nothing is ready, or when the package fails its checks again just before Windows Installer is started. Until Windows Installer exits no session starts. New in v4, not bumped |
+| `set_update_channel` | `channel` | `stable` or `pilot`. Refused when the admin's policy chose the channel (INV-11). Answered by a `result`. New in v4, not bumped |
 | `get_session` | `session_id` | A session to review. Answered by `session` |
 | `get_frame` | `frame_id` | One redacted frame's image. Answered by `frame` |
 | `get_frame_thumbnail` | `frame_id` | One redacted frame's image scaled to a 320 px long edge for the filmstrip. Answered by `frame`; nothing is painted or written. The full image stays `get_frame`'s, for the enlarged view |
@@ -91,7 +91,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `capture_settings` | `settings` (`disabled_tools[]`, `capture_all_windows`, `auto_start`, `grace_seconds`, `hotkeys{}`, `sensitivity`, `speech_model`, `start_ui_at_login`), `tools[]` (`id`, `display_name`), `microphones[]`, `policy_forces_all_windows`, `default_grace_seconds` | Answers `get_capture_settings` |
 | `integration_details` | `integrations[]` (`provider`, `site_url`, `secret` as last four, `connected_at`, `last_checked_at`, `last_error`) | Answers `list_integrations` |
 | `integration_checked` | `ok`, `message` | Answers `check_integration`: the provider's answer in words, either way |
-| `update` | `state`, `installed_version`, `available_version?`, `channel`, `channel_locked`, `sentence`, `can_install` | Answers `get_update`. `state` is one of `not_configured`, `development_build`, `off`, `channel_unknown`, `blocked`, `waiting`, `checking`, `up_to_date`, `available`, `downloading`, `ready`, `installing`, `refused`, `failed`; `sentence` is for a screen and never quotes a manifest; `can_install` is ready and no session recording |
+| `update` | `state`, `installed_version`, `available_version?`, `channel`, `channel_locked`, `sentence`, `can_install` | Answers `get_update`. `state` is one of `not_configured`, `development_build`, `off`, `channel_unknown`, `blocked`, `waiting`, `checking`, `up_to_date`, `available`, `downloading`, `ready`, `installing`, `refused`, `failed`; `sentence` is for a screen and never quotes a manifest; `can_install` is ready and no session recording. Sent only in reply to `get_update`, so v4, not bumped |
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
@@ -352,4 +352,4 @@ indicator unreachable rather than by touching capture.
 | 2026-10-23 | `audit` carries `path`, `rows`, `intact`, `note` instead of `json`; an answer too large for one frame is a failed `result` (2026-10-12 review, E-2) | **4** |
 | 2026-10-14 | Two answering lanes per connection: the session's commands and the two settings writes are answered on the read loop, the rest queue (16 at most) behind one worker (E-25) | 4 |
 | 2026-10-25 | `get_frame_thumbnail`, answered by `frame`: the filmstrip draws from a thumbnail the service scales instead of every full redacted image (E-30). A new command, so the version is not bumped | 4 |
-| 2026-10-29 | `get_update` / `update`, `install_update`, `set_update_channel` (ST-113) | **5** |
+| 2026-10-29 | `get_update` / `update`, `install_update`, `set_update_channel` (ST-113). New commands, and `update` is only ever a reply to `get_update`, so the version is not bumped | 4 (not bumped) |
