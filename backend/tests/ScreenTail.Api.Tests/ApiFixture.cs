@@ -129,6 +129,10 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // Pinned to empty so the suite behaves the same on a developer machine as in CI.
         builder.UseSetting("Summarization:ApiKey", string.Empty);
         builder.UseSetting("Summarization:FallbackApiKey", string.Empty);
+
+        // The same for the scripted test provider (ST-013), which needs no key: a developer who chose it in
+        // their user secrets for a rehearsal would otherwise give this suite a drafting provider.
+        builder.UseSetting("Summarization:Provider", "gemini-flash");
         builder.UseSetting("Vault:MasterKey", VaultMasterKey ?? string.Empty);
 
         builder.ConfigureServices(services =>

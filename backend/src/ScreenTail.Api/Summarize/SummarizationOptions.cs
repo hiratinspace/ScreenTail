@@ -139,6 +139,36 @@ public sealed class SummarizationOptions
     /// </summary>
     public int MaxOutputTokens { get; set; } = 8_192;
 
+    /// <summary>
+    /// The provider name that selects the scripted test provider (ST-013). Development only.
+    /// </summary>
+    public const string ScriptedProvider = "scripted";
+
+    /// <summary>The setting's full name, for messages and documentation.</summary>
+    public const string ProviderSetting = Section + ":" + nameof(Provider);
+
+    /// <summary>
+    /// Whether the scripted test provider drafts instead of a model: a deterministic note built from the
+    /// bundle, at no cost, for the Windows end-to-end test and an offline rehearsal. Needs no key.
+    /// </summary>
+    public bool Scripted => string.Equals(Provider?.Trim(), ScriptedProvider, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Whether this deployment can draft at all.</summary>
-    public bool Configured => !string.IsNullOrWhiteSpace(ApiKey);
+    public bool Configured => Scripted || !string.IsNullOrWhiteSpace(ApiKey);
+
+    /// <summary>
+    /// Throws when the scripted test provider is chosen anywhere but Development, as
+    /// <c>Providers:Demo</c> is refused. A deployment with it on would hand every technician a note no
+    /// model wrote.
+    /// </summary>
+    public void Validate(bool isDevelopment)
+    {
+        if (Scripted && !isDevelopment)
+        {
+            throw new InvalidOperationException(
+                $"{ProviderSetting}={ScriptedProvider} is set outside Development. The scripted test provider "
+                + "writes notes without a model, for tests and rehearsals only, so the service refuses to start "
+                + "with it. Remove the setting.");
+        }
+    }
 }

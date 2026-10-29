@@ -363,11 +363,14 @@ public sealed class LiveShell : IAsyncDisposable
     private async Task<object?> LoadReviewAsync(string sessionId, CancellationToken ct)
     {
         var frames = new PipeReviewFrames(_connection);
-        var session = await frames.LoadSessionAsync(sessionId, ct).ConfigureAwait(true);
-        if (session is null)
+        var loaded = await frames.LoadAsync(sessionId, ct).ConfigureAwait(true);
+        if (loaded?.Session is not { } session)
         {
             return null;
         }
+
+        // ST-013: a draft still on its way says so, rather than "We couldn't draft this session".
+        var draftPending = loaded.DraftPending;
 
         // The publish pane's delegates, over the pipe. What the tenant has connected is asked now, once,
         // so the pane opens saying "Connect a PSA to publish" or ready, not guessing. The mapping prompt's
@@ -379,7 +382,8 @@ public sealed class LiveShell : IAsyncDisposable
             integrations,
             publisher.SearchAsync,
             publisher.PublishAsync,
-            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync));
+            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync),
+            draftPending: draftPending);
 
         // ST-077: the ticket number the coordinator read off the window when the session started. The
         // PSA is asked for it by id so the pane can show its summary and company beside the Suggested
@@ -415,7 +419,8 @@ public sealed class LiveShell : IAsyncDisposable
                 TypedConfirmation.DiscardWord),
             publish: publish,
             timelineExpanded: _preferences.Load().TimelineExpanded,
-            timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }));
+            timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }),
+            draftPending: draftPending);
     }
 
     /// <summary>Local-only as the service has it in force now (the admin's when locked), or null when it would not say.</summary>

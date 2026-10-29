@@ -261,7 +261,7 @@ trigger, permission, filter, gate or skip budget of an existing job moved.
 - Nothing changes on any machine until the trust file is filled in and a signed build ships it.
 - A technician without administrator credentials cannot apply an update; the card says so before they
   press Install, and the MSP's own push keeps working as before.
-- The IPC contract stays at version 4: the four update messages are new commands and a reply only ever sent to `get_update`, which the contract's own rule does not bump.
+- The four update messages bump nothing: they are new commands and a reply only ever sent to `get_update`, which the contract's own rule does not bump. The contract is at version 5 for ST-013's `draft_pending`, not for these.
 - The UAC prompt's wording, and that Windows Installer raises it under `/passive` when started without
   elevation, are checked on the laptop with the first signed build (`docs/dev/installer.md`).
 

@@ -104,8 +104,11 @@ public sealed class BundlingDrafterTests : IAsyncDisposable
         var outcome = await drafter.DraftAsync("s1", ct);
         _ = await outbox.DrainAsync(ct);
 
+        // Queued, not failed: ST-013's end-to-end run found this answered "no summarization provider is
+        // configured" for a draft on its way to a configured backend, and the pill said the draft failed.
         Assert.False(outcome.Succeeded);
-        Assert.Equal(BundlingDrafter.NoProviderReason, outcome.Reason);
+        Assert.True(outcome.Queued);
+        Assert.Equal(BundlingDrafter.QueuedReason, outcome.Reason);
         Assert.Equal(1, sent);
     }
 

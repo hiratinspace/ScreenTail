@@ -39,7 +39,7 @@ internal sealed class FakeOutboxStore : IOutboxStore
             .ThenBy(item => item.Id, StringComparer.Ordinal)
             .FirstOrDefault());
 
-    public Task UpdateAsync(OutboxItem item, CancellationToken ct = default)
+    public Task<bool> UpdateAsync(OutboxItem item, CancellationToken ct = default)
     {
         var at = Items.FindIndex(existing => existing.Id == item.Id);
         if (at >= 0)
@@ -47,7 +47,7 @@ internal sealed class FakeOutboxStore : IOutboxStore
             Items[at] = item;
         }
 
-        return Task.CompletedTask;
+        return Task.FromResult(at >= 0);
     }
 
     public Task<OutboxWaiting> CountWaitingAsync(CancellationToken ct = default) => Task.FromResult(new OutboxWaiting(

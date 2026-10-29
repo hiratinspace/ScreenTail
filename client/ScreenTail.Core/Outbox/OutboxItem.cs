@@ -144,7 +144,8 @@ public interface IOutboxStore
     /// <summary>The oldest uncertain item, for the confirmation pass.</summary>
     Task<OutboxItem?> TakeUncertainAsync(CancellationToken ct = default);
 
-    Task UpdateAsync(OutboxItem item, CancellationToken ct = default);
+    /// <returns>False when the item is no longer there: its session was discarded or purged meanwhile.</returns>
+    Task<bool> UpdateAsync(OutboxItem item, CancellationToken ct = default);
 
     Task<OutboxWaiting> CountWaitingAsync(CancellationToken ct = default);
 }
