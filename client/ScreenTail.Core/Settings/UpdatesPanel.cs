@@ -34,7 +34,7 @@ public sealed class UpdatesPanel(IUpdateGateway gateway)
     public const string LockedNote = "Set by your administrator";
 
     public const string WhatInstallDoes =
-        "Windows asks for an administrator's approval. ScreenTail closes while it installs and starts again at your next sign-in, or when you open it from the Start menu.";
+        "Windows asks for an administrator's approval. ScreenTail closes while it installs, and capture starts again at your next sign-in.";
 
     private readonly IUpdateGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
     private bool _busy;

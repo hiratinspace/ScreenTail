@@ -131,7 +131,7 @@ Why it works this way is ADR-0008. In short: the capture service checks a signed
 HTTPS feed, downloads a newer release in the background while no session is recording, and Settings →
 Updates offers **Install update** when it is ready. Pressing it checks the package again and starts
 Windows Installer, which asks for an administrator's approval (UAC) for the per-machine package.
-ScreenTail closes while it installs and starts again at the next sign-in, or from the Start menu. MSPs
+ScreenTail closes while it installs, and the capture service starts again at the next sign-in. MSPs
 that push updates with their own tools keep doing so; an admin can turn checks off (`updateCheckHours` 0).
 
 **Nothing is switched on in the repository yet.** `shared/release/update-trust.json`, compiled into the

@@ -123,7 +123,7 @@ in the Privacy document, which is saved whole.
   the UAC prompt for the per-machine package. The handle is held until it exits.
 - **A build nobody signed never updates itself:** there is no publisher to compare with.
 - **After an update** the MSI ends running copies (ADR-0007) and the service starts again at the next
-  sign-in or when the technician opens ScreenTail; the card says so before Install is pressed.
+  sign-in; the card says so before Install is pressed.
 
 ### Hosting
 
