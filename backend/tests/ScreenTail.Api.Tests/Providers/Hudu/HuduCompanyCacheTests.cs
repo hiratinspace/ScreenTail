@@ -12,6 +12,8 @@ namespace ScreenTail.Api.Tests.Providers.Hudu;
 public sealed class HuduCompanyCacheTests
 {
     private const string Site = "https://acme.huducloud.com/";
+    private const string KeyA = "0a1b2c3d4e5f6071";
+    private const string KeyB = "f0e1d2c3b4a59687";
     private static readonly TimeSpan KeepFor = TimeSpan.FromMinutes(10);
     private static readonly CompanyRef[] Old = [new("7", "Acme Dental")];
     private static readonly CompanyRef[] New = [new("7", "Acme Dental"), new("8", "Birch Legal")];
@@ -33,7 +35,7 @@ public sealed class HuduCompanyCacheTests
 
         Assert.Equal(1, _load.Calls);
         Assert.All(results, r => Assert.Same(New, r.Value));
-        Assert.Same(New, (await Get(cache)).Value);
+        Assert.Same(New, await Hit(cache));
         Assert.Equal(1, _load.Calls);
     }
 
@@ -120,7 +122,7 @@ public sealed class HuduCompanyCacheTests
         _load.Answer(0, New);
         Assert.Same(New, (await patient).Value);
         Assert.Equal(1, _load.Calls);
-        Assert.Same(New, (await Get(cache)).Value);
+        Assert.Same(New, await Hit(cache));
         Assert.Equal(1, _load.Calls);
     }
 
@@ -150,7 +152,7 @@ public sealed class HuduCompanyCacheTests
 
         // The stopped load finishing late is not kept over the one that completed.
         _load.Answer(0, Old);
-        Assert.Same(New, (await Get(cache)).Value);
+        Assert.Same(New, await Hit(cache));
         Assert.Equal(2, _load.Calls);
     }
 
@@ -171,7 +173,7 @@ public sealed class HuduCompanyCacheTests
         await _load.Started(2);
         _load.Answer(1, New);
         Assert.Same(New, (await after).Value);
-        Assert.Same(New, (await Get(cache)).Value);
+        Assert.Same(New, await Hit(cache));
         Assert.Equal(2, _load.Calls);
     }
 
@@ -192,7 +194,7 @@ public sealed class HuduCompanyCacheTests
         _load.Answer(0, Old);
         Assert.Same(Old, (await before).Value);
 
-        Assert.Same(New, (await Get(cache)).Value);
+        Assert.Same(New, await Hit(cache));
         Assert.Equal(2, _load.Calls);
     }
 
@@ -212,7 +214,7 @@ public sealed class HuduCompanyCacheTests
         _load.Answer(0, Old);
         Assert.Same(Old, (await oldSite).Value);
 
-        Assert.Same(New, (await Get(cache, site: "https://other.huducloud.com/")).Value);
+        Assert.Same(New, await Hit(cache, site: "https://other.huducloud.com/"));
         Assert.Equal(2, _load.Calls);
     }
 
@@ -226,7 +228,7 @@ public sealed class HuduCompanyCacheTests
         _ = await first;
 
         _time.Advance(TimeSpan.FromMinutes(9));
-        Assert.Same(Old, (await Get(cache)).Value);
+        Assert.Same(Old, await Hit(cache));
         Assert.Equal(1, _load.Calls);
 
         _time.Advance(TimeSpan.FromMinutes(2));
@@ -238,8 +240,81 @@ public sealed class HuduCompanyCacheTests
         Assert.Equal(2, _load.Calls);
     }
 
-    private Task<ProviderResult<IReadOnlyList<CompanyRef>>> Get(HuduCompanyCache cache, string tenant = "t-1", string site = Site, CancellationToken? ct = null) =>
-        cache.GetOrAddAsync(tenant, site, KeepFor, _load.Invoke, ct ?? TestContext.Current.CancellationToken);
+    [Fact]
+    public async Task AListLoadedUnderOneKeyIsNeitherJoinedNorServedUnderAnother()
+    {
+        // #229 review follow-up: a tenant rotates its Hudu key on the same site. A load under the old key
+        // is what the old key may see, so a caller with the new key neither joins it nor reads its list.
+        var cache = new HuduCompanyCache(_time);
+
+        var oldKey = Get(cache, credential: KeyA);
+        await _load.Started(1);
+        var newKey = Get(cache, credential: KeyB);
+        await _load.Started(2);
+
+        _load.Answer(1, New);
+        Assert.Same(New, (await newKey).Value);
+        _load.Answer(0, Old);
+        Assert.Same(Old, (await oldKey).Value);
+        Assert.Same(New, await Hit(cache, credential: KeyB));
+
+        var oldKeyAgain = Get(cache, credential: KeyA);
+        await _load.Started(3);
+        _load.Answer(2, Old);
+        Assert.Same(Old, (await oldKeyAgain).Value);
+        Assert.Equal(3, _load.Calls);
+    }
+
+    [Fact]
+    public async Task ACallerThatBlocksAfterItsAnswerDoesNotHoldUpTheOthers()
+    {
+        // Each waiter is handed the answer on its own: one caller doing slow work straight after its
+        // await cannot keep the rest, or the thread that answered, waiting behind it.
+        var cache = new HuduCompanyCache(_time);
+        using var release = new ManualResetEventSlim();
+
+        var blocker = BlockAfterTheAnswerAsync(cache, release);
+        await _load.Started(1);
+        var other = Get(cache);
+        var answering = Task.Run(() => _load.Answer(0, New), TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.Same(New, (await other).Value);
+            await answering.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        await blocker;
+        await answering;
+    }
+
+    /// <summary>
+    /// One lookup. A lookup nobody answers fails the test after half a minute rather than hanging the
+    /// run, which is what a regression that turns a hit into a load would otherwise do.
+    /// </summary>
+    private Task<ProviderResult<IReadOnlyList<CompanyRef>>> Get(HuduCompanyCache cache, string tenant = "t-1", string site = Site, string credential = KeyA, CancellationToken? ct = null) =>
+        cache.GetOrAddAsync(tenant, site, credential, KeepFor, _load.Invoke, ct ?? TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+    /// <summary>A lookup that must be answered from memory: at once, and without a load.</summary>
+    private async Task<IReadOnlyList<CompanyRef>?> Hit(HuduCompanyCache cache, string site = Site, string credential = KeyA)
+    {
+        var calls = _load.Calls;
+        var hit = Get(cache, site: site, credential: credential);
+        Assert.True(hit.IsCompleted, "The list was expected from memory, and the cache went to load it instead.");
+        Assert.Equal(calls, _load.Calls);
+        return (await hit).Value;
+    }
+
+    /// <summary>A caller that, once it has its list, holds its thread until released: slow work straight after the await.</summary>
+    private async Task BlockAfterTheAnswerAsync(HuduCompanyCache cache, ManualResetEventSlim release)
+    {
+        _ = await cache.GetOrAddAsync("t-1", Site, KeyA, KeepFor, _load.Invoke, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        release.Wait(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+    }
 
     /// <summary>A clock the test moves.</summary>
     private sealed class AdjustableTime(DateTimeOffset start) : TimeProvider
@@ -254,6 +329,7 @@ public sealed class HuduCompanyCacheTests
     /// <summary>
     /// A list load that answers only when the test says so. Each call is numbered from zero in the
     /// order it arrived, and keeps the token it was given so the test can see whether it was stopped.
+    /// The cache's own bookkeeping after an answer happens inside Answer and Throw, before they return.
     /// </summary>
     private sealed class GatedLoad
     {
@@ -274,7 +350,9 @@ public sealed class HuduCompanyCacheTests
 
         public Task<ProviderResult<IReadOnlyList<CompanyRef>>> Invoke(CancellationToken ct)
         {
-            var answer = new TaskCompletionSource<ProviderResult<IReadOnlyList<CompanyRef>>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Continuations run on the thread that answers, so when Answer or Throw returns the cache has
+            // already dealt with the result: an assertion straight after one sees what the cache kept.
+            var answer = new TaskCompletionSource<ProviderResult<IReadOnlyList<CompanyRef>>>();
             List<TaskCompletionSource> reached;
             lock (_gate)
             {
