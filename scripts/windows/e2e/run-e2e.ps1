@@ -31,6 +31,10 @@
 .PARAMETER OutDir
     Where the logs go. $env:RUNNER_TEMP\e2e on a runner, %LOCALAPPDATA%\ScreenTail.Dev\e2e otherwise.
 
+.PARAMETER DraftTimeout
+    How long the driver waits for the draft, in seconds. The laptop's input job shortens it so the step
+    stays inside its own timeout.
+
 .PARAMETER InjectClicks
     Real left clicks on the test window instead of mark-moment captures. Takes over the mouse, so it also
     needs SCREENTAIL_ALLOW_INPUT_INJECTION=1, as the laptop's input job sets.
@@ -42,6 +46,7 @@
 param(
     [int]$Port = 5071,
     [string]$OutDir,
+    [int]$DraftTimeout = 240,
     [switch]$InjectClicks
 )
 
@@ -115,7 +120,7 @@ function New-FakeSecret {
 }
 
 function Start-Logged {
-    param([string]$Role, [string]$FilePath, [string[]]$Arguments = @(), [string]$WorkingDirectory, [hashtable]$Environment)
+    param([string]$Role, [string]$FilePath, [string[]]$Arguments = @(), [string]$WorkingDirectory, [hashtable]$Environment, [string]$WindowStyle = 'Hidden')
 
     $out = Join-Path $OutDir "$Role.out.log"
     $err = Join-Path $OutDir "$Role.err.log"
@@ -123,7 +128,7 @@ function Start-Logged {
         $startArgs = @{
             FilePath = $FilePath
             WorkingDirectory = $WorkingDirectory
-            WindowStyle = 'Hidden'
+            WindowStyle = $WindowStyle
             RedirectStandardOutput = $out
             RedirectStandardError = $err
             PassThru = $true
@@ -151,6 +156,16 @@ Write-Line "ScreenTail end-to-end run (ST-013), $(Get-Date -Format 'yyyy-MM-dd H
 Write-Line "Backend $BackendUrl, logs in $OutDir, clicks: $(if ($InjectClicks) { 'real (SendInput)' } else { 'mark moment over the pipe' })"
 Write-Line ''
 
+# Everything from here to the summary runs inside one try, so whatever fails or is interrupted (Ctrl+C
+# included), the finally stops every process this script started and puts the technician's capture
+# settings file back as it was. A setup step that fails throws this marker to get there.
+$script:AbortMarker = 'e2e-abort: a setup step failed'
+$captureFile = Join-Path $DataDir 'capture.json'
+$captureBefore = $null
+if (Test-Path -LiteralPath $captureFile) { $captureBefore = [IO.File]::ReadAllBytes($captureFile) }
+
+try {
+
 # --- Setup -------------------------------------------------------------------------------------------
 
 $secret = New-FakeSecret
@@ -161,14 +176,14 @@ if (-not (Step 'setup' 'windows' 'Windows PowerShell 5.1 or later inside a Scree
     if ($PSVersionTable.PSVersion.Major -lt 5) { throw "PowerShell $($PSVersionTable.PSVersion) is too old." }
     if (-not (Test-Path -LiteralPath $script:DemoApiProject)) { throw "No backend project under $script:DemoRepo." }
     "PowerShell $($PSVersionTable.PSVersion), repository $script:DemoRepo."
-})) { Finish }
+})) { throw $script:AbortMarker }
 
 if (-not (Step 'setup' 'dotnet' 'a .NET 10 SDK that global.json accepts' {
     $result = Invoke-Native -FilePath 'dotnet' -ArgumentList @('--version') -WorkingDirectory $script:DemoRepo
     $version = ($result.Lines | Select-Object -Last 1)
     if ($result.ExitCode -ne 0 -or -not ($version -match '^10\.')) { throw "dotnet --version said: $version" }
     "SDK $version."
-})) { Finish }
+})) { throw $script:AbortMarker }
 
 if (-not (Step 'setup' 'nothing-running' 'no ScreenTail service or UI already running for this user' {
     $others = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI', 'ScreenTail.E2E' -ErrorAction SilentlyContinue)
@@ -180,7 +195,7 @@ if (-not (Step 'setup' 'nothing-running' 'no ScreenTail service or UI already ru
     }
     if (Get-PortOwner $Port) { throw "Port $Port is in use by $((Get-PortOwner $Port).Name)." }
     'Nothing in the way.'
-})) { Finish }
+})) { throw $script:AbortMarker }
 
 $connection = $null
 if (-not (Step 'setup' 'postgres' 'PostgreSQL to answer' {
@@ -217,7 +232,7 @@ if (-not (Step 'setup' 'postgres' 'PostgreSQL to answer' {
         Start-Sleep -Seconds 1
     }
     "$where answers on $($parts.Host):$($parts.Port); database screentail_e2e."
-})) { Finish }
+})) { throw $script:AbortMarker }
 $connection = $script:connection
 
 if (-not (Step 'setup' 'certificate' 'the development certificate to be trusted, as the client checks it' {
@@ -237,7 +252,7 @@ if (-not (Step 'setup' 'certificate' 'the development certificate to be trusted,
     Import-Certificate -FilePath $file -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
     Remove-Item -LiteralPath $file -Force
     'Created and trusted for this machine (a CI runner, thrown away after the job).'
-})) { Finish }
+})) { throw $script:AbortMarker }
 
 $apiDll = $null
 if (-not (Step 'setup' 'backend-build' 'the backend to build' {
@@ -248,7 +263,7 @@ if (-not (Step 'setup' 'backend-build' 'the backend to build' {
     if (-not $dll -or -not (Test-Path -LiteralPath $dll.Trim())) { throw 'The backend built and its output could not be found.' }
     $script:apiDll = $dll.Trim()
     'Built (Debug).'
-})) { Finish }
+})) { throw $script:AbortMarker }
 $apiDll = $script:apiDll
 
 if (-not (Step 'setup' 'migrations' 'every migration to apply to screentail_e2e' {
@@ -260,7 +275,7 @@ if (-not (Step 'setup' 'migrations' 'every migration to apply to screentail_e2e'
     $update = Invoke-DatabaseUpdate -ConnectionString $connection -NoBuild
     if ($update.Outcome -ne 'ok') { throw "Migrations: $($update.Outcome). $(($update.Detail | Select-Object -Last 4) -join ' | ')" }
     "$($update.Applied) applied (zero means it was up to date)."
-})) { Finish }
+})) { throw $script:AbortMarker }
 
 $backendEnvironment = @{
     'ASPNETCORE_ENVIRONMENT' = 'Development'
@@ -285,7 +300,7 @@ if (-not (Step 'setup' 'backend' "the backend to answer /health over a trusted c
         Start-Sleep -Seconds 1
     }
     throw 'No answer from /health in 90 s.'
-})) { Finish }
+})) { throw $script:AbortMarker }
 $backend = $script:backend
 
 $token = $null
@@ -303,7 +318,7 @@ if (-not (Step 'setup' 'enrol' 'a development device token the backend accepts' 
     $me = Invoke-Probe -Url "$BackendUrl/v1/me" -Headers @{ 'Authorization' = "Bearer $script:token" }
     if ($me.Status -ne 200) { throw "The backend answered /v1/me with $($me.Status)." }
     'Enrolled; the backend accepts the token (value not shown).'
-})) { Finish }
+})) { throw $script:AbortMarker }
 $token = $script:token
 
 if (-not (Step 'setup' 'client-publish' 'the capture service, the UI and the driver published into one folder' {
@@ -315,7 +330,7 @@ if (-not (Step 'setup' 'client-publish' 'the capture service, the UI and the dri
         if (-not (Test-Path -LiteralPath (Join-Path $AppDir $exe))) { throw "$exe is not in $AppDir." }
     }
     "Service, UI and driver in $AppDir."
-})) { Finish }
+})) { throw $script:AbortMarker }
 
 $serviceEnvironment = @{
     'SCREENTAIL_BACKEND' = $BackendUrl
@@ -343,27 +358,25 @@ if (-not (Step 'setup' 'service' 'the capture service to start and publish its p
         Start-Sleep -Milliseconds 500
     }
     throw ('The service did not say it started in 45 s: ' + ((Get-Tail -Lines (Read-Logs 'service') -Count 6) -join ' | '))
-})) { Finish }
+})) { throw $script:AbortMarker }
 $service = $script:service
 
 $ui = $null
 if (-not (Step 'setup' 'ui' 'the UI to start and stay up' {
     $uiEnvironment = @{ 'SCREENTAIL_DEVICE_TOKEN' = $null; 'SCREENTAIL_BACKEND' = $null; 'SCREENTAIL_CRASH_REPORTS' = '1'; 'SCREENTAIL_E2E_SECRET' = $null }
-    $script:ui = Invoke-WithEnvironment -Variables $uiEnvironment -Body {
-        Start-Process -FilePath (Join-Path $AppDir 'ScreenTail.UI.exe') -WorkingDirectory $AppDir -PassThru
-    }
-    $null = $script:ui.Handle
-    $script:Started = @($script:Started) + @([pscustomobject]@{ Role = 'ui'; Process = $script:ui })
+    # Logged like the others, so the secret check reads what the UI wrote too. Shown normally: a hidden
+    # start would apply to the first window the UI shows, which can be the pill.
+    $script:ui = Start-Logged -Role 'ui' -FilePath (Join-Path $AppDir 'ScreenTail.UI.exe') -WorkingDirectory $AppDir -Environment $uiEnvironment -WindowStyle 'Normal'
     Start-Sleep -Seconds 5
     if ($script:ui.HasExited) { throw "The UI exited with code $($script:ui.ExitCode)." }
     "pid $($script:ui.Id)."
-})) { Finish }
+})) { throw $script:AbortMarker }
 $ui = $script:ui
 
 # --- The loop ----------------------------------------------------------------------------------------
 
 Write-Line ''
-$driverArgs = @('--backend', $BackendUrl)
+$driverArgs = @('--backend', $BackendUrl, '--draft-timeout', [string]$DraftTimeout)
 if ($InjectClicks) { $driverArgs += '--inject-clicks' }
 $driverCode = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_E2E_SECRET' = $secret; 'SCREENTAIL_DEVICE_TOKEN' = $null } -Body {
     $previous = $ErrorActionPreference
@@ -452,28 +465,56 @@ $null = Step 'teardown' 'no-crash' 'no crash report from the service or the UI' 
     'None.'
 }
 
-$null = Step 'teardown' 'no-secret-in-logs' "the run's fake secret to appear in no log" {
+$null = Step 'teardown' 'no-secret-in-logs' "the run's fake secret to appear in no log or crash report" {
     $parts = Get-SecretParts $secret
     $hits = @()
-    foreach ($file in @(Get-ChildItem -LiteralPath $OutDir -File -Filter '*.log')) {
+    # Every log this run wrote (the backend's, the service's, the UI's and its own), and any crash report
+    # either process left during it.
+    $files = @(Get-ChildItem -LiteralPath $OutDir -File -Filter '*.log')
+    if (Test-Path -LiteralPath $crashDir) { $files += @(Get-ChildItem -LiteralPath $crashDir -File | Where-Object { $crashesBefore -notcontains $_.Name }) }
+    foreach ($file in $files) {
         $text = (@(Read-SharedLog $file.FullName) -join "`n")
         foreach ($part in $parts) {
             if ($text.IndexOf($part, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits += $file.Name; break }
         }
     }
     if ($hits.Count -gt 0) { throw "Found in: $(($hits | Sort-Object -Unique) -join ', ')." }
-    "Checked $(@(Get-ChildItem -LiteralPath $OutDir -File -Filter '*.log').Count) log(s)."
+    "Checked $($files.Count) file(s)."
 }
 
-# Anything still running that this script started, whatever happened above.
-foreach ($entry in $script:Started) {
+}
+catch {
+    if ("$($_.Exception.Message)" -ne $script:AbortMarker) {
+        $script:Failures++
+        Write-Line ('FAIL e2e-runner: the runner itself stopped: ' + (Protect-Text "$($_.Exception.Message)"))
+    }
+}
+finally {
+    # Anything still running that this script started, whatever happened above.
+    foreach ($entry in $script:Started) {
+        try {
+            if ($entry.Process -and -not $entry.Process.HasExited) {
+                Write-Line "  stopping $($entry.Role) (pid $($entry.Process.Id)), still running"
+                Stop-Process -Id $entry.Process.Id -Force -ErrorAction SilentlyContinue
+                $null = $entry.Process.WaitForExit(10000)
+            }
+        }
+        catch { }
+    }
+
+    # The technician's capture settings as they were before the run, byte for byte. The driver puts All
+    # windows back over the pipe too; this holds even when it never got the chance (INV-5).
     try {
-        if (-not $entry.Process.HasExited) {
-            Write-Line "  stopping $($entry.Role) (pid $($entry.Process.Id)), still running"
-            Stop-Process -Id $entry.Process.Id -Force -ErrorAction SilentlyContinue
+        if ($null -ne $captureBefore) {
+            [IO.File]::WriteAllBytes($captureFile, $captureBefore)
+        }
+        elseif (Test-Path -LiteralPath $captureFile) {
+            Remove-Item -LiteralPath $captureFile -Force
         }
     }
-    catch { }
+    catch {
+        Write-Line "  warning: the capture settings file could not be put back: $($_.Exception.Message)"
+    }
 }
 
 Finish

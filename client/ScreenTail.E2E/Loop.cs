@@ -43,6 +43,7 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
     private string? _session;
     private Session? _stored;
     private List<string> _published = [];
+    private int _restored;
 
     /// <summary>What the window shows first: an ordinary checklist, the ticket, and a line redaction must mask.</summary>
     private string ScreenOne => string.Join(
@@ -612,9 +613,14 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
     }
 
     /// <summary>Puts the technician's capture settings back as they were, whatever happened above.</summary>
-    private async Task RestoreAsync()
+    /// <summary>
+    /// Puts the technician's capture settings back as they were. Once only, whichever comes first: the end
+    /// of the run, or Ctrl+C (Program's CancelKeyPress handler), so an interrupted run does not leave All
+    /// windows on (INV-5). The runner restores the settings file as well, in case neither got the chance.
+    /// </summary>
+    public async Task RestoreAsync()
     {
-        if (_original is null || _pipe is null || !_pipe.IsConnected)
+        if (_original is null || _pipe is null || !_pipe.IsConnected || Interlocked.Exchange(ref _restored, 1) == 1)
         {
             return;
         }

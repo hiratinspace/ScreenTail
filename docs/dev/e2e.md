@@ -27,8 +27,12 @@ with `PASS e2e: all N steps passed` or `FAIL e2e: ...`, and exit code 0 or 1.
   backend on port **5071**, so the demo's database and port 5001 are untouched. Stop the demo first
   (`scripts\windows\demo\stop.cmd`): one capture service per user.
 - It runs the real capture service, so it uses the product's own data folder
-  (`%LOCALAPPDATA%\ScreenTail`). The test session stays in History afterwards, with its note. It turns
-  **All windows** on for the session and puts the setting back as it was at the end.
+  (`%LOCALAPPDATA%\ScreenTail`): the service has no setting for another one, and adding one only for a
+  test was not worth a second way to find the store. The test session stays in History afterwards, with
+  its note. It turns **All windows** on for the session and puts it back twice over: the driver restores
+  the setting over the pipe at the end or on Ctrl+C, and the runner copies `capture.json` aside before it
+  starts anything and puts it back, byte for byte, in a `finally` that also stops every process it
+  started, whatever failed or was interrupted.
 - It shows a white test window with a few lines of made-up text for about a minute. Leave the mouse alone.
 - `-InjectClicks` drives the session with real input instead of pipe commands: the start and stop
   hotkeys (Ctrl+Alt+R and Ctrl+Alt+S, or whatever Settings binds them to) and three real left clicks on
@@ -40,7 +44,7 @@ with `PASS e2e: all N steps passed` or `FAIL e2e: ...`, and exit code 0 or 1.
   "Activated device" in `docs/dev/demo.md`.
 
 The logs go to `%LOCALAPPDATA%\ScreenTail.Dev\e2e`: `e2e.log` (every PASS and FAIL line), and the
-service's and the backend's own logs. They hold no content (both processes log through the scrubber,
+service's, the UI's and the backend's own logs. They hold no content (both processes log through the scrubber,
 INV-10) and no secret; the last step checks that.
 
 ## In CI
@@ -63,7 +67,10 @@ moment**, the command the pill's own button sends, plus whatever the scene sampl
 **On the laptop**, `hardware-checks.yml`'s input job runs the same script with `-InjectClicks` after its
 input tests: the hotkeys start and stop the session through the coordinator, as in the demo's way B, and
 real clicks take the frames through the click loop. It is report-only too (`continue-on-error`), adds no
-test to the skip gate, and uploads nothing; its PASS and FAIL lines are in the job's log. It needs
+test to the skip gate, and uploads nothing; its PASS and FAIL lines are in the job's log. It is capped at
+eight minutes with the draft waited for two (`-DraftTimeout 120`), so the input job keeps its fifteen and
+the two laptop jobs stay well inside the hardware gate's thirty-five, and it does not run on a cancelled
+run, so a superseded run does not go on driving the keyboard and mouse. It needs
 `scripts\windows\demo\setup.cmd` to have been run once on the laptop, for the database server and the
 certificate.
 
@@ -100,7 +107,7 @@ failure names the join of the loop that broke and what was there instead.
 | loop-07 pill | The pill is on a monitor, and capture stays recording for twelve seconds, longer than a report lasts plus the guard's grace (INV-4) |
 | loop-08 capture | Mark moment twice, the window's text changing between (or real clicks with `-InjectClicks`) |
 | loop-09 redaction | The redaction worker drains the queue; frames dropped unread are counted |
-| loop-10 stop, 11 draft | Stop and draft (or its hotkey) is accepted, and the state reaches `draft_ready` for this session (the outbox delivers the backend's note) |
+| loop-10 stop, 11 draft | Stop and draft (or its hotkey) is accepted; the session rests in `draft_pending` while its draft is queued, and reaches `draft_ready` when the outbox delivers the backend's note. `draft_failed` is a FAIL with its reason |
 | loop-12 stored-frames | Every stored frame is redacted (INV-1), and a password mask covers the `pass:` line |
 | loop-13 frame-text | The stored OCR text has the window's words and `[REDACTED]`, and never the secret |
 | loop-14 note | The note is the scripted provider's, cites stored frames, and `draft_ready` carries its title for the notification |
@@ -119,7 +126,7 @@ failure names the join of the loop that broke and what was there instead.
 | teardown-03 ui-outlives-service | The UI survives the service going away (its Quit is a tray click, so it is closed after) |
 | teardown-04 backend-stop | The backend stops cleanly the same way |
 | teardown-05 no-crash | Neither process left a crash report (crash reports are switched on for the run) |
-| teardown-06 no-secret-in-logs | The run's made-up secret, or any five-letter run of it, is in no log |
+| teardown-06 no-secret-in-logs | The run's made-up secret, or any five-letter run of it, is in no log (the backend's, the service's, the UI's, the runner's) and no crash report |
 
 ## The scripted test provider
 

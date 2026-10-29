@@ -54,6 +54,15 @@ if (Array.IndexOf(args, "--draft-timeout") is var timeoutAt and >= 0
 var steps = new Steps();
 await using (var loop = new Loop(steps, backend, secret, injectClicks, draftTimeout))
 {
+    // Ctrl+C in the runner's window stops this process too. The settings go back first.
+    Console.CancelKeyPress += (_, stopping) =>
+    {
+        stopping.Cancel = true;
+        loop.RestoreAsync().GetAwaiter().GetResult();
+        Console.WriteLine("FAIL loop: interrupted (Ctrl+C); the capture settings were put back.");
+        Environment.Exit(130);
+    };
+
     await loop.RunAsync().ConfigureAwait(false);
 }
 
