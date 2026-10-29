@@ -240,9 +240,11 @@ public sealed class Outbox(
             RemoteId = outcome.RemoteId ?? item.RemoteId,
             DueAt = state == OutboxState.Pending ? now + Wait(attempts, outcome.RetryAfter) : item.DueAt,
         };
-        await store.UpdateAsync(stored, ct).ConfigureAwait(false);
+        // An item whose row went while it was being sent belonged to a session discarded or purged
+        // meanwhile. It is settled for nobody: telling the machine wrote a failure over a discarded row.
+        var present = await store.UpdateAsync(stored, ct).ConfigureAwait(false);
 
-        if (state is OutboxState.Done or OutboxState.Failed && Settled is { } settled)
+        if (present && state is OutboxState.Done or OutboxState.Failed && Settled is { } settled)
         {
             try
             {

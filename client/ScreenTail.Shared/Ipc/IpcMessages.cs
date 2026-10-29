@@ -880,6 +880,12 @@ public static class CaptureStates
     public const string Finalizing = "finalizing";
     public const string DraftReady = "draft_ready";
     public const string DraftFailed = "draft_failed";
+
+    /// <summary>
+    /// The session is over and its draft is on its way to the backend through the outbox (ST-013).
+    /// Nothing is being captured; the session is named, and can still be discarded.
+    /// </summary>
+    public const string DraftPending = "draft_pending";
 }
 
 /// <summary>

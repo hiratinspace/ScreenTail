@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using ScreenTail.Core.Capture;
+using ScreenTail.Core.Outbox;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Speech;
@@ -313,13 +314,13 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ADraftQueuedForTheBackendIsNotReportedAsFailed()
+    public async Task ADraftQueuedForTheBackendIsDraftPendingNotFailed()
     {
         // ST-013's end-to-end run, on the first real loop: every session on a device with a backend ended
         // in draft_failed, "No summarization provider is configured", while its draft sat in the outbox
         // on its way to a backend that was configured and answering. The pill and the tray said the draft
-        // had failed after every session. Queued is not failed; nothing is being captured, so the machine
-        // rests idle, and the store says the draft is pending.
+        // had failed after every session. Queued is not failed: the machine rests in draft_pending, which
+        // captures nothing and names the session, and the store says the same.
         _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
         var machine = await MachineAsync();
         await machine.StartAsync(ScreenConnect);
@@ -327,7 +328,9 @@ public sealed class StateMachineTests : IAsyncDisposable
 
         await machine.StopAsync();
 
-        Assert.Equal(SessionState.Idle, machine.State);
+        Assert.Equal(SessionState.DraftPending, machine.State);
+        Assert.Equal(CaptureStates.DraftPending, machine.Snapshot.State);
+        Assert.Equal(id, machine.Snapshot.SessionId);
         Assert.Null(machine.Snapshot.DraftFailureReason);
         Assert.Empty(await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
         Assert.Equal([id], await _store.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
@@ -335,24 +338,43 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ADraftDeliveredWhileTheSessionWasStillFinalizingIsNotOverwrittenAsPending()
+    {
+        // The outbox drains on its own timer, so a fast backend can answer while the machine is still
+        // finalizing. Whatever the sender wrote stands: the pending mark goes only onto a row still
+        // finalizing, and the settling that follows moves the machine on.
+        var machine = await MachineAsync();
+        _drafter.Drafting = async id =>
+        {
+            await _store!.SaveDraftAsync(id, Note("Printer offline in reception"));
+            await _store.SetSessionStateAsync(id, CaptureStates.DraftReady, null);
+        };
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        await machine.StopAsync();
+
+        Assert.Equal([id], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftReady]));
+        Assert.True(await machine.DraftSettledAsync(id, ready: true, reason: null));
+        Assert.Equal(SessionState.DraftReady, machine.State);
+    }
+
+    [Fact]
     public async Task AQueuedDraftThatLandsMakesTheSessionDraftReady()
     {
         // The other half: when the outbox delivers the note, the technician is told. Before, the sender
         // wrote it to the store and nothing moved the machine, so "Draft ready" never came.
-        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
-        var machine = await MachineAsync();
-        await machine.StartAsync(ScreenConnect);
-        var id = machine.SessionId!;
-        await machine.StopAsync();
+        var id = await QueuedSessionAsync();
 
         // What DraftSender writes when the backend answers.
         await _store!.SaveDraftAsync(id, Note("Printer offline in reception"));
         await _store.SetSessionStateAsync(id, CaptureStates.DraftReady, null);
         _observed.Clear();
 
-        Assert.True(await machine.DraftSettledAsync(id, ready: true, reason: null));
+        Assert.True(await _machine!.DraftSettledAsync(id, ready: true, reason: null));
 
-        Assert.Equal(SessionState.DraftReady, machine.State);
+        Assert.Equal(SessionState.DraftReady, _machine.State);
         var announced = Assert.Single(_observed);
         Assert.Equal(CaptureStates.DraftReady, announced.State);
         Assert.Equal(id, announced.SessionId);
@@ -391,36 +413,188 @@ public sealed class StateMachineTests : IAsyncDisposable
     [Fact]
     public async Task AQueuedDraftThatFailsForGoodIsDraftFailedWithItsReason()
     {
-        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
-        var machine = await MachineAsync();
-        await machine.StartAsync(ScreenConnect);
-        var id = machine.SessionId!;
-        await machine.StopAsync();
+        var id = await QueuedSessionAsync();
 
-        Assert.True(await machine.DraftSettledAsync(id, ready: false, reason: "The backend refused this session."));
+        Assert.True(await _machine!.DraftSettledAsync(id, ready: false, reason: "The backend refused this session."));
 
-        Assert.Equal(SessionState.DraftFailed, machine.State);
-        Assert.Equal("The backend refused this session.", machine.Snapshot.DraftFailureReason);
+        Assert.Equal(SessionState.DraftFailed, _machine.State);
+        Assert.Equal("The backend refused this session.", _machine.Snapshot.DraftFailureReason);
         Assert.Equal([id], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
     }
 
     [Fact]
-    public async Task ADraftThatLandsDuringTheNextSessionDoesNotInterruptIt()
+    public async Task ADraftThatLandsDuringTheNextSessionDoesNotInterruptItAndTheCountIsAnnounced()
     {
-        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
-        var machine = await MachineAsync();
-        await machine.StartAsync(ScreenConnect);
-        var first = machine.SessionId!;
-        await machine.StopAsync();
-        await machine.StartAsync(ScreenConnect);
+        var first = await QueuedSessionAsync();
+        await _machine!.StartAsync(ScreenConnect);
         await _store!.SaveDraftAsync(first, Note("Printer offline in reception"));
         await _store.SetSessionStateAsync(first, CaptureStates.DraftReady, null);
+        _observed.Clear();
 
-        Assert.False(await machine.DraftSettledAsync(first, ready: true, reason: null));
+        Assert.False(await _machine.DraftSettledAsync(first, ready: true, reason: null));
 
-        Assert.Equal(SessionState.Recording, machine.State);
-        Assert.NotEqual(first, machine.SessionId);
-        Assert.Equal(1, machine.Snapshot.DraftsReady);
+        Assert.Equal(SessionState.Recording, _machine.State);
+        Assert.NotEqual(first, _machine.SessionId);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.Recording, announced.State);
+        Assert.Equal(1, announced.DraftsReady);
+    }
+
+    [Fact]
+    public async Task WithTwoDraftsQueuedTheFirstLandingLeavesTheSecondPending()
+    {
+        // The session-id check is the whole point of the method: a settling for A while the machine rests
+        // on B must not tell the technician B is ready, or failed.
+        var a = await QueuedSessionAsync();
+        var b = await QueuedSessionAsync();
+        Assert.NotEqual(a, b);
+        await _store!.SaveDraftAsync(a, Note("Printer offline in reception"));
+        await _store.SetSessionStateAsync(a, CaptureStates.DraftReady, null);
+        _observed.Clear();
+
+        Assert.False(await _machine!.DraftSettledAsync(a, ready: true, reason: null));
+
+        Assert.Equal(SessionState.DraftPending, _machine.State);
+        Assert.Equal(b, _machine.Snapshot.SessionId);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.DraftPending, announced.State);
+        Assert.Equal(1, announced.DraftsReady);
+
+        Assert.False(await _machine.DraftSettledAsync(a, ready: false, reason: "late"));
+        Assert.Equal(SessionState.DraftPending, _machine.State);
+        Assert.Equal([a], await _store.ListSessionsInStatesAsync([CaptureStates.DraftReady]));
+
+        Assert.True(await _machine.DraftSettledAsync(b, ready: false, reason: "The backend refused this session."));
+        Assert.Equal(SessionState.DraftFailed, _machine.State);
+        Assert.Equal(b, _machine.Snapshot.SessionId);
+    }
+
+    [Fact]
+    public async Task ADraftThatLandsAfterARestartUpdatesTheCountAndNothingElse()
+    {
+        // The service restarts with drafts still queued: the new machine has no session of its own, and
+        // the outbox delivers them in its first minutes. Nothing may claim one of them is the session in
+        // front of the technician.
+        var id = await QueuedSessionAsync();
+        await _machine!.DisposeAsync();
+        var restarted = await MachineAsync();
+        _ = await restarted.RecoverAsync();
+        await _store!.SaveDraftAsync(id, Note("Printer offline in reception"));
+        await _store.SetSessionStateAsync(id, CaptureStates.DraftReady, null);
+        _observed.Clear();
+
+        Assert.False(await restarted.DraftSettledAsync(id, ready: true, reason: null));
+
+        Assert.Equal(SessionState.Idle, restarted.State);
+        Assert.Equal(1, Assert.Single(_observed).DraftsReady);
+    }
+
+    [Fact]
+    public async Task ALateFailureAfterADiscardDoesNotBringTheSessionBack()
+    {
+        // INV-12. Discarded in Review while its draft was in flight: the store empties the row and drops
+        // the queued work, the sender's save is refused, and the outbox records a failure. That failure
+        // used to write draft_failed over the discarded row, so the session came back in History and the
+        // pill said "draft failed" about a session the technician had deleted.
+        var id = await QueuedSessionAsync();
+        _ = await _store!.DiscardSessionAsync(id);
+
+        Assert.False(await _machine!.DraftSettledAsync(id, ready: false, reason: "This could not be sent (InvalidOperationException)."));
+        Assert.False(await _machine.DraftSettledAsync(id, ready: true, reason: null));
+
+        Assert.Empty(await _store.ListSessionsInStatesAsync([CaptureStates.DraftFailed, CaptureStates.DraftReady]));
+        Assert.Equal([id], await _store.ListSessionsInStatesAsync([SessionStateNames.Discarded]));
+        Assert.NotEqual(SessionState.DraftFailed, _machine.State);
+        Assert.NotEqual(SessionState.DraftReady, _machine.State);
+    }
+
+    [Fact]
+    public async Task ASessionWhoseDraftIsQueuedCanBeDiscardedAndItsDraftGoesWithIt()
+    {
+        // The tray's "Discard session" is the technician's way to take back a session they regret, and
+        // it used to be refused once the draft was queued (the machine was idle), so the bundle left for
+        // the backend at the next drain. Discarding now removes the session and the queued work with it.
+        var outbox = new Core.Outbox.Outbox(await OpenStoreAsync(), (_, _) => Task.FromResult(Core.Outbox.SendOutcome.Done(null)));
+        _drafter.Drafting = id => outbox.EnqueueAsync(new Core.Outbox.NewOutboxItem(id, Core.Outbox.OutboxKind.Draft, $"draft:{id}", "{}"));
+        var id = await QueuedSessionAsync();
+        Assert.Equal(1, (await outbox.WaitingAsync()).Drafts);
+
+        Assert.True(await _machine!.DiscardAsync());
+
+        Assert.Equal(SessionState.Idle, _machine.State);
+        Assert.Null(await _store!.LoadSessionAsync(id));
+        Assert.Equal(0, (await outbox.WaitingAsync()).Drafts);
+        Assert.False(await outbox.DrainAsync());
+    }
+
+    [Fact]
+    public async Task RetentionOnASessionStillWaitingForItsDraftMarksItFailedRatherThanForeverPending()
+    {
+        // The purge removes the queued work with the raw data (INV-12), so nothing will ever settle the
+        // draft. A session left draft_pending would wait for ever; it is failed, with the reason.
+        var id = await QueuedSessionAsync();
+
+        _ = await _store!.PurgeRawDataAsync(id);
+
+        Assert.Equal([id], await _store.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+        Assert.Empty(await _store.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+    }
+
+    [Fact]
+    public async Task TheHostsOutboxListenerPassesADraftsSettlingToTheMachineAndNothingElse()
+    {
+        // CaptureHost wires the outbox to the machine with DraftSettling.Listener and nothing more, so the
+        // wiring is tested here rather than only on a Windows desktop.
+        var id = await QueuedSessionAsync();
+        var listen = DraftSettling.Listener(_machine!);
+        var at = DateTimeOffset.UtcNow;
+        OutboxItem Item(OutboxKind kind, OutboxState state, string? error) =>
+            new("o-1", id, kind, $"{kind}:{id}", "{}", state, 1, at, at, at, error, null);
+
+        // A publish settling is not the draft's.
+        await listen(Item(Core.Outbox.OutboxKind.PublishNote, Core.Outbox.OutboxState.Failed, "nope"), CancellationToken.None);
+        Assert.Equal(SessionState.DraftPending, _machine!.State);
+
+        await listen(Item(Core.Outbox.OutboxKind.Draft, Core.Outbox.OutboxState.Failed, "The backend refused this session."), CancellationToken.None);
+        Assert.Equal(SessionState.DraftFailed, _machine.State);
+        Assert.Equal("The backend refused this session.", _machine.Snapshot.DraftFailureReason);
+
+        var ready = await QueuedSessionAsync();
+        await _store!.SaveDraftAsync(ready, Note("Printer offline in reception"));
+        await _store.SetSessionStateAsync(ready, CaptureStates.DraftReady, null);
+        await listen(Item(Core.Outbox.OutboxKind.Draft, Core.Outbox.OutboxState.Done, null) with { SessionId = ready }, CancellationToken.None);
+        Assert.Equal(SessionState.DraftReady, _machine.State);
+    }
+
+    [Fact]
+    public void TheHostWiresTheOutboxToTheMachineThroughTheListener()
+    {
+        var host = File.ReadAllText(Path.Combine(Repository(), "client", "ScreenTail.Service", "Host", "CaptureHost.cs"));
+
+        Assert.Contains("outbox.Settled = DraftSettling.Listener(machine);", host, StringComparison.Ordinal);
+    }
+
+    private static string Repository()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "client", "ScreenTail.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName ?? throw new InvalidOperationException("Not inside the repository.");
+    }
+
+    /// <summary>One session started and stopped with its draft queued; the machine is left resting on it.</summary>
+    private async Task<string> QueuedSessionAsync()
+    {
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        var machine = _machine ?? await MachineAsync();
+        Assert.True(await machine.StartAsync(ScreenConnect));
+        var id = machine.SessionId!;
+        await machine.StopAsync();
+        Assert.Equal(SessionState.DraftPending, machine.State);
+        return id;
     }
 
     [Fact]

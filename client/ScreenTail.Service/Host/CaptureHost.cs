@@ -230,13 +230,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             options: new SessionMachineOptions { Scrubber = redactionEngine, Pending = pending });
         // ST-013: a draft the outbox settles reaches the state the technician sees. Without this the note
         // reached the store and the pill and the tray went on saying the draft had failed.
-        outbox.Settled = async (item, ct) =>
-        {
-            if (item.Kind == OutboxKind.Draft)
-            {
-                _ = await machine.DraftSettledAsync(item.SessionId, item.State == OutboxState.Done, item.LastError, ct).ConfigureAwait(false);
-            }
-        };
+        outbox.Settled = DraftSettling.Listener(machine);
 
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)

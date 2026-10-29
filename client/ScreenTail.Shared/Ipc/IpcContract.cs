@@ -16,8 +16,12 @@ namespace ScreenTail.Shared.Ipc;
 /// 4: the <c>audit</c> reply carries where the export was written and its verdict instead of the whole
 /// log as one string, which outgrew the frame limit within weeks (2026-10-12 review, E-2). The reply
 /// changes shape, so an older reader would fail on it.
+///
+/// 5: ST-013 adds the <c>draft_pending</c> state (a session over, its draft on its way to the backend) and
+/// <c>draft_pending</c> on the <c>session</c> reply, so Review says the note is being drafted rather than
+/// that drafting failed. An older UI would show the new state as "unknown, may be recording".
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 4;
+    public const int Version = 5;
 }

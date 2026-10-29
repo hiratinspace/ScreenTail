@@ -223,13 +223,14 @@ public sealed class HudStateTests
     {
         // The control for the theory above: a contract with its constants renamed would give it nothing
         // to check and it would pass vacuously.
-        Assert.Equal(7, EveryStateTheServiceSends.Count);
+        Assert.Equal(8, EveryStateTheServiceSends.Count);
     }
 
     [Theory]
     [InlineData(CaptureStates.Idle)]
     [InlineData(CaptureStates.DraftReady)]
     [InlineData(CaptureStates.DraftFailed)]
+    [InlineData(CaptureStates.DraftPending)]
     public void HidingThePillBetweenSessionsDoesNotStopTheNextOneStarting(string state)
     {
         // The service refuses to start a session nothing indicates, and asks before it starts. A pill the

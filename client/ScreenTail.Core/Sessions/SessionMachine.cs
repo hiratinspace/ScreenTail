@@ -180,7 +180,7 @@ public sealed class SessionMachine : IAsyncDisposable
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed))
+            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending))
             {
                 return false;
             }
@@ -451,27 +451,34 @@ public sealed class SessionMachine : IAsyncDisposable
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (!ready)
+            // What the store says now, not what the outbox believes. A session discarded or purged while
+            // its draft was in flight has no note to be ready with and no pending draft to fail: a failure
+            // is written only over draft_pending, and a ready draft only counts if the note is there. The
+            // unconditional write put draft_failed over a discarded row, and the session came back in
+            // History (INV-12, review of ST-013).
+            string? title = null;
+            bool current;
+            if (ready)
             {
-                await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftFailed, reason, ct).ConfigureAwait(false);
+                // The title for the notification comes from the note the sender stored (Spec §6).
+                title = (await _store.LoadSessionAsync(sessionId, ct).ConfigureAwait(false))?.Draft?.SuggestedTitle;
+                current = title is not null;
+            }
+            else
+            {
+                current = await _store.SetSessionStateIfAsync(sessionId, SessionStateNames.DraftPending, CaptureStates.DraftFailed, reason, ct).ConfigureAwait(false);
             }
 
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-            var resting = State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed;
-            if (!resting)
+            var resting = State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending;
+            if (current && resting && string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
             {
-                return false;
-            }
-
-            if (string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
-            {
-                // The title for the notification comes from the note the sender stored (Spec §6).
-                var title = ready ? (await _store.LoadSessionAsync(sessionId, ct).ConfigureAwait(false))?.Draft?.SuggestedTitle : null;
                 SetState(ready ? SessionState.DraftReady : SessionState.DraftFailed, ready ? null : reason ?? "The session could not be drafted.", title);
                 return true;
             }
 
-            // Another session's draft: the count moved, and the tray shows it.
+            // Another session's draft, or one that is gone: the count may have moved, and the tray shows
+            // it, whatever the machine is doing. The state itself is left alone.
             Announce(Snapshot);
             return false;
         }
@@ -850,11 +857,13 @@ public sealed class SessionMachine : IAsyncDisposable
         }
         else if (outcome.Queued)
         {
-            // On its way to the backend, which is not a failure (ST-013). Nothing is being captured, so
-            // the machine rests idle until the outbox settles it (DraftSettledAsync).
-            await _store.SetSessionStateAsync(sessionId, SessionStateNames.DraftPending, outcome.Reason, ct).ConfigureAwait(false);
+            // On its way to the backend, which is not a failure (ST-013). Nothing is being captured; the
+            // machine rests in draft_pending, naming the session, until the outbox settles it
+            // (DraftSettledAsync). The store is marked only if the row is still finalizing: the outbox
+            // drains on its own timer, and a draft the sender has already stored stands.
+            _ = await _store.SetSessionStateIfAsync(sessionId, CaptureStates.Finalizing, SessionStateNames.DraftPending, outcome.Reason, ct).ConfigureAwait(false);
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-            SetState(SessionState.Idle, null);
+            SetState(SessionState.DraftPending, null);
         }
         else
         {

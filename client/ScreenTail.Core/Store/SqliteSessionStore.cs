@@ -531,6 +531,22 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@id", sessionId));
     }
 
+    public async Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expected);
+        ArgumentException.ThrowIfNullOrWhiteSpace(state);
+        var now = Iso(_time.GetUtcNow());
+        var moved = await RunAsync(
+            "UPDATE sessions SET state = @state, state_reason = @reason, state_changed_at = @now, updated_at = @now WHERE id = @id AND state = @expected",
+            ct,
+            ("@state", state),
+            ("@reason", reason),
+            ("@now", now),
+            ("@id", sessionId),
+            ("@expected", expected)).ConfigureAwait(false);
+        return moved > 0;
+    }
+
     public Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(states);
@@ -617,6 +633,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                 ct,
                 ("@now", now),
                 ("@id", sessionId)).ConfigureAwait(false);
+
+            // A draft still on its way went with the queued work above, so nothing will settle it: the
+            // session is failed with the reason rather than left pending for ever (ST-013).
+            await ExecuteAsync(
+                _connection,
+                "UPDATE sessions SET state = @failed, state_reason = @reason, state_changed_at = @now WHERE id = @id AND state = @pending",
+                ct,
+                ("@failed", Shared.Ipc.CaptureStates.DraftFailed),
+                ("@reason", "The session's screenshots and transcript were removed by retention before it could be drafted."),
+                ("@now", now),
+                ("@id", sessionId),
+                ("@pending", Sessions.SessionStateNames.DraftPending)).ConfigureAwait(false);
             await AuditAsync(sessionId, AuditTypes.RetentionPurged, frames, ct).ConfigureAwait(false);
             await transaction.CommitAsync(ct).ConfigureAwait(false);
             return frames;
@@ -1147,10 +1175,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadOutbox(reader) : null,
             ct);
 
-    public Task UpdateAsync(OutboxItem item, CancellationToken ct = default)
+    public async Task<bool> UpdateAsync(OutboxItem item, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
-        return RunAsync(
+        return await RunAsync(
             """
             UPDATE outbox
             SET state = @state, attempts = @attempts, due_at = @due, last_attempt_at = @attempted,
@@ -1164,7 +1192,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@due", Iso(item.DueAt)),
             ("@attempted", item.LastAttemptAt is { } at ? Iso(at) : null),
             ("@error", item.LastError),
-            ("@remote", item.RemoteId));
+            ("@remote", item.RemoteId)).ConfigureAwait(false) > 0;
     }
 
     public Task<OutboxWaiting> CountWaitingAsync(CancellationToken ct = default) =>

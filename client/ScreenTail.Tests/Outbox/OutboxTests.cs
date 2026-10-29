@@ -577,6 +577,37 @@ public sealed class OutboxTests
     }
 
     [Fact]
+    public async Task AnItemWhoseRowWentWhileItWasBeingSentIsNotSettled()
+    {
+        // INV-12. A discard during the send deletes the queued item; the send then fails (the note has
+        // nowhere to go). Telling the machine about that failure wrote draft_failed over a discarded row,
+        // so the session came back. An update that touches no row settles nothing.
+        var store = new FakeOutboxStore();
+        var settled = 0;
+        var outbox = new Core.Outbox.Outbox(
+            store,
+            (item, token) =>
+            {
+                _ = store.Items.RemoveAll(i => i.Id == item.Id);
+                return Task.FromResult(SendOutcome.Failed("This could not be sent (InvalidOperationException)."));
+            },
+            new ManualTime(At))
+        {
+            Settled = (_, _) =>
+            {
+                settled++;
+                return Task.CompletedTask;
+            },
+        };
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, settled);
+        Assert.Empty(store.Items);
+    }
+
+    [Fact]
     public async Task AListenerThatThrowsDoesNotStopTheQueue()
     {
         var store = new FakeOutboxStore();

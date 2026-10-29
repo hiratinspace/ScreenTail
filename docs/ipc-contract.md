@@ -1,8 +1,8 @@
-# Service–UI IPC contract (v4)
+# Service–UI IPC contract (v5)
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
-**Last brought into line with the code: 2026-09-28.** `IpcContract.Version` is **4**, since 2026-10-23 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 3 (2026-10-14, ST-081) added `effective_local_only` and `effective_retention_days` to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. All three bumped for the same reason: the framing rejects unknown members, so an older reader would fail on a changed reply rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only, and the v4 change for the `export_audit` and `audit` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
+**Last brought into line with the code: 2026-09-28.** `IpcContract.Version` is **5**, since 2026-10-29 (ST-013): the state snapshot has a new state, `draft_pending`, and the `session` reply a `draft_pending` flag, so Review and the pill say a queued draft is on its way instead of failed. It was **4** since 2026-10-23 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 3 (2026-10-14, ST-081) added `effective_local_only` and `effective_retention_days` to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. All three bumped for the same reason: the framing rejects unknown members, so an older reader would fail on a changed reply rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only, and the v4 change for the `export_audit` and `audit` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
 
 ## Framing
 
@@ -103,7 +103,7 @@ results still learns the command was accepted.
 
 | Field | Meaning |
 |---|---|
-| `state` | `idle`, `recording`, `paused`, `suppressed`, `finalizing`, `draft_ready`, `draft_failed`. ST-020's `SessionMachine` owns the transitions |
+| `state` | `idle`, `recording`, `paused`, `suppressed`, `finalizing`, `draft_pending`, `draft_ready`, `draft_failed`. ST-020's `SessionMachine` owns the transitions. `draft_pending` (v5): the session is over and its draft is queued for the backend; nothing is captured, the session is named and can be discarded, and the outbox moves it on to `draft_ready` or `draft_failed` |
 | `session_id?`, `elapsed_ms?` | The session, and its active time excluding pauses |
 | `remote_tool?` | Which tool started it |
 | `reason?` | Why capture is not running when the state alone does not say: `password_field`, `excluded_app`, `elevated_window`, `sensitive_context`, `out_of_scope`, `user` (ST-072; Spec §5 S2 gives each its own words) |

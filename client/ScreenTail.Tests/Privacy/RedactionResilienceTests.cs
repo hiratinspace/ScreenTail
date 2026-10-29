@@ -331,6 +331,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateAsync(sessionId, state, reason, ct);
 
+        public Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateIfAsync(sessionId, expected, state, reason, ct);
+
         public Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default) => inner.ListSessionsInStatesAsync(states, ct);
 
         public Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default) => inner.GetLastTimestampAsync(sessionId, ct);

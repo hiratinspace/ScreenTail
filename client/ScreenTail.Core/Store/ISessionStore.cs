@@ -107,6 +107,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>Persists a state-machine transition (ST-020). <paramref name="state"/> is a wire name from <c>CaptureStates</c>.</summary>
     Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
 
+    /// <summary>
+    /// Moves a session to <paramref name="state"/> only if it is in <paramref name="expected"/> now, and
+    /// says whether it did (ST-013). For writers that arrive late, such as the outbox settling a draft:
+    /// a row discarded, purged or already moved on is left as it is.
+    /// </summary>
+    Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default);
+
     /// <summary>Sessions currently in any of the given states, oldest first. Used for orphan recovery and draft counts.</summary>
     Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default);
 
