@@ -100,7 +100,7 @@ public static class CapabilityCopy
     public static CapabilityCheck ElevatedWindowsInvisible() => new(
         Capability.ElevatedWindows,
         CapabilityState.Degraded,
-        "Elevated window — screen not captured.",
+        "Elevated window: screen not captured.",
         "Windows hides elevated windows from ScreenTail. Say what you did and it goes in the note.");
 
     public static CapabilityCheck NoDesktopSession() => new(

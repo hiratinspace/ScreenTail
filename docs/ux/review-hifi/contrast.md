@@ -17,40 +17,40 @@ glyph, the word "Inferred", and a left rule.
 
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|
-| dark | `text.primary` | `bg.base` | 16.27:1 | ✅ |
-| light | `text.primary` | `bg.base` | 16.95:1 | ✅ |
-| dark | `text.primary` | `bg.surface` | 15.37:1 | ✅ |
-| light | `text.primary` | `bg.surface` | 18.05:1 | ✅ |
-| dark | `text.primary` | `bg.raised` | 14.20:1 | ✅ |
-| light | `text.primary` | `bg.raised` | 16.20:1 | ✅ |
-| dark | `text.secondary` | `bg.base` | 7.84:1 | ✅ |
-| light | `text.secondary` | `bg.base` | 6.84:1 | ✅ |
-| dark | `text.secondary` | `bg.surface` | 7.41:1 | ✅ |
-| light | `text.secondary` | `bg.surface` | 7.28:1 | ✅ |
-| dark | `text.secondary` | `bg.raised` | 6.85:1 | ✅ |
-| light | `text.secondary` | `bg.raised` | 6.54:1 | ✅ |
-| dark | `text.muted` | `bg.base` | 5.55:1 | ✅ |
-| light | `text.muted` | `bg.base` | 4.95:1 | ✅ |
-| dark | `text.muted` | `bg.surface` | 5.25:1 | ✅ |
-| light | `text.muted` | `bg.surface` | 5.27:1 | ✅ |
-| dark | `text.muted` | `bg.raised` | 4.85:1 | ✅ |
-| light | `text.muted` | `bg.raised` | 4.73:1 | ✅ |
-| dark | `accent.primary` | `bg.surface` | 5.65:1 | ✅ |
-| light | `accent.primary` | `bg.surface` | 5.54:1 | ✅ |
-| dark | `text.on-accent` | `accent.primary` | 5.97:1 | ✅ |
-| light | `text.on-accent` | `accent.primary` | 5.54:1 | ✅ |
+| dark | `text.primary` | `bg.base` | 15.34:1 | ✅ |
+| light | `text.primary` | `bg.base` | 15.34:1 | ✅ |
+| dark | `text.primary` | `bg.surface` | 13.99:1 | ✅ |
+| light | `text.primary` | `bg.surface` | 16.88:1 | ✅ |
+| dark | `text.primary` | `bg.raised` | 12.44:1 | ✅ |
+| light | `text.primary` | `bg.raised` | 15.74:1 | ✅ |
+| dark | `text.secondary` | `bg.base` | 10.05:1 | ✅ |
+| light | `text.secondary` | `bg.base` | 7.98:1 | ✅ |
+| dark | `text.secondary` | `bg.surface` | 9.17:1 | ✅ |
+| light | `text.secondary` | `bg.surface` | 8.78:1 | ✅ |
+| dark | `text.secondary` | `bg.raised` | 8.15:1 | ✅ |
+| light | `text.secondary` | `bg.raised` | 8.19:1 | ✅ |
+| dark | `text.muted` | `bg.base` | 7.03:1 | ✅ |
+| light | `text.muted` | `bg.base` | 5.59:1 | ✅ |
+| dark | `text.muted` | `bg.surface` | 6.42:1 | ✅ |
+| light | `text.muted` | `bg.surface` | 6.15:1 | ✅ |
+| dark | `text.muted` | `bg.raised` | 5.71:1 | ✅ |
+| light | `text.muted` | `bg.raised` | 5.74:1 | ✅ |
+| dark | `accent.primary` | `bg.surface` | 7.12:1 | ✅ |
+| light | `accent.primary` | `bg.surface` | 5.38:1 | ✅ |
+| dark | `text.on-accent` | `accent.primary` | 8.38:1 | ✅ |
+| light | `text.on-accent` | `accent.primary` | 5.38:1 | ✅ |
 
 ## State colours — indicators only, 3:1
 
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|
-| dark | `confidence.low` | `bg.surface` | 10.88:1 | ✅ |
-| light | `confidence.low` | `bg.surface` | 3.46:1 | ✅ |
-| dark | `state.published` | `bg.surface` | 7.97:1 | ✅ |
-| light | `state.published` | `bg.surface` | 3.45:1 | ✅ |
-| dark | `state.danger` | `bg.surface` | 6.57:1 | ✅ |
-| light | `state.danger` | `bg.surface` | 4.83:1 | ✅ |
-| dark | `state.scope` | `bg.surface` | 4.29:1 | ✅ |
-| light | `state.scope` | `bg.surface` | 5.70:1 | ✅ |
-| dark | `state.paused` | `bg.surface` | 8.46:1 | ✅ |
-| light | `state.paused` | `bg.surface` | 3.46:1 | ✅ |
+| dark | `confidence.low` | `bg.surface` | 9.32:1 | ✅ |
+| light | `confidence.low` | `bg.surface` | 4.83:1 | ✅ |
+| dark | `state.published` | `bg.surface` | 8.43:1 | ✅ |
+| light | `state.published` | `bg.surface` | 5.41:1 | ✅ |
+| dark | `state.danger` | `bg.surface` | 7.10:1 | ✅ |
+| light | `state.danger` | `bg.surface` | 5.66:1 | ✅ |
+| dark | `state.scope` | `bg.surface` | 6.81:1 | ✅ |
+| light | `state.scope` | `bg.surface` | 5.84:1 | ✅ |
+| dark | `state.paused` | `bg.surface` | 7.63:1 | ✅ |
+| light | `state.paused` | `bg.surface` | 4.83:1 | ✅ |

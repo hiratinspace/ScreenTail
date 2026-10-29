@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
+using ScreenTail.Api.Summarize;
 
 namespace ScreenTail.Api.Tests;
 
@@ -129,6 +130,13 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // Pinned to empty so the suite behaves the same on a developer machine as in CI.
         builder.UseSetting("Summarization:ApiKey", string.Empty);
         builder.UseSetting("Summarization:FallbackApiKey", string.Empty);
+
+        // And the provider, for the same reason: a developer who drafts on Claude keeps
+        // Summarization:Provider=claude in the same user secrets, and the wiring tests would then be
+        // reading their machine rather than the code. A test that wants Claude says so. The same goes for
+        // the scripted test provider (ST-013), which needs no key: a developer who chose it in their user
+        // secrets for a rehearsal would otherwise give this suite a drafting provider.
+        builder.UseSetting("Summarization:Provider", SummarizationOptions.Gemini);
         builder.UseSetting("Vault:MasterKey", VaultMasterKey ?? string.Empty);
 
         builder.ConfigureServices(services =>

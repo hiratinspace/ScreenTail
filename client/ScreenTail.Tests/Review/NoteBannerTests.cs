@@ -48,7 +48,7 @@ public sealed class NoteBannerTests
         var banners = NoteBanners.For(Session(localOnly: true, draft: local));
 
         Assert.Single(banners);
-        Assert.Equal("Drafted on this device only — quality may be lower.", banners[0].Text);
+        Assert.Equal("Drafted on this device only. Quality may be lower.", banners[0].Text);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class NoteBannerTests
     [Fact]
     public void OfflineWithNoDraftSaysTheDraftIsPending()
     {
-        Assert.Contains(NoteBanners.For(Session(), offline: true), banner => banner.Text == "Draft pending — offline");
+        Assert.Contains(NoteBanners.For(Session(), offline: true), banner => banner.Text == "Draft pending: offline");
     }
 
     [Fact]
@@ -91,6 +91,19 @@ public sealed class NoteBannerTests
             NoteBanners.PublishBlockedBecause(Session(draft: Draft()), ticketChosen: true, offline: true));
 
         Assert.Null(NoteBanners.PublishBlockedBecause(Session(draft: Draft()), ticketChosen: true));
+    }
+
+    [Fact]
+    public void ANoteOnItsWayIsNotCalledAFailedDraft()
+    {
+        // ST-013 review: a session whose draft is queued for the backend has no note yet, and Review said
+        // "Retry the draft first" about a draft nothing had failed. It says the note is being drafted.
+        Assert.Equal(
+            "There is no note to publish yet. It is being drafted and appears here when it arrives.",
+            NoteBanners.PublishBlockedBecause(Session(), ticketChosen: true, draftPending: true));
+
+        // Once the note is there, being queued earlier changes nothing.
+        Assert.Null(NoteBanners.PublishBlockedBecause(Session(draft: Draft()), ticketChosen: true, draftPending: true));
     }
 
     [Fact]

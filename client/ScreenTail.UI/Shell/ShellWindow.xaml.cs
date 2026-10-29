@@ -104,7 +104,8 @@ public partial class ShellWindow : Window
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask),
                 new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.CompletedTask),
-                new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations()))));
+                new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
+                new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
         DataContext = _model;
         if (_screenshotDirectory is not null)
         {
@@ -189,6 +190,17 @@ public partial class ShellWindow : Window
 
         public Task<ActivationAnswer> ActivateAsync(string code, string deviceName, CancellationToken ct = default) =>
             Task.FromResult(new ActivationAnswer("Contoso MSP", null));
+    }
+
+    /// <summary>An update ready to install on a channel the admin locked, so the harness renders Install and the lock (ST-113).</summary>
+    private sealed class SampleUpdates : IUpdateGateway
+    {
+        public Task<UpdateSnapshot?> LoadAsync(CancellationToken ct = default) =>
+            Task.FromResult<UpdateSnapshot?>(new UpdateSnapshot("ready", "0.1.240", "0.1.250", Core.Update.UpdateChannel.Pilot, ChannelLocked: true, "ScreenTail 0.1.250 is ready to install.", CanInstall: true));
+
+        public Task<string?> SetChannelAsync(Core.Update.UpdateChannel channel, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<string?> InstallAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
     }
 
     /// <summary>Privacy settings under an admin policy that locked local-only and retention, so the harness renders the locked variant (Spec §3).</summary>

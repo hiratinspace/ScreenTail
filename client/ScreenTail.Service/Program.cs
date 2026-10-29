@@ -135,8 +135,14 @@ AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
 };
 
 var builder = Host.CreateApplicationBuilder(args);
+var logLevel = LogLevels.Parse(Environment.GetEnvironmentVariable(LogLevels.Variable));
 _ = builder.Logging.ClearProviders();
-_ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(Console.Error, LogLevels.Parse(Environment.GetEnvironmentVariable(LogLevels.Variable))));
+
+// The host's own filter as well as the scrubber's: it is Information unless told otherwise, and drops
+// everything below that before the scrubber sees it, so SCREENTAIL_LOG_LEVEL=Debug used to change
+// nothing (found by ST-013's end-to-end run).
+_ = builder.Logging.SetMinimumLevel(logLevel);
+_ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(Console.Error, logLevel));
 builder.Services.AddHostedService<CaptureHost>();
 await builder.Build().RunAsync().ConfigureAwait(false);
 return 0;

@@ -14,6 +14,9 @@
   <ItemGroup>
     <!-- Numbered migrations (Guide §5), applied in order by SqliteSessionStore. -->
     <EmbeddedResource Include="Store\Migrations\*.sql" LogicalName="ScreenTail.Core.Store.Migrations.%(Filename)%(Extension)" />
+    <!-- ST-113: the update feed, the package hosts and the manifest keys, compiled in rather than read
+         from a file on the machine that the user could rewrite. CI's signing job reads the same file. -->
+    <EmbeddedResource Include="..\..\shared\release\update-trust.json" LogicalName="ScreenTail.Core.Update.update-trust.json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +26,8 @@
   <ItemGroup>
     <!-- The redaction tests stand in for the pattern library to simulate a detector running out of budget. -->
     <InternalsVisibleTo Include="ScreenTail.Tests" />
+    <!-- The performance rig builds an indicator guard over a plain yes, which the service itself cannot. -->
+    <InternalsVisibleTo Include="ScreenTail.Tests.Windows" />
   </ItemGroup>
 
   <ItemGroup>

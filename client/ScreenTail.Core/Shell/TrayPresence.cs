@@ -62,6 +62,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
             "finalizing" => (TrayIcon.Paused, "Finishing up"),
             "draft_ready" => (TrayIcon.DraftReady, "Draft ready"),
             "draft_failed" => (TrayIcon.DraftReady, "Draft failed"),
+            CaptureStates.DraftPending => (TrayIcon.Idle, "Not capturing: drafting the note"),
             CaptureStates.Idle => (drafts > 0 ? TrayIcon.DraftReady : TrayIcon.Idle, "Not capturing"),
 
             // A state this build has never heard of, which means a service newer than this UI. Saying

@@ -9,6 +9,7 @@ using ScreenTail.Core.Intel;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Review.Publish;
@@ -16,6 +17,7 @@ using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Settings;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
+using ScreenTail.Core.Update;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
@@ -25,6 +27,7 @@ using ScreenTail.Service.Intel;
 using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Speech;
 using ScreenTail.Service.Store;
+using ScreenTail.Service.Update;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Settings;
 
@@ -228,6 +231,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             sources,
             drafter,
             options: new SessionMachineOptions { Scrubber = redactionEngine, Pending = pending });
+        // ST-013: a draft the outbox settles reaches the state the technician sees. Without this the note
+        // reached the store and the pill and the tray went on saying the draft had failed.
+        outbox.Settled = DraftSettling.Listener(machine);
+
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {
@@ -257,6 +264,38 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"),
             stoppingToken).ConfigureAwait(false));
         LogRegistry(logger, registry.Version, registry.Tools.Count, registry.BrowserPatterns.Count, registry.Grace.TotalSeconds);
+
+        // ST-113: the update channel. The feed, the package hosts and the manifest keys are compiled in
+        // (UpdateTrust.Shipped), and a build without them, or one nobody signed, makes no update request
+        // at all. The check runs under its own egress purpose, after this run's first policy fetch, at the
+        // admin's interval; a package downloads when no session is recording and is installed only when
+        // the technician presses Install, by Windows Installer, which asks for an administrator's approval.
+        var updatePreferences = new UpdatePreferences(Path.Combine(DataDirectory, "updates.json"));
+        UpdatePolicy UpdatePolicyNow() => UpdatePolicies.Resolve(policySync.Current, updatePreferences.Load());
+        bool SessionBusy() => machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing;
+        var runningPublisher = PackageSignature.Running();
+        using var updates = new UpdateService(
+            new HttpClient(EgressGuard.ForUpdates(egressPolicy)) { Timeout = TimeSpan.FromMinutes(30) },
+            UpdateTrust.Shipped,
+            ReleaseVersion.TryParse(version, out var installedVersion) ? installedVersion : new Version(0, 0, 0),
+            new WindowsUpdateFolder(Path.Combine(DataDirectory, "Updates")),
+            UpdatePolicyNow,
+            SessionBusy,
+            signedBuild: runningPublisher is not null,
+            logger,
+            TimeProvider.System);
+        updates.Changed += status =>
+        {
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                LogUpdate(logger, status.State);
+            }
+        };
+        // A tool refused its session while the hold was in force is decided again when it goes; the
+        // coordinator is built further down.
+        Action retryForeground = () => { };
+        var installer = new UpdateInstaller(updates, new PackageSignature(), new MsiLauncher(), runningPublisher, machine.HoldStartsAsync, () => retryForeground());
+        var updateCommands = new UpdateCommands(updates, installer, UpdatePolicyNow, updatePreferences, SessionBusy, updates.CheckSoon);
 
         var controller = new CaptureController(
             machine,
@@ -296,7 +335,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 return Task.FromResult(true);
             },
             indicators,
-            sessionPolicy);
+            sessionPolicy,
+            updateCommands);
         await using var server = new IpcServer(
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
@@ -343,7 +383,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var policy = new ScopePolicy(registry, new ScopeOptions { Exclusions = exclusions });
         // INV-4, at the one place a session can begin on its own. The tray icon and the pill live in the
         // UI process, so a service recording with nothing attached is a recording nobody was told about.
-        var indicator = new IndicatorGuard(machine, () => indicators.Showing);
+        // Over the reports themselves: the pill put away counts between sessions, and only the pill during one.
+        var indicator = new IndicatorGuard(machine, indicators);
         indicator.Failed += failure => LogGuardFailed(logger, "indicator", failure.GetType().Name);
 
         // ST-077: the clipboard is read once, as a session starts, by the coordinator and nowhere else;
@@ -385,6 +426,19 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         _ = Task.Run(() => StartupOrder.SyncPolicyAsync(policySync, tokenReady.Task, policyFetched, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "policy", ex.GetType().Name)), stoppingToken);
         foreground.Changed += coordinator.Observe;
+        retryForeground = () => _ = coordinator.Retry(foreground.Current, WindowsForegroundWatcher.Exists);
+
+        // A download that a session stopped continues once the session is over (any resting state,
+        // draft_pending from #230 among them), rather than at the
+        // loop's next half-hourly retry.
+        machine.StateChanged += snapshot =>
+        {
+            if (UpdateService.SessionOver(snapshot.State)
+                && updates.Status.State == UpdateState.Available)
+            {
+                updates.CheckSoon();
+            }
+        };
 
         await foreground.StartAsync(stoppingToken).ConfigureAwait(false);
         LogForegroundMode(logger, foreground.UsingHook ? "event hook" : "polling");
@@ -417,7 +471,16 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-026: clicks miss everything the technician reads rather than does — a dialog appearing while
         // they watch, a service finally starting. This looks once a second and only pays for a full capture
         // when the screen actually changed.
-        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger, sampler);
+        //
+        // ST-031: over the processor budget for ten seconds, it looks less often, then OCR reads one frame
+        // at a time, then the sampler stops looking so OCR reads only click and marked-moment frames. The
+        // hooks, click screenshots and speech are never throttled, and redaction never changes (INV-1).
+        // One reading a second while a session is under way and none otherwise; the log carries the level
+        // and the reading, nothing else (INV-10).
+        var throttle = new CaptureThrottle(new ThisProcessTime());
+        throttle.Changed += change => LogThrottle(logger, change.From, change.To, change.Share * 100);
+        var throttling = throttle.RunAsync(machine, failure => LogLoopFailed(logger, "capture-throttle", failure.GetType().Name), stoppingToken);
+        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger, sampler, throttle: throttle);
         var sampling = scenes.RunAsync(stoppingToken);
 
         // ST-029: "mark moment" is the only frame the technician asks for by name, so it goes around the
@@ -465,7 +528,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // pending frame or to clear the flag, so INV-1 rests on it.
         var recogniser = new WindowsOcrRecogniser();
         LogOcr(logger, recogniser.Available, recogniser.Language ?? "none");
-        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine, pending);
+        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine, pending, throttle: throttle);
         redaction.BacklogChanged += machine.ReportPendingRedactions;
 
         // Without this the login heuristic fires into nothing: the frame is marked sensitive and the next
@@ -591,13 +654,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         // The exemption is the session being recorded, read off the state and not the id alone: the
         // machine keeps naming a session after it finishes, and that one ages out like any other.
-        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => RetentionJob.SessionBeingRecorded(machine.Snapshot));
+        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => RetentionJob.SessionBeingRecorded(machine.Snapshot), machine.RawDataPurgedAsync);
 
         // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
         // technician is not waiting on, and a tight loop on a laptop is a battery complaint.
         // With no backend nothing is sent and the queue only records why, so it is not held for a policy
         // that cannot be fetched.
         var draining = DrainOutboxAsync(outbox, backend is null ? Task.CompletedTask : policyFetched.Task, logger, stoppingToken);
+
+        // Held for the same reason as the outbox: until this run has fetched the tenant's policy, the one
+        // in force is a cached file the technician can edit (INV-8, INV-11).
+        var updating = updates.RunAsync(backend is null ? Task.CompletedTask : policyFetched.Task, stoppingToken);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {
@@ -615,7 +682,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, throttling, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining, updating).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -672,6 +739,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Loop} loop hit {Error} and carried on")]
     private static partial void LogLoopFailed(ILogger logger, string loop, string error);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Capture throttle {From} -> {To} at {Percent:F1}% of the machine")]
+    private static partial void LogThrottle(ILogger logger, CaptureLevel from, CaptureLevel to, double percent);
+
     [LoggerMessage(Level = LogLevel.Error, Message = "An erasure of local data still owes the store, its key or a credential; the service will not start until it finishes")]
     private static partial void LogErasureBlocksStart(ILogger logger);
 
@@ -711,6 +781,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         Level = LogLevel.Information,
         Message = "Outbox: {Drafts} draft(s) and {Publishes} publish(es) waiting, {Uncertain} needing a look")]
     private static partial void LogOutbox(ILogger logger, int drafts, int publishes, int uncertain);
+
+    // The state's name only: never a version or a URL from a manifest (INV-10).
+    [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
+    private static partial void LogUpdate(ILogger logger, UpdateState state);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
     private static partial void LogMicrophone(ILogger logger, string device, string model);

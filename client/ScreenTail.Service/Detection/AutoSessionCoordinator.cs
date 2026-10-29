@@ -108,6 +108,42 @@ internal sealed partial class AutoSessionCoordinator
     public void Observe(ForegroundWindowInfo window) => _windows.Writer.TryWrite(window);
 
     /// <summary>
+    /// Decides the window in front again (ST-113): when the update's hold on new sessions is released,
+    /// a tool that took focus meanwhile was refused its session and may still be in front.
+    ///
+    /// The window in front <i>now</i>, as the caller reads it, and only if it still exists: not the window
+    /// last decided, which may have closed while the hold was in force (second review). It goes through the
+    /// same queue as any foreground change, so every rule a focus change meets applies.
+    /// </summary>
+    /// <returns>False when there was no window in front, or it no longer exists.</returns>
+    public bool Retry(ForegroundWindowInfo current, Func<nint, bool> exists)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(exists);
+        if (current.IsNone || !exists(current.Handle))
+        {
+            return false;
+        }
+
+        Observe(current);
+        return true;
+    }
+
+    /// <summary>The same, handled at once rather than queued, for the tests.</summary>
+    internal async Task<bool> RetryAsync(ForegroundWindowInfo current, Func<nint, bool> exists, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(exists);
+        if (current.IsNone || !exists(current.Handle))
+        {
+            return false;
+        }
+
+        await HandleAsync(current, ct).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
     /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord, a hotkey the service registers
     /// itself (ST-029). The tray has no start item.
     ///
@@ -378,7 +414,7 @@ internal sealed partial class AutoSessionCoordinator
     }
 
     private static bool CanStart(SessionState state) =>
-        state is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed;
+        state is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending;
 
     private static bool IsRunning(SessionState state) =>
         state is SessionState.Recording or SessionState.Paused or SessionState.Suppressed;

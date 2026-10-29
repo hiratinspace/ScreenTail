@@ -321,7 +321,18 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Partial, 2026-10-28.** The loop harness is built and green on the hosted Windows VM:
+  `scripts/windows/e2e/run-e2e.ps1` with the driver `client/ScreenTail.E2E` runs PostgreSQL, the backend
+  (Development, demo PSA, the new Development-only scripted drafting provider), a development device, the
+  capture service and the UI, and takes one session from the pill's indicator report to the note on demo
+  ticket #48213, checking the stored frames are redacted, the PSA received the masked note, the audit rows
+  and a clean shutdown, one PASS or FAIL line per step (`docs/dev/e2e.md`). CI's `End to end (Windows)`
+  job is report-only until it has passed twice in a row on main; the laptop's input job runs it with real
+  hotkeys and clicks, report-only too. Its first runs found three product bugs, fixed with regression tests:
+  a queued draft reported as failed and never reaching draft_ready, the "Draft ready" notification's
+  missing title, and `SCREENTAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
+  replay with its event-count and redaction-count criteria (needs ST-030's sessions), CPU, RAM and disk per
+  run, and the nightly schedule with a team-channel notification.
 
 **Description:**
 Windows 11 VM job installing the built client, replaying golden sessions through the real service and asserting bundle contents, redaction results and performance budgets. Nightly and on release branches.
@@ -755,7 +766,7 @@ Developer flag exporting full bundles from scripted VM scenarios against real RD
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Partial, 2026-10-27.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. Still owed: AC1 (the 30-minute golden replay needs ST-030), AC2 (throttling sampling and OCR first when over budget is not built), AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
+- **Status:** **Partial, 2026-10-29.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. **AC2 is built (2026-10-29, `CaptureThrottle`):** while a session is under way the service reads its own processor time once a second against 15% of a four-core machine (`CpuBudget`: 60% of one core on a bigger machine, 15% of a smaller one). Ten seconds over and capture gives up one step, and one more after each further ten: the scene sampler looks every other tick, then every fourth, then OCR reads one frame at a time instead of two while the session records, then the sampler stops looking so OCR reads only click and marked-moment frames. Thirty seconds under 80% of the budget and it takes one step back; the session ending, or a new session the loop has not seen, puts it back to full. The input hooks and speech are never throttled, click screenshots are never paused or skipped (from the third step they are read one at a time with the rest), finalize is never slowed, and every frame taken is redacted exactly as before (INV-1). The laptop recording measurement fails if the throttle moves during it. The Mac suite proves it on a fake clock; seeing it trip on a real overload is an owner step on the laptop (`docs/dev/performance.md`). Still owed: AC1 (the 30-minute golden replay needs ST-030), the laptop sighting of AC2, AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
 
 **Description:**
 Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, disk < 40 MB per 20 min; self-throttle sampling/OCR first; live figures in "What's being captured".
@@ -1121,7 +1132,7 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** **Done 2026-09-19 (#68), and measured against the real model.** Gemini Flash. Provider abstraction, fallback on an outage only, one repair retry with the reasons, per-tenant daily cost cap checked before the call, and C# post-conditions that refuse an invented frame reference, an unspoken quotation, a leaked credential or a note that reads as an instruction. 85 backend tests. 2026-10-12 review follow-up: a billed answer with nothing usable in it is charged what its usage says, a draft with nulls where the schema has lists is repaired rather than a 500, frame and segment ids are identifiers and counted against the text budget, a provider's retry delay reaches the client as the 503's Retry-After, at most two drafts per device and ten per tenant run at once (429 busy before the body is read), and `shared/contracts/summarize-response.v1.json` pins every answer on both ends. A provider that refuses this deployment's key, account or model is answered not_configured, which the client queues; only an answer that cannot be shown, or a request refused for what was in it, is the 422 the client fails. A repair call that has an outage or is refused for this deployment is answered the same way as a first call that was, so a 429 on the repair queues the session rather than failing it.
+- **Status:** **Done 2026-09-19 (#68), and measured against the real model.** Gemini Flash by default; **Claude added 2026-10-28** as the other provider (`Summarization__Provider=claude`, `claude-opus-5-5` through Anthropic's C# SDK, refusal fallback on, its own cost-cap defaults), built and tested against recorded wire shapes but not yet measured against the real model. Provider abstraction, fallback on an outage only, one repair retry with the reasons, per-tenant daily cost cap checked before the call, and C# post-conditions that refuse an invented frame reference, an unspoken quotation, a leaked credential or a note that reads as an instruction. 85 backend tests. 2026-10-12 review follow-up: a billed answer with nothing usable in it is charged what its usage says, a draft with nulls where the schema has lists is repaired rather than a 500, frame and segment ids are identifiers and counted against the text budget, a provider's retry delay reaches the client as the 503's Retry-After, at most two drafts per device and ten per tenant run at once (429 busy before the body is read), and `shared/contracts/summarize-response.v1.json` pins every answer on both ends. A provider that refuses this deployment's key, account or model is answered not_configured, which the client queues; only an answer that cannot be shown, or a request refused for what was in it, is the 422 the client fails. A repair call that has an outage or is refused for this deployment is answered the same way as a first call that was, so a 429 on the repair queues the session rather than failing it.
 
   The owner's key arrived on 2026-09-19 and the first live call found four defects no stub could have caught, each now covered by a test that fails when its fix is removed:
 
@@ -2018,10 +2029,7 @@ EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall r
 - **Epic/Feature:** RELEASE
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** Open.
-
-**Description:**
-Signed updates, stable/beta channels, applied at idle launch, never during a session.
+- **Status:** **Partial 2026-10-29: built and tested; switched off until the owner creates the key and the hosting.** ADR-0008 (Proposed). The capture service checks `<feed><channel>/win-x64.json`, an ECDSA P-256 signed manifest it believes only after the signature verifies with a key compiled into the client (`shared/release/update-trust.json`, empty until the owner fills it in, so no build makes an update request yet), under its own egress purpose to the compiled-in hosts only, never under local-only unless the tenant's admin allows it, with no credential or device in the request, and only after this run's first policy fetch. It refuses and logs a bad signature, another channel or architecture, a downgrade or a replayed older release, an installation older than the minimum, a package host it does not trust, and a malformed hash or size (**AC2**). A newer release downloads while no session is recording and is kept only if its size and SHA-256 match; the tray announces it once, only when no session is running, and Settings → Updates offers Install only then (**AC1**). Install re-checks the package through a write-locked handle (hash, Authenticode, timestamp, publisher by identity rather than leaf certificate), holds every session start, and starts `msiexec /i /passive /norestart`, which asks for an administrator's approval; no privileged ScreenTail process is added. The channel (stable or pilot) is chosen in Settings unless the admin's policy locks it, and the admin sets the interval and the local-only exception (**AC3**; INV-11; backend and contract carry the four fields). CI signs every build on main for pilot only, through Key Vault and the signing job's OIDC token, skipped until configured; stable is signed only by the hand-started `promote-stable` workflow in the owner's `release-stable` environment, which fails closed until it exists. Still owner: the Key Vault key, the hosting (ST-007), the two environments' settings, and the UAC prompt checked on the laptop with the first signed build (`docs/dev/installer.md`, "Updates").
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** None
@@ -2034,7 +2042,7 @@ Signed updates, stable/beta channels, applied at idle launch, never during a ses
 
 **Agent brief**
 - Read: ST-112
-- Write: `/client/ScreenTail.UI/Update/*`, release feed manifest
+- Write: `/client/ScreenTail.UI/Update/*`, release feed manifest (also `/client/ScreenTail.Core/Update/*`, `/installer/update-manifest.ps1`, `.github/workflows/promote-stable.yml`, `/shared/release/*`)
 - Verify: `UpdateTests`
 ---
 

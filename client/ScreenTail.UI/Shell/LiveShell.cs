@@ -204,8 +204,45 @@ public sealed class LiveShell : IAsyncDisposable
         if (_notifier.Observe(snapshot.Capture) is { } notice)
         {
             _tray.Notify(notice);
+            return;
+        }
+
+        _ = AnnounceUpdateAsync(snapshot.Capture);
+    }
+
+    // ST-113 AC1: an update that is ready is announced once per version, and only when no session is
+    // running (UpdateNotices holds that rule). The service is asked at most every ten minutes.
+    private static readonly TimeSpan UpdateAskEvery = TimeSpan.FromMinutes(10);
+    private DateTimeOffset _updateAsked = DateTimeOffset.MinValue;
+    private string? _updateAnnounced;
+
+    private async Task AnnounceUpdateAsync(CaptureStateSnapshot? capture)
+    {
+        if (UpdateNotices.For(capture, Probe) is null || DateTimeOffset.UtcNow - _updateAsked < UpdateAskEvery)
+        {
+            return;
+        }
+
+        _updateAsked = DateTimeOffset.UtcNow;
+        var report = await new PipeUpdates(_connection).ReportAsync().ConfigureAwait(true);
+        if (!_disposed && UpdateNotices.For(_state.Snapshot.Capture, report) is { } notice && notice.Key != _updateAnnounced)
+        {
+            _updateAnnounced = notice.Key;
+            _tray.Notify(notice);
         }
     }
+
+    /// <summary>A ready update, to ask <see cref="UpdateNotices"/> whether this state may hear about one at all.</summary>
+    private static readonly UpdateReported Probe = new()
+    {
+        State = "ready",
+        InstalledVersion = "0.0.0",
+        AvailableVersion = "0.0.1",
+        Channel = "stable",
+        ChannelLocked = false,
+        Sentence = string.Empty,
+        CanInstall = true,
+    };
 
     public void ShowWindow()
     {
@@ -225,7 +262,8 @@ public sealed class LiveShell : IAsyncDisposable
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                     new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
                     new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
-                    new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
+                    new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection))),
+                    new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))));
 
             // Once, when the window is made. A closed window's Review pane may still be writing its last,
             // and Quit waits for it even after the window has gone (T-169).
@@ -320,16 +358,19 @@ public sealed class LiveShell : IAsyncDisposable
     /// service would not hand the session over, which the shell shows as a sentence rather than a crash.
     ///
     /// The note's save goes back the same way, and a save the service refused is thrown so the editor
-    /// shows "Not saved — retrying" (Spec v0.4.3) instead of a tick over a note that never landed.
+    /// shows "Not saved: retrying" (Spec v0.4.3) instead of a tick over a note that never landed.
     /// </summary>
     private async Task<object?> LoadReviewAsync(string sessionId, CancellationToken ct)
     {
         var frames = new PipeReviewFrames(_connection);
-        var session = await frames.LoadSessionAsync(sessionId, ct).ConfigureAwait(true);
-        if (session is null)
+        var loaded = await frames.LoadAsync(sessionId, ct).ConfigureAwait(true);
+        if (loaded?.Session is not { } session)
         {
             return null;
         }
+
+        // ST-013: a draft still on its way says so, rather than "We couldn't draft this session".
+        var draftPending = loaded.DraftPending;
 
         // The publish pane's delegates, over the pipe. What the tenant has connected is asked now, once,
         // so the pane opens saying "Connect a PSA to publish" or ready, not guessing. The mapping prompt's
@@ -341,7 +382,8 @@ public sealed class LiveShell : IAsyncDisposable
             integrations,
             publisher.SearchAsync,
             publisher.PublishAsync,
-            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync));
+            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync),
+            draftPending: draftPending);
 
         // ST-077: the ticket number the coordinator read off the window when the session started. The
         // PSA is asked for it by id so the pane can show its summary and company beside the Suggested
@@ -377,7 +419,8 @@ public sealed class LiveShell : IAsyncDisposable
                 TypedConfirmation.DiscardWord),
             publish: publish,
             timelineExpanded: _preferences.Load().TimelineExpanded,
-            timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }));
+            timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }),
+            draftPending: draftPending);
     }
 
     /// <summary>Local-only as the service has it in force now (the admin's when locked), or null when it would not say.</summary>

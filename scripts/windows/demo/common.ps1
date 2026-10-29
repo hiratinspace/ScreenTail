@@ -8,7 +8,7 @@
 
     Three rules hold for every function in this file:
       - No secret is printed. Output captured from a tool is passed through Protect-Text before any of it
-        is shown, and the Gemini key, the database password and the device token are never echoed.
+        is shown, and the drafting key, the database password and the device token are never echoed.
       - The only file a secret is written to is the API project's user-secrets file, the same file
         'dotnet user-secrets set' writes. It lives in the user profile, outside the repository. (When
         setup creates the Docker database, Docker also keeps that database's password in the container's
@@ -19,7 +19,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-# Windows PowerShell 5.1 can default to TLS 1.0, which Kestrel and Google both refuse. Adding TLS 1.2 to
+# Windows PowerShell 5.1 can default to TLS 1.0, which Kestrel, Google and Anthropic all refuse. Adding TLS 1.2 to
 # whatever is already allowed changes nothing about how certificates are checked.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
@@ -75,10 +75,37 @@ $script:DemoDeviceCredential = Join-Path $env:LOCALAPPDATA 'ScreenTail\device.cr
 $script:DemoDbContainer = 'screentail-db'
 $script:DemoDbVolume = 'screentail-pgdata'
 
-# The three settings the backend needs, by their configuration names.
-$script:KeyGemini = 'Summarization:ApiKey'
+# The settings the backend needs, by their configuration names. Summarization:ApiKey holds the key of
+# whichever company drafts: Google's for Gemini, Anthropic's for Claude. Summarization:Provider says
+# which, and the two are saved together because one without the other sends a key to the wrong company.
+$script:KeyDrafting = 'Summarization:ApiKey'
+$script:KeyProvider = 'Summarization:Provider'
+$script:KeyModel = 'Summarization:Model'
 $script:KeySigning = 'Jwt:SigningKey'
 $script:KeyDatabase = 'ConnectionStrings:Postgres'
+
+# Which company drafts, from the saved settings: 'claude' or 'gemini-flash'. A key saved before the
+# provider setting existed is a Gemini key, because Gemini was the only choice then.
+function Get-DraftingProvider([hashtable]$Secrets) {
+    $saved = [string]$Secrets[$script:KeyProvider]
+    if ($saved -and $saved.Trim().ToLowerInvariant() -eq 'claude') { return 'claude' }
+    return 'gemini-flash'
+}
+
+# The provider's name as a person says it.
+function Get-ProviderLabel([string]$Provider) {
+    if ($Provider -eq 'claude') { return 'Claude (Anthropic)' }
+    if ($Provider -eq 'scripted') { return 'the scripted test provider (no model, rehearsal only)' }
+    return 'Gemini (Google)'
+}
+
+# Whether this start is an offline rehearsal (docs/dev/e2e.md): Summarization__Provider=scripted set in
+# the window start runs from. The backend runs in Development, the only place it accepts the setting, and
+# the note it writes says no model wrote it. Never saved, so the next plain start drafts for real again.
+function Test-ScriptedRehearsal {
+    $requested = [string]$env:Summarization__Provider
+    return [bool]($requested -and $requested.Trim().ToLowerInvariant() -eq 'scripted')
+}
 
 # --- Output -------------------------------------------------------------------------------------------
 
@@ -469,7 +496,7 @@ function Read-UserSecrets {
     }
     catch {
         Stop-Demo -Problem "The user-secrets file is not valid JSON: $path" -Fix @(
-            'Open it in Notepad and fix it, or rename it and run setup again (you will be asked for the Gemini key and the database password again).')
+            'Open it in Notepad and fix it, or rename it and run setup again (you will be asked for the drafting key and the database password again).')
     }
     Add-FlatEntries -Node $parsed -Prefix '' -Into $table
     return $table

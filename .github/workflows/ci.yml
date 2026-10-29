@@ -382,6 +382,8 @@ jobs:
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
       - name: Check every signature (an unsigned build passes with a notice)
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
+      - name: Write the pilot update manifest (signs nothing here)
+        run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Build an older package from the same payload, for the upgrade check
         run: ./installer/package.ps1 -Step Msi -Version "0.0.${{ github.run_number }}" -MsiName ScreenTail-older.msi
       - name: Smoke test (silent install, upgrade, uninstall, setup program)
@@ -506,6 +508,17 @@ jobs:
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
+      # ST-113: the pilot manifest for the signed MSI, signed by the Key Vault key through this
+      # job's OIDC token and checked against the client's compiled-in keys before it is written.
+      # Skipped with a notice until SCREENTAIL_UPDATE_KEY and SCREENTAIL_UPDATE_BASE are set on the
+      # signing environment. Publishing them is the owner's step (docs/dev/installer.md, "Updates").
+      - name: Write and sign the pilot update manifest (stable is signed only by promote-stable.yml)
+        env:
+          SCREENTAIL_UPDATE_KEY: ${{ vars.SCREENTAIL_UPDATE_KEY }}
+          SCREENTAIL_UPDATE_BASE: ${{ vars.SCREENTAIL_UPDATE_BASE }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Upload the signed installer
         id: signed
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -516,6 +529,15 @@ jobs:
             artifacts/installer/packages/ScreenTail-Setup.exe
           retention-days: 7
           if-no-files-found: error
+      # The pilot manifest only. Kept longer than the installer, because promote-stable.yml reads it when
+      # the owner promotes the release to stable, which can be weeks later. Empty until signing is set up.
+      - name: Upload the signed update manifests
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: screentail-update-manifests
+          path: artifacts/installer/manifests
+          retention-days: 90
+          if-no-files-found: ignore
 
   # The signed build, installed and uninstalled the same way as the unsigned one, now with the peer
   # checks taking the signed path. A job of its own with no token to ask for, because the smoke test is
@@ -768,6 +790,64 @@ jobs:
       - name: The skip gate fails a run that proved nothing
         shell: powershell
         run: ./scripts/windows/check-skips.Tests.ps1
+
+  # ST-013: the whole loop on a real Windows VM, unattended. PostgreSQL (the image's own service), the
+  # backend in Development with the demo PSA and the scripted drafting provider (no model key, no cost), a
+  # development device, the capture service and the UI started as the demo starts them, and the driver
+  # taking one session from the pill's indicator report to the note on demo ticket #48213. Every step
+  # prints PASS or FAIL with what it waited for; docs/dev/e2e.md says what each one proves.
+  #
+  # Hosted only. This VM has a desktop but no input injection, so the session's frames come from mark
+  # moment over the pipe; real clicks are the laptop's input job's to inject. Only the text logs are
+  # uploaded: the driver checks the stored frames through the service's answers, never by their pixels.
+  #
+  # REPORT-ONLY until it has passed twice in a row on main: continue-on-error, and not in ci-ok's needs.
+  # Once it has, remove continue-on-error and add `e2e` to ci-ok's needs in the same pull request.
+  e2e:
+    name: End to end (Windows)
+    needs: changes
+    if: needs.changes.outputs.client == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.scripts == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: The runner already has an SDK that satisfies global.json
+        run: dotnet --version
+      # Windows PowerShell 5.1, what the laptop runs the same script with.
+      - name: The loop, end to end
+        shell: powershell
+        run: ./scripts/windows/e2e/run-e2e.ps1
+      # An allowlist of text, copied into a clean folder, as the laptop's jobs do: nothing reaches the
+      # upload unless it was copied there by name.
+      - name: Only text leaves the runner
+        id: outbox
+        if: always()
+        shell: powershell
+        run: |
+          $src = Join-Path $env:RUNNER_TEMP 'e2e'
+          $out = Join-Path $env:RUNNER_TEMP 'e2e-outbox'
+          Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+          $null = New-Item -ItemType Directory -Path $out -Force
+          if (Test-Path $src) {
+            foreach ($file in Get-ChildItem $src -File) {
+              if (@('.log', '.txt') -contains $file.Extension.ToLowerInvariant()) {
+                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $out $file.Name)
+              } else {
+                Write-Host "Left behind: $($file.Name)"
+              }
+            }
+          }
+      - name: Upload the log
+        if: always() && steps.outbox.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-log
+          path: ${{ runner.temp }}/e2e-outbox
+          if-no-files-found: warn
+          retention-days: 7
 
   workflows:
     name: Workflows are well-formed

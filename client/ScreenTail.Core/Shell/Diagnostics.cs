@@ -13,7 +13,7 @@ namespace ScreenTail.Core.Shell;
 /// ticket or an email, so a window title or a line of OCR reaching it would be the same leak as one in the
 /// audit log (INV-10).
 ///
-/// <b>The active window is named by its process, never by its title.</b> "Not capturing — outlook" is the
+/// <b>The active window is named by its process, never by its title.</b> "Not capturing: outlook" is the
 /// answer to the question; "Acme Dental — unpaid invoices — Outlook" is a customer's business in a
 /// support ticket. <see cref="ScreenTail.Core.Detection.ScopeDecision.Reason"/> is already written to that
 /// rule, which is why this takes it whole rather than rebuilding it.
@@ -68,6 +68,6 @@ public sealed record Diagnostics(
 
     /// <summary>What the panel says about capture, in one line a customer can read over a shoulder.</summary>
     public string Headline => Suppression is { } why
-        ? $"Paused — {why}"
+        ? $"Paused: {why}"
         : Scope;
 }

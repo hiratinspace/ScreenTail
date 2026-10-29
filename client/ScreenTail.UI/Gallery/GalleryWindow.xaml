@@ -37,14 +37,31 @@
                 <StackPanel Style="{StaticResource Row}">
                     <Button Content="Publish" Style="{StaticResource Button.Primary}" />
                     <Button Margin="8,0,0,0" Content="Retry" Style="{StaticResource Button.Secondary}" />
-                    <Button Margin="8,0,0,0" Content="Discard" Style="{StaticResource Button.Ghost}" />
+                    <Button Margin="8,0,0,0" Content="Discard" Style="{StaticResource Button.Subtle}" />
                     <Button Margin="8,0,0,0" Content="Delete everything" Style="{StaticResource Button.Danger}" />
                     <Button Margin="8,0,0,0" Content="Publish" IsEnabled="False" Style="{StaticResource Button.Primary}" ToolTip="Choose a ticket first" />
+                    <Button Margin="8,0,0,0" Content="Retry" IsEnabled="False" Style="{StaticResource Button.Secondary}" />
+                    <Button Margin="16,0,0,0" Content="frame 2" Style="{StaticResource Chip}" />
+                </StackPanel>
+
+                <TextBlock Text="Choices" />
+                <StackPanel Style="{StaticResource Row}">
+                    <CheckBox Content="Ticket note" IsChecked="True" />
+                    <CheckBox Margin="16,0,0,0" Content="KB article" IsChecked="False" />
+                    <CheckBox Margin="16,0,0,0" Content="Set by your admin" IsChecked="True" IsEnabled="False" />
+                    <RadioButton Margin="24,0,0,0" Content="Internal" GroupName="GalleryNoteType" IsChecked="True" />
+                    <RadioButton Margin="16,0,0,0" Content="Discussion" GroupName="GalleryNoteType" />
+                    <ComboBox Margin="24,0,0,0" Width="160" SelectedIndex="1">
+                        <ComboBoxItem Content="Low" />
+                        <ComboBoxItem Content="Medium" />
+                        <ComboBoxItem Content="High" />
+                    </ComboBox>
+                    <Slider Margin="24,0,0,0" Width="180" Minimum="1" Maximum="30" Value="14" />
                 </StackPanel>
 
                 <TextBlock Text="Input and search" />
                 <StackPanel Style="{StaticResource Row}">
-                    <TextBox Width="280" Style="{StaticResource Input.Default}" Text="#48213 · Printer offline — Acme Dental" />
+                    <TextBox Width="280" Style="{StaticResource Input.Default}" Text="#48213 · Printer offline · Acme Dental" />
                     <StackPanel Margin="12,0,0,0">
                         <TextBox Width="280" Style="{StaticResource Input.Error}" Text="Ctrl+Alt+M" />
                         <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" Text="Ctrl+Alt+M is already used by Microsoft Teams. Try Ctrl+Alt+K." />
@@ -73,7 +90,7 @@
                     <Ellipse Margin="16,0,6,0" Fill="{DynamicResource Brush.state.paused}" Style="{StaticResource StateDot}" />
                     <TextBlock Style="{StaticResource Text.Body}" Text="Paused: sensitive field" VerticalAlignment="Center" />
                     <Ellipse Margin="16,0,6,0" Fill="{DynamicResource Brush.state.scope}" Style="{StaticResource StateDot}" />
-                    <TextBlock Style="{StaticResource Text.Body}" Text="Not capturing — Outlook" VerticalAlignment="Center" />
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Not capturing: Outlook" VerticalAlignment="Center" />
                     <Ellipse Margin="16,0,6,0" Fill="{DynamicResource Brush.state.offline}" Style="{StaticResource StateDot}" />
                     <TextBlock Style="{StaticResource Text.Body}" Text="Offline" VerticalAlignment="Center" />
                 </StackPanel>
@@ -81,10 +98,13 @@
                 <TextBlock Text="Banners" />
                 <StackPanel Margin="0,6,0,14">
                     <Border Style="{StaticResource Banner.Info}">
-                        <TextBlock Style="{StaticResource Text.Body}" Text="Drafted on this device only — quality may be lower." />
+                        <TextBlock Style="{StaticResource Text.Body}" Text="Drafted on this device only. Quality may be lower." />
                     </Border>
                     <Border Margin="0,8,0,0" Style="{StaticResource Banner.Warning}">
                         <TextBlock Style="{StaticResource Text.Body}" Text="Capture started late or was interrupted. Some steps may be missing." />
+                    </Border>
+                    <Border Margin="0,8,0,0" Style="{StaticResource Banner.Error}">
+                        <TextBlock Style="{StaticResource Text.Body}" Text="ConnectWise rejected the request: clientId header missing. Add your clientId in Settings, under Integrations." />
                     </Border>
                 </StackPanel>
 
@@ -92,7 +112,7 @@
                 <StackPanel Style="{StaticResource Row}">
                     <Border Style="{StaticResource Toast}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Style="{StaticResource Text.Body}" Text="Draft ready — Printer offline · Acme Dental" VerticalAlignment="Center" />
+                            <TextBlock Style="{StaticResource Text.Body}" Text="Draft ready: Printer offline · Acme Dental" VerticalAlignment="Center" />
                             <Button Margin="12,0,0,0" Content="Review" Style="{StaticResource Button.Secondary}" />
                         </StackPanel>
                     </Border>

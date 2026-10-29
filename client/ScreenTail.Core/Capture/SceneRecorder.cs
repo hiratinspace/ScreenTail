@@ -1,4 +1,5 @@
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -22,11 +23,13 @@ public sealed class SceneRecorder(
     SessionMachine machine,
     IScreenshotCapturer capturer,
     Func<ScopeDecision?> currentScope,
-    SceneSampler? sampler = null)
+    SceneSampler? sampler = null,
+    CaptureThrottle? throttle = null)
 {
     private readonly SceneSampler _sampler = sampler ?? new SceneSampler();
     private int _resetRequested;
     private bool _recording;
+    private int _ticksSinceLook;
 
     /// <summary>How often the screen is looked at, among the rest of the technician's sensitivity.</summary>
     public SceneSamplerOptions Options => _sampler.Options;
@@ -71,6 +74,18 @@ public sealed class SceneRecorder(
         }
 
         _recording = true;
+
+        // ST-031: over the processor budget, the screen is looked at on one tick in two, then one in four,
+        // and at the deepest level not at all, so OCR reads only what a click or a marked moment asked
+        // for. The first thing to give, and the cheapest to give safely: a look skipped is a picture never
+        // taken, so nothing about how a taken frame is redacted changes (INV-1). After the state check,
+        // so a skipped tick still sees a session end and forgets the baseline.
+        if (throttle is not null && (!throttle.LooksAtScenes || ++_ticksSinceLook < throttle.SampleEveryNth))
+        {
+            return;
+        }
+
+        _ticksSinceLook = 0;
         if (FrameGate.WindowFor(currentScope()) is not { } window)
         {
             return;
