@@ -382,6 +382,8 @@ jobs:
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
       - name: Check every signature (an unsigned build passes with a notice)
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
+      - name: Write the update manifests (signs nothing here)
+        run: ./installer/update-manifest.ps1 -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Build an older package from the same payload, for the upgrade check
         run: ./installer/package.ps1 -Step Msi -Version "0.0.${{ github.run_number }}" -MsiName ScreenTail-older.msi
       - name: Smoke test (silent install, upgrade, uninstall, setup program)
@@ -506,6 +508,17 @@ jobs:
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
+      # ST-113: the pilot and stable manifests for the signed MSI, signed by the Key Vault key through this
+      # job's OIDC token and checked against the client's compiled-in keys before they are written.
+      # Skipped with a notice until SCREENTAIL_UPDATE_KEY and SCREENTAIL_UPDATE_BASE are set on the
+      # signing environment. Publishing them is the owner's step (docs/dev/installer.md, "Updates").
+      - name: Write and sign the update manifests
+        env:
+          SCREENTAIL_UPDATE_KEY: ${{ vars.SCREENTAIL_UPDATE_KEY }}
+          SCREENTAIL_UPDATE_BASE: ${{ vars.SCREENTAIL_UPDATE_BASE }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        run: ./installer/update-manifest.ps1 -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Upload the signed installer
         id: signed
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -516,6 +529,15 @@ jobs:
             artifacts/installer/packages/ScreenTail-Setup.exe
           retention-days: 7
           if-no-files-found: error
+      # Kept longer than the installer, because the stable manifest is published when the owner promotes
+      # a pilot release, which can be weeks later. Nothing to upload until update signing is configured.
+      - name: Upload the signed update manifests
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: screentail-update-manifests
+          path: artifacts/installer/manifests
+          retention-days: 90
+          if-no-files-found: ignore
 
   # The signed build, installed and uninstalled the same way as the unsigned one, now with the peer
   # checks taking the signed path. A job of its own with no token to ask for, because the smoke test is

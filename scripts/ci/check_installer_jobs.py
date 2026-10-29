@@ -70,8 +70,8 @@ BUILD, SIGN, CHECK = 'installer', 'installer-sign', 'installer-signed-check'
 HOSTED = 'windows-latest'
 ENVIRONMENT = 'signing'
 CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTAIL_SIGNING == 'true'"
-SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING')
-SIGNING_VARS = re.compile(r'\bvars\.(AZURE_\w+|SCREENTAIL_SIGNING_\w+)', re.IGNORECASE)
+SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING', 'SCREENTAIL_UPDATE')
+SIGNING_VARS = re.compile(r'\bvars\.(AZURE_\w+|SCREENTAIL_SIGNING_\w+|SCREENTAIL_UPDATE_\w+)', re.IGNORECASE)
 
 CHECKOUT = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
 UPLOAD = 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9'
@@ -83,7 +83,7 @@ INPUTS = {
     DOWNLOAD: {'artifact-ids', 'path'},
     UPLOAD: {'name', 'path', 'retention-days', 'if-no-files-found'},
 }
-PAYLOAD_ARTIFACT, SIGNED_ARTIFACT = 'screentail-installer-payload', 'screentail-installer'
+PAYLOAD_ARTIFACT, SIGNED_ARTIFACT, MANIFEST_ARTIFACT = 'screentail-installer-payload', 'screentail-installer', 'screentail-update-manifests'
 BUILD_OUTPUTS = {
     'payload-artifact-id': expr('steps.payload.outputs.artifact-id'),
     'payload-artifact-digest': expr('steps.payload.outputs.artifact-digest'),
@@ -117,6 +117,14 @@ PAYLOAD = 'artifacts/installer/payload'
 MSI = 'artifacts/installer/packages/ScreenTail.msi'
 ENGINE = 'artifacts/installer/work/engine.exe'
 SETUP = 'artifacts/installer/packages/ScreenTail-Setup.exe'
+# ST-113: the update manifests, signed in this job by the Key Vault key, after every signature checks.
+MANIFESTS = 'artifacts/installer/manifests'
+UPDATE_SETTINGS = {
+    'SCREENTAIL_UPDATE_KEY': expr('vars.SCREENTAIL_UPDATE_KEY'),
+    'SCREENTAIL_UPDATE_BASE': expr('vars.SCREENTAIL_UPDATE_BASE'),
+    'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
+    'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
+}
 
 # installer-sign, step by step. ('uses', action, inputs) or ('run', command, env); an optional fourth
 # item is the step's id, the only place a step may have one.
@@ -133,7 +141,9 @@ SEQUENCE = [
     ('run', './installer/package.ps1 -Step Reattach -Version ' + VERSION, None),
     ('run', './installer/sign.ps1 -Path ' + SETUP, SIGN_SETTINGS),
     ('run', './installer/sign.ps1 -Verify -Folder ' + PAYLOAD + ' -Path ' + ','.join([MSI, ENGINE, SETUP]), VERIFY_SETTINGS),
+    ('run', './installer/update-manifest.ps1 -Msi ' + MSI + ' -Version ' + VERSION + ' -Out ' + MANIFESTS, UPDATE_SETTINGS),
     ('uses', UPLOAD, {'name': SIGNED_ARTIFACT, 'path': MSI + '\n' + SETUP + '\n', 'retention-days': 7, 'if-no-files-found': 'error'}, 'signed'),
+    ('uses', UPLOAD, {'name': MANIFEST_ARTIFACT, 'path': MANIFESTS, 'retention-days': 90, 'if-no-files-found': 'ignore'}),
 ]
 SIGN_JOB_KEYS = {'name', 'needs', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'outputs', 'defaults', 'steps'}
 MANIFEST_WRITE = './installer/manifest.ps1 -Write -Folder ' + PAYLOAD
@@ -142,7 +152,7 @@ USES_STEP_KEYS = {'name', 'uses', 'with'}
 UNSAFE = (';', '|', '&', '`', '$(', '\n', '\r')
 
 # What the scripts the signing job runs must do, and must never do.
-SCRIPTS = ('installer/package.ps1', 'installer/sign.ps1', 'installer/tools.ps1', 'installer/manifest.ps1')
+SCRIPTS = ('installer/package.ps1', 'installer/sign.ps1', 'installer/tools.ps1', 'installer/manifest.ps1', 'installer/update-manifest.ps1')
 MUST_CONTAIN = {
     'installer/tools.ps1': [
         "Get-FileHash -Algorithm SHA256 -Path $package",
@@ -159,6 +169,18 @@ MUST_CONTAIN = {
     'installer/sign.ps1': [
         "Get-PinnedPackage 'Microsoft.ArtifactSigning.Client'",
         "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    ],
+    # ST-113: the update manifests. The OIDC settings leave the environment first, every signature is
+    # checked against the client's own trust file before anything is written, the package must be on
+    # one of its hosts, and the key must be a versioned Key Vault key.
+    'installer/update-manifest.ps1': [
+        "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        "$TrustFile = Join-Path $PSScriptRoot '..\\shared\\release\\update-trust.json'",
+        "if (Test-Signature $signedBytes $signature $key.spki) {",
+        "throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
+        "if (@($trust.packageHosts) -notcontains $packageHost) {",
+        "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
+        "return $ecdsa.VerifyData($SignedBytes, $Signature)",
     ],
     'installer/manifest.ps1': [
         "actions/artifacts/$id",
@@ -343,6 +365,8 @@ def check_handoff(jobs):
                 bad.append(f'job {name} uploads an artifact named {PAYLOAD_ARTIFACT}; only the payload step of {BUILD} may')
             if artifact == SIGNED_ARTIFACT and not (name == SIGN and step.get('id') == 'signed'):
                 bad.append(f'job {name} uploads an artifact named {SIGNED_ARTIFACT}; only {SIGN} may')
+            if artifact == MANIFEST_ARTIFACT and name != SIGN:
+                bad.append(f'job {name} uploads an artifact named {MANIFEST_ARTIFACT}; only {SIGN} may')
             if 'overwrite' in (step.get('with') or {}):
                 bad.append(f'job {name} replaces an artifact (overwrite)')
     sign = jobs.get(SIGN) or {}
@@ -627,6 +651,16 @@ SAMPLE_FILES = {
         "$response = Invoke-RestMethod -Uri \"$($TokenRequestUrl)&audience=api://AzureADTokenExchange\"",
         "& $signtool @arguments @toSign | Out-Host",
     ]),
+    'installer/update-manifest.ps1': "\n".join([
+        "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue",
+        "$TrustFile = Join-Path $PSScriptRoot '..\\shared\\release\\update-trust.json'",
+        "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
+        "        return $ecdsa.VerifyData($SignedBytes, $Signature)",
+        "if (@($trust.packageHosts) -notcontains $packageHost) {",
+        "$answer = Invoke-RestMethod -Method Post -Uri \"$($vaultKey)/sign?api-version=7.4\"",
+        "    if (Test-Signature $signedBytes $signature $key.spki) {",
+        "    throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
+    ]),
     'installer/tools.json': json.dumps({'packages': [
         {'id': 'wix', 'version': '5.0.2', 'sha256': 'a' * 64},
         {'id': 'WixToolset.Util.wixext', 'version': '5.0.2', 'sha256': 'b' * 64},
@@ -715,6 +749,21 @@ MUST_FAIL = {
     'the build script in the signing job': on_workflow(lambda w: sign_steps(w).insert(2, {'run': './installer/build.ps1 -Stage Payload'})),
     'a restore in the signing job': on_workflow(lambda w: sign_steps(w).insert(2, {'run': 'dotnet restore'})),
     'a step dropped from the signing job': on_workflow(lambda w: sign_steps(w).pop(7)),
+    # ST-113: the update manifests.
+    'the manifests signed before the signatures are checked': on_workflow(lambda w: sign_steps(w).insert(11, sign_steps(w).pop(12))),
+    'the manifest step dropped': on_workflow(lambda w: sign_steps(w).pop(12)),
+    'the manifest step with another flag': on_workflow(lambda w: sign_steps(w)[12].update(run=sign_steps(w)[12]['run'] + ' -MinimumVersion 9.9.9')),
+    'the manifest step without its key': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_KEY')),
+    'the manifest step with the code-signing settings': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTAIL_SIGNING_ENDPOINT='x')),
+    'the update key read by a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr('vars.SCREENTAIL_UPDATE_KEY'))),
+    'the update key in a build step env': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(env={'SCREENTAIL_UPDATE_KEY': 'x'})),
+    'another job uploading the manifests name': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': MANIFEST_ARTIFACT, 'path': 'x'}})),
+    'the manifests uploaded from another folder': on_workflow(lambda w: sign_steps(w)[-1]['with'].update(path='artifacts')),
+    'no local check of the vault signature': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if (Test-Signature $signedBytes $signature $key.spki) {', 'if ($true) {')),
+    'no package host check': edit_file('installer/update-manifest.ps1', lambda t: t.replace('-notcontains $packageHost', '-contains $packageHost')),
+    'the manifest script keeps the token variables': edit_file('installer/update-manifest.ps1', lambda t: t.replace('Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL', 'Write-Host')),
+    'a process started by the manifest script': edit_file('installer/update-manifest.ps1', lambda t: t + '\nStart-Process cmd.exe'),
+    'the manifest script missing': lambda w, f: f.pop('installer/update-manifest.ps1'),
     # Environment.
     'a startup hook for the whole workflow': on_workflow(lambda w: w['env'].update(DOTNET_STARTUP_HOOKS='C:\\hook.dll')),
     'PATH for the whole workflow': on_workflow(lambda w: w['env'].update(PATH='C:\\evil')),
@@ -723,7 +772,7 @@ MUST_FAIL = {
     'a profiler for the signing job': on_workflow(lambda w: w['jobs'][SIGN].update(env={'COR_ENABLE_PROFILER': '1'})),
     'a NuGet folder on a package step': on_workflow(lambda w: first_build(w).update(env={'NUGET_PACKAGES': 'C:\\x'})),
     'a module path on a sign step': on_workflow(lambda w: first_sign(w)['env'].update(PSModulePath='C:\\x')),
-    'a CoreCLR profiler on the verify step': on_workflow(lambda w: sign_steps(w)[-2]['env'].update(CORECLR_PROFILER_PATH='C:\\x')),
+    'a CoreCLR profiler on the verify step': on_workflow(lambda w: sign_steps(w)[-4]['env'].update(CORECLR_PROFILER_PATH='C:\\x')),
     'a startup hook on the payload check': on_workflow(lambda w: handoff_check(w)['env'].update(DOTNET_STARTUP_HOOKS='C:\\x')),
     'signing settings on a package step': on_workflow(lambda w: first_build(w).update(env={'SCREENTAIL_SIGNING_ENDPOINT': 'x'})),
     'an extra variable on a sign step': on_workflow(lambda w: first_sign(w)['env'].update(PSModulePath='x')),
