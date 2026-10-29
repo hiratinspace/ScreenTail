@@ -364,8 +364,11 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
             throw new StepFailed($"The draft failed: {state.DraftFailureReason ?? "no reason given"}");
         }
 
-        return $"Draft ready after {clock.Elapsed.TotalSeconds:0} s: {state.DraftTitle}.";
+        _ready = state;
+        return $"Draft ready after {clock.Elapsed.TotalSeconds:0} s: {state.DraftTitle ?? "(no title in the state)"}.";
     }
+
+    private CaptureStateSnapshot? _ready;
 
     private async Task<string> StoredFramesAsync()
     {
@@ -437,7 +440,13 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
             throw new StepFailed($"The steps cite {cited.Count} frame(s), not all of them stored.");
         }
 
-        return Task.FromResult($"{draft.Steps.Count} step(s) citing {cited.Count} frame(s), source {draft.Source}, prompt {draft.PromptVersion}.");
+        // Spec section 6: the "Draft ready" notification names the draft, from the state the service sends.
+        if (_ready?.DraftTitle != draft.SuggestedTitle)
+        {
+            throw new StepFailed($"draft_ready carried the title '{_ready?.DraftTitle}' and the note's is '{draft.SuggestedTitle}', so the notification cannot name it.");
+        }
+
+        return Task.FromResult($"{draft.Steps.Count} step(s) citing {cited.Count} frame(s), source {draft.Source}, prompt {draft.PromptVersion}, title in draft_ready.");
     }
 
     private async Task<string> IntegrationsAsync()

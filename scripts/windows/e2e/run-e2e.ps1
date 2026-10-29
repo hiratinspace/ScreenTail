@@ -131,6 +131,9 @@ function Start-Logged {
         if ($Arguments.Count -gt 0) { $startArgs['ArgumentList'] = $Arguments }
         Start-Process @startArgs
     }
+    # Windows PowerShell 5.1 forgets a started process's exit code unless its handle was opened while it
+    # ran; touching it here is what makes ExitCode readable after the process stops.
+    $null = $process.Handle
     $script:Started = @($script:Started) + @([pscustomobject]@{ Role = $Role; Process = $process })
     return $process
 }
@@ -349,6 +352,7 @@ if (-not (Step 'setup' 'ui' 'the UI to start and stay up' {
     $script:ui = Invoke-WithEnvironment -Variables $uiEnvironment -Body {
         Start-Process -FilePath (Join-Path $AppDir 'ScreenTail.UI.exe') -WorkingDirectory $AppDir -PassThru
     }
+    $null = $script:ui.Handle
     $script:Started = @($script:Started) + @([pscustomobject]@{ Role = 'ui'; Process = $script:ui })
     Start-Sleep -Seconds 5
     if ($script:ui.HasExited) { throw "The UI exited with code $($script:ui.ExitCode)." }
