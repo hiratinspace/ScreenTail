@@ -35,6 +35,9 @@ internal sealed partial class BundlingDrafter(
 {
     public const string NoProviderReason = "No summarization provider is configured, so this session could not be drafted.";
 
+    /// <summary>What the store says about a session whose draft is in the outbox, on its way to the backend.</summary>
+    public const string QueuedReason = "The draft is queued and is sent to the backend shortly.";
+
     /// <summary>The last bundle's shape, for the diagnostics panel. Counts only, never content (INV-10).</summary>
     public BundleReport? Last { get; private set; }
 
@@ -87,14 +90,19 @@ internal sealed partial class BundlingDrafter(
             return DraftOutcome.Success(FallbackDraft.Build(session));
         }
 
-        if (outbox is not null)
+        if (outbox is null)
         {
-            _ = await outbox.EnqueueAsync(
-                new NewOutboxItem(sessionId, OutboxKind.Draft, $"draft:{sessionId}", "{}"),
-                ct).ConfigureAwait(false);
+            return DraftOutcome.Failure(NoProviderReason);
         }
 
-        return DraftOutcome.Failure(NoProviderReason);
+        _ = await outbox.EnqueueAsync(
+            new NewOutboxItem(sessionId, OutboxKind.Draft, $"draft:{sessionId}", "{}"),
+            ct).ConfigureAwait(false);
+
+        // Queued, which is not failed (ST-013). This used to answer NoProviderReason here, so every session
+        // on a device with a backend ended "draft failed: no summarization provider is configured" while its
+        // draft was on its way; the outbox settles it now, and the machine hears (DraftSettledAsync).
+        return DraftOutcome.Pending(QueuedReason);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Drafted {SessionId} on this device: no model reachable; {Frames} frames, {Segments} transcript segments")]

@@ -28,9 +28,18 @@ public sealed record DraftOutcome(DraftNote? Draft, string? Reason)
 {
     public bool Succeeded => Draft is not null;
 
+    /// <summary>
+    /// The draft was handed to the outbox for the backend and has not come back yet. Not a failure: the
+    /// outbox settles it later, and <see cref="SessionMachine.DraftSettledAsync"/> is how the machine hears.
+    /// </summary>
+    public bool Queued { get; init; }
+
     public static DraftOutcome Success(DraftNote draft) => new(draft, null);
 
     public static DraftOutcome Failure(string reason) => new(null, reason);
+
+    /// <summary>Queued for the backend (ST-013: this used to be reported as a failure).</summary>
+    public static DraftOutcome Pending(string reason) => new(null, reason) { Queued = true };
 }
 
 /// <summary>Until the capture tickets land: nothing to start, nothing to stop.</summary>

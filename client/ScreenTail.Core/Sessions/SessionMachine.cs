@@ -431,6 +431,51 @@ public sealed class SessionMachine : IAsyncDisposable
     }
 
     /// <summary>
+    /// The outbox has settled a queued draft for good (ST-013): the backend's note is in the store
+    /// (<paramref name="ready"/>), or it never will be, for <paramref name="reason"/>.
+    ///
+    /// Before this the outbox wrote the note to the store and nobody told the machine, so a session whose
+    /// draft went to the backend stayed on the state its queueing left behind, and "Draft ready" never
+    /// came. The session the machine last ran moves on to draft_ready or draft_failed when it is still
+    /// resting; a draft that lands while the next session records changes only the count, never the
+    /// session under way.
+    /// </summary>
+    /// <returns>Whether the machine's own state moved.</returns>
+    public async Task<bool> DraftSettledAsync(string sessionId, bool ready, string? reason, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!ready)
+            {
+                await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftFailed, reason, ct).ConfigureAwait(false);
+            }
+
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            var resting = State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed;
+            if (!resting)
+            {
+                return false;
+            }
+
+            if (string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
+            {
+                SetState(ready ? SessionState.DraftReady : SessionState.DraftFailed, ready ? null : reason ?? "The session could not be drafted.");
+                return true;
+            }
+
+            // Another session's draft: the count moved, and the tray shows it.
+            Announce(Snapshot);
+            return false;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
+    /// <summary>
     /// At service start: any session a crash left recording, paused, suppressed or finalizing is marked
     /// partial and taken through finalize, so its data is either drafted or cleaned up, never stranded.
     /// </summary>
@@ -796,6 +841,14 @@ public sealed class SessionMachine : IAsyncDisposable
             await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.DraftReady, null);
+        }
+        else if (outcome.Queued)
+        {
+            // On its way to the backend, which is not a failure (ST-013). Nothing is being captured, so
+            // the machine rests idle until the outbox settles it (DraftSettledAsync).
+            await _store.SetSessionStateAsync(sessionId, SessionStateNames.DraftPending, outcome.Reason, ct).ConfigureAwait(false);
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            SetState(SessionState.Idle, null);
         }
         else
         {

@@ -313,6 +313,88 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ADraftQueuedForTheBackendIsNotReportedAsFailed()
+    {
+        // ST-013's end-to-end run, on the first real loop: every session on a device with a backend ended
+        // in draft_failed, "No summarization provider is configured", while its draft sat in the outbox
+        // on its way to a backend that was configured and answering. The pill and the tray said the draft
+        // had failed after every session. Queued is not failed; nothing is being captured, so the machine
+        // rests idle, and the store says the draft is pending.
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+
+        await machine.StopAsync();
+
+        Assert.Equal(SessionState.Idle, machine.State);
+        Assert.Null(machine.Snapshot.DraftFailureReason);
+        Assert.Empty(await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+        Assert.Equal([id], await _store.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+        Assert.DoesNotContain(_observed, s => s.State == CaptureStates.DraftFailed);
+    }
+
+    [Fact]
+    public async Task AQueuedDraftThatLandsMakesTheSessionDraftReady()
+    {
+        // The other half: when the outbox delivers the note, the technician is told. Before, the sender
+        // wrote it to the store and nothing moved the machine, so "Draft ready" never came.
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        await machine.StopAsync();
+
+        // What DraftSender writes when the backend answers.
+        await _store!.SaveDraftAsync(id, Note("Printer offline in reception"));
+        await _store.SetSessionStateAsync(id, CaptureStates.DraftReady, null);
+        _observed.Clear();
+
+        Assert.True(await machine.DraftSettledAsync(id, ready: true, reason: null));
+
+        Assert.Equal(SessionState.DraftReady, machine.State);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.DraftReady, announced.State);
+        Assert.Equal(id, announced.SessionId);
+        Assert.Equal(1, announced.DraftsReady);
+    }
+
+    [Fact]
+    public async Task AQueuedDraftThatFailsForGoodIsDraftFailedWithItsReason()
+    {
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var id = machine.SessionId!;
+        await machine.StopAsync();
+
+        Assert.True(await machine.DraftSettledAsync(id, ready: false, reason: "The backend refused this session."));
+
+        Assert.Equal(SessionState.DraftFailed, machine.State);
+        Assert.Equal("The backend refused this session.", machine.Snapshot.DraftFailureReason);
+        Assert.Equal([id], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+    }
+
+    [Fact]
+    public async Task ADraftThatLandsDuringTheNextSessionDoesNotInterruptIt()
+    {
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        var first = machine.SessionId!;
+        await machine.StopAsync();
+        await machine.StartAsync(ScreenConnect);
+        await _store!.SaveDraftAsync(first, Note("Printer offline in reception"));
+        await _store.SetSessionStateAsync(first, CaptureStates.DraftReady, null);
+
+        Assert.False(await machine.DraftSettledAsync(first, ready: true, reason: null));
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.NotEqual(first, machine.SessionId);
+        Assert.Equal(1, machine.Snapshot.DraftsReady);
+    }
+
+    [Fact]
     public async Task DrafterExceptionBecomesDraftFailed()
     {
         _drafter.Throw = true;
@@ -942,6 +1024,20 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     private static StagedFrame Frame(string id, long tsMs) => new(id, tsMs, FrameTrigger.Click, 100, 100, null, new byte[] { 0xAA });
+
+    private static DraftNote Note(string title) => new()
+    {
+        Problem = "p",
+        Steps = [],
+        Result = "r",
+        FollowUps = [],
+        SuggestedTitle = title,
+        SuggestedTimeMinutes = 15,
+        KbCandidate = false,
+        KbReason = "n",
+        Source = DraftSource.Cloud,
+        PromptVersion = "note_v1",
+    };
 
     private static TranscriptSegment Said(string id, long tsMs, string text) =>
         new() { Id = id, TsMs = tsMs, EndMs = tsMs + 100, Speaker = Speaker.Tech, Text = text };

@@ -67,6 +67,17 @@ public sealed class Outbox(
     public Func<OutboxItem, CancellationToken, Task<string?>>? Confirm { get; init; }
 
     /// <summary>
+    /// Told once an item is settled for good, Done or Failed, with the item as stored (ST-013). A retry
+    /// is not settled and says nothing.
+    ///
+    /// The host tells the session machine through this, so a draft that came back from the backend
+    /// reaches the state the technician sees. Before it existed the note reached the store and the pill
+    /// went on saying the draft had failed. A listener that throws is this item's listener's problem and
+    /// never the queue's: the item is already stored as settled.
+    /// </summary>
+    public Func<OutboxItem, CancellationToken, Task>? Settled { get; set; }
+
+    /// <summary>
     /// Queues work, unless the same work is already queued.
     ///
     /// <returns>False when the idempotency key is already there, which is not a failure.</returns>
@@ -220,17 +231,33 @@ public sealed class Outbox(
             state = OutboxState.Failed;
         }
 
-        await store.UpdateAsync(
-            item with
+        var stored = item with
+        {
+            State = state,
+            Attempts = attempts,
+            LastAttemptAt = now,
+            LastError = outcome.Message ?? item.LastError,
+            RemoteId = outcome.RemoteId ?? item.RemoteId,
+            DueAt = state == OutboxState.Pending ? now + Wait(attempts, outcome.RetryAfter) : item.DueAt,
+        };
+        await store.UpdateAsync(stored, ct).ConfigureAwait(false);
+
+        if (state is OutboxState.Done or OutboxState.Failed && Settled is { } settled)
+        {
+            try
             {
-                State = state,
-                Attempts = attempts,
-                LastAttemptAt = now,
-                LastError = outcome.Message ?? item.LastError,
-                RemoteId = outcome.RemoteId ?? item.RemoteId,
-                DueAt = state == OutboxState.Pending ? now + Wait(attempts, outcome.RetryAfter) : item.DueAt,
-            },
-            ct).ConfigureAwait(false);
+                await settled(stored, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // The item is settled and stored; whoever was listening must not stop the queue.
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+            }
+        }
 
         return true;
     }
