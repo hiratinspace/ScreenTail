@@ -455,6 +455,141 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         Assert.False(guard.Holding);
     }
 
+    [Fact]
+    public async Task ASessionSuppressedForWantOfThePillStaysSuppressedWhileThePillIsAway()
+    {
+        // Suppressed is still a session under way. Read as between sessions, the zero-size report would
+        // count again, lift the hold, and the next pass would take it again: capture flapping on and off
+        // every tick with no pill on screen (2026-10-29 review).
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        reports.Report(ui, 0, 0);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        await guard.TickAsync(ct);
+        clock.Advance(Grace);
+        reports.Report(ui, 0, 0);
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        for (var i = 0; i < 12; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(500));
+            if (i % 4 == 0)
+            {
+                reports.Report(ui, 0, 0);
+            }
+
+            await guard.TickAsync(ct);
+            Assert.Equal(SessionState.Suppressed, machine.State);
+            Assert.Equal(1, guard.Holds);
+        }
+    }
+
+    [Fact]
+    public async Task APausedSessionWithThePillAwayResumesSuppressed()
+    {
+        // Paused is a session under way too. The hold is taken during the pause, so Resume goes straight
+        // to Suppressed and never records a moment with no pill on screen.
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        reports.Report(ui, 0, 0);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        Assert.True(await machine.PauseAsync(ct));
+
+        for (var elapsed = TimeSpan.Zero; elapsed <= Grace + ReportEvery; elapsed += ReportEvery)
+        {
+            reports.Report(ui, 0, 0);
+            await guard.TickAsync(ct);
+            clock.Advance(ReportEvery);
+        }
+
+        Assert.True(guard.Holding);
+        reports.Report(ui, 0, 0);
+        await guard.TickAsync(ct);
+        Assert.True(await machine.ResumeAsync(ct));
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.False(await machine.TryStageFrameAsync(Frame("f-paused-no-pill"), ct));
+    }
+
+    [Fact]
+    public async Task APillPutAwayAfterTheUiWentQuietStillCountsFromTheStart()
+    {
+        // The pill was up at the start, then the UI went away and came back saying the pill is away. The
+        // guard first noticed when the reports stopped, but the pill has not been proved on screen since
+        // the start either way, and the earlier of the two times is the one that counts.
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        reports.Report(ui, PillWidth, PillHeight);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        clock.Advance(TimeSpan.FromMilliseconds(500));
+        await guard.TickAsync(ct);
+
+        reports.Forget(ui);
+        clock.Advance(TimeSpan.FromMilliseconds(500));
+        await guard.TickAsync(ct);
+        reports.Report(Guid.NewGuid(), 0, 0);
+        clock.Advance(Grace - TimeSpan.FromSeconds(1) - TimeSpan.FromMilliseconds(100));
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        // The grace from the start is over; from the first look it would not be for another second.
+        clock.Advance(TimeSpan.FromMilliseconds(100));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+    }
+
+    [Fact]
+    public async Task ANewSessionDoesNotInheritTheLastOnesMissingPill()
+    {
+        // The last session lost its pill a moment before it was stopped, and the next one started on the
+        // pill put away, all between two passes. The new session gets its own grace from its own start:
+        // carrying the old time over would suppress it on its first pass.
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        reports.Report(ui, PillWidth, PillHeight);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        await guard.TickAsync(ct);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        reports.Forget(ui);
+        await guard.TickAsync(ct);
+
+        clock.Advance(Grace - TimeSpan.FromSeconds(1));
+        Assert.True(await machine.StopAsync(ct));
+        reports.Report(ui, 0, 0);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        clock.Advance(TimeSpan.FromSeconds(1) + TimeSpan.FromMilliseconds(500));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.Equal(0, guard.Holds);
+
+        // Its own grace still ends it.
+        clock.Advance(Grace);
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Suppressed, machine.State);
+    }
+
     /// <summary>
     /// Waits for the loop to reach a state, failing fast if the loop ends first, which is what the
     /// fail-open looks like from outside: RunAsync completes while the session is still Recording.
