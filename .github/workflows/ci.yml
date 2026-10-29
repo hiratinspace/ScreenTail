@@ -769,6 +769,64 @@ jobs:
         shell: powershell
         run: ./scripts/windows/check-skips.Tests.ps1
 
+  # ST-013: the whole loop on a real Windows VM, unattended. PostgreSQL (the image's own service), the
+  # backend in Development with the demo PSA and the scripted drafting provider (no model key, no cost), a
+  # development device, the capture service and the UI started as the demo starts them, and the driver
+  # taking one session from the pill's indicator report to the note on demo ticket #48213. Every step
+  # prints PASS or FAIL with what it waited for; docs/dev/e2e.md says what each one proves.
+  #
+  # Hosted only. This VM has a desktop but no input injection, so the session's frames come from mark
+  # moment over the pipe; real clicks are the laptop's input job's to inject. Only the text logs are
+  # uploaded: the driver checks the stored frames through the service's answers, never by their pixels.
+  #
+  # REPORT-ONLY until it has passed twice in a row on main: continue-on-error, and not in ci-ok's needs.
+  # Once it has, remove continue-on-error and add `e2e` to ci-ok's needs in the same pull request.
+  e2e:
+    name: End to end (Windows)
+    needs: changes
+    if: needs.changes.outputs.client == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.scripts == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: The runner already has an SDK that satisfies global.json
+        run: dotnet --version
+      # Windows PowerShell 5.1, what the laptop runs the same script with.
+      - name: The loop, end to end
+        shell: powershell
+        run: ./scripts/windows/e2e/run-e2e.ps1
+      # An allowlist of text, copied into a clean folder, as the laptop's jobs do: nothing reaches the
+      # upload unless it was copied there by name.
+      - name: Only text leaves the runner
+        id: outbox
+        if: always()
+        shell: powershell
+        run: |
+          $src = Join-Path $env:RUNNER_TEMP 'e2e'
+          $out = Join-Path $env:RUNNER_TEMP 'e2e-outbox'
+          Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+          $null = New-Item -ItemType Directory -Path $out -Force
+          if (Test-Path $src) {
+            foreach ($file in Get-ChildItem $src -File) {
+              if (@('.log', '.txt') -contains $file.Extension.ToLowerInvariant()) {
+                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $out $file.Name)
+              } else {
+                Write-Host "Left behind: $($file.Name)"
+              }
+            }
+          }
+      - name: Upload the log
+        if: always() && steps.outbox.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-log
+          path: ${{ runner.temp }}/e2e-outbox
+          if-no-files-found: warn
+          retention-days: 7
+
   workflows:
     name: Workflows are well-formed
     runs-on: ubuntu-latest
