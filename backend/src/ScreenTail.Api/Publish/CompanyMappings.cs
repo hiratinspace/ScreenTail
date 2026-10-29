@@ -30,6 +30,18 @@ public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimePro
     public Task<List<CompanyMapping>> ListAsync(CancellationToken ct = default) =>
         Mine.AsNoTracking().OrderBy(m => m.PsaCompany).ToListAsync(ct);
 
+    /// <summary>
+    /// Now, to the whole microsecond. Postgres keeps timestamptz to the microsecond and .NET to the 100 ns
+    /// tick, so a row stamped with the extra ticks is stored as a different instant from the one in hand,
+    /// and <see cref="ForgetIfUnchangedAsync"/> given the row RememberAsync returned (the company-gone
+    /// path does exactly that) would never match it. Held here, the row in hand is the row stored.
+    /// </summary>
+    private DateTimeOffset Stamp()
+    {
+        var now = time.GetUtcNow();
+        return now.AddTicks(-(now.Ticks % 10));
+    }
+
     public async Task<CompanyMapping> RememberAsync(string psaCompany, CompanyRef company, string confidence, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(company);
@@ -37,7 +49,7 @@ public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimePro
         var row = await Mine.SingleOrDefaultAsync(m => m.PsaCompany == name, ct).ConfigureAwait(false);
         if (row is null)
         {
-            row = new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = name, DocCompanyId = company.Id, DocCompanyName = company.Name, Confidence = confidence, CreatedAt = time.GetUtcNow() };
+            row = new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = name, DocCompanyId = company.Id, DocCompanyName = company.Name, Confidence = confidence, CreatedAt = Stamp() };
             db.CompanyMappings.Add(row);
         }
         else
@@ -45,7 +57,7 @@ public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimePro
             row.DocCompanyId = company.Id;
             row.DocCompanyName = company.Name;
             row.Confidence = confidence;
-            row.CreatedAt = time.GetUtcNow();
+            row.CreatedAt = Stamp();
         }
 
         _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);

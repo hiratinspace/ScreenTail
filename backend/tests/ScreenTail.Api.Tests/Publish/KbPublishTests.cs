@@ -507,6 +507,39 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal(listed, hudu.Requests.Count(IsCompanyList));
     }
 
+    [Fact]
+    public async Task AMappingIsStampedInWholeMicrosecondsSoTheRowJustWrittenCanStillBeForgotten()
+    {
+        // The company-gone path forgets the row RememberAsync handed back, which was never read from the
+        // database. Postgres keeps timestamptz to the microsecond and .NET to the 100 ns tick, so a time
+        // with sub-microsecond ticks would be stored as one instant and compared as another, and the
+        // forget would never match. The time is held to whole microseconds where it is written, so the
+        // row in hand is the row stored. SQLite (these tests) keeps every tick, which is why the stamp is
+        // asserted directly rather than only through the forget.
+        var (tenantId, _, _) = await SeedAsync();
+        var clock = new FixedTime(new DateTimeOffset(2026, 10, 29, 9, 0, 0, TimeSpan.Zero).AddTicks(1_234_567));
+        var written = await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("7", "Acme Dental"), "exact"));
+
+        Assert.Equal(0, written.CreatedAt.Ticks % 10);
+        Assert.Equal(clock.GetUtcNow().AddTicks(-7), written.CreatedAt);
+
+        // Confirmed again in between, at a later instant: the row in hand is out of date and stays put.
+        clock.Now = clock.Now.AddTicks(25);
+        var again = await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("7", "Acme Dental"), "exact"));
+        Assert.False(await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).ForgetIfUnchangedAsync(written)));
+
+        // The row in hand from the latest write is the row stored, and goes.
+        Assert.True(await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).ForgetIfUnchangedAsync(again)));
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
     [Theory]
     [InlineData("manual")]
     [InlineData("exact")]
