@@ -641,7 +641,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                 "UPDATE sessions SET state = @failed, state_reason = @reason, state_changed_at = @now WHERE id = @id AND state = @pending",
                 ct,
                 ("@failed", Shared.Ipc.CaptureStates.DraftFailed),
-                ("@reason", "The session's screenshots and transcript were removed by retention before it could be drafted."),
+                ("@reason", Sessions.SessionMachine.PurgedBeforeDraftedReason),
                 ("@now", now),
                 ("@id", sessionId),
                 ("@pending", Sessions.SessionStateNames.DraftPending)).ConfigureAwait(false);

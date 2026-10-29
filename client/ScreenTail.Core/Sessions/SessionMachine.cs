@@ -488,6 +488,37 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
+    /// <summary>What a session failed by retention says, in the pill and in Review.</summary>
+    public const string PurgedBeforeDraftedReason = "The session's screenshots and transcript were removed by retention before it could be drafted.";
+
+    /// <summary>
+    /// Retention removed this session's raw data (ST-013). A purge takes a queued draft's outbox work with
+    /// it and the store fails the session, so when the machine is resting on it in draft_pending it moves
+    /// to draft_failed with the reason; the pill would otherwise go on saying the note is being drafted.
+    /// Any other session, or any other state, is left alone.
+    /// </summary>
+    /// <returns>Whether the machine's own state moved.</returns>
+    public async Task<bool> RawDataPurgedAsync(string sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (State != SessionState.DraftPending || !string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            SetState(SessionState.DraftFailed, PurgedBeforeDraftedReason);
+            return true;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
     /// <summary>
     /// At service start: any session a crash left recording, paused, suppressed or finalizing is marked
     /// partial and taken through finalize, so its data is either drafted or cleaned up, never stranded.

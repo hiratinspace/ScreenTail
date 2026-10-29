@@ -541,6 +541,46 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RetentionOnTheSessionTheMachineRestsOnMovesThePillOffDraftingTheNote()
+    {
+        // Coordinator's re-review: the store failed a purged pending session and the machine, resting on
+        // it in draft_pending, went on telling the pill "drafting the note" about a draft nothing would
+        // ever deliver. Retention tells the machine what it purged.
+        var id = await QueuedSessionAsync();
+        var later = new HeldClock(DateTimeOffset.UtcNow + TimeSpan.FromDays(30));
+        var job = new RetentionJob(_store!, later, new RetentionOptions(), () => RetentionJob.SessionBeingRecorded(_machine!.Snapshot), _machine!.RawDataPurgedAsync);
+        _observed.Clear();
+
+        Assert.Equal(1, await job.RunAsync());
+
+        Assert.Equal(SessionState.DraftFailed, _machine.State);
+        Assert.Equal(id, _machine.Snapshot.SessionId);
+        Assert.Contains("retention", _machine.Snapshot.DraftFailureReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(CaptureStates.DraftFailed, Assert.Single(_observed).State);
+    }
+
+    [Fact]
+    public async Task APurgeOfAnotherSessionLeavesTheMachineAlone()
+    {
+        var first = await QueuedSessionAsync();
+        var second = await QueuedSessionAsync();
+        _ = await _store!.PurgeRawDataAsync(first);
+
+        Assert.False(await _machine!.RawDataPurgedAsync(first, CancellationToken.None));
+
+        Assert.Equal(SessionState.DraftPending, _machine.State);
+        Assert.Equal(second, _machine.Snapshot.SessionId);
+    }
+
+    [Fact]
+    public void TheHostTellsTheMachineWhatRetentionPurged()
+    {
+        var host = File.ReadAllText(Path.Combine(Repository(), "client", "ScreenTail.Service", "Host", "CaptureHost.cs"));
+
+        Assert.Contains("machine.RawDataPurgedAsync)", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TheHostsOutboxListenerPassesADraftsSettlingToTheMachineAndNothingElse()
     {
         // CaptureHost wires the outbox to the machine with DraftSettling.Listener and nothing more, so the
