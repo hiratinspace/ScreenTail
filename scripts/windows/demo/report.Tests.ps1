@@ -44,6 +44,12 @@ $unhandledMessage = 'Window Salary Review was closed'
 $computer = 'HOST' + (New-Random 6).ToUpperInvariant()
 $devcertMarker = 'DEVCERT-' + [guid]::NewGuid().ToString('N')
 $binaryMarker = 'BINARY-' + [guid]::NewGuid().ToString('N')
+$startMarker = 'LEDGER-' + [guid]::NewGuid().ToString('N')
+$strayMarker = 'STRAY-' + [guid]::NewGuid().ToString('N')
+$olderMarker = 'OLDER-' + [guid]::NewGuid().ToString('N')
+# The e2e secret's parts with separators between them, as an OCR or a person might write it.
+$e2eDigits = '{0:0000}' -f (Get-Random -Maximum 10000)
+$e2eSeparated = $script:E2eSecretFirstWords[0] + ' ' + $e2eDigits + ' ' + $script:E2eSecretSecondWords[0]
 $startedAt = (Get-Date).AddMinutes(-3)
 $startedText = $startedAt.ToString('yyyy-MM-dd HH:mm:ss', $invariant)
 
@@ -79,7 +85,10 @@ function New-RunFolder([string]$Name) {
         "12:00:04.000 INFO  ScreenTail.Service.Auth: signed in $email",
         "12:00:05.000 INFO  ScreenTail.Service.Store: data in $userPath",
         "12:00:06.000 WARN  ScreenTail.Service.Redaction: a value like $e2eSecret",
+        "12:00:06.100 WARN  ScreenTail.Service.Redaction: typed $e2eSeparated end",
+        '12:00:06.200 INFO  ScreenTail.Service.Probe: unscrambled tumbleweed Juniper Networks',
         $windowTitle,
+        "[start.ps1] Payroll $startMarker",
         '12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file',
         "    System.IO.IOException: $exceptionMessage",
         '    at ScreenTail.Service.Store.Open()',
@@ -90,6 +99,9 @@ function New-RunFolder([string]$Name) {
     [System.IO.File]::WriteAllBytes((Join-Path $dir 'service.err.log'), [byte[]](@($bytes) + @([byte]0) + @($bytes)))
     # Not a log: never read.
     Write-Lines (Join-Path $dir 'devcert.cer') @("-----BEGIN CERTIFICATE-----", $devcertMarker, "-----END CERTIFICATE-----")
+    # Logs the runner does not write: never read, only counted.
+    Write-Lines (Join-Path $dir 'other.log') @("12:00:00.000 INFO  ScreenTail.Probe: $strayMarker")
+    Write-Lines (Join-Path $dir 'backend.1.log') @("12:00:00.000 INFO  ScreenTail.Probe: $olderMarker")
     # From an earlier run: the ui log is older than this run's start.
     $ui = Join-Path $dir 'ui.out.log'
     Write-Lines $ui @('12:00:09.000 INFO  ScreenTail.UI.App: ui line')
@@ -124,6 +136,7 @@ function Check([string]$Name, [bool]$Ok, [string]$Text) {
 function Has([string]$Text, [string]$Part) { return ($Text.IndexOf($Part, [StringComparison]::Ordinal) -ge 0) }
 function HasNot([string]$Text, [string]$Part) { return ($Text.IndexOf($Part, [StringComparison]::OrdinalIgnoreCase) -lt 0) }
 
+$link = $null
 try {
     # --- A run that failed --------------------------------------------------------------------------
     $folder = New-RunFolder 'failed-run'
@@ -149,7 +162,11 @@ try {
     Check 'an exception''s message is withheld, its type and frame kept' ((HasNot $t 'Board Minutes') -and (Has $t '    System.IO.IOException: [message withheld]') -and (Has $t 'at ScreenTail.Service.Store.Open()')) $t
     Check 'an unhandled exception keeps only its type' ((HasNot $t 'Salary Review') -and (Has $t 'Unhandled exception. System.InvalidOperationException [message and stack withheld]')) $t
     Check 'the computer name in e2e.log is not shown' (HasNot $t $computer) $t
-    Check 'a file that is not a .log is not read, only counted' ((HasNot $t $devcertMarker) -and (HasNot $t 'BEGIN CERTIFICATE') -and ($t -match 'Other files in the folder \(not read\) +1(\n|$)')) $t
+    Check 'a file that is not a .log is not read, only counted' ((HasNot $t $devcertMarker) -and (HasNot $t 'BEGIN CERTIFICATE') -and ($t -match 'Other files in the folder \(not read\) +3(\n|$)')) $t
+    Check 'a log the runner does not write (other.log, backend.1.log) is not read' ((HasNot $t $strayMarker) -and (HasNot $t $olderMarker)) $t
+    Check 'a raw [start.ps1] line from a process is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTail's logger withheld, $(('[start.ps1] Payroll ' + $startMarker).Length) chars]")) $t
+    Check 'the e2e secret with separators is removed, digits too' ((HasNot $t $e2eSeparated) -and (Has $t 'typed [e2e secret removed] end')) $t
+    Check 'words that only contain the secret''s words are kept' (Has $t 'ScreenTail.Service.Probe: unscrambled tumbleweed Juniper Networks') $t
     Check 'a log that is not text is not read' ((HasNot $t $binaryMarker) -and (Has $t 'service.err.log: not text, so not read')) $t
     Check 'the tail is as long as the demo logs''' ((Has $t 'backend.out.log: 250 lines') -and (Has $t "The last $($script:LogTail):") -and (Has $t 'backend line 0051') -and (HasNot $t 'backend line 0050')) $t
     Check 'an empty log says so' (Has $t 'backend.err.log: empty') $t
@@ -179,16 +196,45 @@ try {
     $t = $none.Text
     Check 'a missing filter shows nothing from the run' ((Has $t 'The log filter could not be checked') -and (HasNot $t 'Capture service started') -and (HasNot $t 'FAIL e2e')) $t
 
+    $other = 'function Get-NothingUseful { return 1 }'
+    $t = (Get-Section $folder -Source $other -Hash (Get-DemoLogWriterHash $other)).Text
+    Check 'a filter text that does not define ConvertTo-DemoLogLine is refused' ((Has $t 'The log filter could not be checked') -and (HasNot $t 'Capture service started')) $t
+
     $weak = 'function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) { return $Line }'
     $open = Get-Section $folder -Source $weak -Hash (Get-DemoLogWriterHash $weak)
     $t = $open.Text
     Check 'a filter that keeps everything is refused, even with its own hash' ((Has $t 'The log filter could not be checked') -and (HasNot $t 'Payroll') -and (HasNot $t 'Capture service started')) $t
+
+    # --- A junction for the folder is not followed --------------------------------------------------
+    $target = New-RunFolder 'junction-target'
+    $link = Join-Path $root 'junction-link'
+    & cmd.exe /c mklink /J "$link" "$target" | Out-Null
+    Check 'the junction for the test was made' (Test-Path -LiteralPath $link) $link
+    $t = (Get-Section $link).Text
+    Check 'a folder that is a junction is not followed' ((Has $t 'The folder is a link to another place, so nothing in it was read.') -and (HasNot $t 'Capture service started') -and (HasNot $t 'FAIL e2e')) $t
+
+    # --- A log that cannot be opened says so, with no exception message -----------------------------
+    $locked = Join-Path $root 'locked-run'
+    New-Item -ItemType Directory -Force -Path $locked | Out-Null
+    $lockedLog = Join-Path $locked 'service.out.log'
+    Write-Lines $lockedLog @('12:00:00.000 INFO  ScreenTail.Service.Program: locked line')
+    $hold = New-Object System.IO.FileStream($lockedLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+    try { $t = (Get-Section $locked).Text } finally { $hold.Dispose() }
+    Check 'a log that cannot be opened says so in a fixed sentence' ((Has $t 'service.out.log: could not be read') -and (HasNot $t 'locked line') -and (HasNot $t 'being used by another process') -and (HasNot $t 'could not be checked:')) $t
+
+    # --- A program's output read directly (the capability check) ------------------------------------
+    $output = "[start.ps1] Payroll $startMarker`r`nUnhandled exception. System.Exception: $unhandledMessage`n12:00:00.000 INFO  ScreenTail.Service.Program: capabilities checked"
+    $t = @(Select-ProgramOutputLines $output) -join "`n"
+    Check 'a program''s raw [start.ps1] line is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTail's logger withheld,")) $t
+    Check 'a program''s output keeps logger lines and an exception''s type only' ((Has $t 'capabilities checked') -and (HasNot $t 'Salary Review') -and (Has $t 'Unhandled exception. System.Exception [message and stack withheld]')) $t
 }
 catch {
     $script:bad++
     Write-Host "::error file=scripts/windows/demo/report.Tests.ps1::The cases stopped: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"
 }
 finally {
+    # The junction first, by rmdir, which removes the link and never what it points to.
+    if ($link -and (Test-Path -LiteralPath $link)) { & cmd.exe /c rmdir "$link" | Out-Null }
     Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
 }
 
