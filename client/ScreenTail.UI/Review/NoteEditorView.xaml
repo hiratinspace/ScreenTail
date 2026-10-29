@@ -209,32 +209,29 @@
                 Padding="20,10"
                 BorderBrush="{DynamicResource Brush.border.subtle}"
                 BorderThickness="0,1,0,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+            <!-- Two lines: what is left to do, then the chords. Side by side they wrapped into each
+                 other at the pane's usual width. -->
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center"
+                               Style="{StaticResource Text.Muted}"
+                               Foreground="{DynamicResource Brush.text.secondary}"
+                               Text="{Binding SaveLabel}"
+                               AutomationProperties.Name="Save status"
+                               AutomationProperties.LiveSetting="Polite" />
 
-                <TextBlock Grid.Column="0"
-                           VerticalAlignment="Center"
-                           Style="{StaticResource Text.Muted}"
-                           Text="{Binding SaveLabel}"
-                           AutomationProperties.Name="Save status"
-                           AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Muted}"
+                               Foreground="{DynamicResource Brush.text.secondary}"
+                               Text="{Binding UnverifiedLabel}" />
+                </StackPanel>
 
-                <TextBlock Grid.Column="1"
-                           Margin="12,0,12,0"
-                           VerticalAlignment="Center"
-                           Style="{StaticResource Text.Muted}"
-                           Text="{Binding UnverifiedLabel}" />
-
-                <TextBlock Grid.Column="2"
-                           VerticalAlignment="Center"
+                <TextBlock Margin="0,4,0,0"
                            Style="{StaticResource Text.Muted}"
                            FontSize="{DynamicResource Size.xs}"
                            Text="Alt+C confirm · Alt+↑↓ reorder · Ctrl+S save" />
-            </Grid>
+            </StackPanel>
         </Border>
     </Grid>
 </UserControl>

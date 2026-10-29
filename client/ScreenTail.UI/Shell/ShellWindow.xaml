@@ -5,6 +5,7 @@
         xmlns:review="clr-namespace:ScreenTail.UI.Review"
         xmlns:history="clr-namespace:ScreenTail.UI.History"
         xmlns:settings="clr-namespace:ScreenTail.UI.Settings"
+        xmlns:shell="clr-namespace:ScreenTail.UI.Shell"
         Title="ScreenTail"
         Width="1280"
         Height="800"
@@ -24,8 +25,10 @@
             <settings:SettingsPane />
         </DataTemplate>
         <!-- The sentence, as an empty state: centred, with an icon, rather than a line of small print in
-             the top-left corner of an otherwise blank window. Its next step is in the sentence itself. -->
-        <DataTemplate DataType="{x:Type sys:String}">
+             the top-left corner of an otherwise blank window. Its next step is in the sentence itself.
+             Keyed and chosen by ShellContentTemplateSelector: a keyless string template here would also
+             draw every button label in every pane. -->
+        <DataTemplate x:Key="Shell.Message" DataType="{x:Type sys:String}">
             <Border MaxWidth="480"
                     Margin="0,0,0,48"
                     Padding="32,28"
@@ -52,6 +55,7 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
+        <shell:ShellContentTemplateSelector x:Key="Shell.Content" Message="{StaticResource Shell.Message}" />
 
         <!-- A header tab. Tag="Selected" draws the current view's underline (Components.xaml, Nav.Item). -->
         <Style x:Key="Nav.Review" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
@@ -163,6 +167,10 @@
             </Grid>
         </Border>
 
-        <ContentControl Grid.Row="2" Margin="{DynamicResource Padding.pane}" Content="{Binding Content}" Focusable="False" />
+        <ContentControl Grid.Row="2"
+                        Margin="{DynamicResource Padding.pane}"
+                        Content="{Binding Content}"
+                        ContentTemplateSelector="{StaticResource Shell.Content}"
+                        Focusable="False" />
     </Grid>
 </Window>
