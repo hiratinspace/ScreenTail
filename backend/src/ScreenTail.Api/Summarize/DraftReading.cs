@@ -73,6 +73,19 @@ internal static class DraftReading
     /// <summary>Whether each BMP code point has a decomposition, and whether it is the first of a composition.</summary>
     private static readonly byte[] BmpTables = new byte[0x10000];
 
+    /// <summary>
+    /// How many code points canonical ordering has moved on this thread, ever: one for each step a mark
+    /// takes past another while sorting by insertion, and one for each mark placed while sorting by
+    /// counting. Read only by the tests, which compare it before and after a check to bound its work by
+    /// the size of what was checked, which no machine's speed changes. Thread-static because a check runs
+    /// on one thread and tests run beside each other; added to once per run of marks.
+    /// </summary>
+    [ThreadStatic]
+    private static long _orderingMoves;
+
+    /// <summary>What <see cref="_orderingMoves"/> holds for the calling thread.</summary>
+    internal static long OrderingMoves => _orderingMoves;
+
     /// <summary>The Unicode version the NFKC data is from.</summary>
     public static string UnicodeVersion { get; }
 
@@ -342,18 +355,22 @@ internal static class DraftReading
 
             if (end - i > 1)
             {
-                Sort(points[i..end]);
+                _orderingMoves += Sort(points[i..end]);
             }
 
             i = end;
         }
     }
 
-    /// <summary>One run of marks, sorted stably by class: by insertion when short, by counting when not.</summary>
-    private static void Sort(Span<int> run)
+    /// <summary>
+    /// One run of marks, sorted stably by class: by insertion when short, by counting when not. Returns
+    /// how many code points it moved, for <see cref="OrderingMoves"/>.
+    /// </summary>
+    private static int Sort(Span<int> run)
     {
         if (run.Length <= InsertionRun)
         {
+            var moved = 0;
             for (var i = 1; i < run.Length; i++)
             {
                 var cp = run[i];
@@ -363,12 +380,13 @@ internal static class DraftReading
                 {
                     run[j] = run[j - 1];
                     j--;
+                    moved++;
                 }
 
                 run[j] = cp;
             }
 
-            return;
+            return moved;
         }
 
         Span<int> starts = stackalloc int[256];
@@ -394,6 +412,7 @@ internal static class DraftReading
             }
 
             sorted.CopyTo(run);
+            return run.Length;
         }
         finally
         {
