@@ -283,12 +283,12 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         HttpStatusCode.TooManyRequests => new ProviderError(
             ProviderErrorKind.Unavailable,
             "ConnectWise is rate-limiting requests.",
-            "Try again in a minute.",
+            ProviderHttp.TryAgain(retryAfter),
             retryAfter),
         >= HttpStatusCode.InternalServerError => new ProviderError(
             ProviderErrorKind.Unavailable,
             "ConnectWise did not answer.",
-            "Try again in a minute.",
+            ProviderHttp.TryAgain(retryAfter),
             retryAfter),
         _ => new ProviderError(
             ProviderErrorKind.Invalid,

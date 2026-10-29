@@ -56,7 +56,7 @@ public static class PsaEndpoint
     {
         ArgumentNullException.ThrowIfNull(error);
         return Results.Json(
-            new { error = "psa_" + error.Kind.ToString().ToLowerInvariant(), message = error.ToString(), retryable = error.Retryable, retry_after_seconds = error.RetryAfter?.TotalSeconds },
+            new { error = "psa_" + error.Kind.ToString().ToLowerInvariant(), message = error.ToString(), retryable = error.Retryable, retry_after_seconds = ProviderHttp.RetryAfterSeconds(error.RetryAfter) },
             statusCode: StatusCodes.Status502BadGateway);
     }
 }

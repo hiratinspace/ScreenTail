@@ -229,6 +229,18 @@ public static partial class Publisher
             KbArticleFormatter.Html(bundle.Note, bundle.TicketId, bundle.Frames.Count),
             attachments);
         var result = await docs.PublishArticleAsync(article, sent.From(ct)).ConfigureAwait(false);
+        if (result.Error is { CompanyGone: true })
+        {
+            // The platform said the company the list still named does not exist: deleted since the list
+            // was cached. Nothing was written, so the mapping to it goes, as a stale one does, and the
+            // pane asks for another company (ST-097) rather than passing on a refusal nobody can act on.
+            // Only on that answer: a plain 404 is passed on as it is and the mapping stays, because
+            // nothing in it says the company is gone, and asking for another company then sends the
+            // technician toward another customer's (S-71).
+            _ = await mappings.ForgetIfUnchangedAsync(mapped, ct).ConfigureAwait(false);
+            return NeedsMapping(destination, bundle.Company, null, $"The documentation platform no longer has \"{mapped.DocCompanyName}\", so the mapping was forgotten and nothing was written. ");
+        }
+
         return result.Ok
             ? Landed(destination, result.Value!.Id, result.Value.Url, result.Value.Incomplete)
             : Failed(destination, result.Error!);
@@ -255,8 +267,12 @@ public static partial class Publisher
         ? new PublishResultJson(destination, true, id, link)
         : new PublishResultJson(destination, true, id, link, Error: incomplete.ToString(), Kind: Partial);
 
+    /// <summary>
+    /// The provider's refusal. A retryable one carries the wait the provider named, as the ticket search
+    /// does; one that may have landed carries none, because the advice there is to look, not to wait.
+    /// </summary>
     private static PublishResultJson Failed(string destination, ProviderError error) =>
-        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable);
+        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable, RetryAfterSeconds: error.Retryable ? ProviderHttp.RetryAfterSeconds(error.RetryAfter) : null);
 
     private static string Kind(ProviderErrorKind kind) => kind.ToString().ToLowerInvariant();
 

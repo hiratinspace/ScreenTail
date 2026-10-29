@@ -250,6 +250,60 @@ public sealed class HuduProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task ACompanyRemovedInHuduWhileItWasCachedIsNotCalledABugAndIsForgotten()
+    {
+        // The list said company 7 was there, so the article went, and Hudu answered that the company
+        // must exist. That is the cache being out of date, not a request ScreenTail got wrong: the
+        // technician is told to choose another company, and the next list is asked of Hudu.
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _ = _api.Removed.Add(7);
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+        var listed = _api.Requests.Count;
+        var again = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.NotFound, result.Error!.Kind);
+        Assert.False(result.Error.Retryable);
+        Assert.True(result.Error.CompanyGone);
+        Assert.Equal("Hudu no longer has that company. Choose another company for the article, then publish it again.", result.Error.ToString());
+        Assert.True(_api.Requests.Count > listed, "The company list was served from the cache that still held the removed company.");
+        Assert.DoesNotContain(again.Value!, c => c.Id == "7");
+    }
+
+    [Fact]
+    public async Task APlain404OnTheArticleKeepsTheCompanyListAndIsNotCalledAGoneCompany()
+    {
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _api.FailingRoute = ("/api/v1/articles", HttpStatusCode.NotFound);
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+        var listed = _api.Requests.Count;
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.NotFound, result.Error!.Kind);
+        Assert.False(result.Error.CompanyGone);
+        Assert.Equal(listed, _api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task ARateLimitSaysHowLongHuduAskedToWait()
+    {
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(40));
+        _api.Scripted.Enqueue(limited);
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+
+        Assert.True(result.Error!.Retryable);
+        Assert.Equal(TimeSpan.FromSeconds(40), result.Error.RetryAfter);
+        Assert.Equal("Hudu is rate-limiting requests. Try again in 40 seconds.", result.Error.ToString());
+    }
+
+    [Fact]
     public async Task ASiteThatNeverStopsListingCompaniesIsStoppedAtTheCap()
     {
         // 2026-10-12 review: a tenant sets the site, and a site that answers every page in full would

@@ -791,6 +791,12 @@ jobs:
         shell: powershell
         run: ./scripts/windows/check-skips.Tests.ps1
 
+      # The hardware jobs start with check-demo-stopped.ps1. A check that passes everything looks the
+      # same as one that works until the demo is up during a run, so its cases run here.
+      - name: The demo check fails a laptop with the demo running
+        shell: powershell
+        run: ./scripts/windows/check-demo-stopped.Tests.ps1
+
   # ST-013: the whole loop on a real Windows VM, unattended. PostgreSQL (the image's own service), the
   # backend in Development with the demo PSA and the scripted drafting provider (no model key, no cost), a
   # development device, the capture service and the UI started as the demo starts them, and the driver

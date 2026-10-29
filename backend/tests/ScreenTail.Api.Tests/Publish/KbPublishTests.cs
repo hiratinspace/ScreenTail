@@ -432,6 +432,136 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task ACompanyRemovedInHuduWhileItWasCachedAsksForAnotherAndIsForgotten()
+    {
+        // The first article files "Acme Dental" under Hudu's company 7 and caches the list. Someone then
+        // deletes company 7 in Hudu. Within the cache's ten minutes the list still holds it, so the
+        // article goes and Hudu answers that the company must exist. The technician is asked to choose
+        // another company rather than told it is a ScreenTail bug, the mapping to the deleted company is
+        // forgotten, and the companies the mapping prompt lists come from Hudu, not the cache.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        Assert.True(Assert.Single((await first.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results).Ok);
+        _ = hudu.Removed.Add(7);
+
+        using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+        var listed = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.False(kb.Ok);
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.False(kb.Retryable);
+        Assert.DoesNotContain("ScreenTail bug", kb.Error, StringComparison.Ordinal);
+        Assert.Equal(
+            "The documentation platform no longer has \"Acme Dental\", so the mapping was forgotten and nothing was written. \"Acme Dental\" is not mapped to a company in the documentation platform. Map it in Settings → Integrations, then publish the article again.",
+            kb.Error);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+        Assert.DoesNotContain(listed!.Companies, c => c.Id == "7");
+    }
+
+    [Fact]
+    public async Task AnExactMatchMadeOnACompanyHuduHasJustDeletedIsNotKept()
+    {
+        // The match is made and remembered in the same publish whose article Hudu then refuses: the row
+        // the forget compares against is the one just written, not one read back, and it still goes.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+        _ = hudu.Removed.Add(7);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task APlain404OnTheArticleIsNotTakenToMeanTheCompanyIsGone()
+    {
+        // A 404 from the articles route says nothing about the company: a proxy in front of a
+        // self-hosted Hudu, the route turned off, an API change. Only Hudu's own "company must exist"
+        // says the company is gone. Anything else keeps the mapping (which a person may have confirmed)
+        // and the cache, and passes the refusal on as it was, rather than sending the technician to
+        // pick another customer's company and back round the same 404.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        hudu.FailingRoute = ("/api/v1/articles", HttpStatusCode.NotFound);
+        var listed = hudu.Requests.Count(IsCompanyList);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+        _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.False(kb.Ok);
+        Assert.Equal("notfound", kb.Kind);
+        Assert.DoesNotContain("no longer", kb.Error, StringComparison.Ordinal);
+        var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal(("7", "manual"), (mapping.DocCompanyId, mapping.Confidence));
+        Assert.Equal(listed, hudu.Requests.Count(IsCompanyList));
+    }
+
+    [Fact]
+    public async Task AMappingIsStampedInWholeMicrosecondsSoTheRowJustWrittenCanStillBeForgotten()
+    {
+        // The company-gone path forgets the row RememberAsync handed back, which was never read from the
+        // database. Postgres keeps timestamptz to the microsecond and .NET to the 100 ns tick, so a time
+        // with sub-microsecond ticks would be stored as one instant and compared as another, and the
+        // forget would never match. The time is held to whole microseconds where it is written, so the
+        // row in hand is the row stored. SQLite (these tests) keeps every tick, which is why the stamp is
+        // asserted directly rather than only through the forget.
+        var (tenantId, _, _) = await SeedAsync();
+        var clock = new FixedTime(new DateTimeOffset(2026, 10, 29, 9, 0, 0, TimeSpan.Zero).AddTicks(1_234_567));
+        var written = await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("7", "Acme Dental"), "exact"));
+
+        Assert.Equal(0, written.CreatedAt.Ticks % 10);
+        Assert.Equal(clock.GetUtcNow().AddTicks(-7), written.CreatedAt);
+
+        // Confirmed again in between, at a later instant: the row in hand is out of date and stays put.
+        clock.Now = clock.Now.AddTicks(25);
+        var again = await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("7", "Acme Dental"), "exact"));
+        Assert.False(await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).ForgetIfUnchangedAsync(written)));
+
+        // The row in hand from the latest write is the row stored, and goes.
+        Assert.True(await api.UseAsync(db => new CompanyMappings(db, tenantId, clock).ForgetIfUnchangedAsync(again)));
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Theory]
+    [InlineData("manual")]
+    [InlineData("exact")]
+    public async Task AMappingReconfirmedSinceItWasReadIsKept(string confidence)
+    {
+        // The same company, confirmed again between the read and the forget: by a person in Settings
+        // (manual), or by a publish's exact match. It names what it named before, so only when it was
+        // made says it is a new decision, and that decision is not thrown away with the stale read.
+        var (tenantId, _, _) = await SeedAsync();
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental");
+        var stale = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental"));
+        await Task.Delay(TimeSpan.FromMilliseconds(5), TestContext.Current.CancellationToken);
+        _ = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("7", "Acme Dental"), confidence));
+
+        var forgot = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).ForgetIfUnchangedAsync(stale!));
+
+        Assert.False(forgot);
+        var kept = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal(("7", confidence), (kept.DocCompanyId, kept.Confidence));
+    }
+
+    [Fact]
     public async Task AStaleMappingRewrittenSinceItWasReadIsKept()
     {
         // The stale row is forgotten as it was read. If a person or an exact match rewrote it in the

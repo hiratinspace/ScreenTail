@@ -23,7 +23,11 @@
     "way and for the same reason: it is the kind a provider gives any write that may have been saved.",
     "`response_uncertain` shows both. The deadline counts from when the request",
     "arrived, so a body that took all of it to upload sends nothing: each destination is then `ok: false`",
-    "with `kind: unavailable` and `retryable: true`, and `error` says nothing was sent."
+    "with `kind: unavailable` and `retryable: true`, and `error` says nothing was sent.",
+    "",
+    "`retry_after_seconds` is set only on a retryable failure whose PSA or documentation platform named a",
+    "wait (a 429's Retry-After): whole seconds, rounded up, at most a day. `error` already says it in words",
+    "(\"Try again in 3 minutes.\"); the number is there for a caller that wants to hold its own Retry."
   ],
   "request": {
     "session_id": "s-0001",
@@ -57,15 +61,15 @@
   },
   "response": {
     "results": [
-      { "destination": "ticket_note", "ok": true, "id": "90001", "link": null, "error": null, "kind": null, "retryable": false },
-      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "ConnectWise says this API member may not do that. Ask your ConnectWise administrator for the permission.", "kind": "forbidden", "retryable": false },
-      { "destination": "kb_article", "ok": true, "id": "5101", "link": "https://acme.huducloud.com/a/printer-offline-5101", "error": "The article was published as 5101, but 1 of 1 screenshots did not attach (screenshot-1.jpg): Hudu did not answer. The article stays as it is; add the missing screenshots to it by hand rather than publishing it again.", "kind": "partial", "retryable": false }
+      { "destination": "ticket_note", "ok": true, "id": "90001", "link": null, "error": null, "kind": null, "retryable": false, "retry_after_seconds": null },
+      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "ConnectWise says this API member may not do that. Ask your ConnectWise administrator for the permission.", "kind": "forbidden", "retryable": false, "retry_after_seconds": null },
+      { "destination": "kb_article", "ok": true, "id": "5101", "link": "https://acme.huducloud.com/a/printer-offline-5101", "error": "The article was published as 5101, but 1 of 1 screenshots did not attach (screenshot-1.jpg): Hudu did not answer. The article stays as it is; add the missing screenshots to it by hand rather than publishing it again.", "kind": "partial", "retryable": false, "retry_after_seconds": null }
     ]
   },
   "response_uncertain": {
     "results": [
-      { "destination": "ticket_note", "ok": false, "id": null, "link": null, "error": "ConnectWise accepted the request but its answer could not be read, so it may have been saved. Check ConnectWise before publishing again, so nothing is added twice.", "kind": "unknown", "retryable": false },
-      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "The PSA had not answered when the publish ran out of time, so the time entry may already be on the ticket. Check the ticket before you publish the time entry again.", "kind": "timed_out", "retryable": false }
+      { "destination": "ticket_note", "ok": false, "id": null, "link": null, "error": "ConnectWise accepted the request but its answer could not be read, so it may have been saved. Check ConnectWise before publishing again, so nothing is added twice.", "kind": "unknown", "retryable": false, "retry_after_seconds": null },
+      { "destination": "time_entry", "ok": false, "id": null, "link": null, "error": "The PSA had not answered when the publish ran out of time, so the time entry may already be on the ticket. Check the ticket before you publish the time entry again.", "kind": "timed_out", "retryable": false, "retry_after_seconds": null }
     ]
   }
 }

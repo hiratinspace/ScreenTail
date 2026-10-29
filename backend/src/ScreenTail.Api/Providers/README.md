@@ -118,7 +118,9 @@ Both providers send through `ProviderHttp`, so they cannot disagree about what a
 outage is retried, three attempts at most, and a write only when nothing of it left or the answer was
 a 429. The wait is the exponential backoff with jitter, or the provider's Retry-After when that is
 longer; a Retry-After beyond `MaxRetryWait` (five seconds) is not waited out, and the error carries it
-instead. Each client holds at most `ProviderHttp.MaxResponseBytes` (4 MB) of an answer; a larger one is
+instead, with its advice in the same terms (`ProviderHttp.TryAgain`: "Try again in 3 minutes.", rounded
+up, at most a day; "a minute" when no wait was named). A publish result passes a retryable failure's
+wait on as `retry_after_seconds`, as the ticket search does. Each client holds at most `ProviderHttp.MaxResponseBytes` (4 MB) of an answer; a larger one is
 `Invalid` and not retried. A success that is not JSON, or lacks the id or list the provider reads, is
 `Invalid` for a read and `Unknown` for a write, never an exception, and the body is not quoted back.
 An empty success lacks the list too: Hudu without a `companies` key is not a tenant with no companies.
@@ -172,11 +174,12 @@ the next matching request with a 401, 403, 404, field-level 400 or 422, 429 with
 as documents, private when the note is; the time entry has the right start, end, billing, text field and
 member; the article is a draft under the exactly matched or hand-mapped company (one on the second page
 included) with its uploads; a 429 is waited out and sent again when the wait is short, answered at once
-as retryable when it is long, and given up after three; a 5xx after a write left is `unknown` and not
-sent again, while a read is retried; a wrong key is `unauthenticated` with Spec §4's sentence and never
-retried; a 403 says to ask an administrator and the note still lands; a field-level refusal reaches the
-technician in the provider's own words, including Hudu's for a company removed while the list was
-cached. Every test also
+as retryable when it is long, saying how long, and given up after three; a 5xx after a write left is
+`unknown` and not sent again, while a read is retried; a wrong key is `unauthenticated` with Spec §4's
+sentence and never retried; a 403 says to ask an administrator and the note still lands; a field-level
+refusal reaches the technician in the provider's own words; and Hudu's "company must exist" for a
+company removed while the list was cached forgets the mapping, drops the list and asks for another
+company. Every test also
 reads the service's own scrubbing log at Trace and fails if anything a provider was sent or answered
 appears in it: note text, ticket summaries and numbers, company names, keys, the Basic credential, the
 site (INV-10).

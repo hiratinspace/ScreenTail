@@ -386,6 +386,22 @@ public sealed class ConnectWiseProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task ARateLimitSaysHowLongConnectWiseAskedToWait()
+    {
+        // The wait is longer than a publish can sit through, so it is answered at once, and the advice
+        // is ConnectWise's wait rather than a minute that would only meet the same limit again.
+        _api.Scripted.Enqueue(TooMany(retryAfterSeconds: 180));
+
+        var result = await Provider(time: new RecordedWaits()).AddTimeEntryAsync(
+            new TimeEntry("48213", new DateTimeOffset(2026, 9, 24, 14, 2, 0, TimeSpan.Zero), 30, "Notes", Billable: true, Internal: true),
+            TestContext.Current.CancellationToken);
+
+        Assert.Single(_api.Requests);
+        Assert.True(result.Error!.Retryable);
+        Assert.Equal("ConnectWise is rate-limiting requests. Try again in 3 minutes.", result.Error.ToString());
+    }
+
+    [Fact]
     public async Task AThirdAttemptThatSucceedsIsASuccess()
     {
         _api.Scripted.Enqueue(TooMany(retryAfterSeconds: 1));

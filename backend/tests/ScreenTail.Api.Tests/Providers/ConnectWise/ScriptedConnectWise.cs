@@ -54,6 +54,9 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     /// <summary>One route fails with this status while set: the partial publish, where the note lands and the time entry does not.</summary>
     public (string PathSuffix, HttpStatusCode Status)? FailingRoute { get; set; }
 
+    /// <summary>The Retry-After the failing route's answer carries, when set: the PSA that names its wait.</summary>
+    public TimeSpan? FailingRouteRetryAfter { get; set; }
+
     /// <summary>Requests to a path ending in this are never answered: they wait until the caller gives up. The PSA that is too slow for the deadline.</summary>
     public string? HangingRoute { get; set; }
 
@@ -104,7 +107,13 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
         if (FailingRoute is { } route && path.EndsWith(route.PathSuffix, StringComparison.Ordinal))
         {
-            return new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { code = "Forced", message = "The script said no" }, options: Json) };
+            var refused = new HttpResponseMessage(route.Status) { Content = JsonContent.Create(new { code = "Forced", message = "The script said no" }, options: Json) };
+            if (FailingRouteRetryAfter is { } wait)
+            {
+                refused.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(wait);
+            }
+
+            return refused;
         }
 
         return (request.Method.Method, path) switch

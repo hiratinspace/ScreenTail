@@ -149,10 +149,12 @@ public sealed class HuduOverHttpTests(ApiFixture api) : IClassFixture<ApiFixture
     }
 
     [Fact]
-    public async Task ACompanyRemovedSinceTheListWasCachedIsRefusedInHudusOwnWords()
+    public async Task ACompanyRemovedSinceTheListWasCachedAsksForAnotherCompany()
     {
         // The list is cached ten minutes. A company removed in Hudu inside that window still passes our
-        // check, and Hudu's own field error is what reaches the technician.
+        // check, and Hudu answers that the company must exist. That is the cache out of date, not a
+        // ScreenTail bug: the mapping to it is forgotten, the list is asked of Hudu again, and the
+        // technician is asked to choose another company.
         await using var cw = await ConnectWiseOverHttpTests.StartAsync();
         await using var hudu = await StartAsync();
         await using var backend = new StandInBackend(api, cw, hudu);
@@ -164,12 +166,18 @@ public sealed class HuduOverHttpTests(ApiFixture api) : IClassFixture<ApiFixture
         var kb = Assert.Single((await backend.PublishAsync(bundle)).Results);
 
         Assert.False(kb.Ok);
-        Assert.Equal("invalid", kb.Kind);
+        Assert.Equal("needs_mapping", kb.Kind);
         Assert.False(kb.Retryable);
-        Assert.Equal("Hudu refused the request: company must exist. This is a ScreenTail bug; there is nothing to change on your side.", kb.Error);
+        Assert.Equal("The documentation platform no longer has \"Acme Dental\", so the mapping was forgotten and nothing was written. \"Acme Dental\" is not mapped to a company in the documentation platform. Map it in Settings → Integrations, then publish the article again.", kb.Error);
         Assert.Equal(2, hudu.Requests.Count(r => r.Path == "/api/v1/companies"));
         Assert.Equal([200, 422], hudu.Requests.Where(IsArticlePost).Select(r => r.Status));
         _ = Assert.Single(hudu.Articles);
+
+        // What the mapping prompt then lists comes from Hudu, not the cache, and nothing maps to 7.
+        var prompt = await backend.Client.GetFromJsonAsync<CompanyMappingsResponse>(CompanyMappings, TestContext.Current.CancellationToken);
+        Assert.True(hudu.Requests.Count(r => r.Path == "/api/v1/companies") > 2, "The prompt's list came from the cache that still held the removed company.");
+        Assert.DoesNotContain(prompt!.Companies, c => c.Id == "7");
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == backend.TenantId, TestContext.Current.CancellationToken)));
         backend.AssertTheLogHoldsNothingThatWasSent();
     }
 

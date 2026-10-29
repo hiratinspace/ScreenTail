@@ -14,10 +14,16 @@ Hudu before a pilot. Written from Hudu's API documentation; the real check has n
 
 Every request carries the tenant's key in the `x-api-key` header and never in a URL. A 429 or an
 outage is retried with exponential backoff and jitter, three attempts at most, waiting at least as
-long as a Retry-After of up to five seconds; a wrong key is not retried. An article or upload is sent
+long as a Retry-After of up to five seconds; a longer one is answered at once, saying how long Hudu
+asked to wait. A wrong key is not retried. An article or upload is sent
 again only when none of it left or Hudu answered 429; otherwise it comes back `unknown` and the
 technician is asked to check Hudu first. The company list stops at 10,000 companies. Every refusal reaches the technician as a kind and two sentences: "Hudu rejected the API key.
-Update it in Settings → Integrations." A 422 carries Hudu's own words about the field it refused.
+Update it in Settings → Integrations." A 422 carries Hudu's own words about the field it refused,
+except that the company must exist: that is a company deleted in Hudu while the backend's ten-minute
+list still held it, so the list is dropped, the mapping to it is forgotten, and the article comes back
+`needs_mapping` for the technician to choose another company. Only that answer does this. A plain 404
+on an article (a proxy in front of a self-hosted Hudu, the route turned off) says nothing about the
+company, so it comes back `notfound` with the mapping and the cached list left as they were.
 
 **A company Hudu does not have is refused before anything is sent.** Publishing to the wrong company is
 one customer's runbook in another customer's knowledge base, so the company id must be one of the

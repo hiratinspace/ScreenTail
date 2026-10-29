@@ -133,7 +133,8 @@ public sealed class ConnectWiseOverHttpTests(ApiFixture api) : IClassFixture<Api
         Assert.False(note.Ok);
         Assert.Equal("unavailable", note.Kind);
         Assert.True(note.Retryable);
-        Assert.Equal("ConnectWise is rate-limiting requests. Try again in a minute.", note.Error);
+        Assert.Equal("ConnectWise is rate-limiting requests. Try again in 30 seconds.", note.Error);
+        Assert.Equal(30, note.RetryAfterSeconds);
         _ = Assert.Single(cw.Requests, IsNotePost);
         Assert.Empty(cw.Notes);
         Assert.True(published.Results.Single(r => r.Destination == "time_entry").Ok);

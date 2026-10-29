@@ -77,6 +77,14 @@ public sealed record ProviderError(ProviderErrorKind Kind, string What, string T
     /// </summary>
     public decimal? CostUsd { get; init; }
 
+    /// <summary>
+    /// The documentation platform said, in so many words, that the company an article named does not
+    /// exist: Hudu's 422 that the company must exist. Set by that answer and nothing else. A plain 404,
+    /// or a company missing from a cached list, is not this: neither says the platform deleted it, and
+    /// only this one lets a publish forget a mapping and ask for another company.
+    /// </summary>
+    public bool CompanyGone { get; init; }
+
     /// <summary>Spec §4's pattern: <c>&lt;What happened&gt;. &lt;What to do&gt;.</c></summary>
     public override string ToString() => $"{What} {Todo}";
 }
