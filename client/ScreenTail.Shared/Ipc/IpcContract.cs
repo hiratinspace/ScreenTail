@@ -16,8 +16,12 @@ namespace ScreenTail.Shared.Ipc;
 /// 4: the <c>audit</c> reply carries where the export was written and its verdict instead of the whole
 /// log as one string, which outgrew the frame limit within weeks (2026-10-12 review, E-2). The reply
 /// changes shape, so an older reader would fail on it.
+///
+/// 5: ST-113 adds <c>get_update</c>, <c>install_update</c>, <c>set_update_channel</c> and the
+/// <c>update</c> reply. A UI from before them would fail to read the reply, and after an update the
+/// two processes of one installation are always the same version anyway.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 4;
+    public const int Version = 5;
 }

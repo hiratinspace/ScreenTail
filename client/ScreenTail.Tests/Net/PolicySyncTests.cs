@@ -53,7 +53,9 @@ public sealed class PolicySyncTests : IDisposable
 
         Assert.True(await sync.FetchAsync(TestContext.Current.CancellationToken));
 
-        Assert.Equal(new TenantPolicy("p20260925140200000", 3, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: true), sync.Current);
+        Assert.Equal(
+            new TenantPolicy("p20260925140200000", 3, LocalOnly: true, LocalOnlyLocked: true, CaptureAllWindows: true, UpdateChannel: "pilot", UpdateChannelLocked: true, UpdateCheckHours: 6, UpdateChecksUnderLocalOnly: true),
+            sync.Current);
         using var contract = JsonDocument.Parse(body);
         using var read = JsonDocument.Parse(JsonSerializer.Serialize(sync.Current, WebJson));
         Assert.Equal(Shape(contract.RootElement), Shape(read.RootElement));

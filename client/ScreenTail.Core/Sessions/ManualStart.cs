@@ -32,6 +32,9 @@ public sealed class ManualStart(SessionMachine machine, Func<bool> indicated, Fu
         + "showing it. Wait a few seconds for the pill to appear, then try again; if it does not, quit "
         + "ScreenTail from the tray and open it again.";
 
+    /// <summary>Why nothing started while Windows Installer is replacing ScreenTail (ST-113).</summary>
+    public const string Updating = "ScreenTail is installing an update, so no session can start. It starts again once the update has finished.";
+
     private readonly SessionMachine _machine = machine ?? throw new ArgumentNullException(nameof(machine));
     private readonly Func<bool> _indicated = indicated ?? throw new ArgumentNullException(nameof(indicated));
     private readonly Func<(bool LocalOnly, string? PolicyVersion)> _sessionPolicy = sessionPolicy ?? throw new ArgumentNullException(nameof(sessionPolicy));

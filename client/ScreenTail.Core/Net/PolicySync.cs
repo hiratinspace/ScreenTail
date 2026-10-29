@@ -11,8 +11,23 @@ namespace ScreenTail.Core.Net;
 /// The tenant's policy as the backend states it (ST-047): what the admin decided about this device.
 /// <paramref name="LocalOnlyLocked"/> is INV-11's word — locked, the technician cannot change it here.
 /// The wire shape is <c>shared/contracts/tenant-policy.v1.json</c>, which the backend's response is tested against too.
+///
+/// The four update fields (ST-113) are optional, with the product's defaults, so a backend from before
+/// them still syncs: the stable channel, the technician's to change, a check a day, and no update checks
+/// under local-only. Only the admin can allow those (<paramref name="UpdateChecksUnderLocalOnly"/>).
 /// </summary>
-public sealed record TenantPolicy(string Version, int RetentionDays, bool LocalOnly, bool LocalOnlyLocked, bool CaptureAllWindows)
+/// <param name="UpdateChannel">"stable" or "pilot"; the admin's choice when <paramref name="UpdateChannelLocked"/>.</param>
+/// <param name="UpdateCheckHours">How often the client checks for an update, in hours; 0 turns checks off.</param>
+public sealed record TenantPolicy(
+    string Version,
+    int RetentionDays,
+    bool LocalOnly,
+    bool LocalOnlyLocked,
+    bool CaptureAllWindows,
+    string UpdateChannel = "stable",
+    bool UpdateChannelLocked = false,
+    int UpdateCheckHours = 24,
+    bool UpdateChecksUnderLocalOnly = false)
 {
     /// <summary>What applies until a policy has ever been synced: the product's own defaults, named as such.</summary>
     public static TenantPolicy Default { get; } = new("default", 7, false, false, false);

@@ -25,6 +25,14 @@ public enum EgressPurpose
     /// needs the model on the machine already; the recogniser treats the refusal as "no narration".
     /// </summary>
     ModelDownload,
+
+    /// <summary>
+    /// Asking the update feed whether there is a newer release, and downloading it (ST-113). Carries no
+    /// content: the channel and the architecture, in the path. Only to the update hosts compiled into the
+    /// client, and refused under local-only unless the tenant's admin allowed it, because a request the
+    /// technician did not ask for is still a request (INV-8).
+    /// </summary>
+    UpdateCheck,
 }
 
 /// <param name="Allowed">False means the request is never made.</param>
@@ -51,6 +59,15 @@ public sealed record EgressSettings
     public IReadOnlySet<string> BackendHosts { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlySet<string> ModelHosts { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The update feed's host and the package hosts, from the trust file compiled into the client (ST-113).</summary>
+    public IReadOnlySet<string> UpdateHosts { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The tenant's admin allows update checks while local-only is on (ST-113). Only a policy sets it; the
+    /// technician's own local-only stops update checks like everything else the client does on its own.
+    /// </summary>
+    public bool UpdatesUnderLocalOnly { get; init; }
 
     /// <summary>
     /// The deployment's shape, as the service builds it: the speech model hosts, and the one backend host
@@ -101,10 +118,12 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
     public EgressSettings Settings => _settings;
 
     /// <summary>
-    /// The tenant's policy arriving (ST-047): local-only on or off, and whether the admin locked it. The
-    /// hosts are the deployment's and do not change here.
+    /// The tenant's policy arriving (ST-047): local-only on or off, whether the admin locked it, and
+    /// whether the admin lets update checks through it (ST-113). The hosts are the deployment's and do
+    /// not change here.
     /// </summary>
-    public void Apply(bool localOnly, bool enforced) => _settings = _settings with { LocalOnly = localOnly, PolicyEnforced = enforced };
+    public void Apply(bool localOnly, bool enforced, bool updatesUnderLocalOnly = false) =>
+        _settings = _settings with { LocalOnly = localOnly, PolicyEnforced = enforced, UpdatesUnderLocalOnly = updatesUnderLocalOnly };
 
     /// <summary>
     /// True when the technician may change local-only mode. False when the tenant's admin set it (INV-11):

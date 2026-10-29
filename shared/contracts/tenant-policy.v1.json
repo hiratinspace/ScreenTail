@@ -18,13 +18,21 @@
     "",
     "Every value here differs from the defaults (version \"default\", 7 days, everything false), so a field",
     "either side stopped reading or writing shows up as a wrong value, not as a coincidence. Nothing here",
-    "is content (INV-10): a policy says what the client does, not what it saw."
+    "is content (INV-10): a policy says what the client does, not what it saw.",
+    "",
+    "ST-113 added the four update fields, optional on the client with these defaults: updateChannel",
+    "\"stable\", updateChannelLocked false (the technician chooses), updateCheckHours 24 (0 turns checks",
+    "off), updateChecksUnderLocalOnly false (no update checks while local-only is on)."
   ],
   "response": {
     "version": "p20260925140200000",
     "retentionDays": 3,
     "localOnly": true,
     "localOnlyLocked": true,
-    "captureAllWindows": true
+    "captureAllWindows": true,
+    "updateChannel": "pilot",
+    "updateChannelLocked": true,
+    "updateCheckHours": 6,
+    "updateChecksUnderLocalOnly": true
   }
 }
