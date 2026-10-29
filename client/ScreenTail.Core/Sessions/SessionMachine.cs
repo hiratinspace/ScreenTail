@@ -223,7 +223,9 @@ public sealed class SessionMachine : IAsyncDisposable
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed))
+            // A hold from HoldStartsAsync (ST-113: Windows Installer is replacing this process) refuses
+            // every start path, because they all arrive here.
+            if (_startsHeld || State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed))
             {
                 return false;
             }

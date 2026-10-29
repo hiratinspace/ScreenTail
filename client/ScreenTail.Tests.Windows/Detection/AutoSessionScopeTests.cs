@@ -151,6 +151,39 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.Equal(SessionState.Idle, _machine!.State);
     }
 
+    // ---- an update being installed (ST-113) ---------------------------------------------------------
+
+    [Fact]
+    public async Task NoSessionStartsOnItsOwnWhileAnUpdateIsBeingInstalled()
+    {
+        // Windows Installer ends the service to replace it, so the tool taking focus starts nothing while
+        // the update holds starts back, and starts a session once the hold is released.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+        var hold = await _machine!.HoldStartsAsync(ct);
+        Assert.NotNull(hold);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Idle, _machine.State);
+        Assert.Null(_machine.SessionId);
+
+        hold!.Dispose();
+        await coordinator.HandleAsync(Window(handle: 222), ct);
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
+    [Fact]
+    public async Task TheChordStartsNothingWhileAnUpdateIsBeingInstalled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false);
+        using var hold = await _machine!.HoldStartsAsync(ct);
+        Assert.NotNull(hold);
+
+        Assert.False(await coordinator.StartFromForegroundAsync(ct));
+        Assert.Equal(SessionState.Idle, _machine.State);
+    }
+
     // ---- the trigger follows the machine (S-6, T-22) ------------------------------------------------
 
     [Fact]

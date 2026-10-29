@@ -42,6 +42,11 @@ public sealed class ManualStart(SessionMachine machine, Func<bool> indicated, Fu
     public async Task<CommandResult> StartAsync(StartCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+        if (_machine.StartsHeld)
+        {
+            return new CommandResult { RequestId = command.RequestId, Ok = false, Error = Updating };
+        }
+
         if (!_indicated())
         {
             return new CommandResult { RequestId = command.RequestId, Ok = false, Error = NotIndicated };
@@ -54,7 +59,7 @@ public sealed class ManualStart(SessionMachine machine, Func<bool> indicated, Fu
         {
             RequestId = command.RequestId,
             Ok = started,
-            Error = started ? null : $"Not possible while {_machine.State.ToWire()}.",
+            Error = started ? null : _machine.StartsHeld ? Updating : $"Not possible while {_machine.State.ToWire()}.",
         };
     }
 }
