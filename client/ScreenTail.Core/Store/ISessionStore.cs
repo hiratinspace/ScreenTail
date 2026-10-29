@@ -286,7 +286,10 @@ public sealed record SessionSummary(
 
 /// <param name="SessionId">The draft_pending session created last.</param>
 /// <param name="DraftLive">Whether its draft has outbox work that is still pending or uncertain, so something will settle it.</param>
-public sealed record LastQueuedDraft(string SessionId, bool DraftLive);
+/// <param name="DraftDone">Whether its draft's outbox work is done: the backend answered and the sender kept the note.</param>
+/// <param name="HasNote">Whether a note is stored for it.</param>
+/// <param name="FailedReason">What its failed draft work recorded as the reason, or null when it has none.</param>
+public sealed record LastQueuedDraft(string SessionId, bool DraftLive, bool DraftDone = false, bool HasNote = false, string? FailedReason = null);
 
 public sealed record AuditEntry(long Id, DateTimeOffset At, string? SessionId, string Type, long? Count);
 

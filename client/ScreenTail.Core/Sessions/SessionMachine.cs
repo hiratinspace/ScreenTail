@@ -640,7 +640,9 @@ public sealed class SessionMachine : IAsyncDisposable
     /// Only while its draft still has outbox work that will settle it. A row with none (the process died
     /// between the outbox storing Failed and telling the machine, or a second finalize found the work
     /// already settled and queued nothing) would say "drafting the note" until retention took it, a week
-    /// later. It is failed instead, with a reason, and the machine rests on it as after any failed draft.
+    /// later. It is settled here instead, and the machine rests on it as it would have had the outbox's
+    /// settling arrived: draft_ready when the work is done and the note is stored, otherwise draft_failed
+    /// with the reason the failed work recorded, or a general one when it recorded none.
     ///
     /// A row that cannot be read is not adopted, and does not stop the service starting: the machine
     /// starts idle, as it did before adoption existed, and <see cref="AdoptionFault"/> names the kind of
@@ -649,7 +651,9 @@ public sealed class SessionMachine : IAsyncDisposable
     private async Task<bool> AdoptLastQueuedAsync(CancellationToken ct)
     {
         ActiveSession adopted;
-        bool live;
+        SessionState state;
+        string? reason = null;
+        string? title = null;
         try
         {
             if (await _store.GetLastDraftPendingAsync(ct).ConfigureAwait(false) is not { } last
@@ -658,10 +662,22 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            live = last.DraftLive;
-            if (!live)
+            if (last.DraftLive)
             {
-                _ = await _store.SetSessionStateIfAsync(row.Id, SessionStateNames.DraftPending, CaptureStates.DraftFailed, DraftNoLongerQueuedReason, ct).ConfigureAwait(false);
+                state = SessionState.DraftPending;
+            }
+            else if (last.DraftDone && last.HasNote)
+            {
+                state = SessionState.DraftReady;
+                title = row.Title;
+                _ = await _store.SetSessionStateIfAsync(row.Id, SessionStateNames.DraftPending, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
+                await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                state = SessionState.DraftFailed;
+                reason = last.FailedReason ?? DraftNoLongerQueuedReason;
+                _ = await _store.SetSessionStateIfAsync(row.Id, SessionStateNames.DraftPending, CaptureStates.DraftFailed, reason, ct).ConfigureAwait(false);
             }
 
             // The tool and the active time come back too, so the tray reads as it did before the restart.
@@ -674,7 +690,7 @@ public sealed class SessionMachine : IAsyncDisposable
         }
 
         _session = adopted;
-        SetState(live ? SessionState.DraftPending : SessionState.DraftFailed, live ? null : DraftNoLongerQueuedReason);
+        SetState(state, reason, title);
         return true;
     }
 

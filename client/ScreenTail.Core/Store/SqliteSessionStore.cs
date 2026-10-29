@@ -885,23 +885,38 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// the rowids of a table with a text key, but it copies the rows in rowid order, so the order holds.
     /// </remarks>
     public Task<LastQueuedDraft?> GetLastDraftPendingAsync(CancellationToken ct = default) =>
+        // Uncertain stays live though nothing in production resolves it yet (Outbox.Confirm is set only in tests): the draft may still land.
         QueryAsync(
             """
             SELECT s.id,
                    EXISTS (SELECT 1 FROM outbox o
-                           WHERE o.session_id = s.id AND o.kind = @kind AND o.state IN (@live, @uncertain))
+                           WHERE o.session_id = s.id AND o.kind = @kind AND o.state IN (@live, @uncertain)),
+                   EXISTS (SELECT 1 FROM outbox o
+                           WHERE o.session_id = s.id AND o.kind = @kind AND o.state = @done),
+                   s.draft_json IS NOT NULL,
+                   (SELECT o.last_error FROM outbox o
+                    WHERE o.session_id = s.id AND o.kind = @kind AND o.state = @failed AND o.last_error IS NOT NULL
+                    ORDER BY o.rowid DESC
+                    LIMIT 1)
             FROM sessions s
             WHERE s.state = @pending
             ORDER BY s.rowid DESC
             LIMIT 1
             """,
             async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
-                ? new LastQueuedDraft(reader.GetString(0), reader.GetInt64(1) != 0)
+                ? new LastQueuedDraft(
+                    reader.GetString(0),
+                    reader.GetInt64(1) != 0,
+                    reader.GetInt64(2) != 0,
+                    reader.GetInt64(3) != 0,
+                    reader.IsDBNull(4) ? null : reader.GetString(4))
                 : null,
             ct,
             ("@kind", OutboxKind.Draft.ToString()),
             ("@live", Wire(OutboxState.Pending)),
             ("@uncertain", Wire(OutboxState.Uncertain)),
+            ("@done", Wire(OutboxState.Done)),
+            ("@failed", Wire(OutboxState.Failed)),
             ("@pending", Sessions.SessionStateNames.DraftPending));
 
     /// <summary>A history row's columns, as <see cref="ReadSummary"/> reads them. Each caller adds its own filter and order.</summary>
