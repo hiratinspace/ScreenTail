@@ -273,25 +273,6 @@ function Select-DemoLogLines([string[]]$Lines) {
     return $kept.ToArray()
 }
 
-# Which company drafts, and its name as a person says it. Through common.ps1's own functions where it has
-# them (from ST-063's Claude provider on), and the same rule here where it does not yet.
-function Get-ReportProvider([hashtable]$Secrets) {
-    if (Get-Command Get-DraftingProvider -CommandType Function -ErrorAction SilentlyContinue) {
-        return (Get-DraftingProvider $Secrets)
-    }
-    $saved = [string]$Secrets['Summarization:Provider']
-    if ($saved -and $saved.Trim().ToLowerInvariant() -eq 'claude') { return 'claude' }
-    return 'gemini-flash'
-}
-
-function Get-ReportProviderLabel([string]$Provider) {
-    if (Get-Command Get-ProviderLabel -CommandType Function -ErrorAction SilentlyContinue) {
-        return (Get-ProviderLabel $Provider)
-    }
-    if ($Provider -eq 'claude') { return 'Claude (Anthropic)' }
-    return 'Gemini (Google)'
-}
-
 # Whether a key looks like the drafting company's, without saying anything else about it.
 function Get-KeyShape([string]$Provider, [string]$Key) {
     $Key = ([string]$Key).Trim()
@@ -679,20 +660,36 @@ Invoke-Section 'Settings the demo depends on (yes/no or names only)' {
     }
     $table = $script:Secrets
 
-    # The key's setting name, as common.ps1 calls it: $KeyDrafting from ST-063's Claude provider on,
-    # $KeyGemini before it. The same setting either way.
-    $keyName = 'Summarization:ApiKey'
-    foreach ($candidate in @('KeyDrafting', 'KeyGemini')) {
-        $value = Get-Variable -Name $candidate -Scope Script -ValueOnly -ErrorAction SilentlyContinue
-        if ($value) { $keyName = $value; break }
+    $keyName = $script:KeyDrafting
+    $provider = Get-DraftingProvider $table
+    $script:Provider = $provider
+    $saved = [string]$table[$script:KeyProvider]
+    if ($saved) { $how = "saved as '$saved'" } else { $how = 'not saved, so the default' }
+    Add-Fact 'Drafting provider' ((Get-ProviderLabel $provider) + " ($how)")
+
+    # Who the last start told the backend to draft with (start.ps1 writes one word to drafting.txt). Only
+    # a known word is shown; anything else is reported as unrecognised, never echoed.
+    if (Test-Path -LiteralPath $script:DemoDraftingFile) {
+        $given = ''
+        try { $given = ([IO.File]::ReadAllText($script:DemoDraftingFile)).Trim() } catch { $given = '' }
+        if ($given -cin @('claude', 'gemini-flash', 'scripted')) {
+            Add-Fact 'Drafting in the last start''s backend' (Get-ProviderLabel $given)
+            if ($given -eq 'scripted') {
+                Add-Notice 'The last start.cmd ran the backend as an offline rehearsal (Summarization__Provider=scripted): its notes are written by a script, not a model, and are not for an audience. To draft for real, run stop.cmd, then start.cmd from a new PowerShell window.'
+            }
+            elseif ($given -ne $provider) {
+                Add-Notice ('The running backend was started to draft with ' + (Get-ProviderLabel $given) + ', but the saved choice is now ' + (Get-ProviderLabel $provider) + '. Run stop.cmd, then start.cmd, so the backend uses the saved choice and its key.')
+            }
+        }
+        else {
+            Add-Fact 'Drafting in the last start''s backend' 'unrecognised'
+        }
+    }
+    else {
+        Add-Fact 'Drafting in the last start''s backend' 'not recorded (start.cmd has not run since this was added)'
     }
 
-    $provider = Get-ReportProvider $table
-    $script:Provider = $provider
-    $saved = [string]$table['Summarization:Provider']
-    if ($saved) { $how = "saved as '$saved'" } else { $how = 'not saved, so the default' }
-    Add-Fact 'Drafting provider' ((Get-ReportProviderLabel $provider) + " ($how)")
-    $model = $table['Summarization:Model']
+    $model = $table[$script:KeyModel]
     if (-not $model) {
         $source = Join-Path $script:DemoApiDir 'Summarize\SummarizationOptions.cs'
         $model = 'unknown'
@@ -700,14 +697,7 @@ Invoke-Section 'Settings the demo depends on (yes/no or names only)' {
             $code = [IO.File]::ReadAllText($source)
             if ($provider -eq 'claude') { $constant = 'DefaultClaudeModel' } else { $constant = 'DefaultGeminiModel' }
             $match = [regex]::Match($code, $constant + ' = "([^"]+)"')
-            if (-not $match.Success -and $provider -ne 'claude') { $match = [regex]::Match($code, 'public string Model \{ get; set; \} = "([^"]+)"') }
-            if ($match.Success) {
-                $model = $match.Groups[1].Value + ' (the default; not set)'
-            }
-            elseif ($provider -eq 'claude') {
-                $model = 'none: this clone''s backend has no Claude provider'
-                Add-Problem 24 'Claude is chosen to draft, but this clone''s backend has no Claude provider yet, so drafting cannot work.' 'Update the clone once the Claude provider is merged (git pull), or ask the developer to switch this laptop back to Gemini.'
-            }
+            if ($match.Success) { $model = $match.Groups[1].Value + ' (the default; not set)' }
         }
     }
     Add-Fact 'Drafting model' $model
@@ -718,8 +708,8 @@ Invoke-Section 'Settings the demo depends on (yes/no or names only)' {
         $shape = Get-KeyShape $provider $key
         $keyLine += ", $shape"
         if ($shape.StartsWith('NOT')) {
-            $label = Get-ReportProviderLabel $provider
-            Add-Problem 22 "The saved drafting key does not look like a key for $label, which is the one chosen to draft. Every draft would be refused." "Run setup.cmd again and give it the $label key (setup.cmd -NewKey, or -NewGeminiKey on a clone from before the Claude provider)."
+            $label = Get-ProviderLabel $provider
+            Add-Problem 22 "The saved drafting key does not look like a key for $label, which is the one chosen to draft. Every draft would be refused." "Run setup.cmd -NewKey and give it the $label key, or switch to the company the key belongs to with setup.cmd -Provider claude (or gemini)."
         }
     }
     Add-Fact "Drafting key configured ($keyName)" $keyLine

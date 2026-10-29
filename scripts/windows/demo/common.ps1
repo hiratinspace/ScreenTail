@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Helpers shared by the demo scripts (setup.ps1, start.ps1, stop.ps1). Dot-sourced, never run alone.
+    Helpers shared by the demo scripts (setup.ps1, start.ps1, stop.ps1, report.ps1) and the e2e runner
+    (scripts\windows\e2e\run-e2e.ps1). Dot-sourced, never run alone.
 
 .DESCRIPTION
     Everything here is Windows PowerShell 5.1 compatible and ASCII only, because that is what the laptop
@@ -63,6 +64,11 @@ $script:DemoOldBackendLog = Join-Path $script:DemoStateDir 'backend.log'
 # Which device token the last start gave the capture service, and until when: "development <time>" or
 # "activated". The time only, never the token.
 $script:DemoTokenFile = Join-Path $script:DemoStateDir 'device-token.txt'
+
+# Who the last start told the backend to draft with: one word, 'claude', 'gemini-flash' or 'scripted'.
+# The saved choice is in user secrets; this says what the running backend was given, which differs for
+# an offline rehearsal (Test-ScriptedRehearsal). Never a key.
+$script:DemoDraftingFile = Join-Path $script:DemoStateDir 'drafting.txt'
 
 # Where report.ps1 writes when the Desktop is synced to OneDrive, so the report does not leave the laptop
 # before its owner has read it.

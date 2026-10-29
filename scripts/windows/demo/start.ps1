@@ -8,7 +8,9 @@
          wrong if any of them is not right;
       2. builds the backend if it changed, applies any new database migration, and starts the backend in
          its own window as https://localhost:5001 in the Development environment (which is what makes it
-         read the user secrets). Waits until /health answers over a trusted certificate;
+         read the user secrets), drafting with the provider setup saved (Claude or Gemini), or with the
+         scripted test provider when Summarization__Provider=scripted is set in this window for an
+         offline rehearsal. Waits until /health answers over a trusted certificate;
       3. gets a device token: an invite-activated device renews its own; otherwise a Development device
          is enrolled and its one-hour token is checked against the backend;
       4. publishes the capture service and the UI into one folder if the client changed (the pipe
@@ -224,7 +226,7 @@ if (-not (Test-Path -LiteralPath $script:DemoLogDir)) {
 # This run's logs start empty; the last run's are kept as <name>.1.log for report.cmd.
 Move-DemoLogAside $script:DemoBackendLog
 Move-DemoLogAside $script:DemoServiceLog
-foreach ($file in @($script:DemoBackendExited, $script:DemoTokenFile, $script:DemoOldBackendLog)) {
+foreach ($file in @($script:DemoBackendExited, $script:DemoTokenFile, $script:DemoDraftingFile, $script:DemoOldBackendLog)) {
     if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
 }
 
@@ -268,10 +270,15 @@ if (-not $writer) {
 '@
 
 # The window's script. Development is what makes the host read user secrets; the variables are set
-# inside the window, for the backend only. Summarization__Provider repeats the saved choice, so the
-# backend drafts with the company whose key setup checked even if the secrets file is edited by hand (or,
-# for an offline rehearsal, with the scripted provider: Test-ScriptedRehearsal). Its output is shown and copied to backend.log, which holds no
-# content (the backend's logger scrubs it, INV-10) and lets start explain a failure.
+# inside the window, for the backend only. Summarization__Provider tells the backend who drafts:
+# 'claude' or 'gemini-flash', the choice setup saved in user secrets as Summarization:Provider together
+# with that company's key (Summarization:ApiKey), so the backend sends the key only to the company setup
+# checked it with. The one exception is an offline rehearsal: when Summarization__Provider=scripted is set
+# in the window start runs from (Test-ScriptedRehearsal), the backend gets 'scripted' instead, drafts with
+# the scripted test provider and calls no model, and the saved choice is left as it is. The word it was
+# given is kept in drafting.txt for report.cmd. Whichever it is, the backend's output is shown in the
+# window and passes through the same log writer into logs\backend.log, which keeps only what the
+# backend's scrubbing logger wrote (INV-10) and lets start explain a failure.
 $backendScript = @'
 __LOGLOADER__
 $ErrorActionPreference = 'Continue'
@@ -307,6 +314,9 @@ $backendScript = $backendScript.Replace('__EXITED__', (ConvertTo-Quoted $script:
 $backendScript = $backendScript.Replace('__LOGLOADER__', $logLoader)
 $backendScript = $backendScript.Replace('__LOGWRITERSHA__', (ConvertTo-Quoted $writerHash))
 $backendScript = $backendScript.Replace('__LOGWRITER__', (ConvertTo-Quoted $script:DemoLogWriterFile))
+
+# Who this backend drafts with, for report.cmd: the provider's name only.
+[IO.File]::WriteAllText($script:DemoDraftingFile, $drafting)
 
 $backendWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_DEVICE_TOKEN' = $null } -Body {
     Start-DemoWindow -Script $backendScript
