@@ -18,7 +18,10 @@ long as a Retry-After of up to five seconds; a longer one is answered at once, s
 asked to wait. A wrong key is not retried. An article or upload is sent
 again only when none of it left or Hudu answered 429; otherwise it comes back `unknown` and the
 technician is asked to check Hudu first. The company list stops at 10,000 companies. Every refusal reaches the technician as a kind and two sentences: "Hudu rejected the API key.
-Update it in Settings → Integrations." A 422 carries Hudu's own words about the field it refused.
+Update it in Settings → Integrations." A 422 carries Hudu's own words about the field it refused,
+except that the company must exist: that is a company deleted in Hudu while the backend's ten-minute
+list still held it, so the list is dropped, the mapping to it is forgotten, and the article comes back
+`needs_mapping` for the technician to choose another company.
 
 **A company Hudu does not have is refused before anything is sent.** Publishing to the wrong company is
 one customer's runbook in another customer's knowledge base, so the company id must be one of the

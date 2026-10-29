@@ -229,6 +229,15 @@ public static partial class Publisher
             KbArticleFormatter.Html(bundle.Note, bundle.TicketId, bundle.Frames.Count),
             attachments);
         var result = await docs.PublishArticleAsync(article, sent.From(ct)).ConfigureAwait(false);
+        if (result.Error is { Kind: ProviderErrorKind.NotFound })
+        {
+            // The platform no longer has the company the list still named: deleted since the list was
+            // cached. Nothing was written, so the mapping to it goes, as a stale one does, and the pane
+            // asks for another company (ST-097) rather than passing on a refusal nobody can act on.
+            _ = await mappings.ForgetIfUnchangedAsync(mapped, ct).ConfigureAwait(false);
+            return NeedsMapping(destination, bundle.Company, null, $"The documentation platform no longer has \"{mapped.DocCompanyName}\", so the mapping was forgotten and nothing was written. ");
+        }
+
         return result.Ok
             ? Landed(destination, result.Value!.Id, result.Value.Url, result.Value.Incomplete)
             : Failed(destination, result.Error!);

@@ -13,6 +13,7 @@ namespace ScreenTail.Api.Tests.Providers.Hudu;
 internal sealed class ScriptedHudu : HttpMessageHandler
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly string[] MustExist = ["must exist"];
 
     private readonly Lock _gate = new();
     private readonly List<HttpRequestMessage> _requests = [];
@@ -63,6 +64,13 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     /// companies independently, so the same id can be a different customer on each (S-71).
     /// </summary>
     public Func<string, int, string?>? RenamedAt { get; set; }
+
+    /// <summary>
+    /// Companies deleted on the site: no longer listed, and an article filed under one is refused with
+    /// Hudu's 422 that the company must exist. Added to after a list was cached, it is the company
+    /// removed in Hudu while the backend still remembers it.
+    /// </summary>
+    public HashSet<int> Removed { get; } = [];
 
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
@@ -125,6 +133,9 @@ internal sealed class ScriptedHudu : HttpMessageHandler
             ("GET", var p) when p.EndsWith("/api/v1/companies", StringComparison.Ordinal) =>
                 Ok(new { companies = Companies(request.RequestUri.Host, int.Parse(query["page"] ?? "1", System.Globalization.CultureInfo.InvariantCulture), int.Parse(query["page_size"] ?? "25", System.Globalization.CultureInfo.InvariantCulture)) }),
 
+            ("POST", var p) when p.EndsWith("/api/v1/articles", StringComparison.Ordinal) && Removed.Contains(JsonDocument.Parse(body!).RootElement.GetProperty("article").GetProperty("company_id").GetInt32()) =>
+                new HttpResponseMessage(HttpStatusCode.UnprocessableEntity) { Content = JsonContent.Create(new { errors = new { company = MustExist } }, options: Json) },
+
             ("POST", var p) when p.EndsWith("/api/v1/articles", StringComparison.Ordinal) =>
                 Ok(new { article = new { id = 5101, name = "Printer offline", url = "https://acme.huducloud.com/a/printer-offline-5101", draft = true, company_id = 7 } }),
 
@@ -137,10 +148,18 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     private object[] Companies(string host, int page, int pageSize)
     {
+        if (Removed.Count > 0)
+        {
+            // The site's own paging, over what is left: a deleted company leaves no hole in a page.
+            return [.. Enumerable.Range(1, CompanyCount).Where(i => !Removed.Contains(i)).Skip((page - 1) * pageSize).Take(pageSize).Select(i => Company(host, i))];
+        }
+
         var first = ((long)page - 1) * pageSize + 1;
         var last = Math.Min(CompanyCount, first + pageSize - 1);
-        return [.. Enumerable.Range(0, (int)Math.Max(0, last - first + 1)).Select(offset => (int)(first + offset)).Select(i => new { id = i, name = RenamedAt?.Invoke(host, i) ?? (i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}") })];
+        return [.. Enumerable.Range(0, (int)Math.Max(0, last - first + 1)).Select(offset => (int)(first + offset)).Select(i => Company(host, i))];
     }
+
+    private object Company(string host, int i) => new { id = i, name = RenamedAt?.Invoke(host, i) ?? (i == 7 ? "Acme Dental" : i == 8 ? "Borough Legal" : i == 9 ? "Bright Smiles" : $"Company {i}") };
 
     private static HttpResponseMessage Ok(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body, options: Json) };
 }

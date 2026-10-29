@@ -432,6 +432,36 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task ACompanyRemovedInHuduWhileItWasCachedAsksForAnotherAndIsForgotten()
+    {
+        // The first article files "Acme Dental" under Hudu's company 7 and caches the list. Someone then
+        // deletes company 7 in Hudu. Within the cache's ten minutes the list still holds it, so the
+        // article goes and Hudu answers that the company must exist. The technician is asked to choose
+        // another company rather than told it is a ScreenTail bug, the mapping to the deleted company is
+        // forgotten, and the companies the mapping prompt lists come from Hudu, not the cache.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var first = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        Assert.True(Assert.Single((await first.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results).Ok);
+        _ = hudu.Removed.Add(7);
+
+        using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+        var listed = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+
+        Assert.False(kb.Ok);
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.False(kb.Retryable);
+        Assert.DoesNotContain("ScreenTail bug", kb.Error, StringComparison.Ordinal);
+        Assert.Equal(
+            "The documentation platform no longer has \"Acme Dental\", so the mapping was forgotten and nothing was written. \"Acme Dental\" is not mapped to a company in the documentation platform. Map it in Settings → Integrations, then publish the article again.",
+            kb.Error);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+        Assert.DoesNotContain(listed!.Companies, c => c.Id == "7");
+    }
+
+    [Fact]
     public async Task AStaleMappingRewrittenSinceItWasReadIsKept()
     {
         // The stale row is forgotten as it was read. If a person or an exact match rewrote it in the
