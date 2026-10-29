@@ -2,15 +2,15 @@ using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
+using ScreenTail.UI.Update;
 
 namespace ScreenTail.UI.Settings;
 
 /// <summary>
-/// The Settings screen (Spec §5 S5–S7). This device's activation (ST-010) and Integrations (ST-082) are
-/// built; Capture and Privacy &amp; Redaction are named with the ticket that brings them rather than
-/// drawn as empty forms.
+/// The Settings screen (Spec §5 S5–S7). This device's activation (ST-010), Capture (ST-080), Privacy
+/// &amp; Redaction (ST-081), Integrations (ST-082) and Updates (ST-113).
 /// </summary>
-public sealed class SettingsViewModel(ActivationViewModel activation, CaptureViewModel capture, PrivacyViewModel privacy, IntegrationsViewModel integrations)
+public sealed class SettingsViewModel(ActivationViewModel activation, CaptureViewModel capture, PrivacyViewModel privacy, IntegrationsViewModel integrations, UpdatesViewModel updates)
 {
     public ActivationViewModel Activation { get; } = activation ?? throw new ArgumentNullException(nameof(activation));
 
@@ -20,4 +20,5 @@ public sealed class SettingsViewModel(ActivationViewModel activation, CaptureVie
 
     public IntegrationsViewModel Integrations { get; } = integrations ?? throw new ArgumentNullException(nameof(integrations));
 
+    public UpdatesViewModel Updates { get; } = updates ?? throw new ArgumentNullException(nameof(updates));
 }

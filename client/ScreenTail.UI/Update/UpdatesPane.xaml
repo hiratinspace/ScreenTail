@@ -1,0 +1,26 @@
+<UserControl x:Class="ScreenTail.UI.Update.UpdatesPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="clr-namespace:ScreenTail.Core.Settings;assembly=ScreenTail.Core"
+             AutomationProperties.Name="Updates">
+    <!-- ST-113: where this installation stands, the channel (locked when the admin chose it, INV-11),
+         and Install, offered only when an update is ready and no session is recording. -->
+    <Border Style="{StaticResource Card}" Margin="0,0,0,12" MaxWidth="760" HorizontalAlignment="Left">
+        <StackPanel>
+            <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Updates" />
+            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Sentence}" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Installed}" />
+
+            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Muted}" Text="Channel" />
+            <RadioButton Margin="0,4,0,0" GroupName="UpdateChannel" Content="Stable (Recommended)" IsChecked="{Binding Stable}" IsEnabled="{Binding ChannelEditable}" Foreground="{DynamicResource Brush.text.primary}" />
+            <RadioButton Margin="0,4,0,0" GroupName="UpdateChannel" Content="Pilot: each release first, before everyone else" IsChecked="{Binding Pilot}" IsEnabled="{Binding ChannelEditable}" Foreground="{DynamicResource Brush.text.primary}" />
+            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedNote}" Visibility="{Binding LockedVisibility}" />
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <Button Style="{StaticResource Button.Primary}" Content="Install update" Command="{Binding InstallCommand}" IsEnabled="{Binding CanInstall}" />
+            </StackPanel>
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{x:Static core:UpdatesPanel.WhatInstallDoes}" />
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+    </Border>
+</UserControl>

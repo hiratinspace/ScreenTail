@@ -5,10 +5,12 @@
              xmlns:capture="clr-namespace:ScreenTail.UI.Settings.Capture"
              xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
              xmlns:privacy="clr-namespace:ScreenTail.UI.Settings.Privacy"
+             xmlns:update="clr-namespace:ScreenTail.UI.Update"
              AutomationProperties.Name="Settings">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -33,6 +35,8 @@
 
         <TextBlock Grid.Row="5" Margin="0,8,0,8" Style="{StaticResource Text.SectionHeading}" Text="Integrations" />
         <integrations:IntegrationsPane Grid.Row="6" DataContext="{Binding Integrations}" />
+
+        <update:UpdatesPane Grid.Row="7" Margin="0,12,0,0" DataContext="{Binding Updates}" />
     </Grid>
     </ScrollViewer>
 </UserControl>
