@@ -362,9 +362,10 @@ public sealed class StateMachineTests : IAsyncDisposable
     [Fact]
     public async Task DraftReadyCarriesTheDraftsTitleForTheNotification()
     {
-        // Spec §6: "Draft ready — Printer offline · Acme Dental". The snapshot has had a field for the
-        // title since ST-073 and nothing filled it, so every toast read "Draft ready — session ready to
-        // review" (found by ST-013's end-to-end run). Drafted here, or delivered by the outbox later.
+        // Spec §6: the toast names the draft ("Draft ready", then the title and the company). The
+        // snapshot has had a field for the title since ST-073 and nothing filled it, so every toast read
+        // "Draft ready", then "session ready to review" (found writing ST-013's end-to-end checks).
+        // Drafted here, or delivered by the outbox later.
         _drafter.Outcome = DraftOutcome.Success(Note("Printer offline in reception"));
         var machine = await MachineAsync();
         await machine.StartAsync(ScreenConnect);
