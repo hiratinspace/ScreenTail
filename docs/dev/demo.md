@@ -5,9 +5,11 @@ a password typed during it is kept out, Claude (or Gemini, if you choose it) dra
 you review it. Two commands
 start it and one stops it. Each of them says in plain words what is wrong when something is missing.
 
-**Read this first.** As of 2026-10-27 the whole loop has never run on a real machine. The pieces are
-tested; the joins between them are not. So do a full rehearsal on the laptop before the real demo, and
-write down anything that looks wrong (the checklist at the end says what to look for).
+**Read this first.** As of 2026-10-28 the whole loop has run end to end only unattended, on a Windows
+VM, with the scripted test provider in place of a model (`docs/dev/e2e.md`). It has never run with a
+person at the laptop, a real model drafting, or Remote Desktop starting the session. So do a full
+rehearsal on the laptop before the real demo, and write down anything that looks wrong (the checklist at
+the end says what to look for).
 
 The scripts are in `scripts\windows\demo\`. They do what the manual runbook
 (`docs/dev/first-draft-end-to-end.md`) describes, in the same order, and check each step.
@@ -39,6 +41,12 @@ Anthropic account is also limited in how many calls a minute it may make; a rehe
 
 **The free Gemini key allows about 20 drafts a day, and 5 a minute**, if you draft with Gemini. Rehearse
 with that in mind, and do not rehearse the morning of the demo more than a couple of times.
+
+**Rehearsing without a model.** To rehearse offline or without spending a draft, run
+`$env:Summarization__Provider = 'scripted'` in the PowerShell window before `start.cmd`. Start then
+warns that the backend drafts with the scripted test provider, which writes a note saying what it is and
+calls no model; the saved choice is left as it was. Its notes are not for an audience: before the real
+demo, run `stop.cmd`, open a new PowerShell window and `start.cmd` again (`docs/dev/e2e.md` has more).
 
 **Use only made-up details in the demo.** The note is drafted by a company outside this laptop: with
 Claude, Anthropic receives the session after redaction under the owner's Anthropic account and its data
@@ -72,7 +80,8 @@ It works through five things and says "ok" after each:
   Gemini until you run `setup.cmd -Provider claude`.
 - **The signing key.** Made for you. Nothing to do.
 - **PostgreSQL.** If PostgreSQL is installed, it asks for the password you chose when you installed it.
-  If only Docker Desktop is there and running, it creates a small database container for you and makes up
+  If winget installed it without ever asking you for one, the password is usually `postgres`: try that
+  first. If only Docker Desktop is there and running, it creates a small database container for you and makes up
   its password itself. If neither is there, it prints this line and stops:
   ```powershell
   winget install --id PostgreSQL.PostgreSQL.17 -e --source winget
@@ -256,6 +265,48 @@ windows** off again (see above).
 | Review says the model declined to draft the session | Claude's safety check refused this session, and so did the model it hands refusals to. Write that note by hand; it is not a fault in the demo |
 | No "Draft ready" after two minutes | Look at the backend window: one request to `/v1/sessions/summarize` should be there. If not, the capture service window says why |
 | A certificate error in the capture service window | Run `setup.cmd` again (answer Yes to the certificate) and start again |
+| Something is not right and you cannot say what | Run `report.cmd` (below) and send the file it makes |
+
+## The report: one file to send when it is not working
+
+If the demo did not work properly, run this **while the demo is still running** (before `stop.cmd`):
+
+```powershell
+cd C:\src\ScreenTail
+scripts\windows\demo\report.cmd
+```
+
+It takes up to a minute and changes nothing apart from writing one text file,
+`ScreenTail-report-<date>-<time>.txt`, to your Desktop, which it opens in Notepad. Send that file to
+the developer. Its top
+section, **What looks wrong**, names the first problem it found and how to fix it, in plain words.
+
+What is in it: the Windows and .NET versions, the commit the clone is on and whether it has local
+changes, which parts of the demo are running, whether the backend answers, whether the certificate is
+trusted and PostgreSQL answers, whether the CI runner is on, the settings the demo depends on (as yes/no
+or names only), who drafts (the saved choice, whether the saved key has that company's shape, and what
+the last `start.cmd` gave the backend, which says when it was the scripted rehearsal), the device
+token's expiry, what Windows lets the capture service do (microphone, OCR language, speech model, UI
+Automation), the capture scope and the hotkeys, and the last 200 lines of the capture service's and the
+backend's logs.
+
+What it is made to leave out: screenshots, OCR text, transcripts, note text, window titles, keys,
+tokens, passwords and connection strings. It never opens the recorded sessions. From the logs it keeps
+only the lines ScreenTail's scrubbing logger wrote; any other line a program printed (a crash message
+from .NET, output from a native library) is withheld and shown only as its length. Of any error, only
+the exception's type and where it happened are kept, never its message. Every line then goes through a
+final scrub for anything shaped like a
+key, a token or a password, and your user folder is shown as `%USERPROFILE%`. The top of the file says
+what was withheld and removed. Patterns can miss things, so read it before sending, as with anything.
+
+If your Desktop is synced to OneDrive, the report is written to
+`%LOCALAPPDATA%\ScreenTail.Dev\demo\reports` instead, so it is not uploaded before you have read it,
+and that folder opens.
+
+The logs come from `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs`, where `start.cmd` writes the logger's
+lines from the backend and capture service windows (the windows themselves still show everything). A
+demo started with an older `start.cmd` has no capture service log yet: run `stop.cmd`, `start.cmd`, try
+again, then `report.cmd`.
 
 ## Activated device
 
@@ -269,13 +320,18 @@ the file `%LOCALAPPDATA%\ScreenTail\device.cred`, and run `start.cmd`.
 
 | What | Where |
 |---|---|
-| The drafting key (Claude's or Gemini's), which one drafts, the signing key, the database password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only |
-| Recorded sessions and drafts (encrypted) | `%LOCALAPPDATA%\ScreenTail`, the product's own folder |
-| The demo's own working files: the published programs, which processes start opened, and the backend's log (no session content in it) | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
+| The drafting key (Claude's or Gemini's) as `Summarization:ApiKey`, the saved choice of who drafts as `Summarization:Provider` (`claude` or `gemini-flash`), the signing key, the database connection and its password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only (when setup made the database with Docker, Docker also keeps that database's password in the `screentail-db` container's settings) |
+| Recorded sessions and drafts (encrypted), and an invite-activated device's credential (`device.cred`) | `%LOCALAPPDATA%\ScreenTail`, the product's own folder |
+| The demo's own working files: `state.json` (which processes start opened, so stop closes exactly those), `client-build.txt` (how new the client's source was at the last publish, so start knows when to publish again), `backend.exited` and `service.exited` (why a window's program stopped), `device-token.txt` (which kind of token start gave the capture service and until when, never the token), `drafting.txt` (who start told the backend to draft with: `claude`, `gemini-flash`, or `scripted` for an offline rehearsal) | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
+| The published capture service and UI that start runs | `%LOCALAPPDATA%\ScreenTail.Dev\demo\app` |
+| The backend's and the capture service's logs, `backend.log` and `service.log`: only the lines their scrubbing logger wrote, anything else withheld (2 MB each, the run before kept as `.1.log`), and `log-writer.txt`, the filter both windows load | `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs` |
+| The report, `ScreenTail-report-<date>-<time>.txt` | Your Desktop, or `%LOCALAPPDATA%\ScreenTail.Dev\demo\reports` when the Desktop is synced to OneDrive |
 | What is sent for each draft, and to whom | To Anthropic (`api.anthropic.com`) when Claude drafts, to Google when Gemini does, through the backend: the session after redaction, which is the screenshots with sensitive regions painted over, the text read from them after masking, and the masked transcript of what was said. Nothing is published anywhere without the Publish click |
 
 Nothing is set in the Windows environment for good: the two settings the capture service needs
-(`SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`) are given to that one process when start launches it.
+(`SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`) are given to that one process when start launches it,
+and the backend's (`ASPNETCORE_ENVIRONMENT`, `ASPNETCORE_URLS` and `Summarization__Provider`) are set
+inside its window only.
 
 ---
 
@@ -297,5 +353,5 @@ machine:
 - [ ] `stop.cmd` closed the two windows and the tray icon, and nothing else.
 - [ ] Anything odd about the pill, the tray, Review or the wording.
 
-Send the list to the developer, with `%LOCALAPPDATA%\ScreenTail.Dev\demo\backend.log` if anything failed.
-That log has no session content in it, but read it before sending, as with anything.
+Send the list to the developer. If anything failed, run `scripts\windows\demo\report.cmd` before
+`stop.cmd` and send the file it puts on your Desktop with it (see "The report" above).

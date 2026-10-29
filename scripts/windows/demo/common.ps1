@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Helpers shared by the demo scripts (setup.ps1, start.ps1, stop.ps1). Dot-sourced, never run alone.
+    Helpers shared by the demo scripts (setup.ps1, start.ps1, stop.ps1, report.ps1) and the e2e runner
+    (scripts\windows\e2e\run-e2e.ps1). Dot-sourced, never run alone.
 
 .DESCRIPTION
     Everything here is Windows PowerShell 5.1 compatible and ASCII only, because that is what the laptop
@@ -42,10 +43,36 @@ $script:DemoStateDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\demo'
 $script:DemoAppDir = Join-Path $script:DemoStateDir 'app'
 $script:DemoStateFile = Join-Path $script:DemoStateDir 'state.json'
 $script:DemoBuildStamp = Join-Path $script:DemoStateDir 'client-build.txt'
-$script:DemoBackendLog = Join-Path $script:DemoStateDir 'backend.log'
 $script:DemoBackendExited = Join-Path $script:DemoStateDir 'backend.exited'
-$script:DemoServiceLog = Join-Path $script:DemoStateDir 'service.log'
 $script:DemoServiceExited = Join-Path $script:DemoStateDir 'service.exited'
+
+# What start's two windows print, copied to a file each so report.ps1 can include it. Only the lines the
+# processes' scrubbing log sink wrote (INV-10) are kept; anything else is withheld as it is written (see
+# DemoLogWriterSource below). Each file is capped: past DemoLogCapBytes it becomes <name>.1.log
+# (replacing the one before) and a new one starts, and each start moves the last run's file aside the
+# same way. At most two files of 2 MB per process.
+$script:DemoLogDir = Join-Path $script:DemoStateDir 'logs'
+$script:DemoBackendLog = Join-Path $script:DemoLogDir 'backend.log'
+$script:DemoServiceLog = Join-Path $script:DemoLogDir 'service.log'
+$script:DemoLogCapBytes = 2097152
+$script:DemoLogWriterFile = Join-Path $script:DemoLogDir 'log-writer.txt'
+
+# Where the backend's log was before it moved into logs\. Only report.ps1 reads it, for a laptop that
+# last ran an older start.
+$script:DemoOldBackendLog = Join-Path $script:DemoStateDir 'backend.log'
+
+# Which device token the last start gave the capture service, and until when: "development <time>" or
+# "activated". The time only, never the token.
+$script:DemoTokenFile = Join-Path $script:DemoStateDir 'device-token.txt'
+
+# Who the last start told the backend to draft with: one word, 'claude', 'gemini-flash' or 'scripted'.
+# The saved choice is in user secrets; this says what the running backend was given, which differs for
+# an offline rehearsal (Test-ScriptedRehearsal). Never a key.
+$script:DemoDraftingFile = Join-Path $script:DemoStateDir 'drafting.txt'
+
+# Where report.ps1 writes when the Desktop is synced to OneDrive, so the report does not leave the laptop
+# before its owner has read it.
+$script:DemoReportDir = Join-Path $script:DemoStateDir 'reports'
 
 # Where the capture service keeps an invite-activated device's credential (DpapiDeviceCredentials).
 $script:DemoDeviceCredential = Join-Path $env:LOCALAPPDATA 'ScreenTail\device.cred'
@@ -171,7 +198,8 @@ function Read-SharedLog([string]$Path) {
         return @()
     }
     try {
-        $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        # Delete sharing as well, so a log writer can still move a full file aside while this reads it.
+        $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
         $reader = New-Object IO.StreamReader($stream)
         try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
         return @($text -split "`r?`n")
@@ -179,6 +207,149 @@ function Read-SharedLog([string]$Path) {
     catch {
         return @()
     }
+}
+
+# The older file a capped log is moved to: backend.log becomes backend.1.log.
+function Get-OlderLogPath([string]$Path) {
+    return [IO.Path]::ChangeExtension($Path, '.1.log')
+}
+
+# Moves the last run's log aside, so a new run starts with an empty file and the one before is kept.
+function Move-DemoLogAside([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $older = Get-OlderLogPath $Path
+    try {
+        if (Test-Path -LiteralPath $older) { Remove-Item -LiteralPath $older -Force }
+        Move-Item -LiteralPath $Path -Destination $older
+    }
+    catch {
+        # A file something still holds open is emptied instead, so the new run is not mixed into it.
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# The code start.ps1 puts into each of its windows to write that window's log, and that report.ps1 runs
+# again over what it reads. Kept as text because a window is a separate PowerShell, given its script as
+# an encoded command. Windows PowerShell 5.1.
+#
+# A line is kept only if the scrubbing log sink wrote it. Both sinks (client/ScreenTail.Shared/Logging/
+# ScrubbingLogger.cs and backend/src/ScreenTail.Api/Logging/ScrubbingLoggerProvider.cs) write
+# "HH:mm:ss.fff LEVEL category: message", LEVEL being TRACE, DEBUG, "INFO ", "WARN ", ERROR or FATAL, and
+# then an exception's lines indented by four spaces: "<Type>: <message>", "at <frame>" and "--- End of
+# ...". Anything else a process prints went round the sink: the .NET runtime's "Unhandled exception."
+# with the exception's message, or a native library's output. Such a line is withheld and only its length
+# kept; of an unhandled exception only the type is kept.
+#
+# An exception's message is withheld even from the sink's own lines. The sink scrubs it for paths and
+# addresses, but it is still where a window title or a customer's name ends up, which is why
+# CrashReport.cs leaves it out. The type and the frames are kept.
+#
+# Every comparison is ordinal (-cmatch, [0-9], String.Equals and StartsWith with Ordinal): a culture
+# comparison skips characters such as a soft hyphen, a zero-width space or a NUL, and a line that starts
+# with one must not pass for one of the sink's.
+$script:DemoLogWriterSource = @'
+function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
+    if ($null -eq $Line) { $Line = '' }
+    if ($Line -cmatch '^[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} (TRACE|DEBUG|INFO |WARN |ERROR|FATAL) \S') {
+        $State.InLogger = $true
+        return $Line
+    }
+    if ($State.InLogger) {
+        if ($Line.StartsWith('    at ', [StringComparison]::Ordinal)) { return $Line }
+        if ($Line.StartsWith('    --- End of ', [StringComparison]::Ordinal)) { return $Line }
+        if ($Line -cmatch '^    ([A-Za-z_][A-Za-z0-9_.`+]*): ') { return '    ' + $Matches[1] + ': [message withheld]' }
+    }
+    $State.InLogger = $false
+    if ($Line.Length -eq 0) { return '' }
+
+    # Three fixed sentences the capture service prints itself before its logger exists (Program.cs).
+    if ([string]::Equals($Line, 'Another ScreenTail capture service is already running for this user, or something is holding its name. Exiting with code 3.', [StringComparison]::Ordinal)) { return $Line }
+    if ([string]::Equals($Line, 'The capture service runs on Windows only.', [StringComparison]::Ordinal)) { return $Line }
+    if ($Line -cmatch '^Warning: [A-Z0-9_]+ is set, so this process may be running code that is not ScreenTail''s\.$') { return $Line }
+
+    # What this code itself writes. Read back from a file only: a process printing the same is withheld.
+    if ($State.Reading) {
+        if ($Line -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$') { return $Line }
+        if ($Line -cmatch '^\[[0-9]+ log line\(s\) could not be written here\]$') { return $Line }
+        if ($Line -cmatch '^\[The log filter could not be checked, so nothing from this window is logged\.\]$') { return $Line }
+        if ($Line.StartsWith('[start.ps1] ', [StringComparison]::Ordinal)) { return $Line }
+    }
+
+    if ($Line -cmatch '^Unhandled exception\. ([A-Za-z_][A-Za-z0-9_.`+]*)') {
+        return 'Unhandled exception. ' + $Matches[1] + ' [message and stack withheld]'
+    }
+    return "[line not from ScreenTail's logger withheld, $($Line.Length) chars]"
+}
+
+# One writer per window, kept open: FileShare ReadWrite and Delete, so report.ps1 can read it and it can
+# be moved aside while read. Bytes are counted as written, so the cap costs no extra call per line.
+$script:DemoLog = @{ Path = $null; Writer = $null; Bytes = 0; Cap = __CAP__; Dropped = 0; InLogger = $false; Reading = $false }
+
+function Close-DemoLog {
+    if ($script:DemoLog.Writer) {
+        try { $script:DemoLog.Writer.Dispose() } catch { }
+        $script:DemoLog.Writer = $null
+    }
+}
+
+# Writes one line as it is. For start.ps1's own lines; a process's output goes through Write-DemoLog.
+function Write-DemoLogText([string]$Text) {
+    $ErrorActionPreference = 'Stop'
+    $log = $script:DemoLog
+    try {
+        if (-not $log.Writer) {
+            $stream = New-Object IO.FileStream($log.Path, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]'ReadWrite, Delete')
+            $log.Bytes = $stream.Length
+            $log.Writer = New-Object IO.StreamWriter($stream, (New-Object Text.UTF8Encoding $false))
+        }
+        # A line that could not be written is said, not lost without a word.
+        if ($log.Dropped -gt 0) {
+            $note = "[$($log.Dropped) log line(s) could not be written here]"
+            $log.Writer.WriteLine($note)
+            $log.Bytes += $note.Length + 2
+            $log.Dropped = 0
+        }
+        $log.Writer.WriteLine($Text)
+        $log.Writer.Flush()
+        $log.Bytes += [Text.Encoding]::UTF8.GetByteCount($Text) + 2
+    }
+    catch {
+        $log.Dropped++
+        Close-DemoLog
+        return
+    }
+    if ($log.Bytes -gt $log.Cap) {
+        # This file becomes <name>.1.log and the next line starts a new one. If a reader without delete
+        # sharing holds it, the move fails, writing carries on in this file, and the next line tries again.
+        Close-DemoLog
+        try {
+            $older = [IO.Path]::ChangeExtension($log.Path, '.1.log')
+            if ([IO.File]::Exists($older)) { [IO.File]::Delete($older) }
+            [IO.File]::Move($log.Path, $older)
+        }
+        catch { }
+    }
+}
+
+function Write-DemoLog([string]$Line) {
+    Write-DemoLogText (ConvertTo-DemoLogLine $Line $script:DemoLog)
+}
+'@
+$script:DemoLogWriterSource = $script:DemoLogWriterSource.Replace('__CAP__', [string]$script:DemoLogCapBytes)
+
+# The SHA-256 of the writer source as UTF-8, in lower-case hex. start.ps1 puts it into each window
+# script, and the window loads the saved file only if the file still has it.
+function Get-DemoLogWriterHash([string]$Source) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Source))
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
 }
 
 # --- Running other programs ---------------------------------------------------------------------------

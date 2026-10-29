@@ -506,6 +506,12 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
         }
         else {
             Write-Note "Enter the password you chose for the 'postgres' user when you installed PostgreSQL."
+            if ($mode -eq 'service') {
+                # Setup never creates a Windows service, so this PostgreSQL was installed some other way.
+                Write-Note 'If it was installed by winget and never asked you for a password, its password is usually:'
+                Write-Note '  postgres'
+                Write-Note 'Try that first.'
+            }
             $hostName = 'localhost'
             $port = $DatabasePort
         }
