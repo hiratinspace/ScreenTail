@@ -66,6 +66,41 @@ public sealed class ProviderRegistrationTests(ApiFixture api) : IClassFixture<Ap
         Assert.Contains("if (app.Environment.IsDevelopment() && demo.Demo)", program[Math.Max(0, mapped - 120)..mapped], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void TheScriptedDrafterIsOnlyEverBuiltInProgramAndOnlyBehindItsSetting()
+    {
+        // ST-013. A note no model wrote is the same danger as a publish nobody received, so the scripted
+        // test provider is held to the demo's rule: built in Program.cs alone, behind its setting, which is
+        // validated first and refused outside Development (ScriptedProviderTests).
+        var sources = ProviderSources();
+        var offenders = sources
+            .Where(file => !file.EndsWith($"{Path.DirectorySeparatorChar}Program.cs", StringComparison.Ordinal))
+            .Where(file => File.ReadAllText(file).Contains("new ScriptedProvider", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.True(offenders.Count == 0, $"The scripted provider is built in: {string.Join(", ", offenders)}");
+
+        // ST-063 merged the provider choice into one ILlmProvider factory, which SummarizationService takes
+        // from the container. The scripted provider is that factory's first branch, behind its setting, and
+        // the single Validate that refuses it outside Development runs before anything is registered.
+        var program = File.ReadAllText(sources.Single(file => file.EndsWith($"{Path.DirectorySeparatorChar}Program.cs", StringComparison.Ordinal)));
+        const string validate = "summarization.Validate(builder.Environment.IsDevelopment())";
+        var validated = program.IndexOf(validate, StringComparison.Ordinal);
+        var factory = program.IndexOf("builder.Services.AddScoped<ILlmProvider>(", StringComparison.Ordinal);
+        var service = program.IndexOf("builder.Services.AddScoped<SummarizationService>(", StringComparison.Ordinal);
+        var built = program.IndexOf("new ScriptedProvider()", StringComparison.Ordinal);
+        Assert.True(validated > 0 && program.LastIndexOf("summarization.Validate(", StringComparison.Ordinal) == validated, "Validate is called once, in Program.cs.");
+        Assert.True(built > 0 && program.LastIndexOf("new ScriptedProvider", StringComparison.Ordinal) == built, "ScriptedProvider is built once, in Program.cs.");
+        Assert.True(validated < factory && factory < built && built < service, "The setting is validated, then the provider is built inside the ILlmProvider factory.");
+        Assert.Contains("if (summarization.Scripted)", program[Math.Max(0, built - 80)..built], StringComparison.Ordinal);
+        Assert.Contains("services.GetRequiredService<ILlmProvider>()", program[service..], StringComparison.Ordinal);
+
+        // And without the setting, which is how the fixture runs, the provider is not configured at all.
+        using var scope = api.Services.CreateScope();
+        Assert.False(scope.ServiceProvider.GetRequiredService<ScreenTail.Api.Summarize.SummarizationOptions>().Scripted);
+        Assert.IsType<ScreenTail.Api.Providers.Llm.GeminiProvider>(scope.ServiceProvider.GetRequiredService<ScreenTail.Api.Summarize.ILlmProvider>());
+    }
+
     [Theory]
     [InlineData(nameof(ScreenTail.Api.Providers.ConnectWise.ConnectWiseProvider))]
     [InlineData(nameof(ScreenTail.Api.Providers.Hudu.HuduProvider))]

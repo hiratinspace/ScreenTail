@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ScreenTail.Core.Audit;
 using ScreenTail.Core.Capture;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 
@@ -78,7 +79,8 @@ public sealed class RedactionWorker(
     RedactionEngine engine,
     Capture.PendingFrames pending,
     RedactionOptions? options = null,
-    TimeProvider? time = null)
+    TimeProvider? time = null,
+    CaptureThrottle? throttle = null)
 {
     private readonly RedactionOptions _options = options ?? new RedactionOptions();
     private readonly TimeProvider _time = time ?? TimeProvider.System;
@@ -128,7 +130,7 @@ public sealed class RedactionWorker(
     public async Task RunAsync(CancellationToken ct)
     {
         var reporting = ReportBacklogAsync(ct);
-        var workers = Enumerable.Range(0, _options.Concurrency).Select(_ => WorkAsync(ct)).ToArray();
+        var workers = Enumerable.Range(0, _options.Concurrency).Select(index => WorkAsync(index, ct)).ToArray();
         await Task.WhenAll(workers).ConfigureAwait(false);
         await reporting.ConfigureAwait(false);
     }
@@ -176,12 +178,28 @@ public sealed class RedactionWorker(
         return true;
     }
 
-    private async Task WorkAsync(CancellationToken ct)
+    private async Task WorkAsync(int index, CancellationToken ct)
     {
         try
         {
             while (!ct.IsCancellationRequested)
             {
+                // ST-031: over the processor budget, one frame is read at a time while the session
+                // records. Every reader but the first stands aside between frames, never in the middle of
+                // one, until the level moves or the session stops recording. The signal is taken before
+                // the level is read, so a move in between is not missed. Nothing else waits: a frame that
+                // is waiting is read as soon as the reader is free, so a click's screenshot is never paused
+                // or skipped, only read one at a time with the rest.
+                if (throttle is not null && index > 0)
+                {
+                    var moved = throttle.NextChange;
+                    if (throttle.ReadsOneFrameAtATime)
+                    {
+                        await moved.WaitAsync(ct).ConfigureAwait(false);
+                        continue;
+                    }
+                }
+
                 switch (await StepAsync(ct).ConfigureAwait(false))
                 {
                     case Step.Empty:

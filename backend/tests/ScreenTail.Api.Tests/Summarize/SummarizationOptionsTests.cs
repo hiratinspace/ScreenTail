@@ -134,23 +134,42 @@ public sealed class SummarizationOptionsTests
     }
 
     [Theory]
-    [InlineData("openai")]
-    [InlineData("anthropic")]
-    [InlineData("")]
-    public void AProviderThisServiceDoesNotKnowIsRefusedAtStartup(string provider)
+    [InlineData("openai", false)]
+    [InlineData("anthropic", false)]
+    [InlineData("", false)]
+    [InlineData("anthropic", true)]
+    [InlineData("scripts", true)]
+    public void AProviderThisServiceDoesNotKnowIsRefusedAtStartup(string provider, bool isDevelopment)
     {
-        var thrown = Assert.Throws<InvalidOperationException>(() => new SummarizationOptions { Provider = provider }.Validate());
+        // Development is no excuse: the key would still go to a company it was not for.
+        var thrown = Assert.Throws<InvalidOperationException>(() => new SummarizationOptions { Provider = provider }.Validate(isDevelopment));
 
         Assert.Contains("Summarization:Provider", thrown.Message, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("gemini-flash")]
-    [InlineData("claude")]
-    [InlineData("Claude")]
-    public void TheTwoProvidersAreAccepted(string provider)
+    [InlineData("gemini-flash", false)]
+    [InlineData("claude", false)]
+    [InlineData(" Claude ", false)]
+    [InlineData("gemini-flash", true)]
+    [InlineData("claude", true)]
+    [InlineData("scripted", true)]
+    [InlineData(" Scripted ", true)]
+    public void TheKnownProvidersAreAccepted(string provider, bool isDevelopment)
     {
-        new SummarizationOptions { Provider = provider }.Validate();
+        new SummarizationOptions { Provider = provider }.Validate(isDevelopment);
+    }
+
+    [Theory]
+    [InlineData("scripted")]
+    [InlineData(" SCRIPTED ")]
+    public void TheScriptedProviderIsRefusedOutsideDevelopmentHoweverItIsWritten(string provider)
+    {
+        // ST-013. One Validate holds both rules, so the scripted provider passing the known-name check
+        // must not let it past the environment check.
+        var thrown = Assert.Throws<InvalidOperationException>(() => new SummarizationOptions { Provider = provider }.Validate(isDevelopment: false));
+
+        Assert.Contains("Summarization:Provider=scripted", thrown.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -163,17 +182,17 @@ public sealed class SummarizationOptionsTests
             Provider = "claude",
             Model = "claude-haiku-5-5",
             RefusalFallback = "claude-opus-5",
-        }.Validate());
+        }.Validate(isDevelopment: false));
 
         Assert.Contains("Summarization:RefusalFallback", thrown.Message, StringComparison.Ordinal);
-        new SummarizationOptions { Provider = "claude", Model = "claude-haiku-5-5" }.Validate();
-        new SummarizationOptions { Provider = "claude", Model = "claude-haiku-5-5", RefusalFallback = "none" }.Validate();
+        new SummarizationOptions { Provider = "claude", Model = "claude-haiku-5-5" }.Validate(isDevelopment: false);
+        new SummarizationOptions { Provider = "claude", Model = "claude-haiku-5-5", RefusalFallback = "none" }.Validate(isDevelopment: false);
     }
 
     [Fact]
     public void AnEffortClaudeDoesNotAcceptIsRefusedAtStartup()
     {
-        var thrown = Assert.Throws<InvalidOperationException>(() => new SummarizationOptions { Provider = "claude", Effort = "extreme" }.Validate());
+        var thrown = Assert.Throws<InvalidOperationException>(() => new SummarizationOptions { Provider = "claude", Effort = "extreme" }.Validate(isDevelopment: false));
 
         Assert.Contains("Summarization:Effort", thrown.Message, StringComparison.Ordinal);
     }

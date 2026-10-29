@@ -99,7 +99,7 @@ public sealed class ShellStateTests
         state.Lost();
 
         Assert.Equal(ServiceConnection.Unavailable, state.Snapshot.Connection);
-        Assert.Equal("Capture service not running — Start", state.Snapshot.Banner);
+        Assert.Equal("Capture service not running. Start it to capture sessions.", state.Snapshot.Banner);
     }
 
     [Fact]

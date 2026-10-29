@@ -66,7 +66,9 @@ var summarization = builder.Configuration.GetSection(SummarizationOptions.Sectio
     ?? new SummarizationOptions();
 
 // An unknown provider stops the service here: the key would otherwise go to a company it was not for.
-summarization.Validate();
+// ST-013. Summarization:Provider=scripted drafts without a model, for the Windows end-to-end test and an
+// offline rehearsal. Refused outside Development, like Providers:Demo below.
+summarization.Validate(builder.Environment.IsDevelopment());
 
 // Before any Anthropic client exists: the SDK adds every header ANTHROPIC_CUSTOM_HEADERS names to every
 // request, reads it once per process, and offers no setting that stops it. ClaudeProvider also rewrites
@@ -97,9 +99,15 @@ builder.Services.AddHttpClient(nameof(ClaudeProvider), client =>
 // Drafting could not have worked on any deployment (2026-09-20 review).
 //
 // Registered as itself, scoped, so the container disposes the Claude provider's SDK client with the
-// request. Summarization:Provider picks which; Gemini is the default and unchanged.
+// request. Summarization:Provider picks which; Gemini is the default and unchanged. The scripted test
+// provider (ST-013) is only reachable in Development, because Validate refused it everywhere else above.
 builder.Services.AddScoped<ILlmProvider>(services =>
 {
+    if (summarization.Scripted)
+    {
+        return new ScriptedProvider();
+    }
+
     var clients = services.GetRequiredService<IHttpClientFactory>();
     return summarization.IsClaude
         ? new ClaudeProvider(clients.CreateClient(nameof(ClaudeProvider)), summarization, prompt)

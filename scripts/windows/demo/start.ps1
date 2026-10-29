@@ -120,6 +120,7 @@ if ($others.Count -gt 0) {
 $secrets = Read-UserSecrets
 $missing = @()
 $drafting = Get-DraftingProvider $secrets
+if (Test-ScriptedRehearsal) { $drafting = 'scripted' }
 if (-not $secrets[$script:KeyDrafting]) { $missing += "the drafting key ($script:KeyDrafting)" }
 if (-not (Test-SigningKey $secrets[$script:KeySigning])) { $missing += "the signing key ($script:KeySigning)" }
 if (-not $secrets[$script:KeyDatabase]) { $missing += "the database connection ($script:KeyDatabase)" }
@@ -128,7 +129,12 @@ if ($missing.Count -gt 0) {
         'Run scripts\windows\demo\setup.cmd, then start again.')
 }
 Write-Ok 'The drafting key, the signing key and the database connection are saved (values not shown).'
-Write-Ok ('Drafting: ' + (Get-ProviderLabel $drafting) + '. To change it: setup.cmd -Provider claude (or gemini).')
+if ($drafting -eq 'scripted') {
+    Write-Caution ('Drafting: ' + (Get-ProviderLabel $drafting) + ', because Summarization__Provider=scripted is set in this window. Its notes are not for an audience; open a new window to draft for real again.')
+}
+else {
+    Write-Ok ('Drafting: ' + (Get-ProviderLabel $drafting) + '. To change it: setup.cmd -Provider claude (or gemini).')
+}
 
 if (-not (Test-DevCertificateTrusted)) {
     Stop-Demo -Problem 'The development certificate is missing, expired or not trusted, so the capture service would refuse the backend.' -Fix @(
@@ -216,7 +222,8 @@ foreach ($file in @($script:DemoBackendLog, $script:DemoBackendExited)) {
 
 # The window's script. Development is what makes the host read user secrets; the variables are set
 # inside the window, for the backend only. Summarization__Provider repeats the saved choice, so the
-# backend drafts with the company whose key setup checked even if the secrets file is edited by hand. Its output is shown and copied to backend.log, which holds no
+# backend drafts with the company whose key setup checked even if the secrets file is edited by hand (or,
+# for an offline rehearsal, with the scripted provider: Test-ScriptedRehearsal). Its output is shown and copied to backend.log, which holds no
 # content (the backend's logger scrubs it, INV-10) and lets start explain a failure.
 $backendScript = @'
 $ErrorActionPreference = 'Continue'

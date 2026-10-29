@@ -112,7 +112,7 @@ public sealed class TimelineTests
 
         Assert.Equal(10_000, band.TsMs);
         Assert.Equal(25_000, band.EndMs);
-        Assert.Equal("Capture paused — a password field had focus", band.Description);
+        Assert.Equal("Capture paused: a password field had focus", band.Description);
     }
 
     [Fact]

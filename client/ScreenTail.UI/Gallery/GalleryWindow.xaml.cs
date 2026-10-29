@@ -22,9 +22,9 @@ public partial class GalleryWindow : Window
         InitializeComponent();
         SampleTable.ItemsSource = new[]
         {
-            new SessionRow("Draft", "14 min ago", "12 min", "ScreenConnect", "—"),
+            new SessionRow("Draft", "14 min ago", "12 min", "ScreenConnect", "Not published"),
             new SessionRow("Published", "3 h ago", "21 min", "ScreenConnect", "Acme Dental · #48190"),
-            new SessionRow("Partial", "Yesterday", "6 min", "Remote Desktop", "—"),
+            new SessionRow("Partial", "Yesterday", "6 min", "Remote Desktop", "Not published"),
         };
         Loaded += OnLoaded;
     }

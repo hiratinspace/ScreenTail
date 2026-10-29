@@ -99,6 +99,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>The draft as edited. The first save is also kept as the original, for the edit ratio (ST-098).</summary>
     Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
 
+    /// <summary>
+    /// A drafted note arriving, saved with the session's draft_ready state in one write (ST-013). Two writes
+    /// left room for Review's discard between them, and the second put draft_ready on a discarded row.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">There is no such session, or it was discarded.</exception>
+    Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
+
     /// <summary>The draft as it was first written, or null when nothing has been drafted or it was purged.</summary>
     Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default);
 
@@ -106,6 +113,13 @@ public interface ISessionStore : IAsyncDisposable
 
     /// <summary>Persists a state-machine transition (ST-020). <paramref name="state"/> is a wire name from <c>CaptureStates</c>.</summary>
     Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves a session to <paramref name="state"/> only if it is in <paramref name="expected"/> now, and
+    /// says whether it did (ST-013). For writers that arrive late, such as the outbox settling a draft:
+    /// a row discarded, purged or already moved on is left as it is.
+    /// </summary>
+    Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default);
 
     /// <summary>Sessions currently in any of the given states, oldest first. Used for orphan recovery and draft counts.</summary>
     Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default);

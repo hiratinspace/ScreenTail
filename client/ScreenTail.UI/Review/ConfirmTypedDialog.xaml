@@ -7,7 +7,7 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Style="{StaticResource Window.Base}">
-    <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="20">
+    <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="24">
         <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Heading}" />
 
         <!-- What is actually lost, in the words of the thing being lost. Spec §3: irreversible actions say
@@ -17,13 +17,13 @@
                    TextWrapping="Wrap"
                    Text="{Binding Consequence}" />
 
-        <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Muted}" Text="{Binding Prompt}" />
+        <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="{Binding Prompt}" />
         <TextBox x:Name="Typed"
-                 Style="{StaticResource Input.Default}"
+                 Style="{StaticResource Input.Mono}"
                  TextChanged="OnTyped"
                  AutomationProperties.Name="{Binding Prompt}" />
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
             <Button Style="{StaticResource Button.Secondary}"
                     Margin="0,0,8,0"
                     Content="Keep it"

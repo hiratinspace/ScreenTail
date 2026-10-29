@@ -12,6 +12,9 @@ public enum SessionState
     Finalizing,
     DraftReady,
     DraftFailed,
+
+    /// <summary>Finalized, its draft queued for the backend (ST-013). Captures nothing; rests until the outbox settles it.</summary>
+    DraftPending,
 }
 
 public static class SessionStateNames
@@ -27,6 +30,13 @@ public static class SessionStateNames
     /// </summary>
     public const string Published = "published";
 
+    /// <summary>
+    /// Finalized, with its draft in the outbox on the way to the backend (ST-013). The machine rests idle
+    /// meanwhile, because nothing is being captured; the outbox moves the session on to draft_ready or
+    /// draft_failed when the backend answers for good. Not orphanable: the queue still holds the work.
+    /// </summary>
+    public const string DraftPending = CaptureStates.DraftPending;
+
     public static string ToWire(this SessionState state) => state switch
     {
         SessionState.Idle => CaptureStates.Idle,
@@ -36,6 +46,7 @@ public static class SessionStateNames
         SessionState.Finalizing => CaptureStates.Finalizing,
         SessionState.DraftReady => CaptureStates.DraftReady,
         SessionState.DraftFailed => CaptureStates.DraftFailed,
+        SessionState.DraftPending => CaptureStates.DraftPending,
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
     };
 

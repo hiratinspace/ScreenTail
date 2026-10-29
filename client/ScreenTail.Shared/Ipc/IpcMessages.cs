@@ -102,8 +102,8 @@ public sealed record DiscardCommand : IpcCommand
 /// UI has to compute it anyway to know whether the pill is on a screen at all.
 ///
 /// A zero width and height means the technician chose tray-only between sessions; the pill returns as a
-/// session starts. A session that starts must be followed by a report with the pill's real rectangle, or
-/// the zero-size one expires and the indicator guard suppresses capture after its grace.
+/// session starts. Once a session runs a zero-size report does not count, and the indicator guard
+/// suppresses capture unless a report with the pill's real rectangle arrives within its grace from the start.
 /// </summary>
 public sealed record IndicatorShowingCommand : IpcCommand
 {
@@ -217,6 +217,13 @@ public sealed record SessionLoaded : IpcEvent
 {
     [JsonPropertyName("session")]
     public required Schema.Session Session { get; init; }
+
+    /// <summary>
+    /// The session's draft is queued for the backend and has not come back yet (ST-013, contract v5).
+    /// Review says the note is being drafted, rather than that drafting failed, while this is true.
+    /// </summary>
+    [JsonPropertyName("draft_pending")]
+    public bool DraftPending { get; init; }
 }
 
 /// <summary>Asks for one redacted frame's image. Answered by a <see cref="FrameLoaded"/>.</summary>
@@ -880,6 +887,12 @@ public static class CaptureStates
     public const string Finalizing = "finalizing";
     public const string DraftReady = "draft_ready";
     public const string DraftFailed = "draft_failed";
+
+    /// <summary>
+    /// The session is over and its draft is on its way to the backend through the outbox (ST-013).
+    /// Nothing is being captured; the session is named, and can still be discarded.
+    /// </summary>
+    public const string DraftPending = "draft_pending";
 }
 
 /// <summary>

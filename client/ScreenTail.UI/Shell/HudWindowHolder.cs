@@ -100,6 +100,10 @@ internal sealed class HudWindowHolder
         {
             _shown = false;
             _window.Hide();
+
+            // Said at once too: the pill put away replaces the pill's last report rather than leaving it
+            // current, and claiming a pill, for up to a reporting interval after the pill went.
+            Report();
         }
 
         if (!_reporting.IsEnabled)

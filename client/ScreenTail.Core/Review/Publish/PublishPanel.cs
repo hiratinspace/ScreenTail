@@ -90,6 +90,9 @@ public sealed class PublishPanel
     private readonly Func<PublishRequest, CancellationToken, Task<IReadOnlyList<DestinationResult>>> _publish;
     private readonly TimeEntryOptions _rounding;
     private readonly bool _offline;
+
+    /// <summary>The draft is on its way from the backend (ST-013), so the reason Publish waits says so.</summary>
+    private readonly bool _draftPending;
     private readonly CompanyMapping? _mapping;
     private readonly Dictionary<Destination, DestinationResult> _results = [];
 
@@ -105,7 +108,8 @@ public sealed class PublishPanel
         Func<PublishRequest, CancellationToken, Task<IReadOnlyList<DestinationResult>>> publish,
         TimeEntryOptions? rounding = null,
         bool offline = false,
-        CompanyMapping? mapping = null)
+        CompanyMapping? mapping = null,
+        bool draftPending = false)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         ArgumentNullException.ThrowIfNull(integrations);
@@ -113,6 +117,7 @@ public sealed class PublishPanel
         _publish = publish ?? throw new ArgumentNullException(nameof(publish));
         _rounding = rounding ?? new TimeEntryOptions();
         _offline = offline;
+        _draftPending = draftPending;
         _mapping = mapping;
         Integrations = integrations;
 
@@ -225,7 +230,7 @@ public sealed class PublishPanel
                 return ConnectPrompt;
             }
 
-            if (NoteBanners.PublishBlockedBecause(_session, ticketChosen: Ticket is not null, _offline) is { } reason)
+            if (NoteBanners.PublishBlockedBecause(_session, ticketChosen: Ticket is not null, _offline, _draftPending) is { } reason)
             {
                 return reason;
             }

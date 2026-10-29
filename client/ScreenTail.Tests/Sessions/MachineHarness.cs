@@ -38,7 +38,8 @@ internal sealed class MachineHarness : IAsyncDisposable
     /// machine's accounting rather than the runner's scheduler.</param>
     /// <param name="sources">What the machine starts, stops and asks for a marked frame. None by default.</param>
     /// <param name="pendingDepth">How many frames may wait. Small only for a test that needs the machine to refuse one.</param>
-    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null, int pendingDepth = 1000)
+    /// <param name="redactionGrace">How long finalize waits for frames still being read. Short by default; long only for a test that needs to act while the machine finalizes.</param>
+    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null, int pendingDepth = 1000, TimeSpan? redactionGrace = null)
     {
         var path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
         var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
@@ -53,7 +54,7 @@ internal sealed class MachineHarness : IAsyncDisposable
             time: time,
             options: new SessionMachineOptions
             {
-                RedactionGrace = TimeSpan.FromMilliseconds(100),
+                RedactionGrace = redactionGrace ?? TimeSpan.FromMilliseconds(100),
                 RedactionPoll = TimeSpan.FromMilliseconds(20),
                 Pending = pending,
             });

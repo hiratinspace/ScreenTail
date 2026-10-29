@@ -6,8 +6,14 @@
              xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
              xmlns:privacy="clr-namespace:ScreenTail.UI.Settings.Privacy"
              AutomationProperties.Name="Settings">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <Grid>
+    <UserControl.Resources>
+        <!-- A group of cards: more space above than below, so the heading belongs to what follows. -->
+        <Style x:Key="Settings.Group" BasedOn="{StaticResource Text.SectionHeading}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,28,0,12" />
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
+    <Grid Width="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -21,18 +27,18 @@
         <TextBlock Grid.Row="0" Style="{StaticResource Text.ScreenTitle}" Text="Settings" />
 
         <!-- The sections Spec §5 lists, in its order. -->
-        <activation:ActivationPane Grid.Row="1" Margin="0,8,0,0" MaxWidth="760" HorizontalAlignment="Left" DataContext="{Binding Activation}" />
+        <activation:ActivationPane Grid.Row="1" Margin="0,16,0,0" DataContext="{Binding Activation}" />
 
         <StackPanel Grid.Row="2">
-            <TextBlock Margin="0,8,0,8" Style="{StaticResource Text.SectionHeading}" Text="Capture" />
+            <TextBlock Style="{StaticResource Settings.Group}" Text="Capture" />
             <capture:CapturePane DataContext="{Binding Capture}" />
         </StackPanel>
 
-        <TextBlock Grid.Row="3" Margin="0,8,0,8" Style="{StaticResource Text.SectionHeading}" Text="Privacy &amp; Redaction" />
+        <TextBlock Grid.Row="3" Style="{StaticResource Settings.Group}" Text="Privacy and redaction" />
         <privacy:PrivacyPane Grid.Row="4" DataContext="{Binding Privacy}" />
 
-        <TextBlock Grid.Row="5" Margin="0,8,0,8" Style="{StaticResource Text.SectionHeading}" Text="Integrations" />
-        <integrations:IntegrationsPane Grid.Row="6" DataContext="{Binding Integrations}" />
+        <TextBlock Grid.Row="5" Style="{StaticResource Settings.Group}" Text="Integrations" />
+        <integrations:IntegrationsPane Grid.Row="6" Margin="0,0,0,24" DataContext="{Binding Integrations}" />
     </Grid>
     </ScrollViewer>
 </UserControl>

@@ -74,7 +74,16 @@ function Get-DraftingProvider([hashtable]$Secrets) {
 # The provider's name as a person says it.
 function Get-ProviderLabel([string]$Provider) {
     if ($Provider -eq 'claude') { return 'Claude (Anthropic)' }
+    if ($Provider -eq 'scripted') { return 'the scripted test provider (no model, rehearsal only)' }
     return 'Gemini (Google)'
+}
+
+# Whether this start is an offline rehearsal (docs/dev/e2e.md): Summarization__Provider=scripted set in
+# the window start runs from. The backend runs in Development, the only place it accepts the setting, and
+# the note it writes says no model wrote it. Never saved, so the next plain start drafts for real again.
+function Test-ScriptedRehearsal {
+    $requested = [string]$env:Summarization__Provider
+    return [bool]($requested -and $requested.Trim().ToLowerInvariant() -eq 'scripted')
 }
 
 # --- Output -------------------------------------------------------------------------------------------

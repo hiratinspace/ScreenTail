@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ST-013: the end-to-end driver. Not part of the product and never shipped: the installer publishes the
+    service and the UI by name, and this is neither.
+
+    scripts/windows/e2e/run-e2e.ps1 publishes it into the same folder as the capture service and the UI,
+    because an unsigned build's pipe handshake only lets in a client whose executable sits beside the
+    service's (ADR-0003). From there it does what a technician does through the UI's pipe commands: shows
+    a window with known text, chooses "all windows", starts a session, marks moments (or clicks, on the
+    laptop's input job), stops, waits for the draft, publishes to the demo PSA, and checks what arrived.
+    It never sends the UI's indicator report itself: that has to come from the real pill.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>ScreenTail.E2E</RootNamespace>
+    <AssemblyName>ScreenTail.E2E</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTail.Platform\ScreenTail.Platform.csproj" />
+    <ProjectReference Include="..\ScreenTail.Shared\ScreenTail.Shared.csproj" />
+  </ItemGroup>
+</Project>

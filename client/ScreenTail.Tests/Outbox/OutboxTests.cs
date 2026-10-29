@@ -405,7 +405,7 @@ public sealed class OutboxTests
     [Fact]
     public async Task APendingDraftIsWhatTheOfflineBannerCountsFrom()
     {
-        // Spec §5 S3: "Draft pending — offline". The banner needs to know there is something waiting,
+        // Spec §5 S3: "Draft pending: offline". The banner needs to know there is something waiting,
         // and that it is a draft rather than a publish, because the wording differs.
         var store = new FakeOutboxStore();
         var outbox = new Core.Outbox.Outbox(store, new FakeNetwork { Up = false }.SendAsync, new ManualTime(At));
@@ -533,6 +533,95 @@ public sealed class OutboxTests
         // And with nothing left but the stuck item, the drain says there is nothing to do rather than
         // spinning on it.
         Assert.False(await outbox.DrainAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task WhoeverIsWaitingIsToldWhenAnItemIsDoneOrFailedForGood()
+    {
+        // ST-013's end-to-end run found that a draft the outbox delivered never reached the state the
+        // technician sees: the queue wrote the note to the store and nobody told the session machine, so
+        // the pill stayed on "draft failed". The queue now says when an item settles, and only then.
+        var store = new FakeOutboxStore();
+        var time = new ManualTime(At);
+        var network = new FakeNetwork { Outcome = SendOutcome.Retry("The backend did not answer.") };
+        var settled = new List<(string Session, OutboxState State, string? Error)>();
+        var outbox = new Core.Outbox.Outbox(store, network.SendAsync, time)
+        {
+            Settled = (item, _) =>
+            {
+                settled.Add((item.SessionId, item.State, item.LastError));
+                return Task.CompletedTask;
+            },
+        };
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+
+        // A retry is not settled.
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(settled);
+
+        network.Outcome = SendOutcome.Done("note-1");
+        time.Advance(Core.Outbox.Outbox.RetryAfter(1));
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+        Assert.Equal([("s1", OutboxState.Done, (string?)"The backend did not answer.")], settled);
+
+        // Failed for good, out of patience rather than by the far end's word, is settled too.
+        await outbox.EnqueueAsync(Work("s2", OutboxKind.Draft));
+        network.Outcome = SendOutcome.Retry("Still down.");
+        for (var i = 0; i < 60 && settled.Count < 2; i++)
+        {
+            _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+            time.Advance(TimeSpan.FromHours(1));
+        }
+
+        Assert.Equal(("s2", OutboxState.Failed, (string?)"Still down."), settled[1]);
+    }
+
+    [Fact]
+    public async Task AnItemWhoseRowWentWhileItWasBeingSentIsNotSettled()
+    {
+        // INV-12. A discard during the send deletes the queued item; the send then fails (the note has
+        // nowhere to go). Telling the machine about that failure wrote draft_failed over a discarded row,
+        // so the session came back. An update that touches no row settles nothing.
+        var store = new FakeOutboxStore();
+        var settled = 0;
+        var outbox = new Core.Outbox.Outbox(
+            store,
+            (item, token) =>
+            {
+                _ = store.Items.RemoveAll(i => i.Id == item.Id);
+                return Task.FromResult(SendOutcome.Failed("This could not be sent (InvalidOperationException)."));
+            },
+            new ManualTime(At))
+        {
+            Settled = (_, _) =>
+            {
+                settled++;
+                return Task.CompletedTask;
+            },
+        };
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, settled);
+        Assert.Empty(store.Items);
+    }
+
+    [Fact]
+    public async Task AListenerThatThrowsDoesNotStopTheQueue()
+    {
+        var store = new FakeOutboxStore();
+        var outbox = new Core.Outbox.Outbox(store, new FakeNetwork().SendAsync, new ManualTime(At))
+        {
+            Settled = (_, _) => throw new InvalidOperationException("listener broke"),
+        };
+        await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
+        await outbox.EnqueueAsync(Work("s2", OutboxKind.Draft));
+
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+        _ = await outbox.DrainAsync(TestContext.Current.CancellationToken);
+
+        Assert.All(store.Items, item => Assert.Equal(OutboxState.Done, item.State));
     }
 
     private static Core.Outbox.Outbox Build(

@@ -38,7 +38,8 @@ public sealed class SummarizationOptions
     public const string DefaultClaudeModel = "claude-opus-5-5";
 
     /// <summary>
-    /// Which provider drafts: <see cref="Gemini"/> (the default) or <see cref="Claude"/>.
+    /// Which provider drafts: <see cref="Gemini"/> (the default) or <see cref="Claude"/>, or in
+    /// Development only, <see cref="ScriptedProvider"/> (ST-013).
     ///
     /// Gemini Flash by default: it is the cheapest at this shape of request, it reads images natively,
     /// and the abstraction means changing it costs one class. Claude is there because the owner has
@@ -293,8 +294,22 @@ public sealed class SummarizationOptions
         set => _maxOutputTokens = value;
     }
 
+    /// <summary>
+    /// The provider name that selects the scripted test provider (ST-013). Development only.
+    /// </summary>
+    public const string ScriptedProvider = "scripted";
+
+    /// <summary>The setting's full name, for messages and documentation.</summary>
+    public const string ProviderSetting = Section + ":" + nameof(Provider);
+
+    /// <summary>
+    /// Whether the scripted test provider drafts instead of a model: a deterministic note built from the
+    /// bundle, at no cost, for the Windows end-to-end test and an offline rehearsal. Needs no key.
+    /// </summary>
+    public bool Scripted => string.Equals(Provider?.Trim(), ScriptedProvider, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Whether this deployment can draft at all.</summary>
-    public bool Configured => !string.IsNullOrWhiteSpace(ApiKey);
+    public bool Configured => Scripted || !string.IsNullOrWhiteSpace(ApiKey);
 
     /// <summary>The effort levels Claude accepts.</summary>
     private static readonly string[] Efforts = ["low", "medium", "high", "xhigh", "max"];
@@ -324,16 +339,29 @@ public sealed class SummarizationOptions
     /// Refuses a provider or an effort this service cannot send, at startup rather than at the first
     /// session of the day. An unknown provider is the dangerous one: the key would go to the wrong
     /// company.
+    ///
+    /// The scripted test provider (ST-013) is refused anywhere but Development, as <c>Providers:Demo</c>
+    /// is. A deployment with it on would hand every technician a note no model wrote.
     /// </summary>
-    public void Validate()
+    public void Validate(bool isDevelopment)
     {
         var provider = Provider?.Trim() ?? string.Empty;
         if (!string.Equals(provider, Gemini, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(provider, Claude, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(provider, Claude, StringComparison.OrdinalIgnoreCase)
+            && !Scripted)
         {
             throw new InvalidOperationException(
-                $"Summarization:Provider is \"{provider}\". It must be \"{Gemini}\" or \"{Claude}\"; the service "
-                + "refuses to start rather than send the key to a provider it was not meant for.");
+                $"{ProviderSetting} is \"{provider}\". It must be \"{Gemini}\" or \"{Claude}\" (or \"{ScriptedProvider}\" "
+                + "in Development); the service refuses to start rather than send the key to a provider it was "
+                + "not meant for.");
+        }
+
+        if (Scripted && !isDevelopment)
+        {
+            throw new InvalidOperationException(
+                $"{ProviderSetting}={ScriptedProvider} is set outside Development. The scripted test provider "
+                + "writes notes without a model, for tests and rehearsals only, so the service refuses to start "
+                + "with it. Remove the setting.");
         }
 
         if (IsClaude && !Efforts.Contains(Effort?.Trim(), StringComparer.OrdinalIgnoreCase))

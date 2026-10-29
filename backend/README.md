@@ -111,6 +111,10 @@ sixty-cent reservation is worked out from the documented image cost: no key was 
 Claude with. With the refusal fallback on, a declined session can be run again on Claude Opus 5 or Opus 4.8 (both $5 and $25) in the
 same call, and both attempts are billed (about $0.97 at worst, once, against a sixty-cent reservation).
 
+**Any other provider stops the service at startup**, so a typo cannot send one company's key to the
+other. The one more name it knows is `scripted`, the Development-only test provider that writes a
+labelled note without a model (ST-013, `docs/dev/e2e.md`); outside Development it is refused the same way.
+
 **The environment cannot redirect a draft.** The request goes through Anthropic's own C# SDK to
 `api.anthropic.com` only. The SDK is given the address, the key and its tracing setting explicitly, so
 `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_OPEN_TELEMETRY*` are not

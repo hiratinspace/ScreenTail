@@ -49,7 +49,8 @@ cd backend/src/ScreenTail.Api && dotnet user-secrets list   # prints values; min
 | A drafting key: Claude's or Gemini's | Claude: an Anthropic API key from the Claude Console (it starts with `sk-ant-`), on the account with credits. Gemini: the free tier is enough, 20 requests a day, and this needs one |
 
 **Which company drafts is one setting.** `Summarization:Provider` is `claude` or `gemini-flash` (the
-default when it is not set), and `Summarization:ApiKey` holds that company's key. With `claude`, the
+default when it is not set; `scripted`, the Development-only test provider in `docs/dev/e2e.md`, drafts
+with no model and no key), and `Summarization:ApiKey` holds that company's key. With `claude`, the
 backend drafts with `claude-opus-5-5` at medium effort; `Summarization:Model` chooses another
 (`claude-sonnet-5-5`, `claude-haiku-5-5`), and the cost cap and per-session reservation follow Claude's
 prices unless you set them. Only the redacted screenshots and the masked OCR text and transcript are sent,

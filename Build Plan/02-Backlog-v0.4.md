@@ -321,7 +321,18 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Partial, 2026-10-28.** The loop harness is built and green on the hosted Windows VM:
+  `scripts/windows/e2e/run-e2e.ps1` with the driver `client/ScreenTail.E2E` runs PostgreSQL, the backend
+  (Development, demo PSA, the new Development-only scripted drafting provider), a development device, the
+  capture service and the UI, and takes one session from the pill's indicator report to the note on demo
+  ticket #48213, checking the stored frames are redacted, the PSA received the masked note, the audit rows
+  and a clean shutdown, one PASS or FAIL line per step (`docs/dev/e2e.md`). CI's `End to end (Windows)`
+  job is report-only until it has passed twice in a row on main; the laptop's input job runs it with real
+  hotkeys and clicks, report-only too. Its first runs found three product bugs, fixed with regression tests:
+  a queued draft reported as failed and never reaching draft_ready, the "Draft ready" notification's
+  missing title, and `SCREENTAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
+  replay with its event-count and redaction-count criteria (needs ST-030's sessions), CPU, RAM and disk per
+  run, and the nightly schedule with a team-channel notification.
 
 **Description:**
 Windows 11 VM job installing the built client, replaying golden sessions through the real service and asserting bundle contents, redaction results and performance budgets. Nightly and on release branches.
@@ -755,7 +766,7 @@ Developer flag exporting full bundles from scripted VM scenarios against real RD
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Partial, 2026-10-27.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. Still owed: AC1 (the 30-minute golden replay needs ST-030), AC2 (throttling sampling and OCR first when over budget is not built), AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
+- **Status:** **Partial, 2026-10-29.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. **AC2 is built (2026-10-29, `CaptureThrottle`):** while a session is under way the service reads its own processor time once a second against 15% of a four-core machine (`CpuBudget`: 60% of one core on a bigger machine, 15% of a smaller one). Ten seconds over and capture gives up one step, and one more after each further ten: the scene sampler looks every other tick, then every fourth, then OCR reads one frame at a time instead of two while the session records, then the sampler stops looking so OCR reads only click and marked-moment frames. Thirty seconds under 80% of the budget and it takes one step back; the session ending, or a new session the loop has not seen, puts it back to full. The input hooks and speech are never throttled, click screenshots are never paused or skipped (from the third step they are read one at a time with the rest), finalize is never slowed, and every frame taken is redacted exactly as before (INV-1). The laptop recording measurement fails if the throttle moves during it. The Mac suite proves it on a fake clock; seeing it trip on a real overload is an owner step on the laptop (`docs/dev/performance.md`). Still owed: AC1 (the 30-minute golden replay needs ST-030), the laptop sighting of AC2, AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
 
 **Description:**
 Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, disk < 40 MB per 20 min; self-throttle sampling/OCR first; live figures in "What's being captured".
