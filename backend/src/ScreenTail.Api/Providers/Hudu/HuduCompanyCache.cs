@@ -44,7 +44,7 @@ public sealed class HuduCompanyCache(TimeProvider time)
     /// What a list is held against instead of the API key: the first eight bytes of the key's SHA-256,
     /// in hex. Enough to tell one key from another; never logged, and held only in memory.
     /// </summary>
-    public static string Fingerprint(string apiKey)
+    internal static string Fingerprint(string apiKey)
     {
         ArgumentNullException.ThrowIfNull(apiKey);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(apiKey)).AsSpan(0, 8));
@@ -71,9 +71,18 @@ public sealed class HuduCompanyCache(TimeProvider time)
         lock (tenant.Gate)
         {
             var now = time.GetUtcNow();
-            if (tenant.Kept is { } kept && kept.Until > now && kept.Source == source)
+            if (tenant.Kept is { } kept)
             {
-                return ProviderResult.Success(kept.Companies);
+                if (kept.Until <= now)
+                {
+                    // Past its time it is never served again, so it is not held either: the list and the
+                    // key's fingerprint go now, whether or not the load that replaces them succeeds.
+                    tenant.Kept = null;
+                }
+                else if (kept.Source == source)
+                {
+                    return ProviderResult.Success(kept.Companies);
+                }
             }
 
             if (tenant.Loading is { } loading && loading.Source == source)
@@ -130,6 +139,20 @@ public sealed class HuduCompanyCache(TimeProvider time)
             tenant.Kept = null;
             tenant.Loading = null;
             tenant.Generation++;
+        }
+    }
+
+    /// <summary>Whether a list is held for the tenant, fresh or not. For tests.</summary>
+    internal bool Keeps(string key)
+    {
+        if (!_tenants.TryGetValue(key, out var tenant))
+        {
+            return false;
+        }
+
+        lock (tenant.Gate)
+        {
+            return tenant.Kept is not null;
         }
     }
 
@@ -212,10 +235,20 @@ public sealed class HuduCompanyCache(TimeProvider time)
         }
     }
 
-    /// <summary>Where a list came from: the site, and the fingerprint of the key it was read with.</summary>
-    private readonly record struct Source(string Site, string KeyFingerprint);
+    /// <summary>
+    /// Where a list came from: the site, and the fingerprint of the key it was read with. Printed, it
+    /// shows neither, so a log line that one day includes it carries nothing from the tenant's set-up.
+    /// </summary>
+    internal readonly record struct Source(string Site, string KeyFingerprint)
+    {
+        public override string ToString() => "Source { site and key withheld }";
+    }
 
-    private sealed record Entry(DateTimeOffset Until, Source Source, IReadOnlyList<CompanyRef> Companies);
+    /// <summary>A kept list. Printed, it shows when it expires and how many companies it holds, never which (INV-10).</summary>
+    internal sealed record Entry(DateTimeOffset Until, Source Source, IReadOnlyList<CompanyRef> Companies)
+    {
+        public override string ToString() => FormattableString.Invariant($"Entry {{ Until = {Until:O}, Companies = {Companies.Count} }}");
+    }
 
     /// <summary>One tenant's kept list and load in flight. Every other field is read and written under its gate.</summary>
     private sealed class Tenant
