@@ -462,6 +462,24 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task AnExactMatchMadeOnACompanyHuduHasJustDeletedIsNotKept()
+    {
+        // The match is made and remembered in the same publish whose article Hudu then refuses: the row
+        // the forget compares against is the one just written, not one read back, and it still goes.
+        var hudu = new ScriptedHudu();
+        using var host = Host(new ScriptedConnectWise(), hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
+        _ = hudu.Removed.Add(7);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
+        var kb = Assert.Single((await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken))!.Results);
+
+        Assert.Equal("needs_mapping", kb.Kind);
+        Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
     public async Task APlain404OnTheArticleIsNotTakenToMeanTheCompanyIsGone()
     {
         // A 404 from the articles route says nothing about the company: a proxy in front of a
@@ -487,6 +505,27 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
         Assert.Equal(("7", "manual"), (mapping.DocCompanyId, mapping.Confidence));
         Assert.Equal(listed, hudu.Requests.Count(IsCompanyList));
+    }
+
+    [Theory]
+    [InlineData("manual")]
+    [InlineData("exact")]
+    public async Task AMappingReconfirmedSinceItWasReadIsKept(string confidence)
+    {
+        // The same company, confirmed again between the read and the forget: by a person in Settings
+        // (manual), or by a publish's exact match. It names what it named before, so only when it was
+        // made says it is a new decision, and that decision is not thrown away with the stale read.
+        var (tenantId, _, _) = await SeedAsync();
+        _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental");
+        var stale = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).FindAsync("Acme Dental"));
+        await Task.Delay(TimeSpan.FromMilliseconds(5), TestContext.Current.CancellationToken);
+        _ = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).RememberAsync("Acme Dental", new ScreenTail.Api.Providers.CompanyRef("7", "Acme Dental"), confidence));
+
+        var forgot = await api.UseAsync(db => new CompanyMappings(db, tenantId, TimeProvider.System).ForgetIfUnchangedAsync(stale!));
+
+        Assert.False(forgot);
+        var kept = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId));
+        Assert.Equal(("7", confidence), (kept.DocCompanyId, kept.Confidence));
     }
 
     [Fact]

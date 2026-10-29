@@ -57,13 +57,16 @@ public sealed class CompanyMappings(ScreenTailContext db, Guid tenantId, TimePro
 
     /// <summary>
     /// Forgets this row only if it still says what it said when it was read: a mapping found stale is
-    /// dropped, but one a person or an exact match has rewritten in the meantime stays.
+    /// dropped, but one a person or an exact match has rewritten in the meantime stays. That includes one
+    /// confirmed again for the same company: it names what it named, so its confidence and when it was
+    /// made are what say it is a newer decision.
     /// </summary>
     public async Task<bool> ForgetIfUnchangedAsync(CompanyMapping stale, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(stale);
         return await Mine
-            .Where(m => m.Id == stale.Id && m.DocCompanyId == stale.DocCompanyId && m.DocCompanyName == stale.DocCompanyName)
+            .Where(m => m.Id == stale.Id && m.DocCompanyId == stale.DocCompanyId && m.DocCompanyName == stale.DocCompanyName
+                && m.Confidence == stale.Confidence && m.CreatedAt == stale.CreatedAt)
             .ExecuteDeleteAsync(ct).ConfigureAwait(false) > 0;
     }
 
