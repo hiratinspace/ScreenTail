@@ -134,17 +134,34 @@ later; it would then serve the signed file and nothing else.
 
 ### Signing in CI
 
-One step in the existing signing job (`installer-sign`), after every Authenticode signature has been
-checked: `installer/update-manifest.ps1` builds both channels' manifests for the signed MSI, asks Azure
-Key Vault to sign each digest with the release key (ES256) through the job's own OIDC token and the same
-federated app registration, verifies each signature against the trust file's keys on Windows PowerShell
-5.1, and writes them. The private key never leaves Key Vault. Until `SCREENTAIL_UPDATE_KEY` and
-`SCREENTAIL_UPDATE_BASE` are set on the `signing` environment it signs nothing, with a notice, like
-`sign.ps1` without a certificate; the unsigned job runs the same step on every pull request. The
-manifests are their own artifact, kept 90 days. `scripts/ci/check_installer_jobs.py` holds the step's
-exact command, settings and place, the upload, and the script's own checks, and refuses the update
-settings anywhere else. Nothing that protects the self-hosted runner changed: every installer job still
-runs on the hosted runner.
+**Builds are signed for pilot only.** One step in the existing signing job (`installer-sign`), after
+every Authenticode signature has been checked: `installer/update-manifest.ps1 -Channel pilot` builds the
+pilot manifest for the signed MSI, asks Azure Key Vault to sign its digest with the release key (ES256)
+through the job's own OIDC token and the same federated app registration, verifies the signature against
+the trust file's keys on Windows PowerShell 5.1, and writes it. The channel is a required parameter with
+no default and no "all", and a build may not name stable. The private key never leaves Key Vault. Until
+`SCREENTAIL_UPDATE_KEY` and `SCREENTAIL_UPDATE_BASE` are set on the `signing` environment it signs
+nothing, with a notice, like `sign.ps1` without a certificate; the unsigned job runs the same step on
+every pull request. The pilot manifest is its own artifact, kept 90 days so a later promotion can read it.
+
+**Stable is signed only by promotion** (`.github/workflows/promote-stable.yml`, its own file so ci.yml's
+triggers are unchanged): started by hand on main with the id of the ci run whose pilot release is
+promoted and its version, on the hosted runner, always in the `release-stable` environment. It downloads
+that run's pilot manifest (a JSON file; nothing from the earlier run is executed) and the script signs,
+for stable, exactly what it describes, after checking that it verifies with the client's own keys, says
+pilot and carries the version typed. **It fails closed**: the script refuses unless
+`SCREENTAIL_STABLE_RELEASE` is `true`, a variable that exists only on the owner's protected environment
+(an environment GitHub creates on first use, without reviewers, does not have it), and Azure issues the
+vault token only to an environment it was told to trust. The stable manifest is uploaded for a day, for
+the owner to publish; an ordinary CI run never produces or uploads one. A pilot manifest copied to the
+stable path is refused by every stable device, because the channel is inside the signed bytes.
+
+`scripts/ci/check_installer_jobs.py` holds the signing step's exact command, settings and place, the
+uploads, the promotion workflow's whole shape (trigger and inputs, condition, environment, permissions,
+runner, steps, the gate variable coming from the environment rather than the file), the script's own
+checks, and that no other workflow asks for a token or uploads either manifest. Nothing that protects the
+self-hosted runner changed: every installer job and the promotion run on the hosted runner, and no
+trigger, permission, filter, gate or skip budget of an existing job moved.
 
 ## Decisions for the owner
 
@@ -156,13 +173,15 @@ runs on the hosted runner.
 4. **Key custody:** an Azure Key Vault ES256 key (Premium, HSM-backed, recommended), signed only from the
    `signing` environment through OIDC, with a role that allows `sign` and nothing else.
 5. **Hosting:** a static HTTPS location under ST-007, with its host names compiled in.
-6. **Promotion:** every signed build on main produces both a pilot and a stable manifest; publishing the
-   pilot one releases to pilot, and publishing the stable one later promotes it. Publishing is a manual
-   owner step for now.
+6. **Promotion:** every signed build on main is signed for pilot only; stable is signed only by
+   `promote-stable.yml` in the `release-stable` environment, behind the owner's required reviewers.
+   Publishing either manifest to the feed is a manual owner step for now.
 7. **`minimumVersion`** is 0.1.0 for every release until a store migration needs a stepping stone.
 8. **Freshness:** a replayed older manifest is refused, but a feed that keeps serving the same old,
    validly signed manifest is not detected (no expiry field). An expiry would need a re-signing job on a
    schedule; the owner decides whether that is worth it.
+9. **The `release-stable` environment** (an owner setting this branch cannot create): its required
+   reviewers (the owner by default), its main-only branch rule, and Azure trusting it for the vault key.
 
 ## Owner steps
 
@@ -178,9 +197,18 @@ runs on the hosted runner.
    same pull request.
 4. **GitHub, `signing` environment variables:** `SCREENTAIL_UPDATE_KEY` (the versioned key identifier)
    and `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in a slash).
-5. **Each release:** from the signing run's artifacts, upload `ScreenTail.msi` to `<base><version>/` and
-   `pilot/win-x64.json` to the feed; check it first with `installer/update-manifest.ps1 -Verify`. Later,
-   upload `stable/win-x64.json` from the same run to promote it.
+5. **GitHub, *Settings → Environments → New environment*: `release-stable`.** Mandatory before any
+   promotion: *Deployment branches and tags* set to `main` only; *Required reviewers* (the owner);
+   environment **variables** `SCREENTAIL_STABLE_RELEASE` = `true`, `SCREENTAIL_UPDATE_KEY`,
+   `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` (the same values as on `signing`). In Azure, add a second
+   federated credential to the signing app registration for entity type *Environment*, name
+   `release-stable` (subject `repo:hiratinspace/ScreenTail:environment:release-stable`). Until all of this
+   exists the promotion fails closed.
+6. **Each pilot release:** from the signing run's artifacts, upload `ScreenTail.msi` to `<base><version>/`
+   and `pilot/win-x64.json` to the feed; check it first with `installer/update-manifest.ps1 -Verify`.
+7. **Each promotion to stable:** *Actions → promote-stable → Run workflow* on main, with that ci run's id
+   and the version; approve it as the environment's reviewer; upload the `stable/win-x64.json` it produces
+   (artifact `screentail-stable-manifest`, kept one day) to the feed.
 
 ## Consequences
 
