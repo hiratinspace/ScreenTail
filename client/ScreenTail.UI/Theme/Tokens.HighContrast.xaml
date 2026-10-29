@@ -9,6 +9,21 @@
     <SolidColorBrush x:Key="Brush.bg.surface" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
     <Color x:Key="Token.bg.raised">{x:Static SystemColors.ControlColor}</Color>
     <SolidColorBrush x:Key="Brush.bg.raised" Color="{DynamicResource {x:Static SystemColors.ControlColorKey}}" />
+    <!-- The tints (v0.5) are all the window colour here. A tinted fill is how light and dark show hover,
+         selection and a banner's kind; high contrast shows them with the border and the words instead,
+         because a system palette has no tint that is guaranteed to keep WindowText readable on it. -->
+    <Color x:Key="Token.bg.hover">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.hover" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.pressed">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.pressed" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.selected">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.selected" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.warning">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.warning" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.danger">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.danger" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.bg.success">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.bg.success" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
     <Color x:Key="Token.border.subtle">{x:Static SystemColors.ActiveBorderColor}</Color>
     <SolidColorBrush x:Key="Brush.border.subtle" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}" />
     <Color x:Key="Token.border.strong">{x:Static SystemColors.WindowFrameColor}</Color>
