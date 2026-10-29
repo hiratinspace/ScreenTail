@@ -228,6 +228,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             sources,
             drafter,
             options: new SessionMachineOptions { Scrubber = redactionEngine, Pending = pending });
+        // ST-013: a draft the outbox settles reaches the state the technician sees. Without this the note
+        // reached the store and the pill and the tray went on saying the draft had failed.
+        outbox.Settled = DraftSettling.Listener(machine);
+
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {
@@ -592,7 +596,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
         // The exemption is the session being recorded, read off the state and not the id alone: the
         // machine keeps naming a session after it finishes, and that one ages out like any other.
-        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => RetentionJob.SessionBeingRecorded(machine.Snapshot));
+        var retention = new RetentionJob(store, TimeProvider.System, retentionOptions, () => RetentionJob.SessionBeingRecorded(machine.Snapshot), machine.RawDataPurgedAsync);
 
         // Drained on a slow timer rather than continuously: everything in it is minutes-scale work that a
         // technician is not waiting on, and a tight loop on a laptop is a battery complaint.

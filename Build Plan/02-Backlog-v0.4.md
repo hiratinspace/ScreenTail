@@ -321,7 +321,18 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Open.
+- **Status:** **Partial, 2026-10-28.** The loop harness is built and green on the hosted Windows VM:
+  `scripts/windows/e2e/run-e2e.ps1` with the driver `client/ScreenTail.E2E` runs PostgreSQL, the backend
+  (Development, demo PSA, the new Development-only scripted drafting provider), a development device, the
+  capture service and the UI, and takes one session from the pill's indicator report to the note on demo
+  ticket #48213, checking the stored frames are redacted, the PSA received the masked note, the audit rows
+  and a clean shutdown, one PASS or FAIL line per step (`docs/dev/e2e.md`). CI's `End to end (Windows)`
+  job is report-only until it has passed twice in a row on main; the laptop's input job runs it with real
+  hotkeys and clicks, report-only too. Its first runs found three product bugs, fixed with regression tests:
+  a queued draft reported as failed and never reaching draft_ready, the "Draft ready" notification's
+  missing title, and `SCREENTAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
+  replay with its event-count and redaction-count criteria (needs ST-030's sessions), CPU, RAM and disk per
+  run, and the nightly schedule with a team-channel notification.
 
 **Description:**
 Windows 11 VM job installing the built client, replaying golden sessions through the real service and asserting bundle contents, redaction results and performance budgets. Nightly and on release branches.

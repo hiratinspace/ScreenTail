@@ -34,6 +34,22 @@ public sealed class ProcessStartupTests
             "the providers are cleared before the scrubber is added, not after");
     }
 
+    [Fact]
+    public void TheServiceLogsAtTheLevelTheEnvironmentAsksFor()
+    {
+        // ST-011 AC3, found by ST-013's end-to-end run: it started the service with
+        // SCREENTAIL_LOG_LEVEL=Debug and the log held no Debug line. The scrubber was given the level,
+        // and the host's own filter, Information unless configured, dropped everything below it before
+        // the scrubber saw it. The filter has to be set to the same level.
+        var program = File.ReadAllText(Source("ScreenTail.Service", "Program.cs"));
+
+        var parsed = Regex.Match(program, @"var (\w+) = LogLevels\.Parse\(Environment\.GetEnvironmentVariable\(LogLevels\.Variable\)\);");
+        Assert.True(parsed.Success, "the level is read once, from SCREENTAIL_LOG_LEVEL");
+        var level = parsed.Groups[1].Value;
+        Assert.Contains($"Logging.SetMinimumLevel({level})", program, StringComparison.Ordinal);
+        Assert.Contains($"new ScrubbingLoggerProvider(Console.Error, {level})", program, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("ScreenTail.Service")]
     [InlineData("ScreenTail.UI")]

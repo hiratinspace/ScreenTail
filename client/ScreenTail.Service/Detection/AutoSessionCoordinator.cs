@@ -378,7 +378,7 @@ internal sealed partial class AutoSessionCoordinator
     }
 
     private static bool CanStart(SessionState state) =>
-        state is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed;
+        state is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending;
 
     private static bool IsRunning(SessionState state) =>
         state is SessionState.Recording or SessionState.Paused or SessionState.Suppressed;

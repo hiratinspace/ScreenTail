@@ -70,6 +70,9 @@ public sealed class SessionMachine : IAsyncDisposable
     private SessionState _state = SessionState.Idle;
     private ActiveSession? _session;
     private string? _draftFailureReason;
+
+    /// <summary>The ready draft's own title, for the notification (Spec §6). Null in every other state.</summary>
+    private string? _draftTitle;
     private int _pendingRedactions;
     private int _draftsReady;
     private long _listenerFailures;
@@ -153,6 +156,7 @@ public sealed class SessionMachine : IAsyncDisposable
                     PendingRedactions = _pendingRedactions,
                     DraftsReady = _draftsReady,
                     DraftFailureReason = _state == SessionState.DraftFailed ? _draftFailureReason : null,
+                    DraftTitle = _state == SessionState.DraftReady ? _draftTitle : null,
                 };
             }
         }
@@ -176,7 +180,7 @@ public sealed class SessionMachine : IAsyncDisposable
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed))
+            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending))
             {
                 return false;
             }
@@ -428,6 +432,91 @@ public sealed class SessionMachine : IAsyncDisposable
 
         await _sources.MarkMomentAsync(ct).ConfigureAwait(false);
         return await TryRecordEventAsync(new MarkerEvent { TsMs = NowMs }, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The outbox has settled a queued draft for good (ST-013): the backend's note is in the store
+    /// (<paramref name="ready"/>), or it never will be, for <paramref name="reason"/>.
+    ///
+    /// Before this the outbox wrote the note to the store and nobody told the machine, so a session whose
+    /// draft went to the backend stayed on the state its queueing left behind, and "Draft ready" never
+    /// came. The session the machine last ran moves on to draft_ready or draft_failed when it is still
+    /// resting; a draft that lands while the next session records changes only the count, never the
+    /// session under way.
+    /// </summary>
+    /// <returns>Whether the machine's own state moved.</returns>
+    public async Task<bool> DraftSettledAsync(string sessionId, bool ready, string? reason, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // What the store says now, not what the outbox believes. A session discarded or purged while
+            // its draft was in flight has no note to be ready with and no pending draft to fail: a failure
+            // is written only over draft_pending, and a ready draft only counts if the note is there. The
+            // unconditional write put draft_failed over a discarded row, and the session came back in
+            // History (INV-12, review of ST-013).
+            string? title = null;
+            bool current;
+            if (ready)
+            {
+                // The title for the notification comes from the note the sender stored (Spec §6).
+                title = (await _store.LoadSessionAsync(sessionId, ct).ConfigureAwait(false))?.Draft?.SuggestedTitle;
+                current = title is not null;
+            }
+            else
+            {
+                current = await _store.SetSessionStateIfAsync(sessionId, SessionStateNames.DraftPending, CaptureStates.DraftFailed, reason, ct).ConfigureAwait(false);
+            }
+
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            var resting = State is SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending;
+            if (current && resting && string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
+            {
+                SetState(ready ? SessionState.DraftReady : SessionState.DraftFailed, ready ? null : reason ?? "The session could not be drafted.", title);
+                return true;
+            }
+
+            // Another session's draft, or one that is gone: the count may have moved, and the tray shows
+            // it, whatever the machine is doing. The state itself is left alone.
+            Announce(Snapshot);
+            return false;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
+    /// <summary>What a session failed by retention says, in the pill and in Review.</summary>
+    public const string PurgedBeforeDraftedReason = "The session's screenshots and transcript were removed by retention before it could be drafted.";
+
+    /// <summary>
+    /// Retention removed this session's raw data (ST-013). A purge takes a queued draft's outbox work with
+    /// it and the store fails the session, so when the machine is resting on it in draft_pending it moves
+    /// to draft_failed with the reason; the pill would otherwise go on saying the note is being drafted.
+    /// Any other session, or any other state, is left alone.
+    /// </summary>
+    /// <returns>Whether the machine's own state moved.</returns>
+    public async Task<bool> RawDataPurgedAsync(string sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (State != SessionState.DraftPending || !string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            SetState(SessionState.DraftFailed, PurgedBeforeDraftedReason);
+            return true;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
     }
 
     /// <summary>
@@ -795,7 +884,17 @@ public sealed class SessionMachine : IAsyncDisposable
             await _store.SaveDraftAsync(sessionId, outcome.Draft, ct).ConfigureAwait(false);
             await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-            SetState(SessionState.DraftReady, null);
+            SetState(SessionState.DraftReady, null, outcome.Draft.SuggestedTitle);
+        }
+        else if (outcome.Queued)
+        {
+            // On its way to the backend, which is not a failure (ST-013). Nothing is being captured; the
+            // machine rests in draft_pending, naming the session, until the outbox settles it
+            // (DraftSettledAsync). The store is marked only if the row is still finalizing: the outbox
+            // drains on its own timer, and a draft the sender has already stored stands.
+            _ = await _store.SetSessionStateIfAsync(sessionId, CaptureStates.Finalizing, SessionStateNames.DraftPending, outcome.Reason, ct).ConfigureAwait(false);
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            SetState(SessionState.DraftPending, null);
         }
         else
         {
@@ -814,13 +913,15 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
-    private void SetState(SessionState next, string? draftFailureReason)
+    /// <param name="draftTitle">The note's suggested title, for draft_ready's notification (Spec §6). Kept only in that state.</param>
+    private void SetState(SessionState next, string? draftFailureReason, string? draftTitle = null)
     {
         CaptureStateSnapshot snapshot;
         lock (_stateLock)
         {
             _state = next;
             _draftFailureReason = draftFailureReason;
+            _draftTitle = next == SessionState.DraftReady ? draftTitle : null;
             snapshot = Snapshot;
         }
 

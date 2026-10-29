@@ -20,7 +20,12 @@ public sealed class RetentionOptions
 /// The session being recorded right now, exempt while it runs. Everything else ages out, including a session
 /// that never reached finalize — otherwise a crash whose recovery never ran would keep raw frames for good.
 /// </param>
-public sealed class RetentionJob(ISessionStore store, TimeProvider time, RetentionOptions options, Func<string?>? activeSessionId = null)
+/// <param name="purged">
+/// Told of each session whose raw data was just removed (ST-013), so the session machine can stop saying a
+/// draft is on its way when the purge took the queued work with it. The host passes
+/// <c>SessionMachine.RawDataPurgedAsync</c>.
+/// </param>
+public sealed class RetentionJob(ISessionStore store, TimeProvider time, RetentionOptions options, Func<string?>? activeSessionId = null, Func<string, CancellationToken, Task<bool>>? purged = null)
 {
     /// <summary>
     /// How much of the file has to be free before rebuilding it is worth the freeze.
@@ -82,6 +87,10 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
         foreach (var sessionId in expired)
         {
             await store.PurgeRawDataAsync(sessionId, ct).ConfigureAwait(false);
+            if (purged is not null)
+            {
+                _ = await purged(sessionId, ct).ConfigureAwait(false);
+            }
         }
 
         var now = time.GetUtcNow();

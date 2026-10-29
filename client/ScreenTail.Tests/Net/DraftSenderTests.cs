@@ -103,6 +103,63 @@ public sealed class DraftSenderTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ADiscardThatLandsDuringTheSendersWriteIsNotUndoneAsDraftReady()
+    {
+        // INV-12, re-review of ST-013. Review's discard is a store write of its own, and it used to be able
+        // to land between the sender saving the note and marking the session ready: the save found the
+        // row, the discard emptied it, and the mark put draft_ready on a discarded session. The note and
+        // the state now go in one write that refuses a discarded row.
+        var inner = await SessionAsync();
+        var store = DiscardsDuringTheWrite.Over(inner);
+        var handler = new RecordingHandler(Answer(HttpStatusCode.OK, Ok()));
+
+        _ = await Record.ExceptionAsync(() => Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken));
+
+        Assert.Empty(await inner.ListSessionsInStatesAsync([Shared.Ipc.CaptureStates.DraftReady]));
+        Assert.Equal(["s1"], await inner.ListSessionsInStatesAsync([ScreenTail.Core.Sessions.SessionStateNames.Discarded]));
+        Assert.Null((await inner.LoadSessionAsync("s1"))?.Draft);
+    }
+
+    /// <summary>
+    /// The real store, with Review's discard landing inside the sender's write: just after the note is
+    /// saved on its own, or just before the one write that saves it with its state.
+    /// </summary>
+    public class DiscardsDuringTheWrite : System.Reflection.DispatchProxy
+    {
+        private SqliteSessionStore? _inner;
+
+        public static ISessionStore Over(SqliteSessionStore inner)
+        {
+            var store = Create<ISessionStore, DiscardsDuringTheWrite>();
+            ((DiscardsDuringTheWrite)(object)store)._inner = inner;
+            return store;
+        }
+
+        protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+        {
+            ArgumentNullException.ThrowIfNull(targetMethod);
+            return targetMethod.Name switch
+            {
+                nameof(ISessionStore.SaveDraftAsync) => ThenDiscardAsync(targetMethod, args),
+                nameof(ISessionStore.SaveReadyDraftAsync) => DiscardFirstAsync(targetMethod, args),
+                _ => targetMethod.Invoke(_inner, args),
+            };
+        }
+
+        private async Task ThenDiscardAsync(System.Reflection.MethodInfo write, object?[]? args)
+        {
+            await ((Task)write.Invoke(_inner, args)!).ConfigureAwait(false);
+            _ = await _inner!.DiscardSessionAsync((string)args![0]!).ConfigureAwait(false);
+        }
+
+        private async Task DiscardFirstAsync(System.Reflection.MethodInfo write, object?[]? args)
+        {
+            _ = await _inner!.DiscardSessionAsync((string)args![0]!).ConfigureAwait(false);
+            await ((Task)write.Invoke(_inner, args)!).ConfigureAwait(false);
+        }
+    }
+
+    [Fact]
     public async Task WithoutATokenNothingLeavesTheMachine()
     {
         // A device that has not been enrolled has nothing to prove who it is, and a bundle is a

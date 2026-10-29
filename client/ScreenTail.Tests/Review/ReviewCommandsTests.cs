@@ -39,6 +39,22 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheSessionSaysWhenItsDraftIsStillOnItsWay()
+    {
+        // ST-013 review: Review showed "We couldn't draft this session" while the draft was queued for the
+        // backend, because nothing told it otherwise. The reply carries the store's word for it.
+        var commands = await CommandsAsync();
+        await SeedAsync(redacted: ["f1"], pending: []);
+
+        var settled = Assert.IsType<SessionLoaded>(await commands.ReplyToAsync(new GetSessionCommand { RequestId = 1, SessionId = "s1" }));
+        await _store!.SetSessionStateAsync("s1", CaptureStates.DraftPending, null);
+        var queued = Assert.IsType<SessionLoaded>(await commands.ReplyToAsync(new GetSessionCommand { RequestId = 2, SessionId = "s1" }));
+
+        Assert.False(settled.DraftPending);
+        Assert.True(queued.DraftPending);
+    }
+
+    [Fact]
     public async Task ASessionThatDoesNotExistIsRefusedNotInvented()
     {
         var commands = await CommandsAsync();

@@ -33,12 +33,13 @@ public sealed class ReviewViewModel : IAsyncDisposable
         Func<TypedConfirmation, bool>? confirm = null,
         PublishPanel? publish = null,
         bool timelineExpanded = false,
-        Action<bool>? timelineToggled = null)
+        Action<bool>? timelineToggled = null,
+        bool draftPending = false)
     {
         ArgumentNullException.ThrowIfNull(session);
         SessionId = session.SessionId;
         Strip = new FilmstripViewModel(session, frames);
-        Note = new NoteEditorViewModel(session, write, confirm, showFrame: id => Strip.Select(id));
+        Note = new NoteEditorViewModel(session, write, confirm, showFrame: id => Strip.Select(id), draftPending: draftPending);
 
         // These two lambdas are all that keep the note as it arrived, an excluded frame and a frame inside
         // its undo window out of a publish, and the service trusts the list (T-172).

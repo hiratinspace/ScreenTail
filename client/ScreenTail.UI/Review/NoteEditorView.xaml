@@ -101,6 +101,30 @@
                     Command="{Binding RetryDraftCommand}" />
         </StackPanel>
 
+        <!-- ST-013: a draft queued for the backend is on its way, not failed, so there is no Retry. The
+             failed pane's shape in a calm tone: the content row, under the title and the banners. -->
+        <StackPanel Grid.Row="2"
+                    Margin="32,0"
+                    VerticalAlignment="Center"
+                    Visibility="{Binding DraftPending, Converter={StaticResource Visible}}">
+            <Border Width="56"
+                    Height="56"
+                    HorizontalAlignment="Center"
+                    Background="{DynamicResource Brush.bg.selected}"
+                    CornerRadius="28">
+                <TextBlock Style="{StaticResource EmptyState.Icon}"
+                           Foreground="{DynamicResource Brush.accent.primary}"
+                           Text="&#xE895;" />
+            </Border>
+            <TextBlock Margin="0,16,0,0"
+                       Style="{StaticResource Text.SectionHeading}"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite"
+                       Text="{Binding DraftPendingMessage}" />
+        </StackPanel>
+
         <ScrollViewer Grid.Row="2"
                       Padding="20,4,14,8"
                       VerticalScrollBarVisibility="Auto"
