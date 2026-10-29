@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ScreenTail.Core.Audit;
 using ScreenTail.Core.Capture;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
 
@@ -78,10 +79,12 @@ public sealed class RedactionWorker(
     RedactionEngine engine,
     Capture.PendingFrames pending,
     RedactionOptions? options = null,
-    TimeProvider? time = null)
+    TimeProvider? time = null,
+    CaptureThrottle? throttle = null)
 {
     private readonly RedactionOptions _options = options ?? new RedactionOptions();
     private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly CaptureThrottle? _throttle = throttle;
     private readonly Dictionary<MaskKind, long> _masked = [];
     private readonly Lock _counters = new();
     private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
@@ -111,6 +114,8 @@ public sealed class RedactionWorker(
 
     /// <summary>How long a frame that looked like a login screen suppresses capture for.</summary>
     public event Action<TimeSpan>? SensitiveContextSeen;
+
+    internal CaptureThrottle? Throttle => _throttle;
 
     public RedactionProgress Progress
     {

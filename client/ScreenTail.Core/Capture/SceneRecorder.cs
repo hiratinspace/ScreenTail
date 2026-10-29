@@ -1,4 +1,5 @@
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -22,9 +23,11 @@ public sealed class SceneRecorder(
     SessionMachine machine,
     IScreenshotCapturer capturer,
     Func<ScopeDecision?> currentScope,
-    SceneSampler? sampler = null)
+    SceneSampler? sampler = null,
+    CaptureThrottle? throttle = null)
 {
     private readonly SceneSampler _sampler = sampler ?? new SceneSampler();
+    private readonly CaptureThrottle? _throttle = throttle;
     private int _resetRequested;
     private bool _recording;
 
@@ -32,6 +35,8 @@ public sealed class SceneRecorder(
     public SceneSamplerOptions Options => _sampler.Options;
 
     public SceneCounts Counts => _sampler.Counts;
+
+    internal CaptureThrottle? Throttle => _throttle;
 
     /// <summary>Raised after the machine accepts a scene frame, so the host can log what it cost. Never carries pixels to a log.</summary>
     public event Action<CapturedFrame>? FrameStaged;
