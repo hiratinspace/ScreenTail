@@ -70,6 +70,9 @@ public sealed class SessionMachine : IAsyncDisposable
     private SessionState _state = SessionState.Idle;
     private ActiveSession? _session;
     private string? _draftFailureReason;
+
+    /// <summary>The ready draft's own title, for the notification (Spec §6). Null in every other state.</summary>
+    private string? _draftTitle;
     private int _pendingRedactions;
     private int _draftsReady;
     private long _listenerFailures;
@@ -153,6 +156,7 @@ public sealed class SessionMachine : IAsyncDisposable
                     PendingRedactions = _pendingRedactions,
                     DraftsReady = _draftsReady,
                     DraftFailureReason = _state == SessionState.DraftFailed ? _draftFailureReason : null,
+                    DraftTitle = _state == SessionState.DraftReady ? _draftTitle : null,
                 };
             }
         }
@@ -461,7 +465,9 @@ public sealed class SessionMachine : IAsyncDisposable
 
             if (string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
             {
-                SetState(ready ? SessionState.DraftReady : SessionState.DraftFailed, ready ? null : reason ?? "The session could not be drafted.");
+                // The title for the notification comes from the note the sender stored (Spec §6).
+                var title = ready ? (await _store.LoadSessionAsync(sessionId, ct).ConfigureAwait(false))?.Draft?.SuggestedTitle : null;
+                SetState(ready ? SessionState.DraftReady : SessionState.DraftFailed, ready ? null : reason ?? "The session could not be drafted.", title);
                 return true;
             }
 
@@ -840,7 +846,7 @@ public sealed class SessionMachine : IAsyncDisposable
             await _store.SaveDraftAsync(sessionId, outcome.Draft, ct).ConfigureAwait(false);
             await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-            SetState(SessionState.DraftReady, null);
+            SetState(SessionState.DraftReady, null, outcome.Draft.SuggestedTitle);
         }
         else if (outcome.Queued)
         {
@@ -867,13 +873,15 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
-    private void SetState(SessionState next, string? draftFailureReason)
+    /// <param name="draftTitle">The note's suggested title, for draft_ready's notification (Spec §6). Kept only in that state.</param>
+    private void SetState(SessionState next, string? draftFailureReason, string? draftTitle = null)
     {
         CaptureStateSnapshot snapshot;
         lock (_stateLock)
         {
             _state = next;
             _draftFailureReason = draftFailureReason;
+            _draftTitle = next == SessionState.DraftReady ? draftTitle : null;
             snapshot = Snapshot;
         }
 

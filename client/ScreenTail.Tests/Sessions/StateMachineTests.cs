@@ -360,6 +360,34 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task DraftReadyCarriesTheDraftsTitleForTheNotification()
+    {
+        // Spec §6: "Draft ready — Printer offline · Acme Dental". The snapshot has had a field for the
+        // title since ST-073 and nothing filled it, so every toast read "Draft ready — session ready to
+        // review" (found by ST-013's end-to-end run). Drafted here, or delivered by the outbox later.
+        _drafter.Outcome = DraftOutcome.Success(Note("Printer offline in reception"));
+        var machine = await MachineAsync();
+        await machine.StartAsync(ScreenConnect);
+        await machine.StopAsync();
+
+        Assert.Equal("Printer offline in reception", machine.Snapshot.DraftTitle);
+
+        _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
+        await machine.StartAsync(ScreenConnect);
+        var queued = machine.SessionId!;
+        Assert.Null(machine.Snapshot.DraftTitle);
+        await machine.StopAsync();
+        Assert.Null(machine.Snapshot.DraftTitle);
+        await _store!.SaveDraftAsync(queued, Note("Scanner not saving to the share"));
+        await _store.SetSessionStateAsync(queued, CaptureStates.DraftReady, null);
+
+        _ = await machine.DraftSettledAsync(queued, ready: true, reason: null);
+
+        Assert.Equal("Scanner not saving to the share", machine.Snapshot.DraftTitle);
+        Assert.Equal("Scanner not saving to the share", _observed[^1].DraftTitle);
+    }
+
+    [Fact]
     public async Task AQueuedDraftThatFailsForGoodIsDraftFailedWithItsReason()
     {
         _drafter.Outcome = DraftOutcome.Pending("The draft is queued for the backend.");
