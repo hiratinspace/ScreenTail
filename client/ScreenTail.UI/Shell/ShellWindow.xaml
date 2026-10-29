@@ -29,7 +29,7 @@
              Keyed and chosen by ShellContentTemplateSelector: a keyless string template here would also
              draw every button label in every pane. -->
         <DataTemplate x:Key="Shell.Message" DataType="{x:Type sys:String}">
-            <Border MaxWidth="480"
+            <Border MaxWidth="560"
                     Margin="0,0,0,48"
                     Padding="32,28"
                     HorizontalAlignment="Center"

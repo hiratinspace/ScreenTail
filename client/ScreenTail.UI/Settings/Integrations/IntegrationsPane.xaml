@@ -125,7 +125,7 @@
     </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
             <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
                 <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" AutomationProperties.LiveSetting="Polite" />
             </Border>

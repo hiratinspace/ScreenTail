@@ -86,7 +86,8 @@
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" Padding="40,0,28,0" VerticalScrollBarVisibility="Auto">
-            <Grid Margin="0,0,12,16">
+            <!-- Top-aligned, so a step with little in it is not stretched into a card the height of the window. -->
+            <Grid Margin="0,0,12,16" VerticalAlignment="Top">
                 <!-- 1. Welcome -->
                 <StackPanel Visibility="{Binding WelcomeVisibility}">
                     <TextBlock Style="{StaticResource Text.Body}" FontSize="{DynamicResource Size.lg}" TextWrapping="Wrap" Text="ScreenTail watches your remote-support sessions and drafts the ticket note for you: what you did, in order, with the screenshots that show it." />

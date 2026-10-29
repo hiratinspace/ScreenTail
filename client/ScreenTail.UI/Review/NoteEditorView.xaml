@@ -220,11 +220,24 @@
                                AutomationProperties.Name="Save status"
                                AutomationProperties.LiveSetting="Polite" />
 
-                    <TextBlock Margin="12,0,0,0"
-                               VerticalAlignment="Center"
-                               Style="{StaticResource Text.Muted}"
-                               Foreground="{DynamicResource Brush.text.secondary}"
-                               Text="{Binding UnverifiedLabel}" />
+                    <!-- Spaced from the save label only when there is one, so it never starts indented. -->
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding UnverifiedLabel}">
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
+                                <Setter Property="Margin" Value="12,0,0,0" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SaveLabel}" Value="">
+                                        <Setter Property="Margin" Value="0" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SaveLabel}" Value="{x:Null}">
+                                        <Setter Property="Margin" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </StackPanel>
 
                 <TextBlock Margin="0,4,0,0"

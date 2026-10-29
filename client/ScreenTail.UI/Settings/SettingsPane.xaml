@@ -13,7 +13,7 @@
         </Style>
     </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
-    <Grid MaxWidth="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
+    <Grid Width="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />

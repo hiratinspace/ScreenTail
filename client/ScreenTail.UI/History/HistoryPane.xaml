@@ -71,7 +71,7 @@
 
         <!-- Nothing yet: the same sentence the count line says, as the screen's content. -->
         <Border Grid.Row="1"
-                MaxWidth="480"
+                MaxWidth="560"
                 Margin="0,0,0,48"
                 Padding="32,28"
                 HorizontalAlignment="Center"
