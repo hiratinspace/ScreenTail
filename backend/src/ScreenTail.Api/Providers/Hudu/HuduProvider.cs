@@ -197,8 +197,8 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         HttpStatusCode.Unauthorized => new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Update it in Settings → Integrations."),
         HttpStatusCode.Forbidden => new ProviderError(ProviderErrorKind.Forbidden, "Hudu says this API key may not do that.", "Ask your Hudu administrator for the permission."),
         HttpStatusCode.NotFound => new ProviderError(ProviderErrorKind.NotFound, "Hudu has no such company or article.", "Pick a different one."),
-        HttpStatusCode.TooManyRequests => new ProviderError(ProviderErrorKind.Unavailable, "Hudu is rate-limiting requests.", "Try again in a minute.", retryAfter),
-        >= HttpStatusCode.InternalServerError => new ProviderError(ProviderErrorKind.Unavailable, "Hudu did not answer.", "Try again in a minute.", retryAfter),
+        HttpStatusCode.TooManyRequests => new ProviderError(ProviderErrorKind.Unavailable, "Hudu is rate-limiting requests.", ProviderHttp.TryAgain(retryAfter), retryAfter),
+        >= HttpStatusCode.InternalServerError => new ProviderError(ProviderErrorKind.Unavailable, "Hudu did not answer.", ProviderHttp.TryAgain(retryAfter), retryAfter),
         _ => new ProviderError(ProviderErrorKind.Invalid, $"Hudu refused the request: {Reason(body)}.", "This is a ScreenTail bug; there is nothing to change on your side."),
     };
 

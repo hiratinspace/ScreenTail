@@ -173,6 +173,27 @@ public sealed class ProviderHttpTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(120), result.Error.RetryAfter);
     }
 
+    [Theory]
+    [InlineData(null, "Try again in a minute.")]
+    [InlineData(0.0, "Try again in a minute.")]
+    [InlineData(-30.0, "Try again in a minute.")]
+    [InlineData(0.4, "Try again in 1 second.")]
+    [InlineData(45.0, "Try again in 45 seconds.")]
+    [InlineData(59.5, "Try again in a minute.")]
+    [InlineData(60.0, "Try again in a minute.")]
+    [InlineData(61.0, "Try again in 2 minutes.")]
+    [InlineData(180.0, "Try again in 3 minutes.")]
+    [InlineData(5940.0, "Try again in 99 minutes.")]
+    [InlineData(7200.0, "Try again in 2 hours.")]
+    [InlineData(7201.0, "Try again in 3 hours.")]
+    [InlineData(259200.0, "Try again in 24 hours.")]
+    public void TheAdviceIsTheWaitTheProviderNamedRoundedUp(double? seconds, string advice)
+    {
+        // A technician told "a minute" by a provider that asked for ten tries nine more times into the
+        // same limit. The wait is rounded up, never down: sooner than asked is another 429.
+        Assert.Equal(advice, ProviderHttp.TryAgain(seconds is { } s ? TimeSpan.FromSeconds(s) : null));
+    }
+
     [Fact]
     public async Task ARetryAfterDateAlreadyPastIsNoReasonToWait()
     {

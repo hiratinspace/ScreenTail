@@ -225,6 +225,30 @@ public static class ProviderHttp
         return header?.Delta ?? (header?.Date is { } date ? date - time.GetUtcNow() : null);
     }
 
+    /// <summary>
+    /// What to do about a rate limit or an outage, from the wait the provider named: "Try again in 3
+    /// minutes." Never sooner than it asked, so a wait is rounded up, and never more than a day, as the
+    /// summarize route holds it. With no wait named, a minute, as before.
+    /// </summary>
+    public static string TryAgain(TimeSpan? after)
+    {
+        if (after is not { } wait || wait <= TimeSpan.Zero)
+        {
+            return "Try again in a minute.";
+        }
+
+        var seconds = (long)Math.Ceiling(Math.Min(wait.TotalSeconds, TimeSpan.FromDays(1).TotalSeconds));
+        var minutes = (seconds + 59) / 60;
+        return seconds switch
+        {
+            1 => "Try again in 1 second.",
+            < 60 => $"Try again in {seconds} seconds.",
+            _ when minutes == 1 => "Try again in a minute.",
+            _ when minutes < 120 => $"Try again in {minutes} minutes.",
+            _ => $"Try again in {(seconds + 3599) / 3600} hours.",
+        };
+    }
+
     /// <summary>One line of the provider's own words, bounded, with no trailing stop: what a technician may paste into a ticket, and nothing else from the body.</summary>
     public static string Sanitise(string? text)
     {

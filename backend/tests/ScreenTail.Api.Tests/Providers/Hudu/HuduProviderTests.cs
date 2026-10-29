@@ -250,6 +250,22 @@ public sealed class HuduProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task ARateLimitSaysHowLongHuduAskedToWait()
+    {
+        var provider = Provider();
+        _ = await provider.ListCompaniesAsync(TestContext.Current.CancellationToken);
+        var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(40));
+        _api.Scripted.Enqueue(limited);
+
+        var result = await provider.PublishArticleAsync(new KbArticle("7", "Title", "Body", []), TestContext.Current.CancellationToken);
+
+        Assert.True(result.Error!.Retryable);
+        Assert.Equal(TimeSpan.FromSeconds(40), result.Error.RetryAfter);
+        Assert.Equal("Hudu is rate-limiting requests. Try again in 40 seconds.", result.Error.ToString());
+    }
+
+    [Fact]
     public async Task ASiteThatNeverStopsListingCompaniesIsStoppedAtTheCap()
     {
         // 2026-10-12 review: a tenant sets the site, and a site that answers every page in full would

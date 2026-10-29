@@ -255,8 +255,17 @@ public static partial class Publisher
         ? new PublishResultJson(destination, true, id, link)
         : new PublishResultJson(destination, true, id, link, Error: incomplete.ToString(), Kind: Partial);
 
+    /// <summary>
+    /// The provider's refusal. A retryable one carries the wait the provider named, as the ticket search
+    /// does; one that may have landed carries none, because the advice there is to look, not to wait.
+    /// </summary>
     private static PublishResultJson Failed(string destination, ProviderError error) =>
-        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable);
+        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable, RetryAfterSeconds: error.Retryable ? Seconds(error.RetryAfter) : null);
+
+    /// <summary>Whole seconds, rounded up so a client never comes back sooner than asked, and at most a day.</summary>
+    private static long? Seconds(TimeSpan? wait) => wait is { } after && after > TimeSpan.Zero
+        ? (long)Math.Ceiling(Math.Min(after.TotalSeconds, TimeSpan.FromDays(1).TotalSeconds))
+        : null;
 
     private static string Kind(ProviderErrorKind kind) => kind.ToString().ToLowerInvariant();
 

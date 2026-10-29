@@ -203,6 +203,32 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Assert.False(time.Retryable);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, 180L, true, "ConnectWise is rate-limiting requests. Try again in 3 minutes.")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, null, false, "ConnectWise did not confirm the request, so it may have been saved. Check ConnectWise before publishing again, so nothing is added twice.")]
+    public async Task ADestinationThePsaAskedToWaitForSaysHowLong(HttpStatusCode status, long? seconds, bool retryable, string error)
+    {
+        // A 429 is the PSA saying it did not take the time entry, so Retry may send it, after the wait
+        // the PSA named, which the response carries as the ticket search does and says in words. A 503
+        // after the body left may have landed: no wait is offered for something to look for first.
+        var cw = new ScriptedConnectWise { FailingRoute = ("/time/entries", status), FailingRouteRetryAfter = TimeSpan.FromSeconds(180) };
+        using var host = Host(cw);
+        using var client = await ConnectedClientAsync(host);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var rows = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList();
+        var note = rows.Single(r => r.GetProperty("destination").GetString() == "ticket_note");
+        var time = rows.Single(r => r.GetProperty("destination").GetString() == "time_entry");
+        Assert.Equal(JsonValueKind.Null, note.GetProperty("retry_after_seconds").ValueKind);
+        Assert.False(time.GetProperty("ok").GetBoolean());
+        Assert.Equal(retryable, time.GetProperty("retryable").GetBoolean());
+        var wait = time.GetProperty("retry_after_seconds");
+        Assert.Equal(seconds, wait.ValueKind == JsonValueKind.Null ? null : wait.GetInt64());
+        Assert.Equal(error, time.GetProperty("error").GetString());
+    }
+
     [Fact]
     public async Task AnAttachmentRefusedAfterTheNoteLandedIsReportedAsLanded()
     {

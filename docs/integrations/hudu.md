@@ -14,7 +14,8 @@ Hudu before a pilot. Written from Hudu's API documentation; the real check has n
 
 Every request carries the tenant's key in the `x-api-key` header and never in a URL. A 429 or an
 outage is retried with exponential backoff and jitter, three attempts at most, waiting at least as
-long as a Retry-After of up to five seconds; a wrong key is not retried. An article or upload is sent
+long as a Retry-After of up to five seconds; a longer one is answered at once, saying how long Hudu
+asked to wait. A wrong key is not retried. An article or upload is sent
 again only when none of it left or Hudu answered 429; otherwise it comes back `unknown` and the
 technician is asked to check Hudu first. The company list stops at 10,000 companies. Every refusal reaches the technician as a kind and two sentences: "Hudu rejected the API key.
 Update it in Settings → Integrations." A 422 carries Hudu's own words about the field it refused.

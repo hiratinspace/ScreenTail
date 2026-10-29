@@ -118,7 +118,9 @@ Both providers send through `ProviderHttp`, so they cannot disagree about what a
 outage is retried, three attempts at most, and a write only when nothing of it left or the answer was
 a 429. The wait is the exponential backoff with jitter, or the provider's Retry-After when that is
 longer; a Retry-After beyond `MaxRetryWait` (five seconds) is not waited out, and the error carries it
-instead. Each client holds at most `ProviderHttp.MaxResponseBytes` (4 MB) of an answer; a larger one is
+instead, with its advice in the same terms (`ProviderHttp.TryAgain`: "Try again in 3 minutes.", rounded
+up, at most a day; "a minute" when no wait was named). A publish result passes a retryable failure's
+wait on as `retry_after_seconds`, as the ticket search does. Each client holds at most `ProviderHttp.MaxResponseBytes` (4 MB) of an answer; a larger one is
 `Invalid` and not retried. A success that is not JSON, or lacks the id or list the provider reads, is
 `Invalid` for a read and `Unknown` for a write, never an exception, and the body is not quoted back.
 An empty success lacks the list too: Hudu without a `companies` key is not a tenant with no companies.

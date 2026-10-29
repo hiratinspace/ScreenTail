@@ -65,6 +65,11 @@ public sealed record PublishBundle
 /// screenshot did not; null when it all went.
 /// </param>
 /// <param name="Error">Why not, or for <c>partial</c>, what is missing.</param>
+/// <param name="RetryAfterSeconds">
+/// For a retryable failure, the wait the PSA or documentation platform named, in whole seconds rounded
+/// up and at most a day, as the ticket search and summarize routes pass it on; <c>error</c> says it in
+/// words. Null when it named none, and for anything that is not retryable.
+/// </param>
 public sealed record PublishResultJson(
     [property: JsonPropertyName("destination")] string Destination,
     [property: JsonPropertyName("ok")] bool Ok,
@@ -72,7 +77,8 @@ public sealed record PublishResultJson(
     [property: JsonPropertyName("link")] Uri? Link = null,
     [property: JsonPropertyName("error")] string? Error = null,
     [property: JsonPropertyName("kind")] string? Kind = null,
-    [property: JsonPropertyName("retryable")] bool Retryable = false);
+    [property: JsonPropertyName("retryable")] bool Retryable = false,
+    [property: JsonPropertyName("retry_after_seconds")] long? RetryAfterSeconds = null);
 
 public sealed record PublishResponse([property: JsonPropertyName("results")] IReadOnlyList<PublishResultJson> Results);
 
