@@ -68,14 +68,18 @@ $script:LogTail = 200
 # the token and keeps the host.
 #
 # The end-to-end run's fake secret is made up for each run and never saved, so it cannot be found by its
-# value. The last rule removes it by its shape: any run of the words it is made of (common.ps1's lists)
-# with the digits around them, whole or in part.
+# value. The last rule removes it by its shape (common.ps1's word lists): a word and digits, digits and a
+# word, or two words, with at most one space, dot, underscore or hyphen between the parts, so the digits go
+# too. The match may not touch a letter on either side, so a word that only contains one of the words
+# ("unscrambled", "tumbleweed") is kept, and so is a word on its own ("Juniper Networks").
 $script:LineCut = 4000
 $passwordNames = 'password|passwd|pwd|psw'
 $secretNames = 'secret|token|credential|api[_\-]?key|signing[_\-]?key|access[_\-]?key|master[_\-]?key|private[_\-]?key|public[_\-]?key|client[_\-]?secret|device[_\-]?token|refresh[_\-]?token'
 $quoted = '"(?:[^"\\]|\\.)*"|''[^'']*'''
 $nameStart = '(?<![A-Za-z0-9_.:\-])'
-$e2eWords = (@($script:E2eSecretFirstWords) + @($script:E2eSecretSecondWords)) -join '|'
+$secretWord = '(?:' + ((@($script:E2eSecretFirstWords) + @($script:E2eSecretSecondWords)) -join '|') + ')'
+$secretDigits = '[0-9]{1,6}'
+$secretGap = '[\s._-]?'
 $script:ScrubRules = @(
     @{ Label = 'authorization headers'; Pattern = '(?i)\b((?:proxy-)?authorization)("?\s*[:=]\s*"?)(?:(?:basic|bearer|digest|token)\s+)?(?!\[)[^\s"]+'; Replacement = '$1$2[removed]' },
     @{ Label = 'key headers'; Pattern = '(?i)\b(x-goog-api-key|x-api-key|api-key|x-auth-token)(\s*[:=]\s*)(?!\[)\S+'; Replacement = '$1$2[removed]' },
@@ -90,7 +94,7 @@ $script:ScrubRules = @(
     @{ Label = 'secrets written as "name": "value"'; Pattern = "(?i)(`"[^`"]*(?:$passwordNames|$secretNames|connectionstring|postgres)[^`"]*`"\s*:\s*)(?!`"\[)(?:`"(?:[^`"\\]|\\.)*`")"; Replacement = '$1"[removed]"' },
     @{ Label = 'passwords in connection addresses'; Pattern = '(?i)(?<![a-z0-9+.\-])([a-z][a-z0-9+.\-]*://[^:/@\s]+:)(?!\[)[^@/\s]+@'; Replacement = '$1[removed]@' },
     @{ Label = 'email addresses'; Pattern = '(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}'; Replacement = '[email]' },
-    @{ Label = 'the end-to-end run''s made-up secret, by its shape'; Pattern = "(?i)[0-9]{0,4}(?:$e2eWords)(?:[0-9]{0,4}(?:$e2eWords))*[0-9]{0,4}"; Replacement = '[e2e secret removed]' }
+    @{ Label = 'the end-to-end run''s made-up secret, by its shape'; Pattern = "(?i)(?<![A-Za-z])(?:$secretWord$secretGap$secretDigits(?:$secretGap$secretWord)?|$secretDigits$secretGap$secretWord|$secretWord$secretGap$secretWord)(?![A-Za-z])"; Replacement = '[e2e secret removed]' }
 )
 
 # A run of 32 or more key-like characters with upper case, lower case and digits in it: a key or a token
@@ -274,8 +278,13 @@ function Invoke-WithTimeout {
 # Lines read from a log or a program's output, with every line that ScreenTail's scrubbing logger did not
 # write withheld, the same way the windows withhold them as they write. Again here because a file from an
 # older start, or a program's output read directly, was never filtered.
-function Select-DemoLogLines([string[]]$Lines) {
-    $state = @{ InLogger = $false; Reading = $true }
+#
+# Without -Raw the lines are read as a file the windows' log writer wrote, which also keeps the lines that
+# writer adds itself ("[start.ps1] ...", its withheld and dropped notes). -Raw is for anything that writer
+# did not write (a program's output, the end-to-end runner's logs): there those lines came from a process
+# and are withheld like any other, as the windows withhold them as they write.
+function Select-DemoLogLines([string[]]$Lines, [switch]$Raw) {
+    $state = @{ InLogger = $false; Reading = (-not $Raw) }
     $kept = New-Object System.Collections.Generic.List[string]
     foreach ($line in $Lines) {
         $text = ConvertTo-DemoLogLine $line $state
@@ -285,6 +294,13 @@ function Select-DemoLogLines([string[]]$Lines) {
         $kept.Add($text)
     }
     return $kept.ToArray()
+}
+
+# A program's output read directly (the capture service's --capabilities check), split into its
+# non-empty lines and filtered as raw output.
+function Select-ProgramOutputLines([string]$Text) {
+    $lines = @(([string]$Text -split '\r\n|\r|\n') | Where-Object { $_.Trim() })
+    return @(Select-DemoLogLines -Raw $lines)
 }
 
 # Whether a key looks like the drafting company's, without saying anything else about it.
@@ -325,9 +341,10 @@ function Get-StatusOnly([string]$Url) {
     try { return [int]$response.StatusCode } finally { $response.Close() }
 }
 
-# The last lines of a log, filtered, each indented, after a line saying how many there are.
-function Add-LogTail([string]$Path, [int]$Count) {
-    $lines = @(Select-DemoLogLines @(Read-SharedLog $Path))
+# The last lines of a log, filtered, each indented, after a line saying how many there are. -Raw for a log
+# the windows' log writer did not write (see Select-DemoLogLines).
+function Add-LogTail([string]$Path, [int]$Count, [switch]$Raw) {
+    $lines = @(Select-DemoLogLines -Raw:$Raw @(Read-SharedLog $Path))
     while ($lines.Count -gt 0 -and -not $lines[$lines.Count - 1]) {
         if ($lines.Count -eq 1) { $lines = @() } else { $lines = @($lines[0..($lines.Count - 2)]) }
     }
@@ -355,9 +372,13 @@ function Get-ErrorLines([string[]]$Lines) {
 $script:E2eRoles = @('backend', 'service', 'ui', 'driver')
 $script:E2eLogNames = @('e2e.log') + @($script:E2eRoles | ForEach-Object { "$_.out.log"; "$_.err.log" })
 
-# Loads the log filter the way start's windows load it, for a section that reads files nobody filtered:
-# from the text given, only if its SHA-256 is the hash given, and only if, once loaded, it withholds a line
-# the logger did not write and an exception's message. Returns the filter to dot-source, or $null.
+# Loads the log filter for a section that reads files nobody filtered. Returns the filter to dot-source,
+# or $null. The guard is the probe: the text has to define ConvertTo-DemoLogLine itself, and once loaded
+# that function has to withhold a line the logger did not write and an exception's message.
+#
+# The hash is not a guard in the report. The report passes common.ps1's own in-memory source and the hash
+# common.ps1 computed from that same text, so they always match; this is not start.ps1's check of a copy
+# on disk. It only refuses a text other than the one it is given the hash of (report.Tests.ps1 uses that).
 function Get-CheckedLogFilter([string]$Source, [string]$Hash) {
     if (-not $Source -or -not $Hash) { return $null }
     if (-not [string]::Equals((Get-DemoLogWriterHash $Source), $Hash, [StringComparison]::Ordinal)) { return $null }
@@ -442,8 +463,9 @@ function Get-E2eRunStart([string[]]$Lines) {
     if ($Lines.Count -eq 0) { return $null }
     $pattern = '^ScreenTail end-to-end run \(ST-013\), ([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2})[:.]([0-9]{2})[:.]([0-9]{2}) on '
     if (-not ([string]$Lines[0] -cmatch $pattern)) { return $null }
-    $parts = @(1..6 | ForEach-Object { [int]$Matches[$_] })
+    $found = $Matches
     try {
+        $parts = @(1..6 | ForEach-Object { [int]$found[$_] })
         $time = New-Object DateTime($parts[0], $parts[1], $parts[2], $parts[3], $parts[4], $parts[5], ([DateTimeKind]::Local))
     }
     catch {
@@ -505,7 +527,7 @@ function Add-E2eLogTail([IO.FileInfo]$File, [int]$Count, $RunStart) {
         Add-Line ('  ' + $name + ': not text, so not read (' + $when + ').')
         return
     }
-    $lines = @(Select-DemoLogLines @($read.Lines))
+    $lines = @(Select-DemoLogLines -Raw @($read.Lines))
     while ($lines.Count -gt 0 -and -not $lines[$lines.Count - 1]) {
         if ($lines.Count -eq 1) { $lines = @() } else { $lines = @($lines[0..($lines.Count - 2)]) }
     }
@@ -529,95 +551,114 @@ function Add-E2eReport {
     param([string]$Folder, [string]$FilterSource, [string]$FilterHash, [int]$Tail = $script:LogTail)
 
     if (-not $Folder) { return }
-    $dir = New-Object IO.DirectoryInfo($Folder)
-    if (-not $dir.Exists) { return }
+    try {
+        $dir = New-Object IO.DirectoryInfo($Folder)
+        if (-not $dir.Exists) { return }
+    }
+    catch {
+        return
+    }
 
     Invoke-Section 'End-to-end run (the last scripts\windows\e2e\run-e2e.cmd run on this laptop)' {
-        Add-Fact 'Folder' $dir.FullName
-        if (Test-ReparsePoint $dir) {
-            Add-Line '  The folder is a link to another place, so nothing in it was read.'
-            return
-        }
-        $checked = Get-CheckedLogFilter -Source $FilterSource -Hash $FilterHash
-        if (-not $checked) {
-            Add-Line '  The log filter could not be checked, so nothing from the end-to-end run is shown.'
-            return
-        }
-        # The checked filter, loaded into this section's own scope, is the ConvertTo-DemoLogLine that
-        # Select-DemoLogLines finds when it is called from here.
-        . $checked
-
-        $runStart = $null
-        $logFile = Get-E2eFile $dir 'e2e.log'
-        if (-not $logFile) {
-            Add-Fact 'e2e.log' 'not there (the last run stopped before writing it)'
-        }
-        elseif (Test-ReparsePoint $logFile) {
-            Add-Fact 'e2e.log' 'a link to another place, so not read'
-        }
-        else {
-            $written = $logFile.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
-            $head = Read-LogBytes -Path $logFile.FullName -Cap 4096 -Head
-            $all = Read-LogBytes -Path $logFile.FullName -Cap $script:DemoLogCapBytes
-            if ($head.Binary -or $all.Binary) {
-                Add-Removed 'end-to-end files that are not text (not read)'
-                Add-Fact 'e2e.log' 'not text, so not read'
+        # A fixed sentence on any failure: an exception's message can carry a path or a name, and Invoke-Section
+        # would print it.
+        try {
+            Add-Fact 'Folder' $dir.FullName
+            if (Test-ReparsePoint $dir) {
+                Add-Line '  The folder is a link to another place, so nothing in it was read.'
+                return
             }
-            elseif ($head.Failed -or $all.Failed) {
-                Add-Fact 'e2e.log' 'could not be read'
+            $checked = Get-CheckedLogFilter -Source $FilterSource -Hash $FilterHash
+            if (-not $checked) {
+                Add-Line '  The log filter could not be checked, so nothing from the end-to-end run is shown.'
+                return
+            }
+            # The checked filter, loaded into this section's own scope, is the ConvertTo-DemoLogLine that
+            # Select-DemoLogLines finds when it is called from here.
+            . $checked
+
+            $runStart = $null
+            $logFile = Get-E2eFile $dir 'e2e.log'
+            if (-not $logFile) {
+                Add-Fact 'e2e.log' 'not there (the last run stopped before writing it)'
+            }
+            elseif (Test-ReparsePoint $logFile) {
+                Add-Fact 'e2e.log' 'a link to another place, so not read'
             }
             else {
-                $start = Get-E2eRunStart @($head.Lines)
-                if ($start) {
-                    $runStart = $start.Time
-                    $took = [int][Math]::Round(($logFile.LastWriteTime - $start.Time).TotalMinutes)
-                    Add-Fact 'Run started' ($start.Text + ' (e2e.log last written ' + $written + ', about ' + [Math]::Max(0, $took) + ' min later)')
+                $written = $logFile.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
+                $head = Read-LogBytes -Path $logFile.FullName -Cap 4096 -Head
+                $all = Read-LogBytes -Path $logFile.FullName -Cap $script:DemoLogCapBytes
+                if ($head.Binary -or $all.Binary) {
+                    Add-Removed 'end-to-end files that are not text (not read)'
+                    Add-Fact 'e2e.log' 'not text, so not read'
+                }
+                elseif ($head.Failed -or $all.Failed) {
+                    Add-Fact 'e2e.log' 'could not be read'
                 }
                 else {
-                    Add-Fact 'Run started' ('unknown: e2e.log has no start line (last written ' + $written + ')')
+                    $start = Get-E2eRunStart @($head.Lines)
+                    if ($start) {
+                        $runStart = $start.Time
+                        $took = [int][Math]::Round(($logFile.LastWriteTime - $start.Time).TotalMinutes)
+                        Add-Fact 'Run started' ($start.Text + ' (e2e.log last written ' + $written + ', about ' + [Math]::Max(0, $took) + ' min later)')
+                    }
+                    else {
+                        Add-Fact 'Run started' ('unknown: e2e.log has no start line (last written ' + $written + ')')
+                    }
+                    $facts = Get-E2eRunFacts @($all.Lines)
+                    if ($facts.Summary) {
+                        Add-Fact 'Result' $facts.Summary
+                    }
+                    else {
+                        Add-Fact 'Result' 'none: the run was cut off, or is still running'
+                    }
+                    if ($facts.Driver) { Add-Fact 'The driver''s result' $facts.Driver }
+                    if ($facts.Failed.Count -eq 0) {
+                        Add-Fact 'Steps that failed' 'none'
+                    }
+                    else {
+                        Add-Fact 'Steps that failed (id and status only)' "$($facts.Failed.Count):"
+                        foreach ($step in @($facts.Failed | Select-Object -First 50)) { Add-Line ('    ' + $step) }
+                        if ($facts.Failed.Count -gt 50) { Add-Line "    ... and $($facts.Failed.Count - 50) more" }
+                    }
+                    if ($facts.Summary -and $facts.Summary.StartsWith('FAIL', [StringComparison]::Ordinal)) {
+                        $when = 'at a time not recorded'
+                        if ($start) { $when = 'started ' + $start.Text }
+                        $first = 'see its section'
+                        if ($facts.Failed.Count -gt 0) { $first = 'first failed step: ' + $facts.Failed[0] }
+                        Add-Notice ("The last end-to-end run ($when) failed ($first). The 'End-to-end run' section at the end has its logs.")
+                    }
                 }
-                $facts = Get-E2eRunFacts @($all.Lines)
-                if ($facts.Summary) {
-                    Add-Fact 'Result' $facts.Summary
+            }
+            $others = @($dir.GetFiles() | Where-Object { $script:E2eLogNames -notcontains $_.Name })
+            Add-Fact 'Other files in the folder (not read)' $others.Count
+
+            foreach ($role in $script:E2eRoles) {
+                Add-Line ''
+                Add-Line ("  -- $role (the last $Tail lines of each log; only the logger's lines are kept)")
+                $files = @(@("$role.out.log", "$role.err.log") | ForEach-Object { Get-E2eFile $dir $_ } | Where-Object { $_ })
+                if ($files.Count -eq 0) {
+                    if ($role -eq 'driver') {
+                        Add-Line '  No log file of its own: the runner writes the driver''s lines into e2e.log, summed up above.'
+                    }
+                    else {
+                        Add-Line "  No log file: the last run stopped before it started the $role."
+                    }
+                    continue
                 }
-                else {
-                    Add-Fact 'Result' 'none: the run was cut off, or is still running'
-                }
-                if ($facts.Driver) { Add-Fact 'The driver''s result' $facts.Driver }
-                if ($facts.Failed.Count -eq 0) {
-                    Add-Fact 'Steps that failed' 'none'
-                }
-                else {
-                    Add-Fact 'Steps that failed (id and status only)' "$($facts.Failed.Count):"
-                    foreach ($step in @($facts.Failed | Select-Object -First 50)) { Add-Line ('    ' + $step) }
-                    if ($facts.Failed.Count -gt 50) { Add-Line "    ... and $($facts.Failed.Count - 50) more" }
-                }
-                if ($facts.Summary -and $facts.Summary.StartsWith('FAIL', [StringComparison]::Ordinal)) {
-                    $when = 'at a time not recorded'
-                    if ($start) { $when = 'started ' + $start.Text }
-                    $first = 'see its section'
-                    if ($facts.Failed.Count -gt 0) { $first = 'first failed step: ' + $facts.Failed[0] }
-                    Add-Notice ("The last end-to-end run ($when) failed ($first). The 'End-to-end run' section at the end has its logs.")
+                foreach ($file in $files) {
+                    try {
+                        Add-E2eLogTail -File $file -Count $Tail -RunStart $runStart
+                    }
+                    catch {
+                        Add-Line ('  ' + $file.Name + ': could not be read.')
+                    }
                 }
             }
         }
-        $others = @($dir.GetFiles() | Where-Object { $script:E2eLogNames -notcontains $_.Name })
-        Add-Fact 'Other files in the folder (not read)' $others.Count
-
-        foreach ($role in $script:E2eRoles) {
-            Add-Line ''
-            Add-Line ("  -- $role (the last $Tail lines of each log; only the logger's lines are kept)")
-            $files = @(@("$role.out.log", "$role.err.log") | ForEach-Object { Get-E2eFile $dir $_ } | Where-Object { $_ })
-            if ($files.Count -eq 0) {
-                if ($role -eq 'driver') {
-                    Add-Line '  No log file of its own: the runner writes the driver''s lines into e2e.log, summed up above.'
-                }
-                else {
-                    Add-Line "  No log file: the last run stopped before it started the $role."
-                }
-                continue
-            }
-            foreach ($file in $files) { Add-E2eLogTail -File $file -Count $Tail -RunStart $runStart }
+        catch {
+            Add-Line '  Part of the end-to-end run could not be read, so the rest of this section is left out.'
         }
     }
 }
@@ -1138,7 +1179,7 @@ Invoke-Section 'What Windows lets the capture service do' {
             if (-not $report) {
                 Add-Fact 'Capability check' "exit code $($run.ExitCode), no report"
                 # Only what the service's logger or its fixed sentences say; a crash's message is withheld.
-                $said = @(Select-DemoLogLines @((($run.Err + "`n" + $run.Out) -split '\r\n|\r|\n') | Where-Object { $_.Trim() }))
+                $said = @(Select-ProgramOutputLines ($run.Err + "`n" + $run.Out))
                 foreach ($line in @($said | Select-Object -First 10)) { Add-Line ('    ' + $line) }
             }
             else {
@@ -1164,7 +1205,7 @@ Invoke-Section 'What Windows lets the capture service do' {
                         Add-Notice "$($check.capability) is $($check.state): $($check.message)$hint"
                     }
                 }
-                $said = @(Select-DemoLogLines @(($run.Err -split '\r\n|\r|\n') | Where-Object { $_.Trim() }))
+                $said = @(Select-ProgramOutputLines $run.Err)
                 foreach ($line in @($said | Select-Object -First 5)) { Add-Line ('    stderr: ' + $line) }
             }
         }
@@ -1339,7 +1380,8 @@ Invoke-Section ("Logs (the last $script:LogTail lines of each; only the logger's
     if (Test-Path -LiteralPath $script:DemoOldBackendLog) {
         Add-Line ''
         Add-Line '  -- Backend, from an older start.cmd (before the logs folder)'
-        $null = Add-LogTail -Path $script:DemoOldBackendLog -Count $script:LogTail
+        # An older start wrote this file itself, without the log writer: read as raw output.
+        $null = Add-LogTail -Path $script:DemoOldBackendLog -Count $script:LogTail -Raw
     }
 
     Add-Line ''

@@ -342,13 +342,22 @@ temporary folder, and the report does not look there). It shows:
 Those files are not filtered as they are written, so the report reads every process log through the
 same filter as the demo logs: only the lines ScreenTail's scrubbing logger wrote are kept, an
 exception's message never is, and every line then goes through the same final scrub, which also removes
-anything shaped like the run's made-up secret. It loads that filter the way the demo windows do: only if
-its hash matches, and only if it then withholds a test line. If it cannot be checked, the section says
-so and shows nothing from the run.
+anything shaped like the run's made-up secret (a word of the secret next to digits or another of its
+words, so `unscrambled` or `Juniper Networks` is left alone). Each line is read as a process printed
+it, so a line that only looks like one `start.cmd` writes (`[start.ps1] ...`) is withheld too.
+
+The filter is the text in `common.ps1`, the same one `start.cmd` gives the demo windows. Before using it
+the section tests it: it must define the filter, and the filter must withhold a test line the logger
+did not write and a test exception message. That test is the guard. (The section is also given a hash
+of the text, but both come from `common.ps1`, so on a laptop they always match; it is not the check the
+demo windows make of their copy on disk.) If the test fails, the section says the filter could not be
+checked and shows nothing from the run. If a file or the folder cannot be read, it says so in a fixed
+sentence, never with the error's own message.
 
 It reads nothing outside that folder, and in it only `e2e.log` and the processes' logs, at most the last
-2 MB of each. Any other file (such as `devcert.cer`) is only counted, and a log that is not text is
-skipped.
+2 MB of each. A folder or file that is a link to another place (a junction) is not followed. Any other
+file (such as `devcert.cer`, or a stray `other.log` or `backend.1.log`) is only counted, and a log that
+is not text is skipped.
 
 ## Activated device
 

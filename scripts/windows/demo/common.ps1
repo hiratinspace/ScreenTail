@@ -362,8 +362,9 @@ function Get-DemoLogWriterHash([string]$Source) {
     return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
 }
 
-# The hash of the filter as this file built it, for a reader that loads the filter the way the windows do
-# (report.ps1's end-to-end section): only if the text it is given still has this hash.
+# The hash of the filter as this file built it, which report.ps1's end-to-end section is given with the
+# source. Both come from this file, so in the report they always match: its guard is a probe of what the
+# filter withholds, not this hash.
 $script:DemoLogWriterHash = Get-DemoLogWriterHash $script:DemoLogWriterSource
 
 # --- Running other programs ---------------------------------------------------------------------------
