@@ -39,11 +39,11 @@ public sealed record GapCell(long TsMs, long EndMs, CaptureStateReason? Reason) 
     /// <summary>The tooltip. Says what stopped capture, in the words a technician would use.</summary>
     public string Description => Reason switch
     {
-        CaptureStateReason.PasswordField => "Paused — a password field had focus",
-        CaptureStateReason.ExcludedApp => "Paused — an excluded app was in front",
-        CaptureStateReason.ElevatedWindow => "Paused — an elevated window had focus",
-        CaptureStateReason.SensitiveContext => "Paused — the screen looked sensitive",
-        CaptureStateReason.OutOfScope => "Not captured — the window was out of scope",
+        CaptureStateReason.PasswordField => "Paused: a password field had focus",
+        CaptureStateReason.ExcludedApp => "Paused: an excluded app was in front",
+        CaptureStateReason.ElevatedWindow => "Paused: an elevated window had focus",
+        CaptureStateReason.SensitiveContext => "Paused: the screen looked sensitive",
+        CaptureStateReason.OutOfScope => "Not captured: the window was out of scope",
         CaptureStateReason.User => "Paused by you",
         _ => "Paused",
     };

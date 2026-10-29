@@ -58,7 +58,7 @@ public static class NoteBanners
         {
             banners.Add(new Banner(
                 BannerKind.Info,
-                "Drafted on this device only — quality may be lower."));
+                "Drafted on this device only. Quality may be lower."));
         }
 
         // Local-only mode is why a local draft happened, so saying both would be saying it twice. Said on
@@ -68,12 +68,12 @@ public static class NoteBanners
         {
             banners.Add(new Banner(
                 BannerKind.Info,
-                "Local-only mode — nothing from this session leaves the device."));
+                "Local-only mode: nothing from this session leaves the device."));
         }
 
         if (session.Draft is null && offline)
         {
-            banners.Add(new Banner(BannerKind.Info, "Draft pending — offline"));
+            banners.Add(new Banner(BannerKind.Info, "Draft pending: offline"));
         }
 
         return banners;

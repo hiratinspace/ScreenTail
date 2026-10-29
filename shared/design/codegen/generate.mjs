@@ -54,9 +54,9 @@ function wpfCommon(t) {
     '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"',
     '                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"',
     '                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">',
-    `    <FontFamily x:Key="Font.ui">${xmlEscape(t.font.ui.replaceAll('"', ''))}</FontFamily>`,
-    `    <FontFamily x:Key="Font.mono">${xmlEscape(t.font.mono.replaceAll('"', ''))}</FontFamily>`,
   ];
+  // WPF reads a comma-separated FontFamily as a fallback list, so the CSS stack carries over without its quotes.
+  for (const [k, v] of Object.entries(t.font)) lines.push(`    <FontFamily x:Key="Font.${k}">${xmlEscape(v.replaceAll('"', ''))}</FontFamily>`);
   for (const [k, v] of Object.entries(t.size)) lines.push(`    <sys:Double x:Key="Size.${k}">${v}</sys:Double>`);
   for (const [k, v] of Object.entries(t.weight)) lines.push(`    <FontWeight x:Key="Weight.${k}">${weightName(v)}</FontWeight>`);
   for (const [k, v] of Object.entries(t.lineheight)) lines.push(`    <sys:Double x:Key="LineHeight.${k}">${v}</sys:Double>`);
@@ -64,6 +64,7 @@ function wpfCommon(t) {
   for (const [k, v] of Object.entries(t.layout)) lines.push(`    <sys:Double x:Key="Layout.${k}">${v}</sys:Double>`);
   lines.push(
     `    <Thickness x:Key="Padding.pane">${t.layout['pane-padding']}</Thickness>`,
+    `    <Thickness x:Key="Padding.card">${t.layout['card-padding']}</Thickness>`,
     `    <Thickness x:Key="Padding.control">${t.layout['control-padding-x']},${t.layout['control-padding-y']}</Thickness>`,
   );
   for (const [k, v] of Object.entries(t.radius)) {
@@ -90,8 +91,7 @@ function css(t) {
     ':root {',
     ...colorVars('light'),
     ...shadowVars('light'),
-    `  --font-ui: ${t.font.ui};`,
-    `  --font-mono: ${t.font.mono};`,
+    ...Object.entries(t.font).map(([k, v]) => `  --font-${k}: ${v};`),
     ...Object.entries(t.size).map(([k, v]) => `  --size-${k}: ${v}px;`),
     ...Object.entries(t.weight).map(([k, v]) => `  --weight-${k}: ${v};`),
     ...Object.entries(t.lineheight).map(([k, v]) => `  --lineheight-${k}: ${v};`),

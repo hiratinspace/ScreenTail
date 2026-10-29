@@ -68,7 +68,7 @@ public sealed class HotkeyBindings
                 conflicts.Add(new HotkeyConflict(
                     action,
                     hotkey,
-                    $"{hotkey} needs Ctrl, Alt or Win — a chord without one would take that key away from every other application.",
+                    $"{hotkey} needs Ctrl, Alt or Win. A chord without one would take that key away from every other application.",
                     Suggest()));
                 continue;
             }

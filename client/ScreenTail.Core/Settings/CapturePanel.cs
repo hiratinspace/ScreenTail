@@ -32,7 +32,7 @@ public interface ICaptureGateway
 /// </summary>
 public sealed class CapturePanel(ICaptureGateway gateway)
 {
-    public const string AllWindowsWarning = "All windows means every window that has focus during a session is captured — a browser tab with other customers' data, your email, a password manager that is not excluded. Confirm you want this.";
+    public const string AllWindowsWarning = "All windows means every window that has focus during a session is captured: a browser tab with other customers' data, your email, a password manager that is not excluded. Confirm you want this.";
 
     private readonly ICaptureGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
     private readonly List<ToolToggle> _tools = [];

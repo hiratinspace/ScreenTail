@@ -42,7 +42,7 @@ public sealed partial class StepRow : ObservableObject
     public bool NeedsVerification => _step.NeedsVerification;
 
     /// <summary>Spec §5 S3, verbatim.</summary>
-    public string VerificationTooltip { get; } = "Inferred from screen only — please verify";
+    public string VerificationTooltip { get; } = "Inferred from screen only. Please verify.";
 
     [ObservableProperty]
     private string _text;
@@ -173,7 +173,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     public string SaveLabel => !_persists ? string.Empty : _save.Status switch
     {
         SaveStatus.Saved => "Saved",
-        SaveStatus.Failed => "Not saved — retrying",
+        SaveStatus.Failed => "Not saved: retrying",
 
         // Pending and Saving are one word on purpose. The difference is ours, not the technician's, and a
         // third label would only invite them to wonder which one means their text is safe.

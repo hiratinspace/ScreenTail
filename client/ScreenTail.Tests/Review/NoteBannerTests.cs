@@ -48,7 +48,7 @@ public sealed class NoteBannerTests
         var banners = NoteBanners.For(Session(localOnly: true, draft: local));
 
         Assert.Single(banners);
-        Assert.Equal("Drafted on this device only — quality may be lower.", banners[0].Text);
+        Assert.Equal("Drafted on this device only. Quality may be lower.", banners[0].Text);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class NoteBannerTests
     [Fact]
     public void OfflineWithNoDraftSaysTheDraftIsPending()
     {
-        Assert.Contains(NoteBanners.For(Session(), offline: true), banner => banner.Text == "Draft pending — offline");
+        Assert.Contains(NoteBanners.For(Session(), offline: true), banner => banner.Text == "Draft pending: offline");
     }
 
     [Fact]

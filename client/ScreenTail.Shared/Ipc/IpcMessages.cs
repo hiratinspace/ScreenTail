@@ -102,8 +102,8 @@ public sealed record DiscardCommand : IpcCommand
 /// UI has to compute it anyway to know whether the pill is on a screen at all.
 ///
 /// A zero width and height means the technician chose tray-only between sessions; the pill returns as a
-/// session starts. A session that starts must be followed by a report with the pill's real rectangle, or
-/// the zero-size one expires and the indicator guard suppresses capture after its grace.
+/// session starts. Once a session runs a zero-size report does not count, and the indicator guard
+/// suppresses capture unless a report with the pill's real rectangle arrives within its grace from the start.
 /// </summary>
 public sealed record IndicatorShowingCommand : IpcCommand
 {

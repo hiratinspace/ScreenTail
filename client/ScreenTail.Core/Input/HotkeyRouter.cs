@@ -5,7 +5,7 @@ namespace ScreenTail.Core.Input;
 /// <summary>
 /// Turns a chord into the thing it does (ST-029).
 ///
-/// Pause is the one that has to be quick: Spec §5 S1 puts the chord on the HUD's own pill ("Paused — press
+/// Pause is the one that has to be quick: Spec §5 S1 puts the chord on the HUD's own pill ("Paused: press
 /// Ctrl+Alt+P to resume"), so the technician is looking straight at the thing that has to change. The state
 /// machine broadcasts on transition, so the work here is to stay out of the way — no waiting on a capture
 /// source, no store round-trip beyond the transition itself.

@@ -347,7 +347,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var policy = new ScopePolicy(registry, new ScopeOptions { Exclusions = exclusions });
         // INV-4, at the one place a session can begin on its own. The tray icon and the pill live in the
         // UI process, so a service recording with nothing attached is a recording nobody was told about.
-        var indicator = new IndicatorGuard(machine, () => indicators.Showing);
+        // Over the reports themselves: the pill put away counts between sessions, and only the pill during one.
+        var indicator = new IndicatorGuard(machine, indicators);
         indicator.Failed += failure => LogGuardFailed(logger, "indicator", failure.GetType().Name);
 
         // ST-077: the clipboard is read once, as a session starts, by the coordinator and nowhere else;

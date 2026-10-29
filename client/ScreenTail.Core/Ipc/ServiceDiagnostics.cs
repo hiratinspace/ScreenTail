@@ -20,7 +20,7 @@ namespace ScreenTail.Core.Ipc;
 public static class ServiceDiagnostics
 {
     /// <summary>The scope line when no scope decision has been made yet.</summary>
-    public const string NothingInFront = "Not capturing — no remote session in front";
+    public const string NothingInFront = "Not capturing: no remote session in front";
 
     /// <summary>Every reason with the name the state events and the contract give it, worked out once.</summary>
     private static readonly (CaptureStateReason Reason, string Name)[] Reasons =
