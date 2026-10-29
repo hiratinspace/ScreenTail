@@ -42,10 +42,25 @@ $script:DemoStateDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\demo'
 $script:DemoAppDir = Join-Path $script:DemoStateDir 'app'
 $script:DemoStateFile = Join-Path $script:DemoStateDir 'state.json'
 $script:DemoBuildStamp = Join-Path $script:DemoStateDir 'client-build.txt'
-$script:DemoBackendLog = Join-Path $script:DemoStateDir 'backend.log'
 $script:DemoBackendExited = Join-Path $script:DemoStateDir 'backend.exited'
-$script:DemoServiceLog = Join-Path $script:DemoStateDir 'service.log'
 $script:DemoServiceExited = Join-Path $script:DemoStateDir 'service.exited'
+
+# What start's two windows print, copied to a file each so report.ps1 can include it. Both processes
+# write only through their scrubbing log sink (INV-10), so these hold no session content. Each file is
+# capped: past DemoLogCapBytes it becomes <name>.1.log (replacing the one before) and a new one starts,
+# and each start moves the last run's file aside the same way. At most two files of 2 MB per process.
+$script:DemoLogDir = Join-Path $script:DemoStateDir 'logs'
+$script:DemoBackendLog = Join-Path $script:DemoLogDir 'backend.log'
+$script:DemoServiceLog = Join-Path $script:DemoLogDir 'service.log'
+$script:DemoLogCapBytes = 2097152
+
+# Where the backend's log was before it moved into logs\. Only report.ps1 reads it, for a laptop that
+# last ran an older start.
+$script:DemoOldBackendLog = Join-Path $script:DemoStateDir 'backend.log'
+
+# Which device token the last start gave the capture service, and until when: "development <time>" or
+# "activated". The time only, never the token.
+$script:DemoTokenFile = Join-Path $script:DemoStateDir 'device-token.txt'
 
 # Where the capture service keeps an invite-activated device's credential (DpapiDeviceCredentials).
 $script:DemoDeviceCredential = Join-Path $env:LOCALAPPDATA 'ScreenTail\device.cred'
@@ -151,6 +166,27 @@ function Read-SharedLog([string]$Path) {
     }
     catch {
         return @()
+    }
+}
+
+# The older file a capped log is moved to: backend.log becomes backend.1.log.
+function Get-OlderLogPath([string]$Path) {
+    return [IO.Path]::ChangeExtension($Path, '.1.log')
+}
+
+# Moves the last run's log aside, so a new run starts with an empty file and the one before is kept.
+function Move-DemoLogAside([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $older = Get-OlderLogPath $Path
+    try {
+        if (Test-Path -LiteralPath $older) { Remove-Item -LiteralPath $older -Force }
+        Move-Item -LiteralPath $Path -Destination $older
+    }
+    catch {
+        # A file something still holds open is emptied instead, so the new run is not mixed into it.
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     }
 }
 

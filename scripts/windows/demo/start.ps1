@@ -18,6 +18,10 @@
     Nothing is set machine-wide or user-wide, and nothing is installed. stop.ps1 stops exactly what this
     started. Running start again while the demo is running changes nothing.
 
+    What the backend and the capture service print in their windows is also copied to
+    %LOCALAPPDATA%\ScreenTail.Dev\demo\logs (backend.log, service.log; 2 MB each, the one before kept as
+    .1.log), so report.cmd can include it. Both write only through their scrubbing log sink.
+
 .PARAMETER Rebuild
     Publish the capture service and the UI again even if nothing seems to have changed.
 
@@ -205,17 +209,40 @@ switch ($update.Outcome) {
 }
 
 Write-Step "Starting the backend on $script:DemoBackendUrl"
-if (-not (Test-Path -LiteralPath $script:DemoStateDir)) {
-    New-Item -ItemType Directory -Path $script:DemoStateDir -Force | Out-Null
+if (-not (Test-Path -LiteralPath $script:DemoLogDir)) {
+    New-Item -ItemType Directory -Path $script:DemoLogDir -Force | Out-Null
 }
-foreach ($file in @($script:DemoBackendLog, $script:DemoBackendExited)) {
+# This run's logs start empty; the last run's are kept as <name>.1.log for report.cmd.
+Move-DemoLogAside $script:DemoBackendLog
+Move-DemoLogAside $script:DemoServiceLog
+foreach ($file in @($script:DemoBackendExited, $script:DemoTokenFile, $script:DemoOldBackendLog)) {
     if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
 }
 
+# How each window copies a line to its log file, with the size cap described in common.ps1. Put into
+# both window scripts below.
+$logFunction = @'
+function Add-DemoLogLine([string]$Path, [string]$Line) {
+    try {
+        $file = New-Object IO.FileInfo($Path)
+        if ($file.Exists -and $file.Length -gt __CAP__) {
+            $older = [IO.Path]::ChangeExtension($Path, '.1.log')
+            [IO.File]::Delete($older)
+            [IO.File]::Move($Path, $older)
+        }
+    }
+    catch { }
+    try { [IO.File]::AppendAllText($Path, $Line + [Environment]::NewLine) } catch { }
+}
+'@
+$logFunction = $logFunction.Replace('__CAP__', [string]$script:DemoLogCapBytes)
+
 # The window's script. Development is what makes the host read user secrets; the variables are set
-# inside the window, for the backend only. Its output is shown and copied to backend.log, which holds no
-# content (the backend's logger scrubs it, INV-10) and lets start explain a failure.
+# inside the window, for the backend only. Its output is shown and copied to logs\backend.log, which
+# holds no content (the backend's logger scrubs it, INV-10) and lets start, and report.cmd, explain a
+# failure.
 $backendScript = @'
+__LOGFUNCTION__
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'ScreenTail demo: backend'
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
@@ -224,18 +251,20 @@ Set-Location -LiteralPath __DIR__
 Write-Host 'ScreenTail backend (Development). Leave this window open; stop.cmd closes it.'
 $code = 'unknown'
 try {
-    & dotnet __DLL__ 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; Add-Content -LiteralPath __LOG__ -Value $line }
+    & dotnet __DLL__ 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; Add-DemoLogLine __LOG__ $line }
     $code = "exit code $LASTEXITCODE"
 }
 catch {
     $code = $_.Exception.Message
     Write-Host $code -ForegroundColor Red
-    Add-Content -LiteralPath __LOG__ -Value $code
+    Add-DemoLogLine __LOG__ $code
 }
 Write-Host ''
 Write-Host "The backend has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
+Add-DemoLogLine __LOG__ "[start.ps1] The backend has stopped ($code)."
 Set-Content -LiteralPath __EXITED__ -Value $code
 '@
+$backendScript = $backendScript.Replace('__LOGFUNCTION__', $logFunction)
 $backendScript = $backendScript.Replace('__URL__', (ConvertTo-Quoted $script:DemoBackendUrl))
 $backendScript = $backendScript.Replace('__DIR__', (ConvertTo-Quoted $script:DemoApiDir))
 $backendScript = $backendScript.Replace('__DLL__', (ConvertTo-Quoted $apiDll))
@@ -271,11 +300,12 @@ while ($clock.Elapsed.TotalSeconds -lt 90) {
     }
     if ($probe.Failure -eq 'SecureChannelFailure') {
         Fail -Problem 'The backend answered, but the HTTPS handshake failed (no protocol both sides accept).' -Fix @(
-            'Run setup.cmd again to re-create the certificate. If it repeats, send backend.log to the developer:',
-            "  $script:DemoBackendLog")
+            'Run setup.cmd again to re-create the certificate. If it repeats, run scripts\windows\demo\report.cmd',
+            'and send the file it puts on your Desktop to the developer.')
     }
     if ($probe.Status -gt 0) {
-        Fail -Problem "The backend answered /health with HTTP $($probe.Status) instead of 200." -Fix @('Send backend.log to the developer:', "  $script:DemoBackendLog")
+        Fail -Problem "The backend answered /health with HTTP $($probe.Status) instead of 200." -Fix @(
+            'Run scripts\windows\demo\report.cmd and send the file it puts on your Desktop to the developer.')
     }
     Start-Sleep -Seconds 1
 }
@@ -299,6 +329,7 @@ Write-Step 'Device token'
 $token = $null
 $expires = $null
 if (Test-Path -LiteralPath $script:DemoDeviceCredential) {
+    [IO.File]::WriteAllText($script:DemoTokenFile, 'activated')
     Write-Ok 'This device was activated with an invite, so it renews its own token. No development token is needed.'
     Write-Note 'If a draft later says the device is not enrolled or was revoked, see "Activated device" in docs\dev\demo.md.'
 }
@@ -340,8 +371,13 @@ else {
             'Start again; it enrols a fresh one. If this repeats straight after enrolling, run setup.cmd again.')
     }
     if ($me.Status -ne 200) {
-        Fail -Problem "The backend answered the token check with HTTP $($me.Status) instead of 200." -Fix @('Send backend.log to the developer:', "  $script:DemoBackendLog")
+        Fail -Problem "The backend answered the token check with HTTP $($me.Status) instead of 200." -Fix @(
+            'Run scripts\windows\demo\report.cmd and send the file it puts on your Desktop to the developer.')
     }
+    # When it runs out, for report.cmd. The time only; the token itself goes to the service and nowhere
+    # else.
+    if ($expires) { $until = $expires.ToUniversalTime().ToString('o') } else { $until = 'unknown' }
+    [IO.File]::WriteAllText($script:DemoTokenFile, "development $until")
     if ($expires) {
         Write-Ok ('The backend accepts the device token. It is good until ' + $expires.ToLocalTime().ToString('HH:mm') + ' (one hour).')
     }
@@ -414,26 +450,65 @@ else {
 
 if (Test-Path -LiteralPath $script:DemoServiceExited) { Remove-Item -LiteralPath $script:DemoServiceExited -Force }
 
-# The service writes its own log to its window. If it cannot start at all (an Application Control policy,
-# say), the window says so and the reason is written where start can read it.
+# The service writes its own log to stderr. The window shows it and copies it to logs\service.log (no
+# content: the service's logger scrubs it, INV-10). If the service cannot start at all (an Application
+# Control policy, say), the window says so and the reason is written where start can read it.
+#
+# The log is read on a second thread rather than piped through PowerShell, because PowerShell ends a
+# piped program the moment Ctrl+C is pressed, and Ctrl+C is how the service is asked to finish cleanly.
+# The service shares this window's console, so it still gets the Ctrl+C itself, and the second thread
+# keeps copying while it finishes.
 $serviceScript = @'
+__LOGFUNCTION__
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'ScreenTail demo: capture service'
 Set-Location -LiteralPath __DIR__
 Write-Host 'ScreenTail capture service. Ctrl+C here stops capture cleanly; stop.cmd closes this window.'
 $code = 'unknown'
+$service = $null
+$copying = $null
 try {
-    & __EXE__
-    $code = "exit code $LASTEXITCODE"
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = __EXE__
+    $start.WorkingDirectory = __DIR__
+    $start.UseShellExecute = $false
+    $start.RedirectStandardError = $true
+    $service = [Diagnostics.Process]::Start($start)
+    $copy = {
+        param($Reader, $Path)
+        __LOGFUNCTION__
+        while ($true) {
+            $line = $Reader.ReadLine()
+            if ($null -eq $line) { break }
+            [Console]::WriteLine($line)
+            Add-DemoLogLine $Path $line
+        }
+    }
+    $copier = [powershell]::Create()
+    $null = $copier.AddScript($copy.ToString()).AddArgument($service.StandardError).AddArgument(__LOG__)
+    $copying = $copier.BeginInvoke()
+    while (-not $service.WaitForExit(500)) { }
+    $code = "exit code $($service.ExitCode)"
 }
 catch {
     $code = $_.Exception.Message
     Write-Host $code -ForegroundColor Red
+    Add-DemoLogLine __LOG__ $code
 }
-Write-Host ''
-Write-Host "The capture service has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
-Set-Content -LiteralPath __EXITED__ -Value $code
+finally {
+    if ($service) {
+        # After Ctrl+C this window stops waiting at once, and the service takes a few seconds to finish.
+        if ($service.WaitForExit(35000)) { $code = "exit code $($service.ExitCode)" } else { $code = 'still running; close this window to end it' }
+    }
+    if ($copying) { $null = $copying.AsyncWaitHandle.WaitOne(3000) }
+    Write-Host ''
+    Write-Host "The capture service has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
+    Add-DemoLogLine __LOG__ "[start.ps1] The capture service has stopped ($code)."
+    Set-Content -LiteralPath __EXITED__ -Value $code
+}
 '@
+$serviceScript = $serviceScript.Replace('__LOGFUNCTION__', $logFunction)
+$serviceScript = $serviceScript.Replace('__LOG__', (ConvertTo-Quoted $script:DemoServiceLog))
 $serviceScript = $serviceScript.Replace('__DIR__', (ConvertTo-Quoted $script:DemoAppDir))
 $serviceScript = $serviceScript.Replace('__EXE__', (ConvertTo-Quoted $serviceExe))
 $serviceScript = $serviceScript.Replace('__EXITED__', (ConvertTo-Quoted $script:DemoServiceExited))
