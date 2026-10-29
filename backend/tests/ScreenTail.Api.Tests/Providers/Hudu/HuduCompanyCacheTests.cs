@@ -291,7 +291,10 @@ public sealed class HuduCompanyCacheTests
             return answer.Task;
         }
 
-        /// <summary>Completes once this many loads have begun.</summary>
+        /// <summary>
+        /// Completes once this many loads have begun. A load that never begins fails the test after half a
+        /// minute rather than hanging the run; nothing that passes waits on the clock.
+        /// </summary>
         public Task Started(int count)
         {
             var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -305,7 +308,7 @@ public sealed class HuduCompanyCacheTests
                 _watchers.Add((count, reached));
             }
 
-            return reached.Task.WaitAsync(TestContext.Current.CancellationToken);
+            return reached.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
 
         public CancellationToken TokenOf(int call) => Call(call).Token;
