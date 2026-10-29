@@ -162,11 +162,19 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
             return new EgressDecision(false, "Local-only mode is on, so the speech model is not fetched.");
         }
 
+        if (_settings.LocalOnly && purpose is EgressPurpose.UpdateCheck && !_settings.UpdatesUnderLocalOnly)
+        {
+            // ST-113. Fail closed: an update check is a request nobody asked for at that moment, so it
+            // waits like the model download does, unless the tenant's admin chose to let it through.
+            return new EgressDecision(false, "Local-only mode is on, so ScreenTail does not check for updates.");
+        }
+
         var allowed = purpose switch
         {
             EgressPurpose.Publish => _settings.PublishHosts,
             EgressPurpose.Summarisation or EgressPurpose.Backend or EgressPurpose.Policy => _settings.BackendHosts,
             EgressPurpose.ModelDownload => _settings.ModelHosts,
+            EgressPurpose.UpdateCheck => _settings.UpdateHosts,
             _ => null,
         };
 

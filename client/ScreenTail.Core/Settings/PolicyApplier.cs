@@ -117,11 +117,13 @@ public sealed class PolicyApplier
         {
             _settings = settings ?? _settings;
             _capture = capture ?? _capture;
-            applied = PolicyApplication.Resolve(_policy.Current, _settings);
+            var current = _policy.Current;
+            applied = PolicyApplication.Resolve(current, _settings);
             Volatile.Write(ref _last, applied);
 
             // The guard first: of everything here it is the one a request on another thread is waiting on.
-            _egress.Apply(applied.LocalOnly, applied.Enforced);
+            // The update checks' exception to local-only is the admin's policy alone (ST-113).
+            _egress.Apply(applied.LocalOnly, applied.Enforced, current.UpdateChecksUnderLocalOnly);
             _retention.Retention = applied.Retention;
             _scope.Apply(new ScopeOptions
             {

@@ -51,6 +51,28 @@ public sealed record PublisherIdentity(string Subject, IReadOnlySet<string> Vali
     /// <param name="package">The downloaded package's signer, null when Windows did not accept its signature.</param>
     public static string? Mismatch(PublisherIdentity? running, PublisherIdentity? package)
     {
-        throw new NotImplementedException();
+        if (running is null)
+        {
+            return "This is a development build, so it does not install updates: there is no publisher to compare the package with.";
+        }
+
+        if (package is null)
+        {
+            return "The downloaded package is not signed in a way Windows accepts, so it was not installed.";
+        }
+
+        if (!package.Timestamped)
+        {
+            return "The downloaded package's signature has no timestamp, so it was not signed by ScreenTail's release process.";
+        }
+
+        // The identity, never the leaf: a new certificate from the same validated publisher is the same
+        // publisher. Where the running build carries an identity-validation OID, the package must carry
+        // exactly the same ones, so a same-named organisation validated separately is someone else.
+        var samePublisher = string.Equals(running.Subject, package.Subject, StringComparison.Ordinal)
+            && (running.ValidationOids.Count == 0 || running.ValidationOids.SetEquals(package.ValidationOids));
+        return samePublisher
+            ? null
+            : "The downloaded package was signed by someone other than this installation's publisher, so it was not installed.";
     }
 }

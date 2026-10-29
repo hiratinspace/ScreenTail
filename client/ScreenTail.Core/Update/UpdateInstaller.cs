@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.Win32.SafeHandles;
 
 namespace ScreenTail.Core.Update;
@@ -63,5 +64,134 @@ public sealed class UpdateInstaller(
     /// <summary>Finishes when Windows Installer has exited, after an install that started. For tests and the host's shutdown.</summary>
     public Task Finished { get; private set; } = Task.CompletedTask;
 
-    public Task<InstallAnswer> InstallAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    private readonly Lock _gate = new();
+
+    public async Task<InstallAnswer> InstallAsync(CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            if (Installing)
+            {
+                return new InstallAnswer(false, "The update is already being installed.");
+            }
+
+            // Claimed now, so a second press while this one is checking is refused rather than run twice.
+            Installing = true;
+        }
+
+        IDisposable? hold = null;
+        FileStream? package = null;
+        var started = false;
+        try
+        {
+            if (_updates.Status.State != UpdateState.Ready || _updates.Ready is not { } ready)
+            {
+                return Refused(NothingReady);
+            }
+
+            if (_running is null)
+            {
+                return Refused(PublisherIdentity.Mismatch(null, null)!);
+            }
+
+            hold = await _holdSessions(ct).ConfigureAwait(false);
+            if (hold is null)
+            {
+                return Refused(DuringSession);
+            }
+
+            // Opened so that nothing can write, rename or delete it while the handle is open: what is
+            // checked here is what Windows Installer reads.
+            try
+            {
+                package = new FileStream(ready.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Discarded("The downloaded update could not be opened to be checked, so it was not installed.");
+            }
+
+            if (package.Length != ready.Manifest.Package.Size)
+            {
+                return Discarded("The downloaded update changed size since it was downloaded, so it was not installed.");
+            }
+
+            var hash = await SHA256.HashDataAsync(package, ct).ConfigureAwait(false);
+            if (!string.Equals(Convert.ToHexStringLower(hash), ready.Manifest.Package.Sha256, StringComparison.Ordinal))
+            {
+                return Discarded("The downloaded update changed since it was downloaded, so it was not installed.");
+            }
+
+            if (PublisherIdentity.Mismatch(_running, _publisher.Read(ready.Path, package.SafeFileHandle)) is { } stranger)
+            {
+                return Discarded(stranger);
+            }
+
+            _updates.Installing();
+            Finished = AfterAsync(_launcher.RunAsync(ready.Path, CancellationToken.None), package, hold);
+            started = true;
+            return new InstallAnswer(true, null);
+        }
+        finally
+        {
+            if (!started)
+            {
+                if (package is not null)
+                {
+                    await package.DisposeAsync().ConfigureAwait(false);
+                }
+
+                hold?.Dispose();
+                lock (_gate)
+                {
+                    Installing = false;
+                }
+            }
+        }
+    }
+
+    /// <summary>Holds the file and the sessions until Windows Installer has gone, then says how it went.</summary>
+    private async Task AfterAsync(Task<int> exited, FileStream package, IDisposable hold)
+    {
+        int code;
+        try
+        {
+            code = await exited.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+        {
+            code = -1;
+        }
+        finally
+        {
+            await package.DisposeAsync().ConfigureAwait(false);
+            hold.Dispose();
+        }
+
+        lock (_gate)
+        {
+            Installing = false;
+        }
+
+        // Most often this process does not see it: Windows Installer ends it to replace it.
+        if (code is 0 or 3010)
+        {
+            _updates.InstalledNow("The update was installed. ScreenTail starts again at your next sign-in.");
+            return;
+        }
+
+        _updates.StillReady(code switch
+        {
+            1602 or 1223 => "The update was cancelled at the administrator prompt. It is still ready to install.",
+            _ => $"Windows Installer stopped without installing the update (code {code}). It is still ready to install.",
+        });
+    }
+
+    private static InstallAnswer Refused(string reason) => new(false, reason);
+
+    private InstallAnswer Discarded(string reason)
+    {
+        _updates.Discard(reason);
+        return new InstallAnswer(false, reason);
+    }
 }

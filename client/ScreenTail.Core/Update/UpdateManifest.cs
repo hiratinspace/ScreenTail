@@ -68,6 +68,20 @@ public static class UpdateManifestReader
 
     public const string PayloadFormat = "screentail-update-v1";
 
+    // The sentences a refusal gives. Ours, fixed, and never built from what the manifest said (INV-10).
+    public const string NotAManifest = "The update feed answered with something that is not an update manifest.";
+    public const string UnknownKey = "The update manifest names a signing key this version of ScreenTail does not trust.";
+    public const string BadSignature = "The update manifest's signature does not verify, so it was not believed.";
+    public const string Malformed = "The update manifest is signed but not in the shape this version reads.";
+    public const string WrongChannel = "The update manifest is for another channel.";
+    public const string WrongArchitecture = "The update manifest is for another kind of processor.";
+    public const string PackageHostNotAllowed = "The update manifest's package is not on a host this version of ScreenTail downloads from.";
+    public const string Downgrade = "The update manifest offers a release older than the one installed.";
+    public const string Rollback = "The update manifest is older than one this installation has already seen.";
+    public const string TooOld = "This installation is too old to update itself to the new release; reinstall ScreenTail with your MSP's package.";
+
+    private static readonly JsonDocumentOptions Strict = new() { MaxDepth = 8, AllowDuplicateProperties = false };
+
     public static ManifestVerdict Read(
         ReadOnlySpan<byte> envelope,
         UpdateTrust trust,
@@ -76,7 +90,157 @@ public static class UpdateManifestReader
         Version installed,
         Version? newestSeen = null)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(trust);
+        ArgumentException.ThrowIfNullOrWhiteSpace(architecture);
+        ArgumentNullException.ThrowIfNull(installed);
+        if (envelope.IsEmpty || envelope.Length > MaxBytes)
+        {
+            return ManifestVerdict.Refuse(NotAManifest);
+        }
+
+        byte[] signedBytes;
+        using (var document = Parse(envelope))
+        {
+            if (document is null || document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return ManifestVerdict.Refuse(NotAManifest);
+            }
+
+            var root = document.RootElement;
+            if (!Text(root, "format", out var format) || format != EnvelopeFormat
+                || !Text(root, "key", out var keyId)
+                || !Text(root, "payload", out var payload)
+                || !Text(root, "signature", out var signatureText))
+            {
+                return ManifestVerdict.Refuse(NotAManifest);
+            }
+
+            var key = trust.Keys.FirstOrDefault(k => string.Equals(k.Id, keyId, StringComparison.Ordinal));
+            if (key is null)
+            {
+                return ManifestVerdict.Refuse(UnknownKey);
+            }
+
+            byte[] signature;
+            try
+            {
+                signedBytes = Convert.FromBase64String(payload);
+                signature = Convert.FromBase64String(signatureText);
+            }
+            catch (FormatException)
+            {
+                return ManifestVerdict.Refuse(NotAManifest);
+            }
+
+            // The signature first, and nothing inside the payload before it.
+            if (!ManifestSignature.Verifies(key, signedBytes, signature))
+            {
+                return ManifestVerdict.Refuse(BadSignature);
+            }
+        }
+
+        return Judge(signedBytes, trust, channel, architecture, installed, newestSeen);
+    }
+
+    /// <summary>The signed bytes, now known to be ours, held to this installation.</summary>
+    private static ManifestVerdict Judge(byte[] signedBytes, UpdateTrust trust, UpdateChannel channel, string architecture, Version installed, Version? newestSeen)
+    {
+        using var document = Parse(signedBytes);
+        if (document is null || document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return ManifestVerdict.Refuse(Malformed);
+        }
+
+        var root = document.RootElement;
+        if (!Text(root, "format", out var format) || format != PayloadFormat
+            || !Text(root, "channel", out var channelText)
+            || !Text(root, "architecture", out var architectureText)
+            || !Text(root, "version", out var versionText) || !ReleaseVersion.TryParse(versionText, out var version)
+            || !Text(root, "minimumVersion", out var minimumText) || !ReleaseVersion.TryParse(minimumText, out var minimum)
+            || !root.TryGetProperty("published", out var publishedElement) || publishedElement.ValueKind != JsonValueKind.String
+            || !publishedElement.TryGetDateTimeOffset(out var published)
+            || !root.TryGetProperty("package", out var packageElement) || packageElement.ValueKind != JsonValueKind.Object
+            || !Text(packageElement, "url", out var urlText)
+            || !Text(packageElement, "sha256", out var sha256)
+            || !packageElement.TryGetProperty("size", out var sizeElement) || sizeElement.ValueKind != JsonValueKind.Number
+            || !sizeElement.TryGetInt64(out var size)
+            || minimum > version)
+        {
+            return ManifestVerdict.Refuse(Malformed);
+        }
+
+        if (!UpdateChannels.TryParse(channelText, out var manifestChannel) || manifestChannel != channel)
+        {
+            return ManifestVerdict.Refuse(WrongChannel);
+        }
+
+        if (!string.Equals(architectureText, architecture, StringComparison.Ordinal))
+        {
+            return ManifestVerdict.Refuse(WrongArchitecture);
+        }
+
+        if (!IsSha256(sha256) || size < 1 || size > MaxPackageBytes)
+        {
+            return ManifestVerdict.Refuse(Malformed);
+        }
+
+        if (!Uri.TryCreate(urlText, UriKind.Absolute, out var url)
+            || url.Scheme != Uri.UriSchemeHttps
+            || !url.IsDefaultPort
+            || url.UserInfo.Length > 0
+            || url.Fragment.Length > 0
+            || !trust.PackageHosts.Contains(url.Host))
+        {
+            return ManifestVerdict.Refuse(PackageHostNotAllowed);
+        }
+
+        if (version < installed)
+        {
+            return ManifestVerdict.Refuse(Downgrade);
+        }
+
+        if (newestSeen is not null && version < newestSeen)
+        {
+            return ManifestVerdict.Refuse(Rollback);
+        }
+
+        var manifest = new UpdateManifest(manifestChannel, architectureText, version, minimum, new UpdatePackage(url, sha256, size), published);
+        if (version == installed)
+        {
+            return new ManifestVerdict(ManifestOutcome.UpToDate, manifest, "Up to date.");
+        }
+
+        return installed < minimum
+            ? ManifestVerdict.Refuse(TooOld)
+            : new ManifestVerdict(ManifestOutcome.Offer, manifest, "A newer release.");
+    }
+
+    private static bool IsSha256(string text) =>
+        text.Length == 64 && text.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f');
+
+    /// <summary>A string property, and only a string.</summary>
+    private static bool Text(JsonElement element, string name, out string value)
+    {
+        if (element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String && property.GetString() is { Length: > 0 } text)
+        {
+            value = text;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static JsonDocument? Parse(ReadOnlySpan<byte> json)
+    {
+        try
+        {
+            return JsonDocument.Parse(json.ToArray(), Strict);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }
 
@@ -119,18 +283,5 @@ public static class ManifestSignature
 
         using var ecdsa = ImportP256(key.SubjectPublicKeyInfo);
         return ecdsa.VerifyData(message, signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-    }
-
-    internal static JsonDocument? TryParse(ReadOnlySpan<byte> json)
-    {
-        try
-        {
-            var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = 8 });
-            return JsonDocument.ParseValue(ref reader);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 }

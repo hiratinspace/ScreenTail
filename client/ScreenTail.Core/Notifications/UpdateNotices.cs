@@ -15,6 +15,21 @@ public static class UpdateNotices
     /// <returns>What to say, or null to say nothing.</returns>
     public static Notification? For(CaptureStateSnapshot? capture, UpdateReported? update)
     {
-        throw new NotImplementedException();
+        if (capture is null || update is null)
+        {
+            return null;
+        }
+
+        if (capture.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing)
+        {
+            return null;
+        }
+
+        return update.State == "ready" && update.AvailableVersion is { Length: > 0 } version
+            ? new Notification(
+                $"ScreenTail {version} is ready to install. Open Settings, Updates, to install it.",
+                NotificationAction.None,
+                $"update-ready:{version}")
+            : null;
     }
 }

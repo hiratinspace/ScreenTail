@@ -29,7 +29,17 @@ public static class UpdatePolicies
     /// </summary>
     public static UpdatePolicy Resolve(TenantPolicy policy, UpdateChannel technicianChoice)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(policy);
+        var hours = Math.Clamp(policy.UpdateCheckHours, 0, MaxCheckHours);
+        TimeSpan? every = hours == 0 ? null : TimeSpan.FromHours(hours);
+        if (!policy.UpdateChannelLocked)
+        {
+            return new UpdatePolicy(technicianChoice, false, every, policy.UpdateChecksUnderLocalOnly);
+        }
+
+        return UpdateChannels.TryParse(policy.UpdateChannel, out var channel)
+            ? new UpdatePolicy(channel, true, every, policy.UpdateChecksUnderLocalOnly)
+            : new UpdatePolicy(null, true, every, policy.UpdateChecksUnderLocalOnly, UnknownChannel);
     }
 }
 
