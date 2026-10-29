@@ -75,11 +75,12 @@ public sealed class SceneRecorder(
 
         _recording = true;
 
-        // ST-031: over the processor budget, the screen is looked at on one tick in two, then one in four.
-        // The first thing to give, and the cheapest to give safely: a look skipped is a picture never
+        // ST-031: over the processor budget, the screen is looked at on one tick in two, then one in four,
+        // and at the deepest level not at all, so OCR reads only what a click or a marked moment asked
+        // for. The first thing to give, and the cheapest to give safely: a look skipped is a picture never
         // taken, so nothing about how a taken frame is redacted changes (INV-1). After the state check,
         // so a skipped tick still sees a session end and forgets the baseline.
-        if (throttle is not null && ++_ticksSinceLook < throttle.SampleEveryNth)
+        if (throttle is not null && (!throttle.LooksAtScenes || ++_ticksSinceLook < throttle.SampleEveryNth))
         {
             return;
         }

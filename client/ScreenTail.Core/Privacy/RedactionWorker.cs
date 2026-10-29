@@ -184,9 +184,12 @@ public sealed class RedactionWorker(
         {
             while (!ct.IsCancellationRequested)
             {
-                // ST-031: over the processor budget, one frame is read at a time. Every reader but the
-                // first stands aside between frames, never in the middle of one, until the level moves.
-                // The signal is taken before the level is read, so a move in between is not missed.
+                // ST-031: over the processor budget, one frame is read at a time while the session
+                // records. Every reader but the first stands aside between frames, never in the middle of
+                // one, until the level moves or the session stops recording. The signal is taken before
+                // the level is read, so a move in between is not missed. Nothing else waits: a frame that
+                // is waiting is read as soon as a reader is free, so a click's screenshot is never held
+                // back or refused for the throttle's sake.
                 if (throttle is not null && index > 0)
                 {
                     var moved = throttle.NextChange;
@@ -199,14 +202,6 @@ public sealed class RedactionWorker(
 
                 switch (await StepAsync(ct).ConfigureAwait(false))
                 {
-                    case Step.Worked when throttle?.OcrPause is { } pause && pause > TimeSpan.Zero:
-                        // Deeper still, a pause after each frame before the next is read. The frames
-                        // waiting wait in memory and are read in full when their turn comes (INV-1); the
-                        // queue's depth bounds how many, and a frame that finds it full is refused and
-                        // counted, as it always was (ADR-0006).
-                        await Task.Delay(pause, _time, ct).ConfigureAwait(false);
-                        break;
-
                     case Step.Empty:
                         // Nothing waiting, so wait for a frame to arrive (ST-031). This used to look again
                         // every 200 ms, two workers at five times a second each for the life of the

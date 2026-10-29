@@ -193,14 +193,23 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
     {
         var harness = await HarnessAsync();
         var ct = TestContext.Current.CancellationToken;
-        var throttle = Throttles.At(CaptureLevel.OcrClicksOnly, new CaptureThrottleOptions { ReadEvery = TimeSpan.FromMilliseconds(10) });
+        var rig = new ThrottleRig(new CaptureThrottleOptions { ReadEvery = TimeSpan.FromMilliseconds(10) });
+        var throttle = rig.Throttle;
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var running = throttle.RunAsync(harness.Machine, null, stopping.Token);
         Assert.True(await harness.Machine.StartAsync(Rdp, ct: ct));
-        await Task.Delay(100, ct);
 
-        // The hand-moved clock has not moved, so the session's readings say nothing and the level holds.
+        // The loop's own readings take it down: a minute of every core flat out between two of them, four
+        // times. Between minutes the hand-moved clock stands still, so those readings say nothing.
+        foreach (var level in new[] { CaptureLevel.FewerSamples, CaptureLevel.FewestSamples, CaptureLevel.OcrOneAtATime, CaptureLevel.OcrClicksOnly })
+        {
+            rig.Cpu.Use(TimeSpan.FromMinutes(4));
+            rig.Time.Advance(TimeSpan.FromMinutes(1));
+            Assert.True(await UntilAsync(() => throttle.Level == level), $"the loop's readings left capture at {throttle.Level}, not {level}");
+        }
+
+        await Task.Delay(100, ct);
         Assert.Equal(CaptureLevel.OcrClicksOnly, throttle.Level);
 
         Assert.True(await harness.Machine.StopAsync(ct));

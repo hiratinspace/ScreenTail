@@ -66,6 +66,14 @@ internal sealed class ServiceRig : IAsyncDisposable
     /// </summary>
     public CaptureThrottle Throttle { get; private set; } = null!;
 
+    /// <summary>
+    /// How many times the throttle's level moved. A throttled service records less and so costs less, which
+    /// would hide a processor regression behind a figure that looks inside budget.
+    /// </summary>
+    public int ThrottleMoves => Volatile.Read(ref _throttleMoves);
+
+    private int _throttleMoves;
+
     public HookLifetime Hooks { get; private set; } = null!;
 
     /// <summary>Frames waiting to be read or being read, so a test can let the worker finish.</summary>
@@ -137,6 +145,7 @@ internal sealed class ServiceRig : IAsyncDisposable
         var clicks = new ClickCaptureLoop(Machine, new WindowsInputHooksAccessor(hooks), capturer, scope, NullLogger.Instance);
         _running.Add(clicks.RunAsync(stopping));
         Throttle = new CaptureThrottle(new ThisProcessTime());
+        Throttle.Changed += _ => Interlocked.Increment(ref _throttleMoves);
         _running.Add(Throttle.RunAsync(Machine, null, stopping));
         Scenes = new SceneSampleLoop(Machine, capturer, scope, NullLogger.Instance, new SceneSampler(), throttle: Throttle);
         _running.Add(Scenes.RunAsync(stopping));

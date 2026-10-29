@@ -198,7 +198,7 @@ public sealed class ServiceCostTests
                 CultureInfo.InvariantCulture,
                 $"Recording workload: {staged} text frames staged, {scenes.Kept} scene frames of {scenes.Seen} samples, "
                 + $"{progress.Frames} redacted ({progress.Unread} with no words, discarded), a mean of {progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {progress.Slowest.TotalMilliseconds:F0} ms; "
-                + $"capture throttle at {rig.Throttle.Level} (it reads the whole test process, the host's repainting included)"));
+                + $"capture throttle moved {rig.ThrottleMoves} time(s) and ended at {rig.Throttle.Level} (it reads the whole test process, the host's repainting included; any move fails the measurement, enforced: {Counts})"));
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Disk: the store grew {ProcessCost.Megabytes(grew)} over {minutes:F1} min for {stored} stored frames, "
@@ -211,6 +211,12 @@ public sealed class ServiceCostTests
             Assert.True(
                 !Counts || cpu < RecordingBudgetPercentOfOneCore,
                 $"recording used {cpu:F2}% of one core net of the host, budget {RecordingBudgetPercentOfOneCore:F0}%");
+
+            // A throttled recording takes fewer pictures and reads them more slowly, so its figure would hide
+            // the regression that throttled it (ST-031 AC2).
+            Assert.True(
+                !Counts || rig.ThrottleMoves == 0,
+                $"the capture throttle moved {rig.ThrottleMoves} time(s) during the recording measurement and ended at {rig.Throttle.Level}, so the CPU figure is of a throttled service");
             Assert.True(
                 !Counts || busy < DiskBudgetMegabytesPerTwentyMinutes,
                 $"{BusySessionFrames} frames of {perFrame / 1024:F0} KB come to {busy:F1} MB, budget {DiskBudgetMegabytesPerTwentyMinutes:F0} MB for twenty minutes");

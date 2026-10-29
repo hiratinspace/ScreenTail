@@ -419,8 +419,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // they watch, a service finally starting. This looks once a second and only pays for a full capture
         // when the screen actually changed.
         //
-        // ST-031: over the processor budget for ten seconds, it looks less often, and then OCR reads fewer
-        // frames at once. The hooks and speech are never throttled, and redaction never changes (INV-1).
+        // ST-031: over the processor budget for ten seconds, it looks less often, then OCR reads one frame
+        // at a time, then the sampler stops looking so OCR reads only click and marked-moment frames. The
+        // hooks, click screenshots and speech are never throttled, and redaction never changes (INV-1).
         // One reading a second while a session is under way and none otherwise; the log carries the level
         // and the reading, nothing else (INV-10).
         var throttle = new CaptureThrottle(new ThisProcessTime());
