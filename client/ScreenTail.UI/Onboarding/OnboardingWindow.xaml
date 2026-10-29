@@ -11,38 +11,97 @@
         MinHeight="560"
         WindowStartupLocation="CenterScreen"
         Style="{StaticResource Window.Base}">
-    <Grid Background="{DynamicResource Brush.bg.base}" Margin="24">
+    <Window.Resources>
+        <!-- A permission's state: a tick or a cross in a circle, coloured as well, never colour alone. -->
+        <Style x:Key="Onboarding.Mark" TargetType="Border">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="{DynamicResource Brush.bg.danger}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Ok}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource Brush.bg.success}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.published}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <Grid Background="{DynamicResource Brush.bg.base}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Progress dots at the top (Spec §5 S8). -->
-        <ItemsControl Grid.Row="0" ItemsSource="{Binding Dots}" HorizontalAlignment="Center" AutomationProperties.Name="Progress">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" />
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock Margin="4,0" Style="{StaticResource Text.Body}" Foreground="{DynamicResource Brush.accent.primary}" Text="{Binding Mark}" />
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <!-- Header: where the technician is in the setup, and the step's title. -->
+        <StackPanel Grid.Row="0" Margin="40,28,40,0">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Set up ScreenTail" />
+                <!-- Progress (Spec §5 S8): one segment per step. Done is a filled segment, the current step a
+                     longer filled one, and steps still to come are outlines, so the three differ in shape too. -->
+                <ItemsControl Margin="16,0,0,0"
+                              VerticalAlignment="Center"
+                              ItemsSource="{Binding Dots}"
+                              Focusable="False"
+                              AutomationProperties.Name="Progress">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,6,0"
+                                    Height="6"
+                                    CornerRadius="3"
+                                    BorderThickness="1">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Width" Value="12" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.text.muted}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Done}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource Brush.accent.primary}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Current}" Value="True">
+                                                <Setter Property="Width" Value="28" />
+                                                <Setter Property="Background" Value="{DynamicResource Brush.accent.primary}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
 
-        <TextBlock Grid.Row="1" Margin="0,12,0,12" Style="{StaticResource Text.ScreenTitle}" Text="{Binding Title}" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Margin="0,14,0,20" Style="{StaticResource Text.ScreenTitle}" Text="{Binding Title}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
 
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-            <Grid>
+        <ScrollViewer Grid.Row="1" Padding="40,0,28,0" VerticalScrollBarVisibility="Auto">
+            <!-- Top-aligned, so a step with little in it is not stretched into a card the height of the window. -->
+            <Grid Margin="0,0,12,16" VerticalAlignment="Top">
                 <!-- 1. Welcome -->
                 <StackPanel Visibility="{Binding WelcomeVisibility}">
-                    <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="ScreenTail watches your remote-support sessions and drafts the ticket note for you: what you did, in order, with the screenshots that show it." />
-                    <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.SectionHeading}" Text="Nothing is published without your review." />
-                    <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Setup takes about five minutes: activate this device, check what the machine allows, pick your remote tools, connect your PSA if you want to, and try a session." />
+                    <TextBlock Style="{StaticResource Text.Body}" FontSize="{DynamicResource Size.lg}" TextWrapping="Wrap" Text="ScreenTail watches your remote-support sessions and drafts the ticket note for you: what you did, in order, with the screenshots that show it." />
+                    <Border Margin="0,20,0,0" Style="{StaticResource Banner.Info}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Margin="0,0,12,0" Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.accent.primary}" Text="&#xE72E;" />
+                            <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" TextWrapping="Wrap" Text="Nothing is published without your review." />
+                        </Grid>
+                    </Border>
+                    <TextBlock Margin="0,20,0,0" Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Text="Setup takes about five minutes: activate this device, check what the machine allows, pick your remote tools, connect your PSA if you want to, and try a session." />
                 </StackPanel>
 
                 <!-- 2. Activate: the code from the invite; the tenant's name on success. -->
@@ -53,22 +112,28 @@
 
                 <!-- 3. Permissions: each shows ✓ or a fix. -->
                 <StackPanel Visibility="{Binding PermissionsVisibility}">
-                    <ItemsControl ItemsSource="{Binding Permissions}">
+                    <ItemsControl ItemsSource="{Binding Permissions}" Focusable="False">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Style="{StaticResource Card}" Margin="0,0,0,8">
+                                <Border Style="{StaticResource Card}" Margin="0,0,0,10" Padding="16,14">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="24" />
+                                            <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" Text="{Binding Mark}" />
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Label}" />
-                                            <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Message}" />
+                                        <Border Grid.Column="0" Margin="0,0,14,0" Style="{StaticResource Onboarding.Mark}">
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource Text.Body}"
+                                                       FontWeight="{DynamicResource Weight.semibold}"
+                                                       Text="{Binding Mark}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Label}" />
+                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Message}" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Style="{StaticResource Button.Secondary}" Content="Fix in Windows Settings"
+                                        <Button Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Button.Secondary}" Content="Fix in Windows Settings"
                                                 Command="{Binding DataContext.OpenFixCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding FixLink}"
                                                 Visibility="{Binding FixLink, Converter={x:Static local:NullToCollapsed.Instance}}" />
                                     </Grid>
@@ -76,20 +141,24 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <Button HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="Check again" Command="{Binding RecheckCommand}" />
+                    <Button Margin="0,6,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="Check again" Command="{Binding RecheckCommand}" />
                 </StackPanel>
 
                 <!-- 4. Your remote tools -->
                 <StackPanel Visibility="{Binding ToolsVisibility}">
-                    <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A session starts when one of these takes focus. Capture is limited to the remote tool's windows and your admin tools (Recommended); that can be changed later in Settings → Capture." />
-                    <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding Tools}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <CheckBox Margin="0,0,0,6" Content="{Binding DisplayName}" IsChecked="{Binding Enabled}" Foreground="{DynamicResource Brush.text.primary}" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <Button Margin="0,8,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="Save" Command="{Binding SaveToolsCommand}" />
+                    <TextBlock Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Text="A session starts when one of these takes focus. Capture is limited to the remote tool's windows and your admin tools (Recommended); you can change that later in Settings, under Capture." />
+                    <Border Margin="0,16,0,0" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <ItemsControl ItemsSource="{Binding Tools}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox Margin="0,0,0,4" Content="{Binding DisplayName}" IsChecked="{Binding Enabled}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Margin="0,12,0,0" MinWidth="96" HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="Save" Command="{Binding SaveToolsCommand}" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- 5. Connect (skippable) -->
@@ -101,31 +170,48 @@
                 <!-- 6. Try it: a real session, drafted the real way. -->
                 <StackPanel Visibility="{Binding TryItVisibility}">
                     <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="A sixty-second test: start, open any window, click around, say one sentence, then stop. The draft opens in Review when it is ready." />
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource Button.Primary}" Content="Start test session" Command="{Binding StartTestCommand}" IsEnabled="{Binding CanStartTest}" />
-                        <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Stop and draft" Command="{Binding StopTestCommand}" IsEnabled="{Binding TestRunning}" />
-                    </StackPanel>
+                    <Border Margin="0,20,0,0" Style="{StaticResource Card}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource Button.Primary}" Content="Start test session" Command="{Binding StartTestCommand}" IsEnabled="{Binding CanStartTest}" />
+                            <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Stop and draft" Command="{Binding StopTestCommand}" IsEnabled="{Binding TestRunning}" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- 7. Done -->
                 <StackPanel Visibility="{Binding DoneVisibility}">
-                    <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="ScreenTail starts when you open a remote session. Look for the pill. Everything here can be changed in Settings, and this setup can be run again from the tray." />
+                    <Border Width="56"
+                            Height="56"
+                            HorizontalAlignment="Left"
+                            Background="{DynamicResource Brush.bg.success}"
+                            BorderBrush="{DynamicResource Brush.state.published}"
+                            BorderThickness="1"
+                            CornerRadius="28">
+                        <TextBlock Style="{StaticResource EmptyState.Icon}" Foreground="{DynamicResource Brush.text.primary}" Text="&#xE73E;" />
+                    </Border>
+                    <TextBlock Margin="0,16,0,0" Style="{StaticResource Text.Body}" FontSize="{DynamicResource Size.lg}" TextWrapping="Wrap" Text="ScreenTail starts when you open a remote session. Look for the pill. Everything here can be changed in Settings, and this setup can be run again from the tray." />
                 </StackPanel>
             </Grid>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="3" Margin="0,10,0,0">
-            <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Note}" Visibility="{Binding NoteVisibility}" AutomationProperties.LiveSetting="Polite" />
-            <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Blocker}" Visibility="{Binding BlockerVisibility}" AutomationProperties.LiveSetting="Polite" />
-        </StackPanel>
-
-        <Grid Grid.Row="4" Margin="0,12,0,0">
-            <Button HorizontalAlignment="Left" Style="{StaticResource Button.Ghost}" Content="Back" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Style="{StaticResource Button.Ghost}" Content="Skip for now" Command="{Binding SkipCommand}" Visibility="{Binding SkipVisibility}" />
-                <Button Margin="8,0,0,0" Style="{StaticResource Button.Primary}" Content="Continue" Command="{Binding NextCommand}" IsEnabled="{Binding CanContinue}" Visibility="{Binding ContinueVisibility}" />
-                <Button Margin="8,0,0,0" Style="{StaticResource Button.Primary}" Content="Finish" Command="{Binding FinishCommand}" Visibility="{Binding FinishVisibility}" />
+        <!-- Footer: a hint or what is stopping the step, then Back on the left and the way on, on the right. -->
+        <Border Grid.Row="2"
+                Padding="40,14,40,18"
+                Background="{DynamicResource Brush.bg.surface}"
+                BorderBrush="{DynamicResource Brush.border.subtle}"
+                BorderThickness="0,1,0,0">
+            <StackPanel>
+                <TextBlock Margin="0,0,0,10" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Note}" Visibility="{Binding NoteVisibility}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Margin="0,0,0,10" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Blocker}" Visibility="{Binding BlockerVisibility}" AutomationProperties.LiveSetting="Polite" />
+                <Grid>
+                    <Button HorizontalAlignment="Left" Style="{StaticResource Button.Ghost}" Content="Back" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Style="{StaticResource Button.Ghost}" Content="Skip for now" Command="{Binding SkipCommand}" Visibility="{Binding SkipVisibility}" />
+                        <Button Margin="8,0,0,0" MinWidth="112" Style="{StaticResource Button.Primary}" Content="Continue" Command="{Binding NextCommand}" IsEnabled="{Binding CanContinue}" Visibility="{Binding ContinueVisibility}" />
+                        <Button Margin="8,0,0,0" MinWidth="112" Style="{StaticResource Button.Primary}" Content="Finish" Command="{Binding FinishCommand}" Visibility="{Binding FinishVisibility}" />
+                    </StackPanel>
+                </Grid>
             </StackPanel>
-        </Grid>
+        </Border>
     </Grid>
 </Window>

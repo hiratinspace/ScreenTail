@@ -66,6 +66,32 @@ public sealed class ProviderRegistrationTests(ApiFixture api) : IClassFixture<Ap
         Assert.Contains("if (app.Environment.IsDevelopment() && demo.Demo)", program[Math.Max(0, mapped - 120)..mapped], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void TheScriptedDrafterIsOnlyEverBuiltInProgramAndOnlyBehindItsSetting()
+    {
+        // ST-013. A note no model wrote is the same danger as a publish nobody received, so the scripted
+        // test provider is held to the demo's rule: built in Program.cs alone, behind its setting, which is
+        // validated first and refused outside Development (ScriptedProviderTests).
+        var sources = ProviderSources();
+        var offenders = sources
+            .Where(file => !file.EndsWith($"{Path.DirectorySeparatorChar}Program.cs", StringComparison.Ordinal))
+            .Where(file => File.ReadAllText(file).Contains("new ScriptedProvider", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.True(offenders.Count == 0, $"The scripted provider is built in: {string.Join(", ", offenders)}");
+
+        var program = File.ReadAllText(sources.Single(file => file.EndsWith($"{Path.DirectorySeparatorChar}Program.cs", StringComparison.Ordinal)));
+        var validated = program.IndexOf("summarization.Validate(builder.Environment.IsDevelopment())", StringComparison.Ordinal);
+        var built = program.IndexOf("new ScriptedProvider()", StringComparison.Ordinal);
+        Assert.True(built > 0 && program.LastIndexOf("new ScriptedProvider", StringComparison.Ordinal) == built, "ScriptedProvider is built once, in Program.cs.");
+        Assert.True(validated > 0 && validated < built, "The setting is validated before the provider is built.");
+        Assert.Contains("summarization.Scripted", program[Math.Max(0, built - 80)..built], StringComparison.Ordinal);
+
+        // And without the setting, which is how the fixture runs, the provider is not configured at all.
+        using var scope = api.Services.CreateScope();
+        Assert.False(scope.ServiceProvider.GetRequiredService<ScreenTail.Api.Summarize.SummarizationOptions>().Scripted);
+    }
+
     [Theory]
     [InlineData(nameof(ScreenTail.Api.Providers.ConnectWise.ConnectWiseProvider))]
     [InlineData(nameof(ScreenTail.Api.Providers.Hudu.HuduProvider))]

@@ -1,6 +1,6 @@
 # The Windows installer
 
-**Written 2026-10-27, revised 2026-10-28, ST-112.** Why it is built this way is ADR-0007. This page is how to build it, how
+**Written 2026-10-27, revised 2026-10-29, ST-112 and ST-113.** Why it is built this way is ADR-0007, and ADR-0008 for updates. This page is how to build it, how
 signing is switched on, how an MSP deploys it, and what an uninstall removes.
 
 Two files come out of a build:
@@ -124,6 +124,87 @@ ever committed.
 
 When signing first works, record it: run the signed package on a fresh Windows 11 with Defender on, and
 write down what SmartScreen says (ticket AC1). Artifact Signing builds reputation over the first downloads.
+
+## Updates (ST-113)
+
+Why it works this way is ADR-0008. In short: the capture service checks a signed manifest on a static
+HTTPS feed, downloads a newer release in the background while no session is recording, and Settings →
+Updates offers **Install update** when it is ready. Pressing it checks the package again and starts
+Windows Installer, which asks for an administrator's approval (UAC) for the per-machine package.
+ScreenTail closes while it installs, and the capture service starts again at the next sign-in. MSPs
+that push updates with their own tools keep doing so; an admin can turn checks off (`updateCheckHours` 0).
+
+**Nothing is switched on in the repository yet.** `shared/release/update-trust.json`, compiled into the
+client, has no feed and no key, so a build makes no update request at all and Settings says so. A build
+nobody signed never updates itself either.
+
+### What the client checks
+
+- The manifest's ECDSA P-256 signature, with a key compiled into the client, before anything in it is read.
+- Its channel (the device's: stable or pilot; the channel is inside the signed bytes), its architecture,
+  a version newer than the installed one and not older than one this installation already saw, an
+  installed version not older than the release's minimum, a package URL on a compiled-in host, a
+  well-formed SHA-256 and a size up to 512 MB. Any failure is refused and logged (`Update refused:` and
+  a fixed sentence; never the manifest's text).
+- The download's size and SHA-256. Then, just before Windows Installer starts, the same again through
+  a handle that stops the file being changed, renamed or deleted, plus its Authenticode signature, its
+  timestamp and its publisher, compared by identity (subject and Artifact Signing's validation EKU), not
+  by leaf certificate.
+- Never during a session: Install is refused while recording, and no session starts while Windows
+  Installer runs.
+
+### Admin policy
+
+`--set-policy <tenant-id> update-channel=stable|pilot update-channel-locked=true|false update-hours=0-168
+update-local-only=true|false`. Defaults: stable, chosen by the technician, every 24 hours, and **no update
+checks under local-only**. `update-local-only=true` lets update checks through a local-only the admin
+locked on (`local-only=true locked=true`) and nothing else: a local-only the technician turned on
+themselves stops update checks whatever this says.
+
+### Switch it on (owner steps)
+
+None of these is in the repository except the trust file, which changes in a reviewed pull request.
+
+1. **Azure Key Vault:** a vault (Premium, for an HSM-backed key) and an **EC P-256** key for signing. Give
+   the signing app registration a role on that key that allows only `keys/sign/action` (a custom role;
+   *Key Vault Crypto User* works but allows more). Note the key identifier **with its version**.
+2. **The public key, in a pull request:** `az keyvault key download --vault-name <vault> --name <key>
+   --encoding DER --file key.der`, then its base64 into `shared/release/update-trust.json` under `keys`
+   with an id. Never commit the key file itself to anything but that one public value.
+3. **Hosting (ST-007), in the same pull request:** the feed URL (an HTTPS folder ending in `/`) and the
+   exact host names packages are served from, into `feed` and `packageHosts`. **If a CDN redirects the
+   download, list every host it redirects to, exactly, in `packageHosts` too**: the client follows a
+   redirect only onto a listed host, so an unlisted CDN edge host makes every download fail.
+4. **GitHub, the `signing` environment:** variables `SCREENTAIL_UPDATE_KEY` (the versioned key
+   identifier) and `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in `/`). From then on
+   every signed build on main also writes `pilot/win-x64.json` (artifact `screentail-update-manifests`,
+   kept 90 days). **Builds are signed for pilot only.**
+5. **GitHub, a new environment `release-stable`**, for promotion to stable. Mandatory: deployment
+   branches `main` only, and required reviewers (the owner). Variables: `SCREENTAIL_STABLE_RELEASE` =
+   `true`, `SCREENTAIL_UPDATE_KEY`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`. In Azure, a second federated
+   credential on the app registration for entity type *Environment*, name `release-stable`. Until this
+   exists, the promotion workflow fails closed. **Never set `SCREENTAIL_STABLE_RELEASE` as a repository
+   or organisation variable**: a job falls back to those when its environment has no such variable, which
+   would open the gate.
+
+### Release to pilot, then promote to stable
+
+1. From a signing run on main, upload `ScreenTail.msi` to `<base><version>/ScreenTail.msi` and
+   `pilot/win-x64.json` to `<feed>pilot/win-x64.json`. Check it first:
+   `powershell -File .\installer\update-manifest.ps1 -Verify pilot\win-x64.json`.
+2. To promote that release: *Actions → promote-stable → Run workflow* on main, with the ci run's id and
+   the version, and approve it. It first checks that the run is a successful ci.yml run of a push to main,
+   and refuses anything else. Upload the `stable/win-x64.json` it produces (artifact
+   `screentail-stable-manifest`, kept one day) to `<feed>stable/win-x64.json`.
+
+### Laptop checks, with the first signed build
+
+The hosted runner has no desktop, so these are checked once by hand on the laptop and written down:
+
+- Install update from Settings under a standard account: the UAC prompt appears, names the package and
+  its verified publisher, and asks for administrator credentials; cancelling leaves the update ready.
+- The same under an administrator account: the consent prompt, then the upgrade, with user data kept.
+- During a recording the button is disabled, and the tray says nothing about the update until it ends.
 
 ## Deploy it silently (for MSPs)
 

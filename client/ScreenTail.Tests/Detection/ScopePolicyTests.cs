@@ -117,7 +117,7 @@ public sealed class ScopePolicyTests
 
         Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
         Assert.False(decision.MayCaptureFrames);
-        Assert.Equal("Not capturing — outlook", decision.Reason);
+        Assert.Equal("Not capturing: outlook", decision.Reason);
     }
 
     [Theory]
@@ -162,7 +162,7 @@ public sealed class ScopePolicyTests
         var decision = new ScopePolicy(Shipped).Decide(Window("mmc", "Services") with { IsElevated = true });
 
         Assert.Equal(CaptureScope.OutOfScope, decision.Scope);
-        Assert.Equal("Elevated window — screen not captured.", decision.Reason);
+        Assert.Equal("Elevated window: screen not captured.", decision.Reason);
     }
 
     [Fact]
@@ -655,6 +655,38 @@ public sealed class ScopePolicyTests
 
         clock.Advance(TimeSpan.FromSeconds(2));
         Assert.True(trigger.Tick().Stop);
+        Assert.False(trigger.SessionRunning);
+    }
+
+    [Fact]
+    public void ASessionStartedByHandIsKeptByARemoteToolOpenedAfterIt()
+    {
+        // Started from the tray with no window to follow, then the technician opens Remote Desktop. The
+        // grace armed at the start (S-6) must not end the session ten minutes into the work in the tool:
+        // a remote tool in front keeps a session started by hand as it keeps one the trigger started, and
+        // leaving it runs out the full grace from then. Its focus is no second start.
+        var clock = new ManualTime(At);
+        var trigger = new SessionTrigger(new ScopePolicy(Shipped), clock, TimeSpan.FromSeconds(90));
+        var tool = Window("mstsc", "RECEPTION-02");
+        var outlook = Window("outlook", "Inbox");
+        Assert.True(trigger.Follow(running: true));
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(TriggerDecision.Nothing, trigger.Observe(tool));
+
+        for (var elapsed = 0; elapsed < 600; elapsed += 5)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            Assert.False(trigger.Tick(tool).Stop, $"stopped {elapsed + 5} s into working in the tool");
+        }
+
+        Assert.True(trigger.SessionRunning);
+
+        Assert.False(trigger.Observe(outlook).Stop);
+        clock.Advance(TimeSpan.FromSeconds(89));
+        Assert.False(trigger.Tick(outlook).Stop);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(trigger.Tick(outlook).Stop);
         Assert.False(trigger.SessionRunning);
     }
 

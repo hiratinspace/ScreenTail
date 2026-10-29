@@ -1,0 +1,83 @@
+name: promote-stable
+
+# ST-113, ADR-0008: the only way a stable update manifest is ever signed. Every signed build on main is
+# signed for pilot alone (ci.yml, installer-sign). Promoting one of those releases to stable is this
+# workflow, started by hand, and it signs for stable exactly the release that run signed for pilot:
+# installer/update-manifest.ps1 refuses a pilot manifest that does not verify with the client's own keys,
+# is not for pilot, or is not the version typed here, and it refuses to run at all unless the job is in
+# the owner's protected release-stable environment (SCREENTAIL_STABLE_RELEASE is a variable only that
+# environment holds). The owner creates that environment with required reviewers and a main-only branch
+# rule, and gives Azure a federated credential for it; until then this fails closed (docs/dev/installer.md).
+#
+# Hosted runner only. Nothing from the earlier run is executed: the download is a JSON file, checked
+# before it is read. The inputs never reach a command line; the version goes in as an environment value
+# and is checked there. scripts/ci/check_installer_jobs.py holds this file's exact shape.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pilot-run:
+        description: The id of the ci run on main whose pilot release is promoted
+        required: true
+      version:
+        description: The version that run released to pilot, for example 0.1.250
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  promote:
+    name: Promote a pilot release to stable
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    environment: release-stable
+    # actions: read is for downloading the pilot manifest from the run being promoted.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out the same commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # Before anything is downloaded from it: the run is this repository's ci.yml, started by a push to
+      # main, and it succeeded. Asked of GitHub with the job's own read-only token.
+      - name: Check the run being promoted is a successful ci run of a push to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PILOT_RUN: ${{ inputs.pilot-run }}
+        run: ./installer/check-pilot-run.ps1
+      - name: Download the pilot manifest of the run being promoted
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: screentail-update-manifests
+          run-id: ${{ inputs.pilot-run }}
+          github-token: ${{ github.token }}
+          path: artifacts/installer/pilot
+      - name: Sign the same release for stable
+        env:
+          SCREENTAIL_STABLE_RELEASE: ${{ vars.SCREENTAIL_STABLE_RELEASE }}
+          SCREENTAIL_UPDATE_KEY: ${{ vars.SCREENTAIL_UPDATE_KEY }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          PROMOTE_VERSION: ${{ inputs.version }}
+        run: ./installer/update-manifest.ps1 -Channel stable -Promote artifacts/installer/pilot/pilot/win-x64.json -Out artifacts/installer/stable
+      # A day, for the owner to publish it to the feed; it is the release the owner just approved.
+      - name: Upload the stable manifest for the owner to publish
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: screentail-stable-manifest
+          path: artifacts/installer/stable
+          retention-days: 1
+          if-no-files-found: error

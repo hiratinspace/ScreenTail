@@ -92,3 +92,8 @@ Record what you saw in this file, dated, so the next person knows the recorded s
 above with the fields the provider reads, in the JSON ConnectWise returns them in, written from the API
 documentation rather than captured from a sandbox. The contract harness (`PsaProviderContract`) and the
 provider's own tests run against it. When the sandbox check has been done, replace what differs.
+
+`backend/tests/ScreenTail.Api.Tests/Providers/StandIns/ConnectWiseStandIn.cs` is the same shapes as a
+real HTTPS server the provider reaches over a socket, with the rules above (credential, `clientId`,
+search conditions and paging, note flags, time entry window and member). Correct it along with the
+recorded shapes. The providers README says what its tests prove and what they cannot.

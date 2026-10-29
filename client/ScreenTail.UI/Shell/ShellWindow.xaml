@@ -5,6 +5,7 @@
         xmlns:review="clr-namespace:ScreenTail.UI.Review"
         xmlns:history="clr-namespace:ScreenTail.UI.History"
         xmlns:settings="clr-namespace:ScreenTail.UI.Settings"
+        xmlns:shell="clr-namespace:ScreenTail.UI.Shell"
         Title="ScreenTail"
         Width="1280"
         Height="800"
@@ -23,13 +24,61 @@
         <DataTemplate DataType="{x:Type settings:SettingsViewModel}">
             <settings:SettingsPane />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type sys:String}">
-            <TextBlock Style="{StaticResource Text.Body}"
-                       Foreground="{DynamicResource Brush.text.secondary}"
-                       TextWrapping="Wrap"
-                       Text="{Binding}"
-                       AutomationProperties.LiveSetting="Polite" />
+        <!-- The sentence, as an empty state: centred, with an icon, rather than a line of small print in
+             the top-left corner of an otherwise blank window. Its next step is in the sentence itself.
+             Keyed and chosen by ShellContentTemplateSelector: a keyless string template here would also
+             draw every button label in every pane. -->
+        <DataTemplate x:Key="Shell.Message" DataType="{x:Type sys:String}">
+            <Border MaxWidth="560"
+                    Margin="0,0,0,48"
+                    Padding="32,28"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource Card}">
+                <StackPanel>
+                    <Border Width="56"
+                            Height="56"
+                            HorizontalAlignment="Center"
+                            Background="{DynamicResource Brush.bg.selected}"
+                            CornerRadius="28">
+                        <TextBlock Style="{StaticResource EmptyState.Icon}"
+                                   Foreground="{DynamicResource Brush.accent.primary}"
+                                   Text="&#xE8A5;" />
+                    </Border>
+                    <TextBlock Margin="0,16,0,0"
+                               HorizontalAlignment="Center"
+                               Style="{StaticResource Text.Body}"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               Text="{Binding}"
+                               AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </Border>
         </DataTemplate>
+        <shell:ShellContentTemplateSelector x:Key="Shell.Content" Message="{StaticResource Shell.Message}" />
+
+        <!-- A header tab. Tag="Selected" draws the current view's underline (Components.xaml, Nav.Item). -->
+        <Style x:Key="Nav.Review" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding View}" Value="Review">
+                    <Setter Property="Tag" Value="Selected" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Nav.History" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding View}" Value="History">
+                    <Setter Property="Tag" Value="Selected" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Nav.Settings" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding View}" Value="Settings">
+                    <Setter Property="Tag" Value="Selected" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
     <Grid Background="{DynamicResource Brush.bg.base}">
         <Grid.RowDefinitions>
@@ -38,50 +87,38 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Spec §5 S1: shown only when the service is not answering. A bar that is always there is a bar
-             nobody reads, including on the day it says something that matters. -->
+        <!-- Navigation. Spec §5: Review, History, Settings, on the surface layer above the window. -->
         <Border Grid.Row="0"
-                Style="{StaticResource Banner.Warning}"
-                Visibility="{Binding BannerVisibility}">
+                Padding="20,8,16,0"
+                Background="{DynamicResource Brush.bg.surface}"
+                BorderBrush="{DynamicResource Brush.border.subtle}"
+                BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+
                 <TextBlock Grid.Column="0"
+                           Margin="0,0,28,8"
                            VerticalAlignment="Center"
-                           Style="{StaticResource Text.Body}"
-                           Text="{Binding Banner}"
-                           AutomationProperties.LiveSetting="Assertive" />
-                <Button Grid.Column="1"
-                        Style="{StaticResource Button.Secondary}"
-                        Content="Start"
-                        Command="{Binding StartServiceCommand}"
-                        AutomationProperties.Name="Start the capture service" />
-            </Grid>
-        </Border>
+                           Style="{StaticResource Text.SectionHeading}"
+                           Text="ScreenTail" />
 
-        <!-- Navigation. Spec §5: Review, History, Settings. -->
-        <Border Grid.Row="1" Padding="16,12" Background="{DynamicResource Brush.bg.raised}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <Button Style="{StaticResource Pill.Control}"
-                            Margin="0,0,8,0"
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Style="{StaticResource Nav.Review}"
+                            Margin="0,0,4,0"
                             Content="Review"
                             Command="{Binding NavigateCommand}"
                             CommandParameter="Review" />
-                    <Button Style="{StaticResource Pill.Control}"
-                            Margin="0,0,8,0"
+                    <Button Style="{StaticResource Nav.History}"
+                            Margin="0,0,4,0"
                             Content="History"
                             Command="{Binding NavigateCommand}"
                             CommandParameter="History" />
-                    <Button Style="{StaticResource Pill.Control}"
+                    <Button Style="{StaticResource Nav.Settings}"
                             Content="Settings"
                             Command="{Binding NavigateCommand}"
                             CommandParameter="Settings" />
@@ -89,15 +126,51 @@
 
                 <!-- What the service says it is doing. Its own region so a screen reader is told when it
                      changes without the whole window being re-announced (Spec §7). -->
-                <ContentControl Grid.Column="2"
+                <ContentControl Grid.Column="3"
+                                Margin="0,0,0,8"
                                 VerticalAlignment="Center"
-                                Style="{StaticResource Badge}"
+                                Style="{StaticResource Badge.Status}"
                                 Content="{Binding Status}"
                                 AutomationProperties.Name="Capture state"
                                 AutomationProperties.LiveSetting="Polite" />
             </Grid>
         </Border>
 
-        <ContentControl Grid.Row="2" Margin="16" Content="{Binding Content}" />
+        <!-- Spec §5 S1: shown only when the service is not answering. A bar that is always there is a bar
+             nobody reads, including on the day it says something that matters. -->
+        <Border Grid.Row="1"
+                Margin="24,16,24,0"
+                Style="{StaticResource Banner.Warning}"
+                Visibility="{Binding BannerVisibility}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Margin="0,0,10,0"
+                           Style="{StaticResource Text.Body}"
+                           VerticalAlignment="Center"
+                           Text="⚠" />
+                <TextBlock Grid.Column="1"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource Text.Body}"
+                           Text="{Binding Banner}"
+                           AutomationProperties.LiveSetting="Assertive" />
+                <Button Grid.Column="2"
+                        Margin="12,0,0,0"
+                        Style="{StaticResource Button.Secondary}"
+                        Content="Start"
+                        Command="{Binding StartServiceCommand}"
+                        AutomationProperties.Name="Start the capture service" />
+            </Grid>
+        </Border>
+
+        <ContentControl Grid.Row="2"
+                        Margin="{DynamicResource Padding.pane}"
+                        Content="{Binding Content}"
+                        ContentTemplateSelector="{StaticResource Shell.Content}"
+                        Focusable="False" />
     </Grid>
 </Window>

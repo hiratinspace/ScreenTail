@@ -215,6 +215,18 @@ public sealed class Policy
     /// <summary>Capture scope default: remote-tool windows only unless the admin opens it (INV-5).</summary>
     public bool CaptureAllWindows { get; set; }
 
+    /// <summary>ST-113: "stable" or "pilot". The admin's only when <see cref="UpdateChannelLocked"/>.</summary>
+    [MaxLength(16)]
+    public string UpdateChannel { get; set; } = "stable";
+
+    public bool UpdateChannelLocked { get; set; }
+
+    /// <summary>How often devices check for an update, in hours; 0 turns checks off.</summary>
+    public int UpdateCheckHours { get; set; } = 24;
+
+    /// <summary>Whether update checks may leave a device that is in local-only mode. Off unless the admin says so.</summary>
+    public bool UpdateChecksUnderLocalOnly { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }
 

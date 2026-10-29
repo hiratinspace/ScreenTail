@@ -86,6 +86,84 @@ carries on.
 
 The Review pane's two quarter-second timers run only while Review is on screen.
 
+## Over budget: what gives first (AC2)
+
+Built 2026-10-29 (`client/ScreenTail.Core/Perf`). While a session is under way the service reads its own
+processor time once a second, as a share of the whole machine (process processor time over wall time,
+divided by the logical processors), and compares it with the recording budget in `CpuBudget`: 15% of a
+four-core machine. A machine with more cores is held to the same amount of processor, 60% of one core
+(7.5% of the laptop's eight processors), the figure the laptop check above enforces; one with fewer is
+held to 15% of itself.
+
+| After | Level | What changes |
+|---|---|---|
+| 10 s over budget | Fewer samples | The scene sampler looks at the screen every other tick (every 2 s by default) |
+| 10 s more | Fewest samples | Every fourth tick (every 4 s) |
+| 10 s more | OCR one at a time | And redaction reads one frame at a time instead of two while the session records |
+| 10 s more | OCR clicks only | And the scene sampler stops looking, so OCR reads only the frames a click or a marked moment asked for |
+
+- **Back up:** one step after 30 s below 80% of the budget. Between 80% and 100% the level holds, so a
+  load that sits at the budget does not flap. A reading back under the budget starts the ten seconds again.
+- **Never throttled:** the input hooks, click events and click screenshots, mark moment, and speech.
+  They still count towards the reading, so a busy transcription is paid for out of sampling and OCR. A
+  click's screenshot is never paused or skipped: it is always taken, and a frame that is waiting is read
+  as soon as the reader is free. From "OCR one at a time" down, click frames are read one at a time like
+  every other frame, so a burst waits its turn in the four-frame queue, and a burst that outruns a single
+  reader can fill the queue and be refused and counted, as a burst that outruns two readers always could
+  (ADR-0006). An earlier draft also paused 2 s after each frame at the deepest level, which refused bursts
+  a reader could have kept up with; the 2026-10-29 review caught it and the pause is gone.
+- **Redaction is untouched (INV-1).** A skipped look is a picture never taken. A frame waiting its turn
+  waits in memory, never in the store, and is read, searched and painted exactly as at full capture.
+- **Finalize is never stretched.** One frame at a time holds only while the session records. Paused or
+  finalizing, both readers work, so the frames finalize waits for inside its twenty-second redaction grace
+  are read as fast as they ever were.
+- **Session end** puts capture back to full and forgets the readings. A discard, or a finalize shorter
+  than a second, can be followed by a new session before the next reading; that reading sees a session it
+  has not seen and forgets the last one first, so the new session starts at full. Until it comes (at most
+  a second) the new session runs at the old level. With no session nothing is read and no timer exists,
+  so the idle figures above do not move.
+- **Log (INV-10):** one line per change, `Capture throttle Full -> FewerSamples at 9.3% of the machine`.
+  Nothing else.
+- **The login-screen check reacts later.** ST-041's OCR heuristic for a sign-in prompt sees a frame only
+  once it is read. With one reader, a click's frame can wait behind the frames ahead of it in the queue: at
+  most three, each taking a median of 171 ms and at most about 700 ms (ST-041's budget), so up to about
+  two seconds later than at full capture. At the deepest level a prompt that appears without a click is
+  not photographed, so the OCR check cannot see it until the next click; the password-field guard (ST-040),
+  which asks Windows rather than reading the screen, is unaffected and still suppresses capture the moment
+  focus lands in a password field.
+- **Scene frames can stop for long stretches.** Speech is never throttled, so a technician narrating
+  steadily can hold the service over budget for as long as they talk, and the throttle stays down for as
+  long as it is. Down to "OCR clicks only", that session has no scene frames at all until the process has
+  been well under budget for thirty seconds a step; above it, scenes are looked at every 2 or 4 s. While
+  throttled, ST-026's AC2 ("error dialog appears, frame within 2 s") is suspended: a dialog that appears
+  without a click may be photographed late or not at all. Clicks and marked moments are still
+  photographed throughout.
+
+The Mac suite proves the rules on a fake processor clock and a hand-moved clock (`CaptureThrottleTests`,
+`ThrottledSamplingTests`, `ThrottledRedactionTests`). The laptop rig composes the throttle as the host
+does. The recording measurement reports how often the throttle moved and the level it ended at, and on
+the laptop it fails if the throttle moved at all: a throttled service records less, and its figure would
+hide the regression that throttled it. At 4.7% of one core it should never move.
+
+### Owner step on the laptop
+
+Not yet seen on real hardware. During a demo rehearsal, with the service's console log in view:
+
+1. Record a five-minute session while narrating throughout. Expect no `Capture throttle` line. If one
+   appears, note the level and percentage it gives and paste them here.
+2. Run `scripts\windows\measure-idle.ps1 -Label "recording, speaking"` alongside, so the throttle's
+   reading can be compared with what `Get-Process` sees.
+3. If the narrated session trips the throttle, check how many scene frames it kept. The count is in
+   the service's log at debug level (start the service with `SCREENTAIL_LOG_LEVEL=Debug`; each kept frame
+   logs `Scene frame N of M samples`). Compare it with a session of the same length without narration.
+   A count near zero means narration alone holds the service over budget and costs the session its scene
+   frames; paste both counts here, since that is a reason to revisit the budget or the order in which
+   things give.
+
+A session that never trips the throttle is the expected result, since recording measures far under the
+budget. Forcing a trip on real hardware would need a deliberate overload inside the service and is not
+part of this step.
+
 ## How the measurements work
 
 - **In the test process, on purpose.** The real service and UI open the technician's store, key, token
@@ -131,9 +209,10 @@ Paste the tables here.
 - Speech CPU while somebody talks. CI has nobody talking, so the recording figure has no transcription.
 - ST-031's 30-minute golden replay (ST-030's sessions) and the nightly harness that asserts the budgets.
 - Battery: the wakeup counts are the proxy, not a power measurement.
+- Whether the throttle ever trips in a real session with speech (the owner step above).
 
 ## Not done yet in ST-031
 
-- Throttling sampling and OCR first when CPU has been over budget for 10 s.
+- The laptop sighting of the throttle (built and proved on the Mac suite; see above).
 - The nightly harness and the golden replay.
 - Live CPU and memory in "What's being captured" (it shows the working set only).

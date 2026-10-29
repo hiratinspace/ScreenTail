@@ -323,6 +323,23 @@ jobs:
           dotnet $dll -class '*InputHookTests' -result-trx (Join-Path $out 'input.trx')
           exit $LASTEXITCODE
 
+      # ST-013: the whole loop once more, here with what the hosted VM cannot do: the session started and
+      # stopped by the real hotkeys and its frames taken by real left clicks (docs/dev/e2e.md). It uses the
+      # database server and certificate scripts/windows/demo/setup.cmd set up on this machine, in a
+      # database and on a port of its own. Report-only until it has passed on this laptop twice in a row,
+      # like the hosted job. It uploads nothing: its PASS and FAIL lines are in this log, and its own logs
+      # stay on the machine.
+      #
+      # Capped at eight minutes, with the draft waited for two, so this job stays inside its fifteen and
+      # the two laptop jobs well inside the hardware gate's thirty-five. Not on a cancelled run: a
+      # superseded run must not go on driving the keyboard and mouse.
+      - name: The loop end to end, with real clicks and hotkeys (report-only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 8
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/windows/e2e/run-e2e.ps1 -InjectClicks -DraftTimeout 120
+
       # TypingAPasswordRecordsOnlyHowManyKeys is INV-2's only end-to-end proof and it runs here. Without
       # this gate it could skip and take the invariant's evidence with it, silently.
       - name: Skip gate

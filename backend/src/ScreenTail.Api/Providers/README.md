@@ -138,6 +138,63 @@ answer is the same kind of error, and asks for the site address to be checked in
 `ProviderNetwork:AllowPrivateAddresses` lifts the rule for local development and tests; the service
 refuses to start with it outside Development.
 
+## Stand-in servers: the real providers over HTTP (ST-093)
+
+`backend/tests/ScreenTail.Api.Tests/Providers/StandIns/` holds a stand-in ConnectWise and a stand-in
+Hudu. Each is a real Kestrel server on a loopback port, over HTTPS with a certificate made for the run,
+that keeps what it is sent (notes, time entries, documents, articles, uploads) and records every
+request as it arrived. The tests store the stand-ins as a tenant's sites through
+`PUT /v1/integrations/{provider}` and drive publish, ticket search, Test connection and the company
+mapping endpoints, so every call goes through the real factory, named client, `PublicNetwork` handler,
+`ProviderHttp` and provider. No vendor account, key or network is needed.
+
+```bash
+export MSBUILDDISABLENODEREUSE=1 DOTNET_CLI_USE_MSBUILD_SERVER=0
+dotnet build backend/ScreenTail.Backend.sln
+dotnet backend/tests/ScreenTail.Api.Tests/bin/Debug/net10.0/ScreenTail.Api.Tests.dll -class "*OverHttpTests"
+```
+
+**How they reach loopback without weakening the address rule.** The test host turns on
+`ProviderNetwork:AllowPrivateAddresses`, the switch that exists for tests and Development and that the
+service refuses outside Development. The provider clients trust the stand-ins' certificate by its
+thumbprint, and only after checking that their handler is the one Program.cs builds (no redirects, no
+proxy, the connect-time check). Nothing in the shipped API changes for them.
+
+**What the stand-ins hold the providers to.** ConnectWise: Basic auth that decodes to exactly
+`companyId+publicKey:privateKey` with the `clientId` header; ticket search by the `conditions`,
+`orderBy`, `fields`, `page` and `pageSize` sent, so a closed ticket, a wrong order or a field not asked
+for shows up as a wrong result; a note with text and one of the three note-type flags; a time entry with
+a ticket, a start before its end and a known billing option, charged to the API member when it names
+none; a document with a ticket and a file. Hudu: the key in `x-api-key` and never in a query string;
+companies paged by `page` and `page_size` (28, so two pages); an article wrapped in `article` with a
+name and a company that exists; an upload naming an article that exists. Either can be told to answer
+the next matching request with a 401, 403, 404, field-level 400 or 422, 429 with `Retry-After`, or 5xx.
+
+**What the tests check.** The note lands on the ticket with the right type and body and its screenshots
+as documents, private when the note is; the time entry has the right start, end, billing, text field and
+member; the article is a draft under the exactly matched or hand-mapped company (one on the second page
+included) with its uploads; a 429 is waited out and sent again when the wait is short, answered at once
+as retryable when it is long, saying how long, and given up after three; a 5xx after a write left is
+`unknown` and not sent again, while a read is retried; a wrong key is `unauthenticated` with Spec §4's
+sentence and never retried; a 403 says to ask an administrator and the note still lands; a field-level
+refusal reaches the technician in the provider's own words; and Hudu's "company must exist" for a
+company removed while the list was cached forgets the mapping, drops the list and asks for another
+company. Every test also
+reads the service's own scrubbing log at Trace and fails if anything a provider was sent or answered
+appears in it: note text, ticket summaries and numbers, company names, keys, the Basic credential, the
+site (INV-10).
+
+**What they prove, and what they cannot.** They prove our side against the published shapes as we read
+them: the routes, headers, field names, paging, and what we do with each kind of answer, over a real
+socket. They cannot prove that ConnectWise or Hudu accept any of it. The stand-ins' rules are our
+reading of the vendors' API references, and their error bodies follow our recorded fixtures, not
+captured traffic. In particular, only a real instance can say whether Hudu honours `draft`, which field
+names Hudu wants for an upload, whether a board accepts a time entry with no member (the stand-in has a
+switch for one that does not), and whether the vendor's front end accepts a JSON body sent chunked,
+which is how `ProviderHttp` sends a note, time entry or article (multipart uploads carry a length). The
+sandbox check in `docs/integrations/connectwise.md` and the real check in `docs/integrations/hudu.md` are
+still owed; when they are done, correct the stand-ins along with the recorded shapes.
+
 ## The fakes
 
 `FakePsaProvider` and `FakeDocProvider` exist for two jobs: the contract harness runs against them, so

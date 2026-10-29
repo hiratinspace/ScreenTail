@@ -267,6 +267,20 @@ namespace ScreenTail.Api.Data.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("UpdateChannel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<bool>("UpdateChannelLocked")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("UpdateCheckHours")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("UpdateChecksUnderLocalOnly")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Version")
                         .IsRequired()
                         .HasMaxLength(50)

@@ -15,6 +15,14 @@ run on the spare laptop on every pull request that touches them. The whole chain
 with a real session, a real backend, a real key and a person reading the note, all at the same time.
 Built is not proven. That first run is **M1**, and it is the next thing to happen.
 
+**The loop has run end to end on a Windows VM, unattended (2026-10-28, ST-013).** `scripts/windows/e2e/`
+runs the backend, a development device, the capture service, the UI and one session through to the note
+on the demo PSA's ticket, with a scripted drafting provider in place of the model, and says PASS or FAIL
+for each step (`docs/dev/e2e.md`). Its first runs found the likeliest reason the demo "was not working properly": every
+session with a backend ended on "draft failed: no summarization provider is configured" and never
+reached "Draft ready", although its draft arrived. That is fixed, with two smaller finds. It does not
+replace M1: the model's note and a person reading it are still owed.
+
 **M1 is two commands now.** `scripts/windows/demo/` (#219) sets up, starts and stops the whole loop on
 the laptop: the development certificate, the Gemini key, the signing key, PostgreSQL, the backend, a
 development device token, the capture service and the UI, each checked and each failure said in plain
@@ -38,8 +46,8 @@ request, and eight of the nine waited for the laptop's hardware jobs. The fixes 
 landed together as #220. The findings themselves stay in an untracked local file. What the run left
 for the owner to decide is in §5.
 
-**Of 85 tickets, 66 are Done or built, 6 are Partial and 13 are Open** (counted from the Status lines on
-2026-10-27).
+**Of 85 tickets, 66 are Done or built, 7 are Partial and 12 are Open** (counted from the Status lines on
+2026-10-28).
 
 - **45 are done outright.**
 - **21 are built with a named part still owed:** ST-091, ST-092, ST-095 and ST-096 are done against
@@ -48,12 +56,13 @@ for the owner to decide is in §5.
   and ST-083 are built and not yet seen on a real screen; ST-010 (the device side), ST-062 (the harness;
   the corpus is owed), ST-065 (the on-device draft; the local model is owed), ST-084 (the static half)
   and ST-115 (round one) each owe their second half.
-- **6 are Partial,** and each says what it waits for: ST-014 (two technician sessions), ST-027 (the WER
+- **7 are Partial,** and each says what it waits for: ST-013 (the loop harness runs in CI; the golden
+  replay, resource figures and the nightly schedule are owed), ST-014 (two technician sessions), ST-027 (the WER
   number needs a human recording), ST-031 (measured and enforced on the laptop; the golden replay, the
   throttle and the nightly harness are owed), ST-042 (the recall gate needs ST-030's labelled frames),
   ST-112 (the installer is built and smoke-tested unsigned in CI; signing needs the certificate), ST-114
   (the security-lead review).
-- **13 are Open:** ST-007 (hosting), ST-013 (the VM end-to-end harness), ST-017 (the usability round),
+- **12 are Open:** ST-007 (hosting), ST-017 (the usability round),
   ST-030 (golden sessions), ST-099 (the web admin), ST-110, ST-111, ST-113 (auto-update) and ST-116 (the pilot), and the four v1.1 and v1.2 tickets
   ST-120 to ST-123.
 
@@ -257,7 +266,7 @@ Each has a fail-closed default in place and the pull request that chose it says 
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop, with the demo scripts. | Owner |
 | Right after | Write down what the first note got right and wrong, with the rehearsal checklist; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then | Fix what M1 finds. Until then, small work that needs no owner: diagnostics counts that can say "not known" (an IPC version bump and the UI side), ST-013, which needs the laptop, and ST-031's throttle (AC2) | Agent |
+| Then | Fix what M1 finds. Until then, small work that needs no owner: diagnostics counts that can say "not known" (an IPC version bump and the UI side), ST-013's golden replay once ST-030 exists, and ST-031's throttle (AC2) | Agent |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097) | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect and a second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
 | Phase D | Hosting (ST-007), the signed installer (ST-112) and auto-update (ST-113), the web admin (ST-099), the security-lead review, the legal read, the usability round, the pilot | Both |

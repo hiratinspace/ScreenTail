@@ -90,7 +90,7 @@ public static class HudState
     /// is exactly the case where guessing "idle" is least defensible.
     /// </summary>
     public static bool KnownIdle(CaptureStateSnapshot? capture) =>
-        capture is not null && capture.State is CaptureStates.Idle or CaptureStates.DraftReady or CaptureStates.DraftFailed;
+        capture is not null && capture.State is CaptureStates.Idle or CaptureStates.DraftReady or CaptureStates.DraftFailed or CaptureStates.DraftPending;
 
     /// <summary>
     /// Whether the UI may tell the service that the indicator is on screen (INV-4, <c>indicator_showing</c>).
@@ -169,6 +169,9 @@ public static class HudState
             CaptureStates.DraftReady => new HudSegment(HudTone.Idle, "○", "Not recording: draft ready", "Nothing is being captured. The note is ready to review."),
 
             CaptureStates.DraftFailed => new HudSegment(HudTone.Idle, "○", "Not recording: draft failed", "Nothing is being captured. The note could not be drafted; open ScreenTail to see why."),
+
+            // The session is over and its note is on its way from the backend (ST-013).
+            CaptureStates.DraftPending => new HudSegment(HudTone.Idle, "○", "Not recording: drafting the note", "Nothing is being captured. The note is being drafted and appears in Review when it arrives."),
 
             // A state this build has never heard of: a service newer than this UI. KnownIdle already
             // says why guessing "idle" is least defensible here, and this is the same reasoning applied

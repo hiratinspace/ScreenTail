@@ -64,6 +64,10 @@ builder.Services
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
 var summarization = builder.Configuration.GetSection(SummarizationOptions.Section).Get<SummarizationOptions>()
     ?? new SummarizationOptions();
+
+// ST-013. Summarization:Provider=scripted drafts without a model, for the Windows end-to-end test and an
+// offline rehearsal. Refused outside Development, like Providers:Demo below.
+summarization.Validate(builder.Environment.IsDevelopment());
 builder.Services.AddSingleton(summarization);
 builder.Services.AddScoped<ICostLedger, CostLedger>();
 
@@ -79,10 +83,12 @@ builder.Services.AddHttpClient(nameof(GeminiProvider), client =>
 // provider's relative URL threw before anything was sent, and the default timeout rather than ours.
 // Drafting could not have worked on any deployment (2026-09-20 review).
 builder.Services.AddScoped<SummarizationService>(services => new SummarizationService(
-    new GeminiProvider(
-        services.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiProvider)),
-        summarization,
-        prompt),
+    summarization.Scripted
+        ? new ScriptedProvider()
+        : new GeminiProvider(
+            services.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiProvider)),
+            summarization,
+            prompt),
     fallback: null,
     services.GetRequiredService<ICostLedger>(),
     summarization));
@@ -183,6 +189,7 @@ if (Array.IndexOf(args, "--invite") is var inviteAt and >= 0)
 }
 
 // ST-047: --set-policy <tenant-id> [retention=<days>] [local-only=true|false] [locked=true|false] [all-windows=true|false]
+// ST-113: [update-channel=stable|pilot] [update-channel-locked=true|false] [update-hours=0-168] [update-local-only=true|false]
 // A new policy row each time; devices pick it up within the hour.
 if (Array.IndexOf(args, "--set-policy") is var policyAt and >= 0)
 {
@@ -196,8 +203,13 @@ if (Array.IndexOf(args, "--set-policy") is var policyAt and >= 0)
         settings.TryGetValue("local-only", out var lo) && bool.Parse(lo),
         settings.TryGetValue("locked", out var lk) && bool.Parse(lk),
         settings.TryGetValue("all-windows", out var aw) && bool.Parse(aw),
+        new Policies.UpdateSettings(
+            settings.TryGetValue("update-channel", out var uc) ? uc : "stable",
+            settings.TryGetValue("update-channel-locked", out var ucl) && bool.Parse(ucl),
+            settings.TryGetValue("update-hours", out var uh) && int.TryParse(uh, out var hours) ? hours : 24,
+            settings.TryGetValue("update-local-only", out var ulo) && bool.Parse(ulo)),
         scope.ServiceProvider.GetRequiredService<TimeProvider>());
-    Console.WriteLine($"policy  {set.Version}  retention {set.RetentionDays} d  local-only {set.LocalOnly} (locked {set.LocalOnlyLocked})  all-windows {set.CaptureAllWindows}");
+    Console.WriteLine($"policy  {set.Version}  retention {set.RetentionDays} d  local-only {set.LocalOnly} (locked {set.LocalOnlyLocked})  all-windows {set.CaptureAllWindows}  updates {set.UpdateChannel} (locked {set.UpdateChannelLocked}) every {set.UpdateCheckHours} h, under local-only {set.UpdateChecksUnderLocalOnly}");
     return;
 }
 

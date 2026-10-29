@@ -58,7 +58,7 @@ public static class Notices
         return capture.State switch
         {
             CaptureStates.DraftReady => new Notification(
-                $"Draft ready — {Describe(capture)}",
+                $"Draft ready: {Describe(capture)}",
                 NotificationAction.Review,
                 $"draft-ready:{capture.SessionId}"),
 
@@ -91,7 +91,7 @@ public static class Notices
         if (waiting.Drafts > 0)
         {
             return new Notification(
-                "Offline — your draft will be created when you're back online.",
+                "Offline: your draft will be created when you're back online.",
                 NotificationAction.None,
                 "outbox-offline");
         }

@@ -107,6 +107,15 @@ When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs
 - **Keep the laptop signed out of everything**, the browser above all. It should hold nothing worth stealing. The review found Chrome on it signed in to GitHub as the owner, which would have turned code execution on the laptop into the owner's GitHub account.
 - CI captures the laptop's desktop, and artifacts on a public repository can be downloaded by anyone signed in to GitHub. The laptop jobs delete every image before uploading and keep what is left for seven days; the verdicts are text. One artifact uploaded before this showed the owner's browser, and all of the laptop's earlier artifacts were deleted on 2026-09-19.
 
+## The end-to-end run (ST-013)
+
+`scripts/windows/e2e/run-e2e.ps1` takes one session through the whole loop, backend included, and prints
+PASS or FAIL per step (`docs/dev/e2e.md`). CI's `End to end (Windows)` job runs it on the hosted VM with
+mark-moment captures, and the laptop's input job runs it with `-InjectClicks`: real hotkeys and clicks.
+Both are report-only for now. It is not a test in the skip gate's TRX, so it changes no budget. On the
+laptop it needs `scripts\windows\demo\setup.cmd` to have been run once, and it refuses to run while the
+demo is.
+
 ## Performance measurements
 
 ST-031's budgets are measured in the capabilities job by `client/ScreenTail.Tests.Windows/Performance`, and the numbers go to the job summary and `measurements.txt` like the redaction figures. They take about three and a half minutes of the laptop's time. `docs/dev/performance.md` lists each budget, whether it is enforced, and the latest numbers; `scripts/windows/measure-idle.ps1` measures the real service and UI processes by hand.

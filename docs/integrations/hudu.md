@@ -81,3 +81,8 @@ Needs a Hudu instance with an API key, on the owner's list. When there is one:
 `backend/tests/ScreenTail.Api.Tests/Providers/Hudu/ScriptedHudu.cs` answers the routes above with the
 fields the provider reads, written from the API documentation. `DocProviderContract` and the provider's
 own tests run against it.
+
+`backend/tests/ScreenTail.Api.Tests/Providers/StandIns/HuduStandIn.cs` is the same shapes as a real
+HTTPS server the provider reaches over a socket: the key header, paged companies, the article wrapper,
+uploads, and Hudu's field errors. Correct it along with the recorded shapes after the real check. The
+providers README says what its tests prove and what they cannot.

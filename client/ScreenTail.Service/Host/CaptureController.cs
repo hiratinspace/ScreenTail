@@ -51,7 +51,8 @@ internal sealed class CaptureController(
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators,
-    Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy) : IIpcCommandHandler
+    Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
+    Core.Update.UpdateCommands? updates = null) : IIpcCommandHandler
 {
     private readonly ManualStart _start = new(machine, () => indicators.Showing, sessionPolicy);
 
@@ -80,9 +81,9 @@ internal sealed class CaptureController(
     };
 
     /// <summary>Records that this window says it is showing the indicator. Always accepted.</summary>
-    private bool Report(Guid caller)
+    private bool Report(Guid caller, IndicatorShowingCommand showing)
     {
-        indicators.Report(caller);
+        indicators.Report(caller, showing.Width, showing.Height);
         return true;
     }
 
@@ -104,7 +105,8 @@ internal sealed class CaptureController(
                 ?? await publishing.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await devices.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await settings.ReplyToAsync(command, ct).ConfigureAwait(false)
-                ?? await captureSettings.ReplyToAsync(command, ct).ConfigureAwait(false),
+                ?? await captureSettings.ReplyToAsync(command, ct).ConfigureAwait(false)
+                ?? (updates is null ? null : await updates.ReplyToAsync(command, ct).ConfigureAwait(false)),
         };
     }
 
@@ -139,6 +141,12 @@ internal sealed class CaptureController(
             return savedCapture;
         }
 
+        // ST-113: Install and the channel. Install is refused during a session by the installer itself.
+        if (updates is not null && await updates.HandleAsync(command, ct).ConfigureAwait(false) is { } updated)
+        {
+            return updated;
+        }
+
         // A start over the pipe, whose only sender is the onboarding wizard's test session, waits for the
         // indicator as an automatic start does (INV-4), and starts under the tenant's policy as it stands
         // now, with the same local-only flag and policy version (ST-047). ManualStart, in Core, holds both
@@ -167,7 +175,7 @@ internal sealed class CaptureController(
 
             // The UI saying the pill is on screen. Accepted from whichever connection sent it and
             // expiring on its own, so a UI that stops painting stops counting (INV-4).
-            IndicatorShowingCommand => Report(caller),
+            IndicatorShowingCommand showing => Report(caller, showing),
 
             // Not while a session is running. Erasing mid-recording destroys work the technician is in
             // the middle of and gives them nothing to look at afterwards; stopping first is one click and

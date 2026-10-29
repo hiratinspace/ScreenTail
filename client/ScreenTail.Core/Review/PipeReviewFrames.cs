@@ -22,9 +22,13 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
     /// too large for one message, which the service refuses rather than closing the pipe.
     /// </summary>
     public async Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) =>
-        (await _connection.RequestAsync<SessionLoaded>(id => new GetSessionCommand { RequestId = id, SessionId = sessionId }, ct).ConfigureAwait(false))?.Session;
+        (await LoadAsync(sessionId, ct).ConfigureAwait(false))?.Session;
 
-    /// <summary>The whole note, written back. False when it did not land, which the editor shows as "Not saved — retrying".</summary>
+    /// <summary>The whole reply: the session, and whether its draft is still on its way (ST-013).</summary>
+    public Task<SessionLoaded?> LoadAsync(string sessionId, CancellationToken ct = default) =>
+        _connection.RequestAsync<SessionLoaded>(id => new GetSessionCommand { RequestId = id, SessionId = sessionId }, ct);
+
+    /// <summary>The whole note, written back. False when it did not land, which the editor shows as "Not saved: retrying".</summary>
     public async Task<bool> SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) =>
         (await _connection.SendAsync(id => new SaveDraftCommand { RequestId = id, SessionId = sessionId, Draft = draft }, ct).ConfigureAwait(false)).Ok;
 

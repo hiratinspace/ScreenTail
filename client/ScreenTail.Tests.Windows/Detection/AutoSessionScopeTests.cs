@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
+using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Detection;
@@ -149,6 +151,113 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
 
         Assert.False(await coordinator.StartFromForegroundAsync(ct));
         Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    // ---- an update being installed (ST-113) ---------------------------------------------------------
+
+    [Fact]
+    public async Task NoSessionStartsOnItsOwnWhileAnUpdateIsBeingInstalled()
+    {
+        // Windows Installer ends the service to replace it, so the tool taking focus starts nothing while
+        // the update holds starts back, and starts a session once the hold is released.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+        var hold = await _machine!.HoldStartsAsync(ct);
+        Assert.NotNull(hold);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Idle, _machine.State);
+        Assert.Null(_machine.SessionId);
+
+        hold!.Dispose();
+        await coordinator.HandleAsync(Window(handle: 222), ct);
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
+    [Fact]
+    public async Task WhenTheHoldIsReleasedTheWindowInFrontIsDecidedAgain()
+    {
+        // 2026-10-29 review: the tool took focus while Windows Installer ran and was refused. The
+        // technician cancels at the prompt, the hold goes, and the tool still in front starts its session
+        // without the technician having to click away and back.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+        var hold = await _machine!.HoldStartsAsync(ct);
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Idle, _machine.State);
+
+        hold!.Dispose();
+        Assert.True(await coordinator.RetryAsync(Window(handle: 111), _ => true, ct));
+
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
+    [Fact]
+    public async Task ARetryReadsTheWindowInFrontNowAndSkipsOneThatIsGone()
+    {
+        // Second review: the window the hold refused may have closed by the time the hold goes. The retry
+        // asks for the window in front now, and does nothing when there is none or it no longer exists,
+        // rather than replaying the window last decided.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+        var hold = await _machine!.HoldStartsAsync(ct);
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        hold!.Dispose();
+
+        Assert.False(await coordinator.RetryAsync(Window(handle: 111), _ => false, ct));
+        Assert.False(await coordinator.RetryAsync(ForegroundWindowInfo.None(At), _ => true, ct));
+        Assert.Equal(SessionState.Idle, _machine.State);
+
+        Assert.True(await coordinator.RetryAsync(Window(handle: 333), handle => handle == 333, ct));
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
+    [Fact]
+    public async Task TheChordStartsNothingWhileAnUpdateIsBeingInstalled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false);
+        using var hold = await _machine!.HoldStartsAsync(ct);
+        Assert.NotNull(hold);
+
+        Assert.False(await coordinator.StartFromForegroundAsync(ct));
+        Assert.Equal(SessionState.Idle, _machine.State);
+    }
+
+    [Fact]
+    public async Task APillPutAwayBetweenSessionsStillLetsTheToolStartASession()
+    {
+        // Owner decision, 2026-10-25: the technician put the pill away between sessions, the UI says so
+        // with a zero-size report, and the next session starts. Gated through the indicator guard over
+        // the UI's reports, as the host wires it. Once the session runs, that report is not the pill.
+        var ct = TestContext.Current.CancellationToken;
+        var reports = new IndicatorReports();
+        IndicatorGuard? guard = null;
+        var coordinator = await CoordinatorAsync(ct, indicated: () => guard!.Indicated);
+        guard = new IndicatorGuard(_machine!, reports);
+        reports.Report(Guid.NewGuid(), 0, 0);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+
+        Assert.Equal(SessionState.Recording, _machine!.State);
+        Assert.False(guard.Indicated);
+    }
+
+    [Fact]
+    public async Task TheChordStartsASessionWithThePillPutAwayToo()
+    {
+        // The hotkey's start has the same gate as the automatic one, the zero-size report included.
+        var ct = TestContext.Current.CancellationToken;
+        var reports = new IndicatorReports();
+        IndicatorGuard? guard = null;
+        var coordinator = await CoordinatorAsync(ct, indicated: () => guard!.Indicated, autoStart: () => false);
+        guard = new IndicatorGuard(_machine!, reports);
+        reports.Report(Guid.NewGuid(), 0, 0);
+
+        Assert.True(await coordinator.StartFromForegroundAsync(ct));
+
+        Assert.Equal(SessionState.Recording, _machine!.State);
+        Assert.False(guard.Indicated);
     }
 
     // ---- the trigger follows the machine (S-6, T-22) ------------------------------------------------
