@@ -87,9 +87,21 @@ foreach ($case in $cases) {
 }
 
 Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+
+# The demo report's cases (demo\report.Tests.ps1) run from here too: the scripts job runs this file, and
+# a case nobody runs proves nothing. A child process, so the report's functions stay out of this one.
+$reportTests = Join-Path $PSScriptRoot 'demo\report.Tests.ps1'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $reportTests
+$reportExit = $LASTEXITCODE
+
 if ($bad -gt 0) {
     Write-Host "$bad of $n demo check cases gave the wrong answer."
-    exit 1
 }
-Write-Host "All $n demo check cases gave the right answer."
+else {
+    Write-Host "All $n demo check cases gave the right answer."
+}
+if ($reportExit -ne 0) {
+    Write-Host "::error file=scripts/windows/demo/report.Tests.ps1::The demo report's cases failed (exit $reportExit)."
+}
+if ($bad -gt 0 -or $reportExit -ne 0) { exit 1 }
 exit 0
