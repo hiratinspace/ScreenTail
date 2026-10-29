@@ -321,6 +321,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task<SessionSummary?> GetSessionSummaryAsync(string sessionId, CancellationToken ct = default) => inner.GetSessionSummaryAsync(sessionId, ct);
 
+        public Task<LastQueuedDraft?> GetLastDraftPendingAsync(CancellationToken ct = default) => inner.GetLastDraftPendingAsync(ct);
+
         public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) => inner.GetAuditAsync(sessionId, ct);
 
         public Task SetFrameExcludedAsync(string id, bool excluded, CancellationToken ct = default) => inner.SetFrameExcludedAsync(id, excluded, ct);

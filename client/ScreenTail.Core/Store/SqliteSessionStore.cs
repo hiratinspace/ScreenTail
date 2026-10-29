@@ -880,6 +880,30 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ct,
             ("@id", sessionId));
 
+    /// <remarks>
+    /// By <c>rowid</c>, which SQLite gives each new row above every row already there. VACUUM may renumber
+    /// the rowids of a table with a text key, but it copies the rows in rowid order, so the order holds.
+    /// </remarks>
+    public Task<LastQueuedDraft?> GetLastDraftPendingAsync(CancellationToken ct = default) =>
+        QueryAsync(
+            """
+            SELECT s.id,
+                   EXISTS (SELECT 1 FROM outbox o
+                           WHERE o.session_id = s.id AND o.kind = @kind AND o.state IN (@live, @uncertain))
+            FROM sessions s
+            WHERE s.state = @pending
+            ORDER BY s.rowid DESC
+            LIMIT 1
+            """,
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
+                ? new LastQueuedDraft(reader.GetString(0), reader.GetInt64(1) != 0)
+                : null,
+            ct,
+            ("@kind", OutboxKind.Draft.ToString()),
+            ("@live", Wire(OutboxState.Pending)),
+            ("@uncertain", Wire(OutboxState.Uncertain)),
+            ("@pending", Sessions.SessionStateNames.DraftPending));
+
     /// <summary>A history row's columns, as <see cref="ReadSummary"/> reads them. Each caller adds its own filter and order.</summary>
     private const string SummarySelect = """
         SELECT s.id, s.started_at, s.duration_ms, s.remote_tool_kind, s.state, s.partial_capture,

@@ -585,13 +585,14 @@ public sealed class SessionMachine : IAsyncDisposable
     /// At service start: any session a crash left recording, paused, suppressed or finalizing is marked
     /// partial and taken through finalize, so its data is either drafted or cleaned up, never stranded.
     ///
-    /// With nothing to finalize, the newest session whose draft is still queued (draft_pending) becomes
-    /// the current session again, and the machine rests on it in DraftPending as it did before the
-    /// restart. Left idle, the tray's Discard was refused and the bundle went to the backend at the next
-    /// drain: the technician had lost the way to stop it (INV-12, #230 review). Its draft settling later
-    /// moves the machine through <see cref="DraftSettledAsync"/> as usual. An older queued session is not
-    /// adopted: before the restart the machine rested only on the last session it ran, and the older one
-    /// still drains, its settling changing the count and nothing else.
+    /// With nothing to finalize, the last session created whose draft is still queued (draft_pending)
+    /// becomes the current session again, and the machine rests on it in DraftPending as it did before
+    /// the restart. Left idle, the tray's Discard was refused and the bundle went to the backend at the
+    /// next drain: the technician had lost the way to stop it (INV-12, #230 review). Its draft settling
+    /// later moves the machine through <see cref="DraftSettledAsync"/> as usual. An older queued session
+    /// is not adopted: before the restart the machine rested only on the last session it ran, and the
+    /// older one still drains, its settling changing the count and nothing else. See
+    /// <see cref="AdoptLastQueuedAsync"/> for a row whose draft is no longer on its way, or that cannot be read.
     /// </summary>
     public async Task<int> RecoverAsync(CancellationToken ct = default)
     {
@@ -619,16 +620,7 @@ public sealed class SessionMachine : IAsyncDisposable
             if (orphans.Count == 0)
             {
                 await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-
-                // Oldest first, so the last is the newest. The tool and the active time come back too, so
-                // the tray reads as it did before the restart.
-                var queued = await _store.ListSessionsInStatesAsync([SessionStateNames.DraftPending], ct).ConfigureAwait(false);
-                if (queued.Count > 0 && await _store.GetSessionSummaryAsync(queued[^1], ct).ConfigureAwait(false) is { } adopted)
-                {
-                    _session = new ActiveSession(adopted.Id, _time.GetTimestamp(), adopted.RemoteTool, activeMs: adopted.DurationMs ?? 0);
-                    SetState(SessionState.DraftPending, null);
-                }
-                else
+                if (!await AdoptLastQueuedAsync(ct).ConfigureAwait(false))
                 {
                     SetState(SessionState.Idle, null);
                 }
@@ -640,6 +632,50 @@ public sealed class SessionMachine : IAsyncDisposable
         {
             _transitions.Release();
         }
+    }
+
+    /// <summary>
+    /// Makes the draft_pending session created last the current one again, and says whether there was one.
+    ///
+    /// Only while its draft still has outbox work that will settle it. A row with none (the process died
+    /// between the outbox storing Failed and telling the machine, or a second finalize found the work
+    /// already settled and queued nothing) would say "drafting the note" until retention took it, a week
+    /// later. It is failed instead, with a reason, and the machine rests on it as after any failed draft.
+    ///
+    /// A row that cannot be read is not adopted, and does not stop the service starting: the machine
+    /// starts idle, as it did before adoption existed, and <see cref="AdoptionFault"/> names the kind of
+    /// error for the host's log. Nothing is written to a row until it has been read.
+    /// </summary>
+    private async Task<bool> AdoptLastQueuedAsync(CancellationToken ct)
+    {
+        ActiveSession adopted;
+        bool live;
+        try
+        {
+            if (await _store.GetLastDraftPendingAsync(ct).ConfigureAwait(false) is not { } last
+                || await _store.GetSessionSummaryAsync(last.SessionId, ct).ConfigureAwait(false) is not { } row)
+            {
+                return false;
+            }
+
+            live = last.DraftLive;
+            if (!live)
+            {
+                _ = await _store.SetSessionStateIfAsync(row.Id, SessionStateNames.DraftPending, CaptureStates.DraftFailed, DraftNoLongerQueuedReason, ct).ConfigureAwait(false);
+            }
+
+            // The tool and the active time come back too, so the tray reads as it did before the restart.
+            adopted = new ActiveSession(row.Id, _time.GetTimestamp(), row.RemoteTool, activeMs: row.DurationMs ?? 0);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AdoptionFault = ex.GetType().Name;
+            return false;
+        }
+
+        _session = adopted;
+        SetState(live ? SessionState.DraftPending : SessionState.DraftFailed, live ? null : DraftNoLongerQueuedReason);
+        return true;
     }
 
     // ---- gated writes (INV-6) ----------------------------------------------------------------------------
