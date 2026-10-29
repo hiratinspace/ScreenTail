@@ -53,7 +53,17 @@ public sealed class CaptureThrottleTests : IAsyncDisposable
         var changes = new List<CaptureLevelChange>();
         throttle.Changed += changes.Add;
 
-        Run(throttle, cpu, time, share: 0.5, seconds: 60);
+        // A step every ten seconds, never sooner: each one is given its own ten seconds to work.
+        foreach (var expected in new[] { CaptureLevel.FewerSamples, CaptureLevel.FewestSamples, CaptureLevel.OcrOneAtATime, CaptureLevel.OcrDeferred })
+        {
+            var before = throttle.Level;
+            Run(throttle, cpu, time, share: 0.5, seconds: 9);
+            Assert.Equal(before, throttle.Level);
+            Run(throttle, cpu, time, share: 0.5, seconds: 1);
+            Assert.Equal(expected, throttle.Level);
+        }
+
+        Run(throttle, cpu, time, share: 0.5, seconds: 20);
 
         Assert.Equal(
             [
