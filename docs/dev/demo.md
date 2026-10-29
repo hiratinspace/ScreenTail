@@ -221,6 +221,21 @@ page, press **Print test page** once or twice: the pages wait in the queue. The 
 *Offline* with jobs stuck, which is the call Maria made. (Check this the day before: if your Windows
 build words the menu differently, the story still works with whatever it shows.)
 
+**End on a ticket (step 13).** The Demo PSA stands in for ConnectWise, so the note can land on a
+ticket with no ConnectWise account (`docs/dev/demo-psa.md`). It is off unless you switch it on. On the
+laptop, before `start.cmd`:
+
+```powershell
+cd C:\src\ScreenTail
+dotnet user-secrets set Providers:Demo true --project backend\src\ScreenTail.Api
+```
+
+To switch it off again: `dotnet user-secrets remove Providers:Demo --project backend\src\ScreenTail.Api`,
+then `stop.cmd` and `start.cmd`. While it is on, nothing is sent to ConnectWise or Hudu. The story's
+ticket there is **#48213 Printer offline in reception**. Before you press Publish, open
+`https://localhost:5001/dev/demo-psa/tickets/48213/view` in a browser on the laptop; the note appears on
+it a moment after Publish.
+
 ### The call, step by step
 
 Talk while you work: what you say is half of what the note is written from. About five minutes.
@@ -234,12 +249,12 @@ Talk while you work: what you say is half of what the note is written from. Abou
 | 5 | Open print queue > **Printer** menu > untick **Use Printer Offline** | "It was also stuck in offline mode, which Windows does after it fails to reach a printer a few times. Taking it out of offline mode." | The printer changes from Offline to ready |
 | 6 | In the queue, right-click the old jobs > **Cancel**. Then on the printer's page press **Print test page** | "Clearing the two stuck jobs, and printing a test page to make sure it goes through." | (With the stand-in printer, Windows asks where to save the page: press Cancel, or save it anywhere) |
 | 7 | | "That's fixed: the saved password for the back-office PC was missing and the printer was stuck offline. Maria can print again." | |
-| 8 | Way A: close the Remote Desktop window first (inside it, Remote Desktop may send your keys to the other PC instead). Then press **Ctrl+Alt+S** (or right-click the tray icon > **Stop and draft**) | "And that's the end of the call. I didn't write a single note." | The pill says **Finishing up**, then **Not recording: draft ready** (usually within a minute). A notification says the draft is ready |
+| 8 | Way A: close the Remote Desktop window first (inside it, Remote Desktop may send your keys to the other PC instead). Then press **Ctrl+Alt+S** (or right-click the tray icon > **Stop and draft**) | "And that's the end of the call. I didn't write a single note." | The pill says **Finishing up**, then **Not recording: drafting the note** while the backend drafts, then **Not recording: draft ready** (usually within a minute). A notification says the draft is ready |
 | 9 | Click the notification (or right-click the tray icon > **Open ScreenTail**) | "ScreenTail has written the ticket note for me. I just review it." | The **Review** screen: the drafted note on the left, the screenshots beside it, in order |
 | 10 | Point at the steps, then at the gap where the password was typed | "Each step links to the screenshot it came from. Here, where I typed the password, there is no screenshot at all: it paused itself." | Where step 3 was, the timeline says capture was paused because a password field had focus |
 | 11 | Select a screenshot, press **B** and drag over the PC name or anything you would rather not keep | "And if anything on a screenshot shouldn't go in the ticket, I blur it." | The region is blurred |
 | 12 | Edit one sentence in the note | "I can change anything before it goes anywhere. ScreenTail learns from what I change." | The edit |
-| 13 | **Publish.** This step uses the **Demo PSA once it lands; until then, stop at the reviewed draft.** Say: | "When I'm happy, one click puts it in the ticket. Nothing is ever sent to the ticket system without that click." | Until the Demo PSA exists: stop here. Do not press Publish |
+| 13 | **Publish.** This step uses the **Demo PSA (not ConnectWise)**, which is on main (#218) and stands in for ConnectWise on this laptop; switch it on before `start.cmd` (see "End on a ticket" above). In the Publish pane, find ticket **#48213** (type `printer`), then press **Publish**. If the Demo PSA is off, stop at the reviewed draft and do not press Publish. Say: | "When I'm happy, one click puts it in the ticket. Nothing is ever sent to the ticket system without that click." | A banner says the note goes to the Demo PSA (not ConnectWise), then "Published to ticket #48213". The ticket's page, open in a browser on the laptop, shows the note a few seconds later |
 
 ### Afterwards, put the scene back
 

@@ -1,6 +1,8 @@
 # ScreenTail: project standing
 
-**Snapshot taken:** 2026-10-27, after the client P2 run (#207 to #216) and its follow-ups (#220)
+**Snapshot taken:** 2026-10-29, after the day's merges (#225 to #234): the loop harness, Claude as a
+drafting provider, the modern Windows 11 look, auto-update (switched off), the processor limit and the
+demo's diagnostic report
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -15,26 +17,51 @@ run on the spare laptop on every pull request that touches them. The whole chain
 with a real session, a real backend, a real key and a person reading the note, all at the same time.
 Built is not proven. That first run is **M1**, and it is the next thing to happen.
 
-**The loop has run end to end on a Windows VM, unattended (2026-10-28, ST-013).** `scripts/windows/e2e/`
+**The loop has run end to end on a Windows VM, unattended (#230, ST-013).** `scripts/windows/e2e/`
 runs the backend, a development device, the capture service, the UI and one session through to the note
 on the demo PSA's ticket, with a scripted drafting provider in place of the model, and says PASS or FAIL
-for each step (`docs/dev/e2e.md`). Its first runs found the likeliest reason the demo "was not working properly": every
-session with a backend ended on "draft failed: no summarization provider is configured" and never
-reached "Draft ready", although its draft arrived. That is fixed, with two smaller finds. It does not
-replace M1: the model's note and a person reading it are still owed.
+for each step (`docs/dev/e2e.md`). CI runs it on every pull request that touches the client, the
+backend or the scripts, report-only for now. Its first runs found the likeliest reason the demo "was
+not working properly": every session with a backend ended on "draft failed: no summarization provider
+is configured" and never reached "Draft ready", although its draft arrived. That is fixed: a session
+whose draft is on its way now rests in a state of its own, "Not recording: drafting the note", until it
+arrives. Two smaller finds were fixed with it. The laptop's run with real hotkeys and clicks has not
+passed yet. It does not replace M1: the model's note and a person reading it are still owed.
 
 **M1 is two commands now.** `scripts/windows/demo/` (#219) sets up, starts and stops the whole loop on
-the laptop: the development certificate, the Gemini key, the signing key, PostgreSQL, the backend, a
+the laptop: the development certificate, the drafting key, the signing key, PostgreSQL, the backend, a
 development device token, the capture service and the UI, each checked and each failure said in plain
 words. `docs/dev/demo.md` is the guide, with a demo story and a rehearsal checklist of what has never
-been seen on a real machine. The manual step list, `docs/dev/first-draft-end-to-end.md`, was corrected in
-the same PR and does the same thing by hand. The scripts themselves have not yet been run end to end by a
-person.
+been seen on a real machine. The manual step list, `docs/dev/first-draft-end-to-end.md`, does the same
+thing by hand. When something goes wrong, `report.cmd` (#227) writes one plain-text file to send: what
+looks wrong first, then each part's state and the last lines of each log, with secrets, email addresses
+and user paths removed. The scripts themselves have not yet been run end to end by a person.
+
+**Claude can draft instead of Gemini** (#225, ST-063). `Summarization:Provider=claude` selects
+Anthropic's `claude-opus-5-5`; the backend's default is still Gemini, and the demo's setup asks which
+one, with Claude as its default. It is built and tested against recorded answers, and has not yet been
+measured against the real model.
 
 **A demo PSA stands in for ConnectWise in Development** (#218, `docs/dev/demo-psa.md`), so a
 demonstration can end with the note on a ticket while there is no ConnectWise sandbox. It is named
 "Demo PSA (not ConnectWise)" wherever it shows, the backend refuses to start with it outside
-Development, and it proves the publish path, not ConnectWise.
+Development, and it proves the publish path, not ConnectWise. Separately, the backend tests now run the
+real ConnectWise and Hudu providers over HTTPS against stand-in servers that check the published shapes
+(#226). That proves our side as we read the vendors' documentation, not that the vendors accept it.
+
+**The client has a modern Windows 11 look** (#228, ST-016): new tokens (v0.5.0), every control and
+screen restyled, no change in behaviour. The blue accent and the text wordmark are placeholders until
+the owner gives a brand colour and logo, and the spec amendment waits for the owner's acceptance.
+
+**Auto-update is built and switched off** (#233, ST-113, ADR-0008 Proposed). The client believes only a
+manifest signed with a key compiled into it, downloads only while nothing is recording, and offers
+Install only when idle. No build makes an update request until the owner creates the signing key, the
+hosting and the release environment.
+
+**ST-031's processor limit is built** (#232). Ten seconds over the recording budget and capture gives up
+one step at a time: fewer scene samples, then one OCR reader, then scene sampling stops. The input hooks,
+click screenshots, speech and redaction are never throttled. It is proved on a fake clock; seeing it
+trip on the laptop is an owner step (`docs/dev/performance.md`).
 
 **The 2026-10-12 review (efficiency, security and regression tests) is worked through.** Its 42
 pre-pilot findings landed as #173 to #195 by 2026-10-23. The backend P2 findings landed as #199 to #202
@@ -46,8 +73,8 @@ request, and eight of the nine waited for the laptop's hardware jobs. The fixes 
 landed together as #220. The findings themselves stay in an untracked local file. What the run left
 for the owner to decide is in §5.
 
-**Of 85 tickets, 66 are Done or built, 7 are Partial and 12 are Open** (counted from the Status lines on
-2026-10-28).
+**Of 85 tickets, 66 are Done or built, 8 are Partial and 11 are Open** (counted from the Status lines on
+2026-10-29). ST-113 moved from Open to Partial.
 
 - **45 are done outright.**
 - **21 are built with a named part still owed:** ST-091, ST-092, ST-095 and ST-096 are done against
@@ -56,15 +83,17 @@ for the owner to decide is in §5.
   and ST-083 are built and not yet seen on a real screen; ST-010 (the device side), ST-062 (the harness;
   the corpus is owed), ST-065 (the on-device draft; the local model is owed), ST-084 (the static half)
   and ST-115 (round one) each owe their second half.
-- **7 are Partial,** and each says what it waits for: ST-013 (the loop harness runs in CI; the golden
-  replay, resource figures and the nightly schedule are owed), ST-014 (two technician sessions), ST-027 (the WER
-  number needs a human recording), ST-031 (measured and enforced on the laptop; the golden replay, the
-  throttle and the nightly harness are owed), ST-042 (the recall gate needs ST-030's labelled frames),
-  ST-112 (the installer is built and smoke-tested unsigned in CI; signing needs the certificate), ST-114
-  (the security-lead review).
-- **12 are Open:** ST-007 (hosting), ST-017 (the usability round),
-  ST-030 (golden sessions), ST-099 (the web admin), ST-110, ST-111, ST-113 (auto-update) and ST-116 (the pilot), and the four v1.1 and v1.2 tickets
-  ST-120 to ST-123.
+- **8 are Partial,** and each says what it waits for: ST-013 (the loop harness runs in CI; a passing
+  laptop run with real clicks, the golden replay, resource figures and the nightly schedule are owed),
+  ST-014 (two technician sessions), ST-027 (the WER number needs a human recording), ST-031 (measured and
+  enforced on the laptop, and the throttle built; the golden replay, the throttle seen on the laptop and
+  the nightly harness are owed), ST-042 (the recall gate needs ST-030's labelled frames), ST-112 (the
+  installer is built and smoke-tested unsigned in CI; signing needs the certificate), ST-113 (auto-update
+  is built and tested; switched off until the owner creates the key, the hosting and the release
+  environment), ST-114 (the security-lead review).
+- **11 are Open:** ST-007 (hosting), ST-017 (the usability round), ST-030 (golden sessions), ST-099 (the
+  web admin), ST-110, ST-111 and ST-116 (the pilot), and the four v1.1 and v1.2 tickets ST-120 to
+  ST-123.
 
 Phases A and B of the ordered plan (backlog Part C) are complete apart from what needs the owner: ST-030
 (golden sessions; a ScreenConnect trial and a second machine) and ST-062's corpus, which is ST-030's.
@@ -73,14 +102,16 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #220, no open pull requests |
-| Build plan | `Build Plan/` | Spec at **v0.4.3**. Backlog Part C is the ordered plan, Part D the amendments |
-| Client | `client/` | `.Shared` (schema and IPC), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`. **2,273 tests** in the suite that runs anywhere and **246** in the Windows-only suite (CI on #220, ten of them skipped on the hosted runner by design) |
-| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini provider, the cost ledger, the credential vault, ConnectWise and Hudu clients, and the demo PSA. **962 tests** (two skipped). Runs locally on PostgreSQL; not deployed (ST-007) |
+| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #227; one open pull request, #235 (repository housekeeping) |
+| Build plan | `Build Plan/` | Spec at **v0.4.3** accepted; the v0.5.0 amendment (the modern look, #228) waits for the owner. Backlog Part C is the ordered plan, Part D the amendments |
+| Client | `client/` | `.Shared` (schema and IPC), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`. **2,759 tests** in the suite that runs anywhere and **287** in the Windows-only suite (CI on #229, ten of them skipped on the hosted runner by design) |
+| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, and the update policy fields. **1,135 tests** (two skipped). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** |
 | Shared contracts | `shared/` | The session schema, the design tokens, and the wire contracts (summarize, publish, session metric, tenant policy) both sides test against |
-| Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start and stop for the whole loop on the laptop (#219). Parse-checked in CI; not yet run end to end by a person |
-| Windows test loop | Hosted Windows VM and the spare laptop `SCREENTRAIL` | Both run on every PR that touches capture. The laptop's jobs were green on #214, #218, #219 and #220 on 2026-10-27 |
+| Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop (#219, #227). Parse-checked in CI; not yet run end to end by a person |
+| Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider (#230). Green on the hosted VM, report-only in CI |
+| Installer and updates | `installer/`, `docs/dev/installer.md` | The MSI and setup program, smoke-tested unsigned in CI (#224), and the signed update channel (#233). Signing and updates stay off until the owner sets them up |
+| Windows test loop | Hosted Windows VM and the spare laptop `SCREENTRAIL` | Both run on every PR that touches capture. The laptop's jobs were green on #214, #218, #219 and #220 on 2026-10-27. Since #229 a laptop job fails at once, and says so, while the demo is running |
 | Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion. The repository is public; three GitHub settings keep strangers' code off the laptop (`docs/dev/windows-test-loop.md`, Security) |
 
 ## 3. What the code does today
@@ -94,7 +125,9 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   the onboarding wizard are real panes** fed over the pipe. The UI tells the service every two seconds
   that the pill is on screen and where; the service treats a pill it has not heard from in six seconds
   as absent and suppresses capture until one is back (INV-4). Every start, automatic or over the pipe,
-  waits for a current indicator report and takes the same session policy (#220).
+  waits for a current indicator report and takes the same session policy (#220). Once a session runs,
+  only a report with the pill's real size counts: a pill put away before the start has a short grace to
+  come back, and then capture is suppressed (#231).
 - The session state machine owns the lifecycle. Sources can only write while recording (INV-6). The
   input hooks are installed while a session exists and removed when it ends. Auto-start follows the
   remote tool in front, and the auto-stop grace runs from when the tool loses focus (#216).
@@ -115,10 +148,20 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   instruction-shaped text; the backend's and the research copy share one rule set since #206), and the
   note in the store. One model call per session; the daily cap is checked before the call. Nothing is
   sent before the first policy fetch has landed (#213). A retryable outbox item is failed only after a
-  day and eight attempts (#215). A local-only session is drafted on the device instead (#168).
+  day and eight attempts (#215). A local-only session is drafted on the device instead (#168). Claude can
+  be chosen in place of Gemini (#225). A session whose draft is on its way says "drafting the note"
+  rather than failed (#230).
 - **The publish path is built end to end**: note, time entry and KB article from the Review pane, with
   the company mapping prompt (ST-097), the ticket pre-selected from the window (ST-077) and recent tickets
-  on focus. None of it has met a real PSA; in Development the demo PSA can stand in (#218).
+  on focus. A provider that asks to wait says for how long, and a Hudu company that was deleted asks
+  for another (#229). None of it has met a real PSA; in Development the demo PSA can stand in (#218), and
+  the tests drive the real providers against stand-in servers (#226).
+- **A recording session watches its own processor use** (ST-031 AC2, #232) and, over budget for ten
+  seconds, samples the screen less, then reads one frame at a time, then stops scene sampling. Every frame
+  it does take is redacted exactly as before (INV-1).
+- **Updates are built, and off** (ST-113, #233): a signed manifest checked against a compiled-in key, a
+  download only while nothing records, Install offered only when idle, the channel chosen in Settings
+  unless the admin locks it. The trust file is empty, so no build checks for updates yet.
 - Every HTTP call the service makes goes through the egress allowlist at the composition root. Anything
   that is not HTTPS, or not the model host or the configured backend host, is refused (INV-8).
 - The audit log is hash-chained with a head anchor, so truncation from either end is detected. A draft,
@@ -127,12 +170,12 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   paths `[path]`; the backend's scrubber knows every name the client's does (#220). A crash leaves a
   stack-only report, and only when opted in.
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
-  dark, light and high contrast.
+  dark, light and high contrast. Since #228 they give the client a Windows 11 look (tokens v0.5.0).
 
 **Not built:** the microphone picker and level meter in Settings, Capture (ST-080's AC3); the local text
-model (ST-065); the installer's signature (ST-112 is built and smoke-tested unsigned, ADR-0007) and
-auto-update (ST-113); hosting (ST-007); the web admin
-(ST-099); mail for invites (ST-010 prints the code for the operator to hand on).
+model (ST-065); hosting (ST-007); the web admin (ST-099); mail for invites (ST-010 prints the code for
+the operator to hand on). **Built and switched off until the owner sets them up:** the installer's
+signature (ST-112, ADR-0007) and auto-update (ST-113, ADR-0008).
 
 ### Seen on real hardware, and not
 
@@ -145,16 +188,19 @@ the heaviest bundle a client may send, not on a recorded session.
 **Not seen yet:**
 
 - The full loop: a real session drafted by the real model and read in Review. That is M1.
-- The demo scripts run end to end by a person.
+- The demo scripts run end to end by a person, and the loop harness with real clicks on the laptop.
+- A Claude draft from the real model, with its time and cost on a heavy session.
+- The processor limit tripping on a real overload (the laptop step in `docs/dev/performance.md`).
 - The tray and pill following a real session with the service up, and screenshots over a remote window
   (ST-085's own walk-through).
-- Review, History, Settings and the onboarding wizard on a real screen. CI renders them over fixtures in
-  three themes.
-- A publish to ConnectWise or Hudu. Both clients are tested against recorded shapes only.
+- Review, History, Settings and the onboarding wizard on a real screen, in the new look. CI renders them
+  over fixtures in three themes; dropdowns, tool tips, hover and pressed states are not rendered there.
+- A publish to ConnectWise or Hudu. Both clients are tested against recorded shapes and, since #226,
+  stand-in servers only.
 - The speech model's word error rate on a real narration (ST-027), and redaction recall on real captures
   (ST-042).
 - RDP opacity from a second machine (ST-001 AC2), the Narrator and keyboard pass (ST-084), the toasts on
-  Windows (ST-073), and an installed, signed build.
+  Windows (ST-073), an installed, signed build, and an update installed through Windows' prompt.
 
 ## 4. Decisions already made
 
@@ -171,7 +217,9 @@ the heaviest bundle a client may send, not on a recorded session.
   gate; the backend runs on PostgreSQL locally; the usability round gates the pilot, not the publish
   panel.
 - **Model provider: Gemini Flash** (`gemini-3.6-flash`, low media resolution), chosen and measured
-  2026-09-19. Anthropic and OpenAI stay swappable behind the same interface.
+  2026-09-19, and still the backend's default. **Claude** (`claude-opus-5-5`) was added as the other
+  provider on 2026-10-29 (#225), and the demo's setup offers it first. OpenAI stays swappable behind the
+  same interface.
 - **2026-09-22, four decisions from the efficiency review:** US only for now (no regional model
   endpoint); Whisper `base.en` on every machine, two threads; the microphone follows the session, not
   the recording state; Gemini billing is the owner's to enable and gates *measurement*, not M1.
@@ -185,9 +233,10 @@ the heaviest bundle a client may send, not on a recorded session.
   must really be on a monitor, or reports stop and the service suppresses. Rejected: forcing the pill on
   before any start (slower, a new round trip, no gain), the earlier behaviour (one Hide refused every
   later start until the UI restarted), and removing Hide.
-- **Six ADRs, all Accepted:** 0001 (.NET stack), 0002 (platform-neutral Core), 0003 (per-user process,
+- **Six ADRs Accepted:** 0001 (.NET stack), 0002 (platform-neutral Core), 0003 (per-user process,
   three-check pipe handshake), 0004 (a frame nobody read is not stored), 0005 (Windows adapters shared by
-  both processes), 0006 (an unredacted frame waits in memory).
+  both processes), 0006 (an unredacted frame waits in memory). **Two Proposed**, waiting for the owner:
+  0007 (the Windows installer) and 0008 (auto-update).
 - **The repository is public on purpose**: hosted Windows minutes are free for public repositories.
   Three repository settings, not workflow files, are what keep a stranger's pull request off the laptop.
 
@@ -195,18 +244,26 @@ the heaviest bundle a client may send, not on a recorded session.
 
 - [ ] **Run M1.** On the laptop: `scripts\windows\demo\setup.cmd` once, then `start.cmd`, one session,
       and the rehearsal checklist at the end of `docs/dev/demo.md`. Write down what the first note got
-      right and wrong. The free Gemini tier is enough for this.
+      right and wrong. Drafting with Claude needs credits on the Anthropic account; with Gemini the free
+      tier is enough. If anything goes wrong, run `report.cmd` before `stop.cmd` and keep the file.
 - [ ] **Choose cloud hosting** (ST-007). Nothing is deployed until then; PostgreSQL on a laptop is fine
       for M1 and the demo.
 - [ ] **Get code signing** for the installer (ST-112): Azure Artifact Signing is recommended, and
       `docs/dev/installer.md` says how to switch it on. Read ADR-0007 (Proposed) first; it lists the
       decisions it needs.
+- [ ] **Set up auto-update** (ST-113), once signing and hosting exist: the update signing key in Azure
+      Key Vault, its public key and the feed and package hosts in `shared/release/update-trust.json` by
+      pull request, the `signing` environment's update settings, and the `release-stable` environment
+      with you as its required reviewer. ADR-0008's "Owner steps" and `docs/dev/installer.md`, "Updates",
+      list each one. Then check Windows' install prompt on the laptop with the first signed build.
 - [ ] **A ConnectWise sandbox or API member** for the real check of ST-091 to ST-094
       (`docs/integrations/connectwise.md`). The demo PSA does not replace it.
 - [ ] **A Hudu API key** for the real check of ST-095 to ST-097.
 - [ ] **Enable billing on the Gemini key.** The free tier (20 requests a day, 5 a minute) is enough for
       M1 and the demo, not for the two measurements ST-063 still owes: the thinking-token budget and the
       repair rate.
+- [ ] **Measure Claude once** with its key: `SCREENTAIL_LIVE_LLM=1` runs the live drafting test, for the
+      time and cost of a heavy session (ST-063).
 - [ ] **A lawyer's read** of `docs/legal/consent-guidance.md`, the pilot agreement and the privacy
       policy (ST-111).
 - [ ] **A pilot MSP and technicians:** the baseline interviews (ST-110, with the market scan's §6
@@ -216,10 +273,16 @@ the heaviest bundle a client may send, not on a recorded session.
 - [ ] **Record the ten-minute narration** for ST-027's WER number (`research/fixtures/audio/README.md`).
 - [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions and ST-001 AC2.
 - [ ] The Windows half of the accessibility audit with Accessibility Insights (ST-084).
+- [ ] **Laptop checks from the 2026-10-29 merges:** a narrated session with the service log in view, to
+      see whether the processor limit trips (`docs/dev/performance.md`, "Owner step on the laptop"); the
+      loop harness with real clicks (`docs/dev/e2e.md`); and a look at the new UI where CI does not render
+      it (dropdowns, tool tips, hover and pressed states, the typed-confirmation dialogs, the enlarged
+      frame, Narrator).
 
 ### Decisions waiting for the owner
 
-Each has a fail-closed default in place and the pull request that chose it says so.
+Each has a default in place, fail-closed where it matters, and the pull request or ADR that chose it
+says so.
 
 - **Pause wording** (#211): the pill and tray read "Paused: ..." with a colon, where the spec has a dash.
   Confirm, or give the wording.
@@ -236,6 +299,26 @@ Each has a fail-closed default in place and the pull request that chose it says 
   confirmed (today it is offered under a message that says to check first), and a time budget for the
   whole publish.
 - **The local text model** (ST-065): llama.cpp and a model download on the technician's machine.
+- **The installer and auto-update** (ADR-0007, ADR-0008, both Proposed): how an uninstall treats
+  technicians who are not signed in (their store is left unreadable rather than deleted); the update
+  apply model and its defaults (stable channel, a check every 24 hours, no checks under local-only unless
+  the admin allows it); and **no time limit on the install's hold**: while Windows Installer runs no
+  session starts, however long the prompt is left open. ADR-0008's "Decisions for the owner" lists the
+  rest.
+- **The processor limit** (#232, `docs/dev/performance.md`): how the budget reads on a machine without
+  four cores (15% of a smaller machine, 60% of one core on a bigger one); that the deepest level stops
+  scene sampling rather than pausing OCR; and the step-back numbers (30 seconds under 80% of the budget).
+- **A UI that misses a state change** (#231, INV-4): it keeps reporting the pill as put away during a
+  session, and capture is now suppressed until a real pill report arrives. That fails closed, but the
+  technician may see capture stop with no obvious reason. Confirm.
+- **Settings and unsaved edits** (#211, #234): leaving Settings with unsaved edits and coming back reads
+  every panel again, which discards them. Keeping them would be a new ticket.
+- **Diagnostics counts that can say "not known"** (#229): they would reverse #213's "zeros are honest"
+  choice and need an IPC version bump, so they wait for a decision.
+- **The admin web app's sign-in and mail** (ST-099, ST-010): email and password, Microsoft sign-in, or
+  both, and which email service sends invites and the offboarding receipt.
+- **The brand colour and logo** (#228): the Fluent blue and the text wordmark are placeholders. Also,
+  accept spec amendment v0.5.0 in `Build Plan/01-UX-Design-Spec.md`, or say what to change.
 
 ## 6. Known gaps, deliberately left
 
@@ -259,6 +342,11 @@ Each has a fail-closed default in place and the pull request that chose it says 
   disposable).
 - **ST-006's frames are drawn, not captured.** Fine for UI and pattern work, useless for judging OCR.
 - **ST-016's focus rings** were confirmed by code and CI render, not by tabbing through the app.
+- **A throttled session can go without scene frames for long stretches** (#232): speech is never
+  throttled, so steady narration can hold the service over budget. Clicks and marked moments are still
+  photographed, and ST-026's "frame within 2 s" is suspended while throttled (`docs/dev/performance.md`).
+- **A session waiting for its draft is not picked up again after a service restart** (#230), so it
+  cannot be discarded from the tray then. Retention still ends it. A follow-up.
 
 ## 7. Next steps
 
@@ -266,10 +354,10 @@ Each has a fail-closed default in place and the pull request that chose it says 
 |---|---|---|
 | **Now** | **M1**: one real session, one real note, on the laptop, with the demo scripts. | Owner |
 | Right after | Write down what the first note got right and wrong, with the rehearsal checklist; that is the first row of the eval corpus, before ST-030's ten sessions exist | Owner, ten minutes |
-| Then | Fix what M1 finds. Until then, small work that needs no owner: diagnostics counts that can say "not known" (an IPC version bump and the UI side), ST-013's golden replay once ST-030 exists, and ST-031's throttle (AC2) | Agent |
+| Then | Fix what M1 finds. Until then, small work that needs no owner: making the loop harness a required check once it is steady, the restarted draft-pending session (#230's follow-up), and ST-013's golden replay once ST-030 exists | Agent |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097) | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
-| In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect and a second machine), ST-063's two measurements (billing) | Owner supplies; agent runs |
-| Phase D | Hosting (ST-007), the signed installer (ST-112) and auto-update (ST-113), the web admin (ST-099), the security-lead review, the legal read, the usability round, the pilot | Both |
+| In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect and a second machine), ST-063's two Gemini measurements (billing) and Claude's (its key) | Owner supplies; agent runs |
+| Phase D | Hosting (ST-007), signing the installer (ST-112) and switching on auto-update (ST-113), both built; the web admin (ST-099), the security-lead review, the legal read, the usability round, the pilot | Both |
 
 **Why this order.** The product has never drafted a note from a real session. M1 is the one thing that
 tells us whether the next month goes into the pilot or into fixing what the first note got wrong, and
@@ -278,10 +366,11 @@ accounts and people or should wait for what M1 shows.
 
 ### Needs a decision or an account
 
-ST-007 needs a cloud account and a hosting choice. ST-112 needs a code-signing certificate. ST-091 to
-ST-094 need a ConnectWise sandbox or API member, and ST-095 to ST-097 a Hudu key. ST-063's measurements
-need Gemini billing. ST-111 needs a lawyer. ST-017, ST-110, ST-114's review and ST-116 need technicians,
-a pilot MSP and a security lead.
+ST-007 needs a cloud account and a hosting choice. ST-112 needs a code-signing certificate. ST-113 needs
+the update signing key, the hosting and the `release-stable` environment. ST-091 to ST-094 need a
+ConnectWise sandbox or API member, and ST-095 to ST-097 a Hudu key. ST-063's measurements need Gemini
+billing and the Claude key. ST-111 needs a lawyer. ST-017, ST-110, ST-114's review and ST-116 need
+technicians, a pilot MSP and a security lead.
 
 ## 8. Handy commands
 
@@ -292,6 +381,8 @@ a pilot MSP and a security lead.
 | Run research tests | `cd research && pytest` |
 | Set up the demo on the laptop (once) | `scripts\windows\demo\setup.cmd` |
 | Start and stop the demo | `scripts\windows\demo\start.cmd`, then `scripts\windows\demo\stop.cmd` |
+| Make one file to send when the demo is not working | `scripts\windows\demo\report.cmd`, before `stop.cmd` |
+| Run one session through the whole loop, unattended | `scripts\windows\e2e\run-e2e.cmd` (`docs/dev/e2e.md`) |
 | Get the first real note by hand | `docs/dev/first-draft-end-to-end.md` |
 | Run the product on the laptop without the demo scripts | `powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-local.ps1` |
 | See which secrets the backend has, without retyping them | `dotnet user-secrets list --project backend/src/ScreenTail.Api` (prints values: mind the shoulder) |
