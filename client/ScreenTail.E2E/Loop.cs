@@ -79,11 +79,11 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
         && await steps.RunAsync("all-windows", "Settings > Capture to accept All windows over the pipe, as the Capture pane saves it", AllWindowsAsync).ConfigureAwait(false)
         && await steps.RunAsync("test-window", "the test window with known text to take the foreground", ShowWindowAsync).ConfigureAwait(false)
         && await steps.RunAsync("scope", "the service's scope decision to say the test window is captured", ScopeAsync).ConfigureAwait(false)
-        && await steps.RunAsync("start", "a session start over the pipe to be accepted, which needs the UI's indicator report", StartAsync).ConfigureAwait(false)
+        && await steps.RunAsync("start", injectClicks ? "the start chord (Ctrl+Alt+R) to start a session, which needs the UI's indicator report" : "a session start over the pipe to be accepted, which needs the UI's indicator report", StartAsync).ConfigureAwait(false)
         && await steps.RunAsync("pill", "the recording pill on a monitor, and capture to stay unsuppressed while it reports", PillAsync).ConfigureAwait(false)
         && await steps.RunAsync("capture", injectClicks ? "real left clicks on the test window to be accepted" : "mark-moment captures of the test window (no input injection on this runner)", CaptureAsync).ConfigureAwait(false)
         && await steps.RunAsync("redaction", "the redaction worker to drain every frame it was handed", RedactionAsync).ConfigureAwait(false)
-        && await steps.RunAsync("stop", "stop-and-draft to be accepted", StopAsync).ConfigureAwait(false)
+        && await steps.RunAsync("stop", injectClicks ? "the stop chord (Ctrl+Alt+S) to stop and draft" : "stop-and-draft over the pipe to be accepted", StopAsync).ConfigureAwait(false)
         && await steps.RunAsync("draft", "the draft to arrive (draft_ready for this session)", DraftAsync).ConfigureAwait(false)
         && await steps.RunAsync("stored-frames", "the stored frames to be redacted, with the pass line masked", StoredFramesAsync).ConfigureAwait(false)
         && await steps.RunAsync("frame-text", "the stored OCR text to carry the window's words and a mask, and never the secret", FrameTextAsync).ConfigureAwait(false)
@@ -206,8 +206,33 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
         throw new StepFailed($"After 30 s the scope still says: {scope}. Foreground: {Native.Foreground()}.");
     }
 
+    /// <summary>The chord the technician's capture settings bind to an action, or the shipped one.</summary>
+    private string Hotkey(string action, string shipped) =>
+        _original?.Hotkeys.TryGetValue(action, out var bound) == true && !string.IsNullOrWhiteSpace(bound) ? bound : shipped;
+
     private async Task<string> StartAsync()
     {
+        if (injectClicks)
+        {
+            // The demo's way B: the chord, which starts through the coordinator rather than the pipe.
+            var chord = Hotkey("StartCapture", "Ctrl+Alt+R");
+            var pressed = 0;
+            var started = Stopwatch();
+            while (started.Elapsed < TimeSpan.FromSeconds(60))
+            {
+                Front();
+                Native.Chord(chord);
+                pressed++;
+                if (await WaitForStateAsync(s => s.State == CaptureStates.Recording && s.SessionId is { Length: > 0 }, TimeSpan.FromSeconds(3)).ConfigureAwait(false) is { } recording)
+                {
+                    _session = recording.SessionId;
+                    return $"Session {_session} is recording, started by {chord} (pressed {pressed} time(s)).";
+                }
+            }
+
+            throw new StepFailed($"{chord} was pressed {pressed} time(s) in 60 s and no session started; the state is {Pipe.State.State}.");
+        }
+
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var deadline = TimeSpan.FromSeconds(60);
         CommandResult result;
@@ -340,8 +365,20 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
         throw new StepFailed($"After 45 s the backlog is {diagnostics?.RedactionBacklog} and the state counts {Pipe.State.PendingRedactions} pending.");
     }
 
+    private static System.Diagnostics.Stopwatch Stopwatch() => System.Diagnostics.Stopwatch.StartNew();
+
     private async Task<string> StopAsync()
     {
+        if (injectClicks)
+        {
+            var chord = Hotkey("StopAndDraft", "Ctrl+Alt+S");
+            Front();
+            Native.Chord(chord);
+            return await WaitForStateAsync(s => s.State != CaptureStates.Recording, TimeSpan.FromSeconds(10)).ConfigureAwait(false) is { } after
+                ? $"{chord} stopped the session; the state is {after.State}."
+                : throw new StepFailed($"{chord} was pressed and the session is still recording.");
+        }
+
         var stopped = await Pipe.SendAsync(id => new StopCommand { RequestId = id }).ConfigureAwait(false);
         return stopped.Ok
             ? $"Accepted; the state is {Pipe.State.State}."

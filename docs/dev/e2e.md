@@ -30,8 +30,11 @@ with `PASS e2e: all N steps passed` or `FAIL e2e: ...`, and exit code 0 or 1.
   (`%LOCALAPPDATA%\ScreenTail`). The test session stays in History afterwards, with its note. It turns
   **All windows** on for the session and puts the setting back as it was at the end.
 - It shows a white test window with a few lines of made-up text for about a minute. Leave the mouse alone.
-- `-InjectClicks` replaces the mark-moment captures with three real left clicks on the test window (it
-  needs `SCREENTAIL_ALLOW_INPUT_INJECTION=1`, as the laptop's input job sets).
+- `-InjectClicks` drives the session with real input instead of pipe commands: the start and stop
+  hotkeys (Ctrl+Alt+R and Ctrl+Alt+S, or whatever Settings binds them to) and three real left clicks on
+  the test window. It takes over the keyboard and mouse, so it also needs
+  `SCREENTAIL_ALLOW_INPUT_INJECTION=1`, as the laptop's input job sets:
+  `$env:SCREENTAIL_ALLOW_INPUT_INJECTION = '1'; scripts\windows\e2e\run-e2e.cmd -InjectClicks`.
 - A laptop with an invite-activated device (`%LOCALAPPDATA%\ScreenTail\device.cred`) is refused, because
   the service prefers that device to a development token and the test database does not know it. See
   "Activated device" in `docs/dev/demo.md`.
@@ -53,9 +56,16 @@ laptop's jobs do; there is no image in the run's output to upload.
 **It is report-only for now**: `continue-on-error`, and not one of `ci-ok`'s needs. Once it has passed
 twice in a row on `main`, remove `continue-on-error` and add `e2e` to `ci-ok`'s needs in one pull request.
 
-The hosted VM has a desktop but no input injection, so there the session's frames come from **mark
-moment** over the pipe, the same command the pill's own button sends, plus whatever the scene sampler
-picks up. Real clicks are what `-InjectClicks` is for, on the laptop.
+The hosted VM has a desktop but no input injection, so there the session is started and stopped over the
+pipe (the onboarding wizard's test session sends the same start) and its frames come from **mark
+moment**, the command the pill's own button sends, plus whatever the scene sampler picks up.
+
+**On the laptop**, `hardware-checks.yml`'s input job runs the same script with `-InjectClicks` after its
+input tests: the hotkeys start and stop the session through the coordinator, as in the demo's way B, and
+real clicks take the frames through the click loop. It is report-only too (`continue-on-error`), adds no
+test to the skip gate, and uploads nothing; its PASS and FAIL lines are in the job's log. It needs
+`scripts\windows\demo\setup.cmd` to have been run once on the laptop, for the database server and the
+certificate.
 
 ## What each step proves
 
@@ -86,11 +96,11 @@ failure names the join of the loop that broke and what was there instead.
 | loop-03 all-windows | Settings, Capture saves "All windows" through `set_capture_settings`, as the Capture pane does |
 | loop-04 test-window | A window with known text, and a line `pass: <made-up secret>`, takes the foreground |
 | loop-05 scope | The foreground watcher and the scope policy say the window is captured |
-| loop-06 start | A start over the pipe is accepted, which the service allows only with a current indicator report from the UI. **The driver never sends one itself**: this is the real pill's report |
+| loop-06 start | A start over the pipe (with `-InjectClicks`, the start hotkey) is accepted, which the service allows only with a current indicator report from the UI. **The driver never sends one itself**: this is the real pill's report |
 | loop-07 pill | The pill is on a monitor, and capture stays recording for twelve seconds, longer than a report lasts plus the guard's grace (INV-4) |
 | loop-08 capture | Mark moment twice, the window's text changing between (or real clicks with `-InjectClicks`) |
 | loop-09 redaction | The redaction worker drains the queue; frames dropped unread are counted |
-| loop-10 stop, 11 draft | Stop and draft is accepted, and the state reaches `draft_ready` for this session (the outbox delivers the backend's note) |
+| loop-10 stop, 11 draft | Stop and draft (or its hotkey) is accepted, and the state reaches `draft_ready` for this session (the outbox delivers the backend's note) |
 | loop-12 stored-frames | Every stored frame is redacted (INV-1), and a password mask covers the `pass:` line |
 | loop-13 frame-text | The stored OCR text has the window's words and `[REDACTED]`, and never the secret |
 | loop-14 note | The note is the scripted provider's, cites stored frames, and `draft_ready` carries its title for the notification |

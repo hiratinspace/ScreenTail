@@ -111,6 +111,40 @@ internal static partial class Native
             new Input { Type = InputMouse, Mouse = new MouseInput { Flags = MouseEventLeftDown } },
             new Input { Type = InputMouse, Mouse = new MouseInput { Flags = MouseEventLeftUp } },
         };
+        Send(inputs);
+    }
+
+    /// <summary>
+    /// A real key chord such as Ctrl+Alt+R, pressed and released with SendInput, which is how the service's
+    /// registered hotkeys hear a technician. Modifiers are Ctrl, Alt, Shift and Win; the key is a letter
+    /// or a digit.
+    /// </summary>
+    public static void Chord(string chord)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(chord);
+        var parts = chord.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var keys = new List<ushort>();
+        foreach (var part in parts)
+        {
+            keys.Add(part.ToUpperInvariant() switch
+            {
+                "CTRL" or "CONTROL" => 0x11,
+                "ALT" => 0x12,
+                "SHIFT" => 0x10,
+                "WIN" => 0x5B,
+                { Length: 1 } key when char.IsAsciiLetterOrDigit(key[0]) => key[0],
+                _ => throw new ArgumentException($"A chord this driver cannot press: {chord}", nameof(chord)),
+            });
+        }
+
+        var inputs = keys.Select(k => new Input { Type = InputKeyboard, Key = new KeyboardInput { Vk = k } })
+            .Concat(Enumerable.Reverse(keys).Select(k => new Input { Type = InputKeyboard, Key = new KeyboardInput { Vk = k, Flags = KeyEventKeyUp } }))
+            .ToArray();
+        Send(inputs);
+    }
+
+    private static void Send(Input[] inputs)
+    {
         var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
         if (sent != inputs.Length)
         {
@@ -195,6 +229,8 @@ internal static partial class Native
     private const long WsExTopmost = 0x00000008;
     private const uint MonitorDefaultToNull = 0;
     private const uint InputMouse = 0;
+    private const uint InputKeyboard = 1;
+    private const uint KeyEventKeyUp = 0x0002;
     private const uint MouseEventLeftDown = 0x0002;
     private const uint MouseEventLeftUp = 0x0004;
     private const uint CtrlBreakEvent = 1;
@@ -226,12 +262,29 @@ internal static partial class Native
         public IntPtr ExtraInfo;
     }
 
-    // The union's largest member is MOUSEINPUT, so a struct holding only it has the size SendInput expects.
     [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput
+    {
+        public ushort Vk;
+        public ushort Scan;
+        public uint Flags;
+        public uint Time;
+        public IntPtr ExtraInfo;
+    }
+
+    // INPUT on x64: the type, then the union at offset 8, forty bytes in all, which is the size SendInput
+    // checks. The runners are x64.
+    [StructLayout(LayoutKind.Explicit, Size = 40)]
     private struct Input
     {
+        [FieldOffset(0)]
         public uint Type;
+
+        [FieldOffset(8)]
         public MouseInput Mouse;
+
+        [FieldOffset(8)]
+        public KeyboardInput Key;
     }
 
     private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
