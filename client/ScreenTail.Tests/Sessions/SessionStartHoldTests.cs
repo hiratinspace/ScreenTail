@@ -57,17 +57,47 @@ public sealed class SessionStartHoldTests
         Assert.Equal(SessionState.Idle, harness.Machine.State);
     }
 
-    [Fact]
-    public async Task AFinishedSessionWaitingForReviewDoesNotStopAHold()
+    [Theory]
+    [InlineData(SessionState.DraftReady)]
+    [InlineData(SessionState.DraftFailed)]
+    [InlineData(SessionState.DraftPending)]
+    public async Task AFinishedSessionWaitingForReviewDoesNotStopAHold(SessionState resting)
     {
-        // The machine rests in draft_ready or draft_failed after a session; nothing is being recorded.
-        await using var harness = await MachineHarness.StartAsync();
+        // The machine rests after a session in draft_ready, draft_failed or (since #230) draft_pending,
+        // its draft on its way to the backend. Nothing is being recorded in any of them, so an update may
+        // hold starts there, and while it does no session starts from there either.
+        await using var harness = await MachineHarness.StartAsync(drafter: new Drafter(resting));
         Assert.True(await harness.Machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Other }, ct: TestContext.Current.CancellationToken));
         Assert.True(await harness.Machine.StopAsync(TestContext.Current.CancellationToken));
-        Assert.True(harness.Machine.State is SessionState.DraftReady or SessionState.DraftFailed, harness.Machine.State.ToString());
+        Assert.Equal(resting, harness.Machine.State);
 
         using var hold = await harness.Machine.HoldStartsAsync(TestContext.Current.CancellationToken);
 
         Assert.NotNull(hold);
+        Assert.False(await harness.Machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Other }, ct: TestContext.Current.CancellationToken));
+        Assert.Equal(resting, harness.Machine.State);
+    }
+
+    /// <summary>Drafts so that the session comes to rest in the state asked for.</summary>
+    private sealed class Drafter(SessionState resting) : IDrafter
+    {
+        public Task<DraftOutcome> DraftAsync(string sessionId, CancellationToken ct = default) => Task.FromResult(resting switch
+        {
+            SessionState.DraftReady => DraftOutcome.Success(new DraftNote
+            {
+                Problem = "p",
+                Steps = [],
+                Result = "r",
+                FollowUps = [],
+                SuggestedTitle = "t",
+                SuggestedTimeMinutes = 15,
+                KbCandidate = false,
+                KbReason = "n",
+                Source = DraftSource.Cloud,
+                PromptVersion = "note_v1",
+            }),
+            SessionState.DraftPending => DraftOutcome.Pending("The draft is queued for the backend."),
+            _ => DraftOutcome.Failure("No drafting here."),
+        });
     }
 }

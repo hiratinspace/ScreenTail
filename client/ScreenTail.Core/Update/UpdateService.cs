@@ -171,6 +171,13 @@ public sealed partial class UpdateService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Whether a session machine now in <paramref name="captureState"/> (its wire name) has stopped
+    /// recording, so a download a session interrupted may continue: the host wakes the loop then.
+    /// </summary>
+    public static bool SessionOver(string captureState) =>
+        captureState is Shared.Ipc.CaptureStates.Idle or Shared.Ipc.CaptureStates.DraftReady or Shared.Ipc.CaptureStates.DraftFailed;
+
     /// <summary>Checks again soon: the technician changed channel.</summary>
     public void CheckSoon()
     {

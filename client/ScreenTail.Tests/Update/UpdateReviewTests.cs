@@ -145,6 +145,22 @@ public sealed class UpdateReviewTests : IDisposable
         Assert.Equal(big, await File.ReadAllBytesAsync(updates.Ready!.Path, TestContext.Current.CancellationToken));
     }
 
+    [Theory]
+    [InlineData(Shared.Ipc.CaptureStates.Idle, true)]
+    [InlineData(Shared.Ipc.CaptureStates.DraftReady, true)]
+    [InlineData(Shared.Ipc.CaptureStates.DraftFailed, true)]
+    [InlineData(Shared.Ipc.CaptureStates.DraftPending, true)]
+    [InlineData(Shared.Ipc.CaptureStates.Recording, false)]
+    [InlineData(Shared.Ipc.CaptureStates.Paused, false)]
+    [InlineData(Shared.Ipc.CaptureStates.Suppressed, false)]
+    [InlineData(Shared.Ipc.CaptureStates.Finalizing, false)]
+    public void AnInterruptedDownloadContinuesInEveryRestingStateAndNoOther(string state, bool continues)
+    {
+        // The host wakes the update loop when the machine comes to rest. #230 added draft_pending, a
+        // session over with its draft on its way to the backend: as over as draft_failed.
+        Assert.Equal(continues, UpdateService.SessionOver(state));
+    }
+
     [Fact]
     public async Task InstallDoesNotWaitBehindARunningCheck()
     {
