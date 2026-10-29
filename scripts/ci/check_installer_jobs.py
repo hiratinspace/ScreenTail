@@ -204,7 +204,7 @@ MUST_CONTAIN = {
         "$TrustFile = Join-Path $PSScriptRoot '..\\shared\\release\\update-trust.json'",
         "if (Test-Signature $signedBytes $signature $key.spki) {",
         "throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
-        "if (@($trust.packageHosts) -notcontains $packageHost) {",
+        "if (@($trusted.packageHosts) -notcontains $packageHost) {",
         "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
         "return $ecdsa.VerifyData($SignedBytes, $Signature)",
         # The channel is required, one of two, and stable only through the gated promotion.
@@ -583,8 +583,89 @@ def check_authoring(path, text):
     return bad
 
 
+def uploads(workflow):
+    for name, job in (workflow.get('jobs') or {}).items():
+        if isinstance(job, dict):
+            for step in job.get('steps') or []:
+                if is_upload(step):
+                    yield name, (step.get('with') or {}).get('name')
+
+
+def check_channels(workflow):
+    # ST-113 review: ci.yml signs pilot and nothing else, and never uploads a stable manifest.
+    bad = []
+    for name, job in (workflow.get('jobs') or {}).items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get('steps') or []:
+            run = str(step.get('run') or '')
+            if 'update-manifest.ps1' in run and (' -Channel pilot ' not in run + ' ' or 'stable' in run.lower()):
+                bad.append(f'job {name} runs update-manifest.ps1 for a channel other than pilot; stable is signed only by {PROMOTE_FILE}')
+    for name, artifact in uploads(workflow):
+        if artifact == STABLE_ARTIFACT:
+            bad.append(f'job {name} uploads {STABLE_ARTIFACT}; only {PROMOTE_FILE} may')
+    return bad
+
+
+def check_promote(promote):
+    bad = []
+    if not isinstance(promote, dict):
+        return [f'{PROMOTE_FILE} is missing']
+    # PyYAML reads the key "on" as True.
+    triggers = promote.get('on', promote.get(True))
+    inputs = ((triggers or {}).get('workflow_dispatch') or {}).get('inputs') if isinstance(triggers, dict) else None
+    if not isinstance(triggers, dict) or set(triggers) != {'workflow_dispatch'} or not isinstance(inputs, dict) or set(inputs) != PROMOTE_INPUTS:
+        bad.append(f'{PROMOTE_FILE} must run on workflow_dispatch alone, with exactly the inputs {sorted(PROMOTE_INPUTS)}')
+    if 'defaults' in promote:
+        bad.append(f'{PROMOTE_FILE} sets workflow-level defaults')
+    if promote.get('permissions') != {'contents': 'read'}:
+        bad.append(f'{PROMOTE_FILE} workflow permissions must be exactly contents: read')
+    if (promote.get('env') or {}) != WORKFLOW_ENV:
+        bad.append(f'{PROMOTE_FILE} workflow env must be exactly {WORKFLOW_ENV}')
+    if any(names_context(t) for t in strings(promote)):
+        bad.append(f'an expression in {PROMOTE_FILE} names the {CTX} context')
+    jobs = promote.get('jobs') or {}
+    if set(jobs) != {PROMOTE_JOB}:
+        return bad + [f'{PROMOTE_FILE} must have exactly one job, {PROMOTE_JOB}']
+    job = jobs[PROMOTE_JOB]
+    extra = set(job) - PROMOTE_JOB_KEYS
+    if extra:
+        bad.append(f'{PROMOTE_JOB} has job keys that are not allowed: {sorted(extra)}')
+    if ' '.join(str(job.get('if', '')).split()) != PROMOTE_CONDITION:
+        bad.append(f'{PROMOTE_JOB} must run exactly when {PROMOTE_CONDITION}')
+    if job.get('runs-on') != HOSTED:
+        bad.append(f'{PROMOTE_JOB} must run on the hosted {HOSTED}, never the laptop')
+    if job.get('environment') != PROMOTE_ENVIRONMENT:
+        bad.append(f"{PROMOTE_JOB} must always run in the '{PROMOTE_ENVIRONMENT}' environment")
+    if job.get('permissions') != PROMOTE_PERMISSIONS:
+        bad.append(f'{PROMOTE_JOB} must have exactly the permissions {PROMOTE_PERMISSIONS}')
+    if job.get('defaults') != {'run': {'shell': 'powershell'}}:
+        bad.append(f'{PROMOTE_JOB} defaults must be exactly run.shell: powershell')
+    return bad + check_steps(PROMOTE_JOB, job.get('steps') or [], PROMOTE_SEQUENCE)
+
+
+def check_others(others):
+    # Every other workflow: no OIDC token, and no upload under either manifest's name.
+    bad = []
+    for path, workflow in sorted((others or {}).items()):
+        if not isinstance(workflow, dict):
+            continue
+        if asks_for_token(workflow.get('permissions')):
+            bad.append(f'{path} may ask for an OIDC token at workflow level')
+        for name, job in (workflow.get('jobs') or {}).items():
+            if isinstance(job, dict) and asks_for_token(job.get('permissions')):
+                bad.append(f'{path} job {name} may ask for an OIDC token')
+        for name, artifact in uploads(workflow):
+            if artifact in (STABLE_ARTIFACT, MANIFEST_ARTIFACT):
+                bad.append(f'{path} job {name} uploads {artifact}')
+    return bad
+
+
 def check(workflow, files):
     bad = check_workflow(workflow)
+    bad += check_channels(workflow)
+    bad += check_promote(files.get(PROMOTE_FILE))
+    bad += check_others(files.get(OTHERS))
     bad += check_scripts(files)
     bad += check_tools(files.get('installer/tools.json', ''))
     for path in AUTHORING:
@@ -693,7 +774,7 @@ SAMPLE_FILES = {
         "$TrustFile = Join-Path $PSScriptRoot '..\\shared\\release\\update-trust.json'",
         "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
         "        return $ecdsa.VerifyData($SignedBytes, $Signature)",
-        "if (@($trust.packageHosts) -notcontains $packageHost) {",
+        "if (@($trusted.packageHosts) -notcontains $packageHost) {",
         "$answer = Invoke-RestMethod -Method Post -Uri \"$($vaultKey)/sign?api-version=7.4\"",
         "    if (Test-Signature $signedBytes $signature $key.spki) {",
         "    throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
