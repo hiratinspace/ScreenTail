@@ -188,8 +188,8 @@ public sealed class RedactionWorker(
                 // records. Every reader but the first stands aside between frames, never in the middle of
                 // one, until the level moves or the session stops recording. The signal is taken before
                 // the level is read, so a move in between is not missed. Nothing else waits: a frame that
-                // is waiting is read as soon as a reader is free, so a click's screenshot is never held
-                // back or refused for the throttle's sake.
+                // is waiting is read as soon as the reader is free, so a click's screenshot is never paused
+                // or skipped, only read one at a time with the rest.
                 if (throttle is not null && index > 0)
                 {
                     var moved = throttle.NextChange;

@@ -106,9 +106,12 @@ held to 15% of itself.
   load that sits at the budget does not flap. A reading back under the budget starts the ten seconds again.
 - **Never throttled:** the input hooks, click events and click screenshots, mark moment, and speech.
   They still count towards the reading, so a busy transcription is paid for out of sampling and OCR. A
-  click's screenshot is never held back or refused for the throttle: a frame that is waiting is read as
-  soon as a reader is free. An earlier draft paused 2 s after each frame at the deepest level, which could
-  refuse a burst of clicks at the four-frame queue; the 2026-10-29 review caught it and the pause is gone.
+  click's screenshot is never paused or skipped: it is always taken, and a frame that is waiting is read
+  as soon as the reader is free. From "OCR one at a time" down, click frames are read one at a time like
+  every other frame, so a burst waits its turn in the four-frame queue, and a burst that outruns a single
+  reader can fill the queue and be refused and counted, as a burst that outruns two readers always could
+  (ADR-0006). An earlier draft also paused 2 s after each frame at the deepest level, which refused bursts
+  a reader could have kept up with; the 2026-10-29 review caught it and the pause is gone.
 - **Redaction is untouched (INV-1).** A skipped look is a picture never taken. A frame waiting its turn
   waits in memory, never in the store, and is read, searched and painted exactly as at full capture.
 - **Finalize is never stretched.** One frame at a time holds only while the session records. Paused or
@@ -128,6 +131,13 @@ held to 15% of itself.
   not photographed, so the OCR check cannot see it until the next click; the password-field guard (ST-040),
   which asks Windows rather than reading the screen, is unaffected and still suppresses capture the moment
   focus lands in a password field.
+- **Scene frames can stop for long stretches.** Speech is never throttled, so a technician narrating
+  steadily can hold the service over budget for as long as they talk, and the throttle stays down for as
+  long as it is. Down to "OCR clicks only", that session has no scene frames at all until the process has
+  been well under budget for thirty seconds a step; above it, scenes are looked at every 2 or 4 s. While
+  throttled, ST-026's AC2 ("error dialog appears, frame within 2 s") is suspended: a dialog that appears
+  without a click may be photographed late or not at all. Clicks and marked moments are still
+  photographed throughout.
 
 The Mac suite proves the rules on a fake processor clock and a hand-moved clock (`CaptureThrottleTests`,
 `ThrottledSamplingTests`, `ThrottledRedactionTests`). The laptop rig composes the throttle as the host
@@ -143,6 +153,12 @@ Not yet seen on real hardware. During a demo rehearsal, with the service's conso
    appears, note the level and percentage it gives and paste them here.
 2. Run `scripts\windows\measure-idle.ps1 -Label "recording, speaking"` alongside, so the throttle's
    reading can be compared with what `Get-Process` sees.
+3. If the narrated session trips the throttle, check how many scene frames it kept. The count is in
+   the service's log at debug level (start the service with `SCREENTAIL_LOG_LEVEL=Debug`; each kept frame
+   logs `Scene frame N of M samples`). Compare it with a session of the same length without narration.
+   A count near zero means narration alone holds the service over budget and costs the session its scene
+   frames; paste both counts here, since that is a reason to revisit the budget or the order in which
+   things give.
 
 A session that never trips the throttle is the expected result, since recording measures far under the
 budget. Forcing a trip on real hardware would need a deliberate overload inside the service and is not
