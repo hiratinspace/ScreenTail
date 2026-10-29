@@ -16,6 +16,7 @@ using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Settings;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
+using ScreenTail.Core.Update;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
@@ -25,6 +26,7 @@ using ScreenTail.Service.Intel;
 using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Speech;
 using ScreenTail.Service.Store;
+using ScreenTail.Service.Update;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Settings;
 
@@ -258,6 +260,35 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             stoppingToken).ConfigureAwait(false));
         LogRegistry(logger, registry.Version, registry.Tools.Count, registry.BrowserPatterns.Count, registry.Grace.TotalSeconds);
 
+        // ST-113: the update channel. The feed, the package hosts and the manifest keys are compiled in
+        // (UpdateTrust.Shipped), and a build without them, or one nobody signed, makes no update request
+        // at all. The check runs under its own egress purpose, after this run's first policy fetch, at the
+        // admin's interval; a package downloads when no session is recording and is installed only when
+        // the technician presses Install, by Windows Installer, which asks for an administrator's approval.
+        var updatePreferences = new UpdatePreferences(Path.Combine(DataDirectory, "updates.json"));
+        UpdatePolicy UpdatePolicyNow() => UpdatePolicies.Resolve(policySync.Current, updatePreferences.Load());
+        bool SessionBusy() => machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing;
+        var runningPublisher = PackageSignature.Running();
+        using var updates = new UpdateService(
+            new HttpClient(egress, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(30) },
+            UpdateTrust.Shipped,
+            ReleaseVersion.TryParse(version, out var installedVersion) ? installedVersion : new Version(0, 0, 0),
+            new WindowsUpdateFolder(Path.Combine(DataDirectory, "Updates")),
+            UpdatePolicyNow,
+            SessionBusy,
+            signedBuild: runningPublisher is not null,
+            logger,
+            TimeProvider.System);
+        updates.Changed += status =>
+        {
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                LogUpdate(logger, status.State);
+            }
+        };
+        var installer = new UpdateInstaller(updates, new PackageSignature(), new MsiLauncher(), runningPublisher, machine.HoldStartsAsync);
+        var updateCommands = new UpdateCommands(updates, installer, UpdatePolicyNow, updatePreferences, SessionBusy, updates.CheckSoon);
+
         var controller = new CaptureController(
             machine,
             // P2-7: a report is good for five seconds, so the wizard's "Check again" and a burst of pipe
@@ -296,7 +327,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 return Task.FromResult(true);
             },
             indicators,
-            sessionPolicy);
+            sessionPolicy,
+            updateCommands);
         await using var server = new IpcServer(
             WindowsPipeFactory.ForCurrentUser(pipeName),
             token,
@@ -598,6 +630,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // With no backend nothing is sent and the queue only records why, so it is not held for a policy
         // that cannot be fetched.
         var draining = DrainOutboxAsync(outbox, backend is null ? Task.CompletedTask : policyFetched.Task, logger, stoppingToken);
+
+        // Held for the same reason as the outbox: until this run has fetched the tenant's policy, the one
+        // in force is a cached file the technician can edit (INV-8, INV-11).
+        var updating = updates.RunAsync(backend is null ? Task.CompletedTask : policyFetched.Task, stoppingToken);
         using var hourly = new PeriodicTimer(TimeSpan.FromHours(1));
         try
         {
@@ -615,7 +651,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining, updating).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -711,6 +747,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         Level = LogLevel.Information,
         Message = "Outbox: {Drafts} draft(s) and {Publishes} publish(es) waiting, {Uncertain} needing a look")]
     private static partial void LogOutbox(ILogger logger, int drafts, int publishes, int uncertain);
+
+    // The state's name only: never a version or a URL from a manifest (INV-10).
+    [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
+    private static partial void LogUpdate(ILogger logger, UpdateState state);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
     private static partial void LogMicrophone(ILogger logger, string device, string model);

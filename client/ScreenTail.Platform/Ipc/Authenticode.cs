@@ -46,9 +46,27 @@ internal static class Authenticode
     /// </summary>
     internal static bool IsUnsigned(string file) => Verify(file) == NoSignature;
 
-    /// <summary>Whether Windows itself accepts the signature, chain and timestamp. Zero means yes.</summary>
-    private static uint Verify(string file)
+    /// <summary>
+    /// Who signed a file Windows accepts, for ST-113's "same publisher" check: the signing certificate's
+    /// identity and whether the signature carries a timestamp, read from the trust provider's own state
+    /// while it is still open, so the certificate is the one Windows walked the chain from rather than one
+    /// read back out of the file afterwards. Null when Windows does not accept the signature.
+    /// </summary>
+    /// <param name="handle">The file as already opened by the caller, so what is checked is what it holds open.</param>
+    internal static Core.Update.PublisherIdentity? Publisher(string file, SafeHandle? handle = null)
     {
+        Core.Update.PublisherIdentity? found = null;
+        var result = Verify(file, handle, state => found = SignerOf(state));
+        return result == 0 ? found : null;
+    }
+
+    /// <summary>Whether Windows itself accepts the signature, chain and timestamp. Zero means yes.</summary>
+    private static uint Verify(string file) => Verify(file, null, null);
+
+    private static uint Verify(string file, SafeHandle? handle, Action<IntPtr>? whileOpen)
+    {
+        var added = false;
+        handle?.DangerousAddRef(ref added);
         // Marshalled by hand rather than pinned. WINTRUST_FILE_INFO holds an LPCWSTR, and a managed type
         // with a string in it cannot be pinned at all — GCHandle.Alloc throws "Object contains references",
         // which is a Windows-only failure and so invisible until CI ran it.
@@ -61,6 +79,7 @@ internal static class Authenticode
                 {
                     StructSize = (uint)Marshal.SizeOf<WinTrustFileInfo>(),
                     FilePath = path,
+                    FileHandle = added ? handle!.DangerousGetHandle() : IntPtr.Zero,
                 },
                 fileInfoPtr,
                 fDeleteOld: false);
@@ -87,11 +106,20 @@ internal static class Authenticode
 
             var action = WintrustActionGenericVerifyV2;
             var result = WinVerifyTrust(INVALID_HANDLE_VALUE, ref action, ref data);
-
-            // Always close the state the verify call opened, whatever it returned; otherwise the trust
-            // provider leaks a context per check, and this runs on every connection.
-            data.StateAction = WTD_STATEACTION_CLOSE;
-            _ = WinVerifyTrust(INVALID_HANDLE_VALUE, ref action, ref data);
+            try
+            {
+                if (result == 0 && whileOpen is not null && data.StateData != IntPtr.Zero)
+                {
+                    whileOpen(data.StateData);
+                }
+            }
+            finally
+            {
+                // Always close the state the verify call opened, whatever it returned; otherwise the trust
+                // provider leaks a context per check, and this runs on every connection.
+                data.StateAction = WTD_STATEACTION_CLOSE;
+                _ = WinVerifyTrust(INVALID_HANDLE_VALUE, ref action, ref data);
+            }
 
             return unchecked((uint)result);
         }
@@ -99,7 +127,71 @@ internal static class Authenticode
         {
             Marshal.FreeHGlobal(fileInfoPtr);
             Marshal.FreeHGlobal(path);
+            if (added)
+            {
+                handle!.DangerousRelease();
+            }
         }
+    }
+
+    /// <summary>
+    /// The signer's certificate and whether its signature is timestamped, from the provider data of a
+    /// verify that succeeded. A timestamp is a counter-signer to the trust provider, or failing that an
+    /// RFC 3161 or PKCS #9 counter-signature among the signer's unsigned attributes.
+    /// </summary>
+    private static Core.Update.PublisherIdentity? SignerOf(IntPtr state)
+    {
+        var provider = WTHelperProvDataFromStateData(state);
+        if (provider == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var signerPtr = WTHelperGetProvSignerFromChain(provider, 0, false, 0);
+        if (signerPtr == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var signer = Marshal.PtrToStructure<CryptProviderSigner>(signerPtr);
+        var certPtr = WTHelperGetProvCertFromChain(signerPtr, 0);
+        if (certPtr == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        // CRYPT_PROVIDER_CERT: a DWORD, then the PCCERT_CONTEXT at pointer alignment.
+        var context = Marshal.ReadIntPtr(certPtr, IntPtr.Size);
+        if (context == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var timestamped = signer.CounterSigners > 0 || HasCounterSignature(signer.Signer);
+        using var certificate = new X509Certificate2(context);
+        return Core.Update.PublisherIdentity.From(certificate, timestamped);
+    }
+
+    private static bool HasCounterSignature(IntPtr signerInfo)
+    {
+        if (signerInfo == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var info = Marshal.PtrToStructure<CmsgSignerInfo>(signerInfo);
+        var size = Marshal.SizeOf<CryptAttribute>();
+        for (var i = 0; i < info.UnauthAttrs.Count; i++)
+        {
+            var attribute = Marshal.PtrToStructure<CryptAttribute>(info.UnauthAttrs.Attributes + (i * size));
+            var oid = Marshal.PtrToStringAnsi(attribute.ObjectId);
+            if (oid is "1.3.6.1.4.1.311.3.3.1" or "1.2.840.113549.1.9.6")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string? SignerThumbprint(string file)
@@ -160,6 +252,75 @@ internal static class Authenticode
         public IntPtr SignatureSettings;
     }
 
+    /// <summary>CRYPT_PROVIDER_SGNR, as far as the counter-signers and the signer info.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CryptProviderSigner
+    {
+        public uint StructSize;
+        public uint VerifyAsOfLow;
+        public uint VerifyAsOfHigh;
+        public uint CertChainCount;
+        public IntPtr CertChain;
+        public uint SignerType;
+        public IntPtr Signer;
+        public uint Error;
+        public uint CounterSigners;
+        public IntPtr CounterSignerList;
+        public IntPtr ChainContext;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CryptBlob
+    {
+        public uint Size;
+        public IntPtr Data;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CryptAlgorithm
+    {
+        public IntPtr ObjectId;
+        public CryptBlob Parameters;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CryptAttributes
+    {
+        public uint Count;
+        public IntPtr Attributes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CryptAttribute
+    {
+        public IntPtr ObjectId;
+        public uint ValueCount;
+        public IntPtr Values;
+    }
+
+    /// <summary>CMSG_SIGNER_INFO.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CmsgSignerInfo
+    {
+        public uint Version;
+        public CryptBlob Issuer;
+        public CryptBlob SerialNumber;
+        public CryptAlgorithm HashAlgorithm;
+        public CryptAlgorithm HashEncryptionAlgorithm;
+        public CryptBlob EncryptedHash;
+        public CryptAttributes AuthAttrs;
+        public CryptAttributes UnauthAttrs;
+    }
+
     [DllImport("wintrust.dll", ExactSpelling = true, SetLastError = true)]
     private static extern int WinVerifyTrust(IntPtr window, ref Guid action, ref WinTrustData data);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    private static extern IntPtr WTHelperProvDataFromStateData(IntPtr state);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    private static extern IntPtr WTHelperGetProvSignerFromChain(IntPtr provider, uint signer, [MarshalAs(UnmanagedType.Bool)] bool counterSigner, uint counterSignerIndex);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    private static extern IntPtr WTHelperGetProvCertFromChain(IntPtr signer, uint certificate);
 }

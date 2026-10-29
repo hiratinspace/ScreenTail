@@ -51,7 +51,8 @@ internal sealed class CaptureController(
     Func<DiagnosticsReported> diagnostics,
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators,
-    Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy) : IIpcCommandHandler
+    Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
+    Core.Update.UpdateCommands? updates = null) : IIpcCommandHandler
 {
     private readonly ManualStart _start = new(machine, () => indicators.Showing, sessionPolicy);
 
@@ -104,7 +105,8 @@ internal sealed class CaptureController(
                 ?? await publishing.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await devices.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await settings.ReplyToAsync(command, ct).ConfigureAwait(false)
-                ?? await captureSettings.ReplyToAsync(command, ct).ConfigureAwait(false),
+                ?? await captureSettings.ReplyToAsync(command, ct).ConfigureAwait(false)
+                ?? (updates is null ? null : await updates.ReplyToAsync(command, ct).ConfigureAwait(false)),
         };
     }
 
@@ -137,6 +139,12 @@ internal sealed class CaptureController(
         if (await captureSettings.HandleAsync(command, ct).ConfigureAwait(false) is { } savedCapture)
         {
             return savedCapture;
+        }
+
+        // ST-113: Install and the channel. Install is refused during a session by the installer itself.
+        if (updates is not null && await updates.HandleAsync(command, ct).ConfigureAwait(false) is { } updated)
+        {
+            return updated;
         }
 
         // A start over the pipe, whose only sender is the onboarding wizard's test session, waits for the
