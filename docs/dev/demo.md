@@ -56,7 +56,8 @@ It works through five things and says "ok" after each:
   Right-click pastes in PowerShell. Then press Enter. It asks Google whether the key works and says so.
 - **The signing key.** Made for you. Nothing to do.
 - **PostgreSQL.** If PostgreSQL is installed, it asks for the password you chose when you installed it.
-  If only Docker Desktop is there and running, it creates a small database container for you and makes up
+  If winget installed it without ever asking you for one, the password is usually `postgres`: try that
+  first. If only Docker Desktop is there and running, it creates a small database container for you and makes up
   its password itself. If neither is there, it prints this line and stops:
   ```powershell
   winget install --id PostgreSQL.PostgreSQL.17 -e --source winget
@@ -236,6 +237,36 @@ windows** off again (see above).
 | The draft fails and the backend window shows a 429 from Google | The free key's quota is used up (20 a day, 5 a minute). Wait a minute, or until tomorrow |
 | No "Draft ready" after two minutes | Look at the backend window: one request to `/v1/sessions/summarize` should be there. If not, the capture service window says why |
 | A certificate error in the capture service window | Run `setup.cmd` again (answer Yes to the certificate) and start again |
+| Something is not right and you cannot say what | Run `report.cmd` (below) and send the file it makes |
+
+## The report: one file to send when it is not working
+
+If the demo did not work properly, run this **while the demo is still running** (before `stop.cmd`):
+
+```powershell
+cd C:\src\ScreenTail
+scripts\windows\demo\report.cmd
+```
+
+It takes up to a minute and changes nothing. It writes one text file to your Desktop,
+`ScreenTail-report-<date>-<time>.txt`, and opens it in Notepad. Send that file to the developer. Its top
+section, **What looks wrong**, names the first problem it found and how to fix it, in plain words.
+
+What is in it: the Windows and .NET versions, the commit the clone is on and whether it has local
+changes, which parts of the demo are running, whether the backend answers, whether the certificate is
+trusted and PostgreSQL answers, whether the CI runner is on, the settings the demo depends on (as yes/no
+or names only), the device token's expiry, what Windows lets the capture service do (microphone, OCR
+language, speech model, UI Automation), the capture scope and the hotkeys, and the last 200 lines of the
+capture service's and the backend's logs.
+
+What is never in it: screenshots, OCR text, transcripts, note text, window titles, keys, tokens,
+passwords or connection strings. The logs have no session content to begin with, and every line goes
+through one more scrub before it is written (the top of the file says what that removed, for example
+your user folder, shown as `%USERPROFILE%`). Read it before sending if you like, as with anything.
+
+The logs come from `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs`, where `start.cmd` copies what the backend
+and capture service windows print. A demo started with an older `start.cmd` has no capture service log
+yet: run `stop.cmd`, `start.cmd`, try again, then `report.cmd`.
 
 ## Activated device
 
@@ -251,7 +282,8 @@ the file `%LOCALAPPDATA%\ScreenTail\device.cred`, and run `start.cmd`.
 |---|---|
 | The Gemini key, the signing key, the database password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only |
 | Recorded sessions and drafts (encrypted) | `%LOCALAPPDATA%\ScreenTail`, the product's own folder |
-| The demo's own working files: the published programs, which processes start opened, and the backend's log (no session content in it) | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
+| The demo's own working files: the published programs and which processes start opened | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
+| The backend's and the capture service's logs (no session content in them; 2 MB each, the run before kept as `.1.log`) | `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs` |
 | What is sent to Google for each draft | The session after redaction: screenshots, what was said, and the clicks, through the backend. Nothing is published anywhere without the Publish click |
 
 Nothing is set in the Windows environment for good: the two settings the capture service needs
@@ -277,5 +309,5 @@ machine:
 - [ ] `stop.cmd` closed the two windows and the tray icon, and nothing else.
 - [ ] Anything odd about the pill, the tray, Review or the wording.
 
-Send the list to the developer, with `%LOCALAPPDATA%\ScreenTail.Dev\demo\backend.log` if anything failed.
-That log has no session content in it, but read it before sending, as with anything.
+Send the list to the developer. If anything failed, run `scripts\windows\demo\report.cmd` before
+`stop.cmd` and send the file it puts on your Desktop with it (see "The report" above).
