@@ -627,6 +627,42 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AfterARestartADraftThatLandedWithoutTheMachineBeingToldIsDraftReady()
+    {
+        // The outbox stored Done and the note is in the store, but the row still says draft_pending: the
+        // process died before the settling reached the store's state. The note is there, so the session
+        // is ready, not failed, and the toast has its title.
+        await QueuedRowAsync("landed", DateTimeOffset.UtcNow, OutboxState.Done);
+        await _store!.SaveDraftAsync("landed", Note("Printer offline in reception"));
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftReady, restarted.State);
+        Assert.Equal("landed", restarted.Snapshot.SessionId);
+        Assert.Equal("Printer offline in reception", restarted.Snapshot.DraftTitle);
+        Assert.Null(restarted.Snapshot.DraftFailureReason);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.DraftReady, announced.State);
+        Assert.Equal(1, announced.DraftsReady);
+        Assert.Equal(["landed"], await _store.ListSessionsInStatesAsync([CaptureStates.DraftReady]));
+    }
+
+    [Fact]
+    public async Task AfterARestartADraftTheOutboxFailedKeepsTheOutboxsOwnReason()
+    {
+        // What the outbox recorded is what the technician would have been told had the machine heard it
+        // in time. The general reason is only for a failure that recorded none.
+        await QueuedRowAsync("refused", DateTimeOffset.UtcNow, OutboxState.Failed, error: "The backend refused this session.");
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftFailed, restarted.State);
+        Assert.Equal("refused", restarted.Snapshot.SessionId);
+        Assert.Equal("The backend refused this session.", restarted.Snapshot.DraftFailureReason);
+        Assert.Equal(["refused"], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+    }
+
+    [Fact]
     public async Task RetentionOnTheSessionAdoptedAtRestartMovesThePillOffDraftingTheNote()
     {
         var id = await QueuedInTheOutboxAsync();
@@ -794,7 +830,7 @@ public sealed class StateMachineTests : IAsyncDisposable
     /// A finished session left in draft_pending by an earlier run, written straight into the store, with
     /// its draft's outbox work in <paramref name="draft"/>, or none at all.
     /// </summary>
-    private async Task QueuedRowAsync(string id, DateTimeOffset startedAt, OutboxState? draft, long durationMs = 4_000)
+    private async Task QueuedRowAsync(string id, DateTimeOffset startedAt, OutboxState? draft, long durationMs = 4_000, string? error = null)
     {
         var store = await OpenStoreAsync();
         await store.CreateSessionAsync(new NewSession(id, startedAt, ScreenConnect, false, null));
@@ -803,7 +839,7 @@ public sealed class StateMachineTests : IAsyncDisposable
         if (draft is { } state)
         {
             var at = DateTimeOffset.UtcNow;
-            Assert.True(await store.EnqueueAsync(new OutboxItem($"o-{id}", id, OutboxKind.Draft, $"draft:{id}", "{}", state, 1, at, at, at, null, null)));
+            Assert.True(await store.EnqueueAsync(new OutboxItem($"o-{id}", id, OutboxKind.Draft, $"draft:{id}", "{}", state, 1, at, at, at, error, null)));
         }
     }
 
