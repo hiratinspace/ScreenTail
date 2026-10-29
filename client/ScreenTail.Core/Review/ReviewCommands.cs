@@ -253,10 +253,12 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
             return (null, 0);
         }
 
+        var pending = await _store.ListSessionsInStatesAsync([Sessions.SessionStateNames.DraftPending], ct).ConfigureAwait(false);
         var reply = new SessionLoaded
         {
             RequestId = get.RequestId,
             Session = session with { Frames = [.. session.Frames.Select(frame => frame.OcrText is null ? frame : frame with { OcrText = null })] },
+            DraftPending = pending.Contains(get.SessionId, StringComparer.Ordinal),
         };
         return (reply, IpcFraming.MeasureBytes<IpcEvent>(reply));
     }

@@ -70,6 +70,14 @@
                     Command="{Binding RetryDraftCommand}" />
         </StackPanel>
 
+        <!-- ST-013: a draft queued for the backend is on its way, not failed, so there is no Retry. -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" Visibility="{Binding DraftPending, Converter={StaticResource Visible}}">
+            <TextBlock Style="{StaticResource Text.SectionHeading}"
+                       HorizontalAlignment="Center"
+                       AutomationProperties.Name="{Binding DraftPendingMessage}"
+                       Text="{Binding DraftPendingMessage}" />
+        </StackPanel>
+
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"

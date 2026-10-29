@@ -217,6 +217,13 @@ public sealed record SessionLoaded : IpcEvent
 {
     [JsonPropertyName("session")]
     public required Schema.Session Session { get; init; }
+
+    /// <summary>
+    /// The session's draft is queued for the backend and has not come back yet (ST-013, contract v5).
+    /// Review says the note is being drafted, rather than that drafting failed, while this is true.
+    /// </summary>
+    [JsonPropertyName("draft_pending")]
+    public bool DraftPending { get; init; }
 }
 
 /// <summary>Asks for one redacted frame's image. Answered by a <see cref="FrameLoaded"/>.</summary>

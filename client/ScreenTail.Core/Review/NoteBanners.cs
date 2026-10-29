@@ -85,9 +85,15 @@ public static class NoteBanners
     /// the one place a keyboard user can never reach it. Amendment v0.4.3.
     /// </summary>
     /// <param name="ticketChosen">A ticket has been picked in the right pane.</param>
-    public static string? PublishBlockedBecause(Session session, bool ticketChosen, bool offline = false)
+    /// <param name="draftPending">The draft is queued for the backend (ST-013): on its way, not failed.</param>
+    public static string? PublishBlockedBecause(Session session, bool ticketChosen, bool offline = false, bool draftPending = false)
     {
         ArgumentNullException.ThrowIfNull(session);
+
+        if (session.Draft is null && draftPending)
+        {
+            return "There is no note to publish yet. It is being drafted and appears here when it arrives.";
+        }
 
         // v0.4.1 Q4: writing a note by hand after a failed draft is v1.1, so there is nothing to publish.
         if (session.Draft is null)

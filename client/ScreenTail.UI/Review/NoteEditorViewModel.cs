@@ -91,6 +91,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     /// <param name="discard">Deletes the session and its raw data. Null in the render harness.</param>
     /// <param name="retryDraft">Asks for the note again after a failed draft (ST-061).</param>
     /// <param name="showFrame">Selects a frame in the filmstrip when its chip is clicked (T-165).</param>
+    /// <param name="draftPending">The draft is queued for the backend (ST-013): on its way, not failed.</param>
     public NoteEditorViewModel(
         Session session,
         Func<DraftNote, CancellationToken, Task>? write = null,
@@ -99,7 +100,8 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         Func<CancellationToken, Task>? retryDraft = null,
         bool offline = false,
         TimeProvider? time = null,
-        Action<string?>? showFrame = null)
+        Action<string?>? showFrame = null,
+        bool draftPending = false)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
@@ -112,6 +114,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         // Spec S3 draws the draft-failed state as the pane saying so, with the timeline and screenshots
         // still there. An empty editor over a session that has no note would look like a note nobody wrote.
         HasDraft = session.Draft is not null;
+        DraftPending = !HasDraft && draftPending;
         _note = new NoteDraft(session.Draft ?? EmptyDraft);
 
         _quotes = session.Transcript.ToDictionary(segment => segment.Id, segment => segment.Text, StringComparer.Ordinal);
@@ -126,7 +129,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         _note.Changed += OnNoteChanged;
 
         Banners = [.. NoteBanners.For(session, offline).Select(Row)];
-        PublishBlockedBecause = NoteBanners.PublishBlockedBecause(session, ticketChosen: false, offline);
+        PublishBlockedBecause = NoteBanners.PublishBlockedBecause(session, ticketChosen: false, offline, draftPending);
         _problem = _note.Problem;
         _result = _note.Result;
         _followUps = _note.FollowUpsText();
@@ -141,10 +144,19 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     /// <summary>The other half, for the pane that replaces the editor. Two properties rather than an
     /// inverting converter, because a converter parameter that silently does nothing is how a pane ends up
     /// showing both states at once.</summary>
-    public bool DraftFailed => !HasDraft;
+    public bool DraftFailed => !HasDraft && !DraftPending;
 
     /// <summary>Spec v0.4.1 Q4: what the pane says instead of an editor when drafting failed.</summary>
     public string DraftFailedMessage { get; } = "We couldn't draft this session.";
+
+    /// <summary>
+    /// The draft is on its way from the backend (ST-013). Review used to say drafting had failed and offer
+    /// Retry, which is wrong while the note is still coming.
+    /// </summary>
+    public bool DraftPending { get; }
+
+    /// <summary>What the pane says instead of an editor while the draft is on its way.</summary>
+    public string DraftPendingMessage { get; } = "Drafting this session. The note appears here when it arrives.";
 
     public IReadOnlyList<BannerRow> Banners { get; }
 

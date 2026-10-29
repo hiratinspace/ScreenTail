@@ -94,6 +94,19 @@ public sealed class NoteBannerTests
     }
 
     [Fact]
+    public void ANoteOnItsWayIsNotCalledAFailedDraft()
+    {
+        // ST-013 review: a session whose draft is queued for the backend has no note yet, and Review said
+        // "Retry the draft first" about a draft nothing had failed. It says the note is being drafted.
+        Assert.Equal(
+            "There is no note to publish yet. It is being drafted and appears here when it arrives.",
+            NoteBanners.PublishBlockedBecause(Session(), ticketChosen: true, draftPending: true));
+
+        // Once the note is there, being queued earlier changes nothing.
+        Assert.Null(NoteBanners.PublishBlockedBecause(Session(draft: Draft()), ticketChosen: true, draftPending: true));
+    }
+
+    [Fact]
     public void AFailedDraftOfflineDoesNotTellTheTechnicianToRetry()
     {
         // Retrying a cloud draft with no connection fails again. The reason has to be the one they can act
