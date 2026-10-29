@@ -6,6 +6,7 @@ using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Input;
 using ScreenTail.Core.Net;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Speech;
@@ -25,8 +26,9 @@ namespace ScreenTail.Tests.Windows.Performance;
 ///
 /// What runs here is everything that runs in the service with no session, and everything a session adds
 /// short of speech recognition: the foreground and focus watchers, the scope coordinator, the indicator,
-/// sensitive-context and password-field guards, the hook lifetime, the click drain, the scene sampler, the
-/// redaction worker with the real OCR engine, and the narration recorder with the real microphone. The
+/// sensitive-context and password-field guards, the hook lifetime, the click drain, the processor throttle,
+/// the scene sampler, the redaction worker with the real OCR engine, and the narration recorder with the
+/// real microphone. The
 /// speech model is never loaded, because the service does not load it until a session wants it and a CI run
 /// has nobody talking; ADR-0001 and the unload test measure it on its own.
 ///
@@ -57,6 +59,12 @@ internal sealed class ServiceRig : IAsyncDisposable
     public RedactionWorker Redaction { get; private set; } = null!;
 
     public SceneSampleLoop Scenes { get; private set; } = null!;
+
+    /// <summary>
+    /// ST-031's throttle, reading this process. The test host's own work counts towards it, so a recording
+    /// measurement can report the level it ended at.
+    /// </summary>
+    public CaptureThrottle Throttle { get; private set; } = null!;
 
     public HookLifetime Hooks { get; private set; } = null!;
 
@@ -128,10 +136,12 @@ internal sealed class ServiceRig : IAsyncDisposable
         _ownedSync.Add(capturer);
         var clicks = new ClickCaptureLoop(Machine, new WindowsInputHooksAccessor(hooks), capturer, scope, NullLogger.Instance);
         _running.Add(clicks.RunAsync(stopping));
-        Scenes = new SceneSampleLoop(Machine, capturer, scope, NullLogger.Instance, new SceneSampler());
+        Throttle = new CaptureThrottle(new ThisProcessTime());
+        _running.Add(Throttle.RunAsync(Machine, null, stopping));
+        Scenes = new SceneSampleLoop(Machine, capturer, scope, NullLogger.Instance, new SceneSampler(), throttle: Throttle);
         _running.Add(Scenes.RunAsync(stopping));
 
-        Redaction = new RedactionWorker(Store, new WindowsOcrRecogniser(), new WindowsFrameMasker(), engine, pending);
+        Redaction = new RedactionWorker(Store, new WindowsOcrRecogniser(), new WindowsFrameMasker(), engine, pending, throttle: Throttle);
         Redaction.BacklogChanged += Machine.ReportPendingRedactions;
         var sensitive = new SensitiveContextGuard(Machine);
         Redaction.SensitiveContextSeen += sensitive.Seen;

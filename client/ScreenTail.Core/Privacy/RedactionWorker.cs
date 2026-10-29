@@ -84,7 +84,6 @@ public sealed class RedactionWorker(
 {
     private readonly RedactionOptions _options = options ?? new RedactionOptions();
     private readonly TimeProvider _time = time ?? TimeProvider.System;
-    private readonly CaptureThrottle? _throttle = throttle;
     private readonly Dictionary<MaskKind, long> _masked = [];
     private readonly Lock _counters = new();
     private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
@@ -115,8 +114,6 @@ public sealed class RedactionWorker(
     /// <summary>How long a frame that looked like a login screen suppresses capture for.</summary>
     public event Action<TimeSpan>? SensitiveContextSeen;
 
-    internal CaptureThrottle? Throttle => _throttle;
-
     public RedactionProgress Progress
     {
         get
@@ -133,7 +130,7 @@ public sealed class RedactionWorker(
     public async Task RunAsync(CancellationToken ct)
     {
         var reporting = ReportBacklogAsync(ct);
-        var workers = Enumerable.Range(0, _options.Concurrency).Select(_ => WorkAsync(ct)).ToArray();
+        var workers = Enumerable.Range(0, _options.Concurrency).Select(index => WorkAsync(index, ct)).ToArray();
         await Task.WhenAll(workers).ConfigureAwait(false);
         await reporting.ConfigureAwait(false);
     }
@@ -181,14 +178,35 @@ public sealed class RedactionWorker(
         return true;
     }
 
-    private async Task WorkAsync(CancellationToken ct)
+    private async Task WorkAsync(int index, CancellationToken ct)
     {
         try
         {
             while (!ct.IsCancellationRequested)
             {
+                // ST-031: over the processor budget, one frame is read at a time. Every reader but the
+                // first stands aside between frames, never in the middle of one, until the level moves.
+                // The signal is taken before the level is read, so a move in between is not missed.
+                if (throttle is not null && index > 0)
+                {
+                    var moved = throttle.NextChange;
+                    if (throttle.ReadsOneFrameAtATime)
+                    {
+                        await moved.WaitAsync(ct).ConfigureAwait(false);
+                        continue;
+                    }
+                }
+
                 switch (await StepAsync(ct).ConfigureAwait(false))
                 {
+                    case Step.Worked when throttle?.OcrPause is { } pause && pause > TimeSpan.Zero:
+                        // Deeper still, a pause after each frame before the next is read. The frames
+                        // waiting wait in memory and are read in full when their turn comes (INV-1); the
+                        // queue's depth bounds how many, and a frame that finds it full is refused and
+                        // counted, as it always was (ADR-0006).
+                        await Task.Delay(pause, _time, ct).ConfigureAwait(false);
+                        break;
+
                     case Step.Empty:
                         // Nothing waiting, so wait for a frame to arrive (ST-031). This used to look again
                         // every 200 ms, two workers at five times a second each for the life of the

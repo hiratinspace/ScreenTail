@@ -20,6 +20,6 @@ public static class CpuBudget
     public static double RecordingShareOf(int processors)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(processors, 1);
-        return Recording;
+        return Math.Min(Recording, Recording * ReferenceProcessors / processors);
     }
 }

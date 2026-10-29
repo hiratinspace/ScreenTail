@@ -27,16 +27,14 @@ public sealed class SceneRecorder(
     CaptureThrottle? throttle = null)
 {
     private readonly SceneSampler _sampler = sampler ?? new SceneSampler();
-    private readonly CaptureThrottle? _throttle = throttle;
     private int _resetRequested;
     private bool _recording;
+    private int _ticksSinceLook;
 
     /// <summary>How often the screen is looked at, among the rest of the technician's sensitivity.</summary>
     public SceneSamplerOptions Options => _sampler.Options;
 
     public SceneCounts Counts => _sampler.Counts;
-
-    internal CaptureThrottle? Throttle => _throttle;
 
     /// <summary>Raised after the machine accepts a scene frame, so the host can log what it cost. Never carries pixels to a log.</summary>
     public event Action<CapturedFrame>? FrameStaged;
@@ -76,6 +74,17 @@ public sealed class SceneRecorder(
         }
 
         _recording = true;
+
+        // ST-031: over the processor budget, the screen is looked at on one tick in two, then one in four.
+        // The first thing to give, and the cheapest to give safely: a look skipped is a picture never
+        // taken, so nothing about how a taken frame is redacted changes (INV-1). After the state check,
+        // so a skipped tick still sees a session end and forgets the baseline.
+        if (throttle is not null && ++_ticksSinceLook < throttle.SampleEveryNth)
+        {
+            return;
+        }
+
+        _ticksSinceLook = 0;
         if (FrameGate.WindowFor(currentScope()) is not { } window)
         {
             return;

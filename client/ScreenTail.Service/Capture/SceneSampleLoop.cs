@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 
@@ -27,18 +28,20 @@ internal sealed partial class SceneSampleLoop
     private readonly TimeProvider _time;
 
     /// <param name="time">The clock the sampling timer runs on. The system's when null.</param>
+    /// <param name="throttle">Over the processor budget, ticks are skipped (ST-031). Every tick looks when null.</param>
     public SceneSampleLoop(
         SessionMachine machine,
         IScreenshotCapturer capturer,
         Func<ScopeDecision?> currentScope,
         ILogger logger,
         SceneSampler? sampler = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        CaptureThrottle? throttle = null)
     {
         _time = time ?? TimeProvider.System;
         _machine = machine;
         _logger = logger;
-        _recorder = new SceneRecorder(machine, capturer, currentScope, sampler);
+        _recorder = new SceneRecorder(machine, capturer, currentScope, sampler, throttle);
         _recorder.FrameMissed += () => LogNoFrame(logger);
         _recorder.FrameStaged += _ =>
         {

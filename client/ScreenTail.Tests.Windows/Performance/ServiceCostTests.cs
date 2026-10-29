@@ -197,7 +197,8 @@ public sealed class ServiceCostTests
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Recording workload: {staged} text frames staged, {scenes.Kept} scene frames of {scenes.Seen} samples, "
-                + $"{progress.Frames} redacted ({progress.Unread} with no words, discarded), a mean of {progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {progress.Slowest.TotalMilliseconds:F0} ms"));
+                + $"{progress.Frames} redacted ({progress.Unread} with no words, discarded), a mean of {progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {progress.Slowest.TotalMilliseconds:F0} ms; "
+                + $"capture throttle at {rig.Throttle.Level} (it reads the whole test process, the host's repainting included)"));
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Disk: the store grew {ProcessCost.Megabytes(grew)} over {minutes:F1} min for {stored} stored frames, "

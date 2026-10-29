@@ -9,6 +9,7 @@ using ScreenTail.Core.Intel;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Outbox;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Review.Publish;
@@ -417,7 +418,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-026: clicks miss everything the technician reads rather than does — a dialog appearing while
         // they watch, a service finally starting. This looks once a second and only pays for a full capture
         // when the screen actually changed.
-        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger, sampler);
+        //
+        // ST-031: over the processor budget for ten seconds, it looks less often, and then OCR reads fewer
+        // frames at once. The hooks and speech are never throttled, and redaction never changes (INV-1).
+        // One reading a second while a session is under way and none otherwise; the log carries the level
+        // and the reading, nothing else (INV-10).
+        var throttle = new CaptureThrottle(new ThisProcessTime());
+        throttle.Changed += change => LogThrottle(logger, change.From, change.To, change.Share * 100);
+        var throttling = throttle.RunAsync(machine, failure => LogLoopFailed(logger, "capture-throttle", failure.GetType().Name), stoppingToken);
+        var scenes = new SceneSampleLoop(machine, capturer, () => coordinator.CurrentScope, logger, sampler, throttle: throttle);
         var sampling = scenes.RunAsync(stoppingToken);
 
         // ST-029: "mark moment" is the only frame the technician asks for by name, so it goes around the
@@ -465,7 +474,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // pending frame or to clear the flag, so INV-1 rests on it.
         var recogniser = new WindowsOcrRecogniser();
         LogOcr(logger, recogniser.Available, recogniser.Language ?? "none");
-        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine, pending);
+        var redaction = new RedactionWorker(store, recogniser, new WindowsFrameMasker(), redactionEngine, pending, throttle: throttle);
         redaction.BacklogChanged += machine.ReportPendingRedactions;
 
         // Without this the login heuristic fires into nothing: the frame is marked sensitive and the next
@@ -615,7 +624,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
         }
 
-        await Task.WhenAll(coordinating, capturing, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
+        await Task.WhenAll(coordinating, capturing, throttling, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining).ConfigureAwait(false);
         LogStopping(logger);
     }
 
@@ -671,6 +680,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     // The type and never the message: an exception can quote what it was handling (INV-10).
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Loop} loop hit {Error} and carried on")]
     private static partial void LogLoopFailed(ILogger logger, string loop, string error);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Capture throttle {From} -> {To} at {Percent:F1}% of the machine")]
+    private static partial void LogThrottle(ILogger logger, CaptureLevel from, CaptureLevel to, double percent);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An erasure of local data still owes the store, its key or a credential; the service will not start until it finishes")]
     private static partial void LogErasureBlocksStart(ILogger logger);
