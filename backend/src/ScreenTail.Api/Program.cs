@@ -64,6 +64,10 @@ builder.Services
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
 var summarization = builder.Configuration.GetSection(SummarizationOptions.Section).Get<SummarizationOptions>()
     ?? new SummarizationOptions();
+
+// ST-013. Summarization:Provider=scripted drafts without a model, for the Windows end-to-end test and an
+// offline rehearsal. Refused outside Development, like Providers:Demo below.
+summarization.Validate(builder.Environment.IsDevelopment());
 builder.Services.AddSingleton(summarization);
 builder.Services.AddScoped<ICostLedger, CostLedger>();
 
@@ -79,10 +83,12 @@ builder.Services.AddHttpClient(nameof(GeminiProvider), client =>
 // provider's relative URL threw before anything was sent, and the default timeout rather than ours.
 // Drafting could not have worked on any deployment (2026-09-20 review).
 builder.Services.AddScoped<SummarizationService>(services => new SummarizationService(
-    new GeminiProvider(
-        services.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiProvider)),
-        summarization,
-        prompt),
+    summarization.Scripted
+        ? new ScriptedProvider()
+        : new GeminiProvider(
+            services.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiProvider)),
+            summarization,
+            prompt),
     fallback: null,
     services.GetRequiredService<ICostLedger>(),
     summarization));
