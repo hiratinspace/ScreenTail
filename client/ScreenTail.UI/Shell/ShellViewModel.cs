@@ -80,6 +80,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public partial Visibility BannerVisibility { get; set; } = Visibility.Collapsed;
 
     /// <summary>
+    /// The view the store says is showing, so the header can mark its tab. Read off the snapshot like
+    /// everything else here; the window does not keep its own idea of where it is.
+    /// </summary>
+    [ObservableProperty]
+    public partial ShellView View { get; set; } = ShellView.Review;
+
+    /// <summary>
     /// What the content area shows: a <see cref="Review.ReviewViewModel"/>, a
     /// <see cref="History.HistoryViewModel"/>, or a sentence saying why neither. The window picks a
     /// template by type.
@@ -157,6 +164,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Banner = snapshot.Banner ?? string.Empty;
         BannerVisibility = snapshot.Banner is null ? Visibility.Collapsed : Visibility.Visible;
         Status = ShellStatus.Describe(snapshot);
+        View = snapshot.View;
         Show(snapshot);
     }
 

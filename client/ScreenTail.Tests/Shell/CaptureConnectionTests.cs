@@ -67,7 +67,7 @@ public sealed class CaptureConnectionTests
 
         await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Unavailable);
         Assert.Equal(CaptureStates.Recording, shell.Snapshot.Capture!.State);
-        Assert.Equal("Capture service not running — Start", shell.Snapshot.Banner);
+        Assert.Equal("Capture service not running. Start it to capture sessions.", shell.Snapshot.Banner);
     }
 
     [Fact]

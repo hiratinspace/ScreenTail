@@ -234,11 +234,11 @@ public sealed class SessionTimeline
     /// <summary>The scope decision's own words, so the tooltip says why rather than that.</summary>
     private static string Describe(CaptureStateReason? reason) => reason switch
     {
-        CaptureStateReason.PasswordField => "Capture paused — a password field had focus",
-        CaptureStateReason.SensitiveContext => "Capture paused — the screen looked like a sign-in page",
-        CaptureStateReason.ExcludedApp => "Not capturing — the app is on your excluded list",
-        CaptureStateReason.OutOfScope => "Not capturing — this window is not part of the session",
-        CaptureStateReason.ElevatedWindow => "Not capturing — an elevated window had focus",
+        CaptureStateReason.PasswordField => "Capture paused: a password field had focus",
+        CaptureStateReason.SensitiveContext => "Capture paused: the screen looked like a sign-in page",
+        CaptureStateReason.ExcludedApp => "Not capturing: the app is on your excluded list",
+        CaptureStateReason.OutOfScope => "Not capturing: this window is not part of the session",
+        CaptureStateReason.ElevatedWindow => "Not capturing: an elevated window had focus",
         CaptureStateReason.User => "Paused by you",
         _ => "Capture paused",
     };

@@ -65,7 +65,7 @@ public sealed partial class HistoryViewModel(
             row.StartedAt.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture),
             duration.TotalHours >= 1 ? duration.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture) : duration.ToString(@"m\:ss", CultureInfo.InvariantCulture),
             row.Status.Length == 0 ? row.Status : char.ToUpperInvariant(row.Status[0]) + row.Status[1..],
-            string.IsNullOrEmpty(row.Tool) ? "—" : row.Tool,
+            string.IsNullOrEmpty(row.Tool) ? "Unknown" : row.Tool,
             row.FramesPurged > 0 ? $"{row.Frames} (+{row.FramesPurged} purged)" : row.Frames.ToString(CultureInfo.InvariantCulture));
     }
 }

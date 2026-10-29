@@ -112,7 +112,7 @@ public sealed class OnboardingWizard(
         OnboardingStep.Permissions when Permissions.Any(p => !p.Ok && p.Capability == "screen_capture") =>
             "Screen capture is blocked, so there is nothing to capture with. Fix that first.",
         OnboardingStep.TryIt when !_testDone => TestRunning
-            ? "Recording. Open any window, click around, say one sentence — then stop."
+            ? "Recording. Open any window, click around, say one sentence, then stop."
             : "Start the test session, do a few things, and stop it.",
         _ => null,
     };
@@ -123,7 +123,7 @@ public sealed class OnboardingWizard(
         OnboardingStep.Permissions when Permissions.Any(p => !p.Ok && p.Capability == "microphone") =>
             "Without the microphone, sessions are drafted without narration, from screenshots alone. Fix it now or later in Windows Settings.",
         OnboardingStep.TryIt when !_testDone && _testRefused is { } refused => refused,
-        OnboardingStep.TryIt when _testDone => "The draft is on its way. It opens in Review when it is ready — usually within a minute.",
+        OnboardingStep.TryIt when _testDone => "The draft is on its way. It opens in Review when it is ready, usually within a minute.",
         OnboardingStep.Done => "ScreenTail starts when you open a remote session. Look for the pill.",
         _ => null,
     };

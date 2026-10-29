@@ -40,7 +40,7 @@ public sealed class ScopeRecordingTests
         var recorder = new SessionRecorder(
             harness.Machine,
             capturer,
-            () => new ScopeDecision(CaptureScope.Excluded, null, null, "Not capturing — 1Password is on your excluded list.", 77));
+            () => new ScopeDecision(CaptureScope.Excluded, null, null, "Not capturing: 1Password is on your excluded list.", 77));
 
         await recorder.RecordAsync(Everything(harness.Machine.NowMs), ct);
 
@@ -64,7 +64,7 @@ public sealed class ScopeRecordingTests
         var recorder = new SessionRecorder(
             harness.Machine,
             capturer,
-            () => new ScopeDecision(CaptureScope.OutOfScope, null, null, "Not capturing — Outlook is not part of this session.", 88));
+            () => new ScopeDecision(CaptureScope.OutOfScope, null, null, "Not capturing: Outlook is not part of this session.", 88));
 
         await recorder.RecordAsync(Everything(harness.Machine.NowMs), ct);
 

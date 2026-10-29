@@ -52,7 +52,7 @@
             <!-- The transcript: monospace, wall-clock stamped, one line per thing said. Selecting a line
                  highlights its frame in the filmstrip; a line with no frame highlights nothing. -->
             <ListBox Grid.Row="1"
-                     Margin="0,0,0,6"
+                     Margin="0,2,0,8"
                      Background="Transparent"
                      BorderThickness="0"
                      ItemsSource="{Binding Lines}"

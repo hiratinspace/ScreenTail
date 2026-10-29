@@ -251,7 +251,7 @@ public sealed class FilmstripTests
             {
                 var gap = Assert.IsType<GapCell>(cell);
                 Assert.Equal(2000, gap.DurationMs);
-                Assert.Equal("Paused — a password field had focus", gap.Description);
+                Assert.Equal("Paused: a password field had focus", gap.Description);
             },
             cell => Assert.Equal("f2", Assert.IsType<FrameCell>(cell).Frame.Id));
     }
@@ -314,7 +314,7 @@ public sealed class FilmstripTests
         Assert.Equal(6000, gap.EndMs);
 
         // The first reason, because that is what stopped capture; the second only kept it stopped.
-        Assert.Equal("Paused — an excluded app was in front", gap.Description);
+        Assert.Equal("Paused: an excluded app was in front", gap.Description);
     }
 
     [Fact]

@@ -405,7 +405,7 @@ public sealed class OutboxTests
     [Fact]
     public async Task APendingDraftIsWhatTheOfflineBannerCountsFrom()
     {
-        // Spec §5 S3: "Draft pending — offline". The banner needs to know there is something waiting,
+        // Spec §5 S3: "Draft pending: offline". The banner needs to know there is something waiting,
         // and that it is a draft rather than a publish, because the wording differs.
         var store = new FakeOutboxStore();
         var outbox = new Core.Outbox.Outbox(store, new FakeNetwork { Up = false }.SendAsync, new ManualTime(At));

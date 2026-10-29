@@ -1,4 +1,4 @@
-# ScreenTail — UX & UI Design Specification (v0.4.3)
+# ScreenTail: UX & UI Design Specification (v0.5.0)
 
 Authoritative for everything a user sees. Build agents implement exactly this; deviations require a design-spec PR first.
 
@@ -19,26 +19,36 @@ Authoritative for everything a user sees. Build agents implement exactly this; d
 
 ### 2.1 Color
 
+Values as of v0.5.0. `shared/design/tokens.json` is the source of truth; this table restates it.
+
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `bg.base` | `#0B0F14` | `#F6F8FA` | window background |
-| `bg.surface` | `#11161D` | `#FFFFFF` | panes, cards |
-| `bg.raised` | `#171E27` | `#F0F3F6` | inputs, hovered rows |
-| `border.subtle` | `#232C38` | `#D9E0E7` | dividers |
-| `border.strong` | `#33404F` | `#B9C3CE` | focused containers |
-| `text.primary` | `#E6EDF3` | `#0F1720` | body |
-| `text.secondary` | `#9AA7B5` | `#4B5865` | labels, meta |
-| `text.muted` | `#7D8B9F` | `#626D79` | placeholders, timestamps *(v0.4.2)* |
-| `accent.primary` | `#4F8CFF` | `#2A64CC` | primary buttons, links, focus ring *(v0.4.2)* |
-| `text.on-accent` | `#0B0F14` | `#FFFFFF` | text on `accent.primary` (primary buttons) *(v0.4.2)* |
-| `accent.primary.hover` | `#6BA1FF` | `#265DBF` | |
-| `state.recording` | `#EF4444` | `#DC2626` | recording indicator, stop |
-| `state.paused` | `#F59E0B` | `#D97706` | paused / suppressed |
-| `state.scope` | `#8B5CF6` | `#7C3AED` | out-of-scope, excluded |
-| `state.published` | `#22C55E` | `#16A34A` | success, published |
-| `state.offline` | `#94A3B8` | `#64748B` | offline / pending |
-| `state.danger` | `#F87171` | `#DC2626` | destructive actions |
-| `confidence.low` | `#FBBF24` | `#D97706` | low-confidence step marker |
+| `bg.base` | `#1A1C20` | `#F3F4F6` | window background, the bottom layer |
+| `bg.surface` | `#212429` | `#FFFFFF` | panes, cards, the HUD pill |
+| `bg.raised` | `#292D33` | `#F6F7F9` | inputs and secondary buttons at rest |
+| `bg.hover` | `#30353C` | `#ECEEF1` | a hovered control, row or list item *(v0.5)* |
+| `bg.pressed` | `#25292E` | `#F0F2F4` | a pressed control *(v0.5)* |
+| `bg.selected` | `#1D3550` | `#E3EEFA` | a selected row, list item or nav tab; the info banner *(v0.5)* |
+| `bg.warning` | `#33291A` | `#FFF5DC` | warning banner, low-confidence badge *(v0.5)* |
+| `bg.danger` | `#3A2224` | `#FDEDED` | error banner, hovered destructive button *(v0.5)* |
+| `bg.success` | `#1B3326` | `#E6F4EA` | published badge *(v0.5)* |
+| `border.subtle` | `#33373E` | `#E0E3E8` | dividers, card and input outlines |
+| `border.strong` | `#4A5058` | `#C3C9D1` | control outlines, focused containers |
+| `text.primary` | `#F1F3F5` | `#1B1D21` | body |
+| `text.secondary` | `#C2C7CF` | `#454B55` | labels, section headings, meta |
+| `text.muted` | `#A0A7B1` | `#5B626D` | placeholders, timestamps, hints |
+| `accent.primary` | `#6CB4FF` | `#0F6CBD` | primary buttons, links, focus ring, selection |
+| `text.on-accent` | `#0B1524` | `#FFFFFF` | text on `accent.primary` (primary buttons) |
+| `accent.primary.hover` | `#8DC5FF` | `#0C5A9E` | hovered primary |
+| `state.recording` | `#FF6363` | `#D3302F` | recording indicator, stop |
+| `state.paused` | `#F5A524` | `#B35900` | paused / suppressed |
+| `state.scope` | `#B39DFF` | `#7442E0` | out-of-scope, excluded |
+| `state.published` | `#4CD787` | `#167A3B` | success, published |
+| `state.offline` | `#A2AAB5` | `#6A7380` | offline / pending |
+| `state.danger` | `#FF8F8F` | `#C42B1C` | destructive actions |
+| `confidence.low` | `#FBBF24` | `#B35900` | low-confidence step marker |
+
+Every background above, the tints included, is held to the same bars: each text colour at 4.5:1 or better and each state colour at 3:1 or better, in both themes. In high contrast the tints are the system window colour, and hover, selection and a banner's kind are shown by the border and the words.
 
 Rules: one accent only. State colors never appear as decoration. Contrast for all text pairs ≥ 4.5:1 (verified in CI by a token test: `ScreenTail.Tests/Theme/ContrastTests`, which reads `tokens.json` directly). State colors are indicators (dots, glyphs, borders), not body-size text: on light backgrounds they sit around 3:1, so a state is always spelled out in `text.primary` next to its colored glyph. *(v0.4.2)*
 
@@ -46,21 +56,22 @@ Rules: one accent only. State colors never appear as decoration. Contrast for al
 
 | Token | Value |
 |---|---|
-| `font.ui` | Inter, "Segoe UI", sans-serif |
-| `font.mono` | "JetBrains Mono", Consolas, monospace |
-| `size.xs` | 11 px — timestamps, badges |
-| `size.sm` | 12 px — table cells, meta |
-| `size.md` | 13 px — **base body** |
-| `size.lg` | 15 px — section headings |
-| `size.xl` | 20 px — screen titles |
+| `font.ui` | "Segoe UI Variable Text", "Segoe UI", Inter, sans-serif *(v0.5: the Windows 11 face first)* |
+| `font.display` | "Segoe UI Variable Display", "Segoe UI", Inter, sans-serif: screen titles *(v0.5)* |
+| `font.mono` | "Cascadia Mono", Consolas, "JetBrains Mono", monospace |
+| `size.xs` | 11 px: timestamps, badges |
+| `size.sm` | 12 px: table cells, meta, hints |
+| `size.md` | 14 px: **base body** *(v0.5, was 13: the Windows 11 body size)* |
+| `size.lg` | 16 px: section headings |
+| `size.xl` | 24 px: screen titles |
 | `weight.regular / medium / semibold` | 400 / 500 / 600 |
-| `lineheight` | 1.45 body, 1.25 headings |
+| `lineheight` | 1.43 body, 1.25 headings |
 
 ### 2.3 Spacing, radius, elevation, motion
 
-- Spacing scale: `4, 8, 12, 16, 24, 32` px. Pane padding 16; control padding 8×12; list row height 32.
-- Radius: `4` controls, `6` cards, `999` pills.
-- Elevation: none in dark theme except HUD and toasts (`0 4px 16px rgba(0,0,0,.45)`); light theme uses `1px` borders plus `0 1px 3px rgba(15,23,32,.08)`.
+- Spacing scale: `4, 8, 12, 16, 24, 32, 40` px. Pane padding 24; card padding 20; control padding 5×14 inside a 32 px control; list and table row height 36; readable content width 760.
+- Radius: `6` controls, `8` cards, `999` pills.
+- Elevation: layers, not shadows. The window is `bg.base`, panes and cards are `bg.surface` with a `border.subtle` outline, controls are `bg.raised`. Only the HUD and toasts float, with `0 8px 24px` at 40% black in dark and 14% in light.
 - Motion: `120 ms` state changes, `180 ms` pane open/close, `ease-out`. No bounce, no parallax. Respect "reduce motion" OS setting.
 
 ### 2.4 Iconography
@@ -293,3 +304,4 @@ Copy rules: sentence case; no exclamation marks; name the object (ticket, note, 
 | v0.4.1 | 2026-09-11 | ST-014 wireframes, owner decision | Q1 HUD always visible while screen-sharing (S2). Q2 default note type Internal (S3). Q3 tray discard while recording stops capture before confirming (S1). Q4 Publish disabled after a failed draft (S3). Q5 elevated-window HUD wording and tooltip (S2). Q6 bulk-discard confirmation is the session count (S4). Background: `docs/ux/wireframes/README.md`. Q1 and Q2 are still to be checked in the ST-014 technician sessions. |
 | v0.4.2 | 2026-09-12 | ST-016 contrast test | The CI token test found 10 text/background pairs under 4.5:1 in the v0.4 palette. Minimal changes: `text.muted` dark `#66748A`→`#7D8B9F`, light `#7B8794`→`#626D79`; `accent.primary` light `#2F6FE0`→`#2A64CC`; new `text.on-accent` (dark theme uses dark text on the bright accent, `#0B0F14`; light stays white). Every pair now ≥ 4.7:1. Rule added: state colors are indicators, never body-size text. **Accepted 2026-09-15** (Backlog Part D, D-6). |
 | v0.4.3 | 2026-09-13 | ST-015 hi-fi, ST-074 note editor | Three S3 changes, each made because the spec's own rules pointed the other way from its wording. **(a)** The reason a disabled Publish gives moves out of the button's tooltip to a line beside it: a tooltip on a disabled control is the one place a keyboard user can never reach it. **(b)** Offline with no draft reads "There is no note to publish yet. It will be drafted when you are back online." rather than "…Retry the draft first." — retrying a cloud draft with no connection fails again, and §6's copy rule is to always offer the next step. **(c)** The save indicator gains a third label, "Not saved — retrying", beside "Saved" and "Saving…". Neither of the two can be shown truthfully after a failed write, and a pane that looks saved while the edits are only in memory is the worst of the three. **Accepted 2026-09-15** (Backlog Part D, D-6). |
+| v0.5.0 | 2026-10-28 | ST-016 modern pass, owner request for the November demo | The tokens move to a Windows 11 look: neutral layered surfaces, a Fluent blue accent, Segoe UI Variable first, a 14 px body, 24 px titles, 6 px control and 8 px card radii, 24 px pane padding and 36 px rows (§2.1 to §2.3). Six tint tokens are added (`bg.hover`, `bg.pressed`, `bg.selected`, `bg.warning`, `bg.danger`, `bg.success`) and every one is a background in the contrast test, so text stays at 4.5:1 and state colours at 3:1 on them; high contrast maps them to the window colour. Section headings move from `text.secondary` to `text.primary` for hierarchy. Every control has rest, hover, pressed, keyboard focus and disabled looks, and a disabled control keeps its words at 4.5:1 instead of fading. The HUD's recording state says "Recording" beside the dot and timer, so it is never colour plus a number alone. Interface copy uses a colon where it used a dash ("Draft ready: Printer offline", "Not capturing: Outlook"). **Awaiting owner review.** |
