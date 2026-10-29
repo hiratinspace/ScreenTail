@@ -46,25 +46,37 @@ $script:LogTail = 200
 # purpose; a mangled line costs nothing, a sent key costs a key. A value that already starts with "[" was
 # replaced by an earlier rule and is left as it is.
 #
+# Every name rule starts with a lookbehind, so a name is only tried where one can begin. Without it a
+# long run of name characters is tried from every position, which is quadratic. Lines over
+# $script:LineCut characters are not scrubbed at all but replaced by their length, before any rule runs.
+#
 # Names written "name: value" are only matched where the name does not follow a dot, because the logger
-# writes "Namespace.Category: message" and a category such as ...TokenIssuer is not a secret's name.
+# writes "Namespace.Category: message" and a category such as ...TokenIssuer is not a secret's name. Known
+# gaps, accepted: a dotted name written with a colon ("user.password: x") is not matched, and a JSON value
+# on the line after its name is not matched, because each line is scrubbed on its own. The exact-value
+# rule above them still catches the saved secrets in either case.
+#
+# A "name: value" secret stops at "@", so a token in an address (https://x-access-token:...@host) loses
+# the token and keeps the host.
+$script:LineCut = 4000
 $passwordNames = 'password|passwd|pwd|psw'
 $secretNames = 'secret|token|credential|api[_\-]?key|signing[_\-]?key|access[_\-]?key|master[_\-]?key|private[_\-]?key|public[_\-]?key|client[_\-]?secret|device[_\-]?token|refresh[_\-]?token'
 $quoted = '"(?:[^"\\]|\\.)*"|''[^'']*'''
+$nameStart = '(?<![A-Za-z0-9_.:\-])'
 $script:ScrubRules = @(
-    @{ Label = 'authorization headers'; Pattern = '(?i)\b((?:proxy-)?authorization)(\s*[:=]\s*)(?:(?:basic|bearer|digest|token)\s+)?(?!\[)\S+'; Replacement = '$1$2[removed]' },
+    @{ Label = 'authorization headers'; Pattern = '(?i)\b((?:proxy-)?authorization)("?\s*[:=]\s*"?)(?:(?:basic|bearer|digest|token)\s+)?(?!\[)[^\s"]+'; Replacement = '$1$2[removed]' },
     @{ Label = 'key headers'; Pattern = '(?i)\b(x-goog-api-key|x-api-key|api-key|x-auth-token)(\s*[:=]\s*)(?!\[)\S+'; Replacement = '$1$2[removed]' },
     @{ Label = 'JWT tokens'; Pattern = 'eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+'; Replacement = '[token removed]' },
     @{ Label = 'bearer tokens'; Pattern = '(?i)\bbearer\s+(?!\[)[A-Za-z0-9\-._~+/]+=*'; Replacement = 'Bearer [removed]' },
     @{ Label = 'Google API keys (AIza...)'; Pattern = 'AIza[0-9A-Za-z_\-]{20,}'; Replacement = '[key removed]' },
     @{ Label = 'API keys (sk-...)'; Pattern = '\bsk-[A-Za-z0-9_\-]{16,}'; Replacement = '[key removed]' },
-    @{ Label = 'passwords written as name=value'; Pattern = "(?i)([A-Za-z0-9_.:\-]*(?:$passwordNames)[A-Za-z0-9_\-]*)(\s*=\s*)(?!\[)($quoted|[^;\r\n]+)"; Replacement = '$1$2[removed]' },
-    @{ Label = 'passwords written as name: value'; Pattern = "(?i)(?<![A-Za-z0-9_.:\-])([A-Za-z0-9_:\-]*(?:$passwordNames)[A-Za-z0-9_\-]*)(\s*:\s*)(?!\[)($quoted|[^;\r\n]+)"; Replacement = '$1$2[removed]' },
-    @{ Label = 'secrets, keys and tokens written as name=value'; Pattern = "(?i)([A-Za-z0-9_.:\-]*(?:$secretNames)[A-Za-z0-9_\-]*)(\s*=\s*)(?!\[)($quoted|[^\s;,&`"']+)"; Replacement = '$1$2[removed]' },
-    @{ Label = 'secrets, keys and tokens written as name: value'; Pattern = "(?i)(?<![A-Za-z0-9_.:\-])([A-Za-z0-9_:\-]*(?:$secretNames)[A-Za-z0-9_\-]*)(\s*:\s*)(?!\[)($quoted|[^\s;,&`"']+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'passwords written as name=value'; Pattern = "(?i)$nameStart([A-Za-z0-9_.:\-]*(?:$passwordNames)[A-Za-z0-9_\-]*)(\s*=\s*)(?!\[)($quoted|[^;\r\n]+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'passwords written as name: value'; Pattern = "(?i)$nameStart([A-Za-z0-9_:\-]*(?:$passwordNames)[A-Za-z0-9_\-]*)(\s*:\s*)(?!\[)($quoted|[^;\r\n]+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'secrets, keys and tokens written as name=value'; Pattern = "(?i)$nameStart([A-Za-z0-9_.:\-]*(?:$secretNames)[A-Za-z0-9_\-]*)(\s*=\s*)(?!\[)($quoted|[^\s;,&`"']+)"; Replacement = '$1$2[removed]' },
+    @{ Label = 'secrets, keys and tokens written as name: value'; Pattern = "(?i)$nameStart([A-Za-z0-9_:\-]*(?:$secretNames)[A-Za-z0-9_\-]*)(\s*:\s*)(?!\[)($quoted|[^\s;,&`"'@]+)"; Replacement = '$1$2[removed]' },
     @{ Label = 'secrets written as "name": "value"'; Pattern = "(?i)(`"[^`"]*(?:$passwordNames|$secretNames|connectionstring|postgres)[^`"]*`"\s*:\s*)(?!`"\[)(?:`"(?:[^`"\\]|\\.)*`")"; Replacement = '$1"[removed]"' },
-    @{ Label = 'passwords in connection addresses'; Pattern = '(?i)(\b[a-z][a-z0-9+.\-]*://[^:/@\s]+:)(?!\[)[^@/\s]+@'; Replacement = '$1[removed]@' },
-    @{ Label = 'email addresses'; Pattern = '[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}'; Replacement = '[email]' }
+    @{ Label = 'passwords in connection addresses'; Pattern = '(?i)(?<![a-z0-9+.\-])([a-z][a-z0-9+.\-]*://[^:/@\s]+:)(?!\[)[^@/\s]+@'; Replacement = '$1[removed]@' },
+    @{ Label = 'email addresses'; Pattern = '(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}'; Replacement = '[email]' }
 )
 
 # A run of 32 or more key-like characters with upper case, lower case and digits in it: a key or a token
@@ -77,6 +89,10 @@ function Add-Removed([string]$Label, [int]$Count = 1) {
 
 function Protect-ReportText([string]$Text) {
     if ($null -eq $Text) { return '' }
+    if ($Text.Length -gt $script:LineCut) {
+        Add-Removed "lines over $script:LineCut characters (shown only as their length)"
+        return "[$($Text.Length) chars, cut]"
+    }
     $clean = $Text
 
     foreach ($secret in $script:KnownSecrets) {
@@ -838,7 +854,7 @@ Invoke-Section 'What Windows lets the capture service do' {
             if (-not $report) {
                 Add-Fact 'Capability check' "exit code $($run.ExitCode), no report"
                 # Only what the service's logger or its fixed sentences say; a crash's message is withheld.
-                $said = @(Select-DemoLogLines @((($run.Err + "`n" + $run.Out) -split "`r?`n") | Where-Object { $_.Trim() }))
+                $said = @(Select-DemoLogLines @((($run.Err + "`n" + $run.Out) -split '\r\n|\r|\n') | Where-Object { $_.Trim() }))
                 foreach ($line in @($said | Select-Object -First 10)) { Add-Line ('    ' + $line) }
             }
             else {
@@ -864,7 +880,7 @@ Invoke-Section 'What Windows lets the capture service do' {
                         Add-Notice "$($check.capability) is $($check.state): $($check.message)$hint"
                     }
                 }
-                $said = @(Select-DemoLogLines @(($run.Err -split "`r?`n") | Where-Object { $_.Trim() }))
+                $said = @(Select-DemoLogLines @(($run.Err -split '\r\n|\r|\n') | Where-Object { $_.Trim() }))
                 foreach ($line in @($said | Select-Object -First 5)) { Add-Line ('    stderr: ' + $line) }
             }
         }
@@ -1098,8 +1114,9 @@ $header.Add('What this report is made to leave out: screenshots, OCR text, trans
 $header.Add('keys, tokens, passwords and connection strings. Settings appear as yes/no or by name only. It never')
 $header.Add('opens the session store. From the logs it keeps only the lines ScreenTail''s scrubbing logger wrote')
 $header.Add('(INV-10); any other line a program printed, such as a .NET crash message or a native library''s')
-$header.Add('output, is withheld and shown only as its length, and of an unhandled exception only the type is')
-$header.Add('kept. Every line here then went through a final scrub, which replaces: saved secrets by their exact')
+$header.Add('output, is withheld and shown only as its length. Of any exception, logged or not, only the type and')
+$header.Add('the stack frames are kept, never its message. Lines over 4,000 characters are shown only as their')
+$header.Add('length. Every line here then went through a final scrub, which replaces: saved secrets by their exact')
 $header.Add('value, secrets written as name=value, name: value or "name": "value", authorization headers, bearer')
 $header.Add('and JWT tokens, AIza and sk- keys, passwords in connection strings and addresses, email addresses,')
 $header.Add('long key-like strings, user folder paths (as %USERPROFILE%), the user name and the computer name.')

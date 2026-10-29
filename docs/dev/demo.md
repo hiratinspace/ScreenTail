@@ -263,8 +263,9 @@ capture service's and the backend's logs.
 What it is made to leave out: screenshots, OCR text, transcripts, note text, window titles, keys,
 tokens, passwords and connection strings. It never opens the recorded sessions. From the logs it keeps
 only the lines ScreenTail's scrubbing logger wrote; any other line a program printed (a crash message
-from .NET, output from a native library) is withheld and shown only as its length, and of a crash only
-the exception's type is kept. Every line then goes through a final scrub for anything shaped like a
+from .NET, output from a native library) is withheld and shown only as its length. Of any error, only
+the exception's type and where it happened are kept, never its message. Every line then goes through a
+final scrub for anything shaped like a
 key, a token or a password, and your user folder is shown as `%USERPROFILE%`. The top of the file says
 what was withheld and removed. Patterns can miss things, so read it before sending, as with anything.
 

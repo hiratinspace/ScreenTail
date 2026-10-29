@@ -204,37 +204,47 @@ function Move-DemoLogAside([string]$Path) {
 # A line is kept only if the scrubbing log sink wrote it. Both sinks (client/ScreenTail.Shared/Logging/
 # ScrubbingLogger.cs and backend/src/ScreenTail.Api/Logging/ScrubbingLoggerProvider.cs) write
 # "HH:mm:ss.fff LEVEL category: message", LEVEL being TRACE, DEBUG, "INFO ", "WARN ", ERROR or FATAL, and
-# then an exception's lines indented by four spaces. Anything else a process prints went round the
-# sink: the .NET runtime's "Unhandled exception." with the exception's message (which CrashReport.cs
-# leaves out on purpose, because it carries paths, window titles and customer names), or a native
-# library's output. Such a line is withheld and only its length kept; of an unhandled exception only the
-# type is kept.
+# then an exception's lines indented by four spaces: "<Type>: <message>", "at <frame>" and "--- End of
+# ...". Anything else a process prints went round the sink: the .NET runtime's "Unhandled exception."
+# with the exception's message, or a native library's output. Such a line is withheld and only its length
+# kept; of an unhandled exception only the type is kept.
+#
+# An exception's message is withheld even from the sink's own lines. The sink scrubs it for paths and
+# addresses, but it is still where a window title or a customer's name ends up, which is why
+# CrashReport.cs leaves it out. The type and the frames are kept.
+#
+# Every comparison is ordinal (-cmatch, [0-9], String.Equals and StartsWith with Ordinal): a culture
+# comparison skips characters such as a soft hyphen, a zero-width space or a NUL, and a line that starts
+# with one must not pass for one of the sink's.
 $script:DemoLogWriterSource = @'
 function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
     if ($null -eq $Line) { $Line = '' }
-    if ($Line -match '^\d\d:\d\d:\d\d\.\d{3} (TRACE|DEBUG|INFO |WARN |ERROR|FATAL) \S') {
+    if ($Line -cmatch '^[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} (TRACE|DEBUG|INFO |WARN |ERROR|FATAL) \S') {
         $State.InLogger = $true
         return $Line
     }
-    if ($State.InLogger -and $Line.StartsWith('    ')) {
-        return $Line
+    if ($State.InLogger) {
+        if ($Line.StartsWith('    at ', [StringComparison]::Ordinal)) { return $Line }
+        if ($Line.StartsWith('    --- End of ', [StringComparison]::Ordinal)) { return $Line }
+        if ($Line -cmatch '^    ([A-Za-z_][A-Za-z0-9_.`+]*): ') { return '    ' + $Matches[1] + ': [message withheld]' }
     }
     $State.InLogger = $false
-    if (-not $Line.Trim()) { return '' }
+    if ($Line.Length -eq 0) { return '' }
 
     # Three fixed sentences the capture service prints itself before its logger exists (Program.cs).
-    if ($Line -eq 'Another ScreenTail capture service is already running for this user, or something is holding its name. Exiting with code 3.') { return $Line }
-    if ($Line -eq 'The capture service runs on Windows only.') { return $Line }
-    if ($Line -match '^Warning: [A-Z0-9_]+ is set, so this process may be running code that is not ScreenTail''s\.$') { return $Line }
+    if ([string]::Equals($Line, 'Another ScreenTail capture service is already running for this user, or something is holding its name. Exiting with code 3.', [StringComparison]::Ordinal)) { return $Line }
+    if ([string]::Equals($Line, 'The capture service runs on Windows only.', [StringComparison]::Ordinal)) { return $Line }
+    if ($Line -cmatch '^Warning: [A-Z0-9_]+ is set, so this process may be running code that is not ScreenTail''s\.$') { return $Line }
 
     # What this code itself writes. Read back from a file only: a process printing the same is withheld.
     if ($State.Reading) {
-        if ($Line -match '^\[line not from ScreenTail''s logger withheld, \d+ chars\]$') { return $Line }
-        if ($Line -match '^\[\d+ log line\(s\) could not be written here\]$') { return $Line }
-        if ($Line.StartsWith('[start.ps1] ')) { return $Line }
+        if ($Line -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$') { return $Line }
+        if ($Line -cmatch '^\[[0-9]+ log line\(s\) could not be written here\]$') { return $Line }
+        if ($Line -cmatch '^\[The log filter could not be checked, so nothing from this window is logged\.\]$') { return $Line }
+        if ($Line.StartsWith('[start.ps1] ', [StringComparison]::Ordinal)) { return $Line }
     }
 
-    if ($Line -match '^Unhandled exception\. ([A-Za-z_][A-Za-z0-9_.`+]*)') {
+    if ($Line -cmatch '^Unhandled exception\. ([A-Za-z_][A-Za-z0-9_.`+]*)') {
         return 'Unhandled exception. ' + $Matches[1] + ' [message and stack withheld]'
     }
     return "[line not from ScreenTail's logger withheld, $($Line.Length) chars]"
@@ -295,6 +305,19 @@ function Write-DemoLog([string]$Line) {
 }
 '@
 $script:DemoLogWriterSource = $script:DemoLogWriterSource.Replace('__CAP__', [string]$script:DemoLogCapBytes)
+
+# The SHA-256 of the writer source as UTF-8, in lower-case hex. start.ps1 puts it into each window
+# script, and the window loads the saved file only if the file still has it.
+function Get-DemoLogWriterHash([string]$Source) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Source))
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
+}
 
 # --- Running other programs ---------------------------------------------------------------------------
 

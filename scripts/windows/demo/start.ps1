@@ -224,12 +224,46 @@ foreach ($file in @($script:DemoBackendExited, $script:DemoTokenFile, $script:De
 # reads: only the lines the process's scrubbing logger wrote are kept, anything else it prints is
 # withheld, and the file is capped. The window itself still shows everything.
 [IO.File]::WriteAllText($script:DemoLogWriterFile, $script:DemoLogWriterSource, (New-Object Text.UTF8Encoding $false))
+$writerHash = Get-DemoLogWriterHash $script:DemoLogWriterSource
+
+# How each window loads that file, put at the top of both window scripts as __LOGLOADER__. The file is
+# used only if it still has the hash written into the window's own script. If it cannot be read or has
+# changed, the window gets a writer that keeps nothing but one line saying so: the window carries on, and
+# nothing unfiltered reaches the log (fail closed).
+$logLoader = @'
+$writer = $null
+try {
+    $saved = [IO.File]::ReadAllText(__LOGWRITER__)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($saved)) } finally { $sha.Dispose() }
+    $hex = -join ($bytes | ForEach-Object { $_.ToString('x2') })
+    if ([string]::Equals($hex, __LOGWRITERSHA__, [StringComparison]::Ordinal)) { $writer = $saved }
+}
+catch {
+    $writer = $null
+}
+if (-not $writer) {
+    Write-Host 'The log filter could not be checked, so this window writes no log file.' -ForegroundColor Yellow
+    $closed = {
+        $script:DemoLog = @{ Path = $null; Noted = $false }
+        function Write-DemoLogText([string]$Text) {
+            if ($script:DemoLog.Noted -or -not $script:DemoLog.Path) { return }
+            $script:DemoLog.Noted = $true
+            try { [IO.File]::AppendAllText($script:DemoLog.Path, '[The log filter could not be checked, so nothing from this window is logged.]' + [Environment]::NewLine) } catch { }
+        }
+        function Write-DemoLog([string]$Line) { Write-DemoLogText '' }
+        function Close-DemoLog { }
+    }
+    $writer = $closed.ToString()
+}
+. ([scriptblock]::Create($writer))
+'@
 
 # The window's script. Development is what makes the host read user secrets; the variables are set
 # inside the window, for the backend only. Its output is shown and copied to backend.log, which holds no
 # content (the backend's logger scrubs it, INV-10) and lets start explain a failure.
 $backendScript = @'
-. ([scriptblock]::Create([IO.File]::ReadAllText(__LOGWRITER__)))
+__LOGLOADER__
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'ScreenTail demo: backend'
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
@@ -258,6 +292,8 @@ $backendScript = $backendScript.Replace('__DIR__', (ConvertTo-Quoted $script:Dem
 $backendScript = $backendScript.Replace('__DLL__', (ConvertTo-Quoted $apiDll))
 $backendScript = $backendScript.Replace('__LOG__', (ConvertTo-Quoted $script:DemoBackendLog))
 $backendScript = $backendScript.Replace('__EXITED__', (ConvertTo-Quoted $script:DemoBackendExited))
+$backendScript = $backendScript.Replace('__LOGLOADER__', $logLoader)
+$backendScript = $backendScript.Replace('__LOGWRITERSHA__', (ConvertTo-Quoted $writerHash))
 $backendScript = $backendScript.Replace('__LOGWRITER__', (ConvertTo-Quoted $script:DemoLogWriterFile))
 
 $backendWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_DEVICE_TOKEN' = $null } -Body {
@@ -449,8 +485,7 @@ if (Test-Path -LiteralPath $script:DemoServiceExited) { Remove-Item -LiteralPath
 # The service shares this window's console, so it still gets the Ctrl+C itself, and the second thread
 # keeps reading while it finishes. That thread is the log's only writer until the output ends.
 $serviceScript = @'
-$writer = [IO.File]::ReadAllText(__LOGWRITER__)
-. ([scriptblock]::Create($writer))
+__LOGLOADER__
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'ScreenTail demo: capture service'
 Set-Location -LiteralPath __DIR__
@@ -503,6 +538,8 @@ finally {
     Set-Content -LiteralPath __EXITED__ -Value $code
 }
 '@
+$serviceScript = $serviceScript.Replace('__LOGLOADER__', $logLoader)
+$serviceScript = $serviceScript.Replace('__LOGWRITERSHA__', (ConvertTo-Quoted $writerHash))
 $serviceScript = $serviceScript.Replace('__LOGWRITER__', (ConvertTo-Quoted $script:DemoLogWriterFile))
 $serviceScript = $serviceScript.Replace('__LOG__', (ConvertTo-Quoted $script:DemoServiceLog))
 $serviceScript = $serviceScript.Replace('__DIR__', (ConvertTo-Quoted $script:DemoAppDir))
