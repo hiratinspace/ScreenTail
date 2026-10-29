@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
@@ -155,6 +156,25 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Contains("unauthenticated", body, StringComparison.Ordinal);
         Assert.Contains("Settings", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARateLimitedSearchPassesOnTheWaitRoundedAndHeldToADay()
+    {
+        // The same whole seconds, at most a day, that a publish result and the summarize route give: a
+        // client told to wait two days for a ticket search is told something no caller should act on.
+        var cw = new ScriptedConnectWise { FailingRoute = ("/service/tickets", HttpStatusCode.TooManyRequests), FailingRouteRetryAfter = TimeSpan.FromDays(2) };
+        using var host = HostWith(cw);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+
+        using var response = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.True(body.GetProperty("retryable").GetBoolean());
+        Assert.Equal("86400", body.GetProperty("retry_after_seconds").GetRawText());
     }
 
     [Fact]

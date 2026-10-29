@@ -272,12 +272,7 @@ public static partial class Publisher
     /// does; one that may have landed carries none, because the advice there is to look, not to wait.
     /// </summary>
     private static PublishResultJson Failed(string destination, ProviderError error) =>
-        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable, RetryAfterSeconds: error.Retryable ? Seconds(error.RetryAfter) : null);
-
-    /// <summary>Whole seconds, rounded up so a client never comes back sooner than asked, and at most a day.</summary>
-    private static long? Seconds(TimeSpan? wait) => wait is { } after && after > TimeSpan.Zero
-        ? (long)Math.Ceiling(Math.Min(after.TotalSeconds, TimeSpan.FromDays(1).TotalSeconds))
-        : null;
+        new(destination, false, Error: error.ToString(), Kind: Kind(error.Kind), Retryable: error.Retryable, RetryAfterSeconds: error.Retryable ? ProviderHttp.RetryAfterSeconds(error.RetryAfter) : null);
 
     private static string Kind(ProviderErrorKind kind) => kind.ToString().ToLowerInvariant();
 

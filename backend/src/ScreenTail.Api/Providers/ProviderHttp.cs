@@ -226,6 +226,15 @@ public static class ProviderHttp
     }
 
     /// <summary>
+    /// The wait as a caller is told it: whole seconds, rounded up so it never comes back sooner than
+    /// asked, at most a day, and null for none or for a Retry-After date already past. The ticket search,
+    /// the company list and a publish result all pass a retryable failure's wait on in these terms.
+    /// </summary>
+    public static long? RetryAfterSeconds(TimeSpan? wait) => wait is { } after && after > TimeSpan.Zero
+        ? (long)Math.Ceiling(Math.Min(after.TotalSeconds, TimeSpan.FromDays(1).TotalSeconds))
+        : null;
+
+    /// <summary>
     /// What to do about a rate limit or an outage, from the wait the provider named: "Try again in 3
     /// minutes." Never sooner than it asked, so a wait is rounded up, and never more than a day, as the
     /// summarize route holds it. With no wait named, a minute, as before.

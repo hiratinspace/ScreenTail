@@ -194,6 +194,19 @@ public sealed class ProviderHttpTests : IDisposable
         Assert.Equal(advice, ProviderHttp.TryAgain(seconds is { } s ? TimeSpan.FromSeconds(s) : null));
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(0.0, null)]
+    [InlineData(-30.0, null)]
+    [InlineData(0.4, 1L)]
+    [InlineData(120.0, 120L)]
+    [InlineData(172800.0, 86400L)]
+    public void TheWaitPassedOnIsWholeSecondsRoundedUpNeverNegativeAndAtMostADay(double? seconds, long? passedOn)
+    {
+        // A Retry-After date already past is a negative wait, which no client should be handed.
+        Assert.Equal(passedOn, ProviderHttp.RetryAfterSeconds(seconds is { } s ? TimeSpan.FromSeconds(s) : null));
+    }
+
     [Fact]
     public async Task ARetryAfterDateAlreadyPastIsNoReasonToWait()
     {
