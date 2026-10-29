@@ -1,6 +1,7 @@
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # .NET
 bin/
@@ -9,7 +10,14 @@ obj/
 *.suo
 .vs/
 TestResults/
+*.trx
+*.coverage
+coverage.cobertura.xml
 *.nupkg
+# An MSBuild binary log records every property and environment variable of the build, a key among them.
+*.binlog
+# launchSettings.json can carry environment variables, so it stays local like the settings files below.
+launchSettings.json
 # installer/build.ps1 writes the published payload, the packages and its downloads here (ST-112).
 artifacts/
 
@@ -17,17 +25,27 @@ artifacts/
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Editors
 .idea/
 .vscode/*
 !.vscode/extensions.json
+*.swp
+*~
+
+# Leftovers from merges, and logs: the scripts write theirs outside the repository.
+*.orig
+*.rej
+*.log
 
 # Spike artifacts (models and run output are never committed)
 spike/**/models/
@@ -37,7 +55,7 @@ spike/**/out/
 *.bin
 
 # Secrets never belong in the repository (ST-063). The services read every credential from the
-# environment and have no defaults, so nothing here is needed to run them — these patterns exist to
+# environment and have no defaults, so nothing here is needed to run them: these patterns exist to
 # catch the local settings file somebody adds in a hurry with a model provider's key in it.
 appsettings.Development.json
 appsettings.Local.json
@@ -46,3 +64,29 @@ appsettings.*.local.json
 .env
 .env.*
 secrets.json
+
+# Signing material never belongs in the repository either. Builds sign through Azure Artifact Signing and
+# Key Vault (ADR-0007, ADR-0008), so a certificate or key file here is one added by mistake.
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+
+# Local databases: the capture store lives under the user's profile, and tests use their own.
+*.db
+*.sqlite
+*.sqlite3
+
+# Private notes stay on the machine they were written on. CLAUDE.local.md is the private CLAUDE.md.
+*.local.md
+
+# Claude Code: shared project settings may be committed, everything else in .claude is local state.
+.claude/*
+!.claude/settings.json
+!.claude/agents/
+!.claude/commands/
+!.claude/skills/
+
+# Generated knowledge graph (graphify), rebuilt locally and never published.
+graphify-out/
