@@ -67,12 +67,22 @@ internal sealed class ServiceRig : IAsyncDisposable
     public CaptureThrottle Throttle { get; private set; } = null!;
 
     /// <summary>
-    /// How many times the throttle's level moved. A throttled service records less and so costs less, which
-    /// would hide a processor regression behind a figure that looks inside budget.
+    /// Every move of the throttle's level so far, oldest first. A throttled service records less and so costs
+    /// less, which would hide a processor regression behind a figure that looks inside budget; a measurement
+    /// takes the count before and after its window and looks only at the moves in between.
     /// </summary>
-    public int ThrottleMoves => Volatile.Read(ref _throttleMoves);
+    public IReadOnlyList<CaptureLevelChange> ThrottleMoves
+    {
+        get
+        {
+            lock (_throttleMoves)
+            {
+                return [.. _throttleMoves];
+            }
+        }
+    }
 
-    private int _throttleMoves;
+    private readonly List<CaptureLevelChange> _throttleMoves = [];
 
     public HookLifetime Hooks { get; private set; } = null!;
 
@@ -145,7 +155,13 @@ internal sealed class ServiceRig : IAsyncDisposable
         var clicks = new ClickCaptureLoop(Machine, new WindowsInputHooksAccessor(hooks), capturer, scope, NullLogger.Instance);
         _running.Add(clicks.RunAsync(stopping));
         Throttle = new CaptureThrottle(new ThisProcessTime());
-        Throttle.Changed += _ => Interlocked.Increment(ref _throttleMoves);
+        Throttle.Changed += change =>
+        {
+            lock (_throttleMoves)
+            {
+                _throttleMoves.Add(change);
+            }
+        };
         _running.Add(Throttle.RunAsync(Machine, null, stopping));
         Scenes = new SceneSampleLoop(Machine, capturer, scope, NullLogger.Instance, new SceneSampler(), throttle: Throttle);
         _running.Add(Scenes.RunAsync(stopping));
