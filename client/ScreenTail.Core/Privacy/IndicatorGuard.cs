@@ -1,3 +1,4 @@
+using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
 
@@ -27,6 +28,11 @@ public sealed class IndicatorGuard(
     TimeProvider? time = null,
     IndicatorOptions? options = null)
 {
+    public IndicatorGuard(SessionMachine machine, IndicatorReports reports, TimeProvider? time = null, IndicatorOptions? options = null)
+        : this(machine, () => reports.Showing, time, options)
+    {
+    }
+
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly IndicatorOptions _options = options ?? new IndicatorOptions();
     private DateTimeOffset? _goneSince;

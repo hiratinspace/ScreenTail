@@ -65,8 +65,11 @@ public sealed class IndicatorReports(TimeProvider? time = null)
         }
     }
 
-    /// <summary>One window saying it is showing the indicator, now.</summary>
-    public void Report(Guid window)
+    /// <summary>Whether a current report has the pill's own rectangle rather than a zero-size one.</summary>
+    public bool PillShowing => Showing;
+
+    /// <summary>One window saying it is showing the indicator, now, with the pill's size.</summary>
+    public void Report(Guid window, double width, double height)
     {
         lock (_gate)
         {

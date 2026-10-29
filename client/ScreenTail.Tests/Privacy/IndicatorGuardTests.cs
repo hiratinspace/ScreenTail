@@ -1,3 +1,4 @@
+using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
@@ -26,6 +27,15 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
 {
     private static readonly DateTimeOffset At = new(2026, 9, 20, 11, 0, 0, TimeSpan.Zero);
     private static readonly RemoteTool Rdp = new() { Kind = RemoteToolKind.Rdp };
+
+    /// <summary>The guard's own grace, the one a UI restart gets and the pill gets after a start.</summary>
+    private static readonly TimeSpan Grace = new IndicatorOptions().Grace;
+
+    /// <summary>How often the UI reports, as <c>HudWindowHolder</c> does.</summary>
+    private static readonly TimeSpan ReportEvery = TimeSpan.FromSeconds(2);
+
+    private const double PillWidth = 220;
+    private const double PillHeight = 36;
     private MachineHarness? _harness;
 
     [Fact]
@@ -281,6 +291,170 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         Assert.True(calls > 1, "the loop stopped asking after the pass that threw");
     }
 
+    // ---- the pill put away between sessions (owner decision, 2026-10-25) -----------------------------
+    //
+    // Between sessions the technician may put the pill away. The UI then reports a zero-size rectangle,
+    // and the next session may start on it. Once a session runs, only the pill counts: it has the grace,
+    // counted from the start, to come back, and after that capture is suppressed as for a missing pill.
+    // These run the session and the guard on one clock, because the grace is counted from the start.
+
+    [Fact]
+    public async Task APillPutAwayBetweenSessionsStillCountsForTheNextStart()
+    {
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+
+        // A minute of the UI saying the pill is away, every two seconds as it does.
+        for (var i = 0; i < 30; i++)
+        {
+            reports.Report(ui, 0, 0);
+            await guard.TickAsync(ct);
+            Assert.True(guard.Indicated);
+            clock.Advance(ReportEvery);
+        }
+
+        Assert.Equal(0, guard.Holds);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+    }
+
+    [Fact]
+    public async Task AfterASessionEndsAPillPutAwayCountsForTheNextStartAgain()
+    {
+        // A session ends in draft_ready or draft_failed, not idle, and that is still between sessions.
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        reports.Report(ui, PillWidth, PillHeight);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        await guard.TickAsync(ct);
+        Assert.True(await machine.StopAsync(ct));
+        Assert.Equal(SessionState.DraftFailed, machine.State);
+
+        // Longer than the grace, the UI reporting as it does.
+        for (var i = 0; i < 5; i++)
+        {
+            reports.Report(ui, 0, 0);
+            await guard.TickAsync(ct);
+            clock.Advance(ReportEvery);
+        }
+
+        Assert.True(guard.Indicated);
+        Assert.Equal(0, guard.Holds);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+    }
+
+    [Fact]
+    public async Task APillPutAwayStopsCountingOnceTheSessionStarts()
+    {
+        // The pill did not come back. The UI goes on saying it is away, and the grace runs from the start:
+        // not from the report, which was sent before the start, and not from the guard's first look.
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+
+        reports.Report(ui, 0, 0);
+        clock.Advance(ReportEvery);
+        Assert.True(guard.Indicated);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        reports.Report(ui, 0, 0);
+        Assert.False(guard.Indicated);
+
+        // The guard's first look. Counted from the first report, two seconds before the start, the grace
+        // would be over here.
+        var firstLook = TimeSpan.FromMilliseconds(1500);
+        clock.Advance(firstLook);
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        reports.Report(ui, 0, 0);
+        clock.Advance(Grace - firstLook - TimeSpan.FromMilliseconds(100));
+        await guard.TickAsync(ct);
+        Assert.Equal(SessionState.Recording, machine.State);
+
+        // The grace from the start is over. Counted from the guard's first look it would not be.
+        clock.Advance(TimeSpan.FromMilliseconds(100));
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+        Assert.True(guard.Holding);
+        Assert.False(await machine.TryStageFrameAsync(Frame("f-no-pill"), ct));
+    }
+
+    [Fact]
+    public async Task APillThatComesBackWithinTheGraceKeepsCaptureGoing()
+    {
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+
+        reports.Report(ui, 0, 0);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await guard.TickAsync(ct);
+
+        // The UI heard of the session and put the pill back, a moment inside the grace.
+        clock.Advance(Grace - TimeSpan.FromSeconds(1) - TimeSpan.FromMilliseconds(100));
+        reports.Report(ui, PillWidth, PillHeight);
+        for (var i = 0; i < 10; i++)
+        {
+            await guard.TickAsync(ct);
+            clock.Advance(ReportEvery);
+            reports.Report(ui, PillWidth, PillHeight);
+        }
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.True(guard.Indicated);
+        Assert.Equal(0, guard.Holds);
+        Assert.True(await machine.TryStageFrameAsync(Frame("f-pill"), ct));
+    }
+
+    [Fact]
+    public async Task APillPutAwayInTheMiddleOfASessionIsNotThePill()
+    {
+        // The UI cannot put the pill away while it knows a session runs. It can believe the last session
+        // is still the latest thing that happened, if it missed the state change, and then it says the pill
+        // is away with the pill hidden. The grace from the start is long over, so capture stops at once.
+        var clock = new ManualTime(At);
+        var machine = await IdleAsync(clock);
+        var reports = new IndicatorReports(clock);
+        var guard = new IndicatorGuard(machine, reports, clock);
+        var ui = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        reports.Report(ui, PillWidth, PillHeight);
+        Assert.True(await machine.StartAsync(Rdp, ct: ct));
+        for (var i = 0; i < 5; i++)
+        {
+            await guard.TickAsync(ct);
+            clock.Advance(ReportEvery);
+            reports.Report(ui, PillWidth, PillHeight);
+        }
+
+        reports.Report(ui, 0, 0);
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Suppressed, machine.State);
+
+        // And the pill coming back puts capture back.
+        reports.Report(ui, PillWidth, PillHeight);
+        await guard.TickAsync(ct);
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.False(guard.Holding);
+    }
+
     /// <summary>
     /// Waits for the loop to reach a state, failing fast if the loop ends first, which is what the
     /// fail-open looks like from outside: RunAsync completes while the session is still Recording.
@@ -313,6 +487,13 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
         await guard.TickAsync(ct);
         clock.Advance(TimeSpan.FromSeconds(5));
         await guard.TickAsync(ct);
+    }
+
+    /// <summary>A session machine with nothing running, on the test's clock.</summary>
+    private async Task<SessionMachine> IdleAsync(ManualTime clock)
+    {
+        _harness = await MachineHarness.StartAsync(clock);
+        return _harness.Machine;
     }
 
     private async Task<SessionMachine> RecordingAsync()

@@ -1,3 +1,4 @@
+using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Ipc;
 
@@ -63,6 +64,23 @@ public sealed class ManualStartTests
                 + "showing it. Wait a few seconds for the pill to appear, then try again; if it does not, quit "
                 + "ScreenTail from the tray and open it again.",
             result.Error);
+    }
+
+    [Fact]
+    public async Task APillPutAwayBetweenSessionsStillLetsTheWizardStart()
+    {
+        // The pipe's start reads the reports as the service wires it, and a zero-size report, the pill put
+        // away between sessions, counts for a start (owner decision, 2026-10-25). It stops counting once
+        // the session runs, which is the indicator guard's business, not the start's.
+        await using var harness = await MachineHarness.StartAsync();
+        var reports = new IndicatorReports();
+        reports.Report(Guid.NewGuid(), 0, 0);
+        var start = new ManualStart(harness.Machine, () => reports.Showing, () => (false, "v8"));
+
+        var result = await start.StartAsync(new StartCommand { RequestId = 4 }, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Equal(SessionState.Recording, harness.Machine.State);
     }
 
     [Fact]
