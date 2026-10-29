@@ -547,7 +547,8 @@ internal sealed class Loop(Steps steps, Uri backend, string secret, bool injectC
                 missing.Add("frame_captured");
             }
 
-            if (!rows.Any(r => r.Type == "frame_redacted" && r.Detail == "password"))
+            // The detail is the mask kind's enum name ("Password"), not the schema's wire name ("password").
+            if (!rows.Any(r => r.Type == "frame_redacted" && string.Equals(r.Detail, "password", StringComparison.OrdinalIgnoreCase)))
             {
                 missing.Add("frame_redacted (password)");
             }

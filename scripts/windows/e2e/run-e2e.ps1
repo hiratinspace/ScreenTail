@@ -420,6 +420,12 @@ $null = Step 'teardown' 'service-stop' 'the capture service to stop cleanly on C
     Stop-Console -Process $service -Role 'service' -Said 'Capture service stopping'
 }
 
+$null = Step 'teardown' 'service-log-level' 'the service to log at the level SCREENTAIL_LOG_LEVEL asked for (Debug)' {
+    $debug = @(Read-Logs 'service' | Where-Object { $_ -match '^\S+ DEBUG ' })
+    if ($debug.Count -eq 0) { throw 'SCREENTAIL_LOG_LEVEL=Debug and the service logged no Debug line.' }
+    "$($debug.Count) Debug line(s)."
+}
+
 $null = Step 'teardown' 'ui-outlives-service' 'the UI to survive the service going away' {
     Start-Sleep -Seconds 5
     if ($ui.HasExited) { throw "The UI exited with code $($ui.ExitCode) when the service stopped." }
