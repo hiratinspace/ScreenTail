@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ScreenTail.Api.Providers.Hudu;
 
@@ -12,22 +14,24 @@ namespace ScreenTail.Api.Providers.Hudu;
 /// an id against the wrong customers for up to ten minutes after the tenant moved. The site is kept
 /// beside the list rather than in the key, so one tenant holds one entry however often it moves, and a
 /// backend that did not serve a move to another site still stops trusting the old list at its next
-/// lookup.
+/// lookup. The API key is treated the same way, as a <see cref="Fingerprint"/> held beside the site: a
+/// list loaded under one key is neither joined nor served under another, so a rotated key is never
+/// shown what only the old key could see. The key itself is never held here.
 ///
 /// A tenant has at most one load in flight (#229 review). Without that, every publish arriving as the
 /// entry expired or was forgotten paged the whole list itself: up to 400 requests each at 10,000
-/// companies, all at once, against the customer's Hudu. Callers for the same tenant and site wait on
-/// the one load and are all given its answer, a refusal included; another tenant's load is its own.
+/// companies, all at once, against the customer's Hudu. Callers for the same tenant, site and key wait
+/// on the one load and are all given its answer, a refusal included; another tenant's load is its own.
 /// Only a successful list is kept, so a failed, thrown or stopped load leaves nothing behind and the
 /// next caller loads again. A caller that gives up stops only its own wait: the load carries on for
 /// the others, and is stopped only once nobody is left waiting for it.
 ///
-/// <see cref="Forget"/> moves the tenant to a new generation. A load that began before it still
-/// answers the callers who asked, but its list is not kept, and a call after the forget starts its own
-/// load rather than joining the old one. A provider built under the old key whose load only starts
-/// after the forget is not seen that way: it can still store its list, until the entry expires. That
-/// list is from the right site, and Hudu itself refuses an id the new key may not see, so the cost is a
-/// refusal rather than the wrong customer.
+/// <see cref="Forget"/> moves the tenant to a new generation, and so does a call for another site or
+/// key while a load is out. A load that began before either still answers the callers who asked, but
+/// its list is not kept, and a call after it starts its own load rather than joining the old one. The
+/// old load is set aside, not cancelled: it keeps paging for its own waiters until it ends. That is
+/// bounded, by the page and company caps and each request's timeout, and by being set aside at most
+/// once per forget or switch, so it cannot multiply the way the loads before this change did.
 /// </summary>
 public sealed class HuduCompanyCache(TimeProvider time)
 {
@@ -37,29 +41,42 @@ public sealed class HuduCompanyCache(TimeProvider time)
     public static string KeyFor(Guid tenantId) => tenantId.ToString();
 
     /// <summary>
-    /// The tenant's list from memory, or from <paramref name="load"/>, which is called at most once at a
-    /// time per tenant and site. <paramref name="ct"/> stops this caller's wait and nothing else; the
-    /// token <paramref name="load"/> is given is cancelled only when every caller waiting on it has gone.
+    /// What a list is held against instead of the API key: the first eight bytes of the key's SHA-256,
+    /// in hex. Enough to tell one key from another; never logged, and held only in memory.
     /// </summary>
-    public async Task<ProviderResult<IReadOnlyList<CompanyRef>>> GetOrAddAsync(string key, string site, TimeSpan keepFor, Func<CancellationToken, Task<ProviderResult<IReadOnlyList<CompanyRef>>>> load, CancellationToken ct)
+    public static string Fingerprint(string apiKey)
+    {
+        ArgumentNullException.ThrowIfNull(apiKey);
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(apiKey)).AsSpan(0, 8));
+    }
+
+    /// <summary>
+    /// The tenant's list from memory, or from <paramref name="load"/>, which is called at most once at a
+    /// time per tenant, site and key. <paramref name="ct"/> stops this caller's wait and nothing else;
+    /// the token <paramref name="load"/> is given is cancelled only when every caller waiting on it has
+    /// gone. <paramref name="keyFingerprint"/> is <see cref="Fingerprint"/> of the key the load uses.
+    /// </summary>
+    public async Task<ProviderResult<IReadOnlyList<CompanyRef>>> GetOrAddAsync(string key, string site, string keyFingerprint, TimeSpan keepFor, Func<CancellationToken, Task<ProviderResult<IReadOnlyList<CompanyRef>>>> load, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(key);
-        ArgumentNullException.ThrowIfNull(load);
         ArgumentNullException.ThrowIfNull(site);
+        ArgumentNullException.ThrowIfNull(keyFingerprint);
+        ArgumentNullException.ThrowIfNull(load);
         ct.ThrowIfCancellationRequested();
 
+        var source = new Source(site, keyFingerprint);
         var tenant = _tenants.GetOrAdd(key, _ => new Tenant());
         Flight flight;
         var starts = false;
         lock (tenant.Gate)
         {
             var now = time.GetUtcNow();
-            if (tenant.Kept is { } kept && kept.Until > now && string.Equals(kept.Site, site, StringComparison.Ordinal))
+            if (tenant.Kept is { } kept && kept.Until > now && kept.Source == source)
             {
                 return ProviderResult.Success(kept.Companies);
             }
 
-            if (tenant.Loading is { } loading && string.Equals(loading.Site, site, StringComparison.Ordinal))
+            if (tenant.Loading is { } loading && loading.Source == source)
             {
                 flight = loading;
             }
@@ -67,12 +84,12 @@ public sealed class HuduCompanyCache(TimeProvider time)
             {
                 if (tenant.Loading is not null)
                 {
-                    // A load for another site is still out. Its list is not this site's, so it is not kept
-                    // over the one this load brings back.
+                    // A load for another site or key is still out. Its list is not this one's, so it is
+                    // not kept over the one this load brings back.
                     tenant.Generation++;
                 }
 
-                flight = new Flight(site, tenant.Generation, now + keepFor);
+                flight = new Flight(source, tenant.Generation, now + keepFor);
                 tenant.Loading = flight;
                 starts = true;
             }
@@ -98,11 +115,16 @@ public sealed class HuduCompanyCache(TimeProvider time)
     /// <summary>
     /// Drops the tenant's entry, so the next lookup asks the site, and keeps a load already out from
     /// storing what it brings back. Called when the tenant's Hudu is replaced or removed, and when Hudu
-    /// says a company on the list no longer exists.
+    /// says a company on the list no longer exists. A tenant that never looked anything up has nothing
+    /// to forget, and is not added for it.
     /// </summary>
     public void Forget(string key)
     {
-        var tenant = _tenants.GetOrAdd(key, _ => new Tenant());
+        if (!_tenants.TryGetValue(key, out var tenant))
+        {
+            return;
+        }
+
         lock (tenant.Gate)
         {
             tenant.Kept = null;
@@ -121,7 +143,7 @@ public sealed class HuduCompanyCache(TimeProvider time)
                 Land(tenant, flight);
                 if (result.Ok && !flight.Abandoned && flight.Generation == tenant.Generation)
                 {
-                    tenant.Kept = new Entry(flight.Until, flight.Site, result.Value!);
+                    tenant.Kept = new Entry(flight.Until, flight.Source, result.Value!);
                 }
             }
 
@@ -145,11 +167,15 @@ public sealed class HuduCompanyCache(TimeProvider time)
             else
             {
                 flight.Answer.TrySetException(ex);
+
+                // The last caller can give up between the load landing and this: the error is still
+                // each remaining caller's to read, but is not reported as unobserved if none is left.
+                _ = flight.Answer.Task.Exception;
             }
         }
     }
 
-    /// <summary>The load is over: no caller from here on joins it. Called under the tenant's lock.</summary>
+    /// <summary>The load is over: no caller from here on joins it. Called under the tenant's gate.</summary>
     private static void Land(Tenant tenant, Flight flight)
     {
         flight.Landed = true;
@@ -176,12 +202,20 @@ public sealed class HuduCompanyCache(TimeProvider time)
                 tenant.Loading = null;
             }
 
-            // Its callbacks run elsewhere, so nothing the load does on cancellation runs under this lock.
-            _ = flight.Stop.CancelAsync();
+            // Its callbacks run elsewhere, so nothing the load does on cancellation runs under this gate.
+            // One that throws faults the returned task, which is read here rather than left unobserved.
+            _ = flight.Stop.CancelAsync().ContinueWith(
+                static stopped => _ = stopped.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 
-    private sealed record Entry(DateTimeOffset Until, string Site, IReadOnlyList<CompanyRef> Companies);
+    /// <summary>Where a list came from: the site, and the fingerprint of the key it was read with.</summary>
+    private readonly record struct Source(string Site, string KeyFingerprint);
+
+    private sealed record Entry(DateTimeOffset Until, Source Source, IReadOnlyList<CompanyRef> Companies);
 
     /// <summary>One tenant's kept list and load in flight. Every other field is read and written under its gate.</summary>
     private sealed class Tenant
@@ -200,15 +234,19 @@ public sealed class HuduCompanyCache(TimeProvider time)
     /// and nobody asks for its wait handle, so there is nothing to release, and disposing it could race
     /// the last caller stopping it.
     /// </summary>
-    private sealed class Flight(string site, long generation, DateTimeOffset until)
+    private sealed class Flight(Source source, long generation, DateTimeOffset until)
     {
-        public string Site { get; } = site;
+        public Source Source { get; } = source;
 
         public long Generation { get; } = generation;
 
         /// <summary>When the list expires, counted from when it was first asked for, as before.</summary>
         public DateTimeOffset Until { get; } = until;
 
+        /// <summary>
+        /// The answer every waiter reads. Its continuations run on their own, so one caller doing slow work
+        /// straight after its await holds up neither the others nor the thread that answered.
+        /// </summary>
         public TaskCompletionSource<ProviderResult<IReadOnlyList<CompanyRef>>> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public CancellationTokenSource Stop { get; } = new();

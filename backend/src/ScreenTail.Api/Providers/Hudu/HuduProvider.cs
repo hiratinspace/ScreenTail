@@ -28,6 +28,10 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
 
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
     private readonly string _apiKey = string.IsNullOrWhiteSpace(apiKey) ? throw new ArgumentException("An API key is required.", nameof(apiKey)) : apiKey;
+
+    // The company cache holds a list against this, never the key: a rotated key does not read the old
+    // one's list. Initialised after _apiKey, which has already refused a blank key.
+    private readonly string _keyFingerprint = HuduCompanyCache.Fingerprint(apiKey);
     private readonly HuduOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly HuduCompanyCache _cache = cache ?? throw new ArgumentNullException(nameof(cache));
     private readonly string _tenantKey = tenantKey ?? throw new ArgumentNullException(nameof(tenantKey));
@@ -43,9 +47,9 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
 
     public Task<ProviderResult<IReadOnlyList<CompanyRef>>> ListCompaniesAsync(CancellationToken ct = default) =>
         // The site is the client's base address, which the factory set from the vault's row: a list from
-        // any other site is not this one's. The cache runs one load per tenant at a time and hands its
-        // answer, a refusal included, to every caller waiting on it.
-        _cache.GetOrAddAsync(_tenantKey, _http.BaseAddress?.AbsoluteUri ?? string.Empty, _options.CompanyCacheFor, LoadCompaniesAsync, ct);
+        // any other site, or read with any other key, is not this one's. The cache runs one load per
+        // tenant at a time and hands its answer, a refusal included, to every caller waiting on it.
+        _cache.GetOrAddAsync(_tenantKey, _http.BaseAddress?.AbsoluteUri ?? string.Empty, _keyFingerprint, _options.CompanyCacheFor, LoadCompaniesAsync, ct);
 
     private async Task<ProviderResult<IReadOnlyList<CompanyRef>>> LoadCompaniesAsync(CancellationToken token)
     {
