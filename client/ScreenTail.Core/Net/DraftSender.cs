@@ -231,8 +231,11 @@ public sealed class DraftSender(
                 return SendOutcome.Failed("The backend drafted this session, but this version of ScreenTail could not read the draft.");
             }
 
-            await store.SaveDraftAsync(sessionId, draft, ct).ConfigureAwait(false);
-            await store.SetSessionStateAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
+            // The note and draft_ready in one write that refuses a discarded row (ST-013). As two writes,
+            // Review's discard could land between them and the second put draft_ready on a session the
+            // technician had deleted (INV-12). The session may be finalizing, queued or failed before this;
+            // every one of those takes the note, and only a discarded or missing one refuses it.
+            await store.SaveReadyDraftAsync(sessionId, draft, ct).ConfigureAwait(false);
             return SendOutcome.Done(sessionId);
         }
 

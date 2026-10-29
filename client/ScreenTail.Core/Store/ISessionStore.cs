@@ -99,6 +99,13 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>The draft as edited. The first save is also kept as the original, for the edit ratio (ST-098).</summary>
     Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
 
+    /// <summary>
+    /// A drafted note arriving, saved with the session's draft_ready state in one write (ST-013). Two writes
+    /// left room for Review's discard between them, and the second put draft_ready on a discarded row.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">There is no such session, or it was discarded.</exception>
+    Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
+
     /// <summary>The draft as it was first written, or null when nothing has been drafted or it was purged.</summary>
     Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default);
 

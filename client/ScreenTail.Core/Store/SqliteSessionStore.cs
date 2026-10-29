@@ -493,6 +493,29 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         }
     }
 
+    public async Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        var now = Iso(_time.GetUtcNow());
+        var saved = await RunAsync(
+            """
+            UPDATE sessions SET draft_json = @draft, original_draft_json = COALESCE(original_draft_json, @draft),
+                state = @ready, state_reason = NULL, state_changed_at = @now, updated_at = @now
+            WHERE id = @id AND state IS NOT @discarded
+            """,
+            ct,
+            ("@draft", JsonSerializer.Serialize(draft, SessionJson.Options)),
+            ("@ready", Shared.Ipc.CaptureStates.DraftReady),
+            ("@now", now),
+            ("@id", sessionId),
+            ("@discarded", Sessions.SessionStateNames.Discarded)).ConfigureAwait(false);
+
+        if (saved == 0)
+        {
+            throw new InvalidOperationException("There is no such session to save a note for.");
+        }
+    }
+
     /// <summary>
     /// The first draft, read under the gate like every other read: the connection is shared, and a read
     /// on it while another caller writes fails one of the two.
