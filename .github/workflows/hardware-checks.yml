@@ -79,6 +79,14 @@ jobs:
           # the next job can read.
           persist-credentials: false
 
+      # The owner runs the demo on this laptop. While it is up, its capture service holds the hotkeys and
+      # the pipe, and the tests below fail one by one in ways that look like regressions. Read-only: it
+      # looks for ScreenTail processes in this session and a live demo start, and fails the job, never
+      # skips it, with one line saying what to do.
+      - name: The demo is not running
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/windows/check-demo-stopped.ps1
+
       # The laptop already has the SDKs (scripts/windows/setup-test-laptop.ps1). setup-dotnet would try to
       # install into C:\Program Files\dotnet, which the non-admin runner account cannot write to.
       - name: Use the preinstalled .NET SDK
@@ -271,6 +279,11 @@ jobs:
           # The laptop's work directory outlives the job. A token left in .git/config there is a token
           # the next job can read.
           persist-credentials: false
+
+      # As in the capabilities job: the demo's hotkeys and pipe would fail these tests confusingly.
+      - name: The demo is not running
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/windows/check-demo-stopped.ps1
 
       - name: Use the preinstalled .NET SDK
         run: |

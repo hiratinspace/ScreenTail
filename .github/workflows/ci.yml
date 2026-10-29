@@ -769,6 +769,12 @@ jobs:
         shell: powershell
         run: ./scripts/windows/check-skips.Tests.ps1
 
+      # The hardware jobs start with check-demo-stopped.ps1. A check that passes everything looks the
+      # same as one that works until the demo is up during a run, so its cases run here.
+      - name: The demo check fails a laptop with the demo running
+        shell: powershell
+        run: ./scripts/windows/check-demo-stopped.Tests.ps1
+
   workflows:
     name: Workflows are well-formed
     runs-on: ubuntu-latest
