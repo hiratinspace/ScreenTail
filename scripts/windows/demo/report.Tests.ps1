@@ -274,13 +274,13 @@ try {
     Check 'the final scrub had nothing to remove from it, so the message never reached it' ($thrown.Removed -eq 0) $t
 
     $t = (Get-ThrowingSection { throw $thrownMessage }).Text
-    Check 'a thrown string shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
+    Check 'a thrown string shows only its type' (((($t -split "`n")[2]) -cmatch $pattern) -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
     $t = (Get-ThrowingSection { Write-Error -Message $thrownMessage -ErrorAction Stop }).Text
-    Check 'an error written with Write-Error shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
+    Check 'an error written with Write-Error shows only its type' (((($t -split "`n")[2]) -cmatch $pattern) -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
     $t = (Get-ThrowingSection { $null = [System.IO.File]::ReadAllText($madePath) }).Text
-    Check 'a .NET method that fails on a path shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client) -and (HasNot $t 'Exception calling') -and (HasNot $t 'Could not find')) $t
+    Check 'a .NET method that fails on a path shows only its type' (((($t -split "`n")[2]) -cmatch $pattern) -and (HasNot $t $client) -and (HasNot $t 'Exception calling') -and (HasNot $t 'Could not find')) $t
     $t = (Get-ThrowingSection { $null = ('{"' + $client + '": ') | ConvertFrom-Json }).Text
-    Check 'a parse error shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client)) $t
+    Check 'a parse error shows only its type' (((($t -split "`n")[2]) -cmatch $pattern) -and (HasNot $t $client)) $t
     Check 'something that is not an exception has no type to show' ((Get-ExceptionTypeName $thrownMessage) -ceq 'an unknown error') (Get-ExceptionTypeName $thrownMessage)
 
     # --- The capability check, when the capture service cannot be started ---------------------------
@@ -308,7 +308,7 @@ try {
     $t = 'Lines: ' + (@($native.Lines) -join ' | ') + "`nOut: " + (@($native.Out) -join ' | ')
     Check 'a program''s output is kept apart from its error output' ((Has (@($native.Lines) -join ' ') "err-$client") -and (Has (@($native.Out) -join ' ') "out-$client") -and (HasNot (@($native.Out) -join ' ') "err-$client")) $t
     Check 'a program that succeeded gives its output only' ((@(Get-NativeOutput $native) -join ' ') -match "^out-$client\s*$") $t
-    $failed = Invoke-Native -FilePath 'cmd.exe' -ArgumentList @('/c', "echo fatal: unsafe repository C:/Users/$client/src 1>&2& exit /b 128")
+    $failed = Invoke-Native -FilePath 'cmd.exe' -ArgumentList @('/c', "echo fatal: unsafe repository C:/Users/$client/src 1>&2 & exit /b 128")
     $t = 'Exit: ' + $failed.ExitCode + "`nLines: " + (@($failed.Lines) -join ' | ')
     Check 'a program that failed gives nothing, not its error' (($failed.ExitCode -eq 128) -and (@(Get-NativeOutput $failed).Count -eq 0)) $t
 
@@ -337,6 +337,7 @@ try {
     Check 'start''s exit code line is kept as it is' (Has $t '    [start.ps1] The capture service has stopped (exit code 3).') $t
     Check 'start''s lines with an error message keep only that there was one' ((Has $t '[start.ps1] The capture service could not run [reason withheld]') -and (Has $t '[start.ps1] The capture service has stopped [reason withheld]') -and (Has $t '[start.ps1] The backend could not run [reason withheld]') -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
     Check 'any other [start.ps1] line in a demo log is withheld' (HasNot $t $startMarker) $t
+    Check 'the reasons withheld from start''s lines are counted for the top of the report' ([int]$script:Removed['reasons in start.cmd''s own log lines (an error''s message)'] -eq 3) (($script:Removed.Keys | ForEach-Object { "$_ = $($script:Removed[$_])" }) -join "`n")
     Check 'an error the log has still reaches the top' (Has $t 'The capture service logged 1 error(s). The first: 12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file') $t
 
     $t = (Get-LogsSection $logsDir -Source $weak -Hash $weakHash).Text

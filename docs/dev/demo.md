@@ -310,8 +310,13 @@ What it is made to leave out: screenshots, OCR text, transcripts, note text, win
 tokens, passwords and connection strings. It never opens the recorded sessions. From the logs it keeps
 only the lines ScreenTail's scrubbing logger wrote; any other line a program printed (a crash message
 from .NET, output from a native library) is withheld and shown only as its length. Of any error, only
-the exception's type and where it happened are kept, never its message. Every line then goes through a
-final scrub for anything shaped like a
+the exception's type and where it happened are kept, never its message. The report's own errors are
+treated the same way: a part of it that could not be completed says so in a fixed sentence naming only
+the error's type, such as `The PostgreSQL section could not be completed (System.IO.IOException).`,
+because an error's message can carry a path, a value or a key's name. Of `git` and `dotnet` only what
+they printed when they succeeded is shown, never their error output, and of `backend.exited` and
+`service.exited` only an exit code (an error message there is replaced by a fixed sentence). Every line
+then goes through a final scrub for anything shaped like a
 key, a token or a password, and your user folder is shown as `%USERPROFILE%`. The top of the file says
 what was withheld and removed. Patterns can miss things, so read it before sending, as with anything.
 
@@ -322,7 +327,10 @@ and that folder opens.
 The logs come from `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs`, where `start.cmd` writes the logger's
 lines from the backend and capture service windows (the windows themselves still show everything). A
 demo started with an older `start.cmd` has no capture service log yet: run `stop.cmd`, `start.cmd`, try
-again, then `report.cmd`.
+again, then `report.cmd`. The report reads them again through the same checked filter as the
+end-to-end section (below), and if the filter cannot be checked it shows no log. The lines `start.cmd`
+adds itself say why a window's program stopped: an exit code is kept, and any other reason (an error's
+message, when the program could not run at all) becomes `[reason withheld]`.
 
 ### The End-to-end run section
 
@@ -347,11 +355,12 @@ words, so `unscrambled` or `Juniper Networks` is left alone). Each line is read 
 it, so a line that only looks like one `start.cmd` writes (`[start.ps1] ...`) is withheld too.
 
 The filter is the text in `common.ps1`, the same one `start.cmd` gives the demo windows. Before using it
-the section tests it: it must define the filter, and the filter must withhold a test line the logger
-did not write and a test exception message. That test is the guard. (The section is also given a hash
-of the text, but both come from `common.ps1`, so on a laptop they always match; it is not the check the
-demo windows make of their copy on disk.) If the test fails, the section says the filter could not be
-checked and shows nothing from the run. If a file or the folder cannot be read, it says so in a fixed
+the report tests it, for this section, the demo logs and the capability check's output alike: it must
+define the filter, and the filter must withhold a test line the logger did not write, a test exception
+message, and the reason in a test line like the ones `start.cmd` writes. That test is the guard. (The
+report is also given a hash of the text, but both come from `common.ps1`, so on a laptop they always
+match; it is not the check the demo windows make of their copy on disk.) If the test fails, the section
+says the filter could not be checked and shows nothing from the run. If a file or the folder cannot be read, it says so in a fixed
 sentence, never with the error's own message.
 
 It reads nothing outside that folder, and in it only `e2e.log` and the processes' logs, at most the last
