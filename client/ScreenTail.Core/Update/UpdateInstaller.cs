@@ -113,18 +113,18 @@ public sealed class UpdateInstaller(
 
             if (package.Length != ready.Manifest.Package.Size)
             {
-                return Discarded("The downloaded update changed size since it was downloaded, so it was not installed.");
+                return await DiscardAsync(package, "The downloaded update changed size since it was downloaded, so it was not installed.").ConfigureAwait(false);
             }
 
             var hash = await SHA256.HashDataAsync(package, ct).ConfigureAwait(false);
             if (!string.Equals(Convert.ToHexStringLower(hash), ready.Manifest.Package.Sha256, StringComparison.Ordinal))
             {
-                return Discarded("The downloaded update changed since it was downloaded, so it was not installed.");
+                return await DiscardAsync(package, "The downloaded update changed since it was downloaded, so it was not installed.").ConfigureAwait(false);
             }
 
             if (PublisherIdentity.Mismatch(_running, _publisher.Read(ready.Path, package.SafeFileHandle)) is { } stranger)
             {
-                return Discarded(stranger);
+                return await DiscardAsync(package, stranger).ConfigureAwait(false);
             }
 
             _updates.Installing();
@@ -188,6 +188,13 @@ public sealed class UpdateInstaller(
     }
 
     private static InstallAnswer Refused(string reason) => new(false, reason);
+
+    /// <summary>Closes the package first: Windows will not delete a file this process holds open.</summary>
+    private async Task<InstallAnswer> DiscardAsync(FileStream package, string reason)
+    {
+        await package.DisposeAsync().ConfigureAwait(false);
+        return Discarded(reason);
+    }
 
     private InstallAnswer Discarded(string reason)
     {
