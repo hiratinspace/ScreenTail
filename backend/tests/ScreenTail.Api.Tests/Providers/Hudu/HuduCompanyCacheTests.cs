@@ -329,6 +329,9 @@ public sealed class HuduCompanyCacheTests
             Assert.DoesNotContain("Birch Legal", printed, StringComparison.Ordinal);
         }
 
+        // What an entry does print: how many companies, not the collection, whatever kind it is.
+        Assert.Contains("Companies = 2", entry.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Site, source.ToString(), StringComparison.Ordinal);
         Assert.Equal(16, fingerprint.Length);
         Assert.DoesNotContain("hudu-api-key", fingerprint, StringComparison.Ordinal);
     }
