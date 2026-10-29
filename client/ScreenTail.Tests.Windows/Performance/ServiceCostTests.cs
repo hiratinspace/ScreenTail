@@ -3,6 +3,7 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Perf;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
@@ -160,7 +161,16 @@ public sealed class ServiceCostTests
         try
         {
             await Task.Delay(Slice, ct);
+
+            // The throttle's moves inside the measured window only, and the level it entered the window at:
+            // a figure taken at a lower level is of a service recording less than it should.
+            var movesBefore = rig.ThrottleMoves.Count;
+            var levelAtStart = rig.Throttle.Level;
             var recording = await ProcessCost.MeasureAsync(Slice * 2, 6, ct);
+            var throttled = rig.ThrottleMoves.Skip(movesBefore).ToList();
+            var throttleHistory = throttled.Count == 0
+                ? "none"
+                : string.Join(", ", throttled.Select(move => string.Create(CultureInfo.InvariantCulture, $"{move.From} -> {move.To} at {move.Share * 100:F1}% of the machine")));
             await working.CancelAsync();
             await IgnoringCancellation(workload);
             var minutes = (DateTimeOffset.UtcNow - started).TotalMinutes;
@@ -197,7 +207,8 @@ public sealed class ServiceCostTests
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Recording workload: {staged} text frames staged, {scenes.Kept} scene frames of {scenes.Seen} samples, "
-                + $"{progress.Frames} redacted ({progress.Unread} with no words, discarded), a mean of {progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {progress.Slowest.TotalMilliseconds:F0} ms"));
+                + $"{progress.Frames} redacted ({progress.Unread} with no words, discarded), a mean of {progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {progress.Slowest.TotalMilliseconds:F0} ms; "
+                + $"capture throttle at {levelAtStart} as the measured window began, moves inside it: {throttleHistory} (it reads the whole test process, the host's repainting included; any move fails the measurement, enforced: {Counts})"));
             Measurements.Record(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Disk: the store grew {ProcessCost.Megabytes(grew)} over {minutes:F1} min for {stored} stored frames, "
@@ -210,6 +221,12 @@ public sealed class ServiceCostTests
             Assert.True(
                 !Counts || cpu < RecordingBudgetPercentOfOneCore,
                 $"recording used {cpu:F2}% of one core net of the host, budget {RecordingBudgetPercentOfOneCore:F0}%");
+
+            // A throttled recording takes fewer pictures and reads them more slowly, so its figure would hide
+            // the regression that throttled it (ST-031 AC2).
+            Assert.True(
+                !Counts || (levelAtStart == CaptureLevel.Full && throttled.Count == 0),
+                $"the capture throttle entered the measured window at {levelAtStart} and moved inside it: {throttleHistory}; the CPU figure is of a throttled service");
             Assert.True(
                 !Counts || busy < DiskBudgetMegabytesPerTwentyMinutes,
                 $"{BusySessionFrames} frames of {perFrame / 1024:F0} KB come to {busy:F1} MB, budget {DiskBudgetMegabytesPerTwentyMinutes:F0} MB for twenty minutes");
