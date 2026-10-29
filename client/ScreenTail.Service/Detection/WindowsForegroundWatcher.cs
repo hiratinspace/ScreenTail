@@ -45,6 +45,13 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     public ForegroundWindowInfo Current => _current;
 
+    /// <summary>Whether a window handle still names a window (ST-113: a retry skips one that closed).</summary>
+    public static bool Exists(nint window) => window != 0 && IsWindow(window);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindow(nint window);
+
     /// <summary>False when the hook couldn't be installed and polling is carrying the load.</summary>
     public bool UsingHook => _hookInstalled;
 

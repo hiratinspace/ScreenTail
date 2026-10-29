@@ -174,13 +174,63 @@ public sealed class SessionMachine : IAsyncDisposable
     // ---- transitions -----------------------------------------------------------------------------------
 
     /// <param name="suggestedTicket">A ticket number read off the window at start (ST-077), or null. Digits, never a title.</param>
+    /// <summary>
+    /// Holds every new session back until the returned hold is disposed, or answers null when a session
+    /// is under way (recording, paused, suppressed or finalizing) or another hold is in force (ST-113).
+    ///
+    /// For Windows Installer, which ends this process to replace it: the check that no session is
+    /// recording and the promise that none will start are one step under the transition lock, so no
+    /// start path (the automatic one, the hotkey, the pipe) can slip a session into the gap.
+    /// </summary>
+    public async Task<IDisposable?> HoldStartsAsync(CancellationToken ct = default)
+    {
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // The resting states StartAsync starts from, draft_pending (#230) among them: nothing records there.
+            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending) || _startsHeld)
+            {
+                return null;
+            }
+
+            _startsHeld = true;
+            return new StartHold(this);
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
+    /// <summary>A hold from <see cref="HoldStartsAsync"/> is in force, so no session starts.</summary>
+    public bool StartsHeld => _startsHeld;
+
+    // Volatile: set and cleared under the transition lock, read by the pipe's start for its message.
+    private volatile bool _startsHeld;
+
+    /// <summary>Released once, by whichever dispose comes first.</summary>
+    private sealed class StartHold(SessionMachine machine) : IDisposable
+    {
+        private SessionMachine? _machine = machine;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _machine, null) is { } held)
+            {
+                held._startsHeld = false;
+            }
+        }
+    }
+
     public async Task<bool> StartAsync(RemoteTool tool, bool localOnly = false, string? policyVersion = null, string? suggestedTicket = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(tool);
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending))
+            // A hold from HoldStartsAsync (ST-113: Windows Installer is replacing this process) refuses
+            // every start path, because they all arrive here.
+            if (_startsHeld || State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending))
             {
                 return false;
             }

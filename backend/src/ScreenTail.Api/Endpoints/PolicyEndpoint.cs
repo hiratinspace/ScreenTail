@@ -9,7 +9,16 @@ namespace ScreenTail.Api.Endpoints;
 /// <c>shared/contracts/tenant-policy.v1.json</c>. The client refuses an answer with a field missing, so a
 /// renamed property here stops policy sync rather than unlocking a locked field (INV-11).
 /// </summary>
-public sealed record TenantPolicyResponse(string Version, int RetentionDays, bool LocalOnly, bool LocalOnlyLocked, bool CaptureAllWindows);
+public sealed record TenantPolicyResponse(
+    string Version,
+    int RetentionDays,
+    bool LocalOnly,
+    bool LocalOnlyLocked,
+    bool CaptureAllWindows,
+    string UpdateChannel,
+    bool UpdateChannelLocked,
+    int UpdateCheckHours,
+    bool UpdateChecksUnderLocalOnly);
 
 public static class PolicyEndpoint
 {
@@ -21,11 +30,11 @@ public static class PolicyEndpoint
         {
             var latest = await Policies.LatestAsync(db, who.TenantId, ct).ConfigureAwait(false);
             return Results.Ok(latest is null
-                ? new TenantPolicyResponse(Policies.DefaultVersion, 7, false, false, false)
-                : new TenantPolicyResponse(latest.Version, latest.RetentionDays, latest.LocalOnly, latest.LocalOnlyLocked, latest.CaptureAllWindows));
+                ? new TenantPolicyResponse(Policies.DefaultVersion, 7, false, false, false, "stable", false, 24, false)
+                : new TenantPolicyResponse(latest.Version, latest.RetentionDays, latest.LocalOnly, latest.LocalOnlyLocked, latest.CaptureAllWindows, latest.UpdateChannel, latest.UpdateChannelLocked, latest.UpdateCheckHours, latest.UpdateChecksUnderLocalOnly));
         })
         .WithName("GetPolicy")
-        .WithSummary("The tenant's policy for this device: retention, local-only and whether it is locked, capture scope.");
+        .WithSummary("The tenant's policy for this device: retention, local-only and whether it is locked, capture scope, and updates.");
 
         return group;
     }

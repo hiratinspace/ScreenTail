@@ -19,10 +19,24 @@ public static class Policies
         return db.Policies.Where(p => p.TenantId == tenantId).OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Version).FirstOrDefaultAsync(ct);
     }
 
-    public static async Task<Policy> SetAsync(ScreenTailContext db, Guid tenantId, int retentionDays, bool localOnly, bool localOnlyLocked, bool captureAllWindows, TimeProvider time, CancellationToken ct = default)
+    public static Task<Policy> SetAsync(ScreenTailContext db, Guid tenantId, int retentionDays, bool localOnly, bool localOnlyLocked, bool captureAllWindows, TimeProvider time, CancellationToken ct = default) =>
+        SetAsync(db, tenantId, retentionDays, localOnly, localOnlyLocked, captureAllWindows, new UpdateSettings(), time, ct);
+
+    /// <summary>ST-113's update fields, as an admin sets them. The defaults are the client's own.</summary>
+    /// <param name="Channel">"stable" or "pilot"; anything else is refused.</param>
+    /// <param name="CheckHours">0 to 168; 0 turns update checks off.</param>
+    public sealed record UpdateSettings(string Channel = "stable", bool ChannelLocked = false, int CheckHours = 24, bool UnderLocalOnly = false);
+
+    public static async Task<Policy> SetAsync(ScreenTailContext db, Guid tenantId, int retentionDays, bool localOnly, bool localOnlyLocked, bool captureAllWindows, UpdateSettings updates, TimeProvider time, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(updates);
         ArgumentNullException.ThrowIfNull(time);
+        if (updates.Channel is not ("stable" or "pilot"))
+        {
+            throw new ArgumentException("The update channel is stable or pilot.", nameof(updates));
+        }
+
         var now = time.GetUtcNow();
         var policy = new Policy
         {
@@ -33,6 +47,10 @@ public static class Policies
             LocalOnly = localOnly,
             LocalOnlyLocked = localOnlyLocked,
             CaptureAllWindows = captureAllWindows,
+            UpdateChannel = updates.Channel,
+            UpdateChannelLocked = updates.ChannelLocked,
+            UpdateCheckHours = Math.Clamp(updates.CheckHours, 0, 168),
+            UpdateChecksUnderLocalOnly = updates.UnderLocalOnly,
             CreatedAt = now,
         };
         db.Policies.Add(policy);

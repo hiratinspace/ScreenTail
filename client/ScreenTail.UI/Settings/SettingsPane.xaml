@@ -5,6 +5,7 @@
              xmlns:capture="clr-namespace:ScreenTail.UI.Settings.Capture"
              xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
              xmlns:privacy="clr-namespace:ScreenTail.UI.Settings.Privacy"
+             xmlns:update="clr-namespace:ScreenTail.UI.Update"
              AutomationProperties.Name="Settings">
     <UserControl.Resources>
         <!-- A group of cards: more space above than below, so the heading belongs to what follows. -->
@@ -15,6 +16,8 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
     <Grid Width="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -38,7 +41,11 @@
         <privacy:PrivacyPane Grid.Row="4" DataContext="{Binding Privacy}" />
 
         <TextBlock Grid.Row="5" Style="{StaticResource Settings.Group}" Text="Integrations" />
-        <integrations:IntegrationsPane Grid.Row="6" Margin="0,0,0,24" DataContext="{Binding Integrations}" />
+        <integrations:IntegrationsPane Grid.Row="6" DataContext="{Binding Integrations}" />
+
+        <!-- ST-113: the last group, so the bottom margin the page ends on moves here. -->
+        <TextBlock Grid.Row="7" Style="{StaticResource Settings.Group}" Text="Updates" />
+        <update:UpdatesPane Grid.Row="8" Margin="0,0,0,24" DataContext="{Binding Updates}" />
     </Grid>
     </ScrollViewer>
 </UserControl>

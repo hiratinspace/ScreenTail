@@ -229,6 +229,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                     {
                         _ = settings.Integrations.LoadAsync(_closing);
                     }
+
+                    // Nothing on the Updates card is typed, so it is always read again.
+                    _ = settings.Updates.LoadAsync(_closing);
                 }
 
                 break;

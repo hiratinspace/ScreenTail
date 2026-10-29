@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Where ScreenTail looks for updates and whose signature it accepts on an update manifest (ST-113, ADR-0008).",
+    "",
+    "Compiled into the client (ScreenTail.Core embeds this file) and read by installer/update-manifest.ps1,",
+    "which checks every manifest it signs against these keys before CI uploads it. Nothing here is a secret:",
+    "the keys are public keys, and the private key lives in Azure Key Vault and never leaves it.",
+    "",
+    "feed: the HTTPS folder the manifests are served from, ending in a slash. The client asks for",
+    "<feed><channel>/win-x64.json and sends nothing else: no device, no tenant, no version, no cookie.",
+    "packageHosts: the exact host names a manifest's package URL may name. No wildcards.",
+    "keys: ECDSA P-256 public keys, as base64 DER SubjectPublicKeyInfo, each with the id a manifest names.",
+    "",
+    "Empty until the owner creates the signing key and the hosting (docs/dev/installer.md, 'Updates').",
+    "Until then a build does not check for updates at all and says so in Settings: it fails closed.",
+    "Rotating the key: add the new key here, ship a release signed by the old key that carries both,",
+    "then sign with the new one; remove the old key a release later."
+  ],
+  "feed": null,
+  "packageHosts": [],
+  "keys": []
+}

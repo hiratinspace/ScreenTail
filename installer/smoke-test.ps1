@@ -247,8 +247,17 @@ if ($OlderMsi) {
     New-ItemProperty -Path $userRun -Name $decoyName -Value $decoyCommand -PropertyType String -Force | Out-Null
 
     Write-Step 'Silent upgrade to the new package while the service is running'
-    $code = Invoke-Msi '/i' $Msi 'upgrade.log'
+    # ST-113: the update installer holds the package open, sharing it for reading only, for as long as
+    # Windows Installer runs. The upgrade runs the same way here, so a package Windows Installer could not
+    # open alongside that handle fails this check rather than a technician's update.
+    $held = [System.IO.File]::Open((Resolve-Path $Msi).Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $code = Invoke-Msi '/i' $Msi 'upgrade.log'
+    } finally {
+        $held.Dispose()
+    }
     Check 'msiexec /i new /qn over the older one exits 0, with no restart needed' ($code -eq 0) "exit $code"
+    Check 'the upgrade ran while the package was held open for reading only, as the update installer holds it' ($code -eq 0)
     Check 'the upgrade closed the running copies' ((Get-InstalledProcesses).Count -eq 0)
     Check 'the upgrade kept the user data (store key still there)' (Test-Path (Join-Path $dataDir 'store.key'))
     Check "the upgrade left the UI's own Run value alone" ($null -ne (Get-RunValue $userRun 'ScreenTail'))

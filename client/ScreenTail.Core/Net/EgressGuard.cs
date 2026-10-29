@@ -45,6 +45,14 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
     /// </summary>
     private const int MaxHops = 4;
 
+    /// <summary>
+    /// The update channel's guard (ST-113): the same policy, so the same decisions, over a handler of its
+    /// own that keeps no cookies. A cookie the feed set would go back to it on every check, which is a
+    /// device identifier in all but name. Redirects stay this guard's to decide, hop by hop.
+    /// </summary>
+    public static EgressGuard ForUpdates(EgressPolicy policy) =>
+        new(policy, new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+
     /// <summary>Where a caller declares what a request is for. Without it the request does not go out.</summary>
     public static readonly HttpRequestOptionsKey<EgressPurpose> PurposeKey = new("ScreenTail.EgressPurpose");
 

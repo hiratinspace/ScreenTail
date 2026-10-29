@@ -204,8 +204,45 @@ public sealed class LiveShell : IAsyncDisposable
         if (_notifier.Observe(snapshot.Capture) is { } notice)
         {
             _tray.Notify(notice);
+            return;
+        }
+
+        _ = AnnounceUpdateAsync(snapshot.Capture);
+    }
+
+    // ST-113 AC1: an update that is ready is announced once per version, and only when no session is
+    // running (UpdateNotices holds that rule). The service is asked at most every ten minutes.
+    private static readonly TimeSpan UpdateAskEvery = TimeSpan.FromMinutes(10);
+    private DateTimeOffset _updateAsked = DateTimeOffset.MinValue;
+    private string? _updateAnnounced;
+
+    private async Task AnnounceUpdateAsync(CaptureStateSnapshot? capture)
+    {
+        if (UpdateNotices.For(capture, Probe) is null || DateTimeOffset.UtcNow - _updateAsked < UpdateAskEvery)
+        {
+            return;
+        }
+
+        _updateAsked = DateTimeOffset.UtcNow;
+        var report = await new PipeUpdates(_connection).ReportAsync().ConfigureAwait(true);
+        if (!_disposed && UpdateNotices.For(_state.Snapshot.Capture, report) is { } notice && notice.Key != _updateAnnounced)
+        {
+            _updateAnnounced = notice.Key;
+            _tray.Notify(notice);
         }
     }
+
+    /// <summary>A ready update, to ask <see cref="UpdateNotices"/> whether this state may hear about one at all.</summary>
+    private static readonly UpdateReported Probe = new()
+    {
+        State = "ready",
+        InstalledVersion = "0.0.0",
+        AvailableVersion = "0.0.1",
+        Channel = "stable",
+        ChannelLocked = false,
+        Sentence = string.Empty,
+        CanInstall = true,
+    };
 
     public void ShowWindow()
     {
@@ -225,7 +262,8 @@ public sealed class LiveShell : IAsyncDisposable
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                     new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
                     new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
-                    new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection)))));
+                    new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection))),
+                    new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))));
 
             // Once, when the window is made. A closed window's Review pane may still be writing its last,
             // and Quit waits for it even after the window has gone (T-169).

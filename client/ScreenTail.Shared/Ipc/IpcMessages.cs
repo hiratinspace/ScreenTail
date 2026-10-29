@@ -46,6 +46,9 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(RemoveIntegrationCommand), "remove_integration")]
 [JsonDerivedType(typeof(CheckIntegrationCommand), "check_integration")]
 [JsonDerivedType(typeof(UnmapCompanyCommand), "unmap_company")]
+[JsonDerivedType(typeof(GetUpdateCommand), "get_update")]
+[JsonDerivedType(typeof(InstallUpdateCommand), "install_update")]
+[JsonDerivedType(typeof(SetUpdateChannelCommand), "set_update_channel")]
 public abstract record IpcCommand
 {
     [JsonPropertyName("request_id")]
@@ -684,6 +687,57 @@ public sealed record UnmapCompanyCommand : IpcCommand
     public required string PsaCompany { get; init; }
 }
 
+// Updates (ST-113): where this installation stands, the technician's channel, and the one action.
+
+/// <summary>Where this installation stands with updates. Answered by an <see cref="UpdateReported"/>.</summary>
+public sealed record GetUpdateCommand : IpcCommand;
+
+/// <summary>
+/// Installs the update that is ready. Refused with a failed <c>result</c> while a session is recording,
+/// when nothing is ready, or when the package fails its checks again just before it is started.
+/// </summary>
+public sealed record InstallUpdateCommand : IpcCommand;
+
+/// <summary>The technician's channel, "stable" or "pilot". Refused when the admin's policy chose it.</summary>
+public sealed record SetUpdateChannelCommand : IpcCommand
+{
+    [JsonPropertyName("channel")]
+    public required string Channel { get; init; }
+}
+
+public sealed record UpdateReported : IpcEvent
+{
+    /// <summary>
+    /// not_configured, development_build, off, channel_unknown, blocked, waiting, checking, up_to_date,
+    /// available, downloading, ready, installing, refused or failed.
+    /// </summary>
+    [JsonPropertyName("state")]
+    public required string State { get; init; }
+
+    [JsonPropertyName("installed_version")]
+    public required string InstalledVersion { get; init; }
+
+    /// <summary>A verified newer version, once there is one.</summary>
+    [JsonPropertyName("available_version")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AvailableVersion { get; init; }
+
+    [JsonPropertyName("channel")]
+    public required string Channel { get; init; }
+
+    /// <summary>The admin's policy chose the channel, so Settings shows it read-only (INV-11).</summary>
+    [JsonPropertyName("channel_locked")]
+    public required bool ChannelLocked { get; init; }
+
+    /// <summary>One sentence for Settings.</summary>
+    [JsonPropertyName("sentence")]
+    public required string Sentence { get; init; }
+
+    /// <summary>An update is ready and no session is recording, so Install may be pressed.</summary>
+    [JsonPropertyName("can_install")]
+    public required bool CanInstall { get; init; }
+}
+
 /// <summary>A message from the service to the UI.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloAck), "hello_ack")]
@@ -708,6 +762,7 @@ public sealed record UnmapCompanyCommand : IpcCommand
 [JsonDerivedType(typeof(CaptureSettingsReported), "capture_settings")]
 [JsonDerivedType(typeof(IntegrationDetailsListed), "integration_details")]
 [JsonDerivedType(typeof(IntegrationChecked), "integration_checked")]
+[JsonDerivedType(typeof(UpdateReported), "update")]
 public abstract record IpcEvent
 {
     /// <summary>

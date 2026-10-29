@@ -2029,10 +2029,7 @@ EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall r
 - **Epic/Feature:** RELEASE
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** Open.
-
-**Description:**
-Signed updates, stable/beta channels, applied at idle launch, never during a session.
+- **Status:** **Partial 2026-10-29: built and tested; switched off until the owner creates the key and the hosting.** ADR-0008 (Proposed). The capture service checks `<feed><channel>/win-x64.json`, an ECDSA P-256 signed manifest it believes only after the signature verifies with a key compiled into the client (`shared/release/update-trust.json`, empty until the owner fills it in, so no build makes an update request yet), under its own egress purpose to the compiled-in hosts only, never under local-only unless the tenant's admin allows it, with no credential or device in the request, and only after this run's first policy fetch. It refuses and logs a bad signature, another channel or architecture, a downgrade or a replayed older release, an installation older than the minimum, a package host it does not trust, and a malformed hash or size (**AC2**). A newer release downloads while no session is recording and is kept only if its size and SHA-256 match; the tray announces it once, only when no session is running, and Settings → Updates offers Install only then (**AC1**). Install re-checks the package through a write-locked handle (hash, Authenticode, timestamp, publisher by identity rather than leaf certificate), holds every session start, and starts `msiexec /i /passive /norestart`, which asks for an administrator's approval; no privileged ScreenTail process is added. The channel (stable or pilot) is chosen in Settings unless the admin's policy locks it, and the admin sets the interval and the local-only exception (**AC3**; INV-11; backend and contract carry the four fields). CI signs every build on main for pilot only, through Key Vault and the signing job's OIDC token, skipped until configured; stable is signed only by the hand-started `promote-stable` workflow in the owner's `release-stable` environment, which fails closed until it exists. Still owner: the Key Vault key, the hosting (ST-007), the two environments' settings, and the UAC prompt checked on the laptop with the first signed build (`docs/dev/installer.md`, "Updates").
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** None
@@ -2045,7 +2042,7 @@ Signed updates, stable/beta channels, applied at idle launch, never during a ses
 
 **Agent brief**
 - Read: ST-112
-- Write: `/client/ScreenTail.UI/Update/*`, release feed manifest
+- Write: `/client/ScreenTail.UI/Update/*`, release feed manifest (also `/client/ScreenTail.Core/Update/*`, `/installer/update-manifest.ps1`, `.github/workflows/promote-stable.yml`, `/shared/release/*`)
 - Verify: `UpdateTests`
 ---
 

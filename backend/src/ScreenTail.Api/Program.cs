@@ -189,6 +189,7 @@ if (Array.IndexOf(args, "--invite") is var inviteAt and >= 0)
 }
 
 // ST-047: --set-policy <tenant-id> [retention=<days>] [local-only=true|false] [locked=true|false] [all-windows=true|false]
+// ST-113: [update-channel=stable|pilot] [update-channel-locked=true|false] [update-hours=0-168] [update-local-only=true|false]
 // A new policy row each time; devices pick it up within the hour.
 if (Array.IndexOf(args, "--set-policy") is var policyAt and >= 0)
 {
@@ -202,8 +203,13 @@ if (Array.IndexOf(args, "--set-policy") is var policyAt and >= 0)
         settings.TryGetValue("local-only", out var lo) && bool.Parse(lo),
         settings.TryGetValue("locked", out var lk) && bool.Parse(lk),
         settings.TryGetValue("all-windows", out var aw) && bool.Parse(aw),
+        new Policies.UpdateSettings(
+            settings.TryGetValue("update-channel", out var uc) ? uc : "stable",
+            settings.TryGetValue("update-channel-locked", out var ucl) && bool.Parse(ucl),
+            settings.TryGetValue("update-hours", out var uh) && int.TryParse(uh, out var hours) ? hours : 24,
+            settings.TryGetValue("update-local-only", out var ulo) && bool.Parse(ulo)),
         scope.ServiceProvider.GetRequiredService<TimeProvider>());
-    Console.WriteLine($"policy  {set.Version}  retention {set.RetentionDays} d  local-only {set.LocalOnly} (locked {set.LocalOnlyLocked})  all-windows {set.CaptureAllWindows}");
+    Console.WriteLine($"policy  {set.Version}  retention {set.RetentionDays} d  local-only {set.LocalOnly} (locked {set.LocalOnlyLocked})  all-windows {set.CaptureAllWindows}  updates {set.UpdateChannel} (locked {set.UpdateChannelLocked}) every {set.UpdateCheckHours} h, under local-only {set.UpdateChecksUnderLocalOnly}");
     return;
 }
 
