@@ -52,6 +52,13 @@ $e2eDigits = '{0:0000}' -f (Get-Random -Maximum 10000)
 $e2eSeparated = $script:E2eSecretFirstWords[0] + ' ' + $e2eDigits + ' ' + $script:E2eSecretSecondWords[0]
 $startedAt = (Get-Date).AddMinutes(-3)
 $startedText = $startedAt.ToString('yyyy-MM-dd HH:mm:ss', $invariant)
+# An exception's message as an IO or parsing error could carry one: a client's folder and a secret-shaped
+# value. The client's name is what proves a message stayed out, because no scrub rule removes it.
+$client = 'Northwind' + (New-Random 6)
+$madePath = 'D:\Clients\' + $client + '\Board Minutes.docx'
+$madeSecret = 'gh' + 'p_' + (New-Random 36)
+$innerMarker = 'INNER-' + [guid]::NewGuid().ToString('N')
+$thrownMessage = "Access to the path '$madePath' is denied; " + 'pass' + "word=$madeSecret"
 
 function Write-Lines([string]$Path, [string[]]$Lines) {
     [System.IO.File]::WriteAllLines($Path, $Lines, $utf8)
@@ -120,6 +127,30 @@ function Get-Section {
     return [pscustomobject]@{ Lines = @($script:Body); Text = ((@($script:Body) + $scrubbed) -join "`n"); Notices = $scrubbed }
 }
 
+# The demo logs section over a made-up logs folder (service.log, backend.log), as the report would write it.
+function Get-LogsSection {
+    param([string]$Folder, [string]$Source = $script:DemoLogWriterSource, [string]$Hash = $script:DemoLogWriterHash)
+    $script:Body = New-Object System.Collections.Generic.List[string]
+    $script:Notices = New-Object System.Collections.Generic.List[string]
+    $script:Problems = New-Object System.Collections.Generic.List[object]
+    $script:Removed = [ordered]@{}
+    $logs = @(
+        @{ Name = 'Capture service'; Path = (Join-Path $Folder 'service.log'); Rank = 90 },
+        @{ Name = 'Backend'; Path = (Join-Path $Folder 'backend.log'); Rank = 92 }
+    )
+    Add-DemoLogsReport -Logs $logs -OldBackendLog (Join-Path $Folder 'old-backend.log') -CrashDir (Join-Path $Folder 'crashes') -FilterSource $Source -FilterHash $Hash
+    $problems = @($script:Problems | ForEach-Object { Protect-ReportText $_.Text })
+    return [pscustomobject]@{ Lines = @($script:Body); Text = ((@($script:Body) + $problems) -join "`n") }
+}
+
+# One section run through Invoke-Section, and how many kinds of thing the final scrub removed from it.
+function Get-ThrowingSection([scriptblock]$Section) {
+    $script:Body = New-Object System.Collections.Generic.List[string]
+    $script:Removed = [ordered]@{}
+    Invoke-Section 'Probe' $Section
+    return [pscustomobject]@{ Lines = @($script:Body); Text = (@($script:Body) -join "`n"); Removed = $script:Removed.Count }
+}
+
 $script:bad = 0
 $script:n = 0
 function Check([string]$Name, [bool]$Ok, [string]$Text) {
@@ -138,6 +169,9 @@ function HasNot([string]$Text, [string]$Part) { return ($Text.IndexOf($Part, [St
 
 $link = $null
 try {
+    # Before anything below loads the filter into a section: report.ps1 itself loads none unchecked.
+    Check 'report.ps1 loads no log filter outside a checked reader' ($null -eq (Get-Command ConvertTo-DemoLogLine -ErrorAction SilentlyContinue)) 'ConvertTo-DemoLogLine is defined after dot-sourcing report.ps1 -FunctionsOnly'
+
     # --- A run that failed --------------------------------------------------------------------------
     $folder = New-RunFolder 'failed-run'
     $section = Get-Section $folder
@@ -227,6 +261,99 @@ try {
     $t = @(Select-ProgramOutputLines $output) -join "`n"
     Check 'a program''s raw [start.ps1] line is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTail's logger withheld,")) $t
     Check 'a program''s output keeps logger lines and an exception''s type only' ((Has $t 'capabilities checked') -and (HasNot $t 'Salary Review') -and (Has $t 'Unhandled exception. System.Exception [message and stack withheld]')) $t
+    $weakHash = Get-DemoLogWriterHash $weak
+    $t = @(Select-ProgramOutputLines -Text $output -FilterSource $weak -FilterHash $weakHash) -join "`n"
+    Check 'a program''s output is not shown through a filter that keeps everything' ((Has $t '[The log filter could not be checked, so this output is not shown.]') -and (HasNot $t 'capabilities checked') -and (HasNot $t 'Salary Review') -and (HasNot $t $startMarker)) $t
+
+    # --- A section that throws: a fixed sentence and the exception's type, never its text -------------
+    $pattern = '^  The Probe section could not be completed \([A-Za-z_][A-Za-z0-9_.]*\)\.$'
+    $thrown = Get-ThrowingSection { throw (New-Object System.UnauthorizedAccessException($thrownMessage, (New-Object System.IO.IOException("$innerMarker $madePath")))) }
+    $t = $thrown.Text
+    Check 'a section that throws says so in a fixed sentence with the type' (($thrown.Lines.Count -eq 3) -and ($thrown.Lines[1] -eq '== Probe') -and ($thrown.Lines[2] -ceq '  The Probe section could not be completed (System.UnauthorizedAccessException).')) $t
+    Check 'a section that throws shows no message, path, secret or inner exception' ((HasNot $t $client) -and (HasNot $t 'Board Minutes') -and (HasNot $t $madeSecret) -and (HasNot $t $innerMarker) -and (HasNot $t 'denied') -and (HasNot $t 'could not be checked:')) $t
+    Check 'the final scrub had nothing to remove from it, so the message never reached it' ($thrown.Removed -eq 0) $t
+
+    $t = (Get-ThrowingSection { throw $thrownMessage }).Text
+    Check 'a thrown string shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
+    $t = (Get-ThrowingSection { Write-Error -Message $thrownMessage -ErrorAction Stop }).Text
+    Check 'an error written with Write-Error shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
+    $t = (Get-ThrowingSection { $null = [System.IO.File]::ReadAllText($madePath) }).Text
+    Check 'a .NET method that fails on a path shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client) -and (HasNot $t 'Exception calling') -and (HasNot $t 'Could not find')) $t
+    $t = (Get-ThrowingSection { $null = ('{"' + $client + '": ') | ConvertFrom-Json }).Text
+    Check 'a parse error shows only its type' (($t -split "`n")[2] -cmatch $pattern -and (HasNot $t $client)) $t
+    Check 'something that is not an exception has no type to show' ((Get-ExceptionTypeName $thrownMessage) -ceq 'an unknown error') (Get-ExceptionTypeName $thrownMessage)
+
+    # --- The capability check, when the capture service cannot be started ---------------------------
+    $script:Body = New-Object System.Collections.Generic.List[string]
+    $script:Problems = New-Object System.Collections.Generic.List[object]
+    Add-CapabilityCheck -Exe (Join-Path $root ($client + '.exe')) -WorkingDirectory $root -Seconds 5
+    $t = @($script:Body) -join "`n"
+    Check 'a capability check that cannot run says so with the type only' (($t -cmatch 'Capability check +could not run \([A-Za-z_][A-Za-z0-9_.]*\)') -and (HasNot $t $client) -and (HasNot $t 'cannot find') -and (HasNot $t 'Exception calling')) $t
+
+    # --- Why a demo window's program stopped (backend.exited, service.exited) -----------------------
+    $exited = Join-Path $root 'exited'
+    New-Item -ItemType Directory -Force -Path $exited | Out-Null
+    Write-Lines (Join-Path $exited 'code.exited') @('exit code 3')
+    Write-Lines (Join-Path $exited 'message.exited') @($thrownMessage)
+    Write-Lines (Join-Path $exited 'blocked.exited') @("Program '$madePath' failed to run: An Application Control policy has blocked this file")
+    $reason = Get-ExitedReason (Join-Path $exited 'code.exited')
+    Check 'an exit code is shown as start wrote it' (($reason.Text -ceq 'exit code 3') -and -not $reason.Blocked) $reason.Text
+    $reason = Get-ExitedReason (Join-Path $exited 'message.exited')
+    Check 'an error message start wrote is not shown' ((HasNot $reason.Text $client) -and (HasNot $reason.Text 'denied') -and (HasNot $reason.Text $madeSecret) -and -not $reason.Blocked) $reason.Text
+    $reason = Get-ExitedReason (Join-Path $exited 'blocked.exited')
+    Check 'a Windows block is still recognised, its message not shown' ($reason.Blocked -and (HasNot $reason.Text $client) -and (HasNot $reason.Text 'Application Control')) $reason.Text
+
+    # --- A program's error output (git, dotnet) is never used -----------------------------------------
+    $native = Invoke-Native -FilePath 'cmd.exe' -ArgumentList @('/c', "echo out-$client& echo err-$client 1>&2")
+    $t = 'Lines: ' + (@($native.Lines) -join ' | ') + "`nOut: " + (@($native.Out) -join ' | ')
+    Check 'a program''s output is kept apart from its error output' ((Has (@($native.Lines) -join ' ') "err-$client") -and (Has (@($native.Out) -join ' ') "out-$client") -and (HasNot (@($native.Out) -join ' ') "err-$client")) $t
+    Check 'a program that succeeded gives its output only' ((@(Get-NativeOutput $native) -join ' ') -match "^out-$client\s*$") $t
+    $failed = Invoke-Native -FilePath 'cmd.exe' -ArgumentList @('/c', "echo fatal: unsafe repository C:/Users/$client/src 1>&2& exit /b 128")
+    $t = 'Exit: ' + $failed.ExitCode + "`nLines: " + (@($failed.Lines) -join ' | ')
+    Check 'a program that failed gives nothing, not its error' (($failed.ExitCode -eq 128) -and (@(Get-NativeOutput $failed).Count -eq 0)) $t
+
+    # --- The demo logs section: the checked filter, and start's own lines rebuilt ---------------------
+    $logsDir = Join-Path $root 'demo-logs'
+    New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
+    Write-Lines (Join-Path $logsDir 'service.log') @(
+        '12:00:01.000 INFO  ScreenTail.Service.Program: demo service started',
+        $windowTitle,
+        '[start.ps1] The capture service has stopped (exit code 3).',
+        "[start.ps1] The capture service could not run: $thrownMessage",
+        "[start.ps1] The capture service has stopped ($thrownMessage).",
+        "[start.ps1] Payroll $startMarker",
+        '12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file',
+        "    System.IO.IOException: $exceptionMessage",
+        '    at ScreenTail.Service.Store.Open()'
+    )
+    Write-Lines (Join-Path $logsDir 'backend.log') @(
+        '12:00:02.000 INFO  ScreenTail.Api.Program: demo backend started',
+        "[start.ps1] The backend could not run: $thrownMessage"
+    )
+    $t = (Get-LogsSection $logsDir).Text
+    Check 'the demo logs section runs through the checked filter' ((Has $t '== Logs') -and (Has $t '    12:00:01.000 INFO  ScreenTail.Service.Program: demo service started') -and (Has $t 'demo backend started') -and (HasNot $t 'could not be checked') -and (HasNot $t 'could not be completed')) $t
+    Check 'a demo log''s title-like line is withheld' ((HasNot $t 'Payroll') -and (Has $t "[line not from ScreenTail's logger withheld, $($windowTitle.Length) chars]")) $t
+    Check 'a demo log''s exception message is withheld, its type kept' ((HasNot $t 'Board Minutes') -and (Has $t '    System.IO.IOException: [message withheld]')) $t
+    Check 'start''s exit code line is kept as it is' (Has $t '    [start.ps1] The capture service has stopped (exit code 3).') $t
+    Check 'start''s lines with an error message keep only that there was one' ((Has $t '[start.ps1] The capture service could not run [reason withheld]') -and (Has $t '[start.ps1] The capture service has stopped [reason withheld]') -and (Has $t '[start.ps1] The backend could not run [reason withheld]') -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
+    Check 'any other [start.ps1] line in a demo log is withheld' (HasNot $t $startMarker) $t
+    Check 'an error the log has still reaches the top' (Has $t 'The capture service logged 1 error(s). The first: 12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file') $t
+
+    $t = (Get-LogsSection $logsDir -Source $weak -Hash $weakHash).Text
+    Check 'the demo logs section refuses a filter that keeps everything' ((Has $t 'The log filter could not be checked, so no log is shown.') -and (HasNot $t 'demo service started') -and (HasNot $t 'Payroll') -and (HasNot $t $client) -and (HasNot $t 'logged 1 error')) $t
+
+    $changedText = Get-LogsSection $logsDir -Source ($script:DemoLogWriterSource + "`n# changed") -Hash $script:DemoLogWriterHash
+    Check 'the demo logs section refuses a filter that fails its hash' ((Has $changedText.Text 'The log filter could not be checked, so no log is shown.') -and (HasNot $changedText.Text 'demo service started')) $changedText.Text
+
+    # The filter as it was: every [start.ps1] line read back kept whole. Refused by every reader.
+    $reading = 'if ($State.Reading) {'
+    $keepsStart = $script:DemoLogWriterSource.Replace($reading, $reading + "`n        if (`$Line.StartsWith('[start.ps1] ', [StringComparison]::Ordinal)) { return `$Line }")
+    Check 'the test filter that keeps start''s lines was made' (-not [string]::Equals($keepsStart, $script:DemoLogWriterSource, [StringComparison]::Ordinal)) $reading
+    $keepsHash = Get-DemoLogWriterHash $keepsStart
+    $t = (Get-LogsSection $logsDir -Source $keepsStart -Hash $keepsHash).Text
+    Check 'the demo logs section refuses a filter that keeps start''s lines whole' ((Has $t 'The log filter could not be checked, so no log is shown.') -and (HasNot $t $client)) $t
+    $t = (Get-Section $folder -Source $keepsStart -Hash $keepsHash).Text
+    Check 'the end-to-end section refuses a filter that keeps start''s lines whole' ((Has $t 'The log filter could not be checked, so nothing from the end-to-end run is shown.') -and (HasNot $t 'Capture service started')) $t
 }
 catch {
     $script:bad++
