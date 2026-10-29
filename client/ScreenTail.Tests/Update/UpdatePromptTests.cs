@@ -25,6 +25,7 @@ public sealed class UpdatePromptTests
     [InlineData(CaptureStates.Idle)]
     [InlineData(CaptureStates.DraftReady)]
     [InlineData(CaptureStates.DraftFailed)]
+    [InlineData(CaptureStates.DraftPending)]
     public void AReadyUpdateIsAnnouncedWhenNoSessionIsRunning(string state)
     {
         var notice = UpdateNotices.For(Capture(state), Ready());

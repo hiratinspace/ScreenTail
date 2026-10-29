@@ -428,11 +428,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         foreground.Changed += coordinator.Observe;
         retryForeground = () => _ = coordinator.Retry(foreground.Current, WindowsForegroundWatcher.Exists);
 
-        // A download that a session stopped continues once the session is over, rather than at the
+        // A download that a session stopped continues once the session is over (any resting state,
+        // draft_pending from #230 among them), rather than at the
         // loop's next half-hourly retry.
         machine.StateChanged += snapshot =>
         {
-            if (snapshot.State is CaptureStates.Idle or CaptureStates.DraftReady or CaptureStates.DraftFailed
+            if (UpdateService.SessionOver(snapshot.State)
                 && updates.Status.State == UpdateState.Available)
             {
                 updates.CheckSoon();

@@ -176,7 +176,8 @@ public sealed partial class UpdateService : IDisposable
     /// recording, so a download a session interrupted may continue: the host wakes the loop then.
     /// </summary>
     public static bool SessionOver(string captureState) =>
-        captureState is Shared.Ipc.CaptureStates.Idle or Shared.Ipc.CaptureStates.DraftReady or Shared.Ipc.CaptureStates.DraftFailed;
+        captureState is Shared.Ipc.CaptureStates.Idle or Shared.Ipc.CaptureStates.DraftReady or Shared.Ipc.CaptureStates.DraftFailed
+            or Shared.Ipc.CaptureStates.DraftPending;
 
     /// <summary>Checks again soon: the technician changed channel.</summary>
     public void CheckSoon()

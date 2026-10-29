@@ -187,7 +187,8 @@ public sealed class SessionMachine : IAsyncDisposable
         await _transitions.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed) || _startsHeld)
+            // The resting states StartAsync starts from, draft_pending (#230) among them: nothing records there.
+            if (State is not (SessionState.Idle or SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending) || _startsHeld)
             {
                 return null;
             }
