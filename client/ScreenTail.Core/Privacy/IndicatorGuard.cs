@@ -30,40 +30,55 @@ namespace ScreenTail.Core.Privacy;
 /// zero-size report used to go on counting for its whole lifetime, plus the grace after it, and for as
 /// long as a UI that had missed the start went on sending it.
 /// </summary>
-/// <param name="showing">Whether any indicator report is current, the pill put away included.</param>
-/// <param name="pill">
-/// Whether a current report has the pill's own rectangle. What a running session needs. Null for a caller
-/// whose reports are all of the pill, so the two read the same.
-/// </param>
-public sealed class IndicatorGuard(
-    SessionMachine machine,
-    Func<bool> showing,
-    TimeProvider? time = null,
-    IndicatorOptions? options = null,
-    Func<bool>? pill = null)
+public sealed class IndicatorGuard
 {
+    private readonly SessionMachine _machine;
+    private readonly Func<bool> _showing;
+    private readonly Func<bool> _pill;
+    private readonly TimeProvider _time;
+    private readonly IndicatorOptions _options;
+    private DateTimeOffset? _goneSince;
+
+    /// <summary>The session <see cref="_goneSince"/> belongs to, or null between sessions.</summary>
+    private string? _goneIn;
+    private long _failures;
+
     /// <summary>
     /// The guard over the UI's reports, as the service wires it: any report counts between sessions, and
-    /// only the pill during one.
+    /// only the pill during one. The only constructor the service can reach, so it cannot be wired over
+    /// something that does not tell the pill from the pill put away.
     /// </summary>
     public IndicatorGuard(SessionMachine machine, IndicatorReports reports, TimeProvider? time = null, IndicatorOptions? options = null)
-        : this(machine, () => reports.Showing, time, options, () => reports.PillShowing)
+        : this(machine, Showing(reports), time, options, () => reports.PillShowing)
     {
     }
 
-    private readonly Func<bool> _pill = pill ?? showing;
-
-    private readonly TimeProvider _time = time ?? TimeProvider.System;
-    private readonly IndicatorOptions _options = options ?? new IndicatorOptions();
-    private DateTimeOffset? _goneSince;
-    private long _failures;
+    /// <summary>For tests, whose reports are a plain yes or no.</summary>
+    /// <param name="showing">Whether any indicator report is current, the pill put away included.</param>
+    /// <param name="pill">
+    /// Whether a current report has the pill's own rectangle. What a running session needs. Null for a
+    /// test whose reports are all of the pill, so the two read the same.
+    /// </param>
+    internal IndicatorGuard(
+        SessionMachine machine,
+        Func<bool> showing,
+        TimeProvider? time = null,
+        IndicatorOptions? options = null,
+        Func<bool>? pill = null)
+    {
+        _machine = machine ?? throw new ArgumentNullException(nameof(machine));
+        _showing = showing ?? throw new ArgumentNullException(nameof(showing));
+        _pill = pill ?? showing;
+        _time = time ?? TimeProvider.System;
+        _options = options ?? new IndicatorOptions();
+    }
 
     /// <summary>
     /// True while the session keeps this guard's hold, which a pause does not end. Asked of the session
     /// every time rather than remembered: a remembered hold went stale across a pause and across a
     /// restart, and was wrong in both directions (2026-10-12 review, T-41 and T-50).
     /// </summary>
-    public bool Holding => machine.IsHeld(CaptureStateReason.NoIndicator);
+    public bool Holding => _machine.IsHeld(CaptureStateReason.NoIndicator);
 
     /// <summary>How many separate times capture has been suppressed for this. Counts only (INV-10).</summary>
     public int Holds { get; private set; }
@@ -93,7 +108,7 @@ public sealed class IndicatorGuard(
     /// Between sessions any report counts, the pill put away included, so every start has the same gate:
     /// automatic, the hotkey and the pipe. While a session runs only the pill counts.
     /// </summary>
-    public bool Indicated => UnderWay(machine.State) ? _pill() : showing();
+    public bool Indicated => UnderWay(_machine.State) ? _pill() : _showing();
 
     /// <summary>
     /// One pass: bring the session into line with whether anything is showing the indicator.
@@ -103,8 +118,18 @@ public sealed class IndicatorGuard(
     public async Task<bool> TickAsync(CancellationToken ct = default)
     {
         var now = _time.GetUtcNow();
-        var underWay = UnderWay(machine.State);
-        if (underWay ? _pill() : showing())
+        var underWay = UnderWay(_machine.State);
+
+        // An absence belongs to the session it was seen in. A session stopped and another started between
+        // two passes would otherwise inherit the old time and be suppressed with none of its own grace.
+        var session = underWay ? _machine.SessionId : null;
+        if (!string.Equals(session, _goneIn, StringComparison.Ordinal))
+        {
+            _goneSince = null;
+            _goneIn = session;
+        }
+
+        if (underWay ? _pill() : _showing())
         {
             _goneSince = null;
         }
@@ -113,7 +138,7 @@ public sealed class IndicatorGuard(
             // Only the pill put away, in a session: the pill has been missing since the session started,
             // so its grace runs from then, and the session's own clock says how long ago that was. With
             // nothing reported at all, the grace runs from the first pass that noticed, as for a restart.
-            var missing = underWay && showing() ? now - TimeSpan.FromMilliseconds(machine.NowMs) : now;
+            var missing = underWay && _showing() ? now - TimeSpan.FromMilliseconds(_machine.NowMs) : now;
             _goneSince = _goneSince is { } gone && gone <= missing ? gone : missing;
         }
 
@@ -131,7 +156,7 @@ public sealed class IndicatorGuard(
             // Paused, the session records the hold and stays paused, so Resume goes straight to Suppressed.
             // Suppress fails when the session is stopped or idle, and correcting that is not this guard's
             // business. Then nothing is held, and the session says so.
-            held = await machine.SuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
+            held = await _machine.SuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
             if (held)
             {
                 Holds++;
@@ -142,8 +167,14 @@ public sealed class IndicatorGuard(
 
         // The hold is over, paused or not. Paused, this leaves the session paused and lets go of the
         // hold, so Resume does not go back to a suppression nothing would lift (2026-10-12 review, T-41).
-        _ = await machine.UnsuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
+        _ = await _machine.UnsuppressAsync(CaptureStateReason.NoIndicator, ct).ConfigureAwait(false);
         return false;
+    }
+
+    private static Func<bool> Showing(IndicatorReports reports)
+    {
+        ArgumentNullException.ThrowIfNull(reports);
+        return () => reports.Showing;
     }
 
     /// <summary>Running, paused or suppressed: a session under way, in which only the pill counts.</summary>

@@ -456,6 +456,17 @@ public sealed class IndicatorGuardTests : IAsyncDisposable
     }
 
     [Fact]
+    public void TheServiceCanOnlyBuildTheGuardOverTheReports()
+    {
+        // The host is in the service, out of this suite's reach. A guard over a plain "something is
+        // showing" cannot tell the pill from the pill put away, and wired that way it would quietly undo
+        // all of the above, so the only constructor outside Core and its tests takes the reports.
+        var constructor = Assert.Single(typeof(IndicatorGuard).GetConstructors());
+
+        Assert.Contains(constructor.GetParameters(), parameter => parameter.ParameterType == typeof(IndicatorReports));
+    }
+
+    [Fact]
     public async Task ASessionSuppressedForWantOfThePillStaysSuppressedWhileThePillIsAway()
     {
         // Suppressed is still a session under way. Read as between sessions, the zero-size report would
