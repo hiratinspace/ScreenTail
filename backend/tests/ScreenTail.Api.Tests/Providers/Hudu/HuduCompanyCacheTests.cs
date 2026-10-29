@@ -291,6 +291,48 @@ public sealed class HuduCompanyCacheTests
         await answering;
     }
 
+    [Fact]
+    public async Task AnExpiredListIsLetGoAtTheLookupThatFindsIt()
+    {
+        // An old list and the old key's fingerprint are not held after their time just because the
+        // load that would replace them has not answered, or does not succeed.
+        var cache = new HuduCompanyCache(_time);
+        var first = Get(cache);
+        await _load.Started(1);
+        _load.Answer(0, Old);
+        _ = await first;
+        Assert.True(cache.Keeps("t-1"));
+
+        _time.Advance(TimeSpan.FromMinutes(11));
+        var late = Get(cache);
+        await _load.Started(2);
+        Assert.False(cache.Keeps("t-1"));
+
+        _load.Answer(1, ProviderResult.Failure<IReadOnlyList<CompanyRef>>(new ProviderError(ProviderErrorKind.Unavailable, "Hudu did not answer.", "Try again in a minute.")));
+        Assert.False((await late).Ok);
+        Assert.False(cache.Keeps("t-1"));
+    }
+
+    [Fact]
+    public void WhatTheCacheHoldsNeverPrintsTheKeysFingerprintOrTheCompanies()
+    {
+        // A log line written one day with an entry in it must not carry a company name (INV-10) or
+        // anything derived from the tenant's key.
+        var fingerprint = HuduCompanyCache.Fingerprint("hudu-api-key-1234");
+        var source = new HuduCompanyCache.Source(Site, fingerprint);
+        var entry = new HuduCompanyCache.Entry(_time.GetUtcNow(), source, New);
+
+        foreach (var printed in new[] { source.ToString(), entry.ToString(), $"{source}", $"{entry}" })
+        {
+            Assert.DoesNotContain(fingerprint, printed, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Acme Dental", printed, StringComparison.Ordinal);
+            Assert.DoesNotContain("Birch Legal", printed, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(16, fingerprint.Length);
+        Assert.DoesNotContain("hudu-api-key", fingerprint, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// One lookup. A lookup nobody answers fails the test after half a minute rather than hanging the
     /// run, which is what a regression that turns a hit into a load would otherwise do.
