@@ -213,7 +213,10 @@ function Invoke-Section([string]$Title, [scriptblock]$Body) {
         & $Body
     }
     catch {
-        Add-Line ('  The ' + $Title + ' section could not be completed (' + (Get-ExceptionTypeName $_) + ').')
+        # "The clone section", not "The The clone section".
+        $named = $Title
+        if (-not $named.StartsWith('The ', [StringComparison]::Ordinal)) { $named = 'The ' + $named }
+        Add-Line ('  ' + $named + ' section could not be completed (' + (Get-ExceptionTypeName $_) + ').')
     }
 }
 
@@ -987,7 +990,8 @@ function Add-CloneReport([string]$Repo) {
         if ($commit) { Add-Fact 'Commit' $commit } else { Add-Fact 'Commit' "unknown: git could not read the commit (exit code $($head.ExitCode))" }
 
         $compare = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $Repo, 'rev-list', '--left-right', '--count', 'origin/main...HEAD')
-        $counts = @(([string](@(Get-NativeOutput $compare) | Select-Object -First 1)).Trim() -split '\s+')
+        # -join always gives a string, even when git printed nothing (a cast of nothing is $null).
+        $counts = @((@(Get-NativeOutput $compare | Select-Object -First 1) -join '').Trim() -split '\s+')
         if ($counts.Count -ge 2 -and $counts[0] -cmatch '^[0-9]+$' -and $counts[1] -cmatch '^[0-9]+$') {
             Add-Fact 'Against origin/main (last fetch)' ("$($counts[0]) behind, $($counts[1]) ahead")
             if ([int]$counts[0] -gt 0) {

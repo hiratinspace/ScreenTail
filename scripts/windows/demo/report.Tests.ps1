@@ -333,6 +333,10 @@ try {
     $t = (Get-ThrowingSection { $null = ('{"' + $client + '": ') | ConvertFrom-Json }).Text
     Check 'a parse error shows only its type' (((($t -split "`n")[2]) -cmatch $pattern) -and (HasNot $t $client)) $t
     Check 'something that is not an exception has no type to show' ((Get-ExceptionTypeName $thrownMessage) -ceq 'an unknown error') (Get-ExceptionTypeName $thrownMessage)
+    Reset-Report
+    Invoke-Section 'The clone' { throw $thrownMessage }
+    $t = @($script:Body | ForEach-Object { $_ }) -join "`n"
+    Check 'a section whose title starts with The is not named twice' ((Has $t '  The clone section could not be completed (System.Management.Automation.RuntimeException).') -and (HasNot $t 'The The') -and (HasNot $t $client)) $t
 
     # --- The capability check, when the capture service cannot be started ---------------------------
     $script:Body = New-Object System.Collections.Generic.List[string]
