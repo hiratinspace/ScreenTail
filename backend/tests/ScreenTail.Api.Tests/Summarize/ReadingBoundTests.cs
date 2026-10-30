@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Security.Claims;
 using System.Text;
@@ -90,6 +91,35 @@ public sealed class ReadingBoundTests
         Assert.Equal(refused, reasons.Count > 0);
         Assert.True(bytes < CheckAllocationBudget, $"Checking allocated {bytes / 1024 / 1024} MB; the budget is {CheckAllocationBudget / 1024 / 1024}.");
         Assert.True(moves <= MovesPerCharacter * characters, $"Canonical ordering moved {moves:N0} code points for {characters:N0} characters; the budget is {MovesPerCharacter} a character.");
+
+        // And a floor, so a count that stopped counting cannot pass the bound by saying nothing. Every
+        // mark of the run is in a run longer than InsertionRun, so each is placed once by counting; text
+        // with no marks has nothing to move.
+        if (unit.All(c => CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark))
+        {
+            Assert.True(moves >= characters, $"Canonical ordering moved {moves:N0} code points for {characters:N0} marks; each has to be placed at least once.");
+        }
+        else
+        {
+            Assert.Equal(0, moves);
+        }
+    }
+
+    [Theory]
+    // A is U+0301 (combining class 230), D is U+0323 (220), after an "a". Canonical ordering puts D first.
+    [InlineData("AD", 1)] // Reversed: one step.
+    [InlineData("DA", 0)] // Already in order.
+    [InlineData("ADADADADADADADADADADADADADADADAD", 136)] // 32 marks, by insertion: one step for each A before each D, 1 + 2 + ... + 16.
+    [InlineData("ADADADADADADADADADADADADADADADADA", 33)] // 33 marks, by counting: each placed once.
+    public void CanonicalOrderingCountsEveryMoveItMakes(string marks, long expected)
+    {
+        // The bound above trusts this count, so the count is checked on runs whose moves are known.
+        var text = "a" + marks.Replace('A', (char)0x0301).Replace('D', (char)0x0323);
+
+        var before = DraftReading.OrderingMoves;
+        _ = DraftReading.Read(text);
+
+        Assert.Equal(expected, DraftReading.OrderingMoves - before);
     }
 
     [Fact]
@@ -302,9 +332,12 @@ public sealed class WallClock;
 
 /// <summary>
 /// The time the largest bundle takes to check and to answer, against budgets far above what either
-/// needs: a backstop for a cost <see cref="ReadingBoundTests"/> does not count, such as a rule that turns
-/// quadratic, and not a measure of speed. The costs that are known are bounded there by allocation and
-/// by work, which no machine's load changes.
+/// needs. A backstop that catches only a very large slowdown, of the kind a cost nothing counts could
+/// cause; not a measure of speed. It does not catch the regression ST-061 fixed: the run of marks sorted
+/// by insertion took 3,343 ms in Release when it was measured, 3.1 s in Debug and 806 ms on a reviewer's
+/// machine in 2026-10, all inside five seconds. That known cost is guarded by the bound on canonical
+/// ordering's moves in <see cref="ReadingBoundTests"/>, and the ligatures by its allocation budget,
+/// neither of which a machine's load changes.
 ///
 /// The budgets are five seconds a check and ten for the endpoint: about fifty times the slowest Debug
 /// check (107 ms) and endpoint (190 ms) measured, where the old 1 s and 3 s budgets were nine and fifteen
@@ -318,10 +351,10 @@ public sealed class ReadingBoundTimingTests
     private static readonly TimeSpan EndpointBudget = TimeSpan.FromSeconds(10);
 
     [Theory]
-    [InlineData("ﷺ")]
-    [InlineData("㎒")]
-    [InlineData("ﭏ")]
-    [InlineData("̣́")]
+    [InlineData("\uFDFA")]
+    [InlineData("\u3392")]
+    [InlineData("\uFB4F")]
+    [InlineData("\u0301\u0323")]
     public void TheLargestBundleOfOneCharacterIsCheckedWellWithinAGenerousWallClockBudget(string unit)
     {
         var bundle = ReadingBoundTests.Largest(unit);
