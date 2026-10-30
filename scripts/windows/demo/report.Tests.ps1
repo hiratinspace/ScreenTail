@@ -139,8 +139,8 @@ function Get-LogsSection {
         @{ Name = 'Backend'; Path = (Join-Path $Folder 'backend.log'); Rank = 92 }
     )
     Add-DemoLogsReport -Logs $logs -OldBackendLog (Join-Path $Folder 'old-backend.log') -CrashDir (Join-Path $Folder 'crashes') -FilterSource $Source -FilterHash $Hash
-    $problems = @($script:Problems | ForEach-Object { Protect-ReportText $_.Text })
-    return [pscustomobject]@{ Lines = @($script:Body); Text = ((@($script:Body) + $problems) -join "`n") }
+    $problemTexts = @($script:Problems | ForEach-Object { Protect-ReportText $_.Text })
+    return [pscustomobject]@{ Lines = @($script:Body); Text = ((@($script:Body) + $problemTexts) -join "`n") }
 }
 
 # The report's body, problems (text and fix) and notices as one text, scrubbed as the report scrubs them.
@@ -358,14 +358,14 @@ try {
     Check 'a check in a state the report does not know is shown as unknown' (($t -cmatch "input_hooks +$withheld") -and (HasNot $t 'A state nobody knows')) $t
     Check 'a capability''s name that is not the service''s is not shown' ((Has $t 'a capability') -and (HasNot $t 'Payroll')) $t
     Check 'a blocked check keeps its message and fix' ((Has $t 'blocked. Microphone is blocked by Windows privacy settings. Fix: Allow desktop apps') -and (Has $t 'desktop_session') -and (Has $t 'ok. Desktop session is available.')) $t
-    $problems = @($script:Problems | ForEach-Object { $_ })
+    $topProblems = @($script:Problems | ForEach-Object { $_ })
     $problemText = ''
     $problemFix = ''
-    if ($problems.Count -ge 1) {
-        $problemText = [string]$problems[0].Text
-        $problemFix = [string]$problems[0].Fix
+    if ($topProblems.Count -ge 1) {
+        $problemText = [string]$topProblems[0].Text
+        $problemFix = [string]$topProblems[0].Fix
     }
-    Check 'the problem at the top names the unknown check with the fixed sentence and no fix_hint' (($problems.Count -eq 1) -and (Has $problemText 'screen_capture: ScreenTail couldn''t check this (reason withheld).') -and (Has $problemFix 'See "What Windows lets the capture service do" below.')) "$($problems.Count) problem(s): $problemText | $problemFix"
+    Check 'the problem at the top names the unknown check with the fixed sentence and no fix_hint' (($topProblems.Count -eq 1) -and (Has $problemText 'screen_capture: ScreenTail couldn''t check this (reason withheld).') -and (Has $problemFix 'See "What Windows lets the capture service do" below.')) "$($topProblems.Count) problem(s): $problemText | $problemFix"
 
     # The same checks, the fourth now ok, and capture allowed: what is wrong goes into the notices.
     $capable = @($checks[0], $checks[1], $checks[2], [ordered]@{ capability = 'microphone'; state = 'ok'; message = 'Microphone is available.' })
@@ -373,7 +373,7 @@ try {
     Reset-Report
     Add-CapabilityReport -Out $capableJson -Err '' -ExitCode 0
     $t = Get-ReportText
-    Check 'a notice about an unknown check carries the fixed sentence only' ((Has $t 'screen_capture is unknown: ScreenTail couldn''t check this (reason withheld).') -and (HasNot $t $capMarker) -and (HasNot $t $client) -and (@($script:Problems).Count -eq 0)) $t
+    Check 'a notice about an unknown check carries the fixed sentence only' ((Has $t 'screen_capture is unknown: ScreenTail couldn''t check this (reason withheld).') -and (HasNot $t $capMarker) -and (HasNot $t $client) -and (@($script:Problems | ForEach-Object { $_ }).Count -eq 0)) $t
 
     # --- The .NET SDK and clone sections never show git's or dotnet's error output ---------------------
     $nativeMarker = 'NATIVEMARK' + [guid]::NewGuid().ToString('N')
