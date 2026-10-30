@@ -192,7 +192,10 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         var responding = client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
         await hudu.Hung.WaitAsync(Settled, TestContext.Current.CancellationToken);
-        clock.Advance(TimeSpan.FromMilliseconds(500));
+        clock.Advance(TimeSpan.FromMilliseconds(499));
+        Assert.False(hudu.HungOn.IsCancellationRequested, "The deadline is 500 ms, and only 499 ms have gone.");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.True(hudu.HungOn.IsCancellationRequested, "The deadline is 500 ms, and 500 ms have gone.");
         using var response = await responding.WaitAsync(Settled, TestContext.Current.CancellationToken);
         var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
 

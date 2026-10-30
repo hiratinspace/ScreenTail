@@ -276,9 +276,12 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         var responding = client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle() with { Destinations = ["time_entry", "ticket_note"] }, TestContext.Current.CancellationToken);
         await Soon(psa.NoteAnswered);
         await Soon(cw.Hung);
+        // Read from the hung request's own token, which the deadline cancels on this thread as it fires:
+        // the response it causes takes a few hops to arrive, so it cannot show a deadline that came early.
         clock.Advance(TimeSpan.FromMilliseconds(499));
-        Assert.False(responding.IsCompleted, "Nothing but the deadline can end the time entry, and it is not due yet.");
+        Assert.False(cw.HungOn.IsCancellationRequested, "The deadline is 500 ms, and only 499 ms have gone.");
         clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.True(cw.HungOn.IsCancellationRequested, "The deadline is 500 ms, and 500 ms have gone.");
         using var response = await Soon(responding);
         var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
 
@@ -326,8 +329,9 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         await Soon(psa.NoteAnswered);
         await Soon(cw.Hung);
         clock.Advance(TimeSpan.FromMilliseconds(499));
-        Assert.False(responding.IsCompleted, "The deadline is 2 s from the request's arrival, and only 1.999 s have gone.");
+        Assert.False(cw.HungOn.IsCancellationRequested, "The deadline is 2 s from the request's arrival, and only 1.999 s have gone.");
         clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.True(cw.HungOn.IsCancellationRequested, "The deadline is 2 s from the request's arrival, and 2 s have gone.");
         using var response = await Soon(responding);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -673,6 +677,17 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         }
 
         public void SendTheRest() => _rest.TrySetResult();
+
+        /// <summary>A test that failed before <see cref="SendTheRest"/> lets the request go rather than leaving it waiting for the rest.</summary>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _ = _rest.TrySetCanceled();
+            }
+
+            base.Dispose(disposing);
+        }
 
         protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
         {

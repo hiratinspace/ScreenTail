@@ -64,6 +64,13 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     /// <summary>Done once a request to <see cref="HangingRoute"/> has arrived and is waiting: what a test waits for before letting a deadline end it.</summary>
     public Task Hung => _hung.Task;
 
+    /// <summary>
+    /// The token the hung request was sent with, once <see cref="Hung"/> is done. Cancelled the moment
+    /// the deadline fires, on the thread that fired it, so a test reads exactly when the deadline came
+    /// rather than when the answer it causes has made its way back.
+    /// </summary>
+    public CancellationToken HungOn { get; private set; }
+
     /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns: the PSA that took the request and sent back something that cannot be read.</summary>
     public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
 
@@ -95,6 +102,7 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
         if (HangingRoute is { } hanging && request.RequestUri!.AbsolutePath.EndsWith(hanging, StringComparison.Ordinal))
         {
             var waiting = Task.Delay(Timeout.Infinite, cancellationToken);
+            HungOn = cancellationToken;
             _ = _hung.TrySetResult();
             await waiting;
         }
