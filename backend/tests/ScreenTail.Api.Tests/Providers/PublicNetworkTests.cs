@@ -152,10 +152,9 @@ public sealed class PublicNetworkTests
         using var client = new HttpClient(PublicNetwork.Handler(allowPrivate: true));
 
         using var response = await client.GetAsync(new Uri($"http://127.0.0.1:{site.Port}/"), TestContext.Current.CancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
-        Assert.Equal(0, elsewhere.Accepted);
+        Assert.Equal(0, await elsewhere.ConnectionsBeforeNowAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
