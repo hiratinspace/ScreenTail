@@ -478,10 +478,14 @@ function Get-LanguageModeNote([string]$Mode = [string]$ExecutionContext.SessionS
 }
 
 # The lines of a crash report (CrashReport.cs) that the report may show: exception types, stack frames,
-# "caused by" and blank lines. Of a line that starts like a type, any text after a colon is dropped (an
-# older or a planted file could hold a message there). A frame is kept only as identifier characters with
-# an optional line number; any other "at" line becomes "  at [frame withheld]". Every other line (the
+# "caused by" and blank lines. A type line is a dotted name whose last part starts upper case and ends in
+# Exception or Error (so "Payroll.Budget.xlsx" or "jane.doe" is not one); any text after a colon is
+# dropped (an older or a planted file could hold a message there). A frame is kept only as at least two
+# dotted parts of identifier characters and then a method-like name (upper case or "<" first, or .ctor),
+# with an optional line number; any other "at" line becomes "  at [frame withheld]". Every other line (the
 # product, the time, the Windows version, anything else) is left out. What was dropped is counted.
+$script:CrashTypePattern = '^((?:[A-Za-z_][A-Za-z0-9_`]{0,200}\.){1,40}(?:[A-Za-z_][A-Za-z0-9_`]{0,200}\+){0,10}[A-Z][A-Za-z0-9_`]{0,200}(?:Exception|Error))(\s*:.*)?$'
+$script:CrashFramePattern = '^\s+at (?:[A-Za-z_<][A-Za-z0-9_`+<>$|-]{0,200}\.){2,40}(?:[A-Z<][A-Za-z0-9_`+<>$|-]{0,200}|\.c?ctor)(:[0-9]{1,7})?$'
 function Select-CrashReportLines([string[]]$Lines) {
     $kept = New-Object System.Collections.Generic.List[string]
     $dropped = 0
@@ -490,16 +494,16 @@ function Select-CrashReportLines([string[]]$Lines) {
         if ($line.Length -eq 0 -or $line -ceq 'caused by') {
             $kept.Add($line)
         }
-        elseif ($line -cmatch '^\s+at [A-Za-z0-9_.`+<>$|,\[\]-]{1,400}(:[0-9]{1,7})?$') {
+        elseif ($line -cmatch $script:CrashFramePattern) {
             $kept.Add($line)
         }
         elseif ($line -cmatch '^\s+at ') {
             $kept.Add('  at [frame withheld]')
             $dropped++
         }
-        elseif ($line -cmatch '^([A-Za-z_][A-Za-z0-9_`+]{0,200}(\.[A-Za-z_][A-Za-z0-9_`+]{0,200}){1,40})(\s*:.*)?$') {
+        elseif ($line -cmatch $script:CrashTypePattern) {
             $kept.Add($Matches[1])
-            if ($Matches[3]) { $dropped++ }
+            if ($Matches[2]) { $dropped++ }
         }
         else {
             $dropped++

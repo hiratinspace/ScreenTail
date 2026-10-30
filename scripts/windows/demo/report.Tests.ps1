@@ -149,6 +149,15 @@ function Get-ReportText {
     return ((@($parts) | ForEach-Object { Protect-ReportText ([string]$_) }) -join "`n")
 }
 
+# How many of one kind the report counted as withheld or removed, by walking the entries (no indexer).
+function Get-RemovedCount([string]$Label) {
+    $count = 0
+    foreach ($entry in @($script:Removed.GetEnumerator())) {
+        if ([string]::Equals([string]$entry.Key, $Label, [StringComparison]::Ordinal)) { $count = [int]$entry.Value }
+    }
+    return $count
+}
+
 function Reset-Report {
     $script:Body = New-Object System.Collections.Generic.List[string]
     $script:Notices = New-Object System.Collections.Generic.List[string]
@@ -349,10 +358,18 @@ try {
     Check 'a check in a state the report does not know is shown as unknown' (($t -cmatch "input_hooks +$withheld") -and (HasNot $t 'A state nobody knows')) $t
     Check 'a capability''s name that is not the service''s is not shown' ((Has $t 'a capability') -and (HasNot $t 'Payroll')) $t
     Check 'a blocked check keeps its message and fix' ((Has $t 'blocked. Microphone is blocked by Windows privacy settings. Fix: Allow desktop apps') -and (Has $t 'desktop_session') -and (Has $t 'ok. Desktop session is available.')) $t
-    Check 'the problem at the top names the unknown check with the fixed sentence and no fix_hint' ((@($script:Problems).Count -eq 1) -and (Has $script:Problems[0].Text 'screen_capture: ScreenTail couldn''t check this (reason withheld).') -and (Has $script:Problems[0].Fix 'See "What Windows lets the capture service do" below.')) $t
+    $problems = @($script:Problems | ForEach-Object { $_ })
+    $problemText = ''
+    $problemFix = ''
+    if ($problems.Count -ge 1) {
+        $problemText = [string]$problems[0].Text
+        $problemFix = [string]$problems[0].Fix
+    }
+    Check 'the problem at the top names the unknown check with the fixed sentence and no fix_hint' (($problems.Count -eq 1) -and (Has $problemText 'screen_capture: ScreenTail couldn''t check this (reason withheld).') -and (Has $problemFix 'See "What Windows lets the capture service do" below.')) "$($problems.Count) problem(s): $problemText | $problemFix"
 
-    $checks[3].state = 'ok'
-    $capableJson = ConvertTo-Json -Depth 4 -InputObject ([ordered]@{ can_capture = $true; checks = $checks })
+    # The same checks, the fourth now ok, and capture allowed: what is wrong goes into the notices.
+    $capable = @($checks[0], $checks[1], $checks[2], [ordered]@{ capability = 'microphone'; state = 'ok'; message = 'Microphone is available.' })
+    $capableJson = ConvertTo-Json -Depth 4 -InputObject ([ordered]@{ can_capture = $true; checks = $capable })
     Reset-Report
     Add-CapabilityReport -Out $capableJson -Err '' -ExitCode 0
     $t = Get-ReportText
@@ -435,11 +452,15 @@ try {
         "System.IO.IOException: The file $madePath is locked $crashMarker",
         "  at Open file D:\$crashMarker\Payroll.docx",
         $crashMarker,
-        $windowTitle
+        $windowTitle,
+        'Payroll.Budget.xlsx',
+        'acme.example.local',
+        'jane.doe',
+        '  at Payroll.Budget'
     )
     $t = (Get-LogsSection $logsDir).Text
-    $crashRemoved = [int]$script:Removed['crash report lines, or text after a type, that are not a type or a frame']
-    $startRemoved = [int]$script:Removed['reasons in start.cmd''s own log lines (an error''s message)']
+    $crashRemoved = Get-RemovedCount 'crash report lines, or text after a type, that are not a type or a frame'
+    $startRemoved = Get-RemovedCount 'reasons in start.cmd''s own log lines (an error''s message)'
     Check 'the demo logs section runs through the checked filter' ((Has $t '== Logs') -and (Has $t '    12:00:01.000 INFO  ScreenTail.Service.Program: demo service started') -and (Has $t 'demo backend started') -and (HasNot $t 'could not be checked') -and (HasNot $t 'could not be completed')) $t
     Check 'a demo log''s title-like line is withheld' ((HasNot $t 'Payroll') -and (Has $t "[line not from ScreenTail's logger withheld, $($windowTitle.Length) chars]")) $t
     Check 'a demo log''s exception message is withheld, its type kept' ((HasNot $t 'Board Minutes') -and (Has $t '    System.IO.IOException: [message withheld]')) $t
@@ -449,7 +470,13 @@ try {
     Check 'start''s lines with a type keep the type, not the message' ((Has $t '[start.ps1] The capture service could not run (System.ComponentModel.Win32Exception) [reason withheld]') -and (Has $t '[start.ps1] The capture service has stopped (could not run (System.ComponentModel.Win32Exception)) [reason withheld]') -and (HasNot $t $client)) $t
     Check 'the reasons withheld from start''s lines are counted for the top of the report' ($startRemoved -eq 5) "counted $startRemoved"
     Check 'a crash report keeps its types and frames' ((Has $t '    System.InvalidOperationException') -and (Has $t '      at ScreenTail.UI.App.OnStartup:42') -and (Has $t '      at ScreenTail.UI.App+<>c.<Run>b__1_0') -and (Has $t '    caused by') -and (Has $t '    System.IO.IOException')) $t
-    Check 'a crash report''s message, odd frames and other lines are left out' ((HasNot $t $crashMarker) -and (HasNot $t 'is locked') -and (HasNot $t 'Payroll') -and (HasNot $t 'Windows NT') -and (Has $t '      at [frame withheld]') -and ($crashRemoved -eq 7)) "counted $crashRemoved`n$t"
+    Check 'a crash report''s message, odd frames and other lines are left out' ((HasNot $t $crashMarker) -and (HasNot $t 'is locked') -and (HasNot $t 'Payroll') -and (HasNot $t 'Windows NT') -and (Has $t '      at [frame withheld]') -and ($crashRemoved -eq 11)) "counted $crashRemoved`n$t"
+    Check 'a dotted name that is not an exception type is not kept as one' ((HasNot $t 'Budget') -and (HasNot $t 'acme.example') -and (HasNot $t 'jane.doe')) $t
+    $withheldFrames = @(($t -split "`n") | Where-Object { $_ -ceq '      at [frame withheld]' }).Count
+    Check 'a frame without a type and a method is withheld' ($withheldFrames -eq 2) "$withheldFrames withheld frame(s)`n$t"
+    $crashOnly = @(Select-CrashReportLines @('System.IO.IOException: x', 'Payroll.Budget.xlsx', 'ScreenTail.Store+LockedError', '  at ScreenTail.Store.Store..ctor:7', '  at Payroll.Budget', '  at ScreenTail.Store.save'))
+    $crashText = $crashOnly -join "`n"
+    Check 'the crash type and frame rules on their own' (($crashText -ceq "System.IO.IOException`nScreenTail.Store+LockedError`n  at ScreenTail.Store.Store..ctor:7`n  at [frame withheld]`n  at [frame withheld]")) $crashText
     Check 'an error the log has still reaches the top' (Has $t 'The capture service logged 1 error(s). The first: 12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file') $t
 
     $t = (Get-LogsSection $logsDir -Source $weak -Hash $weakHash).Text
