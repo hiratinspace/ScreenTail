@@ -18,6 +18,7 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     private readonly Lock _gate = new();
     private readonly List<HttpRequestMessage> _requests = [];
     private readonly List<string?> _bodies = [];
+    private readonly TaskCompletionSource _hung = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>What was asked, in arrival order; a copy taken under the lock, because uploads go several at a time.</summary>
     public List<HttpRequestMessage> Requests
@@ -55,6 +56,9 @@ internal sealed class ScriptedHudu : HttpMessageHandler
 
     /// <summary>Requests to a path ending in this are never answered: they wait until the caller gives up.</summary>
     public string? HangingRoute { get; set; }
+
+    /// <summary>Done once a request to <see cref="HangingRoute"/> has arrived and is waiting: what a test waits for before letting a deadline end it.</summary>
+    public Task Hung => _hung.Task;
 
     /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns.</summary>
     public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
@@ -106,7 +110,9 @@ internal sealed class ScriptedHudu : HttpMessageHandler
         var path = request.RequestUri!.AbsolutePath;
         if (HangingRoute is { } hanging && path.EndsWith(hanging, StringComparison.Ordinal))
         {
-            await Task.Delay(Timeout.Infinite, cancellationToken);
+            var waiting = Task.Delay(Timeout.Infinite, cancellationToken);
+            _ = _hung.TrySetResult();
+            await waiting;
         }
 
         if (Failing is { } status)

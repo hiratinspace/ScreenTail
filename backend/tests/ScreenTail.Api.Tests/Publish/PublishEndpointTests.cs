@@ -259,11 +259,27 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         // S-68, E-42: the time entry never answers. The note still lands, because the destinations go
         // together rather than one after another, and the publish answers at its own deadline with both
         // results instead of a 504 that loses the note's.
+        //
+        // The deadline runs on a held clock and is moved past only once the note has been answered and
+        // the time entry is waiting. On the real clock it was 500 ms, and a busy machine could spend that
+        // on the note as well, which then timed out beside the time entry.
+        var clock = new HeldClock();
+        var psa = new WatchedPsa();
         var cw = new ScriptedConnectWise { HangingRoute = "/time/entries" };
-        using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromMilliseconds(500));
+        using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromMilliseconds(500), services =>
+        {
+            clock.Install(services);
+            psa.Install(services);
+        });
         using var client = await ConnectedClientAsync(host);
 
-        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle() with { Destinations = ["time_entry", "ticket_note"] }, TestContext.Current.CancellationToken);
+        var responding = client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle() with { Destinations = ["time_entry", "ticket_note"] }, TestContext.Current.CancellationToken);
+        await Soon(psa.NoteAnswered);
+        await Soon(cw.Hung);
+        clock.Advance(TimeSpan.FromMilliseconds(499));
+        Assert.False(responding.IsCompleted, "Nothing but the deadline can end the time entry, and it is not due yet.");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        using var response = await Soon(responding);
         var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -283,15 +299,36 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         // S-68 from the start of the request: the deadline is counted from when the request arrived, not
         // from when its body had finished arriving. Twenty screenshots over a slow uplink take a while to
         // upload, and the request's own timeout and the client's are counting from the start too. Here
-        // the body takes 1.5 s of a 2 s publish deadline and a 3 s request timeout; counted from the end
-        // of the body, the deadline would come after the request's 504 and lose the note.
+        // the body takes 1.5 s of a 2 s publish deadline; counted from the end of the body, the deadline
+        // would come 1.5 s later, after a request timeout counting from the start (which
+        // ThePublishDeadlineEndsBeforeTheRequestDoes keeps later than the deadline) had sent a 504 and
+        // lost the note.
+        //
+        // The clock is held, and moved 1.5 s while the body is half sent: the deadline fires exactly 2 s
+        // after the request arrived, and not a moment before. On the real clock the body took a real
+        // 1.5 s, and a busy machine could spend the remaining half second before the note was answered.
+        var clock = new HeldClock();
+        var psa = new WatchedPsa();
         var cw = new ScriptedConnectWise { HangingRoute = "/time/entries" };
         using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromSeconds(2), services =>
-            services.Configure<RequestTimeoutOptions>(timeouts => timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(3) }));
+        {
+            clock.Install(services);
+            psa.Install(services);
+        });
         using var client = await ConnectedClientAsync(host, streamed: true);
-        using var body = new SlowContent(JsonSerializer.Serialize(Bundle(), JsonSerializerOptions.Web), TimeSpan.FromSeconds(1.5));
+        using var body = new SlowContent(JsonSerializer.Serialize(Bundle(), JsonSerializerOptions.Web));
 
-        using var response = await client.PostAsync(new Uri("/v1/sessions/publish", UriKind.Relative), body, TestContext.Current.CancellationToken);
+        var arrived = clock.NextTimestamp();
+        var responding = client.PostAsync(new Uri("/v1/sessions/publish", UriKind.Relative), body, TestContext.Current.CancellationToken);
+        await Soon(arrived);
+        clock.Advance(TimeSpan.FromSeconds(1.5));
+        body.SendTheRest();
+        await Soon(psa.NoteAnswered);
+        await Soon(cw.Hung);
+        clock.Advance(TimeSpan.FromMilliseconds(499));
+        Assert.False(responding.IsCompleted, "The deadline is 2 s from the request's arrival, and only 1.999 s have gone.");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        using var response = await Soon(responding);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var written = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results").EnumerateArray().ToList();
@@ -304,14 +341,21 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     [Fact]
     public async Task AnUploadThatUsedTheWholeDeadlineSendsNothing()
     {
-        // The body took longer to arrive than the whole publish may take. Nothing is sent, so nothing
-        // can have landed, and each destination says so and may simply be published again.
+        // The body took the whole of the time the publish may take to arrive. Nothing is sent, so nothing
+        // can have landed, and each destination says so and may simply be published again. On a held
+        // clock, moved by exactly the deadline while the body is half sent, so nothing at all is left of it.
+        var clock = new HeldClock();
         var cw = new ScriptedConnectWise();
-        using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromMilliseconds(500));
+        using var host = Host(cw, publish => publish.Deadline = TimeSpan.FromMilliseconds(500), clock.Install);
         using var client = await ConnectedClientAsync(host, streamed: true);
-        using var body = new SlowContent(JsonSerializer.Serialize(Bundle() with { Frames = [Frame("f-1")] }, JsonSerializerOptions.Web), TimeSpan.FromMilliseconds(900));
+        using var body = new SlowContent(JsonSerializer.Serialize(Bundle() with { Frames = [Frame("f-1")] }, JsonSerializerOptions.Web));
 
-        using var response = await client.PostAsync(new Uri("/v1/sessions/publish", UriKind.Relative), body, TestContext.Current.CancellationToken);
+        var arrived = clock.NextTimestamp();
+        var responding = client.PostAsync(new Uri("/v1/sessions/publish", UriKind.Relative), body, TestContext.Current.CancellationToken);
+        await Soon(arrived);
+        clock.Advance(TimeSpan.FromMilliseconds(500));
+        body.SendTheRest();
+        using var response = await Soon(responding);
         var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -602,25 +646,40 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Assert.Equal(JsonValueKind.Null, written.GetProperty("id").ValueKind);
     }
 
-    /// <summary>A body that arrives in two halves with a pause between: a large upload over a slow uplink.</summary>
+    /// <summary>
+    /// Long enough for any machine to finish what a test waits for here, which is never a deadline: those
+    /// run on a <see cref="HeldClock"/>. Only a test that is already failing waits this out, and it then
+    /// fails rather than hanging the run.
+    /// </summary>
+    private static readonly TimeSpan Settled = TimeSpan.FromSeconds(30);
+
+    private static Task Soon(Task task) => task.WaitAsync(Settled, TestContext.Current.CancellationToken);
+
+    private static Task<T> Soon<T>(Task<T> task) => task.WaitAsync(Settled, TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// A body that arrives in two halves, the second held back until <see cref="SendTheRest"/>: a large
+    /// upload over a slow uplink, as slow as the test makes it.
+    /// </summary>
     private sealed class SlowContent : HttpContent
     {
         private readonly byte[] _bytes;
-        private readonly TimeSpan _pause;
+        private readonly TaskCompletionSource _rest = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public SlowContent(string json, TimeSpan pause)
+        public SlowContent(string json)
         {
             _bytes = Encoding.UTF8.GetBytes(json);
-            _pause = pause;
             Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
+
+        public void SendTheRest() => _rest.TrySetResult();
 
         protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
         {
             var half = _bytes.Length / 2;
             await stream.WriteAsync(_bytes.AsMemory(0, half));
             await stream.FlushAsync();
-            await Task.Delay(_pause);
+            await _rest.Task;
             await stream.WriteAsync(_bytes.AsMemory(half));
         }
 
