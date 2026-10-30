@@ -333,9 +333,10 @@ public sealed class WallClock;
 /// <summary>
 /// The time the largest bundle takes to check and to answer, against budgets far above what either
 /// needs. A backstop that catches only a very large slowdown, of the kind a cost nothing counts could
-/// cause; not a measure of speed. It does not catch the regression ST-061 fixed: the run of marks sorted
-/// by insertion took 3,343 ms in Release when it was measured, 3.1 s in Debug and 806 ms on a reviewer's
-/// machine in 2026-10, all inside five seconds. That known cost is guarded by the bound on canonical
+/// cause; not a measure of speed. It does not reliably catch the regression ST-061 fixed: the run of marks
+/// sorted by insertion took 3,343 ms in Release when first measured (7,154 in Debug, the one figure over
+/// five seconds), and measured again on 2026-10-29 it took 3.1 s in Debug on the development machine and
+/// 806 ms on a reviewer's, both inside five seconds. That known cost is guarded by the bound on canonical
 /// ordering's moves in <see cref="ReadingBoundTests"/>, and the ligatures by its allocation budget,
 /// neither of which a machine's load changes.
 ///
