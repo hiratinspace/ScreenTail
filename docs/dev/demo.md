@@ -315,8 +315,11 @@ treated the same way: a part of it that could not be completed says so in a fixe
 the error's type, such as `The PostgreSQL section could not be completed (System.IO.IOException).`,
 because an error's message can carry a path, a value or a key's name. Of `git` and `dotnet` only what
 they printed when they succeeded is shown, never their error output, and of `backend.exited` and
-`service.exited` only an exit code (an error message there is replaced by a fixed sentence). Every line
-then goes through a final scrub for anything shaped like a
+`service.exited` only an exit code, or the error's type when the program could not run (never its
+message). A capability check the capture service could not run says only `ScreenTail couldn't check
+this (reason withheld).`, because the service puts the error's message in that check. Of the newest
+crash report only the exception types and stack frames are shown. Every line then goes through a final
+scrub for anything shaped like a
 key, a token or a password, and your user folder is shown as `%USERPROFILE%`. The top of the file says
 what was withheld and removed. Patterns can miss things, so read it before sending, as with anything.
 
@@ -328,9 +331,11 @@ The logs come from `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs`, where `start.cmd` 
 lines from the backend and capture service windows (the windows themselves still show everything). A
 demo started with an older `start.cmd` has no capture service log yet: run `stop.cmd`, `start.cmd`, try
 again, then `report.cmd`. The report reads them again through the same checked filter as the
-end-to-end section (below), and if the filter cannot be checked it shows no log. The lines `start.cmd`
-adds itself say why a window's program stopped: an exit code is kept, and any other reason (an error's
-message, when the program could not run at all) becomes `[reason withheld]`.
+end-to-end section (below), and if the filter cannot be checked it shows no log (and says so when
+PowerShell is in a restricted language mode, which stops the check). The lines `start.cmd` adds itself
+say why a window's program stopped: an exit code is kept, and when the program could not run at all the
+error's type is kept and its message becomes `[reason withheld]`. The window itself still shows the
+message.
 
 ### The End-to-end run section
 

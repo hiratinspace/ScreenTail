@@ -281,13 +281,20 @@ function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
 
     # What this code itself writes. Read back from a file only: a process printing the same is withheld.
     # start.ps1's own lines say why a window's program stopped, and when it could not run at all that is
-    # an exception's message: such a line keeps only that there was a reason. Any other [start.ps1] line
-    # is withheld like a process's.
+    # an exception's type and message, "could not run (<Type>): <message>": such a line keeps the type and
+    # only that there was a message (a line from an older start, with no type, keeps only that there was
+    # a reason). Any other [start.ps1] line is withheld like a process's.
     if ($State.Reading) {
         if ($Line -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$') { return $Line }
         if ($Line -cmatch '^\[[0-9]+ log line\(s\) could not be written here\]$') { return $Line }
         if ($Line -cmatch '^\[The log filter could not be checked, so nothing from this window is logged\.\]$') { return $Line }
         if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) has stopped \((exit code -?[0-9]{1,11}|unknown|still running; close this window to end it)\)\.$') { return $Line }
+        if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) could not run \(([A-Za-z_][A-Za-z0-9_.`+]{0,200})\): ') {
+            return '[start.ps1] The ' + $Matches[1] + ' could not run (' + $Matches[2] + ') [reason withheld]'
+        }
+        if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) has stopped \(could not run \(([A-Za-z_][A-Za-z0-9_.`+]{0,200})\): ') {
+            return '[start.ps1] The ' + $Matches[1] + ' has stopped (could not run (' + $Matches[2] + ')) [reason withheld]'
+        }
         if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) (could not run|has stopped)') {
             return '[start.ps1] The ' + $Matches[1] + ' ' + $Matches[2] + ' [reason withheld]'
         }

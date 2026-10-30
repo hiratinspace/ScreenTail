@@ -290,20 +290,25 @@ Set-Location -LiteralPath __DIR__
 Write-Host 'ScreenTail backend (Development). Leave this window open; stop.cmd closes it.'
 $script:DemoLog.Path = __LOG__
 $code = 'unknown'
+$type = $null
 try {
     & dotnet __DLL__ 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; Write-DemoLog $line }
     $code = "exit code $LASTEXITCODE"
 }
 catch {
+    # The type as well as the message: report.cmd shows only the type, never the message.
+    $type = $_.Exception.GetType().FullName
     $code = $_.Exception.Message
     Write-Host $code -ForegroundColor Red
-    Write-DemoLogText "[start.ps1] The backend could not run: $code"
+    Write-DemoLogText "[start.ps1] The backend could not run ($type): $code"
 }
+$record = $code
+if ($type) { $record = "could not run ($type): $code" }
 Write-Host ''
 Write-Host "The backend has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
-Write-DemoLogText "[start.ps1] The backend has stopped ($code)."
+Write-DemoLogText "[start.ps1] The backend has stopped ($record)."
 Close-DemoLog
-Set-Content -LiteralPath __EXITED__ -Value $code
+Set-Content -LiteralPath __EXITED__ -Value $record
 '@
 $backendScript = $backendScript.Replace('__URL__', (ConvertTo-Quoted $script:DemoBackendUrl))
 $backendScript = $backendScript.Replace('__PROVIDER__', (ConvertTo-Quoted $drafting))
@@ -514,6 +519,7 @@ Set-Location -LiteralPath __DIR__
 Write-Host 'ScreenTail capture service. Ctrl+C here stops capture cleanly; stop.cmd closes this window.'
 $script:DemoLog.Path = __LOG__
 $code = 'unknown'
+$type = $null
 $service = $null
 $copying = $null
 try {
@@ -542,9 +548,11 @@ try {
     $code = "exit code $($service.ExitCode)"
 }
 catch {
+    # The type as well as the message: report.cmd shows only the type, never the message.
+    $type = $_.Exception.GetType().FullName
     $code = $_.Exception.Message
     Write-Host $code -ForegroundColor Red
-    if (-not $copying) { Write-DemoLogText "[start.ps1] The capture service could not run: $code" }
+    if (-not $copying) { Write-DemoLogText "[start.ps1] The capture service could not run ($type): $code" }
 }
 finally {
     if ($service) {
@@ -554,10 +562,13 @@ finally {
     $copied = $true
     if ($copying) { $copied = $copying.AsyncWaitHandle.WaitOne(3000) }
     Write-Host ''
+    # Once the service had started, its exit code is the reason, whatever was caught.
+    $record = $code
+    if ($type -and -not $service) { $record = "could not run ($type): $code" }
     Write-Host "The capture service has stopped ($code). This window stays open so you can read why." -ForegroundColor Yellow
-    if ($copied) { Write-DemoLogText "[start.ps1] The capture service has stopped ($code)." }
+    if ($copied) { Write-DemoLogText "[start.ps1] The capture service has stopped ($record)." }
     Close-DemoLog
-    Set-Content -LiteralPath __EXITED__ -Value $code
+    Set-Content -LiteralPath __EXITED__ -Value $record
 }
 '@
 $serviceScript = $serviceScript.Replace('__LOGLOADER__', $logLoader)

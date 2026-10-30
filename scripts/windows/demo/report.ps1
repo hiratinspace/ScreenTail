@@ -324,7 +324,7 @@ function Select-ProgramOutputLines {
     param([string]$Text, [string]$FilterSource = $script:DemoLogWriterSource, [string]$FilterHash = $script:DemoLogWriterHash)
 
     $checked = Get-CheckedLogFilter -Source $FilterSource -Hash $FilterHash
-    if (-not $checked) { return @('[The log filter could not be checked, so this output is not shown.]') }
+    if (-not $checked) { return @('[The log filter could not be checked, so this output is not shown.]' + (Get-LanguageModeNote)) }
     # Loaded into this function's own scope, where Select-DemoLogLines finds it.
     . $checked
     $lines = @(([string]$Text -split '\r\n|\r|\n') | Where-Object { $_.Trim() })
@@ -361,9 +361,10 @@ function Get-NativeOutput($Result) {
 }
 
 # Why a demo window's program stopped, from backend.exited or service.exited. start.ps1 writes "exit code
-# <n>" or a fixed sentence, or, when the program could not run at all, the exception's message. Only the
-# first two are shown. A message is never shown; it is only matched for a Windows block (Blocked), so the
-# top of the report can say what to do about one.
+# <n>" or a fixed sentence, or, when the program could not run at all, "could not run (<Type>): <message>"
+# (an older start wrote the message alone). The exit code, the fixed sentence and the type are shown. A
+# message is never shown; it is only matched for a Windows block (Blocked), so the top of the report can
+# say what to do about one.
 function Get-ExitedReason([string]$Path) {
     $reason = ((Read-SharedLog $Path) -join ' ').Trim()
     $blocked = [bool]($reason -match 'Application Control|blocked by|group policy')
@@ -372,6 +373,9 @@ function Get-ExitedReason([string]$Path) {
     }
     elseif (-not $reason) {
         $text = 'no reason recorded'
+    }
+    elseif ($reason -cmatch '^could not run \(([A-Za-z_][A-Za-z0-9_.`+]{0,200})\)(: |$)') {
+        $text = 'it could not run (' + $Matches[1] + '; the error message is not shown here)'
     }
     else {
         $text = 'it could not run (start recorded an error message, not shown here)'
@@ -451,6 +455,7 @@ function Get-CheckedLogFilter([string]$Source, [string]$Hash) {
         $null = ConvertTo-DemoLogLine '00:00:00.000 ERROR Probe: probe' $state
         $message = ConvertTo-DemoLogLine '    System.Exception: a message to withhold' $state
         $started = ConvertTo-DemoLogLine '[start.ps1] The backend could not run: a message to withhold' @{ InLogger = $false; Reading = $true }
+        $typed = ConvertTo-DemoLogLine '[start.ps1] The backend could not run (System.Exception): a message to withhold' @{ InLogger = $false; Reading = $true }
     }
     catch {
         return $null
@@ -458,7 +463,50 @@ function Get-CheckedLogFilter([string]$Source, [string]$Hash) {
     if (-not ([string]$plain -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$')) { return $null }
     if (-not [string]::Equals([string]$message, '    System.Exception: [message withheld]', [StringComparison]::Ordinal)) { return $null }
     if ([string]$started -cmatch 'message to withhold') { return $null }
+    if ([string]$typed -cmatch 'message to withhold') { return $null }
     return $block
+}
+
+# Said after "The log filter could not be checked": when PowerShell is not in FullLanguage mode (an
+# Application Control or AppLocker policy puts it in ConstrainedLanguage), the check cannot run at all, and
+# that is the likely reason. Nothing otherwise.
+function Get-LanguageModeNote([string]$Mode = [string]$ExecutionContext.SessionState.LanguageMode) {
+    if (-not $Mode -or $Mode -ceq 'FullLanguage') { return '' }
+    $shown = 'a restricted'
+    if ($Mode -cmatch '^[A-Za-z]{1,40}$') { $shown = $Mode }
+    return " PowerShell runs in $shown language mode here (FullLanguage is needed), which is likely why."
+}
+
+# The lines of a crash report (CrashReport.cs) that the report may show: exception types, stack frames,
+# "caused by" and blank lines. Of a line that starts like a type, any text after a colon is dropped (an
+# older or a planted file could hold a message there). A frame is kept only as identifier characters with
+# an optional line number; any other "at" line becomes "  at [frame withheld]". Every other line (the
+# product, the time, the Windows version, anything else) is left out. What was dropped is counted.
+function Select-CrashReportLines([string[]]$Lines) {
+    $kept = New-Object System.Collections.Generic.List[string]
+    $dropped = 0
+    foreach ($line in $Lines) {
+        $line = [string]$line
+        if ($line.Length -eq 0 -or $line -ceq 'caused by') {
+            $kept.Add($line)
+        }
+        elseif ($line -cmatch '^\s+at [A-Za-z0-9_.`+<>$|,\[\]-]{1,400}(:[0-9]{1,7})?$') {
+            $kept.Add($line)
+        }
+        elseif ($line -cmatch '^\s+at ') {
+            $kept.Add('  at [frame withheld]')
+            $dropped++
+        }
+        elseif ($line -cmatch '^([A-Za-z_][A-Za-z0-9_`+]{0,200}(\.[A-Za-z_][A-Za-z0-9_`+]{0,200}){1,40})(\s*:.*)?$') {
+            $kept.Add($Matches[1])
+            if ($Matches[3]) { $dropped++ }
+        }
+        else {
+            $dropped++
+        }
+    }
+    if ($dropped -gt 0) { Add-Removed 'crash report lines, or text after a type, that are not a type or a frame' $dropped }
+    return $kept.ToArray()
 }
 
 # At most $Cap bytes of a file, opened for shared reading as Read-SharedLog does: the last ones, or with
@@ -630,7 +678,7 @@ function Add-E2eReport {
             }
             $checked = Get-CheckedLogFilter -Source $FilterSource -Hash $FilterHash
             if (-not $checked) {
-                Add-Line '  The log filter could not be checked, so nothing from the end-to-end run is shown.'
+                Add-Line ('  The log filter could not be checked, so nothing from the end-to-end run is shown.' + (Get-LanguageModeNote))
                 return
             }
             # The checked filter, loaded into this section's own scope, is the ConvertTo-DemoLogLine that
@@ -741,45 +789,67 @@ function Add-CapabilityCheck([string]$Exe, [string]$WorkingDirectory, [int]$Seco
         Add-Fact 'Capability check' "did not finish within $Seconds seconds"
     }
     elseif ($run) {
-        $text = $run.Out
-        $at = $text.IndexOf('{')
-        $report = $null
-        if ($at -ge 0) {
-            try { $report = $text.Substring($at) | ConvertFrom-Json } catch { $report = $null }
-        }
-        if (-not $report) {
-            Add-Fact 'Capability check' "exit code $($run.ExitCode), no report"
-            # Only what the service's logger or its fixed sentences say; a crash's message is withheld.
-            $said = @(Select-ProgramOutputLines ($run.Err + "`n" + $run.Out))
-            foreach ($line in @($said | Select-Object -First 10)) { Add-Line ('    ' + $line) }
-        }
-        else {
-            Add-Fact 'Can capture' (Get-YesNo $report.can_capture)
-            foreach ($check in @($report.checks)) {
-                $line = "$($check.state). $($check.message)"
-                if ($check.fix_hint) { $line += " Fix: $($check.fix_hint)" }
-                Add-Fact $check.capability $line
-            }
-            $blocked = @($report.checks | Where-Object { $_.state -ne 'ok' -and $_.capability -ne 'elevated_windows' })
-            if (-not $report.can_capture) {
-                $first = @($report.checks | Where-Object { $_.state -eq 'blocked' -or $_.state -eq 'unknown' }) | Select-Object -First 1
-                $fix = 'See "What Windows lets the capture service do" below.'
-                if ($first -and $first.fix_hint) { $fix = $first.fix_hint }
-                $what = 'one of its checks failed'
-                if ($first) { $what = "$($first.capability): $($first.message)" }
-                Add-Problem 85 "Windows is not letting ScreenTail capture ($what)." $fix
-            }
-            foreach ($check in $blocked) {
-                if ($report.can_capture) {
-                    $hint = ''
-                    if ($check.fix_hint) { $hint = " Fix: $($check.fix_hint)" }
-                    Add-Notice "$($check.capability) is $($check.state): $($check.message)$hint"
-                }
-            }
-            $said = @(Select-ProgramOutputLines $run.Err)
-            foreach ($line in @($said | Select-Object -First 5)) { Add-Line ('    stderr: ' + $line) }
+        Add-CapabilityReport -Out $run.Out -Err $run.Err -ExitCode $run.ExitCode
+    }
+}
+
+# One check of the capability report, as the report may show it. When a probe throws, the service puts
+# the exception's message into the check (state "unknown", the message in fix_hint), so of a check in any
+# state but ok, degraded or blocked only a fixed sentence is shown, never its message or fix_hint. A
+# capability's name is shown only when it is one of the service's snake_case names.
+function Get-CapabilityCheckView($Check) {
+    $name = [string]$Check.capability
+    if (-not ($name -cmatch '^[a-z][a-z0-9_]{0,40}$')) { $name = 'a capability' }
+    $state = [string]$Check.state
+    if ($state -cin @('ok', 'degraded', 'blocked')) {
+        $message = [string]$Check.message
+        $hint = [string]$Check.fix_hint
+    }
+    else {
+        $state = 'unknown'
+        $message = 'ScreenTail couldn''t check this (reason withheld).'
+        $hint = ''
+    }
+    $line = "$state. $message"
+    if ($hint) { $line += " Fix: $hint" }
+    return [pscustomobject]@{ Name = $name; State = $state; Message = $message; Hint = $hint; Line = $line }
+}
+
+# What the --capabilities check printed, in the report: its JSON report, or when there is none, only what
+# the service's logger or its fixed sentences said (a crash's message is withheld).
+function Add-CapabilityReport([string]$Out, [string]$Err, [int]$ExitCode) {
+    $text = [string]$Out
+    $at = $text.IndexOf('{')
+    $report = $null
+    if ($at -ge 0) {
+        try { $report = $text.Substring($at) | ConvertFrom-Json } catch { $report = $null }
+    }
+    if (-not $report) {
+        Add-Fact 'Capability check' "exit code $ExitCode, no report"
+        $said = @(Select-ProgramOutputLines ([string]$Err + "`n" + $text))
+        foreach ($line in @($said | Select-Object -First 10)) { Add-Line ('    ' + $line) }
+        return
+    }
+    Add-Fact 'Can capture' (Get-YesNo $report.can_capture)
+    $views = @(@($report.checks) | Where-Object { $_ } | ForEach-Object { Get-CapabilityCheckView $_ })
+    foreach ($view in $views) { Add-Fact $view.Name $view.Line }
+    if (-not $report.can_capture) {
+        $first = @($views | Where-Object { $_.State -eq 'blocked' -or $_.State -eq 'unknown' }) | Select-Object -First 1
+        $fix = 'See "What Windows lets the capture service do" below.'
+        if ($first -and $first.Hint) { $fix = $first.Hint }
+        $what = 'one of its checks failed'
+        if ($first) { $what = "$($first.Name): $($first.Message)" }
+        Add-Problem 85 "Windows is not letting ScreenTail capture ($what)." $fix
+    }
+    else {
+        foreach ($view in @($views | Where-Object { $_.State -ne 'ok' -and $_.Name -ne 'elevated_windows' })) {
+            $hint = ''
+            if ($view.Hint) { $hint = " Fix: $($view.Hint)" }
+            Add-Notice "$($view.Name) is $($view.State): $($view.Message)$hint"
         }
     }
+    $said = @(Select-ProgramOutputLines ([string]$Err))
+    foreach ($line in @($said | Select-Object -First 5)) { Add-Line ('    stderr: ' + $line) }
 }
 
 # The "Logs" section: the last lines of the demo windows' logs, of the run before, of a backend log from an
@@ -791,7 +861,7 @@ function Add-DemoLogsReport {
     Invoke-Section ("Logs (the last $Tail lines of each; only the logger's lines are kept)") {
         $checked = Get-CheckedLogFilter -Source $FilterSource -Hash $FilterHash
         if (-not $checked) {
-            Add-Line '  The log filter could not be checked, so no log is shown.'
+            Add-Line ('  The log filter could not be checked, so no log is shown.' + (Get-LanguageModeNote))
             return
         }
         # Loaded into this section's own scope, where Select-DemoLogLines finds it.
@@ -845,7 +915,104 @@ function Add-DemoLogsReport {
         Add-Fact 'Crash reports (service and UI)' $crashes.Count
         if ($crashes.Count -gt 0) {
             Add-Line ('  The newest, ' + $crashes[0].Name + ' (exception types and stack frames only):')
-            foreach ($line in @(Read-SharedLog $crashes[0].FullName | Select-Object -First 60)) { Add-Line ('    ' + $line) }
+            foreach ($line in @(@(Select-CrashReportLines @(Read-SharedLog $crashes[0].FullName)) | Select-Object -First 60)) { Add-Line ('    ' + $line) }
+        }
+    }
+}
+
+# Whether a program is on PATH. Its own function so that report.Tests.ps1 can stand in for it.
+function Test-Program([string]$Name) {
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+# The "The .NET SDK" section. Of dotnet only what it printed when it succeeded (Get-NativeOutput).
+function Add-DotNetReport([string]$Repo) {
+    Invoke-Section 'The .NET SDK' {
+        if (-not (Test-Program 'dotnet')) {
+            Add-Fact '.NET SDK' 'dotnet is not installed, or not on PATH'
+            Add-Problem 10 'dotnet is not installed, or not on PATH, so nothing of the demo can be built.' 'Install the .NET 10 SDK (winget install --id Microsoft.DotNet.SDK.10 -e --source winget), then open a new PowerShell window.'
+            $script:HaveDotnet = $false
+            return
+        }
+        $script:HaveDotnet = $true
+        # Of each program run in this file, only its output when it succeeded (Get-NativeOutput); its error
+        # output is never shown, and a failure is said in a fixed sentence.
+        $version = Invoke-Native -FilePath 'dotnet' -ArgumentList @('--version') -WorkingDirectory $Repo
+        $chosen = (@(Get-NativeOutput $version) | Select-Object -Last 1)
+        if ($chosen -match '^10\.') {
+            Add-Fact '.NET SDK this clone uses' $chosen
+        }
+        else {
+            Add-Fact '.NET SDK this clone uses' 'none that global.json accepts'
+            Add-Problem 10 'No .NET 10 SDK that this repository accepts is installed.' 'Install it (winget install --id Microsoft.DotNet.SDK.10 -e --source winget), then open a new PowerShell window.'
+        }
+        $sdks = Invoke-Native -FilePath 'dotnet' -ArgumentList @('--list-sdks')
+        if ($sdks.ExitCode -eq 0) {
+            $installed = @(@(Get-NativeOutput $sdks) | ForEach-Object { ($_ -split ' ')[0] } | Where-Object { $_ })
+            Add-Fact '.NET SDKs installed' ($installed -join ', ')
+        }
+        else {
+            Add-Fact '.NET SDKs installed' "unknown: dotnet --list-sdks failed (exit code $($sdks.ExitCode))"
+        }
+    }
+}
+
+# The "The clone" section. Of git only what it printed when it succeeded (Get-NativeOutput).
+function Add-CloneReport([string]$Repo) {
+    Invoke-Section 'The clone' {
+        Add-Fact 'Folder' $Repo
+        if ($Repo -match '(?i)actions-runner|\\_work\\') {
+            Add-Notice 'The demo is running from the CI runner''s folder. Use your own clone (for example C:\src\ScreenTail): the runner changes its folder under you.'
+        }
+        if (-not (Test-Program 'git')) {
+            Add-Fact 'git' 'not installed or not on PATH, so the commit is unknown'
+            return
+        }
+        # Of git, only what it printed when it succeeded (Get-NativeOutput). Its error output (such as "unsafe
+        # repository" with the folder in it) is never shown, only that it failed.
+        $branch = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $Repo, 'rev-parse', '--abbrev-ref', 'HEAD')
+        $name = @(Get-NativeOutput $branch) | Select-Object -First 1
+        if ($name) { Add-Fact 'Branch' $name } else { Add-Fact 'Branch' "unknown: git could not read the clone (exit code $($branch.ExitCode))" }
+        # The commit's subject only when origin has the commit, so it is already public. A commit made only on
+        # this laptop is shown by its id and date.
+        $published = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $Repo, 'branch', '-r', '--contains', 'HEAD')
+        $onOrigin = (@(Get-NativeOutput $published | Where-Object { $_ -match '^\s*origin/' }).Count -gt 0)
+        if ($onOrigin) { $format = '--format=%H %cd %s' } else { $format = '--format=%H %cd (not on origin; subject not shown)' }
+        $head = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $Repo, 'log', '-1', $format, '--date=short')
+        $commit = @(Get-NativeOutput $head) | Select-Object -First 1
+        if ($commit) { Add-Fact 'Commit' $commit } else { Add-Fact 'Commit' "unknown: git could not read the commit (exit code $($head.ExitCode))" }
+
+        $compare = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $Repo, 'rev-list', '--left-right', '--count', 'origin/main...HEAD')
+        $counts = @(([string](@(Get-NativeOutput $compare) | Select-Object -First 1)).Trim() -split '\s+')
+        if ($counts.Count -ge 2 -and $counts[0] -cmatch '^[0-9]+$' -and $counts[1] -cmatch '^[0-9]+$') {
+            Add-Fact 'Against origin/main (last fetch)' ("$($counts[0]) behind, $($counts[1]) ahead")
+            if ([int]$counts[0] -gt 0) {
+                Add-Notice "The clone is $($counts[0]) commit(s) behind origin/main as of its last fetch. A 'git pull' may already fix what went wrong."
+            }
+        }
+
+        # Changed files the repository tracks, by name. Untracked files are only counted: their names are the
+        # owner's, not the project's. --no-optional-locks: status does not even refresh git's index file.
+        $status = Invoke-Native -FilePath 'git' -ArgumentList @('--no-optional-locks', '-C', $Repo, 'status', '--porcelain', '-uno')
+        $changed = @(Get-NativeOutput $status | Where-Object { $_.Trim() })
+        if ($status.ExitCode -ne 0) {
+            Add-Fact 'Changed tracked files' "unknown: git status failed (exit code $($status.ExitCode))"
+        }
+        elseif ($changed.Count -eq 0) {
+            Add-Fact 'Changed tracked files' 'none'
+        }
+        else {
+            Add-Fact 'Changed tracked files' "$($changed.Count):"
+            foreach ($line in ($changed | Select-Object -First 20)) { Add-Line ('    ' + $line) }
+            if ($changed.Count -gt 20) { Add-Line "    ... and $($changed.Count - 20) more" }
+            Add-Notice "The clone has $($changed.Count) changed file(s) (listed under 'The clone'). The developer may ask you to undo them."
+        }
+        $untracked = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $Repo, 'ls-files', '--others', '--exclude-standard')
+        if ($untracked.ExitCode -eq 0) {
+            Add-Fact 'Untracked files (count only)' (@(Get-NativeOutput $untracked | Where-Object { $_.Trim() }).Count)
+        }
+        else {
+            Add-Fact 'Untracked files (count only)' "unknown: git ls-files failed (exit code $($untracked.ExitCode))"
         }
     }
 }
@@ -923,91 +1090,9 @@ Invoke-Section 'This machine' {
     Add-Fact 'Smart App Control' $smart
 }
 
-Invoke-Section 'The .NET SDK' {
-    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-        Add-Fact '.NET SDK' 'dotnet is not installed, or not on PATH'
-        Add-Problem 10 'dotnet is not installed, or not on PATH, so nothing of the demo can be built.' 'Install the .NET 10 SDK (winget install --id Microsoft.DotNet.SDK.10 -e --source winget), then open a new PowerShell window.'
-        $script:HaveDotnet = $false
-        return
-    }
-    $script:HaveDotnet = $true
-    # Of each program run in this file, only its output when it succeeded (Get-NativeOutput); its error
-    # output is never shown, and a failure is said in a fixed sentence.
-    $version = Invoke-Native -FilePath 'dotnet' -ArgumentList @('--version') -WorkingDirectory $script:DemoRepo
-    $chosen = (@(Get-NativeOutput $version) | Select-Object -Last 1)
-    if ($chosen -match '^10\.') {
-        Add-Fact '.NET SDK this clone uses' $chosen
-    }
-    else {
-        Add-Fact '.NET SDK this clone uses' 'none that global.json accepts'
-        Add-Problem 10 'No .NET 10 SDK that this repository accepts is installed.' 'Install it (winget install --id Microsoft.DotNet.SDK.10 -e --source winget), then open a new PowerShell window.'
-    }
-    $sdks = Invoke-Native -FilePath 'dotnet' -ArgumentList @('--list-sdks')
-    if ($sdks.ExitCode -eq 0) {
-        $installed = @(@(Get-NativeOutput $sdks) | ForEach-Object { ($_ -split ' ')[0] } | Where-Object { $_ })
-        Add-Fact '.NET SDKs installed' ($installed -join ', ')
-    }
-    else {
-        Add-Fact '.NET SDKs installed' "unknown: dotnet --list-sdks failed (exit code $($sdks.ExitCode))"
-    }
-}
+Add-DotNetReport -Repo $script:DemoRepo
 
-Invoke-Section 'The clone' {
-    Add-Fact 'Folder' $script:DemoRepo
-    if ($script:DemoRepo -match '(?i)actions-runner|\\_work\\') {
-        Add-Notice 'The demo is running from the CI runner''s folder. Use your own clone (for example C:\src\ScreenTail): the runner changes its folder under you.'
-    }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Add-Fact 'git' 'not installed or not on PATH, so the commit is unknown'
-        return
-    }
-    # Of git, only what it printed when it succeeded (Get-NativeOutput). Its error output (such as "unsafe
-    # repository" with the folder in it) is never shown, only that it failed.
-    $branch = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'rev-parse', '--abbrev-ref', 'HEAD')
-    $name = @(Get-NativeOutput $branch) | Select-Object -First 1
-    if ($name) { Add-Fact 'Branch' $name } else { Add-Fact 'Branch' "unknown: git could not read the clone (exit code $($branch.ExitCode))" }
-    # The commit's subject only when origin has the commit, so it is already public. A commit made only on
-    # this laptop is shown by its id and date.
-    $published = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'branch', '-r', '--contains', 'HEAD')
-    $onOrigin = (@(Get-NativeOutput $published | Where-Object { $_ -match '^\s*origin/' }).Count -gt 0)
-    if ($onOrigin) { $format = '--format=%H %cd %s' } else { $format = '--format=%H %cd (not on origin; subject not shown)' }
-    $head = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'log', '-1', $format, '--date=short')
-    $commit = @(Get-NativeOutput $head) | Select-Object -First 1
-    if ($commit) { Add-Fact 'Commit' $commit } else { Add-Fact 'Commit' "unknown: git could not read the commit (exit code $($head.ExitCode))" }
-
-    $compare = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'rev-list', '--left-right', '--count', 'origin/main...HEAD')
-    $counts = @(([string](@(Get-NativeOutput $compare) | Select-Object -First 1)).Trim() -split '\s+')
-    if ($counts.Count -ge 2 -and $counts[0] -cmatch '^[0-9]+$' -and $counts[1] -cmatch '^[0-9]+$') {
-        Add-Fact 'Against origin/main (last fetch)' ("$($counts[0]) behind, $($counts[1]) ahead")
-        if ([int]$counts[0] -gt 0) {
-            Add-Notice "The clone is $($counts[0]) commit(s) behind origin/main as of its last fetch. A 'git pull' may already fix what went wrong."
-        }
-    }
-
-    # Changed files the repository tracks, by name. Untracked files are only counted: their names are the
-    # owner's, not the project's. --no-optional-locks: status does not even refresh git's index file.
-    $status = Invoke-Native -FilePath 'git' -ArgumentList @('--no-optional-locks', '-C', $script:DemoRepo, 'status', '--porcelain', '-uno')
-    $changed = @(Get-NativeOutput $status | Where-Object { $_.Trim() })
-    if ($status.ExitCode -ne 0) {
-        Add-Fact 'Changed tracked files' "unknown: git status failed (exit code $($status.ExitCode))"
-    }
-    elseif ($changed.Count -eq 0) {
-        Add-Fact 'Changed tracked files' 'none'
-    }
-    else {
-        Add-Fact 'Changed tracked files' "$($changed.Count):"
-        foreach ($line in ($changed | Select-Object -First 20)) { Add-Line ('    ' + $line) }
-        if ($changed.Count -gt 20) { Add-Line "    ... and $($changed.Count - 20) more" }
-        Add-Notice "The clone has $($changed.Count) changed file(s) (listed under 'The clone'). The developer may ask you to undo them."
-    }
-    $untracked = Invoke-Native -FilePath 'git' -ArgumentList @('-C', $script:DemoRepo, 'ls-files', '--others', '--exclude-standard')
-    if ($untracked.ExitCode -eq 0) {
-        Add-Fact 'Untracked files (count only)' (@(Get-NativeOutput $untracked | Where-Object { $_.Trim() }).Count)
-    }
-    else {
-        Add-Fact 'Untracked files (count only)' "unknown: git ls-files failed (exit code $($untracked.ExitCode))"
-    }
-}
+Add-CloneReport -Repo $script:DemoRepo
 
 Invoke-Section 'Demo components' {
     $state = @(Get-DemoState)
