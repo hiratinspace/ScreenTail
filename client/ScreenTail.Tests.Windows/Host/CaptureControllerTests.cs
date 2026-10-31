@@ -255,6 +255,50 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ANamedDiscardThroughTheControllerThrowsAwayThatSessionAndNoOther()
+    {
+        // Contract v6, wired: Review's request names its session, the controller hands it to the named
+        // discards, and the session it names goes while the running one keeps recording.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+        await store.CreateSessionAsync(new NewSession("older", At, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null), ct);
+        var running = await RecordingAsync(machine, ct);
+
+        var issued = Assert.IsType<ConfirmationIssued>(await controller.ReplyToAsync(
+            new RequestConfirmationCommand { RequestId = 1, Action = "discard_session", SessionIds = ["older"] }, Window, ct));
+        var result = await controller.HandleAsync(new DiscardSessionsCommand { RequestId = 2, SessionIds = ["older"], Confirmation = issued.Token }, Window, ct);
+
+        Assert.Equal("DISCARD", issued.Phrase);
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(SessionStateNames.Discarded, (await store.GetSessionSummaryAsync("older", ct))!.State);
+        await StillRecordingAsync(machine, store, running, ct);
+    }
+
+    [Fact]
+    public async Task TheTraysTokenAndANamedTokenCannotStandInForEachOther()
+    {
+        // The tray's discard is unchanged, and its token is no use for a named discard; a token issued for
+        // a named one is no use for the tray's, which acts on whatever is current.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(store, machine: machine);
+        var running = await RecordingAsync(machine, ct);
+
+        var trayToken = await TokenAsync(controller, "discard_session", ct);
+        var named = await controller.HandleAsync(new DiscardSessionsCommand { RequestId = 1, SessionIds = [running], Confirmation = trayToken }, Window, ct);
+        var namedToken = Assert.IsType<ConfirmationIssued>(await controller.ReplyToAsync(
+            new RequestConfirmationCommand { RequestId = 2, Action = "discard_session", SessionIds = [running] }, Window, ct)).Token;
+        var tray = await controller.HandleAsync(new DiscardCommand { RequestId = 3, Confirmation = namedToken }, Window, ct);
+
+        Assert.False(named.Ok);
+        Assert.False(tray.Ok);
+        await StillRecordingAsync(machine, store, running, ct);
+    }
+
+    [Fact]
     public async Task ADiscardWithNoConfirmationDiscardsNothing()
     {
         // Boundary 1. The pipe proves only that the peer is the same user, and a same-user process that

@@ -112,6 +112,32 @@ public sealed class SessionHistoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public void APublishedSessionIsNotOneABulkDiscardTakes()
+    {
+        // Owner decision, fail closed: Spec §5 S4 does not say a published session may be discarded, and
+        // the service refuses one. Counting it in would ask the technician to type a number the service
+        // then refuses, which is the gate misleading them again.
+        var selected = new[]
+        {
+            Summary("s1", title: "one"),
+            Summary("s2", state: SessionStateNames.Published, title: "two"),
+        };
+
+        Assert.Equal(["s1"], SessionHistory.Discardable(selected).Select(s => s.Id));
+    }
+
+    [Fact]
+    public void TheHistoryScreensRowsQualifyByTheSameRule()
+    {
+        // The screen has the pipe's rows, not the store's summaries, and the same rule picks them. A status
+        // this build does not know is not one it may destroy.
+        var rows = new[] { "draft", "published", "discarded", "partial", "pending", "something_new" }
+            .Select(status => new Shared.Ipc.SessionRow { Id = status, StartedAt = DateTimeOffset.UnixEpoch, DurationMs = 0, Status = status, Frames = 0, FramesPurged = 0 });
+
+        Assert.Equal(["draft", "partial", "pending"], SessionHistory.Discardable(rows).Select(r => r.Id));
+    }
+
+    [Fact]
     public async Task TwoHundredSessionsListInWellUnderHalfASecond()
     {
         // The ticket's number, against the real encrypted store. The shape that fails it is the obvious
