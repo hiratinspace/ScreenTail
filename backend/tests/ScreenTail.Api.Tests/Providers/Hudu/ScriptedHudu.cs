@@ -63,13 +63,6 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     public Task Hung => _hung.Task;
 
     /// <summary>
-    /// The token the hung request was sent with, once <see cref="Hung"/> is done. Cancelled the moment
-    /// the deadline fires, on the thread that fired it, so a test reads exactly when the deadline came
-    /// rather than when the answer it causes has made its way back.
-    /// </summary>
-    public CancellationToken HungOn { get; private set; }
-
-    /// <summary>
     /// Requests to a path ending in this wait until <see cref="Release"/>; <see cref="Holding"/> completes
     /// when the first one arrives. A gate the test opens, so callers can be made to overlap without timing.
     /// </summary>
@@ -138,7 +131,6 @@ internal sealed class ScriptedHudu : HttpMessageHandler
         if (HangingRoute is { } hanging && path.EndsWith(hanging, StringComparison.Ordinal))
         {
             var waiting = Task.Delay(Timeout.Infinite, cancellationToken);
-            HungOn = cancellationToken;
             _ = _hung.TrySetResult();
             await waiting;
         }

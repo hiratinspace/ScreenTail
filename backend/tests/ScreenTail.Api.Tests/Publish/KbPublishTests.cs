@@ -184,18 +184,21 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         // rather than telling the technician to go and look for one that cannot exist.
         //
         // The deadline runs on a held clock, moved past only once the lookup is waiting, so it ends the
-        // publish during the lookup every time rather than wherever a busy machine had got to.
+        // publish during the lookup every time rather than wherever a busy machine had got to. The edge is
+        // read from the token the publish asked for the list with, which the deadline cancels as it fires;
+        // the load itself runs on the company cache's own token (WatchedDocs says why).
         var clock = new HeldClock();
+        var docs = new WatchedDocs();
         var hudu = new ScriptedHudu { HangingRoute = "/api/v1/companies" };
-        using var host = Host(new ScriptedConnectWise(), hudu, publish => publish.Deadline = TimeSpan.FromMilliseconds(500), clock);
+        using var host = Host(new ScriptedConnectWise(), hudu, publish => publish.Deadline = TimeSpan.FromMilliseconds(500), clock, docs);
         var (client, _) = await ConnectedClientAsync(host);
 
         var responding = client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
         await hudu.Hung.WaitAsync(Settled, TestContext.Current.CancellationToken);
         clock.Advance(TimeSpan.FromMilliseconds(499));
-        Assert.False(hudu.HungOn.IsCancellationRequested, "The deadline is 500 ms, and only 499 ms have gone.");
+        Assert.False(docs.ListedWith.IsCancellationRequested, "The deadline is 500 ms, and only 499 ms have gone.");
         clock.Advance(TimeSpan.FromMilliseconds(1));
-        Assert.True(hudu.HungOn.IsCancellationRequested, "The deadline is 500 ms, and 500 ms have gone.");
+        Assert.True(docs.ListedWith.IsCancellationRequested, "The deadline is 500 ms, and 500 ms have gone.");
         using var response = await responding.WaitAsync(Settled, TestContext.Current.CancellationToken);
         var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
 
@@ -736,7 +739,8 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     private static PublishFrame Frame(string id) => new(id, "/9j/4AAQSkZJRg==", "image/jpeg");
 
     /// <param name="clock">The service's clock in place of the machine's, when given.</param>
-    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(ScriptedConnectWise cw, ScriptedHudu hudu, Action<PublishOptions>? publish = null, HeldClock? clock = null) => api.WithWebHostBuilder(builder =>
+    /// <param name="docs">The Hudu provider watched, when given.</param>
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(ScriptedConnectWise cw, ScriptedHudu hudu, Action<PublishOptions>? publish = null, HeldClock? clock = null, WatchedDocs? docs = null) => api.WithWebHostBuilder(builder =>
     {
         _ = builder.UseSetting("ConnectWise:ClientId", "11111111-2222-3333-4444-555555555555");
         _ = builder.ConfigureTestServices(services =>
@@ -749,6 +753,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
             }
 
             clock?.Install(services);
+            docs?.Install(services);
         });
     });
 
