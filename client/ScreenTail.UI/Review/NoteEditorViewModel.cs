@@ -79,6 +79,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     private readonly AutoSave _save;
     private readonly Func<TypedConfirmation, bool> _confirm;
     private readonly Func<CancellationToken, Task>? _discard;
+    private readonly Func<string?>? _discardBlocked;
     private readonly Func<CancellationToken, Task>? _retryDraft;
     private readonly bool _persists;
     private readonly Dictionary<string, string> _quotes;
@@ -92,6 +93,11 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     /// <param name="retryDraft">Asks for the note again after a failed draft (ST-061).</param>
     /// <param name="showFrame">Selects a frame in the filmstrip when its chip is clicked (T-165).</param>
     /// <param name="draftPending">The draft is queued for the backend (ST-013): on its way, not failed.</param>
+    /// <param name="discardBlocked">
+    /// Why Discard may not be asked about right now, or null when it may: the session is still being
+    /// captured, or the service is not answering. Asked before the dialog, because Spec §4 allows no modal
+    /// during a recording.
+    /// </param>
     public NoteEditorViewModel(
         Session session,
         Func<DraftNote, CancellationToken, Task>? write = null,
@@ -101,13 +107,15 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         bool offline = false,
         TimeProvider? time = null,
         Action<string?>? showFrame = null,
-        bool draftPending = false)
+        bool draftPending = false,
+        Func<string?>? discardBlocked = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
         _showFrame = showFrame;
         _confirm = confirm ?? (_ => false);
         _discard = discard;
+        _discardBlocked = discardBlocked;
         _retryDraft = retryDraft;
         _persists = write is not null;
 
@@ -318,21 +326,35 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     }
 
     /// <summary>
-    /// The header's Discard. Irreversible, so it goes through the typed gate first (Spec §3) and the
-    /// caller's <c>discard</c> deletes the raw data and writes the audit row.
+    /// The header's Discard (Spec §5 S3). Irreversible, so it goes through the typed gate first (Spec §3)
+    /// and the caller's <c>discard</c> asks the service to throw the session away by name. Disabled when
+    /// nothing is wired to do it, as in the render harness: a Discard that looks pressable and does nothing
+    /// is a lie about the one irreversible action on the screen.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanDiscard))]
     private async Task DiscardAsync()
     {
-        if (_discard is null || !_confirm(TypedConfirmation.ForDiscard()))
+        if (_discard is null)
         {
             return;
         }
 
-        // Before the store call, not after. The session row survives a discard on purpose, so a tick or a
-        // closing flush landing afterwards would put a full readable note back into a session whose audit
-        // log says a human threw it away — and there is nothing in the note that a discard was meant to
-        // keep.
+        // No dialog over a session still being captured (Spec §4): the reason goes beside the button.
+        if (_discardBlocked?.Invoke() is { } blocked)
+        {
+            SetDiscardError(blocked);
+            return;
+        }
+
+        if (!_confirm(TypedConfirmation.ForDiscard()))
+        {
+            return;
+        }
+
+        // Before the service is asked, not after. The note would otherwise be written once more by a tick
+        // or a closing flush, and put a full readable note back into a session whose audit log says a
+        // human threw it away; there is nothing in the note that a discard was meant to keep.
+        SetDiscardError(null);
         _save.Stop();
         try
         {
@@ -341,11 +363,20 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         catch (Exception error) when (error is not OperationCanceledException)
         {
             // A discard that fails must not look like one that worked: the technician is standing in front
-            // of a customer believing the screenshots are gone.
-            DiscardError = error.Message;
-            OnPropertyChanged(nameof(DiscardError));
-            OnPropertyChanged(nameof(DiscardFailed));
+            // of a customer believing the screenshots are gone. Nothing was thrown away, so the note is
+            // still theirs, and what they type next is saved again.
+            _save.Resume();
+            SetDiscardError(error.Message);
         }
+    }
+
+    private bool CanDiscard() => _discard is not null;
+
+    private void SetDiscardError(string? error)
+    {
+        DiscardError = error;
+        OnPropertyChanged(nameof(DiscardError));
+        OnPropertyChanged(nameof(DiscardFailed));
     }
 
     /// <summary>Why the discard did not happen, or null. Shown beside the button, never as a dialog.</summary>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using ScreenTail.Core.Review;
 
@@ -7,13 +8,15 @@ namespace ScreenTail.UI.Review;
 /// The typed gate in front of Discard (Spec §3, §5 S3), and in front of a bulk discard (§5 S4).
 ///
 /// Whether the typing is right is <see cref="TypedConfirmation"/>'s job, which is where the tests are.
-/// This shows the words and keeps the button disabled until it agrees.
+/// This shows the words and keeps the button disabled until it agrees. The caret is in the box when it
+/// opens, Esc keeps the sessions, and closing hands focus back to the window that opened it.
 /// </summary>
 public partial class ConfirmTypedDialog : Window
 {
     private readonly TypedConfirmation _confirmation;
 
-    public ConfirmTypedDialog(TypedConfirmation confirmation, string heading, string consequence)
+    /// <param name="action">The confirming button's words, which are also its name to a screen reader.</param>
+    public ConfirmTypedDialog(TypedConfirmation confirmation, string heading, string consequence, string action = "Discard")
     {
         ArgumentNullException.ThrowIfNull(confirmation);
         _confirmation = confirmation;
@@ -22,19 +25,50 @@ public partial class ConfirmTypedDialog : Window
         // A named type, not an anonymous one: anonymous types are internal, and WPF binding to them
         // depends on reflection permissions that have bitten this pattern before. The failure is a blank
         // dialog with a disabled button, which is the last place to discover a quirk.
-        DataContext = new Words(heading, consequence, confirmation.Prompt);
+        DataContext = new Words(heading, consequence, confirmation.Prompt, action);
     }
 
     /// <summary>What the dialog says. Public so the binding engine can read it without help.</summary>
-    public sealed record Words(string Heading, string Consequence, string Prompt);
+    public sealed record Words(string Heading, string Consequence, string Prompt, string Action);
 
     /// <summary>Spec §5 S3's Discard: the raw data goes now, and the audit row records that it did.</summary>
-    public static bool AskToDiscard(Window? owner) =>
-        new ConfirmTypedDialog(
-            TypedConfirmation.ForDiscard(),
-            "Discard this session?",
-            "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone.")
-        { Owner = owner }.ShowDialog() == true;
+    public static bool AskToDiscard(Window? owner, TypedConfirmation confirmation) =>
+        Show(
+            owner,
+            new ConfirmTypedDialog(
+                confirmation,
+                "Discard this session?",
+                "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone."));
+
+    /// <summary>
+    /// Spec §5 S4's bulk discard: the technician types how many sessions go (v0.4.1 Q6). The number is the
+    /// service's, which counted the ids it bound the token to.
+    /// </summary>
+    public static bool AskToDiscardSessions(Window? owner, TypedConfirmation confirmation, int count)
+    {
+        var sessions = count == 1 ? "1 session" : string.Create(CultureInfo.CurrentCulture, $"{count} sessions");
+        return Show(
+            owner,
+            new ConfirmTypedDialog(
+                confirmation,
+                $"Discard {sessions}?",
+                "Their screenshots, transcripts and timelines are deleted from this device straight away, and their notes go with them. This cannot be undone.",
+                $"Discard {sessions}"));
+    }
+
+    private static bool Show(Window? owner, ConfirmTypedDialog dialog)
+    {
+        if (owner is { IsLoaded: true })
+        {
+            dialog.Owner = owner;
+        }
+        else
+        {
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+
+        return dialog.ShowDialog() == true;
+    }
 
     private void OnTyped(object sender, RoutedEventArgs e) => Confirm.IsEnabled = _confirmation.Accepts(Typed.Text);
 

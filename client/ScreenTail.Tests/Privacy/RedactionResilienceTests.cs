@@ -279,7 +279,7 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         /// The write that now happens for every frame (ADR-0006). It used to be an update over a staged
         /// row, and refusing that was how this test reproduced the failure; the refusal moves with it.
         /// </summary>
-        public Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) =>
+        public Task<bool> SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) =>
             string.Equals(frame.Id, frameId, StringComparison.Ordinal)
                 ? throw new InvalidOperationException($"Frame '{frame.Id}' could not be written.")
                 : inner.SaveRedactedFrameAsync(sessionId, frame, outcome, ct);
@@ -309,11 +309,11 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task CreateSessionAsync(NewSession session, CancellationToken ct = default) => inner.CreateSessionAsync(session, ct);
 
-        public Task AppendEventAsync(string sessionId, SessionEvent e, CancellationToken ct = default) => inner.AppendEventAsync(sessionId, e, ct);
+        public Task<bool> AppendEventAsync(string sessionId, SessionEvent e, CancellationToken ct = default) => inner.AppendEventAsync(sessionId, e, ct);
 
-        public Task AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default) => inner.AppendTranscriptAsync(sessionId, segment, ct);
+        public Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default) => inner.AppendTranscriptAsync(sessionId, segment, ct);
 
-        public Task StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default) => inner.StageFrameAsync(sessionId, frame, ct);
+        public Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default) => inner.StageFrameAsync(sessionId, frame, ct);
 
         public Task<int> PurgePendingFramesAsync(string sessionId, CancellationToken ct = default) => inner.PurgePendingFramesAsync(sessionId, ct);
 
@@ -335,6 +335,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateAsync(sessionId, state, reason, ct);
 
+        public Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateUnlessSettledAsync(sessionId, state, reason, ct);
+
         public Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) => inner.SaveReadyDraftAsync(sessionId, draft, ct);
 
         public Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateIfAsync(sessionId, expected, state, reason, ct);
@@ -348,6 +350,14 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         public Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default) => inner.PurgeRawDataAsync(sessionId, ct);
 
         public Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default) => inner.DiscardSessionAsync(sessionId, ct);
+
+        public Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default) => inner.DiscardSessionsAsync(sessionIds, ct);
+
+        public Task<IReadOnlyList<string>> ListUnfinishedDiscardsAsync(CancellationToken ct = default) => inner.ListUnfinishedDiscardsAsync(ct);
+
+        public Task<bool> PurgeDiscardedContentAsync(string sessionId, int chunk, CancellationToken ct = default) => inner.PurgeDiscardedContentAsync(sessionId, chunk, ct);
+
+        public Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default) => inner.MarkPublishedAsync(sessionId, ct);
 
         public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => inner.DeleteFrameAsync(frameId, ct);
 

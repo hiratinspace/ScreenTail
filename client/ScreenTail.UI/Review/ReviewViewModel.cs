@@ -26,6 +26,12 @@ public sealed class ReviewViewModel : IAsyncDisposable
     /// <param name="publish">The right pane's rules and its PSA delegates. Null shows the pane with no PSA to connect to.</param>
     /// <param name="timelineExpanded">Whether the bottom panel was open last time (Spec §5 S3: state persists).</param>
     /// <param name="timelineToggled">Told when it opens or closes, so the shell can remember.</param>
+    /// <param name="discard">
+    /// The header's Discard once DISCARD is typed (Spec §5 S3): asks the service to throw this session
+    /// away by name, and throws with the service's words when it refuses. Null in the harness, which
+    /// disables the button.
+    /// </param>
+    /// <param name="discardBlocked">Why Discard may not be asked about now (the session is still being captured), or null.</param>
     public ReviewViewModel(
         Session session,
         IReviewFrames? frames,
@@ -34,12 +40,15 @@ public sealed class ReviewViewModel : IAsyncDisposable
         PublishPanel? publish = null,
         bool timelineExpanded = false,
         Action<bool>? timelineToggled = null,
-        bool draftPending = false)
+        bool draftPending = false,
+        Func<CancellationToken, Task>? discard = null,
+        Func<string?>? discardBlocked = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         SessionId = session.SessionId;
+        Title = string.IsNullOrWhiteSpace(session.Draft?.SuggestedTitle) ? "Review" : $"Review: {session.Draft.SuggestedTitle}";
         Strip = new FilmstripViewModel(session, frames);
-        Note = new NoteEditorViewModel(session, write, confirm, showFrame: id => Strip.Select(id), draftPending: draftPending);
+        Note = new NoteEditorViewModel(session, write, confirm, discard, showFrame: id => Strip.Select(id), draftPending: draftPending, discardBlocked: discardBlocked);
 
         // These two lambdas are all that keep the note as it arrived, an excluded frame and a frame inside
         // its undo window out of a publish, and the service trusts the list (T-172).
@@ -55,6 +64,9 @@ public sealed class ReviewViewModel : IAsyncDisposable
     }
 
     public string SessionId { get; }
+
+    /// <summary>The header's title (Spec §5 S3's title bar): the note's own title once there is one.</summary>
+    public string Title { get; }
 
     public NoteEditorViewModel Note { get; }
 

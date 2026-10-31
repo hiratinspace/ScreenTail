@@ -175,6 +175,15 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void Show(ShellSnapshot snapshot)
     {
         var step = _panes.Next(snapshot);
+
+        // The session under review was discarded (Spec §5 S3, S4). Its pane is let go of now, and a load
+        // still under way for it shows nothing when it lands.
+        if (step.ReleaseReview)
+        {
+            _loads++;
+            _review.Hold(null);
+        }
+
         switch (step.Action)
         {
             case PaneAction.NothingToReview:

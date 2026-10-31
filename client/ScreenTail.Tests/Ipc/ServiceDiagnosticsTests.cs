@@ -113,6 +113,33 @@ public sealed class ServiceDiagnosticsTests
     }
 
     [Fact]
+    public void ScreenshotsRefusedForADiscardedSessionAreCountedApart()
+    {
+        // Second review of #243. A frame the store refused because its session was discarded was read and
+        // masked, so it is not one lost unchecked (INV-1), and it was not stored, so it is not redacted
+        // either. It has its own number, and nothing else about it.
+        var redaction = new RedactionProgress(Frames: 40, Unreadable: 0, Unread: 0, Masked: new Dictionary<MaskKind, long>(), Refused: 3);
+
+        var reported = ServiceDiagnostics.Report(
+            serviceVersion: "0.1.0",
+            scope: null,
+            microphone: null,
+            new CaptureStateSnapshot { State = CaptureStates.Idle, PendingRedactions = 0 },
+            isHeld: _ => false,
+            redactionBacklog: 0,
+            redaction,
+            framesRefused: 0,
+            keystrokesDropped: null,
+            egressBlocked: 0,
+            localOnly: false,
+            policyVersion: "default",
+            workingSetBytes: 0);
+
+        Assert.Equal(3, reported.FramesAfterDiscard);
+        Assert.Equal(0, reported.FramesDropped);
+    }
+
+    [Fact]
     public void BeforeAnythingIsWiredTheCountsAreZeroAndNothingIsInFront()
     {
         // The report the controller can be asked for before the capture loops exist. Zeros are honest

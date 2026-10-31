@@ -197,6 +197,48 @@ public sealed class ConfirmationsTests
     }
 
     [Fact]
+    public void ATokenForNamedSessionsIsGoodForExactlyThoseSessions()
+    {
+        // Contract v6. Review and History name what they discard, and the token is bound to the names: a
+        // technician who typed "2" for two sessions has agreed to those two, in whatever order the pipe
+        // carries them, and to nothing else.
+        var confirmations = new Confirmations();
+
+        var token = confirmations.Issue(DestructiveAction.DiscardSessions, Caller, ["s1", "s2"]);
+
+        Assert.True(confirmations.Spend(token, DestructiveAction.DiscardSessions, Caller, ["s2", "s1"]));
+    }
+
+    [Theory]
+    [InlineData("s1")]
+    [InlineData("s1,s3")]
+    [InlineData("s1,s2,s3")]
+    [InlineData("s3,s4")]
+    public void ATokenForNamedSessionsCannotBeReplayedForOthers(string replayed)
+    {
+        // Fewer, more, or different: every one is a session nobody confirmed, and the token is spent by
+        // the attempt, so the sessions it was for cannot be discarded with it afterwards either.
+        var confirmations = new Confirmations();
+        var token = confirmations.Issue(DestructiveAction.DiscardSessions, Caller, ["s1", "s2"]);
+
+        Assert.False(confirmations.Spend(token, DestructiveAction.DiscardSessions, Caller, replayed.Split(',')));
+        Assert.False(confirmations.Spend(token, DestructiveAction.DiscardSessions, Caller, ["s1", "s2"]));
+    }
+
+    [Fact]
+    public void TheTraysTokenAndANamedTokenCannotStandInForEachOther()
+    {
+        // The tray's discard names nothing and acts on the machine's current session. A token for it is
+        // not a token for a named session, and a named token is not one for whatever is current.
+        var confirmations = new Confirmations();
+        var tray = confirmations.Issue(DestructiveAction.DiscardSession, Caller);
+        var named = confirmations.Issue(DestructiveAction.DiscardSessions, Caller, ["s1"]);
+
+        Assert.False(confirmations.Spend(tray, DestructiveAction.DiscardSessions, Caller, ["s1"]));
+        Assert.False(confirmations.Spend(named, DestructiveAction.DiscardSession, Caller));
+    }
+
+    [Fact]
     public void TwoTokensAreNotTheSameToken()
     {
         var confirmations = new Confirmations();

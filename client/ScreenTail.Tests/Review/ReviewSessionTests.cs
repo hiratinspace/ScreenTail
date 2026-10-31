@@ -111,11 +111,11 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task CreateSessionAsync(NewSession session, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) => throw new NotSupportedException();
 
@@ -123,7 +123,7 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default) => throw new NotSupportedException();
 
@@ -145,6 +145,8 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default) => throw new NotSupportedException();
@@ -158,6 +160,14 @@ public sealed class ReviewSessionTests : IAsyncDisposable
         public Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> ListUnfinishedDiscardsAsync(CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task<bool> PurgeDiscardedContentAsync(string sessionId, int chunk, CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => throw new NotSupportedException();
 

@@ -22,11 +22,13 @@ public static class SessionStateNames
     public const string Discarded = "discarded";
 
     /// <summary>
-    /// The session reached a PSA. Spec §5 S4 filters history by it, so the history knows the name — but
-    /// nothing writes it yet: publishing is ST-078, and this is the one place it will set.
+    /// The session reached a PSA. Spec §5 S4 filters history by it. Written by the publish command once any
+    /// destination landed (review of #243), never over a discarded row, and a named discard refuses a
+    /// session in it: its note is in the PSA (owner decision, fail closed). A published session is no
+    /// longer counted among the drafts ready, and the tray's Discard, which takes whatever the machine is
+    /// resting on, is unchanged.
     ///
-    /// Declared here rather than as a literal in the history code so there is a single spelling to find,
-    /// and so the gap is visible next to the state that does exist.
+    /// Declared here rather than as a literal in the history code so there is a single spelling to find.
     /// </summary>
     public const string Published = "published";
 

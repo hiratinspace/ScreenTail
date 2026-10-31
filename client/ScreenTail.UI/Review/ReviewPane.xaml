@@ -15,15 +15,54 @@
          a fixed column on the right with its button at the bottom, and the timeline row (ST-076) below all
          three. Star widths, so the three still fit at the 1024 px minimum window: fixed widths of 440 and
          320 pushed the publish pane off the right edge there. -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <timeline:TimelineView Grid.Row="1" Margin="0,12,0,0" DataContext="{Binding Timeline}" />
+        <!-- Spec §5 S3's header: the session's title, then Discard on the right, a ghost button that turns
+             danger on hover and on keyboard focus, and opens the typed DISCARD confirmation. Why a discard
+             did not happen is said beside it, never in a dialog, and read out as it changes. -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
 
-        <Grid Grid.Row="0">
+            <TextBlock Grid.Column="0"
+                       VerticalAlignment="Center"
+                       Style="{StaticResource Text.ScreenTitle}"
+                       TextTrimming="CharacterEllipsis"
+                       TextWrapping="NoWrap"
+                       Text="{Binding Title}" />
+
+            <TextBlock Grid.Column="1"
+                       Margin="16,0,12,0"
+                       MaxWidth="{DynamicResource Layout.content-max-width}"
+                       VerticalAlignment="Center"
+                       Style="{StaticResource Text.Error}"
+                       Visibility="{Binding Note.DiscardFailed, Converter={StaticResource Visible}}"
+                       Text="{Binding Note.DiscardError}"
+                       AutomationProperties.LiveSetting="Assertive" />
+
+            <Button Grid.Column="2"
+                    Style="{StaticResource Button.GhostDanger}"
+                    Content="Discard"
+                    Command="{Binding Note.DiscardCommand}"
+                    ToolTip="Discard this session. You will be asked to type DISCARD."
+                    AutomationProperties.Name="Discard this session"
+                    AutomationProperties.HelpText="Deletes the screenshots, transcript and note from this device. You will be asked to type DISCARD." />
+        </Grid>
+
+        <timeline:TimelineView Grid.Row="2" Margin="0,12,0,0" DataContext="{Binding Timeline}" />
+
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5*" MinWidth="340" />
                 <ColumnDefinition Width="12" />

@@ -247,6 +247,17 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             LogAdoptionFault(logger, adoptionFault);
         }
 
+        // A bulk discard marks its sessions and deletes their content afterwards. A service that stopped
+        // in between left content nobody can read; it is deleted now rather than at retention (INV-12).
+        // Tried, never relied on: a store that fails here (a full disk) used to end the service at every
+        // start, before the pipe existed, so nothing captured and Delete everything was out of reach. The
+        // content is unreachable and closed to writes already; the hourly tick and the next discard try
+        // again (second review of #243).
+        if (await machine.TryFinishDiscardsAsync(stoppingToken).ConfigureAwait(false) is { } finishFault)
+        {
+            LogDiscardUnfinished(logger, finishFault.FirstFault, finishFault.Sessions);
+        }
+
         var token = IpcToken.Generate();
         IpcTokenFile.Write(IpcTokenFile.DefaultPath, token);
 
@@ -312,7 +323,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new ReviewCommands(store, new WindowsFrameMasker()),
             // The logger, so a publish whose metrics or style bookkeeping failed says so in the service's
             // log, by the fault's type alone (INV-10). Without it the fault was kept and nobody was told.
-            new PublishCommands(store, psa, metrics, new StyleLearner(style, store), logger),
+            new PublishCommands(store, psa, metrics, new StyleLearner(style, store), logger, machine.PublishedAsync),
             new DeviceCommands(device),
             new SettingsCommands(
                 settingsStore,
@@ -676,10 +687,26 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         {
             do
             {
-                var purged = await retention.RunAsync(stoppingToken).ConfigureAwait(false);
-                if (purged > 0)
+                // A retention run that throws (a full disk, a locked file) used to end this loop for the
+                // life of the service: no more retention, and no more retries of an unfinished discard
+                // (INV-12; third review of #243). It is logged by kind and tried again in an hour.
+                try
                 {
-                    LogRetention(logger, purged);
+                    var purged = await retention.RunAsync(stoppingToken).ConfigureAwait(false);
+                    if (purged > 0)
+                    {
+                        LogRetention(logger, purged);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    LogRetentionFailed(logger, ex.GetType().Name);
+                }
+
+                // A discard whose deleting failed earlier is finished here, an hour later at most.
+                if (await machine.TryFinishDiscardsAsync(stoppingToken).ConfigureAwait(false) is { } unfinished)
+                {
+                    LogDiscardUnfinished(logger, unfinished.FirstFault, unfinished.Sessions);
                 }
             }
             while (await hourly.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false));
@@ -734,6 +761,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Recovered {Count} session(s) left behind by a previous run; marked partial and finalized")]
     private static partial void LogRecovered(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Discarded sessions' content could not all be deleted yet ({Error}, {Sessions} session(s)); it stays unreadable and is tried again")]
+    private static partial void LogDiscardUnfinished(ILogger logger, string error, int sessions);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Retention failed with {Error}; it runs again in an hour")]
+    private static partial void LogRetentionFailed(ILogger logger, string error);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "A session whose draft is queued could not be read at startup ({Error}); the capture service starts idle")]
     private static partial void LogAdoptionFault(ILogger logger, string error);

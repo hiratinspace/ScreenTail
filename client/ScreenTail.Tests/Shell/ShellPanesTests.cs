@@ -220,6 +220,50 @@ public sealed class ShellPanesTests
         Assert.Equal(ShellStatus.NotConnected, ShellStatus.Describe(Snapshot(ShellView.Review, Capture(CaptureStates.Recording)) with { Connection = ServiceConnection.Unavailable }));
     }
 
+    [Fact]
+    public void DiscardingTheSessionUnderReviewLetsItsPaneGoAndShowsHistory()
+    {
+        // Review's Discard (Spec §5 S3). The pane holds a session that no longer has anything in it, so it
+        // is let go of as History opens rather than kept for a return that would show an empty note; and
+        // coming back to Review finds nothing to review rather than that session.
+        var state = new ShellState();
+        var panes = new ShellPanes();
+        var steps = new List<PaneStep>();
+        state.Changed += snapshot => steps.Add(panes.Next(snapshot));
+        state.Connected(Capture(CaptureStates.Idle));
+        state.OpenSession("s1");
+        Assert.Equal(PaneAction.LoadReview, steps[^1].Action);
+
+        state.Discarded(["s1"], showHistory: true);
+
+        Assert.Equal(PaneAction.History, steps[^1].Action);
+        Assert.True(steps[^1].ReleaseReview, "the discarded session's pane was kept");
+        Assert.Null(panes.Review);
+
+        state.Navigate(ShellView.Review);
+        Assert.Equal(PaneAction.NothingToReview, steps[^1].Action);
+    }
+
+    [Fact]
+    public void ABulkDiscardThatMissesTheSessionUnderReviewLeavesItAlone()
+    {
+        var state = new ShellState();
+        var panes = new ShellPanes();
+        var steps = new List<PaneStep>();
+        state.Changed += snapshot => steps.Add(panes.Next(snapshot));
+        state.Connected(Capture(CaptureStates.Idle));
+        state.OpenSession("s1");
+        state.Navigate(ShellView.History);
+
+        state.Discarded(["s2", "s3"], showHistory: false);
+
+        Assert.Equal("s1", state.Snapshot.Reviewing);
+        Assert.False(steps[^1].ReleaseReview);
+        state.Navigate(ShellView.Review);
+        Assert.Equal(PaneAction.ShowReview, steps[^1].Action);
+        Assert.Equal("s1", steps[^1].SessionId);
+    }
+
     private static CaptureStateSnapshot Capture(string state, string? session = null, long? elapsed = null) =>
         new() { State = state, SessionId = session, ElapsedMs = elapsed };
 

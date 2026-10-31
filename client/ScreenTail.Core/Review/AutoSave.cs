@@ -129,6 +129,12 @@ public sealed class AutoSave : IDisposable
     /// </summary>
     public void Stop() => _stopped = true;
 
+    /// <summary>
+    /// The discard <see cref="Stop"/> was called for did not happen: the service refused it, or could not
+    /// be asked. The session and its note are still the technician's, so writing goes on.
+    /// </summary>
+    public void Resume() => _stopped = false;
+
     public void Dispose() => _gate.Dispose();
 
     private async Task WriteAsync(bool wait, CancellationToken ct)

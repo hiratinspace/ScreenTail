@@ -12,12 +12,15 @@ public interface ISessionStore : IAsyncDisposable
 {
     Task CreateSessionAsync(NewSession session, CancellationToken ct = default);
 
-    Task AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default);
+    /// <returns>Whether it was written: false for a session that is gone or discarded, whose content takes nothing more (INV-12).</returns>
+    Task<bool> AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default);
 
-    Task AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default);
+    /// <returns>Whether it was written: false for a session that is gone or discarded.</returns>
+    Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default);
 
     /// <summary>Writes a freshly captured frame with <c>redaction_pending = 1</c>.</summary>
-    Task StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default);
+    /// <returns>Whether it was written: false for a session that is gone or discarded.</returns>
+    Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default);
 
     /// <summary>For the redaction worker only: the oldest frame still waiting for redaction, with its image.</summary>
     Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default);
@@ -35,7 +38,8 @@ public interface ISessionStore : IAsyncDisposable
     /// Writes a frame that has already been read and masked (ADR-0006). The only frame insert the
     /// running service makes; <paramref name="frame"/>'s own image is not written.
     /// </summary>
-    Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default);
+    /// <returns>Whether it was stored: false for a session that is gone or discarded, which is a refusal, not a fault.</returns>
+    Task<bool> SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default);
 
     /// <summary>
     /// Counts a frame that was captured and never stored (ADR-0006). No row to delete; the session's
@@ -115,6 +119,13 @@ public interface ISessionStore : IAsyncDisposable
     Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
 
     /// <summary>
+    /// The same, except over a session that is settled for good: published or discarded. Finalize writes a
+    /// draft's outcome with this, so drafting never undoes either (second review of #243).
+    /// </summary>
+    /// <returns>Whether it was written.</returns>
+    Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>
     /// Moves a session to <paramref name="state"/> only if it is in <paramref name="expected"/> now, and
     /// says whether it did (ST-013). For writers that arrive late, such as the outbox settling a draft:
     /// a row discarded, purged or already moved on is left as it is.
@@ -152,6 +163,46 @@ public interface ISessionStore : IAsyncDisposable
     /// </summary>
     /// <returns>How many frames were deleted.</returns>
     Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Review's Discard and History's bulk discard, by name (contract v6): marks every one of these
+    /// discarded, in one transaction, with an audit row each saying how many screenshots it held. The note,
+    /// the ticket number read off the screen and the queued work go at once; the screenshots, transcript
+    /// and events are deleted afterwards by <see cref="PurgeDiscardedContentAsync"/>, in chunks, and from
+    /// the moment this commits no reader returns them and no write adds to them.
+    ///
+    /// Cheap on purpose: the machine calls it under its transition gate, which the password and login
+    /// guards' suppression waits for (INV-6), and deleting a thousand screenshots with secure delete on
+    /// took seconds there (review of #243).
+    ///
+    /// All or none. A session that is missing, already discarded or published refuses the whole set and
+    /// nothing changes: the technician confirmed a number, and discarding fewer than it would be
+    /// discarding something they did not type. The machine checks every id under its own gate first, so
+    /// this is the second line, for a session that changed after the check.
+    /// </summary>
+    /// <returns>How many screenshots the sessions held, all of which are now unreachable.</returns>
+    /// <exception cref="InvalidOperationException">A session could not be discarded; nothing was.</exception>
+    Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sessions marked discarded whose content has not all been deleted yet: the work a bulk discard
+    /// left, or a service that stopped before finishing it.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListUnfinishedDiscardsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes up to <paramref name="chunk"/> of a discarded session's screenshots, in one transaction,
+    /// and once none are left its transcript and events too, and records the raw data as gone. Does
+    /// nothing to a session that is not marked discarded.
+    /// </summary>
+    /// <returns>Whether the session's content is all gone.</returns>
+    Task<bool> PurgeDiscardedContentAsync(string sessionId, int chunk, CancellationToken ct = default);
+
+    /// <summary>
+    /// The session reached a PSA (Spec §5 S4's Published), once any destination landed. Refused, and
+    /// false, for a discarded row: a publish that lands after a discard does not bring the session back.
+    /// </summary>
+    Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
     /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>

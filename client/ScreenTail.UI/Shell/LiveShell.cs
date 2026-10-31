@@ -54,6 +54,9 @@ public sealed class LiveShell : IAsyncDisposable
     private readonly CaptureConnection _connection;
     private readonly ShellPreferencesStore _preferences;
 
+    /// <summary>Review's Discard and History's bulk discard, by name over the pipe (contract v6).</summary>
+    private readonly SessionDiscard _discards;
+
     /// <summary>
     /// The thread that built the shell, which owns the tray icon and the pill. The application builds it
     /// on its UI thread, so this is that thread's dispatcher; taken here rather than from
@@ -104,6 +107,7 @@ public sealed class LiveShell : IAsyncDisposable
         _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         _connection = new CaptureConnection(_state, ct => open(version, ct));
+        _discards = new SessionDiscard(_state, _connection);
 
         _state.Changed += snapshot =>
         {
@@ -257,7 +261,12 @@ public sealed class LiveShell : IAsyncDisposable
             var window = new ShellWindow(
                 _state,
                 LoadReviewAsync,
-                () => new HistoryViewModel(_state, ListSessionsAsync),
+                () => new HistoryViewModel(
+                    _state,
+                    ListSessionsAsync,
+                    confirm: (confirmation, count) => OnUiThread(() => ConfirmTypedDialog.AskToDiscardSessions(_window, confirmation, count)),
+                    discard: _discards.BulkAsync,
+                    discardBlocked: _discards.BlockedBecause),
                 () => new SettingsViewModel(
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                     new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
@@ -412,15 +421,27 @@ public sealed class LiveShell : IAsyncDisposable
                     throw new IOException("The capture service did not save the note.");
                 }
             },
-            confirm: _ => ConfirmWindow.Asks(
-                _window,
-                "Discard this session?",
-                "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
-                TypedConfirmation.DiscardWord),
+            confirm: confirmation => ConfirmTypedDialog.AskToDiscard(_window, confirmation),
             publish: publish,
             timelineExpanded: _preferences.Load().TimelineExpanded,
             timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }),
-            draftPending: draftPending);
+            draftPending: draftPending,
+            discard: c => DiscardFromReviewAsync(sessionId, c),
+            discardBlocked: () => _discards.BlockedBecause([sessionId]));
+    }
+
+    /// <summary>
+    /// Review's Discard once DISCARD is typed (Spec §5 S3): the service is asked by name, and Review goes
+    /// to History when it is done. A refusal is thrown with the service's words, which the note pane shows
+    /// beside the button.
+    /// </summary>
+    private async Task DiscardFromReviewAsync(string sessionId, CancellationToken ct)
+    {
+        var result = await _discards.FromReviewAsync(sessionId, ct).ConfigureAwait(true);
+        if (!result.Done)
+        {
+            throw new InvalidOperationException(result.Error ?? ConfirmedAction.RefusedWithoutReason);
+        }
     }
 
     /// <summary>Local-only as the service has it in force now (the admin's when locked), or null when it would not say.</summary>
