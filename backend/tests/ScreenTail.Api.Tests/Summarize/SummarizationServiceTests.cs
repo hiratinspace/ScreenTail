@@ -333,21 +333,30 @@ public sealed class SummarizationServiceTests
 
     [Theory]
     // Program.cs sets both from one setting and arms the service's deadline first, so the deadline wins.
-    // The first case gives HttpClient.Timeout some slack so the deadline wins every time here as well:
-    // two equal timers race, and the old rule only went wrong when the deadline won.
-    [InlineData(100, 300)]
-    [InlineData(100, -1)] // The service's deadline is the only one.
-    [InlineData(5_000, 100)] // HttpClient.Timeout is the one that fires.
-    public async Task ADraftTheDeadlineCutOffIsSettledAtTheEstimate(int deadlineMs, int httpTimeoutMs)
+    // Here the deadline runs on a held clock and fires once the request is out, so it wins every time as
+    // well, and the first case's HttpClient.Timeout is long enough never to be reached: two equal timers
+    // race, and the old rule only went wrong when the deadline won.
+    [InlineData(true, 60_000)]
+    [InlineData(true, -1)] // The service's deadline is the only one.
+    [InlineData(false, 100)] // HttpClient.Timeout is the one that fires; the held deadline never does.
+    public async Task ADraftTheDeadlineCutOffIsSettledAtTheEstimate(bool deadlineFires, int httpTimeoutMs)
     {
         // 2026-10-12 review. Whether a call may have been billed was read from which token fired, and
         // in the deployed wiring the service's own deadline always fires first. Every production timeout
         // was settled at nothing, the client retried it, and the daily cap never moved during exactly
         // the slowdown it exists for. The request left; that is the whole of the question.
+        var clock = new HeldClock();
         using var handler = new HangingHandler();
-        var (service, ledger) = Real(handler, deadlineMs, httpTimeoutMs);
+        var (service, ledger) = Real(handler, deadlineMs: 100, httpTimeoutMs, clock);
 
-        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+        var drafting = service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+        if (deadlineFires)
+        {
+            await handler.Sent.Task.WaitAsync(TestContext.Current.CancellationToken);
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+        }
+
+        var result = await drafting;
 
         Assert.Equal(SummarizeStatus.Unavailable, result.Status);
         Assert.Equal(new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
@@ -396,17 +405,30 @@ public sealed class SummarizationServiceTests
     {
         // The first answer broke the rules and cost what its usage says. The repair was sent and never
         // came back, which is a second call the model may have run, and the cap has to see both.
+        //
+        // The deadline runs on a clock this test moves, and it is moved once the repair is out. On the real
+        // clock it was 300 ms for both calls, and a busy machine could spend that on the first answer: the
+        // deadline then cut off the first call instead, and one estimate was charged where the first
+        // answer's bill and an estimate were expected. No HttpClient timeout, so the deadline is the one
+        // that fires.
+        var clock = new HeldClock();
         using var handler = new HangingHandler(first: GeminiAnswer(
             WithStep("Restarted it.", frames: ["f-invented"], transcript: ["t1"]),
             promptTokens: 40_000));
-        var (service, ledger) = Real(handler, deadlineMs: 300, httpTimeoutMs: 300);
+        var (service, ledger) = Real(handler, deadlineMs: 300, httpTimeoutMs: -1, clock);
 
-        var result = await service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+        var drafting = service.DraftAsync(Tenant, Bundle(), TestContext.Current.CancellationToken);
+        await handler.Sent.Task.WaitAsync(TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(299));
+        Assert.False(drafting.IsCompleted, "Nothing but the deadline can end the repair, and it is not due yet.");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var result = await drafting;
 
         // The repair never answered, so nothing was shown to be unfixable: an outage the client queues,
         // not an invalid draft it fails for good (review round 2 of the 2026-10-12 fixes).
         Assert.Equal(SummarizeStatus.Unavailable, result.Status);
         Assert.Equal(0.03m + new SummarizationOptions().MaxSessionCostUsd, ledger.Recorded);
+        Assert.Equal(1, ledger.Settles);
     }
 
     [Fact]
@@ -732,9 +754,10 @@ public sealed class SummarizationServiceTests
 
     /// <summary>
     /// The production shape: a real <see cref="GeminiProvider"/> over an HttpClient with its own timeout,
-    /// inside a service with its own deadline. -1 is no HttpClient timeout at all.
+    /// inside a service with its own deadline. -1 is no HttpClient timeout at all. The deadline runs on
+    /// <paramref name="clock"/> when one is given, and on the real clock otherwise.
     /// </summary>
-    private static (SummarizationService Service, FakeLedger Ledger) Real(HttpMessageHandler handler, int deadlineMs, int httpTimeoutMs)
+    private static (SummarizationService Service, FakeLedger Ledger) Real(HttpMessageHandler handler, int deadlineMs, int httpTimeoutMs, TimeProvider? clock = null)
     {
         var options = new SummarizationOptions { ApiKey = "test-key", Timeout = TimeSpan.FromMilliseconds(deadlineMs) };
         var http = new HttpClient(handler, disposeHandler: false)
@@ -743,7 +766,89 @@ public sealed class SummarizationServiceTests
             Timeout = httpTimeoutMs < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(httpTimeoutMs),
         };
         var ledger = new FakeLedger();
-        return (new SummarizationService(new GeminiProvider(http, options, "the note prompt"), null, ledger, options), ledger);
+        return (new SummarizationService(new GeminiProvider(http, options, "the note prompt"), null, ledger, options, clock), ledger);
+    }
+
+    /// <summary>
+    /// A clock that stands still until the test moves it. A timer it hands out fires inside
+    /// <see cref="Advance"/>, once the clock reaches its due time, and never by itself, so a deadline lands
+    /// on the call the test means it to rather than on whichever call a busy machine was still in.
+    /// </summary>
+    private sealed class HeldClock : TimeProvider
+    {
+        private readonly Lock _gate = new();
+        private readonly List<Held> _timers = [];
+        private DateTimeOffset _now = new(2026, 10, 29, 9, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_gate)
+            {
+                return _now;
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            var timer = new Held(this, callback, state);
+            _ = timer.Change(dueTime, period);
+            return timer;
+        }
+
+        /// <summary>Moves the clock on and fires, on this thread, every timer that is now due.</summary>
+        public void Advance(TimeSpan by)
+        {
+            List<Held> due;
+            lock (_gate)
+            {
+                _now += by;
+                due = [.. _timers.Where(t => t.DueAt <= _now)];
+                _ = _timers.RemoveAll(due.Contains);
+            }
+
+            foreach (var timer in due)
+            {
+                timer.Fire();
+            }
+        }
+
+        /// <summary>One shot only: a cancellation deadline has no period, so none is kept.</summary>
+        private sealed class Held(HeldClock clock, TimerCallback callback, object? state) : ITimer
+        {
+            public DateTimeOffset DueAt { get; private set; }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (clock._gate)
+                {
+                    _ = clock._timers.Remove(this);
+                    if (dueTime != Timeout.InfiniteTimeSpan)
+                    {
+                        DueAt = clock._now + dueTime;
+                        clock._timers.Add(this);
+                    }
+                }
+
+                return true;
+            }
+
+            public void Fire() => callback(state);
+
+            public void Dispose()
+            {
+                lock (clock._gate)
+                {
+                    _ = clock._timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 
     private static HttpResponseMessage GeminiAnswer(string text, int promptTokens) => new(HttpStatusCode.OK)

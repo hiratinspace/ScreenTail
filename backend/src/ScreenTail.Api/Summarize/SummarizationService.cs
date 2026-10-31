@@ -112,11 +112,17 @@ public sealed record SummarizeResult(
 /// length of one call, and what is written afterwards is a cost row with a tenant, a session id, a
 /// provider name and a number.
 /// </summary>
+/// <param name="time">
+/// The clock the deadline runs on. The system clock when none is given, as in production; a test hands
+/// in one it moves, so a deadline lands on the call it means to cut off rather than on whichever call a
+/// busy machine was still in when the real one ran out.
+/// </param>
 public sealed class SummarizationService(
     ILlmProvider primary,
     ILlmProvider? fallback,
     ICostLedger ledger,
-    SummarizationOptions options)
+    SummarizationOptions options,
+    TimeProvider? time = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -169,8 +175,8 @@ public sealed class SummarizationService(
     /// </summary>
     private async Task<SummarizeResult> DraftWithinBudgetAsync(Guid reservation, SummarizeBundle bundle, CancellationToken ct)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(options.Timeout);
+        using var timer = new CancellationTokenSource(options.Timeout, time ?? TimeProvider.System);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, timer.Token);
 
         // Zero until a model has answered, and settled in the finally whatever happens before then. The
         // first call used to sit above the try: a provider that threw rather than returning a failure
