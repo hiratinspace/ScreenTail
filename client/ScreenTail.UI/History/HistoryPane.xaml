@@ -3,6 +3,15 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              AutomationProperties.Name="History">
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+        <!-- What the last discard did, unless it did not happen: then the reason is shown in its place. -->
+        <Style x:Key="History.Notice" BasedOn="{StaticResource Text.Secondary}" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DiscardFailed}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <!-- The table when there are rows, the sentence as an empty state when there are none. -->
         <Style x:Key="History.Table" BasedOn="{StaticResource Table}" TargetType="DataGrid">
             <Style.Triggers>
@@ -44,15 +53,20 @@
                        AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
 
+        <!-- Extended: click, Shift and Ctrl with the mouse, Shift and Ctrl with the arrows and Space, and
+             Ctrl+A, the way every Windows table selects. Spec §5 S4: multi-select, then Bulk discard. -->
         <DataGrid Grid.Row="1"
                   x:Name="Sessions"
                   Margin="0,16,0,0"
                   Style="{StaticResource History.Table}"
                   ItemsSource="{Binding Rows}"
                   IsReadOnly="True"
-                  SelectionMode="Single"
+                  SelectionMode="Extended"
+                  SelectionUnit="FullRow"
+                  SelectionChanged="OnSelectionChanged"
                   MouseDoubleClick="OnOpen"
-                  AutomationProperties.Name="Sessions">
+                  AutomationProperties.Name="Sessions"
+                  AutomationProperties.HelpText="Select one or more sessions with Shift or Ctrl, then choose Bulk discard.">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Started" Binding="{Binding Started}" Width="180" />
                 <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="100" />
@@ -96,15 +110,66 @@
             </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,0">
-            <Button Style="{StaticResource Button.Primary}"
-                    Content="Open"
-                    Command="{Binding OpenCommand}"
-                    CommandParameter="{Binding SelectedItem, ElementName=Sessions}" />
-            <TextBlock Margin="12,0,0,0"
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
+                <Button Style="{StaticResource Button.Primary}"
+                        Content="Open"
+                        Command="{Binding OpenCommand}"
+                        CommandParameter="{Binding SelectedItem, ElementName=Sessions}" />
+                <TextBlock Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource Text.Muted}"
+                           Text="Or double-click a session to review it." />
+            </StackPanel>
+
+            <!-- How many are selected and how many of those a discard would take, so the number the
+                 dialog asks for is never a surprise. Then the button, on the right, apart from Open. -->
+            <TextBlock Grid.Row="0"
+                       Grid.Column="1"
+                       Margin="16,0,12,0"
+                       HorizontalAlignment="Right"
                        VerticalAlignment="Center"
-                       Style="{StaticResource Text.Muted}"
-                       Text="Or double-click a session to review it." />
-        </StackPanel>
+                       Style="{StaticResource Text.Secondary}"
+                       Text="{Binding SelectionNote}"
+                       AutomationProperties.LiveSetting="Polite" />
+            <Button Grid.Row="0"
+                    Grid.Column="2"
+                    Style="{StaticResource Button.Danger}"
+                    Content="Bulk discard"
+                    Command="{Binding BulkDiscardCommand}"
+                    ToolTip="Discard the selected sessions. You will be asked to type how many."
+                    AutomationProperties.Name="Bulk discard the selected sessions"
+                    AutomationProperties.HelpText="Deletes the selected sessions' screenshots, transcripts and notes from this device. You will be asked to type how many." />
+
+            <!-- What the last discard did, or why it did not happen: beside the button, never a dialog,
+                 and read out as it changes. -->
+            <TextBlock Grid.Row="1"
+                       Grid.Column="0"
+                       Grid.ColumnSpan="3"
+                       Margin="0,8,0,0"
+                       HorizontalAlignment="Right"
+                       Style="{StaticResource Text.Error}"
+                       Visibility="{Binding DiscardFailed, Converter={StaticResource Visible}}"
+                       Text="{Binding DiscardError}"
+                       AutomationProperties.LiveSetting="Assertive" />
+            <TextBlock Grid.Row="1"
+                       Grid.Column="0"
+                       Grid.ColumnSpan="3"
+                       Margin="0,8,0,0"
+                       HorizontalAlignment="Right"
+                       Style="{StaticResource History.Notice}"
+                       Text="{Binding Notice}"
+                       AutomationProperties.LiveSetting="Polite" />
+        </Grid>
     </Grid>
 </UserControl>

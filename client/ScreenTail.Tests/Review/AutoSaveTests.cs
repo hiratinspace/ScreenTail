@@ -219,6 +219,22 @@ public sealed class AutoSaveTests
     }
 
     [Fact]
+    public async Task ADiscardTheServiceRefusedLetsTheNoteBeSavedAgain()
+    {
+        // Review stops the autosave before it asks for the discard. When the service says no, the
+        // session is still there and still the technician's, and what was typed must not be lost.
+        var save = Save();
+        _note.SetProblem("kept after all");
+        save.Touch();
+        save.Stop();
+
+        save.Resume();
+        await save.FlushAsync();
+
+        Assert.Equal(["kept after all"], _written);
+    }
+
+    [Fact]
     public async Task AFailedWriteIsRetriedWithoutAnotherKeystroke()
     {
         // The technician has stopped typing and walked away. Nothing else will happen to prompt a retry,

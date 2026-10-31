@@ -29,7 +29,7 @@ public sealed class HistoryDiscardTests
             var model = service.Model(confirm: (confirmation, count) =>
             {
                 asked.Add((confirmation, count));
-                return true;
+                return Task.FromResult(true);
             });
             await model.RefreshAsync();
 
@@ -64,7 +64,7 @@ public sealed class HistoryDiscardTests
         UiThread.Run(async () =>
         {
             var service = new FakeService(Row("s1", "published"), Row("s2", "discarded"), Row("s3", "draft"));
-            var model = service.Model(confirm: (_, _) => true);
+            var model = service.Model(confirm: (_, _) => Task.FromResult(true));
             await model.RefreshAsync();
 
             Assert.False(model.BulkDiscardCommand.CanExecute(null));
@@ -82,7 +82,7 @@ public sealed class HistoryDiscardTests
         UiThread.Run(async () =>
         {
             var service = new FakeService(Row("s1", "draft"), Row("s2", "draft"));
-            var model = service.Model(confirm: (_, _) => false);
+            var model = service.Model(confirm: (_, _) => Task.FromResult(false));
             await model.RefreshAsync();
             model.Select(model.Rows);
 
@@ -107,7 +107,7 @@ public sealed class HistoryDiscardTests
                 confirm: (_, _) =>
                 {
                     asked++;
-                    return true;
+                    return Task.FromResult(true);
                 },
                 blocked: ids => ids.Contains("live") ? SessionDiscard.OneStillCapturing : null);
             await model.RefreshAsync();
@@ -129,7 +129,7 @@ public sealed class HistoryDiscardTests
         UiThread.Run(async () =>
         {
             var service = new FakeService(Row("s1", "draft")) { Refusal = "Nothing was discarded. 1 session no longer exists." };
-            var model = service.Model(confirm: (_, _) => true);
+            var model = service.Model(confirm: (_, _) => Task.FromResult(true));
             await model.RefreshAsync();
             model.Select(model.Rows);
 
@@ -161,7 +161,7 @@ public sealed class HistoryDiscardTests
 
         public string? Refusal { get; init; }
 
-        public HistoryViewModel Model(Func<TypedConfirmation, int, bool> confirm, Func<IReadOnlyCollection<string>, string?>? blocked = null) => new(
+        public HistoryViewModel Model(Func<TypedConfirmation, int, Task<bool>> confirm, Func<IReadOnlyCollection<string>, string?>? blocked = null) => new(
             new ShellState(),
             _ =>
             {
