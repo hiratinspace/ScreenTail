@@ -224,6 +224,173 @@ public sealed class DiscardFollowUpTests : IAsyncDisposable
         Assert.Null((await store.LoadSessionAsync("single", Ct))!.SuggestedTicket);
     }
 
+    [Fact]
+    public async Task ADeletingThatFailsIsReportedByKindAndLeavesTheContentUnreadableForTheNextTry()
+    {
+        // Second review of #243. The host finishes left-over discards at start, before the pipe exists; a
+        // full disk failing that used to end the service at every start, so nothing captured and the UI
+        // could not reach Delete everything (INV-12). The try says what kind of fault it was, the content
+        // stays unreachable, and the next try (the hourly retention tick, the next discard) finishes it.
+        var (store, _) = await StartAsync();
+        await StoredAsync(store, "s1", frames: 3);
+        Assert.Equal(3, await store.DiscardSessionsAsync(["s1"], Ct));
+        var (failing, _) = FailingPurge.Over(store);
+        _slowMachine = new SessionMachine(failing, new NoCaptureSources(), new UnavailableDrafter());
+
+        Assert.Equal(nameof(IOException), await _slowMachine.TryFinishDiscardsAsync(Ct));
+
+        Assert.Equal(["s1"], await store.ListUnfinishedDiscardsAsync(Ct));
+        Assert.Empty((await store.LoadSessionAsync("s1", Ct))!.Frames);
+        Assert.Null(await store.GetRedactedFrameImageAsync("s1-f0", Ct));
+
+        Assert.Null(await _harness!.Machine.TryFinishDiscardsAsync(Ct));
+        Assert.Empty(await store.ListUnfinishedDiscardsAsync(Ct));
+        Assert.Equal(0, await store.GetLastTimestampAsync("s1", Ct));
+    }
+
+    [Fact]
+    public async Task ABulkDiscardIsDoneOnceMarkedEvenWhenTheDeletingFails()
+    {
+        // The sessions are discarded the moment they are marked: nothing reads them and nothing writes to
+        // them. A failed delete afterwards is the service's to finish, not a discard the technician has to
+        // be told failed and try again.
+        var (store, _) = await StartAsync();
+        await StoredAsync(store, "s1");
+        var (failing, _) = FailingPurge.Over(store);
+        _slowMachine = new SessionMachine(failing, new NoCaptureSources(), new UnavailableDrafter());
+        var discards = new DiscardCommands(_slowMachine);
+
+        var result = await DiscardAsync(discards, ["s1"]);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(nameof(IOException), discards.LastFinishFault);
+        Assert.Equal(SessionStatus.Discarded, SessionHistory.StatusOf((await store.GetSessionSummaryAsync("s1", Ct))!));
+        Assert.Empty((await store.LoadSessionAsync("s1", Ct))!.Frames);
+        Assert.Equal(["s1"], await store.ListUnfinishedDiscardsAsync(Ct));
+    }
+
+    [Fact]
+    public async Task TheStoreSaysWhetherAContentWriteLanded()
+    {
+        // So the redaction worker can tell a stored screenshot from one refused for a discarded session,
+        // and not count the second as the first.
+        var (store, _) = await StartAsync();
+        await StoredAsync(store, "live");
+        await StoredAsync(store, "gone");
+        _ = await store.DiscardSessionAsync("gone", Ct);
+        var outcome = new RedactionOutcome(new byte[] { 2 }, null, [], false, DateTimeOffset.UtcNow);
+
+        Assert.True(await store.SaveRedactedFrameAsync("live", new StagedFrame("live-late", 9_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), outcome, Ct));
+        Assert.True(await store.StageFrameAsync("live", new StagedFrame("live-staged", 9_001, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), Ct));
+        Assert.True(await store.AppendEventAsync("live", new MarkerEvent { TsMs = 9_002 }, Ct));
+        Assert.True(await store.AppendTranscriptAsync("live", new TranscriptSegment { Id = "live-late-t", TsMs = 9_003, EndMs = 9_004, Speaker = Speaker.Tech, Text = "ok" }, Ct));
+
+        Assert.False(await store.SaveRedactedFrameAsync("gone", new StagedFrame("gone-late", 9_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), outcome, Ct));
+        Assert.False(await store.StageFrameAsync("gone", new StagedFrame("gone-staged", 9_001, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), Ct));
+        Assert.False(await store.AppendEventAsync("gone", new MarkerEvent { TsMs = 9_002 }, Ct));
+        Assert.False(await store.AppendTranscriptAsync("gone", new TranscriptSegment { Id = "gone-late-t", TsMs = 9_003, EndMs = 9_004, Speaker = Speaker.Tech, Text = "ok" }, Ct));
+    }
+
+    [Fact]
+    public async Task AReadyDraftArrivingForAPublishedSessionDoesNotPutItBackToDraft()
+    {
+        var (store, _) = await StartAsync();
+        await StoredAsync(store, "s1");
+        Assert.True(await store.MarkPublishedAsync("s1", Ct));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveReadyDraftAsync("s1", Draft(), Ct));
+
+        Assert.Equal(SessionStatus.Published, SessionHistory.StatusOf((await store.GetSessionSummaryAsync("s1", Ct))!));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FinishingASessionDoesNotWriteOverPublishedOrDiscarded(bool drafted)
+    {
+        // Finalize writes the draft's outcome over the row. A row that was published, or discarded, in the
+        // meantime keeps saying so: neither is a state drafting may undo.
+        var drafter = new Drafter { Outcome = drafted ? DraftOutcome.Success(Draft()) : DraftOutcome.Failure("The backend could not draft it.") };
+        _harness = await MachineHarness.StartAsync(drafter: drafter);
+        var store = _harness.Store;
+        var machine = _harness.Machine;
+        drafter.Drafting = id => store.MarkPublishedAsync(id, Ct);
+
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var id = machine.SessionId!;
+        Assert.True(await machine.StopAsync(Ct));
+
+        Assert.Equal(SessionStatus.Published, SessionHistory.StatusOf((await store.GetSessionSummaryAsync(id, Ct))!));
+    }
+
+    [Fact]
+    public async Task PublishingTheSessionTheMachineRestsOnPutsThePillToRest()
+    {
+        // Second review of #243: the row said published and the tray went on saying "Draft ready", with
+        // the count still counting it, and the tray's Discard still able to delete a session in the PSA.
+        var drafter = new Drafter { Outcome = DraftOutcome.Success(Draft()) };
+        _harness = await MachineHarness.StartAsync(drafter: drafter);
+        var store = _harness.Store;
+        var machine = _harness.Machine;
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var id = machine.SessionId!;
+        Assert.True(await machine.StopAsync(Ct));
+        Assert.Equal(SessionState.DraftReady, machine.State);
+        Assert.Equal(1, machine.Snapshot.DraftsReady);
+        var announced = new List<CaptureStateSnapshot>();
+        machine.StateChanged += announced.Add;
+
+        var publishing = new PublishCommands(store, _gateway, published: machine.PublishedAsync);
+        Assert.IsType<SessionPublished>(await publishing.ReplyToAsync(Publish(id), Ct));
+
+        Assert.Equal(SessionState.Idle, machine.State);
+        Assert.Null(machine.Snapshot.SessionId);
+        Assert.Equal(0, machine.Snapshot.DraftsReady);
+        Assert.Equal(CaptureStates.Idle, Assert.Single(announced).State);
+        Assert.False(await machine.DiscardAsync(Ct));
+        Assert.Equal(SessionStatus.Published, SessionHistory.StatusOf((await store.GetSessionSummaryAsync(id, Ct))!));
+    }
+
+    [Fact]
+    public async Task PublishingAnOlderDraftChangesTheCountAndNothingElse()
+    {
+        var drafter = new Drafter { Outcome = DraftOutcome.Success(Draft()) };
+        _harness = await MachineHarness.StartAsync(drafter: drafter);
+        var store = _harness.Store;
+        var machine = _harness.Machine;
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var older = machine.SessionId!;
+        Assert.True(await machine.StopAsync(Ct));
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var current = machine.SessionId!;
+        Assert.True(await machine.StopAsync(Ct));
+        Assert.Equal(2, machine.Snapshot.DraftsReady);
+
+        Assert.IsType<SessionPublished>(await new PublishCommands(store, _gateway, published: machine.PublishedAsync).ReplyToAsync(Publish(older), Ct));
+
+        Assert.Equal(SessionState.DraftReady, machine.State);
+        Assert.Equal(current, machine.Snapshot.SessionId);
+        Assert.Equal(1, machine.Snapshot.DraftsReady);
+    }
+
+    [Fact]
+    public async Task ADiscardKeepsTheRecordThatRetentionAlreadyPurged()
+    {
+        // Retention took the raw data and said when. Marking the session discarded later must not wipe
+        // that: the row would claim content the store no longer has, and wait to delete it for ever.
+        // The mark alone, without the deleting after it, which would write the time again.
+        var (store, _) = await StartAsync();
+        await StoredAsync(store, "s1");
+        _ = await store.PurgeRawDataAsync("s1", Ct);
+        Assert.True((await store.GetSessionSummaryAsync("s1", Ct))!.RawPurged);
+
+        Assert.Equal(0, await store.DiscardSessionsAsync(["s1"], Ct));
+
+        Assert.Equal(SessionStatus.Discarded, SessionHistory.StatusOf((await store.GetSessionSummaryAsync("s1", Ct))!));
+        Assert.True((await store.GetSessionSummaryAsync("s1", Ct))!.RawPurged);
+        Assert.Empty(await store.ListUnfinishedDiscardsAsync(Ct));
+    }
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private async Task<(SqliteSessionStore Store, DiscardCommands Discards)> StartAsync()
@@ -325,6 +492,46 @@ public sealed class DiscardFollowUpTests : IAsyncDisposable
     /// a store as slow as one with secure delete and a thousand screenshots, for as long as the test needs.
     /// Not sealed, because DispatchProxy derives from it.
     /// </summary>
+    /// <summary>Drafts as told, and can do something to the store while it is drafting.</summary>
+    private sealed class Drafter : IDrafter
+    {
+        public DraftOutcome Outcome { get; set; } = DraftOutcome.Failure("not drafted");
+
+        public Func<string, Task<bool>>? Drafting { get; set; }
+
+        public async Task<DraftOutcome> DraftAsync(string sessionId, CancellationToken ct = default)
+        {
+            if (Drafting is { } drafting)
+            {
+                _ = await drafting(sessionId);
+            }
+
+            return Outcome;
+        }
+    }
+
+    /// <summary>The real store, whose deleting of a discarded session's content fails, as a full disk's would.</summary>
+    public class FailingPurge : DispatchProxy
+    {
+        private ISessionStore? _inner;
+
+        public static (ISessionStore Store, FailingPurge Proxy) Over(SqliteSessionStore inner)
+        {
+            var store = Create<SlowPurge.IAuditedStore, FailingPurge>();
+            var proxy = (FailingPurge)(object)store;
+            proxy._inner = inner;
+            return (store, proxy);
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            ArgumentNullException.ThrowIfNull(targetMethod);
+            return targetMethod.Name == nameof(ISessionStore.PurgeDiscardedContentAsync)
+                ? Task.FromException<bool>(new IOException("The disk is full."))
+                : targetMethod.Invoke(_inner, args);
+        }
+    }
+
     public class SlowPurge : DispatchProxy
     {
         private ISessionStore? _inner;
