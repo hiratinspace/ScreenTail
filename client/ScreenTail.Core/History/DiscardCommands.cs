@@ -43,10 +43,10 @@ public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time =
 
     private readonly SessionMachine _machine = machine ?? throw new ArgumentNullException(nameof(machine));
 
-    private static readonly Action<ILogger, string, Exception?> FinishFailed = LoggerMessage.Define<string>(
+    private static readonly Action<ILogger, string, int, Exception?> FinishFailed = LoggerMessage.Define<string, int>(
         LogLevel.Warning,
         new EventId(1, nameof(FinishFailed)),
-        "Discarded sessions are marked, but deleting their content failed with {Fault}; it stays unreadable and is tried again");
+        "Discarded sessions are marked, but deleting their content failed with {Fault}; {Sessions} session(s) stay unreadable and are tried again");
 
     /// <summary>The type of the fault the last discard's deleting stopped on, or null when it finished.</summary>
     public string? LastFinishFault { get; private set; }
@@ -110,10 +110,11 @@ public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time =
             // nothing of them. The sessions are discarded once marked, so a delete that fails here is the
             // service's to finish (the hourly tick, the next discard), not a failed discard to report to
             // the technician (second review of #243). It is logged by kind.
-            LastFinishFault = await _machine.TryFinishDiscardsAsync(ct).ConfigureAwait(false);
-            if (LastFinishFault is { } fault && log is not null)
+            var unfinished = await _machine.TryFinishDiscardsAsync(ct).ConfigureAwait(false);
+            LastFinishFault = unfinished?.FirstFault;
+            if (unfinished is not null && log is not null)
             {
-                FinishFailed(log, fault, null);
+                FinishFailed(log, unfinished.FirstFault, unfinished.Sessions, null);
             }
         }
 

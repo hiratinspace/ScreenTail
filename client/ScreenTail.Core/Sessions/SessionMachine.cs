@@ -469,7 +469,7 @@ public sealed class SessionMachine : IAsyncDisposable
     /// The others go first, in one store transaction that only marks them: the note and queued work go,
     /// the row is kept and says discarded so History can show it (Spec §5 S4), and from then on nothing
     /// reads their screenshots, transcript or events and nothing writes to them. Deleting those is
-    /// <see cref="FinishDiscardsAsync"/>'s, after this returns and the gate is free. When the session the
+    /// <see cref="TryFinishDiscardsAsync"/>'s, after this returns and the gate is free. When the session the
     /// machine is on is among them, it goes after, exactly the way the tray's Discard takes it, so the
     /// state and the announcement stay right from any resting state: narration closes, a recording
     /// session stops capturing before anything is deleted (Spec v0.4.1 Q3, INV-4), the frames still
@@ -537,49 +537,58 @@ public sealed class SessionMachine : IAsyncDisposable
     public const int DiscardChunk = 50;
 
     /// <summary>
-    /// Deletes what discarded sessions still hold, a chunk at a time: after a bulk discard, and at start
-    /// for one a stopped service left unfinished.
+    /// Deletes what discarded sessions still hold, a chunk at a time: after a bulk discard, at start for one
+    /// a stopped service left unfinished, and on the host's hourly retention tick for one that failed.
     ///
     /// Deliberately not under the transition gate. The sessions were marked discarded under it, which made
     /// their content unreachable to every reader and refused every late write; the deleting is the slow
     /// part (secure delete overwrites every page), and a suppression waiting behind it is frames accepted
     /// from a password field (INV-6; review of #243). Between chunks the store's own gate is free, so the
     /// machine's writes for the session being recorded wait for one chunk at most.
-    /// </summary>
-    public async Task FinishDiscardsAsync(CancellationToken ct = default)
-    {
-        foreach (var id in await _store.ListUnfinishedDiscardsAsync(ct).ConfigureAwait(false))
-        {
-            bool emptied;
-            do
-            {
-                emptied = await _store.PurgeDiscardedContentAsync(id, DiscardChunk, ct).ConfigureAwait(false);
-            }
-            while (!emptied);
-        }
-    }
-
-    /// <summary>
-    /// <see cref="FinishDiscardsAsync"/>, for callers that must not fail because of it: the host at start
-    /// and on its hourly retention tick, and a bulk discard after it has marked its sessions.
     ///
-    /// The host finished left-over discards at start before the pipe existed, and a store that failed then
-    /// (a full disk) ended the service at every start: nothing captured, and the UI could not reach Delete
-    /// everything (INV-12; second review of #243). Nothing is lost by carrying on. The sessions are
-    /// already discarded, their content unreachable and closed to writes, and the next try deletes it.
+    /// Never fails because of the store. The host called this at start before the pipe existed, and a
+    /// store that failed then (a full disk) ended the service at every start: nothing captured, and the UI
+    /// could not reach Delete everything (INV-12; second review of #243). Each session is tried on its own,
+    /// so one that cannot be emptied does not hold up the rest (third review). Nothing is lost by carrying
+    /// on: the sessions are discarded already, and the next try deletes what is left.
     /// </summary>
-    /// <returns>Null when it finished; otherwise the fault's type name, for a log, and never its message (INV-10).</returns>
-    public async Task<string?> TryFinishDiscardsAsync(CancellationToken ct = default)
+    /// <returns>
+    /// Null when every discarded session is empty; otherwise the first fault's type name, for a log and
+    /// never its message (INV-10), and how many sessions still hold content.
+    /// </returns>
+    public async Task<UnfinishedDiscards?> TryFinishDiscardsAsync(CancellationToken ct = default)
     {
+        IReadOnlyList<string> unfinished;
         try
         {
-            await FinishDiscardsAsync(ct).ConfigureAwait(false);
-            return null;
+            unfinished = await _store.ListUnfinishedDiscardsAsync(ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return ex.GetType().Name;
+            return new UnfinishedDiscards(ex.GetType().Name, 0);
         }
+
+        string? first = null;
+        var left = 0;
+        foreach (var id in unfinished)
+        {
+            try
+            {
+                bool emptied;
+                do
+                {
+                    emptied = await _store.PurgeDiscardedContentAsync(id, DiscardChunk, ct).ConfigureAwait(false);
+                }
+                while (!emptied);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                first ??= ex.GetType().Name;
+                left++;
+            }
+        }
+
+        return first is null ? null : new UnfinishedDiscards(first, left);
     }
 
     /// <summary>
@@ -884,8 +893,8 @@ public sealed class SessionMachine : IAsyncDisposable
             return false;
         }
 
-        await _store.AppendEventAsync(session.Id, sessionEvent, ct).ConfigureAwait(false);
-        return true;
+        // The store's answer, not an assumed yes: it refuses a session that is gone or discarded (INV-12).
+        return await _store.AppendEventAsync(session.Id, sessionEvent, ct).ConfigureAwait(false);
     }
 
     public async Task<bool> TryStageFrameAsync(StagedFrame frame, CancellationToken ct = default)
@@ -1011,10 +1020,17 @@ public sealed class SessionMachine : IAsyncDisposable
             return false;
         }
 
-        await _store.AppendTranscriptAsync(
+        var written = await _store.AppendTranscriptAsync(
             session.Id,
             scrubbed.Changed ? segment with { Text = scrubbed.Text } : segment,
             ct).ConfigureAwait(false);
+
+        // The store refused it: the session is gone or discarded (INV-12). Nothing was kept, so nothing
+        // was masked in anything kept, and the audit log does not say otherwise (third review of #243).
+        if (!written)
+        {
+            return false;
+        }
 
         // What kind and how many, never what was said (INV-10).
         if (scrubbed.Changed && _store is IAuditLog audit)
