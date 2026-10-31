@@ -470,23 +470,405 @@ public sealed class StateMachineTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ADraftThatLandsAfterARestartUpdatesTheCountAndNothingElse()
+    public async Task AfterARestartTheSessionWhoseDraftIsQueuedIsStillTheOneInFrontOfTheTechnicianAndCanBeDiscarded()
     {
-        // The service restarts with drafts still queued: the new machine has no session of its own, and
-        // the outbox delivers them in its first minutes. Nothing may claim one of them is the session in
-        // front of the technician.
-        var id = await QueuedSessionAsync();
-        await _machine!.DisposeAsync();
-        var restarted = await MachineAsync();
-        _ = await restarted.RecoverAsync();
+        // #230 review. A restart used to leave the machine idle with no session, so the tray's "Discard
+        // session" answered "Not possible while idle" and the bundle went to the backend at the next
+        // drain, screenshots and transcript included. The technician had lost the one way to stop it
+        // (INV-12). Recovery adopts the session, so everything works as it did before the restart.
+        var outbox = await OutboxAsync();
+        var id = await QueuedInTheOutboxAsync();
+        var before = _machine!.Snapshot;
+        Assert.Equal(1, (await outbox.WaitingAsync()).Drafts);
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+        var adopted = restarted.Snapshot;
+        Assert.Equal(CaptureStates.DraftPending, adopted.State);
+        Assert.Equal(id, adopted.SessionId);
+        Assert.Equal(before.RemoteTool, adopted.RemoteTool);
+        Assert.Equal(before.ElapsedMs, adopted.ElapsedMs);
+        Assert.Null(adopted.DraftFailureReason);
+        Assert.Equal(adopted, _observed[^1]);
+
+        Assert.True(await restarted.DiscardAsync());
+
+        Assert.Equal(SessionState.Idle, restarted.State);
+        Assert.Null(await _store!.LoadSessionAsync(id));
+        Assert.Equal(0, (await outbox.WaitingAsync()).Drafts);
+        Assert.False(await outbox.DrainAsync());
+    }
+
+    [Fact]
+    public async Task AfterARestartWithTwoDraftsQueuedOnlyTheNewestIsAdoptedAndTheOlderStillDrains()
+    {
+        // Before a restart the machine rests on the last session it ran, and an older queued draft only
+        // moves the count when it lands. Recovery keeps that shape: the newest is adopted (the ids sort
+        // the other way, so it is not the id that decides), and the older one is left to the outbox,
+        // which still delivers it. The adopted session keeps its tool and its active time, which the
+        // tray shows.
+        var store = await OpenStoreAsync();
+        var at = DateTimeOffset.UtcNow;
+        await QueuedRowAsync("z-older", at - TimeSpan.FromHours(1), OutboxState.Pending, durationMs: 4_000);
+        await QueuedRowAsync("a-newer", at, OutboxState.Pending, durationMs: 93_000);
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+        Assert.Equal("a-newer", restarted.Snapshot.SessionId);
+        Assert.Equal(93_000, restarted.Snapshot.ElapsedMs);
+        Assert.Equal("screenconnect", restarted.Snapshot.RemoteTool);
+        Assert.Equal(["z-older", "a-newer"], await store.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+
+        await store.SaveDraftAsync("z-older", Note("Printer offline in reception"));
+        await store.SetSessionStateAsync("z-older", CaptureStates.DraftReady, null);
+        _observed.Clear();
+
+        Assert.False(await restarted.DraftSettledAsync("z-older", ready: true, reason: null));
+
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+        Assert.Equal("a-newer", restarted.Snapshot.SessionId);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.DraftPending, announced.State);
+        Assert.Equal(1, announced.DraftsReady);
+    }
+
+    [Fact]
+    public async Task AfterARestartTheAdoptedDraftLandingMakesItDraftReady()
+    {
+        // The outbox delivers queued drafts in the service's first minutes, so this is the ordinary way a
+        // restarted machine meets one. It used to change only the count and the pill stayed idle.
+        var id = await QueuedInTheOutboxAsync();
+        var restarted = await RestartAsync();
         await _store!.SaveDraftAsync(id, Note("Printer offline in reception"));
         await _store.SetSessionStateAsync(id, CaptureStates.DraftReady, null);
         _observed.Clear();
 
-        Assert.False(await restarted.DraftSettledAsync(id, ready: true, reason: null));
+        await DraftSettling.Listener(restarted)(SettledItem(id, OutboxState.Done, null), CancellationToken.None);
+
+        Assert.Equal(SessionState.DraftReady, restarted.State);
+        Assert.Equal(id, restarted.Snapshot.SessionId);
+        Assert.Equal("Printer offline in reception", restarted.Snapshot.DraftTitle);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.DraftReady, announced.State);
+        Assert.Equal(1, announced.DraftsReady);
+    }
+
+    [Fact]
+    public async Task AfterARestartTheAdoptedDraftFailingForGoodIsDraftFailedWithItsReason()
+    {
+        var id = await QueuedInTheOutboxAsync();
+        var restarted = await RestartAsync();
+        _observed.Clear();
+
+        await DraftSettling.Listener(restarted)(SettledItem(id, OutboxState.Failed, "The backend refused this session."), CancellationToken.None);
+
+        Assert.Equal(SessionState.DraftFailed, restarted.State);
+        Assert.Equal(id, restarted.Snapshot.SessionId);
+        Assert.Equal("The backend refused this session.", restarted.Snapshot.DraftFailureReason);
+        Assert.Equal([id], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+        Assert.Equal(CaptureStates.DraftFailed, Assert.Single(_observed).State);
+    }
+
+    [Fact]
+    public async Task AfterARestartTheSessionRunLastIsAdoptedEvenWhenTheClockSteppedBackBetweenThem()
+    {
+        // The last session run is the one the tray's Discard would have thrown away before the restart,
+        // so it is the one adopted: last created, not latest by the wall clock. A clock stepped back an
+        // hour between two sessions (a time sync, a dual boot) must not hand the tray another session.
+        // Neither the start times nor the ids agree with the order the sessions ran in, and the file is
+        // rebuilt between, as retention does.
+        var at = DateTimeOffset.UtcNow;
+        await QueuedRowAsync("b-ran-first", at, OutboxState.Pending);
+        await QueuedRowAsync("a-ran-last", at - TimeSpan.FromHours(1), OutboxState.Pending);
+        await (await OpenStoreAsync()).VacuumAsync();
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+        Assert.Equal("a-ran-last", restarted.Snapshot.SessionId);
+    }
+
+    [Theory]
+    [InlineData(OutboxState.Pending)]
+    [InlineData(OutboxState.Uncertain)]
+    public async Task AfterARestartASessionWhoseDraftIsStillOnItsWayIsAdoptedAsDrafting(OutboxState draft)
+    {
+        // Uncertain is still on its way: the request went and nobody knows yet whether it landed.
+        await QueuedRowAsync("queued", DateTimeOffset.UtcNow, draft);
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+        Assert.Equal("queued", restarted.Snapshot.SessionId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(OutboxState.Failed)]
+    [InlineData(OutboxState.Done)]
+    public async Task AfterARestartASessionWhoseDraftIsNoLongerOnItsWayIsFailedRatherThanDraftingForAWeek(OutboxState? draft)
+    {
+        // A row can say draft_pending with nothing left to settle it: the process died between the outbox
+        // storing Failed and telling the machine, or a second finalize found the work already settled and
+        // queued nothing. Adopted as pending, the pill would say "drafting the note" until retention, a
+        // week. It rests as after any failed draft instead, with a reason, and the store says the same.
+        await QueuedRowAsync("stranded", DateTimeOffset.UtcNow, draft);
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftFailed, restarted.State);
+        Assert.Equal("stranded", restarted.Snapshot.SessionId);
+        Assert.Equal(SessionMachine.DraftNoLongerQueuedReason, restarted.Snapshot.DraftFailureReason);
+        Assert.Equal(CaptureStates.DraftFailed, Assert.Single(_observed).State);
+        Assert.Equal(["stranded"], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+        Assert.Empty(await _store.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+    }
+
+    [Fact]
+    public async Task AfterARestartADraftThatLandedWithoutTheMachineBeingToldIsDraftReady()
+    {
+        // The outbox stored Done and the note is in the store, but the row still says draft_pending: the
+        // process died before the settling reached the store's state. The note is there, so the session
+        // is ready, not failed, and the toast has its title.
+        await QueuedRowAsync("landed", DateTimeOffset.UtcNow, OutboxState.Done);
+        await _store!.SaveDraftAsync("landed", Note("Printer offline in reception"));
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftReady, restarted.State);
+        Assert.Equal("landed", restarted.Snapshot.SessionId);
+        Assert.Equal("Printer offline in reception", restarted.Snapshot.DraftTitle);
+        Assert.Null(restarted.Snapshot.DraftFailureReason);
+        var announced = Assert.Single(_observed);
+        Assert.Equal(CaptureStates.DraftReady, announced.State);
+        Assert.Equal(1, announced.DraftsReady);
+        Assert.Equal(["landed"], await _store.ListSessionsInStatesAsync([CaptureStates.DraftReady]));
+    }
+
+    [Fact]
+    public async Task AfterARestartADraftTheOutboxFailedKeepsTheOutboxsOwnReason()
+    {
+        // What the outbox recorded is what the technician would have been told had the machine heard it
+        // in time. The general reason is only for a failure that recorded none.
+        await QueuedRowAsync("refused", DateTimeOffset.UtcNow, OutboxState.Failed, error: "The backend refused this session.");
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftFailed, restarted.State);
+        Assert.Equal("refused", restarted.Snapshot.SessionId);
+        Assert.Equal("The backend refused this session.", restarted.Snapshot.DraftFailureReason);
+        Assert.Equal(["refused"], await _store!.ListSessionsInStatesAsync([CaptureStates.DraftFailed]));
+    }
+
+    [Fact]
+    public async Task RetentionOnTheSessionAdoptedAtRestartMovesThePillOffDraftingTheNote()
+    {
+        var id = await QueuedInTheOutboxAsync();
+        var restarted = await RestartAsync();
+        _ = await _store!.PurgeRawDataAsync(id);
+
+        Assert.True(await restarted.RawDataPurgedAsync(id));
+
+        Assert.Equal(SessionState.DraftFailed, restarted.State);
+        Assert.Equal(id, restarted.Snapshot.SessionId);
+        Assert.Equal(SessionMachine.PurgedBeforeDraftedReason, restarted.Snapshot.DraftFailureReason);
+    }
+
+    [Fact]
+    public async Task AQueuedRowThatCannotBeReadAtRestartLeavesTheMachineIdleRatherThanStoppingTheService()
+    {
+        // One damaged row (its note's JSON cut short, so reading its history row throws) must not keep
+        // the capture service from starting. The machine starts idle as it did before adoption existed,
+        // and says what kind of error it was, never what the row held (INV-10). The row and its queued
+        // work are left as they were.
+        await QueuedRowAsync("damaged", DateTimeOffset.UtcNow, OutboxState.Pending);
+        await CorruptDraftJsonAsync("damaged");
+
+        var restarted = await RestartAsync();
 
         Assert.Equal(SessionState.Idle, restarted.State);
-        Assert.Equal(1, Assert.Single(_observed).DraftsReady);
+        Assert.Null(restarted.Snapshot.SessionId);
+        Assert.Equal("SqliteException", restarted.AdoptionFault);
+        Assert.Equal(CaptureStates.Idle, Assert.Single(_observed).State);
+        Assert.Equal(["damaged"], await _store!.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+        Assert.Equal(1, (await _store.CountWaitingAsync()).Drafts);
+    }
+
+    [Fact]
+    public async Task AQueuedRowReadCleanlyLeavesNoAdoptionFault()
+    {
+        _ = await QueuedInTheOutboxAsync();
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+        Assert.Null(restarted.AdoptionFault);
+    }
+
+    [Fact]
+    public void TheHostLogsWhyRecoveryCouldNotAdoptAQueuedSession()
+    {
+        var host = File.ReadAllText(Path.Combine(Repository(), "client", "ScreenTail.Service", "Host", "CaptureHost.cs"));
+
+        Assert.Contains("machine.AdoptionFault is { } adoptionFault", host, StringComparison.Ordinal);
+        Assert.Contains("LogAdoptionFault(logger, adoptionFault)", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AfterARestartWithNoDraftQueuedTheMachineIsIdleWhateverElseTheStoreHolds()
+    {
+        // Only a draft still on its way is adopted. A ready, failed or discarded session from before the
+        // restart is History's, and the machine starts idle with no session, as it always has.
+        var store = await OpenStoreAsync();
+        foreach (var (id, state) in new[] { ("ready", CaptureStates.DraftReady), ("failed", CaptureStates.DraftFailed), ("gone", SessionStateNames.Discarded) })
+        {
+            await store.CreateSessionAsync(new NewSession(id, DateTimeOffset.UtcNow, ScreenConnect, false, null));
+            await store.FinalizeSessionAsync(id, new FinalizeInfo(4_000, false));
+            await store.SetSessionStateAsync(id, state, null);
+        }
+
+        var restarted = await RestartAsync();
+
+        Assert.Equal(SessionState.Idle, restarted.State);
+        Assert.Null(restarted.Snapshot.SessionId);
+        Assert.Null(restarted.SessionId);
+        Assert.Equal(CaptureStates.Idle, Assert.Single(_observed).State);
+        Assert.Equal(1, restarted.Snapshot.DraftsReady);
+        Assert.False(await restarted.DiscardAsync());
+    }
+
+    [Fact]
+    public async Task ACrashedSessionIsStillRecoveredAsBeforeWhenAnOlderDraftIsQueued()
+    {
+        // Recovery of a live session does not change: it is finalized and drafted, and the machine rests
+        // on its outcome. The older queued draft is not adopted over it; it drains on its own.
+        var store = await OpenStoreAsync();
+        var at = DateTimeOffset.UtcNow;
+        await store.CreateSessionAsync(new NewSession("queued", at - TimeSpan.FromHours(1), ScreenConnect, false, null));
+        await store.SetSessionStateAsync("queued", SessionStateNames.DraftPending, null);
+        await store.CreateSessionAsync(new NewSession("orphan", at, ScreenConnect, false, null));
+        await store.SetSessionStateAsync("orphan", CaptureStates.Recording, null);
+
+        var machine = await MachineAsync();
+
+        Assert.Equal(1, await machine.RecoverAsync());
+        Assert.Equal([CaptureStates.Finalizing, CaptureStates.DraftReady], _observed.Select(s => s.State));
+        Assert.Equal("orphan", machine.Snapshot.SessionId);
+        Assert.Equal(["queued"], await store.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+    }
+
+    [Fact]
+    public async Task ANewSessionCanStartFromTheDraftAdoptedAtRestart()
+    {
+        // INV-4 is untouched: draft_pending captures nothing, and starting from it is a fresh session
+        // with its own row, recorded and indicated as any other.
+        var id = await QueuedInTheOutboxAsync();
+        var restarted = await RestartAsync();
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+
+        Assert.True(await restarted.StartAsync(ScreenConnect));
+
+        Assert.Equal(SessionState.Recording, restarted.State);
+        Assert.NotEqual(id, restarted.SessionId);
+        Assert.Equal(CaptureStates.Recording, _observed[^1].State);
+        Assert.Equal([id], await _store!.ListSessionsInStatesAsync([SessionStateNames.DraftPending]));
+    }
+
+    [Fact]
+    public async Task AnUpdateHoldIsGrantedWhileRestingOnTheDraftAdoptedAtRestart()
+    {
+        // ST-113: Windows Installer may replace the service when no session is under way. A queued draft
+        // is not one, before a restart or after it.
+        _ = await QueuedInTheOutboxAsync();
+        var restarted = await RestartAsync();
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+
+        using var hold = await restarted.HoldStartsAsync();
+
+        Assert.NotNull(hold);
+        Assert.False(await restarted.StartAsync(ScreenConnect));
+        Assert.Equal(SessionState.DraftPending, restarted.State);
+    }
+
+    /// <summary>The service restarting: the machine goes, and a new one over the same store recovers, with nothing orphaned.</summary>
+    private async Task<SessionMachine> RestartAsync()
+    {
+        if (_machine is not null)
+        {
+            await _machine.DisposeAsync();
+        }
+
+        var restarted = await MachineAsync();
+        _observed.Clear();
+        Assert.Equal(0, await restarted.RecoverAsync());
+        return restarted;
+    }
+
+    private static OutboxItem SettledItem(string sessionId, OutboxState state, string? error)
+    {
+        var at = DateTimeOffset.UtcNow;
+        return new("o-1", sessionId, OutboxKind.Draft, $"draft:{sessionId}", "{}", state, 1, at, at, at, error, null);
+    }
+
+    private Core.Outbox.Outbox? _outbox;
+
+    /// <summary>An outbox over the test's store, whose sender says every item landed. Only drained when a test asks.</summary>
+    private async Task<Core.Outbox.Outbox> OutboxAsync() =>
+        _outbox ??= new Core.Outbox.Outbox(await OpenStoreAsync(), (_, _) => Task.FromResult(SendOutcome.Done(null)));
+
+    /// <summary>One session queued as BundlingDrafter queues it: its draft in the outbox, the machine resting on it.</summary>
+    private async Task<string> QueuedInTheOutboxAsync()
+    {
+        var outbox = await OutboxAsync();
+        _drafter.Drafting = id => outbox.EnqueueAsync(new NewOutboxItem(id, OutboxKind.Draft, $"draft:{id}", "{}"));
+        return await QueuedSessionAsync();
+    }
+
+    /// <summary>
+    /// A finished session left in draft_pending by an earlier run, written straight into the store, with
+    /// its draft's outbox work in <paramref name="draft"/>, or none at all.
+    /// </summary>
+    private async Task QueuedRowAsync(string id, DateTimeOffset startedAt, OutboxState? draft, long durationMs = 4_000, string? error = null)
+    {
+        var store = await OpenStoreAsync();
+        await store.CreateSessionAsync(new NewSession(id, startedAt, ScreenConnect, false, null));
+        await store.FinalizeSessionAsync(id, new FinalizeInfo(durationMs, false));
+        await store.SetSessionStateAsync(id, SessionStateNames.DraftPending, null);
+        if (draft is { } state)
+        {
+            var at = DateTimeOffset.UtcNow;
+            Assert.True(await store.EnqueueAsync(new OutboxItem($"o-{id}", id, OutboxKind.Draft, $"draft:{id}", "{}", state, 1, at, at, at, error, null)));
+        }
+    }
+
+    /// <summary>Cuts a session's stored note short behind the store's back, so reading its history row throws.</summary>
+    private async Task CorruptDraftJsonAsync(string sessionId)
+    {
+        await _store!.DisposeAsync();
+        _store = null;
+        _outbox = null;
+
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+            {
+                DataSource = _path,
+                Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,
+                Pooling = false,
+            }.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using (var key = connection.CreateCommand())
+        {
+            key.CommandText = $"PRAGMA key = \"x'{Convert.ToHexString(_key.GetKey())}'\";";
+            _ = await key.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using var write = connection.CreateCommand();
+        write.CommandText = "UPDATE sessions SET draft_json = @json WHERE id = @id";
+        _ = write.Parameters.AddWithValue("@json", """{"suggested_title": "Printer""");
+        _ = write.Parameters.AddWithValue("@id", sessionId);
+        Assert.Equal(1, await write.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -31,9 +31,10 @@ public static class SessionStateNames
     public const string Published = "published";
 
     /// <summary>
-    /// Finalized, with its draft in the outbox on the way to the backend (ST-013). The machine rests idle
-    /// meanwhile, because nothing is being captured; the outbox moves the session on to draft_ready or
-    /// draft_failed when the backend answers for good. Not orphanable: the queue still holds the work.
+    /// Finalized, with its draft in the outbox on the way to the backend (ST-013). The machine rests in
+    /// draft_pending meanwhile, capturing nothing, and recovery adopts the newest such session again after
+    /// a restart; the outbox moves the session on to draft_ready or draft_failed when the backend answers
+    /// for good. Not orphanable: the queue still holds the work.
     /// </summary>
     public const string DraftPending = CaptureStates.DraftPending;
 
