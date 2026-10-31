@@ -247,6 +247,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             LogAdoptionFault(logger, adoptionFault);
         }
 
+        // A bulk discard marks its sessions and deletes their content afterwards. A service that stopped
+        // in between left content nobody can read; it is deleted now rather than at retention (INV-12).
+        await machine.FinishDiscardsAsync(stoppingToken).ConfigureAwait(false);
+
         var token = IpcToken.Generate();
         IpcTokenFile.Write(IpcTokenFile.DefaultPath, token);
 

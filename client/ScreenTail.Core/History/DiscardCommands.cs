@@ -93,6 +93,14 @@ public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time =
         }
 
         var outcome = await _machine.DiscardSessionsAsync(ids, ct).ConfigureAwait(false);
+        if (outcome.Done)
+        {
+            // Outside the machine's gate (review of #243): what the sessions held is already unreachable,
+            // and only the deleting is left. Done before answering, so the list the screen reads next has
+            // nothing of them, and so a store failure says so here rather than nowhere.
+            await _machine.FinishDiscardsAsync(ct).ConfigureAwait(false);
+        }
+
         return outcome.Done
             ? new CommandResult { RequestId = command.RequestId, Ok = true }
             : Refused(command, Explain(outcome));

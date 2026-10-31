@@ -466,8 +466,10 @@ public sealed class SessionMachine : IAsyncDisposable
     /// published, fail closed: Spec §5 S4 does not say). The technician confirmed a number, and discarding
     /// fewer would destroy a count they did not type.
     ///
-    /// The others go first, in one store transaction: frames, transcript, events, note and queued work,
-    /// with the row kept and saying discarded so History can show it (Spec §5 S4). When the session the
+    /// The others go first, in one store transaction that only marks them: the note and queued work go,
+    /// the row is kept and says discarded so History can show it (Spec §5 S4), and from then on nothing
+    /// reads their screenshots, transcript or events and nothing writes to them. Deleting those is
+    /// <see cref="FinishDiscardsAsync"/>'s, after this returns and the gate is free. When the session the
     /// machine is on is among them, it goes after, exactly the way the tray's Discard takes it, so the
     /// state and the announcement stay right from any resting state: narration closes, a recording
     /// session stops capturing before anything is deleted (Spec v0.4.1 Q3, INV-4), the frames still
@@ -528,6 +530,32 @@ public sealed class SessionMachine : IAsyncDisposable
         finally
         {
             _transitions.Release();
+        }
+    }
+
+    /// <summary>How many screenshots one chunk of a discard's deleting takes, in one transaction.</summary>
+    public const int DiscardChunk = 50;
+
+    /// <summary>
+    /// Deletes what discarded sessions still hold, a chunk at a time: after a bulk discard, and at start
+    /// for one a stopped service left unfinished.
+    ///
+    /// Deliberately not under the transition gate. The sessions were marked discarded under it, which made
+    /// their content unreachable to every reader and refused every late write; the deleting is the slow
+    /// part (secure delete overwrites every page), and a suppression waiting behind it is frames accepted
+    /// from a password field (INV-6; review of #243). Between chunks the store's own gate is free, so the
+    /// machine's writes for the session being recorded wait for one chunk at most.
+    /// </summary>
+    public async Task FinishDiscardsAsync(CancellationToken ct = default)
+    {
+        foreach (var id in await _store.ListUnfinishedDiscardsAsync(ct).ConfigureAwait(false))
+        {
+            bool emptied;
+            do
+            {
+                emptied = await _store.PurgeDiscardedContentAsync(id, DiscardChunk, ct).ConfigureAwait(false);
+            }
+            while (!emptied);
         }
     }
 

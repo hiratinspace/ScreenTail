@@ -154,17 +154,44 @@ public interface ISessionStore : IAsyncDisposable
     Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>
-    /// Review's Discard and History's bulk discard, by name (contract v6): what <see cref="DiscardSessionAsync"/>
-    /// does to one session, to every one of these, in one transaction, with an audit row each.
+    /// Review's Discard and History's bulk discard, by name (contract v6): marks every one of these
+    /// discarded, in one transaction, with an audit row each saying how many screenshots it held. The note,
+    /// the ticket number read off the screen and the queued work go at once; the screenshots, transcript
+    /// and events are deleted afterwards by <see cref="PurgeDiscardedContentAsync"/>, in chunks, and from
+    /// the moment this commits no reader returns them and no write adds to them.
+    ///
+    /// Cheap on purpose: the machine calls it under its transition gate, which the password and login
+    /// guards' suppression waits for (INV-6), and deleting a thousand screenshots with secure delete on
+    /// took seconds there (review of #243).
     ///
     /// All or none. A session that is missing, already discarded or published refuses the whole set and
     /// nothing changes: the technician confirmed a number, and discarding fewer than it would be
     /// discarding something they did not type. The machine checks every id under its own gate first, so
     /// this is the second line, for a session that changed after the check.
     /// </summary>
-    /// <returns>How many frames were deleted, across all of them.</returns>
+    /// <returns>How many screenshots the sessions held, all of which are now unreachable.</returns>
     /// <exception cref="InvalidOperationException">A session could not be discarded; nothing was.</exception>
     Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sessions marked discarded whose content has not all been deleted yet: the work a bulk discard
+    /// left, or a service that stopped before finishing it.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListUnfinishedDiscardsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes up to <paramref name="chunk"/> of a discarded session's screenshots, in one transaction,
+    /// and once none are left its transcript and events too, and records the raw data as gone. Does
+    /// nothing to a session that is not marked discarded.
+    /// </summary>
+    /// <returns>Whether the session's content is all gone.</returns>
+    Task<bool> PurgeDiscardedContentAsync(string sessionId, int chunk, CancellationToken ct = default);
+
+    /// <summary>
+    /// The session reached a PSA (Spec §5 S4's Published), once any destination landed. Refused, and
+    /// false, for a discarded row: a publish that lands after a discard does not bring the session back.
+    /// </summary>
+    Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
     /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>
