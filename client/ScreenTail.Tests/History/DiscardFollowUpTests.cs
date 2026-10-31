@@ -144,7 +144,7 @@ public sealed class DiscardFollowUpTests : IAsyncDisposable
         Assert.NotEqual(0, await store.GetLastTimestampAsync("s1", Ct));
 
         // A service that stopped here (a crash, a restart) finishes the job when it starts again.
-        await _harness!.Machine.FinishDiscardsAsync(Ct);
+        Assert.Null(await _harness!.Machine.TryFinishDiscardsAsync(Ct));
 
         Assert.Equal(0, await store.GetLastTimestampAsync("s1", Ct));
         Assert.Empty(await store.ListUnfinishedDiscardsAsync(Ct));
@@ -237,7 +237,7 @@ public sealed class DiscardFollowUpTests : IAsyncDisposable
         var (failing, _) = FailingPurge.Over(store);
         _slowMachine = new SessionMachine(failing, new NoCaptureSources(), new UnavailableDrafter());
 
-        Assert.Equal(nameof(IOException), await _slowMachine.TryFinishDiscardsAsync(Ct));
+        Assert.Equal(new UnfinishedDiscards(nameof(IOException), 1), await _slowMachine.TryFinishDiscardsAsync(Ct));
 
         Assert.Equal(["s1"], await store.ListUnfinishedDiscardsAsync(Ct));
         Assert.Empty((await store.LoadSessionAsync("s1", Ct))!.Frames);
@@ -371,6 +371,75 @@ public sealed class DiscardFollowUpTests : IAsyncDisposable
         Assert.Equal(SessionState.DraftReady, machine.State);
         Assert.Equal(current, machine.Snapshot.SessionId);
         Assert.Equal(1, machine.Snapshot.DraftsReady);
+    }
+
+    [Fact]
+    public async Task OneSessionThatCannotBeEmptiedDoesNotHoldUpTheOthers()
+    {
+        // Third review of #243. The first session's failure ended the whole pass, so one session whose
+        // pages could not be freed kept every later discard's content on disk until it recovered. Each is
+        // tried on its own now, and the report says the first fault's kind and how many are left.
+        var (store, _) = await StartAsync();
+        await StoredAsync(store, "s1-bad", frames: 2);
+        await StoredAsync(store, "s2-good", frames: 2);
+        Assert.Equal(4, await store.DiscardSessionsAsync(["s1-bad", "s2-good"], Ct));
+        var (failing, _) = FailingPurge.Over(store, only: "s1-bad");
+        _slowMachine = new SessionMachine(failing, new NoCaptureSources(), new UnavailableDrafter());
+
+        Assert.Equal(new UnfinishedDiscards(nameof(IOException), 1), await _slowMachine.TryFinishDiscardsAsync(Ct));
+
+        Assert.Equal(["s1-bad"], await store.ListUnfinishedDiscardsAsync(Ct));
+        Assert.Equal(0, await store.GetLastTimestampAsync("s2-good", Ct));
+        Assert.Empty((await store.LoadSessionAsync("s1-bad", Ct))!.Frames);
+    }
+
+    [Fact]
+    public async Task WritesTheStoreRefusesForTheSessionBeingRecordedAreNotReportedAsKept()
+    {
+        // Third review of #243. The machine said an event or a sentence was recorded whatever the store
+        // did, and wrote that it had masked a card number in a sentence that was never stored. The row of
+        // the session being recorded is discarded underneath it here, the one way a write is refused.
+        _harness = await MachineHarness.StartAsync();
+        var store = _harness.Store;
+        var machine = _harness.Machine;
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var id = machine.SessionId!;
+        Assert.True(await machine.TryRecordEventAsync(new ClickEvent { TsMs = machine.NowMs, X = 1, Y = 1, Button = MouseButton.Left }, Ct));
+        _ = await store.DiscardSessionAsync(id, Ct);
+
+        Assert.False(await machine.TryRecordEventAsync(new ClickEvent { TsMs = machine.NowMs, X = 1, Y = 1, Button = MouseButton.Left }, Ct));
+        var heard = new TranscriptSegment { Id = "t-late", TsMs = machine.NowMs, EndMs = machine.NowMs + 500, Speaker = Speaker.Tech, Text = "her social is 123-45-6789" };
+        Assert.False(await machine.TryAppendTranscriptAsync(id, heard, Ct));
+
+        Assert.DoesNotContain(await store.GetAuditRecordsAsync(id, Ct), r => r.Type == AuditTypes.TranscriptRedacted);
+    }
+
+    [Fact]
+    public async Task APublishLandingWhileTheNextSessionRecordsLeavesTheRecordingAlone()
+    {
+        // The machine moves off a session only when it is resting on it. A publish of the last session's
+        // note while the next one records moves the count, and the recording, the pill and its session
+        // stay exactly as they were (INV-4).
+        var drafter = new Drafter { Outcome = DraftOutcome.Success(Draft()) };
+        _harness = await MachineHarness.StartAsync(drafter: drafter);
+        var store = _harness.Store;
+        var machine = _harness.Machine;
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var drafted = machine.SessionId!;
+        Assert.True(await machine.StopAsync(Ct));
+        Assert.True(await machine.StartAsync(Rdp, ct: Ct));
+        var recording = machine.SessionId!;
+        Assert.Equal(1, machine.Snapshot.DraftsReady);
+        var announced = new List<CaptureStateSnapshot>();
+        machine.StateChanged += announced.Add;
+
+        Assert.IsType<SessionPublished>(await new PublishCommands(store, _gateway, published: machine.PublishedAsync).ReplyToAsync(Publish(drafted), Ct));
+
+        Assert.Equal(SessionState.Recording, machine.State);
+        Assert.Equal(recording, machine.Snapshot.SessionId);
+        Assert.Equal(0, machine.Snapshot.DraftsReady);
+        Assert.All(announced, snapshot => Assert.Equal((CaptureStates.Recording, recording), (snapshot.State, snapshot.SessionId)));
+        Assert.True(await machine.TryRecordEventAsync(new ClickEvent { TsMs = machine.NowMs, X = 1, Y = 1, Button = MouseButton.Left }, Ct));
     }
 
     [Fact]
@@ -514,19 +583,22 @@ public sealed class DiscardFollowUpTests : IAsyncDisposable
     public class FailingPurge : DispatchProxy
     {
         private ISessionStore? _inner;
+        private string? _only;
 
-        public static (ISessionStore Store, FailingPurge Proxy) Over(SqliteSessionStore inner)
+        /// <param name="only">The one session whose deleting fails; every session's when null.</param>
+        public static (ISessionStore Store, FailingPurge Proxy) Over(SqliteSessionStore inner, string? only = null)
         {
             var store = Create<SlowPurge.IAuditedStore, FailingPurge>();
             var proxy = (FailingPurge)(object)store;
             proxy._inner = inner;
+            proxy._only = only;
             return (store, proxy);
         }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             ArgumentNullException.ThrowIfNull(targetMethod);
-            return targetMethod.Name == nameof(ISessionStore.PurgeDiscardedContentAsync)
+            return targetMethod.Name == nameof(ISessionStore.PurgeDiscardedContentAsync) && (_only is null || Equals(args?[0], _only))
                 ? Task.FromException<bool>(new IOException("The disk is full."))
                 : targetMethod.Invoke(_inner, args);
         }
