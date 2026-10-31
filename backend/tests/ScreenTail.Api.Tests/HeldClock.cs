@@ -4,10 +4,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace ScreenTail.Api.Tests;
 
 /// <summary>
-/// A clock that stands still until the test moves it, for a host whose deadlines a test means to land
-/// on cue. <see cref="Install"/> puts it in place of the <see cref="TimeProvider"/> Program.cs registers,
-/// so everything the service times with it (the publish deadline, when a request arrived, a provider's
-/// wait before trying again) reads this clock instead of the machine's.
+/// A clock that stands still until the test moves it, for a service or a host whose deadlines a test
+/// means to land on cue. A service that takes a <see cref="TimeProvider"/> is handed it directly
+/// (SummarizationServiceTests). In a host, <see cref="Install"/> puts it in place of the one Program.cs
+/// registers, so everything the service times with it (the publish deadline, when a request arrived, a
+/// provider's wait before trying again) reads this clock instead of the machine's.
 ///
 /// A timer it hands out fires inside <see cref="Advance"/>, on the test's thread, once the clock reaches
 /// its due time, and never by itself. So a deadline lands where the test puts it rather than wherever a

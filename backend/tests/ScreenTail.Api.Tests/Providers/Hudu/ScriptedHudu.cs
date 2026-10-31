@@ -19,6 +19,8 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     private readonly List<HttpRequestMessage> _requests = [];
     private readonly List<string?> _bodies = [];
     private readonly TaskCompletionSource _hung = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _holding = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>What was asked, in arrival order; a copy taken under the lock, because uploads go several at a time.</summary>
     public List<HttpRequestMessage> Requests
@@ -66,6 +68,18 @@ internal sealed class ScriptedHudu : HttpMessageHandler
     /// rather than when the answer it causes has made its way back.
     /// </summary>
     public CancellationToken HungOn { get; private set; }
+
+    /// <summary>
+    /// Requests to a path ending in this wait until <see cref="Release"/>; <see cref="Holding"/> completes
+    /// when the first one arrives. A gate the test opens, so callers can be made to overlap without timing.
+    /// </summary>
+    public string? HeldRoute { get; set; }
+
+    /// <summary>Completes when the first request to <see cref="HeldRoute"/> is waiting.</summary>
+    public Task Holding => _holding.Task;
+
+    /// <summary>Lets every held request, and every one after it, through.</summary>
+    public void Release() => _release.TrySetResult();
 
     /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns.</summary>
     public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
@@ -115,6 +129,12 @@ internal sealed class ScriptedHudu : HttpMessageHandler
         }
 
         var path = request.RequestUri!.AbsolutePath;
+        if (HeldRoute is { } held && path.EndsWith(held, StringComparison.Ordinal))
+        {
+            _holding.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+        }
+
         if (HangingRoute is { } hanging && path.EndsWith(hanging, StringComparison.Ordinal))
         {
             var waiting = Task.Delay(Timeout.Infinite, cancellationToken);

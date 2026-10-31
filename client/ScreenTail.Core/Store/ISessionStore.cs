@@ -195,6 +195,23 @@ public interface ISessionStore : IAsyncDisposable
     /// <param name="limit">How many rows to read. The caller shows a page; the store should not read the store.</param>
     Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default);
 
+    /// <summary>
+    /// One session's history row, or null when there is no such session. For recovery, which needs the
+    /// tool and the duration of the session it adopts and not its frames: <see cref="LoadSessionAsync"/>
+    /// reads all of them.
+    /// </summary>
+    Task<SessionSummary?> GetSessionSummaryAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The draft_pending session created last, and whether its draft still has live outbox work
+    /// (pending or uncertain); null when no session is draft_pending. For recovery, which adopts it.
+    ///
+    /// Last by insertion, not by <c>started_at</c>: the start time is the wall clock's, and a clock
+    /// stepped back between two sessions would make the earlier one look newer, and the tray's Discard
+    /// throw away a session other than the last one run.
+    /// </summary>
+    Task<LastQueuedDraft?> GetLastDraftPendingAsync(CancellationToken ct = default);
+
     Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default);
 
     Task<int> GetSchemaVersionAsync(CancellationToken ct = default);
@@ -266,6 +283,13 @@ public sealed record SessionSummary(
     int Frames,
     bool RawPurged,
     string? Title);
+
+/// <param name="SessionId">The draft_pending session created last.</param>
+/// <param name="DraftLive">Whether its draft has outbox work that is still pending or uncertain, so something will settle it.</param>
+/// <param name="DraftDone">Whether its draft's outbox work is done: the backend answered and the sender kept the note.</param>
+/// <param name="HasNote">Whether a note is stored for it.</param>
+/// <param name="FailedReason">What its failed draft work recorded as the reason, or null when it has none.</param>
+public sealed record LastQueuedDraft(string SessionId, bool DraftLive, bool DraftDone = false, bool HasNote = false, string? FailedReason = null);
 
 public sealed record AuditEntry(long Id, DateTimeOffset At, string? SessionId, string Type, long? Count);
 

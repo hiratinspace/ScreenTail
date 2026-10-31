@@ -166,6 +166,23 @@ public sealed class SessionHistoryTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task OneSessionsRowIsTheSameRowTheListShowsAndAMissingOneIsNull()
+    {
+        // Recovery reads the session it adopts this way, for its tool and its duration.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(new NewSession("s1", DateTimeOffset.UnixEpoch, Rdp, false, null));
+        await store.CreateSessionAsync(new NewSession("s2", DateTimeOffset.UnixEpoch.AddMinutes(1), Rdp, false, null));
+        await store.FinalizeSessionAsync("s1", new FinalizeInfo(4_000, false));
+
+        var row = await store.GetSessionSummaryAsync("s1");
+
+        Assert.Equal((await store.ListSessionsAsync()).Single(s => s.Id == "s1"), row);
+        Assert.Equal(4_000, row!.DurationMs);
+        Assert.Equal("rdp", row.RemoteTool);
+        Assert.Null(await store.GetSessionSummaryAsync("nope"));
+    }
+
+    [Fact]
     public async Task ATitleSurvivesADraftWhoseOtherFieldsAreNonsense()
     {
         // The title was read by deserialising the whole note into DraftNote, so one field of the wrong

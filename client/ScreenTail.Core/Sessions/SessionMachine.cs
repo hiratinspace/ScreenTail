@@ -538,6 +538,18 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// What a session says, in the pill and in Review, when recovery finds it draft_pending with nothing
+    /// left in the outbox to settle it.
+    /// </summary>
+    public const string DraftNoLongerQueuedReason = "The draft was no longer on its way to the backend when ScreenTail restarted, so it will not arrive.";
+
+    /// <summary>
+    /// The kind of error that kept recovery from adopting a queued session, by type name only (INV-10),
+    /// for the host to log. Null when nothing did.
+    /// </summary>
+    public string? AdoptionFault { get; private set; }
+
     /// <summary>What a session failed by retention says, in the pill and in Review.</summary>
     public const string PurgedBeforeDraftedReason = "The session's screenshots and transcript were removed by retention before it could be drafted.";
 
@@ -572,6 +584,15 @@ public sealed class SessionMachine : IAsyncDisposable
     /// <summary>
     /// At service start: any session a crash left recording, paused, suppressed or finalizing is marked
     /// partial and taken through finalize, so its data is either drafted or cleaned up, never stranded.
+    ///
+    /// With nothing to finalize, the last session created whose draft is still queued (draft_pending)
+    /// becomes the current session again, and the machine rests on it in DraftPending as it did before
+    /// the restart. Left idle, the tray's Discard was refused and the bundle went to the backend at the
+    /// next drain: the technician had lost the way to stop it (INV-12, #230 review). Its draft settling
+    /// later moves the machine through <see cref="DraftSettledAsync"/> as usual. An older queued session
+    /// is not adopted: before the restart the machine rested only on the last session it ran, and the
+    /// older one still drains, its settling changing the count and nothing else. See
+    /// <see cref="AdoptLastQueuedAsync"/> for a row whose draft is no longer on its way, or that cannot be read.
     /// </summary>
     public async Task<int> RecoverAsync(CancellationToken ct = default)
     {
@@ -599,7 +620,10 @@ public sealed class SessionMachine : IAsyncDisposable
             if (orphans.Count == 0)
             {
                 await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-                SetState(SessionState.Idle, null);
+                if (!await AdoptLastQueuedAsync(ct).ConfigureAwait(false))
+                {
+                    SetState(SessionState.Idle, null);
+                }
             }
 
             return orphans.Count;
@@ -608,6 +632,66 @@ public sealed class SessionMachine : IAsyncDisposable
         {
             _transitions.Release();
         }
+    }
+
+    /// <summary>
+    /// Makes the draft_pending session created last the current one again, and says whether there was one.
+    ///
+    /// Only while its draft still has outbox work that will settle it. A row with none (the process died
+    /// between the outbox storing Failed and telling the machine, or a second finalize found the work
+    /// already settled and queued nothing) would say "drafting the note" until retention took it, a week
+    /// later. It is settled here instead, and the machine rests on it as it would have had the outbox's
+    /// settling arrived: draft_ready when the work is done and the note is stored, otherwise draft_failed
+    /// with the reason the failed work recorded, or a general one when it recorded none.
+    ///
+    /// A row that cannot be read is not adopted, and does not stop the service starting: the machine
+    /// starts idle, as it did before adoption existed, and <see cref="AdoptionFault"/> names the kind of
+    /// error for the host's log. Nothing is written to a row until it has been read.
+    /// </summary>
+    private async Task<bool> AdoptLastQueuedAsync(CancellationToken ct)
+    {
+        ActiveSession adopted;
+        SessionState state;
+        string? reason = null;
+        string? title = null;
+        try
+        {
+            if (await _store.GetLastDraftPendingAsync(ct).ConfigureAwait(false) is not { } last
+                || await _store.GetSessionSummaryAsync(last.SessionId, ct).ConfigureAwait(false) is not { } row)
+            {
+                return false;
+            }
+
+            if (last.DraftLive)
+            {
+                state = SessionState.DraftPending;
+            }
+            else if (last.DraftDone && last.HasNote)
+            {
+                state = SessionState.DraftReady;
+                title = row.Title;
+                _ = await _store.SetSessionStateIfAsync(row.Id, SessionStateNames.DraftPending, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
+                await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                state = SessionState.DraftFailed;
+                reason = last.FailedReason ?? DraftNoLongerQueuedReason;
+                _ = await _store.SetSessionStateIfAsync(row.Id, SessionStateNames.DraftPending, CaptureStates.DraftFailed, reason, ct).ConfigureAwait(false);
+            }
+
+            // The tool and the active time come back too, so the tray reads as it did before the restart.
+            adopted = new ActiveSession(row.Id, _time.GetTimestamp(), row.RemoteTool, activeMs: row.DurationMs ?? 0);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AdoptionFault = ex.GetType().Name;
+            return false;
+        }
+
+        _session = adopted;
+        SetState(state, reason, title);
+        return true;
     }
 
     // ---- gated writes (INV-6) ----------------------------------------------------------------------------
@@ -1025,9 +1109,10 @@ public sealed class SessionMachine : IAsyncDisposable
         System.Text.Json.JsonSerializer.Serialize(kind, SessionJson.Options).Trim('"');
 
     /// <summary>Per-session bookkeeping: active time excludes paused and suppressed intervals (ST-066 uses it).</summary>
-    private sealed class ActiveSession(string id, long startedAt, string? toolKind, long baseMs = 0)
+    /// <param name="activeMs">Active time already counted: the stored duration of a session adopted at recovery, 0 otherwise.</param>
+    private sealed class ActiveSession(string id, long startedAt, string? toolKind, long baseMs = 0, long activeMs = 0)
     {
-        private long _activeMs;
+        private long _activeMs = activeMs;
         private long _activeSince = startedAt;
 
         public string Id { get; } = id;

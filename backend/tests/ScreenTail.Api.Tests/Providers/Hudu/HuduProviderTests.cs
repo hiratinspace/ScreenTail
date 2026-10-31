@@ -94,6 +94,59 @@ public sealed class HuduProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task PublishesArrivingTogetherPageTheListOnce()
+    {
+        // #229 review: an expired or forgotten list was paged by every caller at once. The first page is
+        // held until all of them are waiting; between them they ask for the two pages once.
+        _api.HeldRoute = "/api/v1/companies";
+        var cache = new HuduCompanyCache(_time);
+
+        var lists = Enumerable.Range(0, 8).Select(_ => Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken)).ToArray();
+        await _api.Holding.WaitAsync(TestContext.Current.CancellationToken);
+        _api.Release();
+        var results = await Task.WhenAll(lists);
+
+        Assert.All(results, r => Assert.Equal(28, r.Value!.Count));
+        Assert.Equal(2, _api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task HudusRefusalReachesEveryCallerSharingTheLoadAndIsAskedAgainAfter()
+    {
+        // The callers who waited on someone else's load hear Hudu's own words, not a guess.
+        _api.HeldRoute = "/api/v1/companies";
+        _api.Failing = HttpStatusCode.Unauthorized;
+        var cache = new HuduCompanyCache(_time);
+
+        var lists = Enumerable.Range(0, 8).Select(_ => Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken)).ToArray();
+        await _api.Holding.WaitAsync(TestContext.Current.CancellationToken);
+        _api.Release();
+        var results = await Task.WhenAll(lists);
+
+        Assert.All(results, r => Assert.Equal("Hudu rejected the API key.", r.Error!.What));
+        Assert.Single(_api.Requests);
+
+        _api.Failing = null;
+        Assert.True((await Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken)).Ok);
+        Assert.Equal(3, _api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task AListLoadedUnderTheOldKeyIsNotServedUnderTheNewOne()
+    {
+        // The same tenant and site with a rotated key, and nothing told to forget: the list is asked for
+        // again under the new key rather than read from what the old key was shown.
+        var cache = new HuduCompanyCache(_time);
+        _ = await Provider(cache).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        _ = await Provider(cache, apiKey: "hudu-api-key-5678").ListCompaniesAsync(TestContext.Current.CancellationToken);
+        _ = await Provider(cache, apiKey: "hudu-api-key-5678").ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, _api.Requests.Count);
+        Assert.Equal(2, _api.Requests.Count(r => r.Headers.GetValues("x-api-key").Single() == "hudu-api-key-5678"));
+    }
+
+    [Fact]
     public async Task AnotherTenantsCacheIsNotThisOnes()
     {
         var cache = new HuduCompanyCache(_time);
@@ -431,10 +484,10 @@ public sealed class HuduProviderTests : IDisposable
         public void Advance(TimeSpan by) => _now += by;
     }
 
-    private HuduProvider Provider(HuduCompanyCache? cache = null, string tenant = "t-1", HuduOptions? options = null) =>
+    private HuduProvider Provider(HuduCompanyCache? cache = null, string tenant = "t-1", HuduOptions? options = null, string apiKey = "hudu-api-key-1234") =>
         new(
             new HttpClient(_api) { BaseAddress = new Uri("https://acme.huducloud.com/") },
-            "hudu-api-key-1234",
+            apiKey,
             options ?? new HuduOptions { BackoffBase = TimeSpan.Zero },
             cache ?? new HuduCompanyCache(_time),
             tenant,

@@ -303,7 +303,8 @@ or names only), who drafts (the saved choice, whether the saved key has that com
 the last `start.cmd` gave the backend, which says when it was the scripted rehearsal), the device
 token's expiry, what Windows lets the capture service do (microphone, OCR language, speech model, UI
 Automation), the capture scope and the hotkeys, and the last 200 lines of the capture service's and the
-backend's logs.
+backend's logs. When the end-to-end run has been run on this laptop, it also has an **End-to-end run**
+section (below).
 
 What it is made to leave out: screenshots, OCR text, transcripts, note text, window titles, keys,
 tokens, passwords and connection strings. It never opens the recorded sessions. From the logs it keeps
@@ -323,6 +324,41 @@ lines from the backend and capture service windows (the windows themselves still
 demo started with an older `start.cmd` has no capture service log yet: run `stop.cmd`, `start.cmd`, try
 again, then `report.cmd`.
 
+### The End-to-end run section
+
+It appears only when `%LOCALAPPDATA%\ScreenTail.Dev\e2e` exists, which is after you have run
+`scripts\windows\e2e\run-e2e.cmd` on this laptop (a CI job's run keeps its logs in the runner's own
+temporary folder, and the report does not look there). It shows:
+
+- the last run's result line, rebuilt from its counts only: `PASS e2e: all 21 steps passed.` or
+  `FAIL e2e: 2 step(s) failed, 19 passed.`, and the driver's own result line the same way;
+- when the run started and when it last wrote to `e2e.log`;
+- each step that failed, by its id and status only, such as `FAIL loop-03 test-window`. What the step
+  printed after its name (an error message, a tool's output, a path, a window's title) is never shown;
+- the last 200 lines of each process's log: `backend`, `service` and `ui`, each `.out.log` and
+  `.err.log`. The driver has none of its own: its lines are in `e2e.log`, summed up above. A log older
+  than the run's start is marked as being from an earlier run.
+
+Those files are not filtered as they are written, so the report reads every process log through the
+same filter as the demo logs: only the lines ScreenTail's scrubbing logger wrote are kept, an
+exception's message never is, and every line then goes through the same final scrub, which also removes
+anything shaped like the run's made-up secret (a word of the secret next to digits or another of its
+words, so `unscrambled` or `Juniper Networks` is left alone). Each line is read as a process printed
+it, so a line that only looks like one `start.cmd` writes (`[start.ps1] ...`) is withheld too.
+
+The filter is the text in `common.ps1`, the same one `start.cmd` gives the demo windows. Before using it
+the section tests it: it must define the filter, and the filter must withhold a test line the logger
+did not write and a test exception message. That test is the guard. (The section is also given a hash
+of the text, but both come from `common.ps1`, so on a laptop they always match; it is not the check the
+demo windows make of their copy on disk.) If the test fails, the section says the filter could not be
+checked and shows nothing from the run. If a file or the folder cannot be read, it says so in a fixed
+sentence, never with the error's own message.
+
+It reads nothing outside that folder, and in it only `e2e.log` and the processes' logs, at most the last
+2 MB of each. A folder or file that is a link to another place (a junction) is not followed. Any other
+file (such as `devcert.cer`, or a stray `other.log` or `backend.1.log`) is only counted, and a log that
+is not text is skipped.
+
 ## Activated device
 
 If this laptop was ever activated with an **invite code** (the wizard's Activate step, or Settings),
@@ -340,6 +376,7 @@ the file `%LOCALAPPDATA%\ScreenTail\device.cred`, and run `start.cmd`.
 | The demo's own working files: `state.json` (which processes start opened, so stop closes exactly those), `client-build.txt` (how new the client's source was at the last publish, so start knows when to publish again), `backend.exited` and `service.exited` (why a window's program stopped), `device-token.txt` (which kind of token start gave the capture service and until when, never the token), `drafting.txt` (who start told the backend to draft with: `claude`, `gemini-flash`, or `scripted` for an offline rehearsal) | `%LOCALAPPDATA%\ScreenTail.Dev\demo` |
 | The published capture service and UI that start runs | `%LOCALAPPDATA%\ScreenTail.Dev\demo\app` |
 | The backend's and the capture service's logs, `backend.log` and `service.log`: only the lines their scrubbing logger wrote, anything else withheld (2 MB each, the run before kept as `.1.log`), and `log-writer.txt`, the filter both windows load | `%LOCALAPPDATA%\ScreenTail.Dev\demo\logs` |
+| The end-to-end run's logs: `e2e.log` and each process's `.out.log` and `.err.log` (the report shows a filtered part of them) | `%LOCALAPPDATA%\ScreenTail.Dev\e2e` |
 | The report, `ScreenTail-report-<date>-<time>.txt` | Your Desktop, or `%LOCALAPPDATA%\ScreenTail.Dev\demo\reports` when the Desktop is synced to OneDrive |
 | What is sent for each draft, and to whom | To Anthropic (`api.anthropic.com`) when Claude drafts, to Google when Gemini does, through the backend: the session after redaction, which is the screenshots with sensitive regions painted over, the text read from them after masking, and the masked transcript of what was said. Nothing is published anywhere without the Publish click |
 

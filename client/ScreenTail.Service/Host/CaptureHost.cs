@@ -241,6 +241,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             LogRecovered(logger, recovered);
         }
 
+        // A queued session that could not be read is left unadopted; the kind of error, never the row (INV-10).
+        if (machine.AdoptionFault is { } adoptionFault)
+        {
+            LogAdoptionFault(logger, adoptionFault);
+        }
+
         var token = IpcToken.Generate();
         IpcTokenFile.Write(IpcTokenFile.DefaultPath, token);
 
@@ -728,6 +734,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Recovered {Count} session(s) left behind by a previous run; marked partial and finalized")]
     private static partial void LogRecovered(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A session whose draft is queued could not be read at startup ({Error}); the capture service starts idle")]
+    private static partial void LogAdoptionFault(ILogger logger, string error);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service stopping")]
     private static partial void LogStopping(ILogger logger);
