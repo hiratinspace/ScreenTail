@@ -75,7 +75,7 @@ public sealed class DiscardControlsTests
 
         Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Value.StartsWith('#'));
         Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Name.LocalName is "FontSize" or "Foreground" or "Background" && !a.Value.StartsWith('{'));
-        Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Value.Contains('—', StringComparison.Ordinal));
+        Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Value.Contains('\u2014', StringComparison.Ordinal));
     }
 
     [Fact]

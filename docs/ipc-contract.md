@@ -1,8 +1,8 @@
-# Service–UI IPC contract (v5)
+# Service–UI IPC contract (v6)
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
-**Last brought into line with the code: 2026-10-29.** `IpcContract.Version` is **5**, since 2026-10-29 (ST-013): the state snapshot has a new state, `draft_pending`, and the `session` reply a `draft_pending` flag, so Review and the pill say a queued draft is on its way instead of failed. It was **4** since 2026-10-23 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 3 (2026-10-14, ST-081) added `effective_local_only` and `effective_retention_days` to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. All three bumped for the same reason: the framing rejects unknown members, so an older reader would fail on a changed reply rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only, and the v4 change for the `export_audit` and `audit` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
+**Last brought into line with the code: 2026-10-31.** `IpcContract.Version` is **6**, since 2026-10-31 (ST-074, ST-079): `request_confirmation` gains `session_ids`, so Review's Discard and History's bulk discard name their sessions and the token is bound to exactly those, and `discard_sessions` carries them back. An older service would refuse the new field as an unknown member. It was **5** since 2026-10-29 (ST-013): the state snapshot has a new state, `draft_pending`, and the `session` reply a `draft_pending` flag, so Review and the pill say a queued draft is on its way instead of failed. It was **4** since 2026-10-23 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 3 (2026-10-14, ST-081) added `effective_local_only` and `effective_retention_days` to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. All of them bumped for the same reason: the framing rejects unknown members, so an older reader would fail on a changed reply rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only, and the v4 change for the `export_audit` and `audit` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
 
 ## Framing
 
@@ -27,13 +27,14 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `pause` | — | Pause capture |
 | `resume` | — | Resume capture |
 | `stop` | — | Stop and draft |
-| `discard` | `confirmation` | Stop and delete the current session's raw data. Refused without a token issued for `discard_session` (below) |
+| `discard` | `confirmation` | The tray's Discard: stop and delete the current session and its raw data, whatever it is. Refused without a token issued for `discard_session` with no `session_ids` (below). Unchanged by v6 |
+| `discard_sessions` | `session_ids[]`, `confirmation` | Review's Discard (one id) and History's bulk discard (several), v6. Refused, and the token spent, unless the token was issued on this connection for exactly these ids, in any order. All or nothing: an unknown, already discarded or published session refuses the whole set with a sentence saying how many and why, and nothing is discarded. Otherwise each session's frames, transcript, events, note and queued outbox work go in one transaction, with an audit row each (a frame count, no content) and the row kept as `discarded`. The machine's current session, when named, goes the way `discard` takes it: a recording one stops capturing first, the row is deleted and the state moves to `idle`. Queued behind the connection's worker, not on the read loop (below) |
 | `mark_moment` | — | Force a frame and a marker event |
 | `get_state` | — | Ask for the current state (also arrives in `hello_ack`) |
 | `get_capabilities` | — | Re-run the Windows checks (ST-021). Answered by `capabilities` |
 | `get_diagnostics` | — | What is being captured right now (ST-071). Answered by `diagnostics` |
 | `list_sessions` | `limit?` (default 200) | The History screen's rows (ST-079). Answered by `sessions` |
-| `request_confirmation` | `action` (`discard_session` or `erase_everything`) | Ask for a one-use token before something irreversible (ST-085). Answered by `confirmation` |
+| `request_confirmation` | `action` (`discard_session`, `discard_sessions` or `erase_everything`), `session_ids?` (v6) | Ask for a one-use token before something irreversible (ST-085). Without `session_ids`, `discard_session` is the tray's and `erase_everything` is erase. With them, `discard_session` names one session and the phrase is `DISCARD` (Review), and `discard_sessions` names one or more and the phrase is how many (History, v0.4.1 Q6); the token is good only on a `discard_sessions` naming exactly those ids. No ids, a blank or doubled id, more than 1000, or ids on erase get no token. Answered by `confirmation` |
 | `erase_all_local_data` | `confirmation` | Delete everything and stop (INV-12). Refused without a token issued for `erase_everything`. The pipe drops straight after: the store it was serving is being deleted |
 | `indicator_showing` | `x`, `y`, `width`, `height` | The UI saying the recording pill is on screen, and where (INV-4). Sent every two seconds while it is true; the service forgets a report it has not heard repeated within six seconds |
 | `get_integrations` | — | What the tenant has connected, from the backend. Answered by `integrations` |
@@ -167,7 +168,7 @@ guard enforces with, so the panel cannot say one thing while the guard does anot
 that the draft's text never crosses the pipe just to be turned back into a single word. `frames` counts
 redacted frames only: a pending frame is not one anything outside the redaction worker may count (INV-1).
 
-### `request_confirmation` → `confirmation`, then `discard` or `erase_all_local_data`
+### `request_confirmation` → `confirmation`, then `discard`, `discard_sessions` or `erase_all_local_data`
 
 ST-085. Spec §3 has asked for a typed confirmation before an irreversible delete since it was written;
 until 2026-09-20 the tray menu threw a session away on a single click, one item below "Stop and draft".
@@ -177,6 +178,19 @@ until 2026-09-20 the tray menu threw a session away on a single click, one item 
 { "type": "confirmation", "request_id": 9, "token": "…", "phrase": "discard" }
 { "type": "discard", "request_id": 10, "confirmation": "…" }
 ```
+
+Review and History name their sessions (v6):
+
+```json
+{ "type": "request_confirmation", "request_id": 11, "action": "discard_sessions", "session_ids": ["s1", "s2"] }
+{ "type": "confirmation", "request_id": 11, "token": "…", "phrase": "2" }
+{ "type": "discard_sessions", "request_id": 12, "session_ids": ["s2", "s1"], "confirmation": "…" }
+```
+
+A named token comes from its own issuer and is bound to the sorted ids as well as to the action and the
+connection. Presented for fewer, more or other ids it is refused and spent, so the sessions it was earned
+for need confirming again; a tray token is no use on `discard_sessions`, and a named one is no use on
+`discard`.
 
 The token is good once, for that action only, for 30 seconds. `phrase` is what the technician has to
 type to mean it. **The second round trip is the defence:** a confirmation the UI is trusted to have shown
@@ -316,7 +330,7 @@ E-25, 2026-10-12 review. A connection's commands are answered on two lanes, so r
 
 - The session's own commands are answered as soon as they are read, in the order they arrive: `indicator_showing`, `start`, `pause`, `resume`, `stop`, `discard`, `mark_moment`, `request_confirmation`, `get_state`, `get_capabilities`. They are answered from local state and never wait behind anything on the network.
 - So are the two settings writes, `set_settings` and `set_capture_settings`, which are a local file and an in-memory apply. A session command sent after a setting change on the same connection (the tray and the hotkey send Start without waiting) is therefore always handled after that change, never under the settings it replaced.
-- Every other command, including any added later, goes to one queue per connection and is run one at a time in the order it was sent, as every command was before. At most 16 wait behind the one running; one more is answered at once with `ok: false` and a "busy" sentence rather than read later. When the client disconnects, whatever is still waiting is dropped, not run.
+- Every other command, including any added later, goes to one queue per connection (`discard_sessions` among them, v6: it may wait on the machine while a session finalizes, and the heartbeat must not wait with it) and is run one at a time in the order it was sent, as every command was before. At most 16 wait behind the one running; one more is answered at once with `ok: false` and a "busy" sentence rather than read later. When the client disconnects, whatever is still waiting is dropped, not run.
 - If a command on either lane fails, the service closes the connection at once, even while a queued command is still running, so the client sees the pipe end and reconnects. The running command finishes, but its reply goes nowhere.
 - An answer too large for one frame is not such a failure, on either lane: it is refused before a byte is written, with a failed `result` that gives its size, and the connection stays up (E-2). `get_session`, `get_frame`, `get_frame_thumbnail` and `get_frame_text`, the replies most likely to be large, all queue.
 
@@ -364,3 +378,4 @@ indicator unreachable rather than by touching capture.
 | 2026-10-25 | `get_frame_thumbnail`, answered by `frame`: the filmstrip draws from a thumbnail the service scales instead of every full redacted image (E-30). A new command, so the version is not bumped | 4 |
 | 2026-10-29 | `draft_pending` state on the snapshot; `draft_pending` on `session` (ST-013) | **5** |
 | 2026-10-29 | `get_update` / `update`, `install_update`, `set_update_channel` (ST-113). New commands, and `update` is only ever a reply to `get_update`, so they bump nothing; they arrive in v5 alongside ST-013's change | 5 (not bumped by these) |
+| 2026-10-31 | `session_ids` on `request_confirmation`, the `discard_sessions` action and command: Review's Discard and History's bulk discard by name, the token bound to exactly the ids (ST-074, ST-079). A new field on a command both sides exchange, so the version moves; the handshake still requires an exact match | **6** |
