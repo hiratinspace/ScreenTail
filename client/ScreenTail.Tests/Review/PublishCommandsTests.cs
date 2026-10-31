@@ -372,7 +372,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         await _store.FinalizeSessionAsync("s1", new FinalizeInfo(10_000, false));
     }
 
-    private Task AddFrameAsync(string sessionId, string id, long tsMs, bool sensitive = false) =>
+    private Task<bool> AddFrameAsync(string sessionId, string id, long tsMs, bool sensitive = false) =>
         _store!.SaveRedactedFrameAsync(sessionId, new StagedFrame(id, tsMs, FrameTrigger.Click, 1600, 900, null, new byte[] { 1 }), new RedactionOutcome(Bytes(id), "t", [], sensitive, DateTimeOffset.UnixEpoch));
 
     private static byte[] Bytes(string id) => System.Text.Encoding.ASCII.GetBytes("jpeg-" + id);

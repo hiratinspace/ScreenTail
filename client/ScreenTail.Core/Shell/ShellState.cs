@@ -155,6 +155,29 @@ public sealed class ShellState
         }
     }
 
+    /// <summary>
+    /// Sessions the technician just discarded from Review or History (Spec §5 S3, S4). The one under
+    /// review, when it is among them, is no longer the session to review: its pane would show a note that
+    /// no longer exists. With <paramref name="showHistory"/>, from Review, the shell goes to History,
+    /// where the list says what happened (owner decision, fail closed: the spec does not say).
+    /// </summary>
+    public void Discarded(IReadOnlyCollection<string> sessionIds, bool showHistory)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        Set(() =>
+        {
+            if (_reviewing is { } reviewing && sessionIds.Contains(reviewing, StringComparer.Ordinal))
+            {
+                _reviewing = null;
+            }
+
+            if (showHistory)
+            {
+                _view = ShellView.History;
+            }
+        });
+    }
+
     /// <summary>The pipe dropped, or the service never answered. What it last said is kept.</summary>
     public void Lost() => Set(() => _connection = ServiceConnection.Unavailable);
 

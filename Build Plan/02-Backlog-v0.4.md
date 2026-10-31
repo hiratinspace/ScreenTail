@@ -1380,7 +1380,7 @@ Toasts and banners per Spec §6; failure paths always expose the raw timeline.
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** Done 2026-09-13 (#42). Since 2026-10-25 the step box acts on its keys before the TextBox does, so Enter at the end of a step starts the next one, Backspace removes an empty one and Alt+C and Alt+arrows fire under Alt, and the pane writes what was typed when it is unloaded rather than losing the autosave's last pause (ST-075 review fixes).
+- **Status:** Done 2026-09-13 (#42). Since 2026-10-25 the step box acts on its keys before the TextBox does, so Enter at the end of a step starts the next one, Backspace removes an empty one and Alt+C and Alt+arrows fire under Alt, and the pane writes what was typed when it is unloaded rather than losing the autosave's last pause (ST-075 review fixes). Since 2026-10-31 the Discard is wired (AC4 had no caller and no button): Review's header has a ghost Discard that turns danger on hover and focus, opens the typed DISCARD dialog and asks the service by name over contract v6, with a token bound to that session; the session's frames, transcript, events, note and queued draft go, an audit row with a count is written, and Review goes to History. Nothing is asked while the session is still being captured. Owner decisions recorded in the PR: a published session is refused, Review goes to History afterwards, and a session discarded while it is the machine's current one leaves History as the tray's discard does, where any other is kept as Discarded.
 
 **Description:**
 Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence markers with confirm, frame chips, transcript snippets, autosave, banners (partial, purged, local), Discard with typed confirmation. Built against fixtures.
@@ -1509,7 +1509,7 @@ Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entr
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Done 2026-09-15 (#50).
+- **Status:** Done 2026-09-15 (#50). Since 2026-10-31 bulk discard is built (AC3's half had a rule, `SessionHistory.Discardable`, and no caller): the table takes an extended selection, Bulk discard names only the selected sessions that qualify, the technician types the count the service gives (v0.4.1 Q6), and the list is read again. All or nothing: an unknown, already discarded or published session refuses the whole selection with the reason. Published sessions are kept (owner decision, fail closed); a publish that lands any destination now marks the session Published, which nothing wrote before. A bulk discard marks its sessions under the machine's gate and deletes their screenshots afterwards in chunks, so the password and login guards are not held up, and nothing reads or writes a discarded session's content once it is marked.
 
 **Description:**
 Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discard, audit export, empty state.

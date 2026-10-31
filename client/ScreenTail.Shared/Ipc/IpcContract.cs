@@ -25,8 +25,13 @@ namespace ScreenTail.Shared.Ipc;
 /// reply are new commands, and <c>update</c> is only ever sent in reply to <c>get_update</c>, so an older
 /// UI never receives it: not a breaking change, and the version is not bumped for them (as with
 /// <c>get_frame_thumbnail</c>).
+///
+/// 6: Review's Discard and History's bulk discard name their sessions. <c>request_confirmation</c> gains
+/// <c>session_ids</c>, the token it issues is bound to exactly those ids, and <c>discard_sessions</c>
+/// carries them back. A new field on a command both sides already exchange, which an older service would
+/// refuse as an unknown member, so the version moves and the handshake goes on refusing a mismatched pair.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 5;
+    public const int Version = 6;
 }

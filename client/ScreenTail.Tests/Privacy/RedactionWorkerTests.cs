@@ -445,6 +445,25 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         Assert.True(LoginScreenHeuristic.LooksLikeLogin([new OcrWord("password", 0, 0, 80, 20), new OcrWord("policy", 90, 0, 60, 20)]));
     }
 
+    [Fact]
+    public async Task AScreenshotForASessionDiscardedMeanwhileIsNotCountedAsRedacted()
+    {
+        // The store refuses the write for a discarded session (INV-12). The worker used to count that frame
+        // as redacted, time it into the per-frame cost and write what it masked to the audit log, for a
+        // screenshot that was never stored. It is counted as refused instead, a number only.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        _ = await store.DiscardSessionAsync("s1");
+        var worker = Worker(store, Reads(new OcrWord("Card", 10, 40, 50, 20), new OcrWord("4111111111111111", 70, 40, 200, 20)));
+
+        Assert.True(await worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, worker.Progress.Frames);
+        Assert.Equal(1, worker.Progress.Refused);
+        Assert.Equal(TimeSpan.Zero, worker.Progress.Spent);
+        Assert.DoesNotContain(await store.GetAuditRecordsAsync("s1", TestContext.Current.CancellationToken), r => r.Type == AuditTypes.FrameRedacted);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_store is not null)

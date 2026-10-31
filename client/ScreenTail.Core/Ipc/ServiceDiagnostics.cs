@@ -58,6 +58,7 @@ public static class ServiceDiagnostics
             Suppression = Suppression(state, isHeld),
             RedactionBacklog = Math.Max(0, redactionBacklog),
             FramesDropped = (redaction?.Unread ?? 0) + (redaction?.Unreadable ?? 0) + framesRefused,
+            FramesAfterDiscard = redaction?.Refused ?? 0,
             KeystrokesDropped = keystrokesDropped ?? 0,
             EgressBlocked = egressBlocked,
             LocalOnly = localOnly,

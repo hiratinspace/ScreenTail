@@ -167,6 +167,13 @@ public sealed class MetricsReporter(ISessionStore store, Outbox.Outbox outbox, F
             return;
         }
 
+        // A session the technician threw away sends nothing more about itself, counts included: the
+        // discard took its queued work with it, and a metric queued now would be new work for it.
+        if (string.Equals((await _store.GetSessionSummaryAsync(sessionId, ct).ConfigureAwait(false))?.State, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         double? editRatio = null;
         if (published && session.Draft is { } edited && await _store.LoadOriginalDraftAsync(sessionId, ct).ConfigureAwait(false) is { } original)
         {

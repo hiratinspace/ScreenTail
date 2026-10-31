@@ -188,6 +188,33 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Ghost, danger on hover (Spec §5 S3, Review's Discard): quiet at rest beside Publish, and plainly the
+         destructive one the moment the pointer or the keyboard reaches it. Keyboard focus takes the same
+         look as hover, so a technician tabbing to it sees what it is before pressing it. -->
+    <Style x:Key="Button.GhostDanger" BasedOn="{StaticResource Button.Ghost}" TargetType="Button">
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.danger}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.danger}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.pressed}" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.text.muted}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- Chip: a small rounded button inside content, like a step's "frame 2". 28 px is the hit-target floor. -->
     <Style x:Key="Chip" BasedOn="{StaticResource Button.Secondary}" TargetType="Button">
         <Setter Property="MinHeight" Value="{DynamicResource Layout.hit-target-min}" />

@@ -10,6 +10,12 @@ public enum DestructiveAction
 
     /// <summary>Delete every session, every frame and every stored credential (INV-12).</summary>
     EraseEverything,
+
+    /// <summary>
+    /// Throw away named sessions: Review's Discard and History's bulk discard (contract v6). A token for
+    /// this is bound to the ids it was issued for, and is no use for any others.
+    /// </summary>
+    DiscardSessions,
 }
 
 /// <summary>
@@ -62,8 +68,12 @@ public sealed class Confirmations(TimeProvider? time = null)
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Issued> _issued = new(StringComparer.Ordinal);
 
-    /// <summary>A token's terms: what it is for, who may spend it, and until when.</summary>
-    private readonly record struct Issued(DestructiveAction Action, Guid Caller, DateTimeOffset Expires, long Order);
+    /// <summary>
+    /// A token's terms: what it is for, who may spend it, until when, and for a named discard which
+    /// sessions, sorted so that the order the pipe carries them in does not matter. Null when the action
+    /// names none.
+    /// </summary>
+    private readonly record struct Issued(DestructiveAction Action, Guid Caller, DateTimeOffset Expires, long Order, string[]? Sessions);
 
     private long _order;
 
@@ -78,9 +88,19 @@ public sealed class Confirmations(TimeProvider? time = null)
     /// <see cref="MostOutstanding"/>. The oldest rather than the newest: the one a technician is about
     /// to type is the one that was just issued.
     /// </summary>
-    public string Issue(DestructiveAction action, Guid caller)
+    public string Issue(DestructiveAction action, Guid caller) => Issue(action, caller, sessions: null);
+
+    /// <summary>
+    /// Issues a token for one action on exactly these sessions (contract v6).
+    ///
+    /// The ids are part of the token's terms, so a token the technician earned by typing "2" for two
+    /// sessions cannot be spent on two others, or on a third as well. The tray's discard names none and
+    /// passes null.
+    /// </summary>
+    public string Issue(DestructiveAction action, Guid caller, IReadOnlyCollection<string>? sessions)
     {
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        var named = Canonical(sessions);
         lock (_gate)
         {
             Forget();
@@ -90,11 +110,14 @@ public sealed class Confirmations(TimeProvider? time = null)
                 _ = _issued.Remove(oldest);
             }
 
-            _issued[token] = new Issued(action, caller, _time.GetUtcNow() + GoodFor, _order++);
+            _issued[token] = new Issued(action, caller, _time.GetUtcNow() + GoodFor, _order++, named);
         }
 
         return token;
     }
+
+    /// <summary>Spends a token for an action that names no sessions.</summary>
+    public bool Spend(string? token, DestructiveAction action, Guid caller) => Spend(token, action, caller, sessions: null);
 
     /// <summary>
     /// Spends a token, if it is one and it is for this action.
@@ -103,7 +126,12 @@ public sealed class Confirmations(TimeProvider? time = null)
     /// which is the defence gone. Constant-time comparison is not needed — the lookup is by exact value
     /// and a wrong guess is rejected whatever the timing says, because there is nothing to narrow down.
     /// </summary>
-    public bool Spend(string? token, DestructiveAction action, Guid caller)
+    /// <param name="sessions">
+    /// The sessions the command names. They must be exactly the ones the token was issued for, in any
+    /// order; a token presented for others is spent all the same, so a replay costs the token and the
+    /// sessions it was earned for have to be confirmed again.
+    /// </param>
+    public bool Spend(string? token, DestructiveAction action, Guid caller, IReadOnlyCollection<string>? sessions)
     {
         if (string.IsNullOrEmpty(token))
         {
@@ -134,9 +162,20 @@ public sealed class Confirmations(TimeProvider? time = null)
 
             // Single use, from here on unconditional.
             _ = _issued.Remove(token);
-            return issued.Action == action && issued.Expires > _time.GetUtcNow();
+            return issued.Action == action
+                && issued.Expires > _time.GetUtcNow()
+                && SameSessions(issued.Sessions, Canonical(sessions));
         }
     }
+
+    /// <summary>The ids sorted, duplicates kept: ["a", "a"] is not ["a"], so a doubled id is never a match for a single one.</summary>
+    private static string[]? Canonical(IReadOnlyCollection<string>? sessions) =>
+        sessions is null ? null : [.. sessions.Order(StringComparer.Ordinal)];
+
+    private static bool SameSessions(string[]? issued, string[]? presented) =>
+        issued is null || presented is null
+            ? issued is null && presented is null
+            : issued.AsSpan().SequenceEqual(presented);
 
     /// <summary>How many are outstanding. For tests, and for a diagnostics line if one is ever wanted.</summary>
     public int Outstanding

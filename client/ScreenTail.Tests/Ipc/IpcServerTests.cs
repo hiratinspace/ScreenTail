@@ -436,6 +436,20 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AVersionFiveUiIsTurnedAwayByAVersionSixService()
+    {
+        // Contract v6 adds session_ids to request_confirmation. A v5 UI never sends it, but a v5 service
+        // would refuse a v6 UI's request as an unknown member, so the pair is refused at the handshake,
+        // exactly, rather than failing later on the first named discard.
+        await StartServerAsync();
+
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 5, Token = IpcToken.Encode(_token), ClientName = "v5-ui" });
+
+        Assert.Equal(6, IpcContract.Version);
+        Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
     public async Task FirstMessageMustBeHello()
     {
         await StartServerAsync();

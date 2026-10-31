@@ -43,6 +43,10 @@ public sealed record RedactionOptions
 /// Frames whose redaction threw. Counted rather than swallowed: a rising number here means redaction is
 /// broken, and the alternative was a worker that died and took every future screenshot with it.
 /// </param>
+/// <param name="Refused">
+/// Frames read and masked whose session was discarded meanwhile, so the store refused them (INV-12).
+/// Neither redacted nor lost unchecked: counted apart, a number only (second review of #243).
+/// </param>
 public sealed record RedactionProgress(
     long Frames,
     long Unreadable,
@@ -50,7 +54,8 @@ public sealed record RedactionProgress(
     IReadOnlyDictionary<MaskKind, long> Masked,
     TimeSpan Spent = default,
     TimeSpan Slowest = default,
-    long Failed = 0)
+    long Failed = 0,
+    long Refused = 0)
 {
     /// <summary>ST-041 budgets 700 ms a frame; this is the number that gets compared to it.</summary>
     public TimeSpan PerFrame => Frames == 0 ? TimeSpan.Zero : Spent / Frames;
@@ -105,6 +110,7 @@ public sealed class RedactionWorker(
     private long _unreadable;
     private long _unread;
     private long _failed;
+    private long _refused;
     private TimeSpan _spent;
     private TimeSpan _slowest;
 
@@ -121,7 +127,7 @@ public sealed class RedactionWorker(
             lock (_counters)
             {
                 return new RedactionProgress(
-                    _frames, _unreadable, _unread, new Dictionary<MaskKind, long>(_masked), _spent, _slowest, _failed);
+                    _frames, _unreadable, _unread, new Dictionary<MaskKind, long>(_masked), _spent, _slowest, _failed, _refused);
             }
         }
     }
@@ -331,11 +337,23 @@ public sealed class RedactionWorker(
 
         // The only write. A frame reaches the store already read and already masked, so a row here was
         // never pending and no window was ever open on it (ADR-0006).
-        await store.SaveRedactedFrameAsync(
+        var stored = await store.SaveRedactedFrameAsync(
             queued.SessionId,
             frame,
             new RedactionOutcome(masked.Image, redaction.Text, regions, sensitive, _time.GetUtcNow(), masked.Width, masked.Height),
             ct).ConfigureAwait(false);
+
+        // The session was discarded while the frame was being read, and the store kept nothing (INV-12).
+        // Not a redacted frame: nothing to audit as masked, no time in the per-frame cost, just a count.
+        if (!stored)
+        {
+            lock (_counters)
+            {
+                _refused++;
+            }
+
+            return;
+        }
 
         // ST-045: what was covered over, counted by kind. The customer's question is "what did it find on
         // my screen", and the honest answer is a number per kind — never the matches themselves (INV-10).
