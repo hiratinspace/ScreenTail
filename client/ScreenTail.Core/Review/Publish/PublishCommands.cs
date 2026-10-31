@@ -115,6 +115,13 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
             return Refuse(publish, "The session is gone, so there is nothing to publish.");
         }
 
+        // The note comes from the pane, not the store, so a session the technician threw away could still
+        // go out with whatever the window held. A discard is the last word on it (INV-12).
+        if (string.Equals((await _store.GetSessionSummaryAsync(publish.SessionId, ct).ConfigureAwait(false))?.State, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
+        {
+            return Refuse(publish, "The session was discarded, so there is nothing to publish.");
+        }
+
         // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
         // drafting bundle's own rule may go (redacted, not sensitive, not excluded, not taken while capture
         // was off). Anything else named is dropped, and so is a second mention of the same frame.
@@ -177,6 +184,12 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
         // backend's results. A fault in either is kept and the results go back as they came.
         if (answer.Value!.Any(r => r.Ok))
         {
+            // Spec §5 S4's Published, and what keeps the session from a discard: its note is in the PSA
+            // now (owner decision, fail closed). The write refuses a row discarded while the backend was
+            // answering, so a late landing does not bring a discarded session back. Bookkeeping as well, so
+            // a store fault here cannot hide the results either.
+            await KeepingTheResultAsync("state", () => _store.MarkPublishedAsync(publish.SessionId, ct)).ConfigureAwait(false);
+
             if (metrics is not null)
             {
                 await KeepingTheResultAsync("metrics", () => metrics.ReportAsync(publish.SessionId, published: true, ct)).ConfigureAwait(false);
