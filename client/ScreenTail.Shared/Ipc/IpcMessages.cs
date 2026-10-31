@@ -1014,6 +1014,13 @@ public sealed record DiagnosticsReported : IpcEvent
     [JsonPropertyName("frames_dropped")]
     public required long FramesDropped { get; init; }
 
+    /// <summary>
+    /// Frames read and masked for a session discarded meanwhile, which the store refused (INV-12; contract
+    /// v6). Not lost unchecked and not stored: a count of its own. Absent from an older service's answer.
+    /// </summary>
+    [JsonPropertyName("frames_after_discard")]
+    public long FramesAfterDiscard { get; init; }
+
     /// <summary>Keyboard events dropped for being out of scope (INV-6).</summary>
     [JsonPropertyName("keystrokes_dropped")]
     public required long KeystrokesDropped { get; init; }

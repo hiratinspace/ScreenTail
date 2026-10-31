@@ -12,12 +12,15 @@ public interface ISessionStore : IAsyncDisposable
 {
     Task CreateSessionAsync(NewSession session, CancellationToken ct = default);
 
-    Task AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default);
+    /// <returns>Whether it was written: false for a session that is gone or discarded, whose content takes nothing more (INV-12).</returns>
+    Task<bool> AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default);
 
-    Task AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default);
+    /// <returns>Whether it was written: false for a session that is gone or discarded.</returns>
+    Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default);
 
     /// <summary>Writes a freshly captured frame with <c>redaction_pending = 1</c>.</summary>
-    Task StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default);
+    /// <returns>Whether it was written: false for a session that is gone or discarded.</returns>
+    Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default);
 
     /// <summary>For the redaction worker only: the oldest frame still waiting for redaction, with its image.</summary>
     Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default);
@@ -35,7 +38,8 @@ public interface ISessionStore : IAsyncDisposable
     /// Writes a frame that has already been read and masked (ADR-0006). The only frame insert the
     /// running service makes; <paramref name="frame"/>'s own image is not written.
     /// </summary>
-    Task SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default);
+    /// <returns>Whether it was stored: false for a session that is gone or discarded, which is a refusal, not a fault.</returns>
+    Task<bool> SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default);
 
     /// <summary>
     /// Counts a frame that was captured and never stored (ADR-0006). No row to delete; the session's
@@ -113,6 +117,13 @@ public interface ISessionStore : IAsyncDisposable
 
     /// <summary>Persists a state-machine transition (ST-020). <paramref name="state"/> is a wire name from <c>CaptureStates</c>.</summary>
     Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same, except over a session that is settled for good: published or discarded. Finalize writes a
+    /// draft's outcome with this, so drafting never undoes either (second review of #243).
+    /// </summary>
+    /// <returns>Whether it was written.</returns>
+    Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
 
     /// <summary>
     /// Moves a session to <paramref name="state"/> only if it is in <paramref name="expected"/> now, and

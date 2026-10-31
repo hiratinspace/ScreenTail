@@ -16,7 +16,17 @@ namespace ScreenTail.Core.Review.Publish;
 /// reason when there was no answer. The refusal is kept by request id between the two calls, because
 /// the server asks them in that order on the same connection.
 /// </summary>
-public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IMetricsReporter? metrics = null, Intel.IStyleLearner? style = null, ILogger? log = null)
+/// <param name="published">
+/// Told once a publish has marked its session published, so the machine stops resting on it and the
+/// tray's count moves (second review of #243). The machine's <c>PublishedAsync</c> in the service.
+/// </param>
+public sealed class PublishCommands(
+    ISessionStore store,
+    IPsaGateway gateway,
+    IMetricsReporter? metrics = null,
+    Intel.IStyleLearner? style = null,
+    ILogger? log = null,
+    Func<string, CancellationToken, Task<bool>>? published = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
@@ -188,7 +198,13 @@ public sealed class PublishCommands(ISessionStore store, IPsaGateway gateway, IM
             // now (owner decision, fail closed). The write refuses a row discarded while the backend was
             // answering, so a late landing does not bring a discarded session back. Bookkeeping as well, so
             // a store fault here cannot hide the results either.
-            await KeepingTheResultAsync("state", () => _store.MarkPublishedAsync(publish.SessionId, ct)).ConfigureAwait(false);
+            await KeepingTheResultAsync("state", async () =>
+            {
+                if (await _store.MarkPublishedAsync(publish.SessionId, ct).ConfigureAwait(false) && published is not null)
+                {
+                    _ = await published(publish.SessionId, ct).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
 
             if (metrics is not null)
             {

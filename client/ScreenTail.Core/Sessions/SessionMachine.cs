@@ -560,6 +560,62 @@ public sealed class SessionMachine : IAsyncDisposable
     }
 
     /// <summary>
+    /// <see cref="FinishDiscardsAsync"/>, for callers that must not fail because of it: the host at start
+    /// and on its hourly retention tick, and a bulk discard after it has marked its sessions.
+    ///
+    /// The host finished left-over discards at start before the pipe existed, and a store that failed then
+    /// (a full disk) ended the service at every start: nothing captured, and the UI could not reach Delete
+    /// everything (INV-12; second review of #243). Nothing is lost by carrying on. The sessions are
+    /// already discarded, their content unreachable and closed to writes, and the next try deletes it.
+    /// </summary>
+    /// <returns>Null when it finished; otherwise the fault's type name, for a log, and never its message (INV-10).</returns>
+    public async Task<string?> TryFinishDiscardsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await FinishDiscardsAsync(ct).ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return ex.GetType().Name;
+        }
+    }
+
+    /// <summary>
+    /// A session was published (ST-078): it is no longer a draft waiting for anybody. The count the tray
+    /// shows is read again, and when it is the session the machine is resting on, the machine stops
+    /// resting on it and goes idle, so the pill and the tray stop saying "Draft ready" about a note that
+    /// is in the PSA, and the tray's Discard no longer reaches it (second review of #243). A session still
+    /// being recorded or finished is left alone; only the count moves.
+    /// </summary>
+    /// <returns>Whether the machine's own state moved.</returns>
+    public async Task<bool> PublishedAsync(string sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+            var resting = State is SessionState.DraftReady or SessionState.DraftFailed or SessionState.DraftPending;
+            if (resting && string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
+            {
+                _session = null;
+                ClearHolds();
+                SetState(SessionState.Idle, null);
+                return true;
+            }
+
+            Announce(Snapshot);
+            return false;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
+    /// <summary>
     /// The first half of discarding the current session: nothing more is heard or captured for it. Under
     /// the transition gate.
     /// </summary>
@@ -1134,7 +1190,7 @@ public sealed class SessionMachine : IAsyncDisposable
         if (outcome.Draft is not null)
         {
             await _store.SaveDraftAsync(sessionId, outcome.Draft, ct).ConfigureAwait(false);
-            await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
+            _ = await _store.SetSessionStateUnlessSettledAsync(sessionId, CaptureStates.DraftReady, null, ct).ConfigureAwait(false);
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.DraftReady, null, outcome.Draft.SuggestedTitle);
         }
@@ -1150,7 +1206,7 @@ public sealed class SessionMachine : IAsyncDisposable
         }
         else
         {
-            await _store.SetSessionStateAsync(sessionId, CaptureStates.DraftFailed, outcome.Reason, ct).ConfigureAwait(false);
+            _ = await _store.SetSessionStateUnlessSettledAsync(sessionId, CaptureStates.DraftFailed, outcome.Reason, ct).ConfigureAwait(false);
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.DraftFailed, outcome.Reason);
         }

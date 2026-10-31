@@ -106,13 +106,13 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@now", now));
     }
 
-    public Task AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default)
+    public async Task<bool> AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(sessionEvent);
 
         // Serialized as the base type so the "type" discriminator is written.
         var json = JsonSerializer.Serialize<SessionEvent>(sessionEvent, SessionJson.Options);
-        return RunAsync(
+        return await RunAsync(
             """
             INSERT INTO events (session_id, seq, ts_ms, json)
             SELECT @session, (SELECT COALESCE(MAX(seq), -1) + 1 FROM events WHERE session_id = @session), @ts, @json
@@ -120,13 +120,13 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ct,
             ("@session", sessionId),
             ("@ts", sessionEvent.TsMs),
-            ("@json", json));
+            ("@json", json)).ConfigureAwait(false) > 0;
     }
 
-    public Task AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default)
+    public async Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(segment);
-        return RunAsync(
+        return await RunAsync(
             """
             INSERT INTO transcript (id, session_id, ts_ms, end_ms, speaker, text, frame_id, confidence)
             SELECT @id, @session, @ts, @end, @speaker, @text, @frame, @confidence
@@ -139,13 +139,13 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@speaker", EnumName(segment.Speaker)),
             ("@text", segment.Text),
             ("@frame", segment.FrameId),
-            ("@confidence", segment.Confidence));
+            ("@confidence", segment.Confidence)).ConfigureAwait(false) > 0;
     }
 
-    public Task StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default)
+    public async Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        return RunAsync(
+        return await RunAsync(
             """
             INSERT INTO frames (id, session_id, ts_ms, trigger, width, height, cursor_x, cursor_y, redaction_pending, image)
             SELECT @id, @session, @ts, @trigger, @w, @h, @cx, @cy, 1, @image
@@ -159,7 +159,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@h", frame.Height),
             ("@cx", frame.Cursor?.X),
             ("@cy", frame.Cursor?.Y),
-            ("@image", frame.Image.ToArray()));
+            ("@image", frame.Image.ToArray())).ConfigureAwait(false) > 0;
     }
 
     /// <summary>
@@ -174,7 +174,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// triggered it. Its image is deliberately not written: <paramref name="outcome"/> holds the only
     /// picture allowed on disk.
     /// </summary>
-    public Task SaveRedactedFrameAsync(
+    public async Task<bool> SaveRedactedFrameAsync(
         string sessionId,
         StagedFrame frame,
         RedactionOutcome outcome,
@@ -184,7 +184,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(outcome);
 
-        return RunAsync(
+        return await RunAsync(
             """
             INSERT INTO frames (id, session_id, ts_ms, trigger, width, height, cursor_x, cursor_y,
                                 redaction_pending, image, ocr_text, masked_regions_json, sensitive_context, redacted_at,
@@ -208,7 +208,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@sensitive", outcome.SensitiveContext ? 1 : 0),
             ("@at", Iso(outcome.RedactedAt)),
             ("@sw", StoredSize(outcome)?.Width),
-            ("@sh", StoredSize(outcome)?.Height));
+            ("@sh", StoredSize(outcome)?.Height)).ConfigureAwait(false) > 0;
     }
 
     public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) =>
@@ -501,14 +501,15 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             """
             UPDATE sessions SET draft_json = @draft, original_draft_json = COALESCE(original_draft_json, @draft),
                 state = @ready, state_reason = NULL, state_changed_at = @now, updated_at = @now
-            WHERE id = @id AND state IS NOT @discarded
+            WHERE id = @id AND state NOT IN (@discarded, @published)
             """,
             ct,
             ("@draft", JsonSerializer.Serialize(draft, SessionJson.Options)),
             ("@ready", Shared.Ipc.CaptureStates.DraftReady),
             ("@now", now),
             ("@id", sessionId),
-            ("@discarded", Sessions.SessionStateNames.Discarded)).ConfigureAwait(false);
+            ("@discarded", Sessions.SessionStateNames.Discarded),
+            ("@published", Sessions.SessionStateNames.Published)).ConfigureAwait(false);
 
         if (saved == 0)
         {
@@ -552,6 +553,20 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@reason", reason),
             ("@now", now),
             ("@id", sessionId));
+    }
+
+    public async Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(state);
+        return await RunAsync(
+            "UPDATE sessions SET state = @state, state_reason = @reason, state_changed_at = @now, updated_at = @now WHERE id = @id AND state NOT IN (@discarded, @published)",
+            ct,
+            ("@state", state),
+            ("@reason", reason),
+            ("@now", Iso(_time.GetUtcNow())),
+            ("@id", sessionId),
+            ("@discarded", Sessions.SessionStateNames.Discarded),
+            ("@published", Sessions.SessionStateNames.Published)).ConfigureAwait(false) > 0;
     }
 
     public async Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default)
@@ -814,12 +829,16 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// Leave a published or already-discarded row as it is, and say so. The old single discard writes over
     /// whatever the row says, as it always has.
     /// </param>
-    /// <param name="finished">The caller deleted the content in the same transaction, so the row says it is gone.</param>
+    /// <param name="finished">
+    /// The caller deleted the content in the same transaction, so the row says it is gone. Otherwise the
+    /// time is left as it is: null for content still to delete, or when retention already purged it, which
+    /// stays the record (second review of #243).
+    /// </param>
     private async Task<bool> MarkDiscardedAsync(string sessionId, bool onlyIfDiscardable, bool finished, CancellationToken ct)
     {
         await ExecuteAsync(_connection, "DELETE FROM outbox WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
         var set = "SET draft_json = NULL, original_draft_json = NULL, suggested_ticket = NULL, "
-            + (finished ? "raw_purged_at = @now, " : "raw_purged_at = NULL, ")
+            + (finished ? "raw_purged_at = @now, " : string.Empty)
             + "state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now";
         var marked = await ExecuteAsync(
             _connection,

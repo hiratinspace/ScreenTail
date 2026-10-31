@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Sessions;
@@ -23,7 +24,8 @@ namespace ScreenTail.Core.History;
 /// Platform-neutral, so the whole path is tested on the Mac against the real machine and store.
 /// </summary>
 /// <param name="time">The clock tokens expire by. The system's outside tests.</param>
-public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time = null)
+/// <param name="log">Where a delete that failed after the mark is reported, by the fault's type alone (INV-10).</param>
+public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time = null, ILogger? log = null)
 {
     /// <summary>Review's request: one session, confirmed by typing DISCARD (Spec §5 S3).</summary>
     public const string OneSession = "discard_session";
@@ -40,6 +42,14 @@ public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time =
     public const string NotConfirmed = "The confirmation was not for these sessions, or it ran out, so nothing was discarded. Try again.";
 
     private readonly SessionMachine _machine = machine ?? throw new ArgumentNullException(nameof(machine));
+
+    private static readonly Action<ILogger, string, Exception?> FinishFailed = LoggerMessage.Define<string>(
+        LogLevel.Warning,
+        new EventId(1, nameof(FinishFailed)),
+        "Discarded sessions are marked, but deleting their content failed with {Fault}; it stays unreadable and is tried again");
+
+    /// <summary>The type of the fault the last discard's deleting stopped on, or null when it finished.</summary>
+    public string? LastFinishFault { get; private set; }
 
     /// <summary>
     /// Its own issuer, so a token for the tray's discard or for erase is not even looked up here, and one
@@ -96,9 +106,15 @@ public sealed class DiscardCommands(SessionMachine machine, TimeProvider? time =
         if (outcome.Done)
         {
             // Outside the machine's gate (review of #243): what the sessions held is already unreachable,
-            // and only the deleting is left. Done before answering, so the list the screen reads next has
-            // nothing of them, and so a store failure says so here rather than nowhere.
-            await _machine.FinishDiscardsAsync(ct).ConfigureAwait(false);
+            // and only the deleting is left, done before answering so the list the screen reads next has
+            // nothing of them. The sessions are discarded once marked, so a delete that fails here is the
+            // service's to finish (the hourly tick, the next discard), not a failed discard to report to
+            // the technician (second review of #243). It is logged by kind.
+            LastFinishFault = await _machine.TryFinishDiscardsAsync(ct).ConfigureAwait(false);
+            if (LastFinishFault is { } fault && log is not null)
+            {
+                FinishFailed(log, fault, null);
+            }
         }
 
         return outcome.Done
