@@ -280,11 +280,24 @@ function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
     if ($Line -cmatch '^Warning: [A-Z0-9_]+ is set, so this process may be running code that is not ScreenTail''s\.$') { return $Line }
 
     # What this code itself writes. Read back from a file only: a process printing the same is withheld.
+    # start.ps1's own lines say why a window's program stopped, and when it could not run at all that is
+    # an exception's type and message, "could not run (<Type>): <message>": such a line keeps the type and
+    # only that there was a message (a line from an older start, with no type, keeps only that there was
+    # a reason). Any other [start.ps1] line is withheld like a process's.
     if ($State.Reading) {
         if ($Line -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$') { return $Line }
         if ($Line -cmatch '^\[[0-9]+ log line\(s\) could not be written here\]$') { return $Line }
         if ($Line -cmatch '^\[The log filter could not be checked, so nothing from this window is logged\.\]$') { return $Line }
-        if ($Line.StartsWith('[start.ps1] ', [StringComparison]::Ordinal)) { return $Line }
+        if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) has stopped \((exit code -?[0-9]{1,11}|unknown|still running; close this window to end it)\)\.$') { return $Line }
+        if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) could not run \(([A-Za-z_][A-Za-z0-9_.`+]{0,200})\): ') {
+            return '[start.ps1] The ' + $Matches[1] + ' could not run (' + $Matches[2] + ') [reason withheld]'
+        }
+        if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) has stopped \(could not run \(([A-Za-z_][A-Za-z0-9_.`+]{0,200})\): ') {
+            return '[start.ps1] The ' + $Matches[1] + ' has stopped (could not run (' + $Matches[2] + ')) [reason withheld]'
+        }
+        if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) (could not run|has stopped)') {
+            return '[start.ps1] The ' + $Matches[1] + ' ' + $Matches[2] + ' [reason withheld]'
+        }
     }
 
     if ($Line -cmatch '^Unhandled exception\. ([A-Za-z_][A-Za-z0-9_.`+]*)') {
@@ -369,7 +382,9 @@ $script:DemoLogWriterHash = Get-DemoLogWriterHash $script:DemoLogWriterSource
 
 # --- Running other programs ---------------------------------------------------------------------------
 
-# Runs a console program and returns its exit code and every line it printed, stdout and stderr merged.
+# Runs a console program and returns its exit code and every line it printed, stdout and stderr merged
+# (Lines), and its stdout lines alone (Out). Out is for anything that may reach report.ps1's report: a
+# stderr line is an error record, and an error's text is never put into the report.
 #
 # Windows PowerShell 5.1 turns each stderr line into an error record when it is redirected, and with
 # ErrorActionPreference 'Stop' the first one throws: a tool that logs to stderr (the backend does, by
@@ -384,8 +399,12 @@ function Invoke-Native {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     if ($WorkingDirectory) { Push-Location -LiteralPath $WorkingDirectory }
+    $out = New-Object System.Collections.Generic.List[string]
     try {
-        $lines = @(& $FilePath @ArgumentList 2>&1 | ForEach-Object { "$_" })
+        $lines = @(& $FilePath @ArgumentList 2>&1 | ForEach-Object {
+                if (-not ($_ -is [System.Management.Automation.ErrorRecord])) { $out.Add("$_") }
+                "$_"
+            })
         $code = $LASTEXITCODE
     }
     finally {
@@ -393,7 +412,7 @@ function Invoke-Native {
         $ErrorActionPreference = $previous
     }
 
-    return [pscustomobject]@{ ExitCode = $code; Lines = $lines }
+    return [pscustomobject]@{ ExitCode = $code; Lines = $lines; Out = $out.ToArray() }
 }
 
 # Runs a script block with some environment variables set for this process only, then puts back what was
@@ -637,10 +656,11 @@ function Get-DockerState {
     return 'running'
 }
 
-# The demo container's status line from 'docker ps -a', or $null when it does not exist.
+# The demo container's status line from 'docker ps -a', or $null when it does not exist. From docker's
+# stdout only, so a warning docker writes to stderr is never taken for the status (report.ps1 shows it).
 function Get-DbContainerStatus {
     $result = Invoke-Native -FilePath 'docker' -ArgumentList @('ps', '-a', '--filter', "name=^$script:DemoDbContainer$", '--format', '{{.Status}}')
-    $line = @($result.Lines | Where-Object { $_.Trim() }) | Select-Object -First 1
+    $line = @($result.Out | Where-Object { $_.Trim() }) | Select-Object -First 1
     if ($result.ExitCode -ne 0 -or -not $line) {
         return $null
     }
