@@ -36,9 +36,10 @@ public sealed class ProviderCallsStayPublicTests(ApiFixture api) : IClassFixture
 
         using var response = await client.PostAsync(new Uri($"/v1/integrations/{provider}/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, listener.Accepted);
+        // Counted once the listener has taken every connection made so far, rather than after a pause
+        // a busy machine could outlast.
+        Assert.Equal(0, await listener.ConnectionsBeforeNowAsync(TestContext.Current.CancellationToken));
         Assert.False(check!.Ok);
         Assert.Contains("private network", check.Message, StringComparison.Ordinal);
         Assert.Contains("Settings", check.Message, StringComparison.Ordinal);
