@@ -28,7 +28,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `resume` | — | Resume capture |
 | `stop` | — | Stop and draft |
 | `discard` | `confirmation` | The tray's Discard: stop and delete the current session and its raw data, whatever it is. Refused without a token issued for `discard_session` with no `session_ids` (below). Unchanged by v6 |
-| `discard_sessions` | `session_ids[]`, `confirmation` | Review's Discard (one id) and History's bulk discard (several), v6. Refused, and the token spent, unless the token was issued on this connection for exactly these ids, in any order. All or nothing: an unknown, already discarded or published session refuses the whole set with a sentence saying how many and why, and nothing is discarded. Otherwise each session's frames, transcript, events, note and queued outbox work go in one transaction, with an audit row each (a frame count, no content) and the row kept as `discarded`. The machine's current session, when named, goes the way `discard` takes it: a recording one stops capturing first, the row is deleted and the state moves to `idle`. Queued behind the connection's worker, not on the read loop (below) |
+| `discard_sessions` | `session_ids[]`, `confirmation` | Review's Discard (one id) and History's bulk discard (several), v6. Refused, and the token spent, unless the token was issued on this connection for exactly these ids, in any order. All or nothing: an unknown, already discarded or published session refuses the whole set with a sentence saying how many and why, and nothing is discarded. Otherwise, under the machine's gate and in one transaction, each session is marked `discarded`: its note, its suggested ticket and its queued outbox work go, an audit row records how many screenshots it held (no content), and from that commit nothing reads its screenshots, transcript or events and no late write adds to them. The content is then deleted outside the gate in chunks of 50, a transaction each, before the result is sent (and at service start for a discard a stopped service left unfinished), so the password and login guards' suppression never waits behind it. A published session is one whose publish landed at least one destination; it is kept. The machine's current session, when named, goes the way `discard` takes it: a recording one stops capturing first, the row is deleted and the state moves to `idle`. Queued behind the connection's worker, not on the read loop (below) |
 | `mark_moment` | — | Force a frame and a marker event |
 | `get_state` | — | Ask for the current state (also arrives in `hello_ack`) |
 | `get_capabilities` | — | Re-run the Windows checks (ST-021). Answered by `capabilities` |
@@ -191,6 +191,19 @@ A named token comes from its own issuer and is bound to the sorted ids as well a
 connection. Presented for fewer, more or other ids it is refused and spent, so the sessions it was earned
 for need confirming again; a tray token is no use on `discard_sessions`, and a named one is no use on
 `discard`.
+
+**What a token proves.** That the command comes from the connection that asked, for exactly what it
+asked about, within 30 seconds. It does not prove the phrase was typed: the typed check is the dialog's,
+in the UI, as it is for the tray's discard and for erase, and a same-user process that speaks the
+protocol can ask for a token and spend it without one (the threat model in `Confirmations`).
+`discard_sessions` waits on the connection's worker queue, so a token can go stale while it waits behind
+slow commands (a publish, a ticket search); the service then refuses it with "The confirmation was not
+for these sessions, or it ran out, so nothing was discarded. Try again.", and nothing is discarded.
+
+**What a discard cannot recall.** A draft or a publish whose request is already on its way to the
+backend at the moment of the discard is not stopped: the discard deletes the queued item, and what comes
+back for the session (a drafted note, a published state) is refused, but the bytes already sent were
+sent. Anything still queued goes with the discard and is never sent.
 
 The token is good once, for that action only, for 30 seconds. `phrase` is what the technician has to
 type to mean it. **The second round trip is the defence:** a confirmation the UI is trusted to have shown

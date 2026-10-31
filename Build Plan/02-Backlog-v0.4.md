@@ -1509,7 +1509,7 @@ Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entr
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Done 2026-09-15 (#50). Since 2026-10-31 bulk discard is built (AC3's half had a rule, `SessionHistory.Discardable`, and no caller): the table takes an extended selection, Bulk discard names only the selected sessions that qualify, the technician types the count the service gives (v0.4.1 Q6), and the list is read again. All or nothing: an unknown, already discarded or published session refuses the whole selection with the reason. Published sessions are kept (owner decision, fail closed).
+- **Status:** Done 2026-09-15 (#50). Since 2026-10-31 bulk discard is built (AC3's half had a rule, `SessionHistory.Discardable`, and no caller): the table takes an extended selection, Bulk discard names only the selected sessions that qualify, the technician types the count the service gives (v0.4.1 Q6), and the list is read again. All or nothing: an unknown, already discarded or published session refuses the whole selection with the reason. Published sessions are kept (owner decision, fail closed); a publish that lands any destination now marks the session Published, which nothing wrote before. A bulk discard marks its sessions under the machine's gate and deletes their screenshots afterwards in chunks, so the password and login guards are not held up, and nothing reads or writes a discarded session's content once it is marked.
 
 **Description:**
 Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discard, audit export, empty state.
