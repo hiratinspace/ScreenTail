@@ -13,6 +13,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(ResumeCommand), "resume")]
 [JsonDerivedType(typeof(StopCommand), "stop")]
 [JsonDerivedType(typeof(DiscardCommand), "discard")]
+[JsonDerivedType(typeof(DiscardSessionsCommand), "discard_sessions")]
 [JsonDerivedType(typeof(MarkMomentCommand), "mark_moment")]
 [JsonDerivedType(typeof(GetStateCommand), "get_state")]
 [JsonDerivedType(typeof(GetCapabilitiesCommand), "get_capabilities")]
@@ -89,6 +90,28 @@ public sealed record StopCommand : IpcCommand;
 /// </summary>
 public sealed record DiscardCommand : IpcCommand
 {
+    [JsonPropertyName("confirmation")]
+    public string? Confirmation { get; init; }
+}
+
+/// <summary>
+/// Throws away the named sessions: Review's Discard (one id) and History's bulk discard (several), Spec
+/// §5 S3 and S4 (contract v6).
+///
+/// <see cref="DiscardCommand"/> acts on whatever the machine is resting on, which is right for the tray
+/// and wrong for a screen showing one particular session: by the time the technician has typed the word,
+/// the machine may be resting on another. This names them instead.
+///
+/// <see cref="Confirmation"/> is a token issued moments ago, on the same connection, by a
+/// <see cref="RequestConfirmationCommand"/> that named exactly these ids. A token issued for other ids, or
+/// for the tray's discard, is refused and spent. All or nothing: when any id is unknown, already
+/// discarded or published, nothing is discarded and the result says why.
+/// </summary>
+public sealed record DiscardSessionsCommand : IpcCommand
+{
+    [JsonPropertyName("session_ids")]
+    public required IReadOnlyList<string> SessionIds { get; init; }
+
     [JsonPropertyName("confirmation")]
     public string? Confirmation { get; init; }
 }
@@ -176,9 +199,21 @@ public sealed record EraseAllLocalDataCommand : IpcCommand
 /// </summary>
 public sealed record RequestConfirmationCommand : IpcCommand
 {
-    /// <summary><c>discard_session</c> or <c>erase_everything</c>. A token is good for one of them.</summary>
+    /// <summary><c>discard_session</c>, <c>discard_sessions</c> or <c>erase_everything</c>. A token is good for one of them.</summary>
     [JsonPropertyName("action")]
     public required string Action { get; init; }
+
+    /// <summary>
+    /// The sessions a named discard is for (contract v6). Absent for the tray's discard and for erase.
+    ///
+    /// With <c>discard_session</c> it names one session and the phrase is DISCARD (Review, Spec §5 S3).
+    /// With <c>discard_sessions</c> it names one or more and the phrase is how many (History's bulk
+    /// discard, v0.4.1 Q6). The token is good only on a <see cref="DiscardSessionsCommand"/> that names
+    /// exactly these ids.
+    /// </summary>
+    [JsonPropertyName("session_ids")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? SessionIds { get; init; }
 }
 
 /// <param name="Token">Carry it back on the destructive command. Good once, for that action, for 30 s.</param>
