@@ -131,8 +131,8 @@ public sealed class SessionHistoryTests : IAsyncDisposable
     {
         // The screen has the pipe's rows, not the store's summaries, and the same rule picks them. A status
         // this build does not know is not one it may destroy.
-        var rows = new[] { "draft", "published", "discarded", "partial", "pending", "something_new" }
-            .Select(status => new Shared.Ipc.SessionRow { Id = status, StartedAt = DateTimeOffset.UnixEpoch, DurationMs = 0, Status = status, Frames = 0, FramesPurged = 0 });
+        string[] statuses = ["draft", "published", "discarded", "partial", "pending", "something_new", "1"];
+        var rows = statuses.Select(status =>new Shared.Ipc.SessionRow { Id = status, StartedAt = DateTimeOffset.UnixEpoch, DurationMs = 0, Status = status, Frames = 0, FramesPurged = 0 });
 
         Assert.Equal(["draft", "partial", "pending"], SessionHistory.Discardable(rows).Select(r => r.Id));
     }

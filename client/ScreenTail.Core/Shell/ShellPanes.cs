@@ -31,7 +31,11 @@ public enum PaneAction
 /// The read is for the service coming back, not for entering the view: a panel holding a change the
 /// technician has not saved is left as it is.
 /// </param>
-public sealed record PaneStep(PaneAction Action, string? SessionId = null, bool LoadSettings = false, bool KeepEdits = false);
+/// <param name="ReleaseReview">
+/// The session the Review pane was for has gone (it was discarded), so the pane is let go of now, while
+/// another view shows, rather than kept for a return that would show a note that no longer exists.
+/// </param>
+public sealed record PaneStep(PaneAction Action, string? SessionId = null, bool LoadSettings = false, bool KeepEdits = false, bool ReleaseReview = false);
 
 /// <summary>
 /// Which pane the shell shows, and when it may ask the service for anything (ST-070).
@@ -74,6 +78,16 @@ public sealed class ShellPanes
             && snapshot.Connection == ServiceConnection.Connected;
         _connection = snapshot.Connection;
 
+        // The store names a session to review from the moment one is chosen and never names none again,
+        // except when that session is discarded. Away from Review then, the pane for it is let go of.
+        var release = snapshot.View != ShellView.Review && snapshot.Reviewing is null && _review is not null;
+        if (release)
+        {
+            _review = null;
+            _reviewHadDraft = false;
+            _reviewFailed = false;
+        }
+
         switch (snapshot.View)
         {
             case ShellView.Review when snapshot.Reviewing is null:
@@ -108,10 +122,10 @@ public sealed class ShellPanes
                 return new PaneStep(PaneAction.None);
 
             case ShellView.History:
-                return new PaneStep(PaneAction.History);
+                return new PaneStep(PaneAction.History, ReleaseReview: release);
 
             case ShellView.Settings:
-                return new PaneStep(PaneAction.Settings, LoadSettings: entering || reconnected, KeepEdits: !entering && reconnected);
+                return new PaneStep(PaneAction.Settings, LoadSettings: entering || reconnected, KeepEdits: !entering && reconnected, ReleaseReview: release);
 
             default:
                 return new PaneStep(PaneAction.None);

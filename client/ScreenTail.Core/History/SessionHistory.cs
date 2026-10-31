@@ -129,11 +129,29 @@ public static class SessionHistory
     ///
     /// Already-discarded sessions are counted out: there is nothing left of them to destroy, and a
     /// confirmation asking a technician to type "5" when only three sessions will change is a
-    /// confirmation that has misled them about the thing it exists to slow down.
+    /// confirmation that has misled them about the thing it exists to slow down. Published sessions are
+    /// counted out too, because the service refuses them (owner decision, fail closed: the spec does not
+    /// say a published session may be discarded, and its note is already in the PSA).
     /// </summary>
     public static IReadOnlyList<SessionSummary> Discardable(IEnumerable<SessionSummary> selected)
     {
         ArgumentNullException.ThrowIfNull(selected);
-        return [.. selected.Where(session => StatusOf(session) != SessionStatus.Discarded)];
+        return [.. selected.Where(session => MayDiscard(StatusOf(session)))];
     }
+
+    /// <summary>
+    /// The same rule over the History screen's rows, whose status the service has already worked out. A
+    /// status this build does not know is not one it may destroy.
+    /// </summary>
+    public static IReadOnlyList<Shared.Ipc.SessionRow> Discardable(IEnumerable<Shared.Ipc.SessionRow> selected)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        return [.. selected.Where(row => Enum.TryParse<SessionStatus>(row.Status, ignoreCase: true, out var status)
+            && Enum.IsDefined(status)
+            && !int.TryParse(row.Status, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)
+            && MayDiscard(status))];
+    }
+
+    /// <summary>Whether a session with this status is one a discard may still take.</summary>
+    public static bool MayDiscard(SessionStatus status) => status is not (SessionStatus.Discarded or SessionStatus.Published);
 }

@@ -237,7 +237,7 @@ public sealed class SessionDiscardTests : IAsyncDisposable
         await store.SaveRedactedFrameAsync(id, new StagedFrame($"{id}-f", 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1 }), new RedactionOutcome(new byte[] { 2 }, null, [], false, DateTimeOffset.UtcNow), Ct);
         await store.FinalizeSessionAsync(id, new FinalizeInfo(4_000, false), Ct);
         await store.SaveDraftAsync(id, Draft(), Ct);
-        _ = await new Outbox(store, (_, _) => Task.FromResult(SendOutcome.Done(null))).EnqueueAsync(new NewOutboxItem(id, OutboxKind.Draft, $"draft:{id}", "{}"), Ct);
+        _ = await new Core.Outbox.Outbox(store, (_, _) => Task.FromResult(SendOutcome.Done(null))).EnqueueAsync(new NewOutboxItem(id, OutboxKind.Draft, $"draft:{id}", "{}"), Ct);
     }
 
     private async Task<SessionStatus> StatusAsync(string id) =>

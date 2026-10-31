@@ -445,32 +445,122 @@ public sealed class SessionMachine : IAsyncDisposable
                 return false;
             }
 
-            // Narration first, before anything is awaited: the session stays current and recording while
-            // the sources stop and the store deletes it, and nothing heard or finished in that time may
-            // be kept. Nothing more is heard for it, what it is still owed is not transcribed, and a
-            // segment that arrives is refused.
-            _session.CloseNarration();
-            _ = _options.Narration.Forget(_session.Id);
-
-            if (State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed)
-            {
-                await _sources.StopAsync(ct).ConfigureAwait(false);
-            }
-
-            // Whatever is still queued for it goes too. Nobody has read those frames, so nobody can say
-            // what is on them, and ADR-0004 is clear about such a frame.
-            _options.Pending.Forget(_session.Id);
+            await StopForDiscardAsync(_session, ct).ConfigureAwait(false);
             await _store.DeleteSessionAsync(_session.Id, ct).ConfigureAwait(false);
-            _session = null;
-            ClearHolds();
-            await RefreshDraftCountAsync(ct).ConfigureAwait(false);
-            SetState(SessionState.Idle, null);
+            await ForgetDiscardedAsync(ct).ConfigureAwait(false);
             return true;
         }
         finally
         {
             _transitions.Release();
         }
+    }
+
+    /// <summary>
+    /// Review's Discard and History's bulk discard: throws away the sessions named, all of them or none
+    /// (contract v6).
+    ///
+    /// Every id is checked under the transition gate before anything is touched, so no other discard,
+    /// settling draft or recovery can change one between the check and the deletion: a session that does
+    /// not exist, was already discarded, or was published refuses the whole set (owner decision for
+    /// published, fail closed: Spec §5 S4 does not say). The technician confirmed a number, and discarding
+    /// fewer would destroy a count they did not type.
+    ///
+    /// The others go first, in one store transaction: frames, transcript, events, note and queued work,
+    /// with the row kept and saying discarded so History can show it (Spec §5 S4). When the session the
+    /// machine is on is among them, it goes after, exactly the way the tray's Discard takes it, so the
+    /// state and the announcement stay right from any resting state: narration closes, a recording
+    /// session stops capturing before anything is deleted (Spec v0.4.1 Q3, INV-4), the frames still
+    /// waiting to be read are forgotten, the row goes, and the machine returns to idle and says so. The
+    /// row going is what makes a frame the redaction worker was still reading fail to land: the foreign
+    /// key refuses it. The one way to end with some discarded and not all is the store failing on that
+    /// last delete, which fails the command.
+    /// </summary>
+    public async Task<NamedDiscardOutcome> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        await _transitions.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            List<string> unknown = [], discarded = [], published = [];
+            foreach (var id in sessionIds)
+            {
+                switch ((await _store.GetSessionSummaryAsync(id, ct).ConfigureAwait(false))?.State)
+                {
+                    case null:
+                        unknown.Add(id);
+                        break;
+                    case SessionStateNames.Discarded:
+                        discarded.Add(id);
+                        break;
+                    case SessionStateNames.Published:
+                        published.Add(id);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            var outcome = new NamedDiscardOutcome(unknown, discarded, published);
+            if (!outcome.Done)
+            {
+                return outcome;
+            }
+
+            var current = State is not SessionState.Idle && _session is { } session && sessionIds.Contains(session.Id, StringComparer.Ordinal)
+                ? session
+                : null;
+            var others = sessionIds.Where(id => current is null || !string.Equals(id, current.Id, StringComparison.Ordinal)).ToList();
+            if (others.Count > 0)
+            {
+                _ = await _store.DiscardSessionsAsync(others, ct).ConfigureAwait(false);
+            }
+
+            if (current is not null)
+            {
+                await StopForDiscardAsync(current, ct).ConfigureAwait(false);
+                await _store.DeleteSessionAsync(current.Id, ct).ConfigureAwait(false);
+                await ForgetDiscardedAsync(ct).ConfigureAwait(false);
+            }
+
+            return outcome;
+        }
+        finally
+        {
+            _transitions.Release();
+        }
+    }
+
+    /// <summary>
+    /// The first half of discarding the current session: nothing more is heard or captured for it. Under
+    /// the transition gate.
+    /// </summary>
+    private async Task StopForDiscardAsync(ActiveSession session, CancellationToken ct)
+    {
+        // Narration first, before anything is awaited: the session stays current and recording while
+        // the sources stop and the store deletes it, and nothing heard or finished in that time may
+        // be kept. Nothing more is heard for it, what it is still owed is not transcribed, and a
+        // segment that arrives is refused.
+        session.CloseNarration();
+        _ = _options.Narration.Forget(session.Id);
+
+        if (State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed)
+        {
+            await _sources.StopAsync(ct).ConfigureAwait(false);
+        }
+
+        // Whatever is still queued for it goes too, before the store lets it go. Nobody has read those
+        // frames, so nobody can say what is on them, and ADR-0004 is clear about such a frame.
+        _options.Pending.Forget(session.Id);
+    }
+
+    /// <summary>The second half, once the store has let it go: the machine lets go too, and says so.</summary>
+    private async Task ForgetDiscardedAsync(CancellationToken ct)
+    {
+        _session = null;
+        ClearHolds();
+        await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+        SetState(SessionState.Idle, null);
     }
 
     public async Task<bool> MarkMomentAsync(CancellationToken ct = default)

@@ -64,6 +64,12 @@ internal sealed class CaptureController(
     private readonly Confirmations _confirmations = new();
 
     /// <summary>
+    /// Review's Discard and History's bulk discard, which name their sessions (contract v6). Their own
+    /// issuer: a token for the tray's discard is no use there, and theirs is no use here.
+    /// </summary>
+    private readonly DiscardCommands _discards = new(machine);
+
+    /// <summary>
     /// Issues a token for something irreversible, and says what the technician has to type.
     ///
     /// The phrase comes from here rather than from the UI so that the wording a customer is shown and
@@ -97,6 +103,9 @@ internal sealed class CaptureController(
         {
             GetDiagnosticsCommand => diagnostics(),
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
+
+            // Named sessions are Review's and History's; none named is the tray's or erase's, as before.
+            RequestConfirmationCommand { SessionIds: not null } named => _discards.Confirm(named, caller),
             RequestConfirmationCommand request => Confirm(request, caller),
 
             // Review's questions: the session, a frame, a blur (ST-085 remainder); and publishing's
@@ -155,6 +164,12 @@ internal sealed class CaptureController(
         if (command is StartCommand start)
         {
             return await _start.StartAsync(start, ct).ConfigureAwait(false);
+        }
+
+        // Review's and History's discards by name: spent against the ids, then all of them or none.
+        if (await _discards.HandleAsync(command, caller, ct).ConfigureAwait(false) is { } discarded)
+        {
+            return discarded;
         }
 
         var accepted = command switch

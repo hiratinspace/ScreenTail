@@ -153,6 +153,19 @@ public interface ISessionStore : IAsyncDisposable
     /// <returns>How many frames were deleted.</returns>
     Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Review's Discard and History's bulk discard, by name (contract v6): what <see cref="DiscardSessionAsync"/>
+    /// does to one session, to every one of these, in one transaction, with an audit row each.
+    ///
+    /// All or none. A session that is missing, already discarded or published refuses the whole set and
+    /// nothing changes: the technician confirmed a number, and discarding fewer than it would be
+    /// discarding something they did not type. The machine checks every id under its own gate first, so
+    /// this is the second line, for a session that changed after the check.
+    /// </summary>
+    /// <returns>How many frames were deleted, across all of them.</returns>
+    /// <exception cref="InvalidOperationException">A session could not be discarded; nothing was.</exception>
+    Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default);
+
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
     /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>
     Task<double> FreeSpaceFractionAsync(CancellationToken ct = default);

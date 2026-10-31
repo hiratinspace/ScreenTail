@@ -159,6 +159,8 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default) => throw new NotSupportedException();

@@ -32,7 +32,7 @@ public sealed class NamedDiscardTests : IAsyncDisposable
     private readonly List<OutboxItem> _sent = [];
     private readonly List<CaptureStateSnapshot> _announced = [];
     private MachineHarness? _harness;
-    private Outbox? _outbox;
+    private Core.Outbox.Outbox? _outbox;
 
     [Fact]
     public async Task ASessionThatIsNotCurrentLosesItsScreenshotsTranscriptNoteAndQueuedDraft()
@@ -99,7 +99,10 @@ public sealed class NamedDiscardTests : IAsyncDisposable
         Assert.Null(_harness.Machine.Snapshot.SessionId);
         Assert.Equal(CaptureStates.Idle, Assert.Single(_announced).State);
         Assert.Equal(0, _harness.Machine.Snapshot.DraftsReady);
-        Assert.Equal(SessionStatus.Discarded, SessionHistory.StatusOf((await store.GetSessionSummaryAsync(id, Ct))!));
+
+        // The row goes, exactly as the tray's Discard takes it, and the audit row stays (owner decision:
+        // a session discarded while current leaves History, one discarded later stays as Discarded).
+        Assert.Null(await store.GetSessionSummaryAsync(id, Ct));
         Assert.Contains(await store.GetAuditAsync(id, Ct), a => a.Type == AuditTypes.SessionDiscarded);
         Assert.Equal(0, (await _outbox!.WaitingAsync(Ct)).Drafts);
         Assert.False(await _outbox.DrainAsync(Ct));
@@ -126,7 +129,7 @@ public sealed class NamedDiscardTests : IAsyncDisposable
         Assert.NotEqual(SessionStateNames.Discarded, _sources.SessionWhenStopped);
         Assert.Equal(SessionState.Idle, _harness.Machine.State);
         Assert.Equal(0, _harness.Pending.DepthFor(id));
-        Assert.Equal(SessionStatus.Discarded, SessionHistory.StatusOf((await store.GetSessionSummaryAsync(id, Ct))!));
+        Assert.Null(await store.GetSessionSummaryAsync(id, Ct));
     }
 
     [Fact]
@@ -145,10 +148,12 @@ public sealed class NamedDiscardTests : IAsyncDisposable
         var result = await HandleAsync(discards, ["old-2", "old-1", current], issued.Token);
 
         Assert.True(result.Ok, result.Error);
-        foreach (var id in new[] { "old-1", "old-2", current })
+        foreach (var id in new[] { "old-1", "old-2" })
         {
             Assert.Equal(SessionStatus.Discarded, SessionHistory.StatusOf((await store.GetSessionSummaryAsync(id, Ct))!));
         }
+
+        Assert.Null(await store.GetSessionSummaryAsync(current, Ct));
 
         Assert.Single((await store.LoadSessionAsync("kept", Ct))!.Frames);
         Assert.NotNull((await store.LoadSessionAsync("kept", Ct))!.Draft);
@@ -325,7 +330,7 @@ public sealed class NamedDiscardTests : IAsyncDisposable
     private async Task<(SqliteSessionStore Store, DiscardCommands Discards)> StartAsync()
     {
         _harness = await MachineHarness.StartAsync(sources: _sources, drafter: _drafter);
-        _outbox = new Outbox(_harness.Store, (item, _) =>
+        _outbox = new Core.Outbox.Outbox(_harness.Store, (item, _) =>
         {
             _sent.Add(item);
             return Task.FromResult(SendOutcome.Done(null));

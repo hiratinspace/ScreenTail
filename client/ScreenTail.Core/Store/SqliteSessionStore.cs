@@ -684,25 +684,34 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         try
         {
             await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-            var frames = await ExecuteAsync(_connection, "DELETE FROM frames WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
-            await ExecuteAsync(_connection, "DELETE FROM transcript WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
-            await ExecuteAsync(_connection, "DELETE FROM events WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+            var (frames, _) = await DiscardOneAsync(sessionId, onlyIfDiscardable: false, ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return frames;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
-            // The technician asked for this session to go. Queued work for it goes with it, or a
-            // discarded session publishes itself half an hour later (ST-064).
-            await ExecuteAsync(_connection, "DELETE FROM outbox WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
-            var now = Iso(_time.GetUtcNow());
-            var discarded = await ExecuteAsync(
-                _connection,
-                "UPDATE sessions SET draft_json = NULL, original_draft_json = NULL, raw_purged_at = @now, state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now WHERE id = @id",
-                ct,
-                ("@now", now),
-                ("@state", Sessions.SessionStateNames.Discarded),
-                ("@id", sessionId)).ConfigureAwait(false);
-
-            if (discarded > 0)
+    public async Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // Disposed without a commit when a session refuses, which rolls back every one before it.
+            await using var transaction = await _connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var frames = 0;
+            foreach (var id in sessionIds)
             {
-                await AuditAsync(sessionId, AuditTypes.SessionDiscarded, frames, ct).ConfigureAwait(false);
+                var (deleted, discarded) = await DiscardOneAsync(id, onlyIfDiscardable: true, ct).ConfigureAwait(false);
+                if (!discarded)
+                {
+                    throw new InvalidOperationException("A session changed while it was being discarded, so nothing was discarded.");
+                }
+
+                frames += deleted;
             }
 
             await transaction.CommitAsync(ct).ConfigureAwait(false);
@@ -712,6 +721,45 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// One session's discard, inside the caller's transaction and under its gate: the frames, transcript,
+    /// events and queued work go, the note is dropped, the row says discarded, and the audit row says how
+    /// many frames went and nothing else (INV-10).
+    /// </summary>
+    /// <param name="onlyIfDiscardable">
+    /// Leave a published or already-discarded row as it is, and say so. The tray's and the old single
+    /// discard write over whatever the row says, as they always have.
+    /// </param>
+    private async Task<(int Frames, bool Discarded)> DiscardOneAsync(string sessionId, bool onlyIfDiscardable, CancellationToken ct)
+    {
+        var frames = await ExecuteAsync(_connection, "DELETE FROM frames WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+        await ExecuteAsync(_connection, "DELETE FROM transcript WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+        await ExecuteAsync(_connection, "DELETE FROM events WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+
+        // The technician asked for this session to go. Queued work for it goes with it, or a discarded
+        // session publishes itself half an hour later (ST-064), and the draft's bundle, screenshots and
+        // transcript and all, leaves for the backend at the next drain.
+        await ExecuteAsync(_connection, "DELETE FROM outbox WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
+        var now = Iso(_time.GetUtcNow());
+        var discarded = await ExecuteAsync(
+            _connection,
+            onlyIfDiscardable
+                ? "UPDATE sessions SET draft_json = NULL, original_draft_json = NULL, raw_purged_at = @now, state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now WHERE id = @id AND state NOT IN (@state, @published)"
+                : "UPDATE sessions SET draft_json = NULL, original_draft_json = NULL, raw_purged_at = @now, state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now WHERE id = @id",
+            ct,
+            ("@now", now),
+            ("@state", Sessions.SessionStateNames.Discarded),
+            ("@published", Sessions.SessionStateNames.Published),
+            ("@id", sessionId)).ConfigureAwait(false);
+
+        if (discarded > 0)
+        {
+            await AuditAsync(sessionId, AuditTypes.SessionDiscarded, frames, ct).ConfigureAwait(false);
+        }
+
+        return (frames, discarded > 0);
     }
 
     /// <summary>
