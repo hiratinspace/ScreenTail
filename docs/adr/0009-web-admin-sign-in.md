@@ -329,13 +329,20 @@ once this is merged. (An old client with an old backend, or a new client with ei
 
 **Two activations at once** (fixed with this change, review of #248). Before, two requests with one code
 could both read the invite as unclaimed and both add a device, and two requests for a tenant's last seat
-could both count a free seat. The activation now runs in one transaction that first writes the tenant's
-row (Postgres holds that row locked to the commit, SQLite locks the database for its one writer), so
-activations of one tenant count seats one at a time; it claims the invite with a conditional update
-(`AcceptedAt IS NULL` and unexpired, checked by its row count), and the loser is told the code was used;
-a seat refusal rolls the claim back, so the code works once a seat is free. The tests make the race happen
-every time, with an interceptor that runs a second activation right after the first one's read; the
-suite runs on SQLite, so the Postgres row lock itself is argued here rather than exercised.
+could both count a free seat. The activation now runs in one transaction whose first statement locks the
+tenant's row (`TenantLock`: the row written unchanged, which Postgres holds locked to the commit; SQLite
+locks the database for its one writer). Under that lock it reads the tenant's seats and switch, claims the
+invite with a conditional update (`AcceptedAt IS NULL` and unexpired at the moment of the claim, checked by
+its row count), counts the seats and adds the device. A loser is told why from the row as it is then:
+used, expired since the first read, or gone (a tenant offboarded meanwhile answers like an unknown code). A
+seat refusal rolls the claim back, so the code works once a seat is free. The commit is not cancellable,
+so a request aborted then cannot leave an activation committed with nobody holding its refresh token.
+**Offboarding takes the same lock first**, so the two always lock a tenant's rows in one order. The tests
+make the race happen every time, with an interceptor that runs a second activation right after the first
+one's read; another pins the lock inside the transaction before the claim and the count (on SQLite the
+transaction alone would serialise, so only this notices the lock missing); and two tests run the race on
+a real Postgres, in a database of their own, in CI's Backend job (`PostgresActivationRaceTests`, which
+fails rather than skips on CI without it).
 
 **The rate limit stays**, as a bound on what each guess costs us rather than as the defence against
 guessing.
