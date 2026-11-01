@@ -26,31 +26,45 @@ public static class DevicesEndpoint
 {
     public const string SeatLimitMessage = "Seat limit reached — contact your admin";
 
+    /// <summary>The answer to any code that is not one we issued, malformed or well-formed: it names no tenant and says nothing about which.</summary>
+    public const string UnknownCodeMessage = "That code is not one we issued. Check it against the invite.";
+
     public static RouteGroupBuilder MapDevices(this RouteGroupBuilder group)
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/activate", async (ActivateDeviceRequest request, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
+        group.MapPost("/activate", async (ActivateDeviceRequest request, ScreenTailContext db, TokenIssuer issuer, ActivationWatch watch, TimeProvider time, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceName) || request.DeviceName.Length > 200)
             {
                 return Results.BadRequest(new { error = "bad_device_name", message = "The device needs a name of up to 200 characters." });
             }
 
+            // A code that could not be one we issued (the wrong length, a character outside the
+            // alphabet, nothing at all) gets the same answer as one nobody issued, without a lookup.
+            // Every well-formed guess costs exactly one indexed lookup by hash, whichever tenant's
+            // invites exist, and is answered with the same bytes (ADR-0009, "Guessing invite codes").
             var now = time.GetUtcNow();
-            var invite = await db.Invites.SingleOrDefaultAsync(i => i.CodeHash == Invites.Hash(request.Code), ct).ConfigureAwait(false);
+            var code = Invites.Normalise(request.Code);
+            var invite = Invites.IsWellFormed(code)
+                ? await db.Invites.SingleOrDefaultAsync(i => i.CodeHash == DeviceTokens.Hash(code), ct).ConfigureAwait(false)
+                : null;
             if (invite is null)
             {
-                return Results.BadRequest(new { error = "invite_unknown", message = "That code is not one we issued. Check it against the invite." });
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_unknown", message = UnknownCodeMessage });
             }
 
+            // Reachable only with a code that was issued, which a guess finds with odds of about 2^-99.
             if (invite.AcceptedAt is not null)
             {
+                watch.Refused();
                 return Results.BadRequest(new { error = "invite_used", message = "That code has already been used. Ask your admin for a new invite." });
             }
 
             if (invite.ExpiresAt <= now)
             {
+                watch.Refused();
                 return Results.BadRequest(new { error = "invite_expired", message = "That code has expired. Ask your admin for a new invite." });
             }
 
@@ -97,9 +111,11 @@ public static class DevicesEndpoint
         })
         .WithName("ActivateDevice")
 
-        // An invite code is a guess away from a seat in somebody's tenant: counted per client address
-        // with the admin's sign-in (ADR-0009). The token exchange is not, as its secret is 256 bits.
+        // Counted per client address with the admin's sign-in (ADR-0009): a guess at a 99-bit code is
+        // hopeless, but each still costs a lookup. The token exchange is not, as its secret is 256 bits.
+        // A body is a code and a machine's name, so the anonymous routes' 16 KB is plenty.
         .RequireRateLimiting(AnonymousRateLimit.Policy)
+        .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit))
         .WithSummary("Activates this device with an invite's code and binds it to the tenant.");
 
         group.MapPost("/token", async (RefreshRequest request, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
