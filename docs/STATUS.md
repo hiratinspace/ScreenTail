@@ -194,7 +194,7 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast. Since #228 they give the client a Windows 11 look (tokens v0.5.0).
 
-**Not built:** the local text model (ST-065); hosting (ST-007); mail for invites (the operator's CLI and
+**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007: `deploy/` runs the backend, database and web admin on any Linux host with Docker, `docs/dev/deploy.md`, and waits for a host and a name); mail for invites (the operator's CLI and
 the web admin show the code once, to hand on). **Built and switched off until the owner sets them up:** the
 installer's signature (ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner sign-in to the web admin
 (ST-099, ADR-0009: off until a Google OAuth client id is set).
@@ -271,7 +271,7 @@ the heaviest bundle a client may send, not on a recorded session.
       and the rehearsal checklist at the end of `docs/dev/demo.md`. Write down what the first note got
       right and wrong. Drafting with Claude needs credits on the Anthropic account; with Gemini the free
       tier is enough. If anything goes wrong, run `report.cmd` before `stop.cmd` and keep the file.
-- [ ] **Choose cloud hosting** (ST-007). Nothing is deployed until then; PostgreSQL on a laptop is fine
+- [ ] **Choose a host and a name** (ST-007). `docs/dev/deploy.md` takes any Linux host with Docker from there to HTTPS; PostgreSQL on a laptop is fine
       for M1 and the demo.
 - [ ] **Get code signing** for the installer (ST-112): Azure Artifact Signing is recommended, and
       `docs/dev/installer.md` says how to switch it on. Read ADR-0007 (Proposed) first; it lists the

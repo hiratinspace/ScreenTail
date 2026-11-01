@@ -30,6 +30,15 @@ dotnet run --project src/ScreenTail.Api
 Then `http://localhost:5000/health` answers without a token, and the OpenAPI document is at
 `/swagger/v1/swagger.json`. Everything under `/v1` needs one.
 
+**Deployed, it runs from `deploy/`** (ST-007, `docs/dev/deploy.md`): this image, PostgreSQL and a Caddy
+proxy serving the web admin from one HTTPS origin. Three things exist for that. `--migrate` applies the
+migrations with nothing but the connection string and exits; the service never migrates at startup, so a
+deployment runs it as its own step. `--health-probe` is the container's health check (the image has no
+shell or curl): it asks this machine's `/health` and exits 0 or 1. `SCREENTAIL_SECRETS_DIR` names a
+directory of one file per secret, named after its key with `__` for the colon (`Jwt__SigningKey`), read
+after everything else; Docker's secrets arrive in `/run/secrets` that way, so no key is ever an
+environment variable.
+
 **The signing key has no default on purpose.** A development default becomes a production key the first
 time somebody forgets to set one, and nothing about the failure is visible: tokens sign and validate
 perfectly, and anyone who has read the source can mint one for any tenant. Keys shorter than 32 bytes are

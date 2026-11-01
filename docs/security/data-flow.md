@@ -245,7 +245,7 @@ This document describes what is enforced today. These are named here rather than
   client never learns which PSA. The backend calls a tenant's provider only at a public internet
   address: a site on its own machine or a private network is refused when stored and again when the
   call connects. The ConnectWise sandbox check and a Hudu key are the owner's.
-- **The hosted backend** is built and runs locally on Postgres; it is not deployed (ST-007). INV-7 is
+- **The hosted backend** is built and runs locally on Postgres; it is not deployed (ST-007; `deploy/` is ready for a host, with TLS at the proxy and the database on an internal network). INV-7 is
   asserted by its tests, which count every row in every table before and after a draft.
 - **Enrolment is built on both sides** (ST-010): an invite code, issued by the operator, activates the
   device; the service keeps the refresh token under DPAPI and renews access tokens; Settings → This

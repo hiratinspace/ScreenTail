@@ -1,0 +1,11 @@
+# The proxy image's build context is the repository root (deploy/web/Dockerfile). Allow-list only what
+# it reads: the web app's sources and lockfile, and the Caddy configuration and header generator.
+*
+!web/
+web/node_modules/
+web/dist/
+web/coverage/
+web/.env*
+web/*.local
+!deploy/web/Caddyfile
+!deploy/web/page-headers.ts

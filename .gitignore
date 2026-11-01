@@ -65,6 +65,13 @@ appsettings.*.local.json
 .env.*
 secrets.json
 
+# A deployment's secrets, written by deploy/make-secrets.sh (ST-007). Its .env and api.env are caught
+# above.
+deploy/secrets/
+# A database dump written in the wrong place, and the local override that holds a rotation's second key.
+deploy/*.dump
+deploy/compose.override.yaml
+
 # Signing material never belongs in the repository either. Builds sign through Azure Artifact Signing and
 # Key Vault (ADR-0007, ADR-0008), so a certificate or key file here is one added by mistake.
 *.pfx
