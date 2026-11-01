@@ -58,7 +58,7 @@ export function fakeApi(overrides: Partial<{ [K in keyof AdminApi]: AdminApi[K] 
     signUp: vi.fn(async () => session),
     signOut: vi.fn(async () => undefined),
     technicians: vi.fn(async () => technicians),
-    invite: vi.fn(async (email: string) => ({ id: 'i-2', email, code: 'ABCDE-FGHJK', expiresAt: later })),
+    invite: vi.fn(async (email: string) => ({ id: 'i-2', email, code: 'ABCDE-FGHJK-MNPQR-STUVW', expiresAt: later })),
     revokeDevice: vi.fn(async () => undefined),
     policy: vi.fn(async () => defaults),
     setPolicy: vi.fn(async (change) => ({ ...defaults, ...change, version: 'p20261031120000000' })),
