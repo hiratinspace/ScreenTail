@@ -26,9 +26,12 @@ public enum ConsoleHost
 /// That measures the machine, not the service.
 ///
 /// The shell runs while a file of the test's own exists and ends by itself, cleanly, when the file goes:
-/// a terminal closes the tab of a shell that exited cleanly and keeps one it had to kill, and a Windows
-/// Terminal set to open new consoles as tabs would otherwise be left with the test's tab in it. Only the
-/// window this console opened is ever asked to close. Its window is found by its class, never its title.
+/// a terminal closes the tab of a shell that exited cleanly, and the window with it when it was the last.
+/// Nothing is ever asked to close by message. A Windows Terminal window can hold the runner's own console
+/// beside the test's, and closing the window tells every console in it to close: the runner took that as
+/// Ctrl+C and cancelled the job on both runners (PR #252, runs 41350911964 and 41350911872). The shell is
+/// killed only if it has not ended five seconds after being told, and only its own process tree.
+/// Its window is found by its class, never its title.
 /// </summary>
 internal sealed class PrintingConsole : IDisposable
 {
@@ -112,7 +115,7 @@ internal sealed class PrintingConsole : IDisposable
             await Task.Delay(100, ct);
         }
 
-        Stop(process, sentinel, IntPtr.Zero);
+        Stop(process, sentinel);
         return null;
     }
 
@@ -145,10 +148,10 @@ internal sealed class PrintingConsole : IDisposable
         return GetForegroundWindow() == Window;
     }
 
-    public void Dispose() => Stop(_process, _sentinel, Window);
+    public void Dispose() => Stop(_process, _sentinel);
 
-    /// <summary>The shell told to end by itself, then made to, then its own window asked to close if it outlived it.</summary>
-    private static void Stop(Process process, string sentinel, IntPtr window)
+    /// <summary>The shell told to end by itself, and made to if it has not. No window is sent anything.</summary>
+    private static void Stop(Process process, string sentinel)
     {
         try
         {
@@ -176,10 +179,6 @@ internal sealed class PrintingConsole : IDisposable
         }
 
         process.Dispose();
-        if (window != IntPtr.Zero && IsWindow(window))
-        {
-            _ = PostMessage(window, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-        }
     }
 
     private static HashSet<IntPtr> Consoles()
@@ -209,7 +208,6 @@ internal sealed class PrintingConsole : IDisposable
     private delegate bool EnumWindowsProc(IntPtr window, IntPtr lParam);
 
     private const int SW_RESTORE = 9;
-    private const uint WM_CLOSE = 0x0010;
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -218,10 +216,6 @@ internal sealed class PrintingConsole : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWindowVisible(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsWindow(IntPtr hWnd);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int GetClassName(IntPtr hWnd, [Out] char[] lpClassName, int nMaxCount);
@@ -250,8 +244,4 @@ internal sealed class PrintingConsole : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 }
