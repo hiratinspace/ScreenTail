@@ -316,18 +316,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-027, ST-080 AC3: the technician's microphone, built here rather than with the recorder below
         // because Settings, Capture lists its devices and shows its level. It opens the device saved in
         // Settings when that is connected and Windows' default otherwise, read each time a listen begins,
-        // so a save takes effect the next time the microphone opens (the next session, or a resume) and a
-        // device left at home never stops a session.
+        // so a save takes effect the next time the microphone opens (the next session, or sooner within a
+        // session: a resume, or the end of a suppression) and a device left at home never stops a session.
         //
         // The level meter is the one place the microphone opens outside a session, and only while the
-        // card keeps asking: each request is a short lease, it never opens while SessionBusy is true, and a
-        // session that starts closes it (MicrophoneMeter). Levels only; nothing heard is kept, transcribed,
+        // card keeps asking: each request is a short lease, it is open five minutes at most at a stretch,
+        // it never opens while the machine's session holds the microphone, and a session that starts
+        // closes it (MicrophoneMeter.ForMachine). Levels only; nothing heard is kept, transcribed,
         // sent or logged (INV-9, INV-10). Declared before the pipe, so the pipe closes first and no request
         // reaches a meter that has been put away.
         var chosenMicrophone = captureSettings.MicrophoneId;
         await using var microphone = new WindowsMicrophone(() => chosenMicrophone);
-        await using var meter = new MicrophoneMeter(microphone, SessionBusy);
-        machine.StateChanged += state => _ = meter.SessionChangedAsync();
+        await using var meter = MicrophoneMeter.ForMachine(microphone, machine);
 
         var controller = new CaptureController(
             machine,
@@ -635,7 +635,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             }
         };
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
-        LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
+        // Which way the choice went, never the device's name: a name can be personal ("Sam's headset").
+        var choiceAtStart = MicrophoneChoice.Resolve(microphone.Devices(), chosenMicrophone).ForLog;
+        LogMicrophone(logger, choiceAtStart, whisper.ModelName);
 
         // Nothing awaits this task, so anything it throws goes unobserved until shutdown. That is how an
         // egress refusal became a service with no narration and no explanation: PrepareAsync did not
@@ -846,8 +848,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
     private static partial void LogUpdate(ILogger logger, UpdateState state);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
-    private static partial void LogMicrophone(ILogger logger, string device, string model);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Microphone}; speech model {Model}")]
+    private static partial void LogMicrophone(ILogger logger, string microphone, string model);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Speech model {Model} could not be prepared ({Reason}); sessions will have no narration")]
     private static partial void LogNoModel(ILogger logger, string model, string reason);

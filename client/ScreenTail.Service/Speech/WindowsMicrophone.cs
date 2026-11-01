@@ -19,8 +19,8 @@ namespace ScreenTail.Service.Speech;
 /// rather than left to the builder, so the device named in Settings and in the diagnostics panel is the
 /// one that opens.
 ///
-/// Opened in communications mode, which enables the endpoint's own echo cancellation where the driver
-/// offers it. The device is asked for 16 kHz mono because that is what the model wants, and shared mode
+/// A session's listen opens in communications mode, which enables the endpoint's own echo cancellation
+/// where the driver offers it; the level meter's does not, so Settings never looks like a call to Windows. The device is asked for 16 kHz mono because that is what the model wants, and shared mode
 /// is entitled to refuse: whatever comes back is converted by <see cref="AudioConversion"/>, which is
 /// tested without a sound card. Nothing above this layer ever sees another format.
 ///
@@ -41,6 +41,7 @@ public sealed class WindowsMicrophone : IMicrophone
 {
     private readonly Func<string?> _chosen;
     private string? _deviceName;
+    private string? _deviceId;
 
     /// <param name="chosen">The device id saved in Settings, Capture, read when a listen begins; null (or none given) is Windows' default.</param>
     public WindowsMicrophone(Func<string?>? chosen = null)
@@ -57,21 +58,31 @@ public sealed class WindowsMicrophone : IMicrophone
     /// </summary>
     public string? DeviceName => Volatile.Read(ref _deviceName);
 
+    /// <summary>Windows' id for the same device as <see cref="DeviceName"/>. Not personal, so a test can compare it where a name would end up in a public log.</summary>
+    public string? DeviceId => Volatile.Read(ref _deviceId);
+
     /// <summary>The capture endpoints that are active now, Windows' default communications device marked. Empty when Windows will not say.</summary>
     public IReadOnlyList<MicrophoneDevice> Devices()
     {
         var devices = Enumerate();
-        Volatile.Write(ref _deviceName, MicrophoneChoice.Resolve(devices, _chosen()).Device?.Name);
+        Remember(devices);
         return devices;
     }
 
-    public IAsyncEnumerable<ReadOnlyMemory<short>> ListenAsync(CancellationToken ct = default) => ListenToAsync(_chosen(), ct);
+    /// <summary>The recorder's listen: the chosen device, in communications mode for the endpoint's echo cancellation.</summary>
+    public IAsyncEnumerable<ReadOnlyMemory<short>> ListenAsync(CancellationToken ct = default) => ListenCoreAsync(_chosen(), communications: true, ct);
 
-    public async IAsyncEnumerable<ReadOnlyMemory<short>> ListenToAsync(string? deviceId, [EnumeratorCancellation] CancellationToken ct = default)
+    /// <summary>
+    /// The level meter's listen. Not in communications mode: opening a communications stream is what
+    /// tells Windows a call has started, and it may then turn other sound down while the card is open.
+    /// </summary>
+    public IAsyncEnumerable<ReadOnlyMemory<short>> ListenToAsync(string? deviceId, CancellationToken ct = default) => ListenCoreAsync(deviceId, communications: false, ct);
+
+    private async IAsyncEnumerable<ReadOnlyMemory<short>> ListenCoreAsync(string? deviceId, bool communications, [EnumeratorCancellation] CancellationToken ct)
     {
         var devices = Enumerate();
         var resolved = MicrophoneChoice.Resolve(devices, deviceId);
-        Volatile.Write(ref _deviceName, MicrophoneChoice.Resolve(devices, _chosen()).Device?.Name);
+        Remember(devices);
         if (resolved.Device is null)
         {
             yield break;
@@ -87,7 +98,7 @@ public sealed class WindowsMicrophone : IMicrophone
             yield break;
         }
 
-        await using var recorder = Open(endpoint);
+        await using var recorder = Open(endpoint, communications);
         if (recorder is null)
         {
             yield break;
@@ -106,6 +117,13 @@ public sealed class WindowsMicrophone : IMicrophone
 
     /// <summary>Nothing held between listens: each enumeration of <see cref="ListenAsync"/> closes its own device.</summary>
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private void Remember(IReadOnlyList<MicrophoneDevice> devices)
+    {
+        var opens = MicrophoneChoice.Resolve(devices, _chosen()).Device;
+        Volatile.Write(ref _deviceName, opens?.Name);
+        Volatile.Write(ref _deviceId, opens?.Id);
+    }
 
     private static List<MicrophoneDevice> Enumerate()
     {
@@ -161,13 +179,18 @@ public sealed class WindowsMicrophone : IMicrophone
     /// mix format — and the conversion is ready for it, so the refusal is retried without the request
     /// rather than reported as a machine with no microphone.
     /// </summary>
-    private static WasapiRecorder? Open(MMDevice endpoint)
+    private static WasapiRecorder? Open(MMDevice endpoint, bool communications)
     {
         foreach (var asking in new[] { true, false })
         {
             try
             {
-                var builder = new WasapiRecorderBuilder().WithDevice(endpoint).WithCommunicationsMode();
+                var builder = new WasapiRecorderBuilder().WithDevice(endpoint);
+                if (communications)
+                {
+                    builder = builder.WithCommunicationsMode();
+                }
+
                 if (asking)
                 {
                     builder = builder.WithFormat(new WaveFormat(AudioConversion.TargetRate, 16, 1));

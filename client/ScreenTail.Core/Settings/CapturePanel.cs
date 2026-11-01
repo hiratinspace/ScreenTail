@@ -91,7 +91,12 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
     public string Sensitivity { get; set; } = "medium";
 
-    public const string MicrophoneApplies = "A new choice is used the next time the microphone opens: at the next session, or when a paused session resumes.";
+    /// <summary>
+    /// When a new choice takes effect. The microphone reads the choice each time it opens, and within a
+    /// session it opens again after every pause and every moment capture stopped (a password field, an
+    /// excluded app), so it can be sooner than the next session.
+    /// </summary>
+    public const string MicrophoneApplies = "A new choice is used the next time the microphone opens: at the next session, or sooner if a session pauses or stops capturing for a moment, as it does at a password field.";
 
     /// <summary>The capture devices the service found connected when the card loaded.</summary>
     public IReadOnlyList<MicrophoneDevice> Microphones { get; private set; } = [];

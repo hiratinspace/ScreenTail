@@ -1,3 +1,4 @@
+using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Ipc;
 
 namespace ScreenTail.Core.Speech;
@@ -46,17 +47,23 @@ public static class MicrophoneLevel
 /// <b>A new time the microphone opens outside a session,</b> so it is held to more than the recorder is:
 /// <list type="bullet">
 /// <item>It opens only when asked, and each request is a lease (<see cref="DefaultLease"/>). The card asks
-/// about ten times a second while it is on screen; when the asking stops, because the card was hidden,
-/// the window went to the background, or the UI hung or died, the device is closed by itself. Nothing on
-/// the UI's side has to remember to close it.</item>
-/// <item>It never opens while a session holds the microphone (recording, paused, suppressed or
-/// finishing), and a session that starts while it is open closes it. The recorder and the pill are left
+/// about ten times a second while it is looked at, and each request waits for the UI thread to answer
+/// first. When the asking stops, because the card was hidden, the window went to the background, the
+/// screen was locked, or the UI hung or died, the device is closed by itself within a few seconds.
+/// Nothing on the UI's side has to remember to close it.</item>
+/// <item>It is never open for longer than <see cref="MaxOpen"/> at a stretch, however the asking goes. It
+/// then stays closed until the card is put away and looked at again (a stop), so a Settings window left
+/// in front all afternoon does not keep the microphone open all afternoon.</item>
+/// <item>It never opens while a session holds the microphone (<see cref="HeldBy"/>: recording, paused,
+/// suppressed or finishing), and a session that starts closes it. The recorder and the pill are left
 /// exactly as they were: the meter does not change the session's state, so the pill and the tray never
 /// show it as capture (INV-4).</item>
 /// <item>Levels only. Each frame of audio is turned into one number and dropped. Nothing heard is kept,
 /// queued, transcribed, written or sent, and this class holds no field that could keep a sample: it has no
 /// store, no recogniser and no buffer (INV-9, <c>MicrophoneMeterTests</c> pins that). Nothing is logged.</item>
 /// <item>No timer while it is closed: an idle service makes no wakeups for it (ST-031).</item>
+/// <item>Its clock is the monotonic one, so the wall clock moving (a time zone, a sync) neither closes it
+/// early nor keeps it open.</item>
 /// </list>
 /// </summary>
 public sealed class MicrophoneMeter : IAsyncDisposable
@@ -67,14 +74,18 @@ public sealed class MicrophoneMeter : IAsyncDisposable
     /// <summary>How long a device that would not open, or stopped, is left alone before it is tried again.</summary>
     public static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(2);
 
-    // A device that does not let go within this is abandoned to its own cancellation rather than waited
-    // for: a request must not hang on a driver.
-    private static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(2);
+    /// <summary>The longest the meter keeps the device open at a stretch, whatever the asking (an owner decision; 2026-10-31 review).</summary>
+    public static readonly TimeSpan MaxOpen = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long a close waits for a driver to let go before the listen is abandoned to its own cancellation.</summary>
+    public static readonly TimeSpan DefaultCloseWait = TimeSpan.FromSeconds(2);
 
     private readonly IMicrophone _microphone;
     private readonly Func<bool> _sessionHoldsMicrophone;
     private readonly TimeProvider _time;
     private readonly TimeSpan _lease;
+    private readonly TimeSpan _cap;
+    private readonly TimeSpan _closeWait;
 
     // Opening and closing, one at a time.
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -84,12 +95,20 @@ public sealed class MicrophoneMeter : IAsyncDisposable
 
     private CancellationTokenSource? _listening;
     private Task? _loop;
+
+    // A listen that was told to stop and did not within the close wait. Nothing opens until it has gone,
+    // so a slow driver never ends up with two streams open on it.
+    private Task? _abandoned;
     private ITimer? _expiry;
     private string? _askedFor;
     private bool _disposed;
+    private bool _retrying;
+    private long _retryFrom;
 
-    private DateTimeOffset _leaseUntil;
-    private DateTimeOffset _retryAt = DateTimeOffset.MinValue;
+    private int _generation;
+    private long _leaseFrom;
+    private long _openedAt;
+    private bool _timedOut;
     private string _status = MicrophoneLevelStates.Closed;
     private double _level;
     private string? _deviceId;
@@ -99,16 +118,36 @@ public sealed class MicrophoneMeter : IAsyncDisposable
     /// device then, so a paused pill never sits beside a lit microphone.
     /// </param>
     /// <param name="lease">How long one request keeps the device open; <see cref="DefaultLease"/> when null.</param>
-    public MicrophoneMeter(IMicrophone microphone, Func<bool> sessionHoldsMicrophone, TimeProvider? time = null, TimeSpan? lease = null)
+    /// <param name="cap">The longest it stays open at a stretch; <see cref="MaxOpen"/> when null.</param>
+    /// <param name="closeWait">How long a close waits for the device; <see cref="DefaultCloseWait"/> when null.</param>
+    public MicrophoneMeter(IMicrophone microphone, Func<bool> sessionHoldsMicrophone, TimeProvider? time = null, TimeSpan? lease = null, TimeSpan? cap = null, TimeSpan? closeWait = null)
     {
         _microphone = microphone ?? throw new ArgumentNullException(nameof(microphone));
         _sessionHoldsMicrophone = sessionHoldsMicrophone ?? throw new ArgumentNullException(nameof(sessionHoldsMicrophone));
         _time = time ?? TimeProvider.System;
         _lease = lease ?? DefaultLease;
+        _cap = cap ?? MaxOpen;
+        _closeWait = closeWait ?? DefaultCloseWait;
+    }
+
+    /// <summary>Whether this state of the session holds the microphone, so the meter may not open it.</summary>
+    public static bool HeldBy(SessionState state) =>
+        state is SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing;
+
+    /// <summary>
+    /// The meter as the service runs it: held off by <paramref name="machine"/>'s session, and closed the
+    /// moment the machine moves into a state that holds the microphone.
+    /// </summary>
+    public static MicrophoneMeter ForMachine(IMicrophone microphone, SessionMachine machine, TimeProvider? time = null)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        var meter = new MicrophoneMeter(microphone, () => HeldBy(machine.State), time);
+        machine.StateChanged += changed => _ = meter.SessionChangedAsync();
+        return meter;
     }
 
     /// <summary>Whether the device is open for the meter right now.</summary>
-    public bool IsOpen => _loop is { IsCompleted: false };
+    public bool IsOpen => _loop is { IsCompleted: false } || _abandoned is { IsCompleted: false };
 
     /// <summary>How many times the meter has opened the device. A count, for the tests and nothing else.</summary>
     public int Opened { get; private set; }
@@ -136,7 +175,6 @@ public sealed class MicrophoneMeter : IAsyncDisposable
             }
 
             var wanted = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
-            var now = _time.GetUtcNow();
             if (_loop is not null && !string.Equals(_askedFor, wanted, StringComparison.OrdinalIgnoreCase))
             {
                 // Another device chosen in the picker: this one is let go of before the next opens.
@@ -144,16 +182,28 @@ public sealed class MicrophoneMeter : IAsyncDisposable
             }
 
             CollectEnded();
-            if (_loop is not null)
+            lock (_state)
             {
-                lock (_state)
+                if (_timedOut)
                 {
-                    _leaseUntil = now + _lease;
+                    return new MeterReading(MicrophoneLevelStates.TimedOut, 0, null);
+                }
+
+                if (_loop is not null)
+                {
+                    _leaseFrom = _time.GetTimestamp();
                     return new MeterReading(_status, _level, _deviceId);
                 }
             }
 
-            if (now < _retryAt && string.Equals(_askedFor, wanted, StringComparison.OrdinalIgnoreCase))
+            if (_abandoned is { IsCompleted: false })
+            {
+                // The last listen has not let go yet. Asking again is not a reason to open a second one.
+                return MeterReading.Closed;
+            }
+
+            _abandoned = null;
+            if (_retrying && _time.GetElapsedTime(_retryFrom) < RetryAfter && string.Equals(_askedFor, wanted, StringComparison.OrdinalIgnoreCase))
             {
                 lock (_state)
                 {
@@ -161,7 +211,7 @@ public sealed class MicrophoneMeter : IAsyncDisposable
                 }
             }
 
-            return Open(wanted, now);
+            return Open(wanted);
         }
         finally
         {
@@ -169,7 +219,10 @@ public sealed class MicrophoneMeter : IAsyncDisposable
         }
     }
 
-    /// <summary>The card left the screen: the device is closed now rather than when the lease runs out.</summary>
+    /// <summary>
+    /// The card left the screen: the device is closed now rather than when the lease runs out, and a meter
+    /// that reached <see cref="MaxOpen"/> may open again the next time the card is looked at.
+    /// </summary>
     public async Task StopAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -178,6 +231,10 @@ public sealed class MicrophoneMeter : IAsyncDisposable
             if (!_disposed)
             {
                 await CloseAsync().ConfigureAwait(false);
+                lock (_state)
+                {
+                    _timedOut = false;
+                }
             }
         }
         finally
@@ -187,8 +244,9 @@ public sealed class MicrophoneMeter : IAsyncDisposable
     }
 
     /// <summary>
-    /// Closes the device once its lease has run out. Called by the meter's own timer while it is open, and
-    /// on every frame of audio; public so that a test can drive it with a clock of its own.
+    /// Closes the device once its lease has run out, or once it has been open for <see cref="MaxOpen"/>.
+    /// Called by the meter's own timer while it is open, and checked on every frame of audio; public so
+    /// that a test can drive it with a clock of its own.
     /// </summary>
     public async Task ExpireAsync()
     {
@@ -201,9 +259,29 @@ public sealed class MicrophoneMeter : IAsyncDisposable
             }
 
             CollectEnded();
-            if (_loop is not null && Expired(_time.GetUtcNow()))
+            if (_loop is null)
+            {
+                return;
+            }
+
+            bool capped;
+            bool expired;
+            lock (_state)
+            {
+                capped = _time.GetElapsedTime(_openedAt) > _cap;
+                expired = _time.GetElapsedTime(_leaseFrom) > _lease;
+            }
+
+            if (capped || expired)
             {
                 await CloseAsync().ConfigureAwait(false);
+                if (capped)
+                {
+                    lock (_state)
+                    {
+                        _timedOut = true;
+                    }
+                }
             }
         }
         finally
@@ -242,7 +320,7 @@ public sealed class MicrophoneMeter : IAsyncDisposable
         }
     }
 
-    private MeterReading Open(string? wanted, DateTimeOffset now)
+    private MeterReading Open(string? wanted)
     {
         _askedFor = wanted;
         var resolved = MicrophoneChoice.Resolve(_microphone.Devices(), wanted);
@@ -255,23 +333,27 @@ public sealed class MicrophoneMeter : IAsyncDisposable
                 _deviceId = null;
             }
 
-            _retryAt = now + RetryAfter;
+            _retrying = true;
+            _retryFrom = _time.GetTimestamp();
             return new MeterReading(MicrophoneLevelStates.NoMicrophone, 0, null);
         }
 
+        int generation;
         lock (_state)
         {
+            generation = ++_generation;
             _status = MicrophoneLevelStates.Opening;
             _level = 0;
             _deviceId = resolved.Device.Id;
-            _leaseUntil = now + _lease;
+            _leaseFrom = _time.GetTimestamp();
+            _openedAt = _leaseFrom;
         }
 
-        _retryAt = DateTimeOffset.MinValue;
+        _retrying = false;
         _listening = new CancellationTokenSource();
         var token = _listening.Token;
         var device = resolved.Device.Id;
-        _loop = Task.Run(() => ListenAsync(device, token), CancellationToken.None);
+        _loop = Task.Run(() => ListenAsync(device, generation, token), CancellationToken.None);
 
         // Armed only while open, and checked twice a lease, so a quiet device with no frames arriving
         // is still closed on time.
@@ -281,9 +363,9 @@ public sealed class MicrophoneMeter : IAsyncDisposable
         return new MeterReading(MicrophoneLevelStates.Opening, 0, device);
     }
 
-    private async Task ListenAsync(string deviceId, CancellationToken ct)
+    private async Task ListenAsync(string deviceId, int generation, CancellationToken ct)
     {
-        var expired = false;
+        string? ended = null;
         try
         {
             await foreach (var frame in _microphone.ListenToAsync(deviceId, ct).ConfigureAwait(false))
@@ -293,9 +375,18 @@ public sealed class MicrophoneMeter : IAsyncDisposable
                 var level = MicrophoneLevel.Of(frame.Span);
                 lock (_state)
                 {
-                    if (_time.GetUtcNow() > _leaseUntil)
+                    if (generation != _generation)
                     {
-                        expired = true;
+                        ended = MicrophoneLevelStates.Closed;
+                    }
+                    else if (_time.GetElapsedTime(_openedAt) > _cap)
+                    {
+                        _timedOut = true;
+                        ended = MicrophoneLevelStates.TimedOut;
+                    }
+                    else if (_time.GetElapsedTime(_leaseFrom) > _lease)
+                    {
+                        ended = MicrophoneLevelStates.Closed;
                     }
                     else
                     {
@@ -304,21 +395,17 @@ public sealed class MicrophoneMeter : IAsyncDisposable
                     }
                 }
 
-                if (expired)
+                if (ended is not null)
                 {
                     // Leaving the loop disposes the enumerator, which closes the device.
                     break;
                 }
             }
 
-            if (!expired && !ct.IsCancellationRequested)
+            if (ended is null && !ct.IsCancellationRequested)
             {
                 // The device stopped by itself: unplugged, or Windows took it away.
-                Ended(MicrophoneLevelStates.Unavailable);
-            }
-            else if (expired)
-            {
-                Ended(MicrophoneLevelStates.Closed);
+                ended = MicrophoneLevelStates.Unavailable;
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -331,24 +418,20 @@ public sealed class MicrophoneMeter : IAsyncDisposable
         {
             // The type is not even logged: there is nothing a technician can do with it that the card's
             // sentence does not already say.
-            Ended(MicrophoneLevelStates.Unavailable);
+            ended = MicrophoneLevelStates.Unavailable;
         }
-    }
 
-    private void Ended(string status)
-    {
-        lock (_state)
+        if (ended is not null)
         {
-            _status = status;
-            _level = 0;
-        }
-    }
-
-    private bool Expired(DateTimeOffset now)
-    {
-        lock (_state)
-        {
-            return now > _leaseUntil;
+            lock (_state)
+            {
+                // A listen abandoned earlier and only now letting go speaks for nobody.
+                if (generation == _generation)
+                {
+                    _status = ended;
+                    _level = 0;
+                }
+            }
         }
     }
 
@@ -365,7 +448,8 @@ public sealed class MicrophoneMeter : IAsyncDisposable
         {
             if (_status == MicrophoneLevelStates.Unavailable)
             {
-                _retryAt = _time.GetUtcNow() + RetryAfter;
+                _retrying = true;
+                _retryFrom = _time.GetTimestamp();
             }
         }
     }
@@ -377,24 +461,26 @@ public sealed class MicrophoneMeter : IAsyncDisposable
             await _listening!.CancelAsync().ConfigureAwait(false);
             try
             {
-                await loop.WaitAsync(CloseWait).ConfigureAwait(false);
+                await loop.WaitAsync(_closeWait).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
-                // The driver is slow to let go; it has been told to, and the loop ends on its own.
+                // The driver is slow to let go. It has been told to, and nothing opens until it has.
+                _abandoned = loop;
             }
         }
 
         Release();
         lock (_state)
         {
+            ++_generation;
             _status = MicrophoneLevelStates.Closed;
             _level = 0;
             _deviceId = null;
         }
 
         _askedFor = null;
-        _retryAt = DateTimeOffset.MinValue;
+        _retrying = false;
     }
 
     private void Release()

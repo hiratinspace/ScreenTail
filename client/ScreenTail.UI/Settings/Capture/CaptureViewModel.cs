@@ -56,7 +56,7 @@ public sealed partial class HotkeyRowViewModel(HotkeyAction action, string label
 /// The microphone's live level is <see cref="MicrophoneLevelWatch"/>'s (AC3). The pane says when the
 /// card is being looked at and this passes it on; the watch decides nothing else and holds no audio.
 /// </summary>
-public sealed partial class CaptureViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class CaptureViewModel : ObservableObject
 {
     private static readonly (HotkeyAction Action, string Label)[] HotkeyLabels =
     [
@@ -112,15 +112,6 @@ public sealed partial class CaptureViewModel : ObservableObject, IAsyncDisposabl
     /// the window in front and not minimised. The level is asked for exactly while this is true.
     /// </summary>
     public Task SetMicrophoneCardWatchedAsync(bool watched) => _level?.SetWatchingAsync(watched) ?? Task.CompletedTask;
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_level is not null)
-        {
-            _level.Changed -= LevelChanged;
-            await _level.SetWatchingAsync(false).ConfigureAwait(true);
-        }
-    }
 
     public ObservableCollection<ToolRowViewModel> Tools { get; } = [];
 

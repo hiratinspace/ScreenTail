@@ -45,7 +45,8 @@ public interface IMicrophone : IAsyncDisposable
     /// <summary>
     /// <see cref="ListenAsync(CancellationToken)"/> on a named device rather than the chosen one, for
     /// Settings' level meter, which listens to what the picker shows before it is saved. A device that is
-    /// not connected falls back to Windows' default, as it does for a session.
+    /// not connected falls back to Windows' default, as it does for a session. Opened as plain capture,
+    /// not as a call, so Windows does not turn other sound down while the card is open.
     /// </summary>
     IAsyncEnumerable<ReadOnlyMemory<short>> ListenToAsync(string? deviceId, CancellationToken ct = default) => ListenAsync(ct);
 }
@@ -61,7 +62,14 @@ public sealed record MicrophoneDevice(string Id, string Name, bool IsDefault)
 
 /// <param name="Device">The device that opens, or null when none is connected.</param>
 /// <param name="ChosenIsMissing">A device was chosen and is not connected, so <paramref name="Device"/> is Windows' default.</param>
-public sealed record ResolvedMicrophone(MicrophoneDevice? Device, bool ChosenIsMissing);
+public sealed record ResolvedMicrophone(MicrophoneDevice? Device, bool ChosenIsMissing)
+{
+    /// <summary>
+    /// How the choice went, in words fit for a log: <c>none</c>, <c>fallback to default</c>, <c>chosen</c>
+    /// or <c>default</c>. Never the device's name, which can be personal (INV-10).
+    /// </summary>
+    public string ForLog => Device is null ? "none" : ChosenIsMissing ? "fallback to default" : Device.IsDefault ? "default" : "chosen";
+}
 
 /// <summary>
 /// Which device opens (ST-080 AC3): the chosen one when it is connected, otherwise Windows' default.

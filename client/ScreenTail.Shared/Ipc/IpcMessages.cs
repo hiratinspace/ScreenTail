@@ -688,6 +688,12 @@ public static class MicrophoneLevelStates
 
     /// <summary>The device would not open or stopped: unplugged, or blocked by Windows' privacy settings.</summary>
     public const string Unavailable = "unavailable";
+
+    /// <summary>
+    /// The meter was open for its longest stretch (five minutes) and closed. It stays closed until a
+    /// <c>stop_microphone_level</c>, which the card sends when it is put away, so looking at it again opens it.
+    /// </summary>
+    public const string TimedOut = "timed_out";
 }
 
 // ---- The company mapping (ST-097; 2026-09-25) ---------------------------------------------------------
