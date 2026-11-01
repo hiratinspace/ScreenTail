@@ -42,6 +42,8 @@ export function App({ api = defaultApi, button = defaultButton }: AppProps) {
     };
   }, [api]);
 
+  const nextNonce = useCallback(() => api.signInNonce(), [api]);
+
   const signIn = useCallback(
     async (credential: string) => {
       setBusy(true);
@@ -100,7 +102,7 @@ export function App({ api = defaultApi, button = defaultButton }: AppProps) {
         </main>
       )}
       {view.kind === 'signedOut' && (
-        <SignIn button={button} busy={busy} error={view.error} onCredential={(c) => void signIn(c)} />
+        <SignIn button={button} nextNonce={nextNonce} busy={busy} error={view.error} onCredential={(c) => void signIn(c)} />
       )}
       {view.kind === 'firstRun' && (
         <FirstRun

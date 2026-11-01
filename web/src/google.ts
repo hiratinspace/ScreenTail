@@ -5,8 +5,11 @@
  */
 
 export interface GoogleButton {
-  /** Draws Google's button into the element; calls back with the ID token when someone signs in. */
-  render(element: HTMLElement, onCredential: (credential: string) => void): Promise<void>;
+  /**
+   * Draws Google's button into the element; calls back with the ID token when someone signs in. The
+   * nonce is the backend's, and Google signs it into the token, which the backend then accepts once.
+   */
+  render(element: HTMLElement, nonce: string, onCredential: (credential: string) => void): Promise<void>;
 }
 
 interface GoogleIdentity {
@@ -14,6 +17,7 @@ interface GoogleIdentity {
     id: {
       initialize(options: {
         client_id: string;
+        nonce?: string;
         callback: (response: { credential?: string }) => void;
         ux_mode?: 'popup';
         auto_select?: boolean;
@@ -56,10 +60,12 @@ function load(): Promise<GoogleIdentity> {
 /** Google's button for this client id, loaded from Google the first time it is drawn. */
 export function googleButton(clientId: string): GoogleButton {
   return {
-    async render(element, onCredential) {
+    async render(element, nonce, onCredential) {
       const google = await load();
+      // Initialised again for each nonce: the last call is the one Google uses.
       google.accounts.id.initialize({
         client_id: clientId,
+        nonce,
         ux_mode: 'popup',
         auto_select: false,
         cancel_on_tap_outside: true,
@@ -69,6 +75,8 @@ export function googleButton(clientId: string): GoogleButton {
           }
         },
       });
+      // Drawn again in place of the old one, not beside it.
+      element.replaceChildren();
       google.accounts.id.renderButton(element, {
         type: 'standard',
         theme: 'outline',

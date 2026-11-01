@@ -69,6 +69,24 @@ public sealed class Owner
     public DateTimeOffset? DisabledAt { get; set; }
 }
 
+/// <summary>
+/// A sign-in nonce that has been used (ST-099 hardening, ADR-0009). Nonces are signed, not stored, when
+/// they are handed out; one is written here only when a session starts or a tenant is made with it, and
+/// its key is what makes a second use fail. Held as a hash and belonging to no tenant. A row is useless
+/// once its nonce has expired, and each new use deletes those.
+/// </summary>
+public sealed class AdminSignInNonce
+{
+    /// <summary>SHA-256 of the nonce, hex.</summary>
+    [MaxLength(64)]
+    public required string Id { get; set; }
+
+    /// <summary>When the nonce itself stops being accepted; after that the row can go.</summary>
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    public DateTimeOffset UsedAt { get; set; }
+}
+
 /// <summary>A technician.</summary>
 public sealed class User
 {

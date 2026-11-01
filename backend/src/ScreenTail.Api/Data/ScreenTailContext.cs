@@ -38,6 +38,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<DraftCost> DraftCosts => Set<DraftCost>();
 
+    public DbSet<AdminSignInNonce> AdminSignInNonces => Set<AdminSignInNonce>();
+
     /// <summary>
     /// Makes <see cref="DateTimeOffset"/> columns comparable on SQLite, which the tests run on.
     ///
@@ -116,6 +118,15 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
             owner.HasIndex(o => o.GoogleSubject).IsUnique();
             owner.HasIndex(o => o.TenantId).IsUnique();
             owner.HasOne(o => o.Tenant).WithMany().HasForeignKey(o => o.TenantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AdminSignInNonce>(nonce =>
+        {
+            nonce.ToTable("admin_sign_in_nonces");
+            nonce.HasKey(n => n.Id);
+
+            // The purge on every issue: everything past its expiry.
+            nonce.HasIndex(n => n.ExpiresAt);
         });
 
         modelBuilder.Entity<Device>(device =>

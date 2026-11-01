@@ -251,9 +251,9 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
     }
 
     [Fact]
-    public void ExactlyThreeAdminRoutesAreAnonymousAndEachReadsAtMostSixteenKilobytes()
+    public void ExactlyFourAdminRoutesAreAnonymousAndEachReadsAtMostSixteenKilobytes()
     {
-        // Sign-in, signup and sign-out. Anything else mapped under /v1/admin without the owner policy
+        // The sign-in nonce, sign-in, signup and sign-out. Anything else mapped under /v1/admin without the owner policy
         // would be an admin route anybody can call.
         var anonymous = api.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
@@ -262,7 +262,7 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
             .ToList();
 
         Assert.Equal(
-            ["POST /v1/admin/session", "POST /v1/admin/session/end", "POST /v1/admin/signup"],
+            ["POST /v1/admin/session", "POST /v1/admin/session/end", "POST /v1/admin/session/nonce", "POST /v1/admin/signup"],
             anonymous.SelectMany(e => e.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Select(m => $"{m} {e.RoutePattern.RawText}")).Order(StringComparer.Ordinal));
         Assert.All(anonymous, e => Assert.Equal(AdminSession.AnonymousBodyLimit, e.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>()?.MaxRequestBodySize));
     }

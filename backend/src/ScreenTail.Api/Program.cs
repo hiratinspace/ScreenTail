@@ -77,7 +77,24 @@ builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningK
     services.GetRequiredService<TimeProvider>(),
     services.GetRequiredService<ILogger<GoogleSigningKeys>>()));
 builder.Services.AddSingleton<GoogleIdTokenVerifier>();
+builder.Services.AddSingleton<SignInNonces>();
 builder.Services.AddOwnerPolicy();
+
+// ST-099 hardening. The anonymous routes (the admin's sign-in nonce, sign-in and signup, a device's
+// activation) are counted per client address and the call past the limit is refused with 429 before
+// anything checks it. Sign-out is not counted (ADR-0009).
+var rateLimits = builder.Configuration.GetSection(RateLimitOptions.Section).Get<RateLimitOptions>() ?? new RateLimitOptions();
+rateLimits.Validate();
+builder.Services.AddSingleton(rateLimits);
+builder.Services.AddAnonymousRateLimit(rateLimits);
+
+// Behind a reverse proxy every caller would arrive from the proxy and share one count, so one person
+// could lock everyone out of sign-in. The operator lists the proxies (ForwardedHeaders:KnownProxies,
+// ForwardedHeaders:KnownNetworks); only a connection from one of them has its X-Forwarded-For read.
+// Nothing is listed by default, and then no forwarded header is read from anybody.
+var trustedProxies = builder.Configuration.GetSection(TrustedProxyOptions.Section).Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
+trustedProxies.Validate();
+builder.Services.PostConfigure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(trustedProxies.Apply);
 
 // ST-063. The key has no default and is read from the environment; with none set the service still
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
@@ -301,6 +318,30 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
     return;
 }
 
+// ST-099 hardening. Every answer, refusals and errors included, says it is not to be rendered, framed,
+// sniffed or followed by a referrer (ADR-0009).
+app.UseSecurityHeaders();
+
+// An exception nobody caught becomes a bare 500 here rather than in the server, which would drop the
+// headers above with everything else it had set. The exception is still logged (scrubbed, INV-10), and
+// nothing about it reaches the caller. In Development too, so the tests see what a deployment does.
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    ExceptionHandler = static _ => Task.CompletedTask,
+
+    // A body the endpoint could not bind (malformed JSON, the wrong content type) is the caller's mistake
+    // and keeps its 400 or 415. Development throws these rather than answering them, so without this the
+    // demo laptop, which runs in Development, would answer them 500.
+    StatusCodeSelector = static e => e is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError,
+});
+
+// Before anything that reads the client's address or scheme (the rate limit's partition, HTTPS
+// redirection), so each sees the client a listed proxy speaks for, and only then.
+if (trustedProxies.Configured)
+{
+    app.UseForwardedHeaders();
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
@@ -311,6 +352,11 @@ if (!app.Environment.IsDevelopment())
 app.UseRequestStart();
 app.UseRequestTimeouts();
 app.UseAdminNoStore();
+
+// After the no-store guard, so a refusal is not kept either; before authentication, so a refused call
+// costs nothing more than the count. A call another site's page started is refused before it is counted.
+app.UseCrossSiteRefusal();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDraftingConcurrency();

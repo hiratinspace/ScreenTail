@@ -143,6 +143,10 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // developer keeps in user secrets, and no host in this suite can fetch Google's keys.
         builder.UseSetting("Admin:GoogleClientId", string.Empty);
 
+        // Every request in this suite comes from the test host's one address, so the anonymous routes'
+        // limit is lifted here; RateLimitTests puts the real thing back with a small limit of its own.
+        builder.UseSetting("RateLimit:PermitLimit", "100000");
+
         builder.ConfigureServices(services =>
         {
             _ = services.RemoveAll<IGoogleSigningKeys>();

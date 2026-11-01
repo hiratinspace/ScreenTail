@@ -30,6 +30,12 @@ public sealed class AdminOptions
     /// <summary>How long an admin session lasts before the owner signs in again. There is no refresh.</summary>
     public TimeSpan SessionLifetime { get; set; } = TimeSpan.FromHours(8);
 
+    /// <summary>
+    /// How long a sign-in nonce is accepted after the page asked for it: from drawing Google's button to
+    /// the session starting, the first-run screen included. The page asks for a fresh one before this runs out.
+    /// </summary>
+    public TimeSpan SignInNonceLifetime { get; set; } = TimeSpan.FromMinutes(10);
+
     /// <summary>Where technicians download the client. Empty until there is a published installer (ST-112, ST-007).</summary>
     public string ClientDownloadUrl { get; set; } = string.Empty;
 
@@ -65,6 +71,11 @@ public sealed class AdminOptions
         if (SessionLifetime < TimeSpan.FromMinutes(5) || SessionLifetime > TimeSpan.FromHours(24))
         {
             throw new InvalidOperationException("Admin:SessionLifetime must be between 5 minutes and 24 hours.");
+        }
+
+        if (SignInNonceLifetime < TimeSpan.FromMinutes(1) || SignInNonceLifetime > TimeSpan.FromHours(1))
+        {
+            throw new InvalidOperationException("Admin:SignInNonceLifetime must be between 1 minute and 1 hour.");
         }
 
         if (!string.IsNullOrWhiteSpace(ClientDownloadUrl) && DownloadUri() is null)

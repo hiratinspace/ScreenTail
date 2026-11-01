@@ -3,6 +3,7 @@
 **Snapshot taken:** 2026-10-29, after the day's merges (#225 to #234): the loop harness, Claude as a
 drafting provider, the modern Windows 11 look, auto-update (switched off), the processor limit and the
 demo's diagnostic report. Updated 2026-10-31 for the web admin (ST-099, branch `st-099-web-admin`)
+and 2026-11-01 for its hardening (branch `st-099-hardening`)
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -64,7 +65,10 @@ a CSRF header, apart from device tokens in every direction. An address on the op
 creates its tenant on the first sign-in; the owner then invites technicians (the code shown once), sees
 seats and devices activate, revokes a device, sets the policy and sees integration status. Every page
 scored 100 for accessibility in Lighthouse. It is off until a Google OAuth client id is set, and has not
-yet been signed into with a real Google account (`docs/dev/web-admin.md`).
+yet been signed into with a real Google account (`docs/dev/web-admin.md`). **Hardened 2026-11-01:** the
+anonymous sign-in and activation routes are rate limited per address (sign-out never), every Google
+token must carry a single-use nonce the page asked for, and the API and the page send a
+Content-Security-Policy and related headers (ADR-0009 "Hardening").
 
 **ST-031's processor limit is built** (#232). Ten seconds over the recording budget and capture gives up
 one step at a time: fewer scene samples, then one OCR reader, then scene sampling stops. The input hooks,
@@ -86,7 +90,7 @@ for the owner to decide is in §5.
 
 - **45 are done outright.**
 - **22 are built with a named part still owed:** ST-099 (the web admin) owes a run with a real Google
-  account and the owner's OAuth client id; ST-091, ST-092, ST-095 and ST-096 are done against
+  account and the owner's OAuth client id, and its proxy listed once hosting exists; ST-091, ST-092, ST-095 and ST-096 are done against
   recorded shapes and owe the real ConnectWise and Hudu checks; ST-093, ST-094 and ST-097 are done on the
   server side; ST-073, ST-076, ST-077, ST-078 and ST-085 are done on the Mac side; ST-080, ST-081, ST-082
   and ST-083 are built and not yet seen on a real screen; ST-010 (the device side), ST-062 (the harness;
@@ -113,9 +117,9 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 | GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #227; one open pull request, #235 (repository housekeeping) |
 | Build plan | `Build Plan/` | Spec at **v0.4.3** accepted; the v0.5.0 amendment (the modern look, #228) waits for the owner. Backlog Part C is the ordered plan, Part D the amendments |
 | Client | `client/` | `.Shared` (schema and IPC), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`. **2,759 tests** in the suite that runs anywhere and **287** in the Windows-only suite (CI on #229, ten of them skipped on the hosted runner by design) |
-| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, the update policy fields, and owner sign-in with Google and the web admin's routes (ST-099). **1,282 tests** (two skipped). Runs locally on PostgreSQL; not deployed (ST-007) |
+| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, the update policy fields, and owner sign-in with Google and the web admin's routes (ST-099), with their rate limit, sign-in nonce and security headers. **1,340 tests** (two skipped). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** |
-| Web admin | `web/`, `docs/dev/web-admin.md` | React and TypeScript on the shared tokens: Google sign-in, first-run tenant, Technicians and seats, Policy, Integrations, Download client (ST-099). **25 component and client tests**; Lighthouse accessibility 100 |
+| Web admin | `web/`, `docs/dev/web-admin.md` | React and TypeScript on the shared tokens: Google sign-in, first-run tenant, Technicians and seats, Policy, Integrations, Download client (ST-099), with its security headers in `web/security-headers.ts`. **40 component, client and build tests**; Lighthouse accessibility 100 |
 | Shared contracts | `shared/` | The session schema, the design tokens, and the wire contracts (summarize, publish, session metric, tenant policy) both sides test against |
 | Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop (#219, #227). Parse-checked in CI; not yet run end to end by a person |
 | Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider (#230). Green on the hosted VM, report-only in CI |
@@ -338,7 +342,9 @@ says so.
   nobody); a new tenant starts with 5 seats; one owner per tenant and one tenant per Google account;
   invite codes shown once to the owner to hand on (no mail yet); 8-hour sessions with no refresh, and
   sign-out ending every session of that owner; integration status without even a credential's last
-  four; no sign-in while Google's keys cannot be fetched. ADR-0009 lists them all.
+  four; no sign-in while Google's keys cannot be fetched. Since 2026-11-01 also: ten anonymous sign-in
+  and activation calls a minute per address; no proxy trusted until listed; a 10-minute sign-in nonce;
+  inline styles allowed in the page's CSP because Google's button needs them. ADR-0009 lists them all.
 - **Mail** (ST-007, ST-010): which email service sends invites and the offboarding receipt.
 - **The brand colour and logo** (#228): the Fluent blue and the text wordmark are placeholders. Also,
   accept spec amendment v0.5.0 in `Build Plan/01-UX-Design-Spec.md`, or say what to change.
