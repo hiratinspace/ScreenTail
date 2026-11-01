@@ -143,7 +143,10 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   nothing else (no data, no Run value, no capture). A major upgrade removes the old version
   (RemoveExistingProducts, after InstallValidate) without the uninstall step, and in the CI upgrade logs
   Restart Manager ended the running service only about a second before the old files were deleted, so a
-  scanner still reading the executable turned the upgrade into 3010. It lives in the version being
+  scanner still reading the executable turned the upgrade into 3010. On CI the step found the old
+  service still running, and stopped it, in every upgrade, under a second after Restart Manager had
+  reported it shut down; with the step's wait switched off, all three upgrades in the smoke test ended
+  in 3010 with `ScreenTail.Service.exe` queued for deletion at the next restart. It lives in the version being
   removed because nothing else can run it in time: before RemoveExistingProducts the new files are not on
   the machine, and a version without this mode, given a flag it does not know, would start the capture
   service as the system account. **So upgrades are covered from the first version that has the mode**;
