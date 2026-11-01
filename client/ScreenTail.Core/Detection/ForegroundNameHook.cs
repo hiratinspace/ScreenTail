@@ -55,7 +55,8 @@ public sealed class ForegroundNameHook : IDisposable
 
     /// <summary>
     /// How many times Windows refused the hook for the thread in front, so that it went back to every
-    /// thread. A count only, for diagnostics: no window, title or process is kept (INV-10).
+    /// thread. A count only: no window, title or process is kept (INV-10). Tests read it; the service does
+    /// not show it anywhere yet.
     /// </summary>
     public long Refusals => Interlocked.Read(ref _refusals);
 

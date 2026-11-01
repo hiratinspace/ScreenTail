@@ -131,21 +131,41 @@ public sealed class FocusInterestTests : IAsyncDisposable
         // run, so a session can start at any moment of the constructor. Here it starts inside the first
         // answer's callback, the last moment before the old code subscribed, which left the hook out for
         // the whole session.
+        //
+        // The session starts on another task, and the callback waits only for the state to change, never
+        // for the start to finish: with the fix the start's announcement waits at this class's gate, which
+        // the callback is inside, so waiting for StartAsync itself would wait for ever. Every wait is
+        // bounded, so a regression fails the test instead of hanging it.
         _harness = await MachineHarness.StartAsync();
         var machine = _harness.Machine;
-        var started = false;
+        var ct = TestContext.Current.CancellationToken;
+        Task<bool>? starting = null;
+        var told = new List<bool>();
         using var interest = new FocusInterest(machine, wanted =>
         {
-            _told.Add(wanted);
-            if (!started)
+            lock (told)
             {
-                started = true;
-                Assert.True(machine.StartAsync(Rdp, localOnly: false, policyVersion: null).GetAwaiter().GetResult());
+                told.Add(wanted);
+            }
+
+            if (starting is null)
+            {
+                starting = Task.Run(() => machine.StartAsync(Rdp, localOnly: false, policyVersion: null, ct: ct), ct);
+                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+                while (machine.State != SessionState.Recording && DateTime.UtcNow < deadline)
+                {
+                    Thread.Sleep(5);
+                }
             }
         });
 
+        Assert.NotNull(starting);
+        Assert.True(await starting.WaitAsync(TimeSpan.FromSeconds(10), ct), "the session did not start");
         Assert.True(interest.Listening);
-        Assert.Equal([false, true], _told);
+        lock (told)
+        {
+            Assert.Equal([false, true], told);
+        }
     }
 
     public async ValueTask DisposeAsync()

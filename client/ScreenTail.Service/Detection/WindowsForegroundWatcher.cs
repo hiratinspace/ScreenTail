@@ -69,7 +69,8 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     /// <summary>
     /// How many times Windows refused the name hook for the thread in front, so that it heard every thread
-    /// instead. A count, for the log and the diagnostics; nothing about the window (INV-10).
+    /// instead. A count and nothing about the window (INV-10). Read by tests today; nothing in the service
+    /// shows it yet, so a refusal costs idle wakeups without saying so until something does.
     /// </summary>
     public long NameHookRefusals => _names?.Refusals ?? 0;
 

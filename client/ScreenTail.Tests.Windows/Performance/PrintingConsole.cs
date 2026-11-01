@@ -91,9 +91,15 @@ internal sealed class PrintingConsole : IDisposable
         var retitling = retitle
             ? string.Create(CultureInfo.InvariantCulture, $"if ($i % 25 -eq 0) {{ $Host.UI.RawUI.WindowTitle = '{TitlePrefix} ' + $i }}; ")
             : string.Empty;
+        // Three ways to end, so a shell never outlives its test and goes on printing into a later
+        // measurement: the sentinel deleted (the normal way), the test host gone (checked once a second,
+        // because a test host that crashed deletes nothing), and ten minutes up whatever else happened.
         var command = string.Create(
             CultureInfo.InvariantCulture,
-            $"-NoProfile -NonInteractive -Command \"& {{ $i = 0; while (Test-Path -LiteralPath '{sentinel.Replace("'", "''", StringComparison.Ordinal)}') {{ $i++; 'ScreenTail console line ' + $i; {retitling}Start-Sleep -Milliseconds 20 }} }}\"");
+            $"-NoProfile -NonInteractive -Command \"& {{ $i = 0; $end = (Get-Date).AddMinutes(10); "
+            + $"while ((Test-Path -LiteralPath '{sentinel.Replace("'", "''", StringComparison.Ordinal)}') -and ((Get-Date) -lt $end)) {{ "
+            + $"$i++; if (($i % 50 -eq 0) -and -not (Get-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue)) {{ break }}; "
+            + $"'ScreenTail console line ' + $i; {retitling}Start-Sleep -Milliseconds 20 }} }}\"");
         var start = host == ConsoleHost.Classic
             ? new ProcessStartInfo("conhost.exe", "powershell.exe " + command)
             : new ProcessStartInfo("powershell.exe", command);
@@ -157,7 +163,7 @@ internal sealed class PrintingConsole : IDisposable
         {
             File.Delete(sentinel);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // The shell is killed below instead.
         }
