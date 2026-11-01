@@ -277,8 +277,10 @@ microphone, closes its store and exits, in well under a second when idle and nev
 than four seconds. A session that was recording is not finalized then: it is recovered as partial at the
 next start, as after a crash, because finishing a note needs up to twenty seconds of redaction that
 Windows does not give. The UI already closed on Windows' request. In the uninstall log, the step's line
-`N running copies stopped` counts only the copies Restart Manager could not reach: other users'
-sessions when the installer runs as the system account.
+`N running copies stopped` counts only the copies Restart Manager did not close: other users' sessions
+when the installer runs as the system account, and any session where another program (a scanner, an
+endpoint agent) held an installed file at that moment, because ScreenTail's package asks only programs
+registered for restart and asks nobody when something else is in the way (`MSIRMSHUTDOWN=2`).
 
 **Other programs' installers can close ScreenTail, and it starts again.** Any installer that replaces a
 file ScreenTail has loaded, a silent Visual C++ runtime update for one, can now ask it to close through

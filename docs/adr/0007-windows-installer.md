@@ -118,7 +118,11 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   `RmOtherWindow`, its shutdown without force succeeds, and the service stops capture, closes its store
   and exits by itself in about 150 ms (CI smoke test). Windows Installer's own Restart Manager, in
   InstallValidate, then closes it on an uninstall run from the technician's session, and the uninstall
-  step reports `0 running copies stopped`. The terminating steps stay, for what Restart Manager does not
+  step reports `0 running copies stopped`. The package sets `MSIRMSHUTDOWN=2`: Windows Installer asks
+  only programs registered for restart, which the service is, and asks nobody if anything else holds an
+  installed file, so a scanner, an endpoint agent or the CI runner's monitor reading the executable is
+  never asked to close by ScreenTail's installer. (Suspected cause of the CI runs of 2026-11-01 that
+  never ended and left no log once the service could be closed: a runner process asked to close.) The terminating steps stay, for what Restart Manager does not
   reach: other sessions when the installer runs as the system account, and an upgrade whose files carry
   the same version (Windows Installer registers only files it will replace). A session that was
   recording is left for recovery, never finalized at that moment: finishing a note needs up to twenty

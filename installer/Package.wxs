@@ -39,6 +39,13 @@
          leaves the service down until the next sign-in, as ADR-0007 says, and Windows Installer's restart
          would otherwise start the new service from the installer's own, elevated, process. -->
     <Property Id="MSIDISABLERMRESTART" Value="1" />
+
+    <!-- And Windows Installer's Restart Manager asks only programs registered for restart to close, which
+         ScreenTail's service is, and if anything holding an installed file is not, it asks nobody: a
+         virus scanner, an endpoint agent or the CI runner's monitor reading the executable at that moment
+         is never asked to close by ScreenTail's installer. Whatever is not asked is ended as before (the
+         close steps below, and the uninstall step). -->
+    <Property Id="MSIRMSHUTDOWN" Value="2" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
 
     <!-- Whisper's native libraries need the Visual C++ 2015-2022 x64 runtime, which a fresh Windows does

@@ -29,6 +29,15 @@ public sealed class InstallerAuthoringTests
     }
 
     [Fact]
+    public void ScreenTailsOwnInstallerAsksOnlyProgramsRegisteredForRestartToClose()
+    {
+        // MSIRMSHUTDOWN=2: the service, registered for restart, is asked; a scanner or an agent that happens
+        // to hold an installed file is never asked to close, and if one holds it nobody is (ST-112).
+        var property = Assert.Single(Package().Descendants(Wix + "Property"), p => (string?)p.Attribute("Id") == "MSIRMSHUTDOWN");
+        Assert.Equal("2", (string?)property.Attribute("Value"));
+    }
+
+    [Fact]
     public void TheInstallIsPerMachine()
     {
         // MSP tools (Intune, RMM agents) install as the system account, so a per-user package would land
