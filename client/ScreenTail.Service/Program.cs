@@ -3,6 +3,7 @@ using System.Text.Json;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Install;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Lifecycle;
 using ScreenTail.Core.Speech;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
@@ -144,7 +145,30 @@ _ = builder.Logging.ClearProviders();
 _ = builder.Logging.SetMinimumLevel(logLevel);
 _ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(Console.Error, logLevel));
 builder.Services.AddHostedService<CaptureHost>();
-await builder.Build().RunAsync().ConfigureAwait(false);
+var host = builder.Build();
+
+// ST-112: Windows asks a program to close through its windows, and this one had none, so sign-out, shutdown
+// and an installer's Restart Manager could only end it. The hidden window answers them by stopping the host
+// the way any other stop does, and holds WM_ENDSESSION, at most four seconds, until everything below has
+// closed: Windows may end the process the moment that message returns (CloseRequests).
+var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+var closeRequests = new CloseRequests(lifetime.StopApplication, stopped.Task);
+// Its own logger, the same scrubbed sink, because the window logs the outcome after the host and its
+// logging have been disposed.
+using var sessionEndLog = new ScrubbingLoggerProvider(Console.Error, logLevel);
+using var sessionEnd = SessionEndWindow.Start(closeRequests, sessionEndLog.CreateLogger("ScreenTail.Service.SessionEnd"));
+try
+{
+    // Disposes the host when it returns, so the store is closed and the microphone and hooks released by the
+    // time the window is told the service has stopped.
+    await host.RunAsync().ConfigureAwait(false);
+}
+finally
+{
+    _ = stopped.TrySetResult();
+}
+
 return 0;
 
 static string ServiceVersion() => typeof(CaptureHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";

@@ -298,7 +298,17 @@ Check 'the installed service starts and writes its pipe token' (Start-InstalledS
 
 # TEMPORARY PROBE (ST-112 graceful close): what Restart Manager makes of each process. Removed before the final head.
 Write-Step 'PROBE: Restart Manager and the running service'
+Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+Remove-Item (Join-Path $dataDir 'ipc.token') -Force -ErrorAction SilentlyContinue
+$probeLog = Join-Path $Logs 'probe-service.log'
+$null = Start-Process -FilePath $serviceExe -WorkingDirectory $installDir -RedirectStandardError $probeLog -PassThru
+for ($i = 0; $i -lt 60 -and -not (Test-Path (Join-Path $dataDir 'ipc.token')); $i++) { Start-Sleep -Seconds 1 }
+Start-Sleep -Seconds 2
+Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: before: $($_.Name)" }
 & (Join-Path $PSScriptRoot 'rm-probe.ps1') -Exe $serviceExe
+Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: after: $($_.Name)" }
+Get-Content $probeLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'close|session|stopping|Windows' } | ForEach-Object { Write-Host "PROBE: log: $_" }
 Write-Step 'PROBE: Restart Manager and the running UI'
 $null = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
 Start-Sleep -Seconds 10
