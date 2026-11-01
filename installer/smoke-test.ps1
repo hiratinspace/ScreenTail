@@ -196,9 +196,11 @@ function Test-ClosedByItself([string]$What, $Result) {
 }
 
 function Test-RestartManagerShutdown([string]$What, $Result) {
+    # Matched as strings: a line that is not there comes back from Select-Object as an empty result, and
+    # -match on that is an empty array, not $false.
     Check "${What}: Restart Manager was asked about the one running copy and nothing else" (@($Result.Lines | Where-Object { $_ -eq 'listed 1' }).Count -eq 1) (@($Result.Lines | Where-Object { $_ -match '^listed ' }) -join ' ')
     $shutdown = @($Result.Lines | Where-Object { $_ -match '^shutdown ' }) | Select-Object -First 1
-    Check "${What}: Restart Manager's shutdown without force succeeded" ($shutdown -match '^shutdown 0 ') "$shutdown"
+    Check "${What}: Restart Manager's shutdown without force succeeded" ("$shutdown" -match '^shutdown 0 ') "$shutdown"
 }
 
 function Test-StoreOpen([string]$What) {
@@ -377,7 +379,7 @@ Check 'the installed service starts again, logging to a file' (Start-InstalledSe
 Test-StoreOpen 'the restarted service'
 $closed = Invoke-Close $serviceExe 'RestartManager' 'service-restart-manager' -Restart
 $type = @($closed.Lines | Where-Object { $_ -match '^app-type \d+ ' }) | Select-Object -First 1
-Check 'Restart Manager sees the service as a program with a window it can ask, not RmUnknownApp' ($type -match '^app-type \d+ [12]$') "$type"
+Check 'Restart Manager sees the service as a program with a window it can ask, not RmUnknownApp' ("$type" -match '^app-type \d+ [12]$') "$type"
 Test-RestartManagerShutdown 'the service' $closed
 Test-ClosedByItself "Restart Manager's request to the service" $closed
 Test-StoreClosed "Restart Manager's request to the service" $closed
