@@ -196,6 +196,7 @@ function Test-ClosedByItself([string]$What, $Result) {
 }
 
 function Test-RestartManagerShutdown([string]$What, $Result) {
+    Check "${What}: Restart Manager was asked about the one running copy and nothing else" (@($Result.Lines | Where-Object { $_ -eq 'listed 1' }).Count -eq 1) (@($Result.Lines | Where-Object { $_ -match '^listed ' }) -join ' ')
     $shutdown = @($Result.Lines | Where-Object { $_ -match '^shutdown ' }) | Select-Object -First 1
     Check "${What}: Restart Manager's shutdown without force succeeded" ($shutdown -match '^shutdown 0 ') "$shutdown"
 }

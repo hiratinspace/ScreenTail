@@ -4,9 +4,11 @@
     whether it closed by itself (ST-112). For the installer smoke test.
 
 .DESCRIPTION
-    -Mode RestartManager: what Windows Installer does in InstallValidate. A Restart Manager session with
-    the executable registered, the type Restart Manager gives each process holding it, then a shutdown
-    without force, which only asks.
+    -Mode RestartManager: what Windows Installer does in InstallValidate. A Restart Manager session, the
+    type Restart Manager gives each running copy, then a shutdown without force, which only asks. The
+    copies are registered by process, not by file as Windows Installer registers them: by file, Restart
+    Manager would also ask whatever else had the executable open at that moment, a scanner or the CI
+    runner's own monitor, to close, and a runner asked to close wedges the job with no log.
     -Mode CloseMessage: WM_CLOSE posted to the service's session-end window, as taskkill without /f does.
     -Restart (RestartManager only): once every process has ended, Restart Manager's restart in the same
     session, as Windows Installer makes it when the installation is done; then it looks for a new copy.
@@ -14,6 +16,7 @@
     Then it waits up to -WaitSeconds for each process to end, and prints one line per fact, for the smoke
     test to check:
         processes <n>
+        listed <n>                            (RestartManager: processes it would ask, only ours)
         app-type <pid> <RM_APP_TYPE>          (RestartManager)
         restartable <pid> <True|False>        (RestartManager: registered for restart)
         shutdown <win32 result> <ms>          (RestartManager)
@@ -87,13 +90,23 @@ public static class ScreenTailClose
         if (rc != 0) { lines.Add("session " + rc); return lines; }
         try
         {
-            rc = RmRegisterResources(handle, 1, new[] { file }, 0, null, 0, null);
+            // These processes and nothing else (see the description).
+            var unique = new RM_UNIQUE_PROCESS[processes.Count];
+            for (var i = 0; i < processes.Count; i++)
+            {
+                var started = processes[i].StartTime.ToFileTime();
+                unique[i].dwProcessId = processes[i].Id;
+                unique[i].ProcessStartTime.dwLowDateTime = (int)(started & 0xFFFFFFFF);
+                unique[i].ProcessStartTime.dwHighDateTime = (int)(started >> 32);
+            }
+            rc = RmRegisterResources(handle, 0, null, (uint)unique.Length, unique, 0, null);
             if (rc != 0) { lines.Add("register " + rc); return lines; }
             uint needed, count = 0, reasons = 0;
             RmGetList(handle, out needed, ref count, null, ref reasons);
             var info = new RM_PROCESS_INFO[needed + 1];
             count = (uint)info.Length;
             rc = RmGetList(handle, out needed, ref count, info, ref reasons);
+            lines.Add("listed " + (rc == 0 ? count : 0));
             for (var i = 0; rc == 0 && i < count; i++)
             {
                 lines.Add("app-type " + info[i].Process.dwProcessId + " " + info[i].ApplicationType);
