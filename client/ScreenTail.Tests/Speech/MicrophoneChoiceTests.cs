@@ -48,4 +48,24 @@ public sealed class MicrophoneChoiceTests
         Assert.Equal(new ResolvedMicrophone(null, ChosenIsMissing: false), MicrophoneChoice.Resolve([], null));
         Assert.Equal(new ResolvedMicrophone(null, ChosenIsMissing: true), MicrophoneChoice.Resolve([], Headset.Id));
     }
+
+    [Fact]
+    public void TheLogSaysHowTheChoiceWentAndNeverTheName()
+    {
+        // Device names can be personal, and the service log is sent with a problem report (INV-10).
+        var cases = new[]
+        {
+            (MicrophoneChoice.Resolve([Headset, BuiltIn], Headset.Id), "chosen"),
+            (MicrophoneChoice.Resolve([Headset, BuiltIn], null), "default"),
+            (MicrophoneChoice.Resolve([BuiltIn], Headset.Id), "fallback to default"),
+            (MicrophoneChoice.Resolve([], null), "none"),
+        };
+
+        foreach (var (resolved, words) in cases)
+        {
+            Assert.Equal(words, resolved.ForLog);
+            Assert.DoesNotContain("Headset", resolved.ForLog, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("microphone", resolved.ForLog, StringComparison.OrdinalIgnoreCase);
+        }
+    }
 }

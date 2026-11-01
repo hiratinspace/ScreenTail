@@ -26,6 +26,9 @@ internal sealed class ScriptedMicrophone : IMicrophone
     /// <summary>Every device id a listen opened, in order.</summary>
     public List<string?> OpenedIds { get; } = [];
 
+    /// <summary>A driver slow to let go: a listen that ignores being told to stop and ends only when unplugged.</summary>
+    public bool IgnoresCancellation { get; set; }
+
     /// <summary>How many listens are open now.</summary>
     public int Open => Volatile.Read(ref _open);
 
@@ -49,7 +52,7 @@ internal sealed class ScriptedMicrophone : IMicrophone
         _ = Interlocked.Increment(ref _open);
         try
         {
-            await foreach (var frame in frames.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            await foreach (var frame in frames.Reader.ReadAllAsync(IgnoresCancellation ? CancellationToken.None : ct).ConfigureAwait(false))
             {
                 yield return frame;
             }

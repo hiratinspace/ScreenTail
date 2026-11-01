@@ -127,6 +127,63 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
         Assert.Equal(1, _levels.Reads);
     }
 
+    [Fact]
+    public async Task AWindowThatCannotAnswerAsksForNothing()
+    {
+        // A hung UI thread: the request waits for it, so the service hears nothing and lets go.
+        var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var watch = new MicrophoneLevelWatch(_levels, ct => _tick.WaitAsync(ct), ct => answered.Task);
+
+        await watch.SetWatchingAsync(true);
+        await Task.Delay(150, Ct);
+        Assert.Equal(0, _levels.Reads);
+
+        answered.SetResult();
+        await WaitUntilAsync(() => _levels.Reads == 1);
+        Assert.Equal(1, _levels.Reads);
+    }
+
+    [Fact]
+    public async Task AFailingRequestIsShownAsNoAnswerAndTheCardCarriesOn()
+    {
+        _levels.Fails = true;
+        await using var watch = Watch();
+
+        await watch.SetWatchingAsync(true);
+        await WaitUntilAsync(() => watch.Status != MicrophoneLevelWatch.NotWatching);
+        Assert.Contains("did not answer", watch.Status, StringComparison.Ordinal);
+        _tick.Release();
+        await WaitUntilAsync(() => _levels.Reads >= 2);
+        Assert.True(_levels.Reads >= 2);
+
+        await watch.SetWatchingAsync(false);
+        Assert.False(watch.Watching);
+        _levels.Fails = false;
+        await watch.SetWatchingAsync(true);
+        await WaitUntilAsync(() => watch.Level > 0);
+        Assert.Equal(0.4, watch.Level);
+    }
+
+    [Fact]
+    public async Task AStopThatNeverAnswersDoesNotHoldTheCard()
+    {
+        _levels.StopHangs = true;
+        await using var watch = Watch();
+        await watch.SetWatchingAsync(true);
+        await WaitUntilAsync(() => _levels.Reads == 1);
+
+        var hiding = watch.SetWatchingAsync(false);
+        var finished = await Task.WhenAny(hiding, Task.Delay(MicrophoneLevelWatch.StopWait * 3, Ct));
+
+        Assert.Same(hiding, finished);
+        Assert.False(watch.Watching);
+        var asked = _levels.Reads;
+        await watch.SetWatchingAsync(true);
+        await WaitUntilAsync(() => _levels.Reads > asked);
+        Assert.True(_levels.Reads > asked);
+        _levels.StopHangs = false;
+    }
+
     [Theory]
     [InlineData(MicrophoneLevelStates.Session, "between sessions")]
     [InlineData(MicrophoneLevelStates.NoMicrophone, "No microphone")]
@@ -178,6 +235,10 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
 
         public int Reads => Volatile.Read(ref _reads);
 
+        public bool Fails { get; set; }
+
+        public bool StopHangs { get; set; }
+
         public List<string?> DeviceIds { get; } = [];
 
         public List<string> Calls { get; } = [];
@@ -191,6 +252,11 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
             }
 
             _ = Interlocked.Increment(ref _reads);
+            if (Fails)
+            {
+                throw new IOException("The pipe broke.");
+            }
+
             if (Next is { } next)
             {
                 Next = null;
@@ -207,7 +273,7 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
                 Calls.Add("stop");
             }
 
-            return Task.CompletedTask;
+            return StopHangs ? Task.Delay(Timeout.Infinite, CancellationToken.None) : Task.CompletedTask;
         }
     }
 }

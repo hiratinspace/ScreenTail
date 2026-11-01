@@ -52,7 +52,9 @@ public sealed class WindowsMicrophoneTests
         Assert.All(devices, d => Assert.False(string.IsNullOrWhiteSpace(d.Id)));
         Assert.Equal(devices.Count, devices.Select(d => d.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.True(devices.Count(d => d.IsDefault) <= 1);
-        Assert.Equal(MicrophoneChoice.Resolve(devices, null).Device?.Name, microphone.DeviceName);
+        // Ids, not names: a failure prints both sides into a public Actions log, and a name can be personal.
+        Assert.Equal(MicrophoneChoice.Resolve(devices, null).Device?.Id, microphone.DeviceId);
+        Assert.Equal(microphone.DeviceId is null, microphone.DeviceName is null);
     }
 
     [Fact]
@@ -64,7 +66,7 @@ public sealed class WindowsMicrophoneTests
 
         var chunks = await ListenBrieflyAsync(microphone);
 
-        Assert.Equal(fallback?.Name, microphone.DeviceName);
+        Assert.Equal(fallback?.Id, microphone.DeviceId);
         if (fallback is null)
         {
             Assert.Equal(0, chunks);
