@@ -1,10 +1,15 @@
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace ScreenTail.UI.Review;
 
 /// <summary>
 /// Layout only. Everything it shows is <see cref="ReviewViewModel"/>'s. A note's frame chip reaches the
 /// filmstrip through the note's own ShowFrameCommand (T-165), so nothing here carries it.
+///
+/// The one key it handles is Spec §5 S3's Alt+1/2/3, which moves focus to the note, the screenshots or
+/// the publish pane: focus is the view's business, so it lives here (ST-084 found it unbound).
 /// </summary>
 public partial class ReviewPane : UserControl
 {
@@ -12,4 +17,27 @@ public partial class ReviewPane : UserControl
     {
         InitializeComponent();
     }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        if (PaneFor(e.Key == Key.System ? e.SystemKey : e.Key, e.KeyboardDevice.Modifiers) is { } pane)
+        {
+            e.Handled = pane.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+            if (e.Handled)
+            {
+                return;
+            }
+        }
+
+        base.OnPreviewKeyDown(e);
+    }
+
+    private FrameworkElement? PaneFor(Key key, ModifierKeys modifiers) => modifiers != ModifierKeys.Alt ? null : key switch
+    {
+        Key.D1 or Key.NumPad1 => Note,
+        Key.D2 or Key.NumPad2 => Strip,
+        Key.D3 or Key.NumPad3 => Publish,
+        _ => null,
+    };
 }

@@ -166,11 +166,16 @@
                        Text="Space include · Enter enlarge · B blur · Del delete" />
         </Grid>
 
-        <!-- Enlarged frame. Spans the pane, over everything, closed with Esc. -->
-        <Border Grid.Row="0"
+        <!-- Enlarged frame. Spans the pane, over everything, closed with Esc. While it is open the strip it
+             covers is out of the Tab order and focus is on Close; Esc, T and B work from any of its
+             controls, not only from the strip (ST-084). -->
+        <Border x:Name="EnlargedView"
+                Grid.Row="0"
                 Grid.RowSpan="3"
                 Background="{DynamicResource Brush.bg.surface}"
-                Visibility="{Binding IsEnlarged, Converter={StaticResource Visible}}">
+                Visibility="{Binding IsEnlarged, Converter={StaticResource Visible}}"
+                IsVisibleChanged="OnEnlargedVisibility"
+                PreviewKeyDown="OnEnlargedKeyDown">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -183,7 +188,7 @@
                            Text="{Binding Enlarged.Label}" />
 
                 <Grid Grid.Row="1" Margin="0,10,0,0">
-                    <Image x:Name="EnlargedImage" Source="{Binding Enlarged.Image}" Stretch="Uniform" />
+                    <Image x:Name="EnlargedImage" Source="{Binding Enlarged.Image}" Stretch="Uniform" AutomationProperties.Name="{Binding Enlarged.Label}" />
 
                     <!-- The blur surface. Transparent rather than absent, because a Canvas with no
                          background receives no mouse events at all and the drag would never start. -->
@@ -216,7 +221,8 @@
                 </Grid>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button Style="{StaticResource Button.Secondary}"
+                    <Button x:Name="CloseEnlarged"
+                            Style="{StaticResource Button.Secondary}"
                             Content="Close  Esc"
                             Command="{Binding CloseEnlargedCommand}" />
                     <Button Margin="8,0,0,0"

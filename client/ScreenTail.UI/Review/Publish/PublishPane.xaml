@@ -99,7 +99,8 @@
                             Content="Publish   Ctrl+Enter"
                             Command="{Binding PublishCommand}"
                             IsEnabled="{Binding CanPublish}"
-                            Visibility="{Binding PublishVisibility}" />
+                            Visibility="{Binding PublishVisibility}"
+                            AutomationProperties.HelpText="{Binding BlockedBecause}" />
 
                     <!-- v0.4.3: the reason beside the button, never only in a tooltip a keyboard user cannot reach. -->
                     <TextBlock Margin="0,8,0,0"

@@ -10,6 +10,8 @@
         <KeyBinding Modifiers="Ctrl" Key="Return" Command="{Binding Publish.PublishCommand}" />
         <!-- Alt+T opens and closes the timeline and transcript panel (ST-076). -->
         <KeyBinding Modifiers="Alt" Key="T" Command="{Binding Timeline.ToggleCommand}" />
+        <!-- Ctrl+S saves the note now (Spec §5 S3). The footer said so and nothing was bound (ST-084). -->
+        <KeyBinding Modifiers="Ctrl" Key="S" Command="{Binding Note.SaveNowCommand}" />
     </UserControl.InputBindings>
     <!-- Spec §5 S3: three panes side by side, each a card on the window, the note widest, the publish pane
          a fixed column on the right with its button at the bottom, and the timeline row (ST-076) below all
@@ -60,8 +62,8 @@
                     AutomationProperties.HelpText="Deletes the screenshots, transcript and note from this device. You will be asked to type DISCARD." />
         </Grid>
 
-        <timeline:TimelineView Grid.Row="2" Margin="0,12,0,0" DataContext="{Binding Timeline}" />
-
+        <!-- The splitters sit in the 12 px gaps but are 28 px wide (Spec §7's smallest target), reaching 8 px
+             over each pane's edge, above it, where there is no control to cover (ST-084). -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5*" MinWidth="340" />
@@ -76,24 +78,32 @@
             </Border>
 
             <GridSplitter Grid.Column="1"
-                          Width="12"
+                          Width="28"
+                          Margin="-8,0"
+                          Panel.ZIndex="1"
                           HorizontalAlignment="Stretch"
                           Style="{StaticResource SplitPane.Splitter}"
                           AutomationProperties.Name="Resize the note pane" />
 
             <Border Grid.Column="2" Style="{StaticResource Pane}">
-                <review:FilmstripView DataContext="{Binding Strip}" />
+                <review:FilmstripView x:Name="Strip" DataContext="{Binding Strip}" />
             </Border>
 
             <GridSplitter Grid.Column="3"
-                          Width="12"
+                          Width="28"
+                          Margin="-8,0"
+                          Panel.ZIndex="1"
                           HorizontalAlignment="Stretch"
                           Style="{StaticResource SplitPane.Splitter}"
                           AutomationProperties.Name="Resize the publish pane" />
 
             <Border Grid.Column="4" Style="{StaticResource Pane}">
-                <publish:PublishPane DataContext="{Binding Publish}" />
+                <publish:PublishPane x:Name="Publish" DataContext="{Binding Publish}" />
             </Border>
         </Grid>
+
+        <!-- After the panes in the tree, not before them: Tab follows the tree, and the timeline is the
+             bottom row, so it comes last (ST-084 found it first, between Discard and the note). -->
+        <timeline:TimelineView Grid.Row="2" Margin="0,12,0,0" DataContext="{Binding Timeline}" />
     </Grid>
 </UserControl>
