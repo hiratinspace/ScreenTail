@@ -317,8 +317,12 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
     return;
 }
 
-// First, so everything after it (the rate limit's partition, HTTPS redirection) sees the client a
-// listed proxy speaks for, and only then.
+// ST-099 hardening. Every answer, refusals and errors included, says it is not to be rendered, framed,
+// sniffed or followed by a referrer (ADR-0009).
+app.UseSecurityHeaders();
+
+// Before anything that reads the client's address or scheme (the rate limit's partition, HTTPS
+// redirection), so each sees the client a listed proxy speaks for, and only then.
 if (trustedProxies.Configured)
 {
     app.UseForwardedHeaders();
