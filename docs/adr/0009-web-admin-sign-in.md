@@ -129,41 +129,65 @@ seconds and no body**, by middleware that runs before authentication and before 
 refused call never reaches Google's keys or the token verifier. An IPv6 caller is counted by its /64.
 **Sign-out is not counted**: it acts only with the session and its CSRF value, and ending a stolen
 session must never wait for a window. The device token exchange is not counted either (its secret is
-256 bits and every device behind the MSP's one address renews hourly).
+256 bits and every device behind the MSP's one address renews hourly). A reflective test
+(`EveryAnonymousRouteIsCountedButTheOnesExemptOnPurpose`) fails if an anonymous route appears without the
+limit. **A call another site's page started is refused before it is counted**: a limited route answers
+`Sec-Fetch-Site: cross-site` with 403 and no body, so a page anywhere cannot spend an office's allowance
+from its visitors' browsers. The admin's page is same-origin, and a device sends no such header.
 
 The client address is the connection's. **No forwarded header is read unless the operator lists the
 proxy** (`ForwardedHeaders:KnownProxies:0`, `ForwardedHeaders:KnownNetworks:0` in CIDR form, both empty
 by default); then `X-Forwarded-For` and `X-Forwarded-Proto` are honoured only on connections from those
 peers, only the last entry (the one the listed proxy wrote, `ForwardedHeaders:ForwardLimit`, default 1)
-counts, and ASP.NET Core's own default of trusting loopback is cleared. Without the list, behind a proxy
-every caller shares the proxy's count, which is why listing it is an owner step for any hosted
-deployment. The counts are in memory, per API instance.
+counts, and ASP.NET Core's own default of trusting loopback is cleared. These options are applied after
+all other configuration, so `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (with which the framework runs the
+middleware itself and, with empty lists, would trust every caller) forwards nothing unless a proxy is
+listed. Without the list, behind a proxy every caller shares the proxy's count, which is why listing it
+is an owner step for any hosted deployment. The counts are in memory, per API instance. A connection
+with no address (a Unix socket) counts in one shared partition, and with a proxy listed the framework
+also honours forwarded headers on such a connection, so a deployment that puts the API on a socket
+should let only its proxy reach that socket.
 
 **2. A single-use nonce in every Google ID token** (`SignInNonces`, table `admin_sign_in_nonces`). Before
-drawing Google's button the page asks `POST /v1/admin/session/nonce` for 256 random bits and passes them
-to `google.accounts.id.initialize({ nonce })`; Google signs the value into the token's `nonce` claim.
-Sign-in and signup accept a token only when that claim names a nonce **issued here, not expired and not
-used**; missing, unknown, expired and used are all the same 401 as a bad signature. The nonce is **used
-up in one conditional update** (`WHERE id = hash AND used_at IS NULL AND expires_at > now`) at the
-moment a session starts or a tenant is made, so of two requests with the same token exactly one wins.
-Learning that an account may create a tenant (`needs_tenant`) does not use it up, so the first-run
-screen sends the same token on; a refused organisation name does not either. Lifetime **10 minutes**
-(`Admin:SignInNonceLifetime`, 1 to 60 minutes), and the answer carries `expiresInSeconds` so the page
-draws a fresh button a minute before it runs out without trusting its own clock; it also draws one after
-every token Google hands back. Only the nonce's SHA-256 is stored, and rows past their expiry are
-deleted whenever a new one is issued.
+drawing Google's button the page asks `POST /v1/admin/session/nonce` for one and passes it to
+`google.accounts.id.initialize({ nonce })`; Google signs the value into the token's `nonce` claim.
+Sign-in and signup accept a token only when that claim is a nonce **made here, not expired and not
+used**; missing, malformed, forged, expired and used are all the same 401 as a bad signature.
 
-*Why the database and not a cookie or memory.* Single use has to hold across a restart and across more
-than one API instance. A signed cookie cannot be "used up" in the copy an attacker captured with the
-token, and a store in memory forgets on restart and differs between instances. The table belongs to no
-tenant, because a nonce is issued before anyone is known.
+*Signed when handed out, stored only when used.* A nonce is a version byte, its expiry and 128 random
+bits, followed by an HMAC-SHA256 over them (76 URL-safe characters). The MAC key is derived like the
+admin session's, HMAC-SHA256 of its own label `screentail-admin-sign-in-nonce-key-v1` under
+`Jwt:SigningKey`, so it is neither the devices' key nor the admin session's (a nonce made under either is
+refused, and changing the label voids every nonce handed out). Checking one is the MAC, compared in
+constant time, and an expiry that has not passed and is no further off than one lifetime: no lookup, on
+any instance. **Handing nonces out writes nothing**, so the anonymous route cannot fill a table however
+many addresses call it. **A use writes the nonce's SHA-256 as the table's primary key**, in the same save
+as the sign-in time or the new tenant and owner; a second use of the same nonce is a key conflict, so of
+two requests with one token exactly one wins on any number of instances, and a signup whose save fails
+for another reason leaves its nonce unused for the owner to retry. Rows grow only with real sign-ins,
+and each use deletes the rows already past their expiry. Learning that an account may create a tenant
+(`needs_tenant`) does not use the nonce, so the first-run screen sends the same token on; a refused
+organisation name does not either. Lifetime **10 minutes** (`Admin:SignInNonceLifetime`, 1 to 60
+minutes), and the answer carries `expiresInSeconds` so the page draws a fresh button a minute before it
+runs out without trusting its own clock. The page also takes the button away the moment Google hands
+back a token (its nonce is spent) and whenever no fresh nonce can be had, and after a 429 asks again
+once its `Retry-After` has passed.
 
-**3. Security headers.** Every API answer, refusals and errors included (added as headers are sent),
-carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';
+*Why not a cookie, or memory.* Single use has to hold across a restart and across more than one API
+instance: a store in memory forgets on restart and differs between instances, and a signed cookie cannot
+be "used up" in the copy an attacker captured with the token. The table belongs to no tenant, because a
+nonce is used before the tenant exists. Binding the nonce to the browser as well (a cookie holding it,
+compared at sign-in) would stop a token being redeemed from another browser inside the nonce's ten
+minutes; it is listed for the owner below rather than built.
+
+**3. Security headers.** Every API answer, refusals and errors included (added as headers are sent,
+and an exception nobody caught is turned into a bare 500 by an exception handler right after, so the
+server never writes one without them), carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';
 form-action 'none'`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
 no-referrer`, `Cross-Origin-Resource-Policy: same-origin` and a Permissions-Policy that turns off the
 camera, microphone, location, payment and the rest (`SecurityHeaders`). The API serves JSON only, so
-nothing in it needs any source.
+nothing in it needs any source. They are defaults, added only where the answer has none: the demo PSA's
+page (Development only, ST-090) keeps its own CSP, which lets its inline styles in.
 
 The web page's headers are in `web/security-headers.ts`, the one place they are written: `vite preview`
 sends them whole (so a local Lighthouse run sees the real policy), the dev server sends all but the CSP
@@ -227,6 +251,18 @@ browser's default, as Google's sign-in (FedCM, passkeys) may need them inside it
     49 bits), so guessing any live code is hopeless at 10 a minute per address; a cap on failed
     activations across all addresses (or longer codes) is the follow-up if many addresses guess at once.
 
+Open for the owner (raised in review, 2026-11-01; the build keeps the conservative choice and decides
+none of these):
+
+17. **One budget or two for an office behind one address.** The nonce, sign-in, signup and device
+    activation share the 10 a minute. An MSP activating many technicians at once from the office could
+    use it up and lock the owner out of sign-in for a minute; activation could get a budget of its own.
+18. **How wide an IPv6 caller is.** Counted by its /64 today. Some providers hand a subscriber a /56 or
+    a /48, which lets one subscriber count as up to 256 or 65,536 callers.
+19. **Binding the nonce to the browser** with a cookie as defence in depth (see 2 above).
+20. **Counts in memory, per instance.** Fine for one API instance; more than one means more than one
+    allowance per address unless the counts move to a shared store.
+
 ## Owner steps
 
 1. In Google Cloud Console, create an OAuth client id of type **Web application**, with the admin's
@@ -261,8 +297,10 @@ browser's default, as Google's sign-in (FedCM, passkeys) may need them inside it
   violation on any page, Lighthouse accessibility 100 on every page with the CSP on). A sign-in with a
   real Google account under it is owner step 5.
 - Follow-ups: a cap on failed device activations across addresses (decision 16); a store shared by API
-  instances for the rate limit, if there is ever more than one; CSP violation reporting
+  instances for the rate limit, if there is ever more than one (decision 20); CSP violation reporting
   (`report-to`) once there is somewhere to send reports.
+- The device client turns the 429 into "Too many activation attempts from this network. Wait a minute
+  and try again." on the Settings card (`DeviceSession`).
 - Exclusions, redaction patterns and telemetry are not policy fields yet (ST-047), so the editor does
   not show them; the page says so.
 - Local development needs a browser that keeps Secure cookies on `http://localhost` (Chrome, Edge and
