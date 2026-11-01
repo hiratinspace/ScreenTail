@@ -201,7 +201,8 @@ export function PolicyPage({ api }: Props) {
         </div>
         <Check
           id="updates-local-only"
-          label="Allow update checks while local-only is on"
+          label="Allow update checks while local-only is on and locked here"
+          hint="A local-only a technician turned on themselves still lets no update check out."
           checked={draft.updateChecksUnderLocalOnly}
           onChange={(v) => set('updateChecksUnderLocalOnly', v)}
         />

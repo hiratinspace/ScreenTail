@@ -2,7 +2,7 @@
 
 **Snapshot taken:** 2026-10-29, after the day's merges (#225 to #234): the loop harness, Claude as a
 drafting provider, the modern Windows 11 look, auto-update (switched off), the processor limit and the
-demo's diagnostic report
+demo's diagnostic report. Updated 2026-10-31 for the web admin (ST-099, branch `st-099-web-admin`)
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -58,6 +58,14 @@ manifest signed with a key compiled into it, downloads only while nothing is rec
 Install only when idle. No build makes an update request until the owner creates the signing key, the
 hosting and the release environment.
 
+**The web admin is built** (2026-10-31, ST-099, ADR-0009 Proposed). Owners sign in with Google, as the
+owner chose; the backend checks Google's ID token itself and keeps the session in an HttpOnly cookie with
+a CSRF header, apart from device tokens in every direction. An address on the operator's signup list
+creates its tenant on the first sign-in; the owner then invites technicians (the code shown once), sees
+seats and devices activate, revokes a device, sets the policy and sees integration status. Every page
+scored 100 for accessibility in Lighthouse. It is off until a Google OAuth client id is set, and has not
+yet been signed into with a real Google account (`docs/dev/web-admin.md`).
+
 **ST-031's processor limit is built** (#232). Ten seconds over the recording budget and capture gives up
 one step at a time: fewer scene samples, then one OCR reader, then scene sampling stops. The input hooks,
 click screenshots, speech and redaction are never throttled. It is proved on a fake clock; seeing it
@@ -73,11 +81,12 @@ request, and eight of the nine waited for the laptop's hardware jobs. The fixes 
 landed together as #220. The findings themselves stay in an untracked local file. What the run left
 for the owner to decide is in §5.
 
-**Of 85 tickets, 66 are Done or built, 8 are Partial and 11 are Open** (counted from the Status lines on
-2026-10-29). ST-113 moved from Open to Partial.
+**Of 85 tickets, 67 are Done or built, 8 are Partial and 10 are Open** (counted from the Status lines on
+2026-10-31). ST-113 moved from Open to Partial on 2026-10-29; ST-099 from Open to built on 2026-10-31.
 
 - **45 are done outright.**
-- **21 are built with a named part still owed:** ST-091, ST-092, ST-095 and ST-096 are done against
+- **22 are built with a named part still owed:** ST-099 (the web admin) owes a run with a real Google
+  account and the owner's OAuth client id; ST-091, ST-092, ST-095 and ST-096 are done against
   recorded shapes and owe the real ConnectWise and Hudu checks; ST-093, ST-094 and ST-097 are done on the
   server side; ST-073, ST-076, ST-077, ST-078 and ST-085 are done on the Mac side; ST-080, ST-081, ST-082
   and ST-083 are built and not yet seen on a real screen; ST-010 (the device side), ST-062 (the harness;
@@ -91,9 +100,8 @@ for the owner to decide is in §5.
   installer is built and smoke-tested unsigned in CI; signing needs the certificate), ST-113 (auto-update
   is built and tested; switched off until the owner creates the key, the hosting and the release
   environment), ST-114 (the security-lead review).
-- **11 are Open:** ST-007 (hosting), ST-017 (the usability round), ST-030 (golden sessions), ST-099 (the
-  web admin), ST-110, ST-111 and ST-116 (the pilot), and the four v1.1 and v1.2 tickets ST-120 to
-  ST-123.
+- **10 are Open:** ST-007 (hosting), ST-017 (the usability round), ST-030 (golden sessions), ST-110,
+  ST-111 and ST-116 (the pilot), and the four v1.1 and v1.2 tickets ST-120 to ST-123.
 
 Phases A and B of the ordered plan (backlog Part C) are complete apart from what needs the owner: ST-030
 (golden sessions; a ScreenConnect trial and a second machine) and ST-062's corpus, which is ST-030's.
@@ -105,8 +113,9 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 | GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #227; one open pull request, #235 (repository housekeeping) |
 | Build plan | `Build Plan/` | Spec at **v0.4.3** accepted; the v0.5.0 amendment (the modern look, #228) waits for the owner. Backlog Part C is the ordered plan, Part D the amendments |
 | Client | `client/` | `.Shared` (schema and IPC), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`. **2,759 tests** in the suite that runs anywhere and **287** in the Windows-only suite (CI on #229, ten of them skipped on the hosted runner by design) |
-| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, and the update policy fields. **1,135 tests** (two skipped). Runs locally on PostgreSQL; not deployed (ST-007) |
+| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, the update policy fields, and owner sign-in with Google and the web admin's routes (ST-099). **1,260 tests** (two skipped). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** |
+| Web admin | `web/`, `docs/dev/web-admin.md` | React and TypeScript on the shared tokens: Google sign-in, first-run tenant, Technicians and seats, Policy, Integrations, Download client (ST-099). **24 component and client tests**; Lighthouse accessibility 100 |
 | Shared contracts | `shared/` | The session schema, the design tokens, and the wire contracts (summarize, publish, session metric, tenant policy) both sides test against |
 | Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop (#219, #227). Parse-checked in CI; not yet run end to end by a person |
 | Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider (#230). Green on the hosted VM, report-only in CI |
@@ -173,9 +182,10 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   dark, light and high contrast. Since #228 they give the client a Windows 11 look (tokens v0.5.0).
 
 **Not built:** the microphone picker and level meter in Settings, Capture (ST-080's AC3); the local text
-model (ST-065); hosting (ST-007); the web admin (ST-099); mail for invites (ST-010 prints the code for
-the operator to hand on). **Built and switched off until the owner sets them up:** the installer's
-signature (ST-112, ADR-0007) and auto-update (ST-113, ADR-0008).
+model (ST-065); hosting (ST-007); mail for invites (the operator's CLI and the web admin show the code
+once, to hand on). **Built and switched off until the owner sets them up:** the installer's signature
+(ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner sign-in to the web admin (ST-099,
+ADR-0009: off until a Google OAuth client id is set).
 
 ### Seen on real hardware, and not
 
@@ -315,8 +325,13 @@ says so.
   every panel again, which discards them. Keeping them would be a new ticket.
 - **Diagnostics counts that can say "not known"** (#229): they would reverse #213's "zeros are honest"
   choice and need an IPC version bump, so they wait for a decision.
-- **The admin web app's sign-in and mail** (ST-099, ST-010): email and password, Microsoft sign-in, or
-  both, and which email service sends invites and the offboarding receipt.
+- **The web admin's defaults** (ST-099, ADR-0009 Proposed). Sign-in is Google, as you chose. Built with
+  fail-closed defaults for you to confirm: signup only for addresses on an operator-set list (empty:
+  nobody); a new tenant starts with 5 seats; one owner per tenant and one tenant per Google account;
+  invite codes shown once to the owner to hand on (no mail yet); 8-hour sessions with no refresh, and
+  sign-out ending every session of that owner; integration status without even a credential's last
+  four; no sign-in while Google's keys cannot be fetched. ADR-0009 lists them all.
+- **Mail** (ST-007, ST-010): which email service sends invites and the offboarding receipt.
 - **The brand colour and logo** (#228): the Fluent blue and the text wordmark are placeholders. Also,
   accept spec amendment v0.5.0 in `Build Plan/01-UX-Design-Spec.md`, or say what to change.
 

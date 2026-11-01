@@ -18,7 +18,7 @@ to trust it and where to change it.
 |---|---|
 | `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-10-27 |
 | `ipc-contract.md` | The service–UI pipe contract, versioned. Kept at the root because three source files and the backlog cite it by this path |
-| `adr/000N-*.md` | Architecture decisions. 0001 to 0006 are Accepted; 0007 (the Windows installer) is Proposed. `adr/evidence/` holds the measurements they rest on, with its own README |
+| `adr/000N-*.md` | Architecture decisions. 0001 to 0006 are Accepted; 0007 (the Windows installer), 0008 (auto-update) and 0009 (owner sign-in to the web admin, with Google) are Proposed. `adr/evidence/` holds the measurements they rest on, with its own README |
 | `review/weaknesses.md` | The 2026-09-15 adversarial review, closed 2026-09-22: every finding says what fixed it, and the one still open says where it is tracked. Kept because code comments cite its numbers |
 | `security/threat-model.md`, `data-flow.md`, `questionnaire.md` | The privacy pack (ST-114). Brought into line with the code on 2026-09-28. Items marked ⚠ are not yet built; the pack has not had a security-lead review and says so |
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |
@@ -29,6 +29,7 @@ to trust it and where to change it.
 | `dev/installer.md` | Building the Windows installer, switching signing on, deploying it silently as an MSP, and what an uninstall removes (ST-112) |
 | `dev/performance.md` | ST-031's budgets: how each is measured on the laptop, whether CI enforces it, the latest numbers, and what still wakes at idle |
 | `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box, getting the laptop ready for a CI run, and what keeps strangers' code off the laptop |
+| `dev/web-admin.md` | Running the web admin locally, creating the Google OAuth client id, and the admin configuration keys (ST-099) |
 
 ## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)
 
