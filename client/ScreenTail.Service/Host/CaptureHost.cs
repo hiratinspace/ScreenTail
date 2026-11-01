@@ -288,7 +288,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // the technician presses Install, by Windows Installer, which asks for an administrator's approval.
         var updatePreferences = new UpdatePreferences(Path.Combine(DataDirectory, "updates.json"));
         UpdatePolicy UpdatePolicyNow() => UpdatePolicies.Resolve(policySync.Current, updatePreferences.Load());
-        bool SessionBusy() => machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing;
+        // One definition of a session in progress: the same states that keep Settings' meter off the microphone.
+        bool SessionBusy() => MicrophoneMeter.HeldBy(machine.State);
         var runningPublisher = PackageSignature.Running();
         using var updates = new UpdateService(
             new HttpClient(EgressGuard.ForUpdates(egressPolicy)) { Timeout = TimeSpan.FromMinutes(30) },
