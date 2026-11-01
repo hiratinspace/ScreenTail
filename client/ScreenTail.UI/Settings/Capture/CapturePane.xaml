@@ -78,9 +78,20 @@
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="How much the screen has to change for a screenshot between clicks" />
                 <ComboBox Margin="0,8,0,0" Width="180" HorizontalAlignment="Left" ItemsSource="{Binding Sensitivities}" SelectedItem="{Binding Sensitivity}" AutomationProperties.Name="Scene-change sensitivity" />
 
-                <TextBlock Margin="0,24,0,0" Style="{StaticResource Text.SectionHeading}" Text="Microphone" />
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Body}" Text="{Binding MicrophoneName}" />
-                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Windows' default communications device. Choosing another, and a live level meter, wait for a recorder that takes a device." />
+                <!-- ST-080 AC3: the device and its live level. The level is read only while this card is
+                     on screen with the window in front (the code-behind says when); nothing is recorded. -->
+                <StackPanel x:Name="MicrophoneCard">
+                    <TextBlock Margin="0,24,0,0" Style="{StaticResource Text.SectionHeading}" Text="Microphone" />
+                    <TextBlock Margin="0,8,0,6" Style="{StaticResource Text.Label}" Text="Device" />
+                    <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding MicrophoneOptions}" SelectedItem="{Binding SelectedMicrophone}" DisplayMemberPath="Label" AutomationProperties.Name="Microphone" />
+                    <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding MicrophoneNote}" Visibility="{Binding MicrophoneNoteVisibility}" AutomationProperties.LiveSetting="Polite" />
+                    <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Level" />
+                        <ProgressBar Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Meter.Level}" Value="{Binding MicrophoneLevel, Mode=OneWay}" AutomationProperties.Name="Microphone level" AutomationProperties.HelpText="{Binding MicrophoneLevelStatus}" />
+                    </StackPanel>
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneLevelStatus}" />
+                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneApplies, Mode=OneWay}" />
+                </StackPanel>
                 <TextBlock Margin="0,14,0,6" Style="{StaticResource Text.Label}" Text="Speech model" />
                 <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding Models}" SelectedItem="{Binding Model}" AutomationProperties.Name="Speech model">
                     <ComboBox.ItemTemplate>

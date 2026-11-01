@@ -13,7 +13,13 @@ public sealed record ModelChoice(string Name, string Hint);
 
 /// <param name="PolicyForcesAllWindows">The admin's policy set the scope; the radio is read-only here (INV-11).</param>
 /// <param name="DefaultGraceSeconds">The registry's grace, shown when the technician has not set one.</param>
-public sealed record CaptureSnapshot(CaptureSettings Settings, IReadOnlyList<ToolChoice> Tools, IReadOnlyList<string> Microphones, bool PolicyForcesAllWindows, int DefaultGraceSeconds);
+/// <param name="Microphones">The capture devices connected when the card loaded, the default communications device marked.</param>
+public sealed record CaptureSnapshot(CaptureSettings Settings, IReadOnlyList<ToolChoice> Tools, IReadOnlyList<MicrophoneDevice> Microphones, bool PolicyForcesAllWindows, int DefaultGraceSeconds);
+
+/// <summary>One line of the microphone picker.</summary>
+/// <param name="Id">What is saved: Windows' endpoint id, or null for Windows' default.</param>
+/// <param name="Label">What the picker shows.</param>
+public sealed record MicrophoneOption(string? Id, string Label);
 
 /// <summary>What Settings → Capture asks the service (ST-080). Over the pipe in the running application; a fake in tests.</summary>
 public interface ICaptureGateway
@@ -27,8 +33,9 @@ public interface ICaptureGateway
 /// <summary>
 /// Settings → Capture's rules (ST-080, Spec §5 S5). "All windows" warns about other customers' data
 /// and is not saved until confirmed (INV-5); a hotkey is checked as typed and a clash names an
-/// alternative inline (ST-029); the microphone and the speech model are chosen here and apply at the
-/// next start, which the screen says rather than pretending otherwise.
+/// alternative inline (ST-029); the microphone is chosen here and used the next time it opens, and a
+/// chosen one that is not connected falls back to Windows' default and says so (AC3); the speech model
+/// applies at the next start, which the screen says rather than pretending otherwise.
 /// </summary>
 public sealed class CapturePanel(ICaptureGateway gateway)
 {
@@ -84,8 +91,62 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
     public string Sensitivity { get; set; } = "medium";
 
-    /// <summary>The capture device(s) the service found, by name, for display: the recorder this build uses takes Windows' default communications device, so there is nothing to choose yet.</summary>
-    public IReadOnlyList<string> Microphones { get; private set; } = [];
+    public const string MicrophoneApplies = "A new choice is used the next time the microphone opens: at the next session, or when a paused session resumes.";
+
+    /// <summary>The capture devices the service found connected when the card loaded.</summary>
+    public IReadOnlyList<MicrophoneDevice> Microphones { get; private set; } = [];
+
+    /// <summary>The chosen device's Windows id, or null for Windows' default communications device.</summary>
+    public string? MicrophoneId { get; set; }
+
+    /// <summary>
+    /// The picker's lines: Windows' default first, naming the device it is now, then each device
+    /// connected; and, when the saved choice is not connected, that choice too, so that saving
+    /// something else on the card does not quietly forget it.
+    /// </summary>
+    public IReadOnlyList<MicrophoneOption> MicrophoneOptions
+    {
+        get
+        {
+            var fallback = MicrophoneChoice.Resolve(Microphones, null).Device;
+            var options = new List<MicrophoneOption>
+            {
+                new(null, fallback is null ? "Windows default (none connected)" : $"Windows default ({fallback.Name})"),
+            };
+            options.AddRange(Microphones.Select(m => new MicrophoneOption(m.Id, m.Name)));
+            if (_loaded.MicrophoneId is { } saved && MicrophoneChoice.Resolve(Microphones, saved).ChosenIsMissing)
+            {
+                options.Add(new MicrophoneOption(saved, "The microphone chosen before (not connected)"));
+            }
+
+            return options;
+        }
+    }
+
+    /// <summary>The line in <see cref="MicrophoneOptions"/> that is chosen now.</summary>
+    public MicrophoneOption SelectedMicrophone =>
+        MicrophoneOptions.FirstOrDefault(o => string.Equals(o.Id, MicrophoneId, StringComparison.OrdinalIgnoreCase)) ?? MicrophoneOptions[0];
+
+    /// <summary>
+    /// What the card says about the microphone beside the picker, or null when there is nothing to say:
+    /// that the chosen device is not connected and which one is used instead, or that there is none.
+    /// Either way sessions start; only narration depends on it.
+    /// </summary>
+    public string? MicrophoneNote
+    {
+        get
+        {
+            var resolved = MicrophoneChoice.Resolve(Microphones, MicrophoneId);
+            if (resolved.Device is null)
+            {
+                return "No microphone is connected. Sessions still record clicks and screenshots, without narration.";
+            }
+
+            return resolved.ChosenIsMissing
+                ? $"The chosen microphone is not connected, so Windows' default ({resolved.Device.Name}) is used until it is back. Sessions start either way."
+                : null;
+        }
+    }
 
     public IReadOnlyList<ModelChoice> Models { get; } =
     [
@@ -178,6 +239,7 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         Hotkeys = _hotkeys.Where(h => h.Value != HotkeyBindings.Defaults[h.Key].ToString()).ToDictionary(h => h.Key.ToString(), h => h.Value, StringComparer.Ordinal),
         Sensitivity = Sensitivity,
         SpeechModel = Model,
+        MicrophoneId = MicrophoneId,
         StartUiAtLogin = StartUiAtLogin,
     };
 
@@ -203,6 +265,7 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         GraceSeconds = _loaded.GraceSeconds ?? snapshot.DefaultGraceSeconds;
         Sensitivity = _loaded.Sensitivity;
         Microphones = snapshot.Microphones;
+        MicrophoneId = _loaded.MicrophoneId;
         Model = _loaded.SpeechModel;
         StartUiAtLogin = _loaded.StartUiAtLogin;
         _hotkeys.Clear();
@@ -244,14 +307,15 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         && a.GraceSeconds == b.GraceSeconds
         && string.Equals(a.Sensitivity, b.Sensitivity, StringComparison.Ordinal)
         && string.Equals(a.SpeechModel, b.SpeechModel, StringComparison.Ordinal)
+        && string.Equals(a.MicrophoneId, b.MicrophoneId, StringComparison.Ordinal)
         && a.StartUiAtLogin == b.StartUiAtLogin
         && a.DisabledTools.Order(StringComparer.Ordinal).SequenceEqual(b.DisabledTools.Order(StringComparer.Ordinal), StringComparer.Ordinal)
         && a.Hotkeys.Count == b.Hotkeys.Count
         && a.Hotkeys.All(h => b.Hotkeys.TryGetValue(h.Key, out var other) && string.Equals(h.Value, other, StringComparison.Ordinal));
 }
 
-/// <summary>Settings → Capture's gateway, over the pipe (ST-080).</summary>
-public sealed class PipeCapture(CaptureConnection connection) : ICaptureGateway
+/// <summary>Settings → Capture's gateway, over the pipe (ST-080), the level meter's included (AC3).</summary>
+public sealed class PipeCapture(CaptureConnection connection) : ICaptureGateway, IMicrophoneLevelGateway
 {
     private readonly CaptureConnection _connection = connection ?? throw new ArgumentNullException(nameof(connection));
 
@@ -263,7 +327,7 @@ public sealed class PipeCapture(CaptureConnection connection) : ICaptureGateway
             : new CaptureSnapshot(
                 reported.Settings,
                 [.. reported.Tools.Select(t => new ToolChoice(t.Id, t.DisplayName))],
-                reported.Microphones,
+                [.. reported.Microphones.Select(m => new MicrophoneDevice(m.Id, m.Name, m.IsDefault))],
                 reported.PolicyForcesAllWindows,
                 reported.DefaultGraceSeconds);
     }
@@ -273,4 +337,13 @@ public sealed class PipeCapture(CaptureConnection connection) : ICaptureGateway
         var result = await _connection.SendAsync(id => new SetCaptureSettingsCommand { RequestId = id, Settings = settings }, ct).ConfigureAwait(false);
         return result.Ok ? null : result.Error ?? "The capture service refused the settings.";
     }
+
+    public async Task<MeterReading?> ReadLevelAsync(string? deviceId, CancellationToken ct = default)
+    {
+        var reported = await _connection.RequestAsync<MicrophoneLevelReported>(id => new GetMicrophoneLevelCommand { RequestId = id, DeviceId = deviceId }, ct).ConfigureAwait(false);
+        return reported is null ? null : new MeterReading(reported.State, reported.Level, reported.DeviceId);
+    }
+
+    public async Task StopLevelAsync(CancellationToken ct = default) =>
+        _ = await _connection.SendAsync(id => new StopMicrophoneLevelCommand { RequestId = id }, ct).ConfigureAwait(false);
 }

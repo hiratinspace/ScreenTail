@@ -2,6 +2,7 @@ using ScreenTail.Core.Capture;
 using ScreenTail.Core.Input;
 using ScreenTail.Core.Net;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Speech;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Settings;
 
@@ -20,7 +21,7 @@ public sealed class CaptureSettingsCommandsTests : IDisposable
         var reported = Assert.IsType<CaptureSettingsReported>(await commands.ReplyToAsync(new GetCaptureSettingsCommand { RequestId = 1 }));
 
         Assert.Equal("rdp", Assert.Single(reported.Tools).Id);
-        Assert.Equal("Built-in microphone", Assert.Single(reported.Microphones));
+        Assert.Equal(new MicrophoneRow("{0.0.1.00000000}.{built-in}", "Built-in microphone", IsDefault: true), Assert.Single(reported.Microphones));
         Assert.True(reported.PolicyForcesAllWindows);
         Assert.Equal(120, reported.DefaultGraceSeconds);
         Assert.True(reported.Settings.AutoStart);
@@ -137,13 +138,92 @@ public sealed class CaptureSettingsCommandsTests : IDisposable
         Assert.False(new CaptureSettingsStore(Path.Combine(_dir, "capture.json")).Load().AutoStart);
     }
 
-    private CaptureSettingsCommands Commands(TenantPolicy policy, Action<CaptureSettings>? apply = null) => new(
+    [Fact]
+    public async Task TheChosenMicrophoneIsKeptInTheDocumentAndAppliedOnSave()
+    {
+        // AC3: the choice goes into capture.json and into force, so the recorder opens it next time.
+        const string headset = "{0.0.1.00000000}.{headset}";
+        var applied = new List<CaptureSettings>();
+        var commands = Commands(TenantPolicy.Default, applied.Add);
+
+        var saved = await commands.HandleAsync(new SetCaptureSettingsCommand { RequestId = 2, Settings = new CaptureSettings { MicrophoneId = headset } }, TestContext.Current.CancellationToken);
+
+        Assert.True(saved!.Ok);
+        Assert.Equal(headset, Assert.Single(applied).MicrophoneId);
+        Assert.Equal(headset, new CaptureSettingsStore(Path.Combine(_dir, "capture.json")).Load().MicrophoneId);
+        var reported = Assert.IsType<CaptureSettingsReported>(await commands.ReplyToAsync(new GetCaptureSettingsCommand { RequestId = 3 }, TestContext.Current.CancellationToken));
+        Assert.Equal(headset, reported.Settings.MicrophoneId);
+        Assert.Contains("\"microphone_id\"", await File.ReadAllTextAsync(Path.Combine(_dir, "capture.json"), TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFileFromBeforeTheChoiceAndABlankChoiceAreWindowsDefault()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "capture.json");
+        await File.WriteAllTextAsync(path, """{"auto_start":false}""", TestContext.Current.CancellationToken);
+        Assert.Null(new CaptureSettingsStore(path).Load().MicrophoneId);
+
+        await File.WriteAllTextAsync(path, """{"microphone_id":"   "}""", TestContext.Current.CancellationToken);
+        Assert.Null(new CaptureSettingsStore(path).Load().MicrophoneId);
+    }
+
+    [Fact]
+    public async Task AnIdNoDeviceCouldHaveIsRefused()
+    {
+        var applied = new List<CaptureSettings>();
+        var commands = Commands(TenantPolicy.Default, applied.Add);
+
+        var control = await commands.HandleAsync(new SetCaptureSettingsCommand { RequestId = 2, Settings = new CaptureSettings { MicrophoneId = "{0.0.1}\n{x}" } }, TestContext.Current.CancellationToken);
+        var huge = await commands.HandleAsync(new SetCaptureSettingsCommand { RequestId = 3, Settings = new CaptureSettings { MicrophoneId = new string('x', 513) } }, TestContext.Current.CancellationToken);
+
+        Assert.False(control!.Ok);
+        Assert.False(huge!.Ok);
+        Assert.Contains("microphone", control.Error, StringComparison.Ordinal);
+        Assert.Empty(applied);
+    }
+
+    [Fact]
+    public async Task TheLevelMeterIsAnsweredAndClosedOverTheCommands()
+    {
+        var microphone = new Speech.ScriptedMicrophone();
+        await using var meter = new MicrophoneMeter(microphone, () => false);
+        var commands = Commands(TenantPolicy.Default, meter: meter);
+
+        var level = Assert.IsType<MicrophoneLevelReported>(await commands.ReplyToAsync(new GetMicrophoneLevelCommand { RequestId = 4, DeviceId = Speech.ScriptedMicrophone.HeadsetId }, TestContext.Current.CancellationToken));
+        Assert.Equal(4, level.RequestId);
+        Assert.Equal(MicrophoneLevelStates.Opening, level.State);
+        Assert.Equal(Speech.ScriptedMicrophone.HeadsetId, level.DeviceId);
+        Assert.True(meter.IsOpen);
+
+        var stopped = await commands.HandleAsync(new StopMicrophoneLevelCommand { RequestId = 5 }, TestContext.Current.CancellationToken);
+
+        Assert.True(stopped!.Ok);
+        Assert.False(meter.IsOpen);
+        Assert.Equal(0, microphone.Open);
+    }
+
+    [Fact]
+    public async Task WithoutAMeterTheLevelIsRefusedAndNothingOpens()
+    {
+        var commands = Commands(TenantPolicy.Default);
+
+        Assert.Null(await commands.ReplyToAsync(new GetMicrophoneLevelCommand { RequestId = 4 }, TestContext.Current.CancellationToken));
+        var refused = await commands.HandleAsync(new GetMicrophoneLevelCommand { RequestId = 4 }, TestContext.Current.CancellationToken);
+        var stopped = await commands.HandleAsync(new StopMicrophoneLevelCommand { RequestId = 5 }, TestContext.Current.CancellationToken);
+
+        Assert.False(refused!.Ok);
+        Assert.True(stopped!.Ok);
+    }
+
+    private CaptureSettingsCommands Commands(TenantPolicy policy, Action<CaptureSettings>? apply = null, MicrophoneMeter? meter = null) => new(
         new CaptureSettingsStore(Path.Combine(_dir, "capture.json")),
         () => [new ToolRow("rdp", "Remote Desktop")],
-        () => ["Built-in microphone"],
+        () => [new MicrophoneDevice("{0.0.1.00000000}.{built-in}", "Built-in microphone", IsDefault: true)],
         () => policy,
         () => 120,
-        apply ?? (_ => { }));
+        apply ?? (_ => { }),
+        meter);
 
     public void Dispose()
     {

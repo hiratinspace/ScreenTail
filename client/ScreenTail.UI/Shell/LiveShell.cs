@@ -269,7 +269,10 @@ public sealed class LiveShell : IAsyncDisposable
                     discardBlocked: _discards.BlockedBecause),
                 () => new SettingsViewModel(
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
-                    new CaptureViewModel(new CapturePanel(new PipeCapture(_connection)), enabled => Task.FromResult(StartAtLogin.Apply(enabled))),
+                    new CaptureViewModel(
+                        new CapturePanel(new PipeCapture(_connection)),
+                        enabled => Task.FromResult(StartAtLogin.Apply(enabled)),
+                        new MicrophoneLevelWatch(new PipeCapture(_connection))),
                     new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
                     new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection))),
                     new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))));

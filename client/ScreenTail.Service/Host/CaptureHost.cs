@@ -51,7 +51,6 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     /// </summary>
     private volatile bool _eraseOnShutdown;
     private static PolicySync? _policySync;
-    private static string? _microphoneName;
 
     internal static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -314,6 +313,22 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var installer = new UpdateInstaller(updates, new PackageSignature(), new MsiLauncher(), runningPublisher, machine.HoldStartsAsync, () => retryForeground());
         var updateCommands = new UpdateCommands(updates, installer, UpdatePolicyNow, updatePreferences, SessionBusy, updates.CheckSoon);
 
+        // ST-027, ST-080 AC3: the technician's microphone, built here rather than with the recorder below
+        // because Settings, Capture lists its devices and shows its level. It opens the device saved in
+        // Settings when that is connected and Windows' default otherwise, read each time a listen begins,
+        // so a save takes effect the next time the microphone opens (the next session, or a resume) and a
+        // device left at home never stops a session.
+        //
+        // The level meter is the one place the microphone opens outside a session, and only while the
+        // card keeps asking: each request is a short lease, it never opens while SessionBusy is true, and a
+        // session that starts closes it (MicrophoneMeter). Levels only; nothing heard is kept, transcribed,
+        // sent or logged (INV-9, INV-10). Declared before the pipe, so the pipe closes first and no request
+        // reaches a meter that has been put away.
+        var chosenMicrophone = captureSettings.MicrophoneId;
+        await using var microphone = new WindowsMicrophone(() => chosenMicrophone);
+        await using var meter = new MicrophoneMeter(microphone, SessionBusy);
+        machine.StateChanged += state => _ = meter.SessionChangedAsync();
+
         var controller = new CaptureController(
             machine,
             // P2-7: a report is good for five seconds, so the wizard's "Check again" and a burst of pipe
@@ -333,10 +348,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new CaptureSettingsCommands(
                 captureStore,
                 () => [.. registry.Tools.Select(t => new ToolRow(t.Id, t.DisplayName)), .. registry.BrowserPatterns.Select(b => new ToolRow(b.Id, b.DisplayName))],
-                () => _microphoneName is { } name ? [name] : [],
+                microphone.Devices,
                 () => policySync.Current,
                 () => (int)registry.Grace.TotalSeconds,
-                capture => _ = applyCapture(capture)),
+                capture =>
+                {
+                    chosenMicrophone = capture.MicrophoneId;
+                    _ = applyCapture(capture);
+                },
+                meter),
             () => diagnostics(),
             _ =>
             {
@@ -577,9 +597,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         //
         // Nothing here can stop the session. A machine with no microphone, a blocked one, or a model that
         // will not download all end the same way: clicks and screenshots are still recorded and the note
-        // is written without narration.
-        await using var microphone = new WindowsMicrophone();
-        _microphoneName = microphone.DeviceName;
+        // is written without narration. The microphone itself is built above, beside Settings' meter.
         await using var whisper = new WhisperRecogniser(
             new ModelDownload(new HttpClient(egress)),
             SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, captureSettings.SpeechModel, StringComparison.OrdinalIgnoreCase)));
