@@ -119,6 +119,13 @@ public partial class App : Application, IDisposable
             // begins by focusing a remote-support tool, not by opening us, and the pill and the tray icon
             // are the whole interface until there is a draft to review.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            // ST-112: registered for Restart Manager's restart, as the service is. Windows Installer, which
+            // ScreenTail's package tells to ask only programs registered for restart, otherwise asks nobody
+            // while the UI runs, and the service is ended rather than asked. Another program's installer
+            // that closes the UI starts it again, in the tray, as this start does. Only here: the screenshot
+            // harnesses above are not the application.
+            _ = Platform.Lifecycle.RestartRegistration.Register();
             _live = new Shell.LiveShell();
             _ = _live.StartAsync();
             return;

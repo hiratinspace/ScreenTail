@@ -77,6 +77,26 @@ public sealed class ApplicationRestartTests
         Assert.True(guard < program.IndexOf("WindowsApplicationRestart.Register(", StringComparison.Ordinal), "a refused copy registers for restart");
     }
 
+    [Fact]
+    public void TheUiRegistersOnceAndOnlyWhenItIsTheApplication()
+    {
+        // The screenshot harnesses (--gallery, --hud, --note, --screenshot) return before the live shell is
+        // made; the registration sits with it, after every one of them.
+        var app = File.ReadAllText(Repo.File("client", "ScreenTail.UI", "App.xaml.cs"));
+
+        var register = app.IndexOf("RestartRegistration.Register()", StringComparison.Ordinal);
+        Assert.True(register > 0, "the UI does not register for restart");
+        Assert.Equal(register, app.LastIndexOf("RestartRegistration.Register()", StringComparison.Ordinal));
+        foreach (var harness in new[] { "new GalleryWindow(", "HudPreview.CaptureAsync(", "new Review.NotePreviewWindow(", "new ShellWindow(directory)" })
+        {
+            var at = app.IndexOf(harness, StringComparison.Ordinal);
+            Assert.True(at > 0 && at < register, $"'{harness}' comes after the registration");
+        }
+
+        var live = app.IndexOf("_live = new Shell.LiveShell();", StringComparison.Ordinal);
+        Assert.True(live > register && live - register < 200, "the registration is not with the live shell's start");
+    }
+
     /// <summary>A file in the repository, found from the test binary the way InstallerAuthoringTests finds one.</summary>
     private static class Repo
     {
