@@ -61,13 +61,23 @@ public static class LiveRegion
     public static void Announce(UIElement element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        if (!element.IsVisible || !AutomationPeer.ListenerExists(AutomationEvents.LiveRegionChanged))
+        if (!element.IsVisible)
         {
             return;
         }
 
-        UIElementAutomationPeer.CreatePeerForElement(element)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        Announced?.Invoke(element);
+        if (AutomationPeer.ListenerExists(AutomationEvents.LiveRegionChanged))
+        {
+            UIElementAutomationPeer.CreatePeerForElement(element)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        }
     }
+
+    /// <summary>
+    /// Every announcement, whether or not a screen reader is listening: the accessibility suite's view of
+    /// what Narrator would be told (ST-084). Raised on the element's thread.
+    /// </summary>
+    internal static event Action<UIElement>? Announced;
 
     private static void OnLoaded(object sender, RoutedEventArgs e)
     {

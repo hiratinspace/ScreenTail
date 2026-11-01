@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.Publish.PublishPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              Background="Transparent"
              AutomationProperties.Name="Publish">
     <UserControl.Resources>
@@ -147,7 +148,7 @@
                            TextWrapping="Wrap"
                            Text="{Binding Summary}"
                            AutomationProperties.LiveSetting="Assertive" />
-                <ItemsControl Margin="0,14,0,0" ItemsSource="{Binding Results}" Focusable="False">
+                <controls:Repeater Margin="0,14,0,0" ItemsSource="{Binding Results}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <!-- One row per destination: the mark and its name, then the link on its own line,
@@ -181,7 +182,7 @@
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
                 <!-- ST-097 AC2: the article's company is not mapped, so ask once, here, and remember the answer.
                      Shown in place of Retry, which would only fail the same way. -->
                 <Border Style="{StaticResource Banner.Warning}"

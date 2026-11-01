@@ -43,11 +43,9 @@
                 <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Set up ScreenTail" />
                 <!-- Progress (Spec §5 S8): one segment per step. Done is a filled segment, the current step a
                      longer filled one, and steps still to come are outlines, so the three differ in shape too. -->
-                <ItemsControl Margin="16,0,0,0"
+                <controls:Repeater Margin="16,0,0,0"
                               VerticalAlignment="Center"
-                              ItemsSource="{Binding Dots}"
-                              Focusable="False"
-                              AutomationProperties.Name="{Binding Progress}">
+                              ItemsSource="{Binding Dots}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal" />
@@ -80,7 +78,9 @@
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
+                <!-- The dots in words, for everyone and for a screen reader, which cannot read a dot (ST-084). -->
+                <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding Progress}" />
             </StackPanel>
 
             <TextBlock Margin="0,14,0,20" Style="{StaticResource Text.ScreenTitle}" Text="{Binding Title}" AutomationProperties.LiveSetting="Polite" />
@@ -113,7 +113,7 @@
 
                 <!-- 3. Permissions: each shows ✓ or a fix. -->
                 <StackPanel Visibility="{Binding PermissionsVisibility}">
-                    <ItemsControl ItemsSource="{Binding Permissions}" Focusable="False">
+                    <controls:Repeater ItemsSource="{Binding Permissions}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Style="{StaticResource Card}" Margin="0,0,0,10" Padding="16,14">
@@ -142,7 +142,7 @@
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    </controls:Repeater>
                     <Button Margin="0,6,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="Check again" Command="{Binding RecheckCommand}" />
                 </StackPanel>
 
@@ -151,13 +151,13 @@
                     <TextBlock Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Text="A session starts when one of these takes focus. Capture is limited to the remote tool's windows and your admin tools (Recommended); you can change that later in Settings, under Capture." />
                     <Border Margin="0,16,0,0" Style="{StaticResource Card}">
                         <StackPanel>
-                            <ItemsControl ItemsSource="{Binding Tools}" Focusable="False">
+                            <controls:Repeater ItemsSource="{Binding Tools}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <CheckBox Margin="0,0,0,4" Content="{Binding DisplayName}" IsChecked="{Binding Enabled}" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            </controls:Repeater>
                             <Button Margin="0,12,0,0" MinWidth="96" HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="Save" Command="{Binding SaveToolsCommand}" />
                         </StackPanel>
                     </Border>

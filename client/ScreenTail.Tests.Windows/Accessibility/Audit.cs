@@ -103,6 +103,13 @@ internal static partial class Audit
                 continue;
             }
 
+            // A part of another control's template (a slider's or a scroll bar's track buttons) is that
+            // control, which carries the name.
+            if (peer is UIElementAutomationPeer { Owner: Control part } && IsPart(part))
+            {
+                continue;
+            }
+
             if (NeedsName(type) && string.IsNullOrWhiteSpace(name))
             {
                 findings.Add($"{where} has no name");
@@ -211,12 +218,14 @@ internal static partial class Audit
 
     private static PatternInterface? Pattern(Control control) => control switch
     {
+        // A list item's own peer is a wrapper; the selection pattern is its item peer's, which the
+        // Accessibility Insights scan checks.
+        ListBoxItem => null,
         RadioButton => PatternInterface.SelectionItem,
         ToggleButton => PatternInterface.Toggle,
         ComboBox => PatternInterface.ExpandCollapse,
         TextBox or PasswordBox => PatternInterface.Value,
         Slider => PatternInterface.RangeValue,
-        ListBoxItem => PatternInterface.SelectionItem,
         DataGridColumnHeader => null,
         ButtonBase => PatternInterface.Invoke,
         _ => null,
@@ -332,14 +341,16 @@ internal static partial class Audit
                 break;
             }
 
-            if (ReferenceEquals(now, before))
+            // Back at the first stop is the round closing, including a window with one stop, where Tab
+            // stays where it is because there is nowhere else to go.
+            if (ReferenceEquals(now, first))
             {
-                findings.Add($"Tab does not move focus off {Describe(now)}: a keyboard trap");
                 break;
             }
 
-            if (ReferenceEquals(now, first))
+            if (ReferenceEquals(now, before))
             {
+                findings.Add($"Tab does not move focus off {Describe(now)}: a keyboard trap");
                 break;
             }
 
@@ -418,13 +429,46 @@ internal static partial class Audit
             return;
         }
 
-        if (VisualTreeHelper.HitTest(window, centre)?.VisualHit is Visual hit
+        if (Hit(window, centre) is { } hit
             && !ReferenceEquals(hit, element)
             && !hit.IsDescendantOf(element)
             && !element.IsDescendantOf(hit))
         {
-            findings.Add($"focus went to {Describe(element)}, which is covered by {Describe(hit)}");
+            findings.Add(string.Create(CultureInfo.InvariantCulture, $"focus went to {Describe(element)} at {centre.X:0},{centre.Y:0}, which is covered by {Describe(hit)} in {Lineage(hit)}"));
         }
+    }
+
+    /// <summary>
+    /// The topmost visual the pointer would reach at <paramref name="point"/>. Elements that are not
+    /// visible or not hit-testable are passed over with everything inside them, as input passes over them.
+    /// </summary>
+    private static Visual? Hit(Window window, Point point)
+    {
+        Visual? found = null;
+        VisualTreeHelper.HitTest(
+            window,
+            target => target is UIElement { IsVisible: false } or UIElement { IsHitTestVisible: false }
+                ? HitTestFilterBehavior.ContinueSkipSelfAndChildren
+                : HitTestFilterBehavior.Continue,
+            result =>
+            {
+                found = result.VisualHit as Visual;
+                return HitTestResultBehavior.Stop;
+            },
+            new PointHitTestParameters(point));
+        return found;
+    }
+
+    /// <summary>The kinds of the element's first few ancestors, for a finding that has to say where something is.</summary>
+    private static string Lineage(DependencyObject element)
+    {
+        var kinds = new List<string>();
+        for (var at = VisualTreeHelper.GetParent(element); at is not null && kinds.Count < 6; at = VisualTreeHelper.GetParent(at))
+        {
+            kinds.Add(at is FrameworkElement { Name.Length: > 0 } named ? $"{at.GetType().Name}#{named.Name}" : at.GetType().Name);
+        }
+
+        return string.Join(" < ", kinds);
     }
 
     /// <summary>
@@ -555,11 +599,18 @@ internal static partial class Audit
         await Settle();
 
         var changed = 0;
+        var different = 0;
         for (var i = 0; i < focused.Length; i += 4)
         {
-            if (Contrast(focused, unfocused, i) >= 3.0)
+            var contrast = Contrast(focused, unfocused, i);
+            if (contrast >= 3.0)
             {
                 changed++;
+            }
+
+            if (contrast > 1.05)
+            {
+                different++;
             }
         }
 
@@ -568,7 +619,7 @@ internal static partial class Audit
         var needed = Math.Max(16, (int)((region.Width + region.Height) / 2));
         if (changed < needed)
         {
-            findings.Add($"{Describe(element)} does not look focused: {changed} pixels around it change with 3:1 contrast when it takes keyboard focus, under {needed}");
+            findings.Add($"{Describe(element)} does not look focused: {changed} pixels around it change with 3:1 contrast when it takes keyboard focus ({different} change at all), under {needed}");
         }
     }
 

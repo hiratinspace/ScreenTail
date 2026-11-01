@@ -29,7 +29,7 @@
                    Text="Note" />
 
         <!-- Banners. Spec §7: never colour alone, so each carries a glyph and the kind as a word. -->
-        <ItemsControl Grid.Row="1" Margin="20,0,20,4" ItemsSource="{Binding Banners}" Focusable="False">
+        <controls:Repeater Grid.Row="1" Margin="20,0,20,4" ItemsSource="{Binding Banners}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <Border Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">
@@ -68,7 +68,7 @@
                     </Border>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        </controls:Repeater>
 
         <!-- v0.4.1 Q4: a failed draft says so and offers Retry. Writing a note by hand is v1.1, so there is
              no editor to fall back to, and an empty one would look like a note nobody wrote. -->
@@ -139,7 +139,7 @@
                          AutomationProperties.Name="Problem" />
 
                 <TextBlock Style="{StaticResource Note.Section}" Text="Steps" />
-                <ItemsControl x:Name="StepList" ItemsSource="{Binding Steps}" Margin="0,0,0,12" Focusable="False">
+                <controls:Repeater x:Name="StepList" ItemsSource="{Binding Steps}" Margin="0,0,0,12">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type review:StepRow}">
                             <Grid Margin="0,0,0,12">
@@ -175,7 +175,7 @@
                                                         AutomationProperties.HelpText="{Binding VerificationTooltip}"
                                                         Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />
 
-                                        <ItemsControl ItemsSource="{Binding Frames}" Focusable="False">
+                                        <controls:Repeater ItemsSource="{Binding Frames}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <StackPanel Orientation="Horizontal" />
@@ -193,7 +193,7 @@
                                                             CommandParameter="{Binding Id}" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                        </controls:Repeater>
                                     </WrapPanel>
 
                                     <!-- What was said, set as a quotation: a rule at the left and the
@@ -212,7 +212,7 @@
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
 
                 <TextBlock Style="{StaticResource Note.Section}" Text="Result" />
                 <TextBox Style="{StaticResource Input.Multiline}"
@@ -239,11 +239,22 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock VerticalAlignment="Center"
-                               Style="{StaticResource Text.Muted}"
                                Foreground="{DynamicResource Brush.text.secondary}"
                                Text="{Binding SaveLabel}"
-                               AutomationProperties.Name="Save status"
-                               AutomationProperties.LiveSetting="Polite" />
+                               AutomationProperties.Name="{Binding SaveLabel}"
+                               AutomationProperties.LiveSetting="Polite">
+                        <!-- Gone when there is nothing to say: an empty, zero-sized text is an element a screen
+                             reader finds with nothing in it, and Accessibility Insights fails it (ST-084). -->
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SaveLabel}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <!-- Spaced from the save label only when there is one, so it never starts indented. -->
                     <TextBlock VerticalAlignment="Center"

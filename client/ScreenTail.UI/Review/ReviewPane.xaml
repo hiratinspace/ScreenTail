@@ -63,8 +63,10 @@
         </Grid>
 
         <!-- The splitters sit in the 12 px gaps but are 28 px wide (Spec §7's smallest target), reaching 8 px
-             over each pane's edge, above it, where there is no control to cover (ST-084). -->
-        <Grid Grid.Row="1">
+             over each pane's edge, above it, where there is no control to cover (ST-084). Above means a
+             higher ZIndex, which also moves them to the end of the order Tab walks the children in, so the
+             order is said here: note, splitter, screenshots, splitter, publish, left to right. -->
+        <Grid Grid.Row="1" KeyboardNavigation.TabNavigation="Local">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5*" MinWidth="340" />
                 <ColumnDefinition Width="12" />
@@ -73,7 +75,7 @@
                 <ColumnDefinition Width="300" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Style="{StaticResource Pane}">
+            <Border Grid.Column="0" Style="{StaticResource Pane}" KeyboardNavigation.TabNavigation="Local" KeyboardNavigation.TabIndex="1">
                 <review:NoteEditorView x:Name="Note" DataContext="{Binding Note}" />
             </Border>
 
@@ -83,9 +85,10 @@
                           Panel.ZIndex="1"
                           HorizontalAlignment="Stretch"
                           Style="{StaticResource SplitPane.Splitter}"
+                          KeyboardNavigation.TabIndex="2"
                           AutomationProperties.Name="Resize the note pane" />
 
-            <Border Grid.Column="2" Style="{StaticResource Pane}">
+            <Border Grid.Column="2" Style="{StaticResource Pane}" KeyboardNavigation.TabNavigation="Local" KeyboardNavigation.TabIndex="3">
                 <review:FilmstripView x:Name="Strip" DataContext="{Binding Strip}" />
             </Border>
 
@@ -95,9 +98,10 @@
                           Panel.ZIndex="1"
                           HorizontalAlignment="Stretch"
                           Style="{StaticResource SplitPane.Splitter}"
+                          KeyboardNavigation.TabIndex="4"
                           AutomationProperties.Name="Resize the publish pane" />
 
-            <Border Grid.Column="4" Style="{StaticResource Pane}">
+            <Border Grid.Column="4" Style="{StaticResource Pane}" KeyboardNavigation.TabNavigation="Local" KeyboardNavigation.TabIndex="5">
                 <publish:PublishPane x:Name="Publish" DataContext="{Binding Publish}" />
             </Border>
         </Grid>

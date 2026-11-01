@@ -781,6 +781,7 @@
          transcript). Selection is a tint plus an accent bar at the left edge, so it survives high contrast,
          where the tint is the window colour. -->
     <Style TargetType="ListBoxItem">
+        <Setter Property="MinHeight" Value="{DynamicResource Layout.hit-target-min}" />
         <Setter Property="Padding" Value="10,6" />
         <Setter Property="Margin" Value="0,1" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
@@ -1286,6 +1287,19 @@
                             </ControlTemplate>
                         </Setter.Value>
                     </Setter>
+                    <Style.Triggers>
+                        <!-- The filler WPF adds after the last column is no column and sorts nothing. -->
+                        <DataTrigger Binding="{Binding Column, RelativeSource={RelativeSource Self}}" Value="{x:Null}">
+                            <Setter Property="Focusable" Value="False" />
+                        </DataTrigger>
+                        <!-- The ring is cut off at the table's top edge, so focus also underlines the header
+                             in the accent and brings its words to full strength. -->
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                            <Setter Property="BorderThickness" Value="0,0,0,2" />
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+                        </Trigger>
+                    </Style.Triggers>
                 </Style>
             </Setter.Value>
         </Setter>
@@ -1397,6 +1411,11 @@
                                     </Trigger>
                                     <Trigger Property="IsSelected" Value="True">
                                         <Setter TargetName="Frame" Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+                                        <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                                    </Trigger>
+                                    <!-- Keyboard focus outlines the frame in the accent (ST-084): the focus ring is
+                                         drawn in the list's scrolling layer and is cut off at its edges. -->
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
                                         <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
                                     </Trigger>
                                 </ControlTemplate.Triggers>

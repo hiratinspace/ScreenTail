@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Settings.Privacy.PrivacyPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              AutomationProperties.Name="Privacy and redaction">
     <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
 
@@ -28,7 +29,7 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Excluded apps" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Add any process that must never be captured." />
-                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
+                <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
@@ -39,7 +40,7 @@
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBox Width="240" Style="{StaticResource Input.Default}" Text="{Binding NewProcess, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Process to exclude" AutomationProperties.HelpText="As Task Manager shows it, like keepass" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddProcessCommand}" IsEnabled="{Binding CanAddProcess}" />
@@ -59,7 +60,7 @@
                 <CheckBox Margin="0,4,0,0" Content="Email addresses" IsChecked="{Binding Emails}" />
 
                 <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Custom patterns (regular expressions)" />
-                <ItemsControl ItemsSource="{Binding CustomPatterns}">
+                <controls:Repeater ItemsSource="{Binding CustomPatterns}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
@@ -70,7 +71,7 @@
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBox Width="320" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding NewPattern, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New pattern" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddPatternCommand}" IsEnabled="{Binding CanAddPattern}" />
