@@ -489,7 +489,9 @@ internal static partial class Audit
     {
         foreach (var control in Interactive(window))
         {
-            if (!control.IsEnabled || !KeyboardNavigation.GetIsTabStop(control) && control is not Selector)
+            // Taken out of the Tab order on purpose or not, a control a person operates is expected to be
+            // reached: IsTabStop="False" on a button is a mouse-only button.
+            if (!control.IsEnabled)
             {
                 continue;
             }
