@@ -27,7 +27,7 @@ public sealed class OnboardingViewModelTests
         Assert.False(screen.CanContinue);
         Assert.NotEmpty(screen.Blocker);
 
-        screen.Activation.Code = "KX7PM-4R2WQ";
+        screen.Activation.Code = InviteCodes.Example;
         await screen.Activation.ActivateCommand.ExecuteAsync(null);
 
         Assert.True(screen.CanContinue);
@@ -43,7 +43,7 @@ public sealed class OnboardingViewModelTests
         var screen = new OnboardingViewModel(Wizard(new FakeDevice { Refusal = "That code has expired. Ask your admin for a new invite." }), () => { });
         await screen.NextCommand.ExecuteAsync(null);
 
-        screen.Activation.Code = "KX7PM-4R2WQ";
+        screen.Activation.Code = InviteCodes.Example;
         await screen.Activation.ActivateCommand.ExecuteAsync(null);
 
         Assert.Equal(OnboardingStep.Activate, screen.Step);
