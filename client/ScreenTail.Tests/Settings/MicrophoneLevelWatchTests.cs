@@ -168,7 +168,10 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
     public async Task AStopThatNeverAnswersDoesNotHoldTheCard()
     {
         _levels.StopHangs = true;
-        await using var watch = Watch();
+
+        // Not disposed on the way out: if the stop is not bounded, disposing would hang the run instead
+        // of failing this test.
+        var watch = Watch();
         await watch.SetWatchingAsync(true);
         await WaitUntilAsync(() => _levels.Reads == 1);
 
@@ -182,6 +185,7 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
         await WaitUntilAsync(() => _levels.Reads > asked);
         Assert.True(_levels.Reads > asked);
         _levels.StopHangs = false;
+        await watch.DisposeAsync();
     }
 
     [Theory]
