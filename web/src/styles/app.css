@@ -233,6 +233,17 @@ fieldset.card {
   gap: var(--space-3);
 }
 
+/* A legend inside the card like any other section heading, not on its border. */
+fieldset.card > legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 0;
+}
+
+fieldset.card > legend + * {
+  clear: both;
+}
+
 .narrow {
   width: min(440px, 100%);
 }
