@@ -14,7 +14,9 @@ namespace ScreenTail.Tests.Speech;
 public sealed class MicrophoneMeterTests : IAsyncDisposable
 {
     private readonly ScriptedMicrophone _microphone = new();
-    private readonly ManualTime _time = new(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+    // Moved by hand, and its timers never fire: what closes the device in each test is the thing the
+    // test names, not a real-time tick that happened to come round first.
+    private readonly StillClock _time = new(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
     private bool _sessionHoldsMicrophone;
 
     [Fact]
@@ -83,6 +85,20 @@ public sealed class MicrophoneMeterTests : IAsyncDisposable
 
         await WaitUntilAsync(() => _microphone.Open == 0);
         Assert.Equal(0, _microphone.Open);
+    }
+
+    [Fact]
+    public async Task OnTheRealClockTheMeterClosesASilentDeviceByItsOwnTimer()
+    {
+        // No frames arrive and nobody calls anything: only the meter's own timer can close it.
+        await using var meter = new MicrophoneMeter(_microphone, () => false, TimeProvider.System, lease: TimeSpan.FromMilliseconds(100));
+        _ = await meter.ReadAsync(null, Ct);
+        await WaitUntilAsync(() => _microphone.Open == 1);
+
+        await WaitUntilAsync(() => _microphone.Open == 0);
+
+        Assert.Equal(0, _microphone.Open);
+        Assert.False(meter.IsOpen);
     }
 
     [Fact]
@@ -255,5 +271,22 @@ public sealed class MicrophoneMeterTests : IAsyncDisposable
         {
             await Task.Delay(10, Ct);
         }
+    }
+
+    /// <summary><see cref="ManualTime"/>'s clock with timers that never fire.</summary>
+    private sealed class StillClock(DateTimeOffset start) : TimeProvider
+    {
+        private long _ticks = start.UtcTicks;
+
+        public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref _ticks), TimeSpan.Zero);
+
+        public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            base.CreateTimer(callback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref _ticks, by.Ticks);
     }
 }

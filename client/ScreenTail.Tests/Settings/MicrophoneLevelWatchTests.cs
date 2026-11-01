@@ -87,6 +87,14 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
         var late = new TaskCompletionSource<MeterReading?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _levels.Next = late.Task;
         await using var watch = Watch();
+        var shown = new List<double>();
+        watch.Changed += () =>
+        {
+            lock (shown)
+            {
+                shown.Add(watch.Level);
+            }
+        };
         await watch.SetWatchingAsync(true);
         await WaitUntilAsync(() => _levels.Reads == 1);
 
@@ -94,6 +102,8 @@ public sealed class MicrophoneLevelWatchTests : IDisposable
         late.SetResult(new MeterReading(MicrophoneLevelStates.Listening, 0.9, null));
         await hiding;
 
+        // Not even for a moment: the late reading never reached the screen.
+        Assert.DoesNotContain(0.9, shown);
         Assert.Equal(0, watch.Level);
         Assert.Equal(MicrophoneLevelWatch.NotWatching, watch.Status);
         Assert.Equal("stop", _levels.Calls[^1]);
