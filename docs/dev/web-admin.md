@@ -99,7 +99,9 @@ there:
   inline scripts and styles for hot reload.
 - `vite preview` sends **all of them**, so the built page and a local Lighthouse run see the real policy.
 - **A deployment's web server must send them with the page**, exactly as `appHeaders` in that file says.
-  Today they are:
+  The deployment in `deploy/` (ST-007, `docs/dev/deploy.md`) does this without a copy: its Caddy
+  snippet is generated from this file when the proxy image is built, and `deploy/smoke.sh` compares
+  what the running proxy sends with it. Today they are:
 
 ```
 Content-Security-Policy: default-src 'none'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self'; font-src 'self'; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
@@ -123,7 +125,8 @@ Two edges to know about:
 - `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` does not switch forwarding on by itself. With no proxy
   listed the API reads no forwarded header from anybody, whatever that variable says. With a proxy
   listed, leave the variable unset: set as well, the forwarded headers are processed twice, so a client
-  address inside a listed proxy network would be trusted as a proxy too.
+  address inside a listed proxy network would be trusted as a proxy too. Since ST-007 the API refuses
+  to start with both.
 - A connection with **no address** (the API listening on a Unix socket) counts in one shared partition
   for the rate limit, and once a proxy is listed the framework also honours `X-Forwarded-For` on such a
   connection. If the API is put on a socket, make sure only the proxy can reach that socket.

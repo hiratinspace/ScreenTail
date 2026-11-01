@@ -142,7 +142,8 @@ peers, only the last entry (the one the listed proxy wrote, `ForwardedHeaders:Fo
 counts, and ASP.NET Core's own default of trusting loopback is cleared. These options are applied after
 all other configuration, so `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (with which the framework runs the
 middleware itself and, with empty lists, would trust every caller) forwards nothing unless a proxy is
-listed. Without the list, behind a proxy every caller shares the proxy's count, which is why listing it
+listed; with a proxy listed as well, the service refuses to start (ST-007), since the headers would be
+read twice. Without the list, behind a proxy every caller shares the proxy's count, which is why listing it
 is an owner step for any hosted deployment. The counts are in memory, per API instance. A connection
 with no address (a Unix socket) counts in one shared partition, and with a proxy listed the framework
 also honours forwarded headers on such a connection, so a deployment that puts the API on a socket
@@ -278,6 +279,10 @@ none of these):
    `ForwardedHeaders__KnownNetworks__0`, CIDR) so the rate limit counts each client rather than the
    proxy, and have the proxy **set** `X-Forwarded-For` (overwrite or append, never pass on the client's
    own). Have the web server send the headers in `web/security-headers.ts` (`appHeaders`) with the page.
+   **Steps 3 and 4 are built in `deploy/`** (ST-007, `docs/dev/deploy.md`): Caddy serves the page and
+   forwards `/v1` and `/health` from one name, sets `X-Forwarded-For` itself, is listed by its fixed
+   address, and sends the page's headers generated from that file. What is left is choosing the host
+   and the name.
 5. Sign in once with a real Google account under the CSP and confirm the button draws, the pop-up
    answers and the session starts (the check this build could not make without a client id).
 
