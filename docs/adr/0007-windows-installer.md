@@ -149,16 +149,27 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   runs, so the service would be ended rather than asked. The UI registers the same way, as the
   application only. Other holders (a virus scanner, an endpoint agent) still make Windows Installer ask
   nobody, and the close steps and the uninstall step end the service as before.
-- **The service never runs elevated, as another user, or in session 0 (INV-6).** Restart Manager
-  restarts a program with the token of the process that asked, so a restart by another program's
-  elevated installer, or "Run as administrator", gave a High-integrity service, which judges windows
-  against itself (`ProcessElevation`) and so would photograph an administrator's regedit or elevated
-  PowerShell, with the same user's UI attached and an automatic session under the pill. Every start
-  checks itself right after the single-instance name and before anything is built (`StartGuard`):
-  `TokenElevationTypeFull`, a token user who is not the session's signed-in user, or session 0 exits 0
-  with a fixed sentence, and the next sign-in starts it as the technician. `TokenElevationTypeDefault`
-  (a standard user, or UAC off) runs, as before. Not yet seen: the laptop check, an elevated
-  third-party installer closing the service and Restart Manager's restarted copy at Medium or exited.
+- **Neither process runs elevated, as another user, or in session 0 (INV-6).** Restart Manager may
+  restart a program with the token of the process that asked (Microsoft does not document which token
+  it uses), so a restart by another program's elevated installer could give a High-integrity service,
+  as "Run as administrator" does. A High service judges windows against itself (`ProcessElevation`) and
+  so would photograph an administrator's regedit or elevated PowerShell, with the same user's UI
+  attached and an automatic session under the pill; a High UI opens links in an elevated browser. Every
+  start of either process checks itself (`StartGuard`; the service before the single-instance name and
+  before anything is built, the UI before it registers for restart or connects): `TokenElevationTypeFull`
+  or an elevation that cannot be read, a token user who is definitely not the session's signed-in user,
+  or session 0 exits 0 with a fixed sentence, and the next sign-in starts it as the technician.
+  `TokenElevationTypeDefault` (a standard user, or UAC off) runs, as before. **The user is compared
+  without a name lookup** (`SessionUser`): this token's SID against the session shell's, and failing
+  that the logon session's user and domain against the session's as text. Translating a name to a SID
+  asks LSA, which for a domain account away from its controller or an Entra ID account can fail or hang
+  and would refuse the service at every sign-in. The shell is looked for six times, half a second apart,
+  in case it is still starting; a comparison that cannot be made runs, and only a definite mismatch
+  refuses. **A refusal is recorded** in the Application log (source `ScreenTail`, event 1100 and up for
+  the service, 1200 and up for the UI, the fixed sentence as its only text), written with
+  `RegisterEventSource`, which needs no administrator rights and no registered source; standard error
+  goes nowhere in an installed build. Not yet seen: the laptop check, an elevated third-party installer
+  closing the service with UAC on, and Restart Manager's restarted copy at Medium or exited and recorded.
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in

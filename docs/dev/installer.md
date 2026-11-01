@@ -292,10 +292,12 @@ restart it (`MSIDISABLERMRESTART`): after a ScreenTail upgrade or uninstall the 
 the next sign-in, as above. The UI is registered for restart too, so a running UI does not keep
 Windows Installer from asking the service. Another program holding an installed file (a virus scanner,
 an endpoint agent) still does: ScreenTail's package then asks nobody, and the service is ended as
-before. **The service never runs elevated**: started with "Run as administrator", restarted by an
-elevated installer, run as a user who is not the one signed in, or in session 0, it writes one line and
-exits with 0, and starts normally at the next sign-in. Run the service from a normal, not elevated,
-prompt on a developer's machine too, unless UAC is off. Not yet measured: how long the
+before. **Neither process runs elevated**: started with "Run as administrator", restarted by an
+elevated installer, run as a user who is not the one signed in, or in session 0, the service or the UI
+exits with 0 and starts normally at the next sign-in (or, for the UI, from the Start menu). Each refusal
+leaves a warning in the Windows Application log, source `ScreenTail`, event 1100 to 1103 for the service
+and 1200 to 1203 for the UI, with a fixed sentence and nothing about the user. Run the service from a
+normal, not elevated, prompt on a developer's machine too, unless UAC is off. Not yet measured: how long the
 service takes to stop in the middle of a recording, with speech, OCR, the microphone and the hooks all
 busy. The idle figure is about 150 ms on CI, and the four-second limit holds whatever happens; the
 laptop is where the busy figure has to be taken.
