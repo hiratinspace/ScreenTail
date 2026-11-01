@@ -12,7 +12,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Msi,
     [string]$Logs = (Join-Path ([IO.Path]::GetTempPath()) 'screentail-diag'),
-    [int]$Iterations = 25,
+    [int]$Iterations = 10,
     [int]$MsiCycles = 12
 )
 
@@ -82,6 +82,9 @@ public sealed class HolderSampler
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly Dictionary<long, string> _names = new Dictionary<long, string>();
     public readonly Dictionary<string, long[]> Seen = new Dictionary<string, long[]>();
+    // Per foreign holder: how many samples it was seen in, and how many of those the file could not be opened for deletion (error 32).
+    public readonly Dictionary<string, long[]> Blocks = new Dictionary<string, long[]>();
+    public readonly Dictionary<string, string> Paths = new Dictionary<string, string>();
     public long Samples;
     public long ExcludePid = -1;
 
@@ -100,7 +103,13 @@ public sealed class HolderSampler
     {
         string name;
         if (_names.TryGetValue(pid, out name)) { return name; }
-        try { name = Process.GetProcessById((int)pid).ProcessName; } catch { name = "gone"; }
+        try
+        {
+            var p = Process.GetProcessById((int)pid);
+            name = p.ProcessName;
+            try { Paths[name] = p.MainModule.FileName; } catch { Paths[name] = "(path not readable)"; }
+        }
+        catch { name = "gone"; }
         _names[pid] = name;
         return name;
     }
@@ -113,6 +122,28 @@ public sealed class HolderSampler
             try { ids = LockProbe.Holders(_path); } catch { ids = new long[0]; }
             long t = _clock.ElapsedMilliseconds;
             Samples++;
+            bool foreign = false;
+            var foreignNames = new List<string>();
+            foreach (var id in ids)
+            {
+                if (id == ExcludePid || id == 4) { continue; }
+                string n = NameOf(id);
+                if (!n.StartsWith("ScreenTail", StringComparison.OrdinalIgnoreCase)) { foreign = true; foreignNames.Add(n); }
+            }
+            if (foreign)
+            {
+                int err = LockProbe.OpenForDelete(_path);
+                lock (Seen)
+                {
+                    foreach (var n in foreignNames)
+                    {
+                        long[] b;
+                        if (!Blocks.TryGetValue(n, out b)) { b = new long[2]; Blocks[n] = b; }
+                        b[0]++;
+                        if (err != 0) { b[1]++; }
+                    }
+                }
+            }
             foreach (var id in ids)
             {
                 string key = (id == ExcludePid ? "self" : NameOf(id)) + "#" + id;
@@ -136,6 +167,10 @@ function Format-Seen($Sampler, [long]$Zero) {
         "{0} {1}..{2} ms" -f $k, ($s[0] - $Zero), ($s[1] - $Zero)
     }
     ($parts -join '; ')
+}
+
+function Format-Blocks($Sampler) {
+    ($Sampler.Blocks.Keys | ForEach-Object { "{0}: blocked delete in {1} of {2} samples ({3})" -f $_, $Sampler.Blocks[$_][1], $Sampler.Blocks[$_][0], $Sampler.Paths[$_] }) -join '; '
 }
 
 function Run-And-Wait([string]$File, [string]$Arguments, $Sampler) {
@@ -180,6 +215,17 @@ Write-Host '== Install'
 $code = Run-And-Wait 'msiexec.exe' "/i `"$Msi`" /qn /norestart /l*v `"$(Join-Path $Logs 'diag-install.log')`"" $null
 Write-Host "install exit $code"
 
+Write-Host '== L: the installed service runs for four minutes; who opens its executable, and does that block a delete'
+$started = Start-Service-And-Wait
+$sampler = New-Object HolderSampler($serviceExe)
+$zero = $sampler.Now
+Start-Sleep -Seconds 240
+$sampler.Stop()
+Write-Host "L: service started $started; $($sampler.Samples) samples; holders (ms): $(Format-Seen $sampler $zero)"
+Write-Host "L: foreign holders: $(Format-Blocks $sampler)"
+Get-Process -Name 'ScreenTail.Service' -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 1
+
 Write-Host "== A: a fresh copy of the service runs --uninstall-cleanup; who holds it, during and after ($Iterations times)"
 $lockedAfter = 0
 for ($i = 0; $i -lt $Iterations; $i++) {
@@ -195,7 +241,7 @@ for ($i = 0; $i -lt $Iterations; $i++) {
     Start-Sleep -Milliseconds 1500
     $sampler.Stop()
     if ($first -ne 0) { $lockedAfter++ }
-    Write-Host ("A[{0}] exit {1}; right after exit open-for-delete error {2}, free {3} ms after exit; holders (ms from exit): {4}" -f $i, $code, $first, ($free - $exit), (Format-Seen $sampler $exit))
+    Write-Host ("A[{0}] exit {1}; right after exit open-for-delete error {2}, free {3} ms after exit; holders (ms from exit): {4} {5}" -f $i, $code, $first, ($free - $exit), (Format-Seen $sampler $exit), (Format-Blocks $sampler))
     Remove-Item $copy -Force -ErrorAction SilentlyContinue
 }
 Write-Host "A: $lockedAfter of $Iterations still held right after the process exited"
@@ -216,7 +262,7 @@ for ($i = 0; $i -lt $MsiCycles; $i++) {
         $sampler.Stop()
         $codes[$tag] += $code
         $inUse = @(Get-Content $log | Where-Object { $_ -match 'Info 1903' })
-        Write-Host ("{0}[{1}] exit {2}{3}; holders (ms from msiexec start): {4}" -f $tag, $i, $code, $(if ($inUse) { ' IN USE: ' + ($inUse -join ' / ') } else { '' }), (Format-Seen $sampler $start))
+        Write-Host ("{0}[{1}] exit {2}{3}; holders (ms from msiexec start): {4} {5}" -f $tag, $i, $code, $(if ($inUse) { ' IN USE: ' + ($inUse -join ' / ') } else { '' }), (Format-Seen $sampler $start), (Format-Blocks $sampler))
         for ($w = 0; $w -lt 100 -and (Test-Path $installDir); $w++) {
             Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 200
