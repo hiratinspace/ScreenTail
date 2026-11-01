@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using ScreenTail.Core.Speech;
 using ScreenTail.Service.Speech;
 
 namespace ScreenTail.Tests.Windows.Speech;
@@ -36,6 +37,41 @@ public sealed class WindowsMicrophoneTests
             {
                 Assert.True(chunks > 0, $"round {round}: the default capture device delivered nothing in two seconds");
             }
+        }
+    }
+
+    [Fact]
+    public void TheDevicesAreTheActiveEndpointsWithOneDefaultAndTheNameIsTheDefaults()
+    {
+        // ST-080 AC3. On the hosted runner there are none and the name is null; on the laptop the
+        // default communications device is marked, once, and it is the one a listen with no choice opens.
+        var microphone = new WindowsMicrophone();
+
+        var devices = microphone.Devices();
+
+        Assert.All(devices, d => Assert.False(string.IsNullOrWhiteSpace(d.Id)));
+        Assert.Equal(devices.Count, devices.Select(d => d.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.True(devices.Count(d => d.IsDefault) <= 1);
+        Assert.Equal(MicrophoneChoice.Resolve(devices, null).Device?.Name, microphone.DeviceName);
+    }
+
+    [Fact]
+    public async Task AChosenDeviceThatIsNotConnectedFallsBackToTheDefaultAndStillListens()
+    {
+        // A headset left at home is not a session without narration: the default opens in its place.
+        await using var microphone = new WindowsMicrophone(() => "{0.0.1.00000000}.{not-a-device-anyone-has}");
+        var fallback = MicrophoneChoice.Resolve(microphone.Devices(), null).Device;
+
+        var chunks = await ListenBrieflyAsync(microphone);
+
+        Assert.Equal(fallback?.Name, microphone.DeviceName);
+        if (fallback is null)
+        {
+            Assert.Equal(0, chunks);
+        }
+        else
+        {
+            Assert.True(chunks > 0, "the default capture device delivered nothing in two seconds in place of a missing choice");
         }
     }
 
