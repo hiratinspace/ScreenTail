@@ -93,7 +93,7 @@ builder.Services.AddAnonymousRateLimit(rateLimits);
 // Nothing is listed by default, and then no forwarded header is read from anybody.
 var trustedProxies = builder.Configuration.GetSection(TrustedProxyOptions.Section).Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
 trustedProxies.Validate();
-builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(trustedProxies.Apply);
+builder.Services.PostConfigure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(trustedProxies.Apply);
 
 // ST-063. The key has no default and is read from the environment; with none set the service still
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.

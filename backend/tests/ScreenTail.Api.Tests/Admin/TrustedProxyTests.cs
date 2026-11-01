@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.HttpOverrides;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Endpoints;
 
@@ -20,6 +21,57 @@ public sealed class ProxiedApiFixture : RateLimitedApiFixture
         base.ConfigureWebHost(builder);
         builder.UseSetting("ForwardedHeaders:KnownProxies:0", Proxy);
         builder.UseSetting("ForwardedHeaders:KnownNetworks:0", ProxyNetwork);
+        builder.UseSetting("ForwardedHeaders:KnownProxies:1", Ipv6Proxy);
+    }
+
+    public const string Ipv6Proxy = "2001:db8:ffff::10";
+}
+
+/// <summary>
+/// The rate-limited API with ASPNETCORE_FORWARDEDHEADERS_ENABLED on and no proxy listed: the framework
+/// runs the forwarded-headers middleware itself, which with no list would trust every caller.
+/// </summary>
+public sealed class ForwardedHeadersEnabledFixture : RateLimitedApiFixture
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        base.ConfigureWebHost(builder);
+        builder.UseSetting("FORWARDEDHEADERS_ENABLED", "true");
+    }
+}
+
+/// <summary>Requests sent straight into the test server with the connection's address set before any middleware runs.</summary>
+internal static class Peer
+{
+    public static async Task<int> AskForNonceAsync(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> api, string peer, string? forwardedFor)
+    {
+        var context = await api.Server.SendAsync(c =>
+        {
+            c.Connection.RemoteIpAddress = IPAddress.Parse(peer);
+            c.Request.Method = "POST";
+            c.Request.Path = "/v1/admin/session/nonce";
+            if (forwardedFor is not null)
+            {
+                c.Request.Headers["X-Forwarded-For"] = forwardedFor;
+            }
+        });
+        return context.Response.StatusCode;
+    }
+}
+
+/// <summary>ASPNETCORE_FORWARDEDHEADERS_ENABLED does not make a caller's own X-Forwarded-For trusted.</summary>
+public sealed class ForwardedHeadersEnabledTests(ForwardedHeadersEnabledFixture api) : IClassFixture<ForwardedHeadersEnabledFixture>
+{
+    [Fact]
+    public async Task WithTheVariableSetAndNoProxyListedAForgedHeaderStillDoesNotChooseThePartition()
+    {
+        for (var i = 0; i < RateLimitedApiFixture.Limit; i++)
+        {
+            Assert.Equal(200, await Peer.AskForNonceAsync(api, "203.0.113.120", $"198.51.100.{i}"));
+        }
+
+        Assert.Equal(429, await Peer.AskForNonceAsync(api, "203.0.113.120", "198.51.100.200"));
     }
 }
 
@@ -96,12 +148,33 @@ public sealed class TrustedProxyTests(ProxiedApiFixture api) : IClassFixture<Pro
         Assert.Equal(HttpStatusCode.TooManyRequests, await SignInAsync(ProxiedApiFixture.Proxy, "192.0.2.200, 198.51.100.60"));
     }
 
+    [Theory]
+    [InlineData(ProxiedApiFixture.Ipv6Proxy, "198.51.100.70", "198.51.100.71")]
+    [InlineData("::ffff:10.0.0.1", "198.51.100.72", "198.51.100.73")]
+    public async Task AnIpv6OrIpv4MappedProxyPeerIsTrustedLikeTheAddressItIs(string peer, string spent, string fresh)
+    {
+        for (var i = 0; i < RateLimitedApiFixture.Limit; i++)
+        {
+            Assert.Equal(200, await Peer.AskForNonceAsync(api, peer, spent));
+        }
+
+        Assert.Equal(429, await Peer.AskForNonceAsync(api, peer, spent));
+        Assert.Equal(200, await Peer.AskForNonceAsync(api, peer, fresh));
+    }
+
     [Fact]
     public void NothingIsTrustedByDefaultAndABadEntryStopsStartup()
     {
         var none = new TrustedProxyOptions();
         Assert.False(none.Configured);
         none.Validate();
+
+        // As the framework leaves the options with ASPNETCORE_FORWARDEDHEADERS_ENABLED on: everything
+        // forwarded, nothing listed, which the middleware reads as "trust anybody". Unlisted, nothing.
+        var enabledByVariable = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto };
+        enabledByVariable.KnownProxies.Clear();
+        none.Apply(enabledByVariable);
+        Assert.Equal(ForwardedHeaders.None, enabledByVariable.ForwardedHeaders);
 
         var applied = new ForwardedHeadersOptions();
         var listed = new TrustedProxyOptions();

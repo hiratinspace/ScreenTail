@@ -54,15 +54,26 @@ public sealed class TrustedProxyOptions
         }
     }
 
-    /// <summary>The middleware's options: only these proxies, only the client address and scheme.</summary>
+    /// <summary>
+    /// The middleware's options: only these proxies, only the client address and scheme, and with none
+    /// listed, nothing at all. Applied after every other configuration (PostConfigure), so it also
+    /// overrides ASPNETCORE_FORWARDEDHEADERS_ENABLED, with which the framework runs the middleware itself
+    /// and trusts every caller's X-Forwarded-For: empty trust lists mean "anybody" to the middleware.
+    /// </summary>
     public void Apply(ForwardedHeadersOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        options.KnownProxies.Clear();
+        options.KnownIPNetworks.Clear();
+        if (!Configured)
+        {
+            options.ForwardedHeaders = ForwardedHeaders.None;
+            return;
+        }
+
         options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
         options.ForwardLimit = ForwardLimit;
         options.RequireHeaderSymmetry = false;
-        options.KnownProxies.Clear();
-        options.KnownIPNetworks.Clear();
         foreach (var proxy in KnownProxies.Where(p => !string.IsNullOrWhiteSpace(p)))
         {
             options.KnownProxies.Add(IPAddress.Parse(proxy.Trim()));
