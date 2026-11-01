@@ -19,9 +19,8 @@ public enum TokenElevation
 /// <summary>What the service knows about itself at start, read from its token and its session.</summary>
 /// <param name="Elevation">The token's elevation type.</param>
 /// <param name="SessionId">The Terminal Services session the process runs in.</param>
-/// <param name="TokenUser">The token user's SID, or null when it could not be read.</param>
-/// <param name="SessionUser">The SID of the user signed in to that session, or null when it could not be read.</param>
-public readonly record struct StartFacts(TokenElevation Elevation, uint SessionId, string? TokenUser, string? SessionUser);
+/// <param name="User">Whether the token's user is the one signed in to that session (<see cref="SessionUser"/>).</param>
+public readonly record struct StartFacts(TokenElevation Elevation, uint SessionId, UserMatch User);
 
 /// <summary>Why the capture service will not run as this process.</summary>
 public enum StartRefusal
@@ -35,7 +34,7 @@ public enum StartRefusal
     /// <summary>An administrator's elevated token, or one whose elevation could not be read.</summary>
     Elevated,
 
-    /// <summary>Not the user signed in to this session, or either user could not be read.</summary>
+    /// <summary>Definitely not the user signed in to this session.</summary>
     NotTheSessionsUser,
 }
 
@@ -56,8 +55,9 @@ public enum StartRefusal
 /// <item><see cref="TokenElevation.Default"/> is not: that is a standard user, or UAC switched off, where every
 /// process of the technician's runs at the same level and <c>ProcessElevation</c> already judges windows
 /// against that;</item>
-/// <item>a process whose user is not the one signed in to its session is refused (an installer's own account,
-/// another user's credentials), and so is one where either user cannot be read;</item>
+/// <item>a process whose user is definitely not the one signed in to its session is refused (an installer's
+/// own account, another user's credentials). One that cannot tell runs: a check that could not read the
+/// session would otherwise refuse the service at every sign-in (<see cref="SessionUser"/>);</item>
 /// <item>session 0 is refused: it has no desktop and no technician.</item>
 /// </list>
 ///
@@ -77,9 +77,7 @@ public static class StartGuard
             return StartRefusal.Elevated;
         }
 
-        if (facts.TokenUser is not { Length: > 0 } mine
-            || facts.SessionUser is not { Length: > 0 } signedIn
-            || !string.Equals(mine, signedIn, StringComparison.OrdinalIgnoreCase))
+        if (facts.User == UserMatch.Different)
         {
             return StartRefusal.NotTheSessionsUser;
         }
@@ -95,4 +93,19 @@ public static class StartGuard
         StartRefusal.NotTheSessionsUser => "The capture service runs only as the user signed in to its session. It starts at that user's sign-in. Exiting.",
         _ => string.Empty,
     };
+
+    /// <summary>The UI's sentence for a refusal, as fixed as the service's.</summary>
+    public static string ExplainForUi(StartRefusal refusal) => refusal switch
+    {
+        StartRefusal.SessionZero => "ScreenTail's window does not run in session 0. Exiting.",
+        StartRefusal.Elevated => "ScreenTail's window does not run elevated (as administrator, or restarted by an elevated installer). Start it from the Start menu. Exiting.",
+        StartRefusal.NotTheSessionsUser => "ScreenTail's window runs only as the user signed in to its session. Exiting.",
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// The Windows Application log's event id for a refusal, so one that happened where nobody reads standard
+    /// error (an installed build) can be found: 1100 and up for the service, 1200 and up for the UI.
+    /// </summary>
+    public static int EventId(StartRefusal refusal, bool ui) => (ui ? 1200 : 1100) + (int)refusal;
 }

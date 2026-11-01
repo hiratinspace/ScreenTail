@@ -120,6 +120,18 @@ public partial class App : Application, IDisposable
             // are the whole interface until there is a draft to review.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
+            // ST-112, INV-6: the same check the service makes. An elevated UI (Run as administrator, or a
+            // restart by Restart Manager from another program's elevated installer) opens links in an elevated
+            // browser and is not the technician's; another user's is not either. Refused quietly, recorded in
+            // the Application log, before it registers for restart or touches the pipe.
+            var unfit = Core.Lifecycle.StartGuard.Decide(Platform.Lifecycle.StartFactsReader.Read());
+            if (unfit != Core.Lifecycle.StartRefusal.None)
+            {
+                _ = Platform.Lifecycle.RefusalEventLog.Write(unfit, ui: true);
+                Shutdown(0);
+                return;
+            }
+
             // ST-112: registered for Restart Manager's restart, as the service is. Windows Installer, which
             // ScreenTail's package tells to ask only programs registered for restart, otherwise asks nobody
             // while the UI runs, and the service is ended rather than asked. Another program's installer

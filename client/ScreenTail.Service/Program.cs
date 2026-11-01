@@ -100,6 +100,18 @@ if (args.Contains("--capabilities", StringComparer.Ordinal) || Array.IndexOf(arg
     return 2;
 }
 
+// ST-112, INV-6: never the capture service elevated, as another user, or in session 0. A service at High
+// integrity judges windows against itself and would photograph an administrator's regedit or elevated
+// PowerShell; it gets there by "Run as administrator", or by Restart Manager restarting it from another
+// program's elevated installer. Refused before the single-instance name is taken (so a refused copy never
+// holds it) and before anything is built, said in a fixed sentence to standard error and the Application
+// log, exit 0: the next sign-in starts it as the technician (StartGuard). It reads only the token and the
+// session, with no name lookup, waiting at most about three seconds for the session's shell.
+if (OperatingSystem.IsWindows() && ServiceStart.RefuseIfUnfit(ServiceStart.Read(), Console.Error) is { } refused)
+{
+    return refused;
+}
+
 // One capture service per user (ADR-0003). A second copy exits quietly instead of fighting over the pipe.
 var userIdentity = OperatingSystem.IsWindows()
     ? WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName
@@ -118,16 +130,6 @@ if (!OperatingSystem.IsWindows())
 {
     Console.Error.WriteLine("The capture service runs on Windows only.");
     return 2;
-}
-
-// ST-112, INV-6: never the capture service elevated, as another user, or in session 0. A service at High
-// integrity judges windows against itself and would photograph an administrator's regedit or elevated
-// PowerShell; it gets there by "Run as administrator", or by Restart Manager restarting it from another
-// program's elevated installer. Refused before anything is built, said in a fixed sentence, exit 0: the
-// next sign-in starts it as the technician (StartGuard).
-if (ServiceStart.RefuseIfUnfit(ServiceStart.Read(), Console.Error) is { } refused)
-{
-    return refused;
 }
 
 // Per-monitor DPI awareness, before any window is touched. Without it Windows lies to us about window

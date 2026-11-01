@@ -64,14 +64,21 @@ public sealed class ApplicationRestartTests
     [Fact]
     public void EveryStartIsCheckedAfterTheNameIsTakenAndBeforeTheHostIsBuilt()
     {
-        // StartGuard (INV-6): an elevated or foreign process never gets as far as building the host. After
-        // the single-instance name, so a refused copy cannot be told apart from one that lost the name.
+        // StartGuard (INV-6): an elevated or foreign process never gets as far as building the host.
         var program = File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Program.cs"));
 
         var guard = program.IndexOf("ServiceStart.RefuseIfUnfit(ServiceStart.Read()", StringComparison.Ordinal);
         Assert.True(guard > 0, "the service does not check itself at start");
         Assert.Equal(guard, program.LastIndexOf("ServiceStart.RefuseIfUnfit(", StringComparison.Ordinal));
-        Assert.True(program.LastIndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal) < guard, "the check comes before the single-instance name");
+
+        // Before the name, so a refused elevated copy never holds it; after the one-shot modes, which run as
+        // the system account in session 0 for the installer and must not be refused.
+        Assert.True(guard < program.IndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal), "the single-instance name is taken before the check");
+        foreach (var oneShot in new[] { "UninstallCleanup.Run(", "Transcribe.RunAsync(" })
+        {
+            Assert.True(program.IndexOf(oneShot, StringComparison.Ordinal) < guard, $"'{oneShot}' comes after the check");
+        }
+
         Assert.True(guard < program.IndexOf("Host.CreateApplicationBuilder", StringComparison.Ordinal), "the host is built before the check");
         Assert.True(guard < program.IndexOf("SessionEndWindow.Start(", StringComparison.Ordinal), "a window is made before the check");
         Assert.True(guard < program.IndexOf("WindowsApplicationRestart.Register(", StringComparison.Ordinal), "a refused copy registers for restart");
@@ -95,6 +102,25 @@ public sealed class ApplicationRestartTests
 
         var live = app.IndexOf("_live = new Shell.LiveShell();", StringComparison.Ordinal);
         Assert.True(live > register && live - register < 200, "the registration is not with the live shell's start");
+    }
+
+    [Fact]
+    public void TheUiChecksItselfBeforeItRegistersOrConnects()
+    {
+        // The same StartGuard as the service: an elevated or foreign UI exits quietly, with an Application log
+        // entry, before it registers for restart or makes the live shell.
+        var app = File.ReadAllText(Repo.File("client", "ScreenTail.UI", "App.xaml.cs"));
+
+        var guard = app.IndexOf("StartGuard.Decide(Platform.Lifecycle.StartFactsReader.Read())", StringComparison.Ordinal);
+        Assert.True(guard > 0, "the UI does not check itself at start");
+        Assert.Equal(guard, app.LastIndexOf("StartGuard.Decide(", StringComparison.Ordinal));
+        Assert.True(guard < app.IndexOf("RestartRegistration.Register()", StringComparison.Ordinal), "the UI registers before the check");
+        Assert.True(guard < app.IndexOf("_live = new Shell.LiveShell();", StringComparison.Ordinal), "the live shell is made before the check");
+
+        var refused = app.IndexOf("if (unfit != Core.Lifecycle.StartRefusal.None)", guard, StringComparison.Ordinal);
+        var exits = app.IndexOf("Shutdown(0);", guard, StringComparison.Ordinal);
+        Assert.True(refused > guard && exits > refused && exits < app.IndexOf("RestartRegistration.Register()", StringComparison.Ordinal), "a refused UI does not exit before it registers");
+        Assert.True(app.IndexOf("RefusalEventLog.Write(unfit, ui: true)", guard, StringComparison.Ordinal) is var logged && logged > refused && logged < exits, "a refused UI is not recorded");
     }
 
     /// <summary>A file in the repository, found from the test binary the way InstallerAuthoringTests finds one.</summary>
