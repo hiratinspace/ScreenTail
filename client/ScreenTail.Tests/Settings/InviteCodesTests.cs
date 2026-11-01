@@ -1,5 +1,4 @@
-using System.Globalization;
-using System.Text.RegularExpressions;
+using System.Text.Json;
 using ScreenTail.Core.Settings;
 
 namespace ScreenTail.Tests.Settings;
@@ -7,32 +6,37 @@ namespace ScreenTail.Tests.Settings;
 /// <summary>
 /// The invite code's shape on the client (ST-010; ADR-0009, "Guessing invite codes"): twenty characters
 /// from the backend's alphabet in four groups of five, typed however a person types it, with the old
-/// ten-character codes taken until they expire. The constants are copied from the backend by hand, so a
-/// test reads the backend's and fails when the two drift apart.
+/// ten-character codes taken until they expire. The rules are copied from the backend by hand, so both
+/// sides run the same table, <c>shared/contracts/invite-code.v1.json</c> (the backend's half is
+/// <c>InviteCodeContractTests</c>): a change to how either side reads a typed code fails one of them.
 /// </summary>
-public sealed partial class InviteCodesTests
+public sealed class InviteCodesTests
 {
-    [Theory]
-    [InlineData("kx7pm4r2wq9htceb3nva", "KX7PM-4R2WQ-9HTCE-B3NVA")]
-    [InlineData(" KX7PM 4R2WQ\t9HTCE-B3NVA ", "KX7PM-4R2WQ-9HTCE-B3NVA")]
-    [InlineData("KX7PM--4R2WQ--9HTCE--B3NVA", "KX7PM-4R2WQ-9HTCE-B3NVA")]
-    [InlineData("kx7pm-4r2wq", "KX7PM-4R2WQ")]
-    [InlineData("kx7pm4r", "KX7PM-4R")]
-    [InlineData("", "")]
-    [InlineData(null, "")]
-    public void ACodeIsFormattedAsTheInviteShowsIt(string? typed, string formatted) =>
-        Assert.Equal(formatted, InviteCodes.Format(typed));
+    public static TheoryData<int> Cases() => [.. Enumerable.Range(0, Contract().GetProperty("cases").GetArrayLength())];
+
+    [Fact]
+    public void TheShapeIsTheContracts()
+    {
+        var contract = Contract();
+        Assert.Equal(InviteCodes.Alphabet, contract.GetProperty("alphabet").GetString());
+        Assert.Equal(InviteCodes.Length, contract.GetProperty("length").GetInt32());
+        Assert.Equal(InviteCodes.LegacyLength, contract.GetProperty("legacyLength").GetInt32());
+        Assert.Equal(InviteCodes.GroupLength, contract.GetProperty("groupLength").GetInt32());
+    }
 
     [Theory]
-    [InlineData("KX7PM4R2WQ9HTCEB3NVA", true)]
-    [InlineData("KX7PM4R2WQ", true)]
-    [InlineData("KX7PM4R2WQ9HTCEB3NV", false)]
-    [InlineData("KX7PM4R2WQ9HTCEB3NVAA", false)]
-    [InlineData("KX7PM4R2WQ9HTCEB3NV0", false)]
-    [InlineData("KX7PM4R2WQ9HTCEB3NVL", false)]
-    [InlineData("", false)]
-    public void OnlyTodaysLengthOrTheOldOneInTheAlphabetIsComplete(string normalised, bool complete) =>
-        Assert.Equal(complete, InviteCodes.IsComplete(normalised));
+    [MemberData(nameof(Cases))]
+    public void EachTypedCodeIsReadAsTheContractSays(int index)
+    {
+        var item = Contract().GetProperty("cases")[index];
+        var typed = item.GetProperty("typed").GetString();
+
+        var normalised = InviteCodes.Normalise(typed);
+
+        Assert.Equal(item.GetProperty("normalised").GetString(), normalised);
+        Assert.Equal(item.GetProperty("wellFormed").GetBoolean(), InviteCodes.IsComplete(normalised));
+        Assert.Equal(item.GetProperty("formatted").GetString(), InviteCodes.Format(typed));
+    }
 
     [Fact]
     public void TheExampleIsACodeOfTodaysShapeAndTheAlphabetHasNoLookAlikes()
@@ -45,34 +49,11 @@ public sealed partial class InviteCodesTests
         Assert.True(InviteCodes.Length * Math.Log2(InviteCodes.Alphabet.Length) >= 80);
     }
 
-    [Fact]
-    public void TheShapeIsTheBackendsShape()
+    private static JsonElement Contract()
     {
-        var invites = File.ReadAllText(RepoFile("backend", "src", "ScreenTail.Api", "Tenancy", "Invites.cs"));
-
-        Assert.Equal(InviteCodes.Alphabet, Constant(invites, "string Alphabet"));
-        Assert.Equal(InviteCodes.Length, int.Parse(Constant(invites, "int CodeLength"), CultureInfo.InvariantCulture));
-        Assert.Equal(InviteCodes.LegacyLength, int.Parse(Constant(invites, "int LegacyCodeLength"), CultureInfo.InvariantCulture));
-        Assert.Equal(InviteCodes.GroupLength, int.Parse(Constant(invites, "int GroupLength"), CultureInfo.InvariantCulture));
-    }
-
-    [GeneratedRegex("""const (?<decl>\w+ \w+) = "?(?<value>[^";]+)"?;""")]
-    private static partial Regex ConstantDeclaration();
-
-    private static string Constant(string source, string declaration) =>
-        ConstantDeclaration().Matches(source).Single(m => m.Groups["decl"].Value == declaration).Groups["value"].Value;
-
-    private static string RepoFile(params string[] parts)
-    {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
-        {
-            var candidate = Path.Combine([directory.FullName, .. parts]);
-            if (File.Exists(candidate) && Directory.Exists(Path.Combine(directory.FullName, "client")))
-            {
-                return candidate;
-            }
-        }
-
-        throw new FileNotFoundException(string.Join('/', parts));
+        using var stream = typeof(InviteCodesTests).Assembly.GetManifestResourceStream("ScreenTail.Tests.invite-code.v1.json")
+            ?? throw new InvalidOperationException("shared/contracts/invite-code.v1.json is not embedded in the test assembly");
+        using var document = JsonDocument.Parse(stream);
+        return document.RootElement.Clone();
     }
 }
