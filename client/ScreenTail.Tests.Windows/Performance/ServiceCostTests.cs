@@ -138,8 +138,12 @@ public sealed class ServiceCostTests
             _ = unlock.TakeForeground();
         }
 
-        using var console = await PrintingConsole.StartAsync(ct);
+        using var console = await PrintingConsole.StartAsync(ConsoleHost.Default, retitle: false, ct);
         var consoleInFront = console.TakeForeground();
+
+        // Asserted, not hoped for: the console in front is half of what this test claims to have measured,
+        // and a measurement taken with the test's own window in front instead would say nothing about it.
+        Assert.True(consoleInFront, $"the printing console ({console.ClassName}) could not be brought to the front");
 
         // The control: the renames reach a hook over every thread, as the foreground watcher's used to be.
         using var witness = NameChangeWitness.Start();
@@ -170,12 +174,13 @@ public sealed class ServiceCostTests
         var renamesPerSecond = delivered / idle.Elapsed.TotalSeconds;
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
-            $"Service at idle on a busy desktop (a console printing every 20 ms, class {console.ClassName}, in front: {consoleInFront} at the start and {console.IsForeground} at the end; "
+            $"Service at idle on a busy desktop (a console printing every 20 ms, host {console.Host}, class {console.ClassName}, in front at the start and at the end: {console.IsForeground}; "
             + $"a window behind renaming itself {renamesPerSecond:F0} times a second, every rename delivered to a hook over every thread), {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices: "
             + $"foreground watcher **{foregroundPump:F1}/s**, focus watcher **{focusPump:F1}/s** (ceiling {IdleHookTests.PumpCeiling:F0} each, enforced everywhere); "
             + $"**{wakeups:F1} wakeups/s** net of the host under the same noise, the noise's own three threads left out (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}; "
             + $"ceiling {IdleWakeupCeiling:F0}, enforced: {Counts})"));
 
+        Assert.True(console.IsForeground, "the printing console lost the foreground during the measurement, so it was not the console in front that was measured");
         Assert.True(renamesPerSecond > 10, $"only {renamesPerSecond:F1} renames a second reached the test's own hook, so the service's quiet proves nothing");
         Assert.True(
             foregroundPump < IdleHookTests.PumpCeiling,

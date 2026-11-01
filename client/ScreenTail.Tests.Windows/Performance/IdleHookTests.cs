@@ -127,6 +127,64 @@ public sealed class IdleHookTests
         Assert.True(quiet < PumpCeiling, $"the focus watcher's pump woke {quiet:F1} times a second with no one listening; ceiling {PumpCeiling:F0}");
     }
 
+    /// <summary>
+    /// A console in front retitling itself is reported without the poll, whichever host draws it (review of
+    /// #252, M1). A classic console's window is drawn by conhost, but Windows names the shell running in it
+    /// as the window's owner, so the thread the narrowed name hook would follow is not the one that raises
+    /// the rename. The watcher must still hear it: the hook falls back to every thread while such a window
+    /// is in front. Windows Terminal draws its own window and is checked the same way.
+    ///
+    /// The poll is out of reach, so a title can only arrive through the hook. The console retitles itself
+    /// every half second; within four seconds the watcher must report at least three of its titles, which
+    /// the foreground event alone (one read as the console comes to the front) cannot give.
+    /// </summary>
+    [Theory]
+    [InlineData(ConsoleHost.Classic)]
+    [InlineData(ConsoleHost.Default)]
+    public async Task AConsoleInFrontRetitlingItselfIsReportedWithoutThePoll(ConsoleHost host)
+    {
+        Hardware.RequireDesktop();
+        var ct = TestContext.Current.CancellationToken;
+
+        using (var unlock = DesktopWindow.Create("ScreenTail foreground unlock"))
+        {
+            _ = unlock.TakeForeground();
+        }
+
+        using var console = await PrintingConsole.StartAsync(host, retitle: true, ct);
+        await using var watcher = new WindowsForegroundWatcher(pollInterval: TimeSpan.FromMinutes(10));
+        var titles = new HashSet<string>(StringComparer.Ordinal);
+        watcher.Changed += info =>
+        {
+            if (info.Handle == console.Window && info.Title.StartsWith(PrintingConsole.TitlePrefix, StringComparison.Ordinal))
+            {
+                lock (titles)
+                {
+                    _ = titles.Add(info.Title);
+                }
+            }
+        };
+        await watcher.StartAsync(ct);
+        Assert.True(console.TakeForeground(), $"the {host} console ({console.ClassName}) could not be brought to the front");
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
+        int seen;
+        do
+        {
+            await Task.Delay(100, ct);
+            lock (titles)
+            {
+                seen = titles.Count;
+            }
+        }
+        while (seen < 3 && DateTime.UtcNow < deadline);
+
+        Measurements.Record(string.Create(
+            CultureInfo.InvariantCulture,
+            $"A {host} console in front (class {console.ClassName}, still in front: {console.IsForeground}) retitling itself every 0.5 s: the watcher reported **{seen}** of its titles within 4 s with the poll out of reach (must be 3 or more), its name hook on thread {watcher.NameHookThread} (0 is every thread)"));
+        Assert.True(seen >= 3, $"the watcher reported {seen} titles of a {host} console ({console.ClassName}) retitling itself in front; its renames are not reaching the name hook");
+    }
+
     /// <summary>A pump thread's wakeups a second over <see cref="Window"/>, from the kernel's context-switch counts.</summary>
     internal static async Task<double> PumpRateAsync(uint thread, CancellationToken ct)
     {
