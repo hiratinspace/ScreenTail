@@ -22,6 +22,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<User> Users => Set<User>();
 
+    public DbSet<Owner> Owners => Set<Owner>();
+
     public DbSet<Device> Devices => Set<Device>();
 
     public DbSet<Integration> Integrations => Set<Integration>();
@@ -102,6 +104,18 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
             // One address per tenant, not per system: the same person may work for two MSPs.
             user.HasIndex(u => new { u.TenantId, u.Email }).IsUnique();
             user.HasOne(u => u.Tenant).WithMany(t => t.Users).HasForeignKey(u => u.TenantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Owner>(owner =>
+        {
+            owner.ToTable("owners");
+            owner.HasKey(o => o.Id);
+
+            // One tenant per Google account, and one owner per tenant for now (ADR-0009). Both are the
+            // database's to enforce, so two signups racing with the same account cannot both land.
+            owner.HasIndex(o => o.GoogleSubject).IsUnique();
+            owner.HasIndex(o => o.TenantId).IsUnique();
+            owner.HasOne(o => o.Tenant).WithMany().HasForeignKey(o => o.TenantId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Device>(device =>

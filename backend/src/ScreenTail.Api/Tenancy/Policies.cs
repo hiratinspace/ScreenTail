@@ -37,7 +37,15 @@ public static class Policies
             throw new ArgumentException("The update channel is stable or pilot.", nameof(updates));
         }
 
+        // A version is the time to the millisecond, and two saves from the web admin can land in the same
+        // one (a double click). Each new row is at least a millisecond after the latest, so its version is
+        // new and it sorts last (ST-099).
         var now = time.GetUtcNow();
+        if (await LatestAsync(db, tenantId, ct).ConfigureAwait(false) is { } latest && now <= latest.CreatedAt)
+        {
+            now = latest.CreatedAt.AddMilliseconds(1);
+        }
+
         var policy = new Policy
         {
             Id = Guid.NewGuid(),

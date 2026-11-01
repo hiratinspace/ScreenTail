@@ -144,6 +144,8 @@ public sealed class ActivationTests(ApiFixture api) : IClassFixture<ApiFixture>
         {
             db.Integrations.Add(new Integration { Id = Guid.NewGuid(), TenantId = gone, Provider = "hudu", SiteUrl = "https://x.example", ConnectedAt = DateTimeOffset.UtcNow });
             db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = gone, PsaCompany = "Acme", DocCompanyId = "7", DocCompanyName = "Acme", Confidence = "manual", CreatedAt = DateTimeOffset.UtcNow });
+            db.Owners.Add(new Owner { Id = Guid.NewGuid(), TenantId = gone, GoogleSubject = $"gone-{Guid.NewGuid():N}", Email = "owner@acme.example", DisplayName = "Owner", CreatedAt = DateTimeOffset.UtcNow });
+            db.Owners.Add(new Owner { Id = Guid.NewGuid(), TenantId = kept, GoogleSubject = $"kept-{Guid.NewGuid():N}", Email = "owner@birch.example", DisplayName = "Owner", CreatedAt = DateTimeOffset.UtcNow });
             return await db.SaveChangesAsync();
         });
 
@@ -156,6 +158,8 @@ public sealed class ActivationTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal(0, await api.UseAsync(db => db.Invites.CountAsync(i => i.TenantId == gone)));
         Assert.Equal(0, await api.UseAsync(db => db.Integrations.CountAsync(i => i.TenantId == gone)));
         Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == gone)));
+        Assert.Equal(0, await api.UseAsync(db => db.Owners.CountAsync(o => o.TenantId == gone)));
+        Assert.Equal(1, await api.UseAsync(db => db.Owners.CountAsync(o => o.TenantId == kept)));
         Assert.Equal(1, await api.UseAsync(db => db.Devices.CountAsync(d => d.TenantId == kept)));
         Assert.Equal(1, await api.UseAsync(db => db.Tenants.CountAsync(t => t.Id == kept)));
     }

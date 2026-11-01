@@ -26,6 +26,42 @@ public sealed class Tenant
     public ICollection<Policy> Policies { get; } = [];
 }
 
+/// <summary>
+/// The person who runs a tenant from the web admin (ST-099, ADR-0009). Signs in with Google, never with a
+/// device: an owner has no device row and no device token, and a technician has no owner row.
+///
+/// Matched by Google's subject, which is stable for the account, rather than by the address, which the
+/// account holder can change. One owner per tenant for now, and one tenant per Google account: both are
+/// unique indexes, so a second signup with the same account is refused by the database as well as by
+/// the endpoint.
+/// </summary>
+public sealed class Owner
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    public Tenant? Tenant { get; set; }
+
+    /// <summary>Google's <c>sub</c> claim: an opaque account id, not a name.</summary>
+    [MaxLength(255)]
+    public required string GoogleSubject { get; set; }
+
+    /// <summary>The verified address Google gave at signup, lower-cased. Shown in the admin's header.</summary>
+    [MaxLength(320)]
+    public required string Email { get; set; }
+
+    [MaxLength(200)]
+    public required string DisplayName { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset? LastSignInAt { get; set; }
+
+    /// <summary>Set to stop this person signing in. Checked on every admin request.</summary>
+    public DateTimeOffset? DisabledAt { get; set; }
+}
+
 /// <summary>A technician.</summary>
 public sealed class User
 {

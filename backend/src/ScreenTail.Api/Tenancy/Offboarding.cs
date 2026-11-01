@@ -27,6 +27,7 @@ public static class Offboarding
         rows += await db.Invites.Where(i => i.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Devices.Where(d => d.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Users.Where(u => u.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        rows += await db.Owners.Where(o => o.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Tenants.Where(t => t.Id == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         await transaction.CommitAsync(ct).ConfigureAwait(false);
         return new Offboarded(tenantId, rows);

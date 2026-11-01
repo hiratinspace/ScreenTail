@@ -87,7 +87,7 @@ internal sealed class CallerRefusal : IAuthorizationMiddlewareResultHandler
         ArgumentNullException.ThrowIfNull(authorizeResult);
 
         if (authorizeResult.Forbidden
-            && authorizeResult.AuthorizationFailure?.FailedRequirements.OfType<ActiveCallerRequirement>().Any() == true)
+            && authorizeResult.AuthorizationFailure?.FailedRequirements.Any(r => r is ActiveCallerRequirement or ActiveOwnerRequirement) == true)
         {
             if (policy.AuthenticationSchemes.Count == 0)
             {

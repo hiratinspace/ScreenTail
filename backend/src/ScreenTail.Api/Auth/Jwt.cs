@@ -38,6 +38,15 @@ public static class ScreenTailClaims
     public const string UserId = "uid";
 
     public const string DeviceId = "did";
+
+    /// <summary>The owner an admin session is for (ST-099). Never on a device token.</summary>
+    public const string OwnerId = "oid";
+
+    /// <summary>What an admin session may do: <see cref="AdminSession.OwnerRole"/>. Never on a device token.</summary>
+    public const string Role = "role";
+
+    /// <summary>The admin session's CSRF value, which every change must also carry in a header (ADR-0009).</summary>
+    public const string Csrf = "csrf";
 }
 
 /// <summary>Mints and describes access tokens (ST-008).</summary>
@@ -74,6 +83,51 @@ public sealed class TokenIssuer(JwtOptions options)
         };
 
         return (new JwtSecurityTokenHandler().CreateEncodedJwt(descriptor), expires);
+    }
+
+    /// <summary>
+    /// An admin session for a tenant's owner (ST-099, ADR-0009), carried in an HttpOnly cookie.
+    ///
+    /// Told apart from a device token three ways, any one of which is enough on its own: its audience is
+    /// <see cref="AdminSession.Audience"/>, which the device scheme does not accept; it carries an owner
+    /// id and a role and no device id, so <see cref="CallerCheck"/> finds no device in it; and it arrives
+    /// in a cookie the device scheme never reads. The CSRF value rides inside it, so the server keeps no
+    /// session state at all.
+    /// </summary>
+    public (string Token, DateTimeOffset ExpiresAt) ForOwner(Guid tenantId, Guid ownerId, string csrf, TimeSpan lifetime, TimeProvider? time = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(csrf);
+        var now = (time ?? TimeProvider.System).GetUtcNow();
+        var expires = now + lifetime;
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = options.Issuer,
+            Audience = AdminSession.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expires.UtcDateTime,
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(JwtRegisteredClaimNames.Sub, ownerId.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(ScreenTailClaims.TenantId, tenantId.ToString()),
+                new Claim(ScreenTailClaims.OwnerId, ownerId.ToString()),
+                new Claim(ScreenTailClaims.Role, AdminSession.OwnerRole),
+                new Claim(ScreenTailClaims.Csrf, csrf),
+            ]),
+            SigningCredentials = new SigningCredentials(KeyFrom(options.SigningKey), SecurityAlgorithms.HmacSha256),
+        };
+
+        return (new JwtSecurityTokenHandler().CreateEncodedJwt(descriptor), expires);
+    }
+
+    /// <summary>The device rules with the admin session's audience in place of the devices' one.</summary>
+    public static TokenValidationParameters AdminValidation(JwtOptions options)
+    {
+        var validation = Validation(options);
+        validation.ValidAudience = AdminSession.Audience;
+        return validation;
     }
 
     /// <summary>

@@ -29,13 +29,16 @@ public static class PolicyEndpoint
         group.MapGet("/policy", async (Caller who, ScreenTailContext db, CancellationToken ct) =>
         {
             var latest = await Policies.LatestAsync(db, who.TenantId, ct).ConfigureAwait(false);
-            return Results.Ok(latest is null
-                ? new TenantPolicyResponse(Policies.DefaultVersion, 7, false, false, false, "stable", false, 24, false)
-                : new TenantPolicyResponse(latest.Version, latest.RetentionDays, latest.LocalOnly, latest.LocalOnlyLocked, latest.CaptureAllWindows, latest.UpdateChannel, latest.UpdateChannelLocked, latest.UpdateCheckHours, latest.UpdateChecksUnderLocalOnly));
+            return Results.Ok(Describe(latest));
         })
         .WithName("GetPolicy")
         .WithSummary("The tenant's policy for this device: retention, local-only and whether it is locked, capture scope, and updates.");
 
         return group;
     }
+
+    /// <summary>A policy row on the wire, or the defaults for none. The web admin reads the same shape (ST-099).</summary>
+    public static TenantPolicyResponse Describe(Policy? latest) => latest is null
+        ? new TenantPolicyResponse(Policies.DefaultVersion, 7, false, false, false, "stable", false, 24, false)
+        : new TenantPolicyResponse(latest.Version, latest.RetentionDays, latest.LocalOnly, latest.LocalOnlyLocked, latest.CaptureAllWindows, latest.UpdateChannel, latest.UpdateChannelLocked, latest.UpdateCheckHours, latest.UpdateChecksUnderLocalOnly);
 }
