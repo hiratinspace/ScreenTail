@@ -173,41 +173,84 @@ internal static class UninstallCleanup
     internal static int StopInstalledCopies(string installDirectory)
     {
         var stopped = 0;
-        foreach (var name in ProcessNames)
+        foreach (var process in InstalledCopies(installDirectory))
         {
-            foreach (var process in Process.GetProcessesByName(name))
+            using (process)
             {
-                using (process)
+                try
                 {
-                    if (process.Id == Environment.ProcessId)
-                    {
-                        continue;
-                    }
-
-                    // The kernel's record of the image, not the process's own (ProcessImage says why). A
-                    // copy of ScreenTail running from anywhere else is not this installation's to stop.
-                    using var image = ProcessImage.Of((uint)process.Id);
-                    if (image is null || !InstalledFootprint.IsInside(image.Path, installDirectory))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        process.Kill();
-                        _ = process.WaitForExit(TimeSpan.FromSeconds(10));
-                        stopped++;
-                    }
-                    catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
-                    {
-                        // Already gone, or not ours to stop. Its files are then in use, and the installer
-                        // deals with that the way it deals with any file in use.
-                    }
+                    process.Kill();
+                    _ = process.WaitForExit(TimeSpan.FromSeconds(10));
+                    stopped++;
+                }
+                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+                {
+                    // Already gone, or not ours to stop. Its files are then in use, and the installer
+                    // deals with that the way it deals with any file in use.
                 }
             }
         }
 
         return stopped;
+    }
+
+    /// <summary>
+    /// Gives the copies running from this installation up to <paramref name="grace"/>, in all, to end on
+    /// their own, and says how many did. For an upgrade, which keeps the technicians' data: Restart Manager
+    /// has already asked them to close, and one still finishing its own shutdown is let finish rather than
+    /// ended halfway. What is still running after it is <see cref="StopInstalledCopies"/>'s.
+    /// </summary>
+    internal static int AwaitInstalledCopies(string installDirectory, TimeSpan grace)
+    {
+        var start = TimeProvider.System.GetTimestamp();
+        var ended = 0;
+        foreach (var process in InstalledCopies(installDirectory))
+        {
+            using (process)
+            {
+                var left = grace - TimeProvider.System.GetElapsedTime(start);
+                try
+                {
+                    if (process.WaitForExit(left > TimeSpan.Zero ? left : TimeSpan.Zero))
+                    {
+                        ended++;
+                    }
+                }
+                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+                {
+                    // Cannot be waited for; stopping it comes next either way.
+                }
+            }
+        }
+
+        return ended;
+    }
+
+    /// <summary>
+    /// The services and UIs running from this installation, in every session, other than this process,
+    /// by the kernel's record of each one's image, not the process's own (ProcessImage says why). A copy
+    /// of ScreenTail running from anywhere else is not this installation's. The caller disposes them.
+    /// </summary>
+    private static List<Process> InstalledCopies(string installDirectory)
+    {
+        var copies = new List<Process>();
+        foreach (var name in ProcessNames)
+        {
+            foreach (var process in Process.GetProcessesByName(name))
+            {
+                using var image = process.Id == Environment.ProcessId ? null : ProcessImage.Of((uint)process.Id);
+                if (image is not null && InstalledFootprint.IsInside(image.Path, installDirectory))
+                {
+                    copies.Add(process);
+                }
+                else
+                {
+                    process.Dispose();
+                }
+            }
+        }
+
+        return copies;
     }
 
     /// <summary>

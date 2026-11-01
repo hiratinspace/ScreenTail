@@ -17,8 +17,9 @@ namespace ScreenTail.Service.Install;
 /// with 3010, with a file operation on the path the new executable goes to still waiting for that restart.
 ///
 /// So the removal of an upgraded version runs this first, from the version being removed, which knows its
-/// own files: it stops any copy still running from the install folder, as an upgrade always has (only
-/// earlier), and then waits, as the uninstall step's last act does, until no other program has an
+/// own files: it gives any copy still running from the install folder a few seconds to finish closing
+/// (Restart Manager has asked it to, and in the CI upgrades the old service was still running most of a
+/// second later), stops what is left, as an upgrade always has (only earlier), and then waits, as the uninstall step's last act does, until no other program has an
 /// installed file open (<see cref="ProgramFilesRelease"/>: two clean looks, bounded inside WixQuietExec's
 /// minute). Nothing else: it reads no profile, removes no data and no Run value, and runs no capture code.
 /// It takes no argument but its flag, and the folder it looks in is the one its own executable is in,
@@ -31,6 +32,12 @@ internal static class UpgradeRelease
 {
     /// <summary>The start of each line it prints, which is what to search the installer's log for.</summary>
     public const string Prefix = "ScreenTail upgrade:";
+
+    /// <summary>
+    /// How long, in all, copies still closing are given to end on their own. Short against the step's
+    /// deadline: this, stopping what is left (up to 10 seconds a copy) and the wait's budget fit inside it.
+    /// </summary>
+    public static TimeSpan Grace { get; } = TimeSpan.FromSeconds(5);
 
     /// <returns>0 when nothing was left open, 1 when something was, 2 when it was not allowed to run.</returns>
     public static int Run(TextWriter output)
@@ -57,12 +64,14 @@ internal static class UpgradeRelease
         ArgumentNullException.ThrowIfNull(output);
         ArgumentException.ThrowIfNullOrEmpty(installDirectory);
 
+        // The technicians' data stays, so a copy finishing its own shutdown is let finish first.
+        var ended = UninstallCleanup.AwaitInstalledCopies(installDirectory, Grace);
         var stopped = UninstallCleanup.StopInstalledCopies(installDirectory);
 
         // Last: Windows Installer deletes the installed files the moment this process exits.
         var release = UninstallCleanup.ReleaseInstalledFiles(installDirectory, started);
 
-        output.WriteLine($"{Prefix} {stopped} running copies stopped.");
+        output.WriteLine($"{Prefix} {ended} running copies ended on their own, {stopped} stopped.");
         output.WriteLine(
             $"{Prefix} waited {(long)release.Waited.TotalMilliseconds} ms for other programs to close the installed files; "
             + $"{release.StillHeld} still open.");
