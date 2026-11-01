@@ -34,7 +34,11 @@ public static class ProgramFilesRelease
 
     public static TimeSpan PollEvery { get; } = TimeSpan.FromMilliseconds(50);
 
-    /// <summary>How long the step waited, and how many files another program still had open when it stopped.</summary>
+    /// <summary>
+    /// How long the step waited, and how many files another program still had open when it stopped. No
+    /// wait at all when nothing was held the first time it looked: asking takes a few tens of milliseconds,
+    /// and that is not waiting for anybody.
+    /// </summary>
     public readonly record struct Outcome(TimeSpan Waited, int StillHeld);
 
     /// <param name="files">The installed files Windows Installer is about to remove.</param>
@@ -59,10 +63,15 @@ public static class ProgramFilesRelease
         ArgumentNullException.ThrowIfNull(sleep);
 
         var start = time.GetTimestamp();
-        while (true)
+        for (var round = 0; ; round++)
         {
             var held = files.Count(file => holders(file)?.Any(id => id != self) == true);
             var waited = time.GetElapsedTime(start);
+            if (held == 0 && round == 0)
+            {
+                return new Outcome(TimeSpan.Zero, 0);
+            }
+
             if (held == 0 || waited >= budget)
             {
                 return new Outcome(waited, held);

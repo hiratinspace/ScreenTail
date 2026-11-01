@@ -112,7 +112,7 @@ internal static class UninstallCleanup
         // for a restart, which ends the uninstall with 3010 (ProgramFilesRelease says who does that).
         var release = ProgramFilesRelease.WaitForOthers(
             InstalledFiles(installDirectory),
-            DiagHolders,
+            FileHolders.Of,
             Environment.ProcessId,
             TimeProvider.System,
             Thread.Sleep,
@@ -207,34 +207,6 @@ internal static class UninstallCleanup
         {
             return [];
         }
-    }
-
-    // TEMPORARY diagnostic (fix-installer-uninstall-flake): which process the wait is waiting for. Removed before merge.
-    private static IReadOnlyCollection<long>? DiagHolders(string file)
-    {
-        var ids = FileHolders.Of(file);
-        foreach (var id in ids ?? [])
-        {
-            if (id == Environment.ProcessId)
-            {
-                continue;
-            }
-
-            string name;
-            try
-            {
-                using var p = Process.GetProcessById((int)id);
-                name = p.ProcessName;
-            }
-            catch (ArgumentException)
-            {
-                name = "gone";
-            }
-
-            Console.Error.WriteLine($"DIAG {DateTime.UtcNow:HH:mm:ss.fff} held: {Path.GetFileName(file)} by {name}#{id}");
-        }
-
-        return ids;
     }
 
     private static void RemoveData(Tally tally)

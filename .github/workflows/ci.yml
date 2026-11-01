@@ -394,12 +394,6 @@ jobs:
           -OlderMsi artifacts/installer/packages/ScreenTail-older.msi
           -Bundle artifacts/installer/packages/ScreenTail-Setup.exe
           -Logs "${{ runner.temp }}/installer-logs"
-      # TEMPORARY (fix-installer-uninstall-flake): measures who holds ScreenTail.Service.exe after it exits.
-      - name: Diagnose the uninstall lock (temporary)
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 25
-        run: ./installer/diag-uninstall-lock.ps1 -Msi artifacts/installer/packages/ScreenTail.msi -Logs "${{ runner.temp }}/installer-logs/diag"
       - name: Upload the unsigned installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

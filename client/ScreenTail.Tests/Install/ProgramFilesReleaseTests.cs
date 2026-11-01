@@ -41,6 +41,21 @@ public sealed class ProgramFilesReleaseTests
     }
 
     [Fact]
+    public void AskingIsNotWaiting()
+    {
+        // Asking Windows about every installed file takes tens of milliseconds on a real machine. When the
+        // first answer is that nobody else has them, the step waited for nobody and says so.
+        var outcome = Wait(_ =>
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(3));
+            return [Self];
+        });
+
+        Assert.Equal(TimeSpan.Zero, outcome.Waited);
+        Assert.Equal(0, outcome.StillHeld);
+    }
+
+    [Fact]
     public void ThisProcessHoldingItsOwnImageIsNotWaitedFor()
     {
         // The step runs from ScreenTail.Service.exe, so that file always lists this process. Its hold ends
