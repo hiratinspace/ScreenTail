@@ -313,8 +313,18 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         }
     }
 
+    /// <summary>What the Settings card says when the backend refused activation for too many tries from this network.</summary>
+    public const string TooManyAttempts = "Too many activation attempts from this network. Wait a minute and try again.";
+
     private static async Task<string> RefusalAsync(HttpResponseMessage response, CancellationToken ct)
     {
+        // The backend's rate limit answers with no body (ADR-0009): a sentence a technician can act on,
+        // rather than a status code.
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            return TooManyAttempts;
+        }
+
         try
         {
             var problem = await response.Content.ReadFromJsonAsync<Problem>(Json, ct).ConfigureAwait(false);

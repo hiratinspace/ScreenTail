@@ -53,6 +53,25 @@ public sealed class DeviceSessionTests
     }
 
     [Fact]
+    public async Task TooManyActivationAttemptsFromThisNetworkIsSaidInWordsNotAsAStatusCode()
+    {
+        // The backend's rate limit (ADR-0009): 429, Retry-After and no body.
+        var backend = new ScriptedBackend();
+        var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(60));
+        backend.Reply(limited);
+        var credentials = new InMemoryCredentials();
+        var session = new DeviceSession(Client(backend), credentials, time: new ManualTime(T0));
+
+        var answer = await session.ActivateAsync("KX7PM-4R2WQ", "TECH-LAPTOP", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal("Too many activation attempts from this network. Wait a minute and try again.", answer.Refusal);
+        Assert.DoesNotContain("429", answer.Refusal, StringComparison.Ordinal);
+        Assert.Null(credentials.Load());
+    }
+
+    [Fact]
     public async Task TheRefreshTokenBuysANewAccessTokenBeforeTheOldOneRunsOut()
     {
         var backend = new ScriptedBackend();
