@@ -79,13 +79,21 @@ builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningK
 builder.Services.AddSingleton<GoogleIdTokenVerifier>();
 builder.Services.AddOwnerPolicy();
 
-// ST-099 hardening. The anonymous routes (the admin's sign-in, signup and sign-out, a device's
+// ST-099 hardening. The anonymous routes (the admin's sign-in nonce, sign-in and signup, a device's
 // activation) are counted per client address and the call past the limit is refused with 429 before
-// anything checks it. The address is the connection's: no forwarded header is trusted (ADR-0009).
+// anything checks it. Sign-out is not counted (ADR-0009).
 var rateLimits = builder.Configuration.GetSection(RateLimitOptions.Section).Get<RateLimitOptions>() ?? new RateLimitOptions();
 rateLimits.Validate();
 builder.Services.AddSingleton(rateLimits);
 builder.Services.AddAnonymousRateLimit(rateLimits);
+
+// Behind a reverse proxy every caller would arrive from the proxy and share one count, so one person
+// could lock everyone out of sign-in. The operator lists the proxies (ForwardedHeaders:KnownProxies,
+// ForwardedHeaders:KnownNetworks); only a connection from one of them has its X-Forwarded-For read.
+// Nothing is listed by default, and then no forwarded header is read from anybody.
+var trustedProxies = builder.Configuration.GetSection(TrustedProxyOptions.Section).Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
+trustedProxies.Validate();
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(trustedProxies.Apply);
 
 // ST-063. The key has no default and is read from the environment; with none set the service still
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
@@ -309,6 +317,13 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
     return;
 }
 
+// First, so everything after it (the rate limit's partition, HTTPS redirection) sees the client a
+// listed proxy speaks for, and only then.
+if (trustedProxies.Configured)
+{
+    app.UseForwardedHeaders();
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
@@ -352,7 +367,7 @@ _ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 // ST-099. The web admin: sign-in and signup are anonymous, everything else is an owner's, by cookie.
 // Mapped beside the device group, not inside it, so no device policy applies here and no owner policy
 // applies there.
-_ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).RequireRateLimiting(AnonymousRateLimit.Policy).MapAdminSession();
+_ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).MapAdminSession();
 _ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin();
 
 var v1 = app.MapGroup("/v1").RequireAuthorization(CallerPolicy.Name);

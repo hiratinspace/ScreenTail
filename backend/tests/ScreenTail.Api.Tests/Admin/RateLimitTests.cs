@@ -14,7 +14,7 @@ namespace ScreenTail.Api.Tests.Admin;
 /// The API with the anonymous routes' real limit: three calls an hour from one address, and the test
 /// host's connection given the address a test names (the test server has none of its own).
 /// </summary>
-public sealed class RateLimitedApiFixture : AdminApiFixture
+public class RateLimitedApiFixture : AdminApiFixture
 {
     public const int Limit = 3;
 
@@ -65,6 +65,7 @@ public sealed class RateLimitTests(RateLimitedApiFixture api) : IClassFixture<Ra
     private static readonly Uri SignIn = new("/v1/admin/session", UriKind.Relative);
     private static readonly Uri Signup = new("/v1/admin/signup", UriKind.Relative);
     private static readonly Uri SignOut = new("/v1/admin/session/end", UriKind.Relative);
+    private static readonly Uri NonceRoute = new("/v1/admin/session/nonce", UriKind.Relative);
     private static readonly Uri Activate = new("/v1/devices/activate", UriKind.Relative);
     private static readonly Uri Exchange = new("/v1/devices/token", UriKind.Relative);
 
@@ -148,18 +149,44 @@ public sealed class RateLimitTests(RateLimitedApiFixture api) : IClassFixture<Ra
     }
 
     [Fact]
-    public async Task SignInSignupAndSignOutShareOneCount()
+    public async Task TheNonceSignInAndSignupShareOneCount()
     {
         using var client = api.From("203.0.113.50");
+        using var nonce = await client.PostAsync(NonceRoute, content: null, TestContext.Current.CancellationToken);
         using var signIn = await SignInAsync(client);
         using var signup = await client.PostAsJsonAsync(Signup, new AdminSignupRequest("not-a-token", "Nobody"), TestContext.Current.CancellationToken);
-        using var signOut = await client.PostAsync(SignOut, content: null, TestContext.Current.CancellationToken);
-        using var refused = await client.PostAsync(SignOut, content: null, TestContext.Current.CancellationToken);
+        using var refused = await client.PostAsync(NonceRoute, content: null, TestContext.Current.CancellationToken);
 
+        Assert.Equal(HttpStatusCode.OK, nonce.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, signIn.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, signup.StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, signOut.StatusCode);
         Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task SignOutStillEndsTheSessionOnceTheLimitIsSpent()
+    {
+        // Revoking a stolen cookie must never wait for a window to pass, so sign-out is not counted.
+        var owner = await api.SeedOwnerAsync("Limit Sign-out");
+        const string address = "203.0.113.55";
+        using (var anonymous = api.From(address))
+        {
+            for (var i = 0; i < RateLimitedApiFixture.Limit; i++)
+            {
+                using var _ = await SignInAsync(anonymous);
+            }
+
+            using var spent = await SignInAsync(anonymous);
+            Assert.Equal(HttpStatusCode.TooManyRequests, spent.StatusCode);
+        }
+
+        using var client = api.Owner(owner);
+        client.DefaultRequestHeaders.Add(RateLimitedApiFixture.ClientAddressHeader, address);
+        using var signOut = await client.PostAsync(SignOut, content: null, TestContext.Current.CancellationToken);
+        using var after = await client.GetAsync(SignIn, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, signOut.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
     }
 
     [Fact]

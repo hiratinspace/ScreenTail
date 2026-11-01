@@ -54,7 +54,8 @@ public static class AdminSessionEndpoint
                 ? Results.Ok(await SignInNonces.IssueAsync(db, options.SignInNonceLifetime, time, ct).ConfigureAwait(false))
                 : NotConfigured)
         .WithName("AdminSignInNonce")
-        .WithSummary("Issues a one-time nonce for the page to give Google before it draws the sign-in button.");
+        .WithSummary("Issues a one-time nonce for the page to give Google before it draws the sign-in button.")
+        .RequireRateLimiting(AnonymousRateLimit.Policy);
 
         group.MapPost("/session", async (AdminSignInRequest request, HttpContext http, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
@@ -90,7 +91,8 @@ public static class AdminSessionEndpoint
             return Results.Ok(StartSession(http, issuer, options, owner, owner.Tenant, time));
         })
         .WithName("AdminSignIn")
-        .WithSummary("Signs a tenant's owner in with a Google ID token, or says the account may create a tenant.");
+        .WithSummary("Signs a tenant's owner in with a Google ID token, or says the account may create a tenant.")
+        .RequireRateLimiting(AnonymousRateLimit.Policy);
 
         group.MapPost("/signup", async (AdminSignupRequest request, HttpContext http, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
@@ -157,7 +159,8 @@ public static class AdminSessionEndpoint
             return Results.Ok(StartSession(http, issuer, options, owner, tenant, time));
         })
         .WithName("AdminSignup")
-        .WithSummary("Creates a tenant with this Google account as its owner, when the account is on the signup list.");
+        .WithSummary("Creates a tenant with this Google account as its owner, when the account is on the signup list.")
+        .RequireRateLimiting(AnonymousRateLimit.Policy);
 
         group.MapPost("/session/end", async (HttpContext http, ScreenTailContext db, CancellationToken ct) =>
         {
@@ -178,6 +181,9 @@ public static class AdminSessionEndpoint
             return Results.NoContent();
         })
         .WithName("AdminSignOut")
+
+        // Not counted: sign-out ends sessions, and nothing should ever stand between an owner and
+        // revoking a stolen cookie. It acts only for a caller holding the session and its CSRF value.
         .WithSummary("Ends the owner's admin sessions: this browser's cookie, and on the server every session issued before now.");
 
         return group;

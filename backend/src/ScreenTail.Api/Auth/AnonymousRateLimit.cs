@@ -38,15 +38,15 @@ public sealed class RateLimitOptions
 
 /// <summary>
 /// The limit on the routes anybody can call without a session or a token: the admin's sign-in nonce,
-/// sign-in, signup and sign-out, and a device's activation with an invite code (ST-099 hardening,
-/// ADR-0009). Each costs a signature check, a database lookup or a guess at a code, so each is counted
+/// sign-in and signup, and a device's activation with an invite code (ST-099 hardening, ADR-0009).
+/// Sign-out is left out on purpose, so ending a stolen session never waits for a window to pass. Each costs a signature check, a database lookup or a guess at a code, so each is counted
 /// per client address in a fixed window, and the call past the limit is refused with 429, a
 /// <c>Retry-After</c> and no body, before it is read, authenticated or checked against Google's keys.
 ///
-/// <b>The address is the connection's.</b> This service trusts no proxy, so <c>X-Forwarded-For</c> and
-/// its kin are never read: a header the caller writes cannot choose its own partition. Behind a reverse
-/// proxy every caller shares the proxy's address and so one limit; trusting a configured proxy is the
-/// follow-up ADR-0009 names. An IPv6 caller is counted by its /64, which is what one subscriber is
+/// <b>The address is the connection's,</b> unless the connection comes from a proxy the operator listed
+/// (<see cref="TrustedProxyOptions"/>), in which case it is the client that proxy names. From anybody
+/// else <c>X-Forwarded-For</c> and its kin are never read: a header the caller writes cannot choose its
+/// own partition. An IPv6 caller is counted by its /64, which is what one subscriber is
 /// usually given, so rotating through its own addresses does not buy more calls.
 /// </summary>
 public static class AnonymousRateLimit
