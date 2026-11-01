@@ -163,7 +163,7 @@ api_csp = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-act
 hsts = "max-age=31536000"
 
 def read(name):
-    lines = open(os.path.join(scratch, name), encoding="latin-1").read().split("\r\n")
+    lines = open(os.path.join(scratch, name), encoding="latin-1").read().splitlines()
     status = int(lines[0].split()[1])
     headers = {}
     for line in lines[1:]:

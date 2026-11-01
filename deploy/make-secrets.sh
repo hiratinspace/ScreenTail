@@ -48,10 +48,12 @@ app_password=$(read_or_make postgres-app-password)
 write postgres-password "$owner_password"
 write postgres-app-password "$app_password"
 
+# Both over the internal data network. No Kerberos: the runtime image has no GSSAPI library, and without
+# saying so the driver tries to load one on every connection and prints that it could not.
 # The schema's owner, for `docker compose run --rm migrate` only.
-write migrate-connection "Host=postgres;Port=5432;Database=screentail;Username=screentail;Password=$owner_password"
+write migrate-connection "Host=postgres;Port=5432;Database=screentail;Username=screentail;Password=$owner_password;GSS Encryption Mode=Disable"
 # The API's role: rows only, no schema changes (postgres/initdb/10-app-role.sh).
-write api-connection "Host=postgres;Port=5432;Database=screentail;Username=screentail_app;Password=$app_password"
+write api-connection "Host=postgres;Port=5432;Database=screentail;Username=screentail_app;Password=$app_password;GSS Encryption Mode=Disable"
 
 # 48 random bytes; the API refuses fewer than 32. Signs device tokens, and admin sessions and sign-in
 # nonces under keys derived from it (ADR-0009).

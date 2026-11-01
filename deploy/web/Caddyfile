@@ -43,7 +43,6 @@ http://:8081 {
 			# Set, never appended: the API trusts this proxy's X-Forwarded-For (ForwardedHeaders:
 			# KnownProxies), so the one entry must be the address Caddy saw, whatever the client sent.
 			header_up X-Forwarded-For {client_ip}
-			header_up X-Forwarded-Proto {scheme}
 		}
 	}
 
