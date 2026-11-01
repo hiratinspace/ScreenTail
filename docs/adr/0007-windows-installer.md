@@ -139,14 +139,15 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   and endpoint agents on MSP machines read running programs the same way.
 - **When an upgrade removes a version**, that version's removal first runs its installed service once in
   an upgrade mode (`--upgrade-release`), as the system account, straight before its files are removed:
-  it gives any copy still running from the install folder up to 5 seconds to finish closing, stops what
-  is left, and makes the same bounded wait, and does
+  it stops any copy still running from the install folder and makes the same bounded wait, and does
   nothing else (no data, no Run value, no capture). A major upgrade removes the old version
   (RemoveExistingProducts, after InstallValidate) without the uninstall step, and in the CI upgrade logs
   Restart Manager ended the running service only about a second before the old files were deleted, so a
   scanner still reading the executable turned the upgrade into 3010. On CI the step found the old
-  service still running in every upgrade, under a second after Restart Manager had reported it shut
-  down; with the step's wait switched off, all three upgrades in the smoke test ended
+  service still running, and stopped it, in every upgrade, under a second after Restart Manager had
+  reported it shut down (given five seconds in one round of runs, it never ended on its own: the service
+  does not answer Restart Manager's request, and only being ended stops it, which CloseApplication would
+  otherwise do after the files were gone); with the step's wait switched off, all three upgrades in the smoke test ended
   in 3010 with `ScreenTail.Service.exe` queued for deletion at the next restart. It lives in the version being
   removed because nothing else can run it in time: before RemoveExistingProducts the new files are not on
   the machine, and a version without this mode, given a flag it does not know, would start the capture

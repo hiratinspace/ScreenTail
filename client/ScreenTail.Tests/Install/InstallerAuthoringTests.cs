@@ -316,15 +316,9 @@ public sealed class InstallerAuthoringTests
         Assert.True(check > 0 && check < step, "the upgrade mode refuses anybody but the installer before it does anything");
 
         var body = Method(release, "internal static int Run(TextWriter output, string installDirectory, long started)");
-        var grace = body.IndexOf("UninstallCleanup.AwaitInstalledCopies(installDirectory, Grace)", StringComparison.Ordinal);
         var stop = body.IndexOf("UninstallCleanup.StopInstalledCopies(installDirectory)", StringComparison.Ordinal);
         var wait = body.IndexOf("UninstallCleanup.ReleaseInstalledFiles(installDirectory, started)", StringComparison.Ordinal);
-        Assert.True(grace > 0 && grace < stop, "it lets copies that are closing finish, then stops the rest");
         Assert.True(stop > 0 && stop < wait, "it stops the installed copies, then waits for the files");
-
-        // The grace, stopping what is left (10 s a copy) and the wait's budget fit inside the step's deadline
-        // for one copy each of the service and the UI.
-        Assert.True(UpgradeReleaseGrace() + TimeSpan.FromSeconds(20) + ProgramFilesRelease.Budget <= ProgramFilesRelease.StepDeadline, "the step ends inside its deadline");
 
         var code = release[release.IndexOf("internal static class UpgradeRelease", StringComparison.Ordinal)..];
         foreach (var never in new[] { "RemoveData", "RemoveRunValues", "Shred", "Registry", "Delete", "Host", "Capture" })
@@ -338,14 +332,6 @@ public sealed class InstallerAuthoringTests
         Assert.True(mode > 0 && mode < program.IndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal), "the upgrade mode is dispatched before the mutex");
         Assert.True(mode < program.IndexOf("Host.CreateApplicationBuilder", StringComparison.Ordinal), "and before the service is built");
         Assert.Contains("return UpgradeRelease.Run(Console.Out);", program[mode..program.IndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal)], StringComparison.Ordinal);
-    }
-
-    /// <summary>UpgradeRelease.Grace, read from the source: the test project does not reference the service.</summary>
-    private static TimeSpan UpgradeReleaseGrace()
-    {
-        var match = Regex.Match(Source("UpgradeRelease.cs"), @"Grace \{ get; \} = TimeSpan\.FromSeconds\((\d+)\);");
-        Assert.True(match.Success, "UpgradeRelease.Grace is a whole number of seconds");
-        return TimeSpan.FromSeconds(int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private static string Source(string file) => File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Install", file));

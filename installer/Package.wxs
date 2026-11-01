@@ -167,8 +167,8 @@
          running service only about a second before this version's RemoveFiles deleted its files: a scanner
          still reading ScreenTail.Service.exe then leaves it for a restart, and the upgrade ends with 3010.
          So this version's own removal, when an upgrade is what removes it, first runs its installed
-         service in its upgrade mode, as the system account: it lets copies still closing finish (5 seconds
-         at most), stops what is left running from the folder, and waits, under the same budget and two clean looks, until no other program has an installed file
+         service in its upgrade mode, as the system account: it stops copies still running from the folder
+         and waits, under the same budget and two clean looks, until no other program has an installed file
          open. It touches no user's data and no Run value, and starts no capture. The path is the package's
          own folder, which only ever is Program Files (RefuseInstallFolder), and the command takes nothing
          from a command line. Ignored like the step above: a file still held costs a restart, not the

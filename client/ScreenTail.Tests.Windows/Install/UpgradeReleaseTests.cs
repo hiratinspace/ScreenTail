@@ -42,7 +42,7 @@ public sealed partial class UpgradeReleaseTests : IDisposable
         var (waited, stillOpen) = Report(output.ToString());
         Assert.Equal(0, waited);
         Assert.Equal(0, stillOpen);
-        Assert.Contains($"{UpgradeRelease.Prefix} 0 running copies ended on their own, 0 stopped.", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains($"{UpgradeRelease.Prefix} 0 running copies stopped.", output.ToString(), StringComparison.Ordinal);
     }
 
     [Theory]
