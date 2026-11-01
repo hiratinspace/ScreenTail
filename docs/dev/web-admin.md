@@ -34,6 +34,12 @@ Backend (environment variables, or `dotnet user-secrets` in Development):
 | `Admin__NewTenantSeats` | `5` | Seats a tenant created by signup starts with (1 to 1000). |
 | `Admin__SessionLifetime` | `08:00:00` | How long an admin session lasts (5 minutes to 24 hours). |
 | `Admin__ClientDownloadUrl` | empty | The Windows installer's `https://` address for Download client. Empty shows "no download yet". |
+| `Admin__SignInNonceLifetime` | `00:10:00` | How long a sign-in nonce is accepted after the page asks for it, first-run screen included (1 to 60 minutes). |
+| `RateLimit__PermitLimit` | `10` | Calls one client address may make in a window to the sign-in nonce, sign-in, signup and device activation, together (1 to 100000). Sign-out is never counted. |
+| `RateLimit__Window` | `00:01:00` | That window (1 second to 1 hour). The call past the limit gets 429 with `Retry-After` and no body. |
+| `ForwardedHeaders__KnownProxies__0`, `__1`, ... | empty | The reverse proxies in front of the API, as IP addresses. Only a connection from one of them has its `X-Forwarded-For` and `X-Forwarded-Proto` read. Empty: no forwarded header is read from anybody. |
+| `ForwardedHeaders__KnownNetworks__0`, ... | empty | The same, as networks in CIDR form (`10.0.0.0/24`). |
+| `ForwardedHeaders__ForwardLimit` | `1` | How many listed proxies in a row, counted back from the API (1 to 5). |
 
 The backend's other settings (`ConnectionStrings__Postgres`, `Jwt__SigningKey`) are as in
 `backend/README.md`. `Jwt__Audience` must not be `screentail-admin`, which is the admin session's own
@@ -73,12 +79,46 @@ Open `http://localhost:5173`, sign in with an address on the allowlist, name the
 3. **Policy**: change retention or lock local-only and **Save policy**. Devices pick it up within the
    hour (ST-047's sync).
 
+The sign-in page asks the backend for a one-time nonce (`POST /v1/admin/session/nonce`) before it draws
+Google's button, so the backend must be up for the button to appear; without it the page says it could
+not reach the server. Ten sign-in calls a minute from one address is the default limit: a developer
+signing in and out repeatedly can set `RateLimit__PermitLimit` higher locally.
+
 Vite's proxy puts the page and the API on one origin, which the session cookie needs: it is host-only,
 `Secure` and `SameSite=Strict`. Chrome, Edge and Firefox keep a `Secure` cookie on `http://localhost`;
 Safari does not, so use one of the others locally. In a deployment, serve the built `web/dist` and the
 API from one `https://` origin, with a reverse proxy sending `/v1` to the API.
 
-## 4. Checks
+## 4. Security headers
+
+The API sets its own on every answer (`SecurityHeaders`: `default-src 'none'`, no framing, `nosniff`,
+no referrer). The page's are written once, in `web/security-headers.ts`, and ADR-0009 says why each is
+there:
+
+- `npm run dev` sends all of them **except the Content-Security-Policy**, because Vite's dev page runs
+  inline scripts and styles for hot reload.
+- `vite preview` sends **all of them**, so the built page and a local Lighthouse run see the real policy.
+- **A deployment's web server must send them with the page**, exactly as `appHeaders` in that file says.
+  Today they are:
+
+```
+Content-Security-Policy: default-src 'none'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self'; font-src 'self'; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: accelerometer=(), autoplay=(), bluetooth=(), camera=(), display-capture=(), encrypted-media=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()
+Cross-Origin-Opener-Policy: same-origin-allow-popups
+X-Frame-Options: DENY
+```
+
+`'unsafe-inline'` is for styles only: Google's sign-in script inserts a style element and style
+attributes, and without it Chrome draws the button unstyled. Nothing in the page needs an inline
+script; `src/securityHeaders.test.ts` builds the app and fails if one appears.
+
+**Behind a reverse proxy,** list it in `ForwardedHeaders__KnownProxies__0` (or `__KnownNetworks__0`) and
+have it set `X-Forwarded-For` itself. Otherwise every owner and technician counts as the proxy's one
+address for the rate limit, and one person's ten calls a minute lock everyone else out of sign-in.
+
+## 5. Checks
 
 ```bash
 cd web && npm run lint && npm run typecheck && npm test && npm run build
@@ -93,4 +133,6 @@ tests replace the API and Google's button.
 `http://localhost:4173/`. The signed-in pages need the session cookie in the browser Lighthouse drives
 (sign in first in that profile, or set the cookie with Puppeteer and pass the page to Lighthouse's Node
 API). On 2026-10-31 every page scored 100 in light and dark: sign-in, Technicians and seats, Policy,
-Integrations and Download client.
+Integrations and Download client. On 2026-11-01, with the CSP on (`vite preview`) and a stand-in for the
+backend's admin routes, every page scored 100 again and Chrome reported no CSP violation, Google's button
+frame included.
