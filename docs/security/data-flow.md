@@ -258,9 +258,11 @@ This document describes what is enforced today. These are named here rather than
   address an operator configured. The UI process makes no HTTP calls.
 - **"Delete everything"** is offered in Settings → Privacy & Redaction behind the service's typed
   confirmation (ST-081).
-- **Audio capture is built** (ST-027). The service opens the technician's default microphone while a
-  session is recording and nothing else; there is no code path for system or remote audio, so INV-9 is
-  enforced by there being no other source to open. Each stretch of speech is stamped with the session it
+- **Audio capture is built** (ST-027). The service opens the technician's microphone while a session is
+  recording, and otherwise only for Settings' level meter (below); there is no code path for system or
+  remote audio, so INV-9 is enforced by there being no other source to open. The microphone is the one
+  chosen in Settings, Capture when it is connected and Windows' default communications device otherwise
+  (ST-080 AC3); a chosen device that is not connected never stops a session. Each stretch of speech is stamped with the session it
   was heard in and is written into that session or nowhere, so a segment the model finishes after one
   session ends cannot land in the next customer's transcript; discarding a session drops what was still
   queued for it. Stop waits, within the same grace as the last screenshots, for speech still being
@@ -276,6 +278,15 @@ This document describes what is enforced today. These are named here rather than
   seconds) is held back from the model in the meantime, so the part already cut is dropped with it;
   only parts a whole longest segment older go ahead. The speech model is released after five minutes with nothing to
   transcribe and loaded again by the next sentence.
+- **The level meter in Settings, Capture opens the microphone outside a session** (ST-080 AC3, 2026-10-31),
+  and only this way: while the microphone card is on screen, scrolled into view, with the window in
+  front and not minimised. The UI asks for the level about ten times a second; each request keeps the
+  device open for 1.5 seconds, so it closes by itself when the card is hidden, the window goes behind
+  another or the UI stops. It never opens while a session is recording, paused, suppressed or finishing,
+  and a session that starts closes it; the pill and the tray are not involved, because nothing is
+  captured. Each frame of audio becomes one number and is dropped: nothing heard is kept, transcribed,
+  written, sent or logged, and the meter has no field that could hold a sample. Windows' own
+  microphone-in-use indicator lights while it runs, which the technician sees beside the card.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
   its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
   nothing is lost.
