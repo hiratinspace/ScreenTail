@@ -859,6 +859,8 @@
 
     <!-- Scroll bars: a slim rounded thumb on a clear track. The default is a light grey bar that sat
          on every dark pane like a stripe of white paint. -->
+    <!-- A track's page areas are PageButtons: repeat buttons UI Automation does not list as controls, since
+         a screen reader scrolls through the pane's Scroll pattern (ST-084). -->
     <Style x:Key="ScrollBar.Page" TargetType="RepeatButton">
         <Setter Property="Focusable" Value="False" />
         <Setter Property="IsTabStop" Value="False" />
@@ -896,13 +898,13 @@
         <Grid Background="Transparent">
             <Track x:Name="PART_Track" IsDirectionReversed="True">
                 <Track.DecreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
                     <Thumb Style="{StaticResource ScrollBar.Thumb}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.IncreaseRepeatButton>
             </Track>
         </Grid>
@@ -911,13 +913,13 @@
         <Grid Background="Transparent">
             <Track x:Name="PART_Track">
                 <Track.DecreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
                     <Thumb Style="{StaticResource ScrollBar.Thumb}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageRightCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageRightCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.IncreaseRepeatButton>
             </Track>
         </Grid>
@@ -990,13 +992,13 @@
                         <Border Height="4" Margin="9,0" VerticalAlignment="Center" Background="{DynamicResource Brush.border.strong}" CornerRadius="2" />
                         <Track x:Name="PART_Track">
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Command="Slider.DecreaseLarge" Style="{StaticResource Slider.Fill}" />
+                                <controls:PageButton Command="Slider.DecreaseLarge" Style="{StaticResource Slider.Fill}" />
                             </Track.DecreaseRepeatButton>
                             <Track.Thumb>
                                 <Thumb Style="{StaticResource Slider.Thumb}" />
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Command="Slider.IncreaseLarge" Style="{StaticResource ScrollBar.Page}" />
+                                <controls:PageButton Command="Slider.IncreaseLarge" Style="{StaticResource ScrollBar.Page}" />
                             </Track.IncreaseRepeatButton>
                         </Track>
                     </Grid>
