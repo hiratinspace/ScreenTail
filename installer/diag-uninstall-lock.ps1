@@ -12,8 +12,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Msi,
     [string]$Logs = (Join-Path ([IO.Path]::GetTempPath()) 'screentail-diag'),
-    [int]$Iterations = 10,
-    [int]$MsiCycles = 12
+    [int]$Iterations = 20,
+    [int]$MsiCycles = 8
 )
 
 $ErrorActionPreference = 'Stop'
@@ -215,36 +215,51 @@ Write-Host '== Install'
 $code = Run-And-Wait 'msiexec.exe' "/i `"$Msi`" /qn /norestart /l*v `"$(Join-Path $Logs 'diag-install.log')`"" $null
 Write-Host "install exit $code"
 
-Write-Host '== L: the installed service runs for four minutes; who opens its executable, and does that block a delete'
-$started = Start-Service-And-Wait
-$sampler = New-Object HolderSampler($serviceExe)
-$zero = $sampler.Now
-Start-Sleep -Seconds 240
-$sampler.Stop()
-Write-Host "L: service started $started; $($sampler.Samples) samples; holders (ms): $(Format-Seen $sampler $zero)"
-Write-Host "L: foreign holders: $(Format-Blocks $sampler)"
-Get-Process -Name 'ScreenTail.Service' -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Seconds 1
-
-Write-Host "== A: a fresh copy of the service runs --uninstall-cleanup; who holds it, during and after ($Iterations times)"
-$lockedAfter = 0
-for ($i = 0; $i -lt $Iterations; $i++) {
-    $copy = Join-Path $installDir ("diag-$i.exe")
+# One fresh copy of the service (a file provjobd has not seen), run one way, sampled from its start
+# until three seconds after it ended.
+function Probe-Fresh([string]$Tag, [int]$I, [string]$Mode) {
+    $copy = Join-Path $installDir ("diag-$Tag-$I.exe")
     Copy-Item $serviceExe $copy -Force
     $sampler = New-Object HolderSampler($copy)
-    $code = Run-And-Wait $copy '--uninstall-cleanup' $sampler
+    $code = $null
+    if ($Mode -eq 'kill') {
+        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+        $token = Join-Path $dataDir 'ipc.token'
+        Remove-Item $token -Force -ErrorAction SilentlyContinue
+        $p = Start-Process -FilePath $copy -WorkingDirectory $installDir -PassThru
+        $sampler.ExcludePid = $p.Id
+        for ($w = 0; $w -lt 40 -and -not (Test-Path $token); $w++) { Start-Sleep -Milliseconds 250 }
+        Start-Sleep -Milliseconds 500
+        $p.Kill()
+        $p.WaitForExit()
+        $code = 'killed'
+    } else {
+        $code = Run-And-Wait $copy '--uninstall-cleanup' $sampler
+    }
     $exit = $sampler.Now
     $first = [LockProbe]::OpenForDelete($copy)
-    $free = $exit
-    while ([LockProbe]::OpenForDelete($copy) -ne 0 -and ($sampler.Now - $exit) -lt 20000) { Start-Sleep -Milliseconds 2 }
-    $free = $sampler.Now
-    Start-Sleep -Milliseconds 1500
+    Start-Sleep -Milliseconds 3000
     $sampler.Stop()
-    if ($first -ne 0) { $lockedAfter++ }
-    Write-Host ("A[{0}] exit {1}; right after exit open-for-delete error {2}, free {3} ms after exit; holders (ms from exit): {4} {5}" -f $i, $code, $first, ($free - $exit), (Format-Seen $sampler $exit), (Format-Blocks $sampler))
-    Remove-Item $copy -Force -ErrorAction SilentlyContinue
+    Write-Host ("{0}[{1}] exit {2}; open-for-delete right after exit: {3}; holders (ms from exit): {4} {5}" -f $Tag, $I, $code, $first, (Format-Seen $sampler $exit), (Format-Blocks $sampler))
+    for ($w = 0; $w -lt 50 -and (Test-Path $copy); $w++) { Remove-Item $copy -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 }
+    return ($sampler.Blocks.Keys -join ',')
 }
-Write-Host "A: $lockedAfter of $Iterations still held right after the process exited"
+
+$foreign = @{ K = 0; N = 0; Z = 0 }
+Write-Host "== K: a fresh copy runs as the service and is killed ($Iterations times)"
+for ($i = 0; $i -lt $Iterations; $i++) { if (Probe-Fresh 'K' $i 'kill') { $foreign.K++ } }
+
+Write-Host "== N: a fresh copy runs --uninstall-cleanup and exits 1 (a junction where the data folder is) ($Iterations times)"
+$sentinel = Join-Path $env:SystemDrive 'ScreenTailDiagSentinel'
+New-Item -ItemType Directory -Force -Path $sentinel | Out-Null
+Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Junction -Path $dataDir -Target $sentinel | Out-Null
+for ($i = 0; $i -lt $Iterations; $i++) { if (Probe-Fresh 'N' $i 'cleanup') { $foreign.N++ } }
+[IO.Directory]::Delete($dataDir)
+
+Write-Host "== Z: a fresh copy runs --uninstall-cleanup and exits 0 ($Iterations times)"
+for ($i = 0; $i -lt $Iterations; $i++) { if (Probe-Fresh 'Z' $i 'cleanup') { $foreign.Z++ } }
+Write-Host "Fresh copies with a foreign holder: killed $($foreign.K), exit 1 $($foreign.N), exit 0 $($foreign.Z), of $Iterations each"
 
 Write-Host '== Uninstall after A'
 $null = Run-And-Wait 'msiexec.exe' "/x `"$Msi`" /qn /norestart" $null
@@ -270,4 +285,4 @@ for ($i = 0; $i -lt $MsiCycles; $i++) {
     }
 }
 Write-Host ''
-Write-Host "== Summary: A $lockedAfter of $Iterations held after exit; E exits $($codes['E'] -join ','); F exits $($codes['F'] -join ',')"
+Write-Host "== Summary: fresh copies with a foreign holder: killed $($foreign.K), exit 1 $($foreign.N), exit 0 $($foreign.Z) of $Iterations; E exits $($codes['E'] -join ','); F exits $($codes['F'] -join ',')"
