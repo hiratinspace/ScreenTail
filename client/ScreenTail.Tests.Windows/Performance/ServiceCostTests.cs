@@ -145,14 +145,19 @@ public sealed class ServiceCostTests
         using var witness = NameChangeWitness.Start();
         await using var noise = Noise.Renaming(renaming);
 
+        // The noise wakes its own thread, the renaming window's and the witness's on every event, by design.
+        // Those are left out of both figures, so what is compared is the rest of the process: the pool,
+        // the timers and the watchers, where the service's own work runs.
+        long[] noiseThreads = [.. noise.Threads, witness.ThreadId];
+
         ProcessCost.Settle();
-        var host = await ProcessCost.MeasureAsync(Slice, 6, ct);
+        var host = (await ProcessCost.MeasureAsync(Slice, 6, ct)).Excluding(noiseThreads);
 
         await using var rig = await ServiceRig.StartAsync(scope: null, ct);
         await Task.Delay(SettleFor, ct);
         ProcessCost.Settle();
         var delivered = witness.Count(renaming.Handle, NameChangeWitness.WindowObject);
-        var idle = await ProcessCost.MeasureAsync(Slice, 6, ct);
+        var idle = (await ProcessCost.MeasureAsync(Slice, 6, ct)).Excluding(noiseThreads);
         delivered = witness.Count(renaming.Handle, NameChangeWitness.WindowObject) - delivered;
 
         Assert.Equal(SessionState.Idle, rig.Machine.State);
@@ -168,7 +173,7 @@ public sealed class ServiceCostTests
             $"Service at idle on a busy desktop (a console printing every 20 ms, class {console.ClassName}, in front: {consoleInFront} at the start and {console.IsForeground} at the end; "
             + $"a window behind renaming itself {renamesPerSecond:F0} times a second, every rename delivered to a hook over every thread), {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices: "
             + $"foreground watcher **{foregroundPump:F1}/s**, focus watcher **{focusPump:F1}/s** (ceiling {IdleHookTests.PumpCeiling:F0} each, enforced everywhere); "
-            + $"**{wakeups:F1} wakeups/s** net of the host under the same noise (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}; "
+            + $"**{wakeups:F1} wakeups/s** net of the host under the same noise, the noise's own three threads left out (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}; "
             + $"ceiling {IdleWakeupCeiling:F0}, enforced: {Counts})"));
 
         Assert.True(renamesPerSecond > 10, $"only {renamesPerSecond:F1} renames a second reached the test's own hook, so the service's quiet proves nothing");

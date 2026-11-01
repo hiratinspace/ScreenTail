@@ -102,6 +102,16 @@ internal sealed class CostWindow
 
     public ProcessSample First => _samples[0];
 
+    /// <summary>
+    /// The same window without some threads' switches: the noise a test raises on purpose, on threads of
+    /// its own, so the wakeup figures are the rest of the process's. Processor time is left as it was.
+    /// </summary>
+    public CostWindow Excluding(IReadOnlyCollection<long> threads) =>
+        new([.. _samples.Select(sample => sample with
+        {
+            Switches = sample.Switches.Where(thread => !threads.Contains(thread.Key)).ToDictionary(thread => thread.Key, thread => thread.Value),
+        })]);
+
     public ProcessSample Last => _samples[^1];
 
     public TimeSpan Elapsed => Stopwatch.GetElapsedTime(First.Timestamp, Last.Timestamp);

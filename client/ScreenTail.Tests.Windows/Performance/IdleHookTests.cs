@@ -146,44 +146,61 @@ public sealed class IdleHookTests
 /// <summary>
 /// A test window raising, a hundred times a second, one of the events the idle service's hooks used to
 /// take from every thread on the desktop. Runs until disposed.
+///
+/// On a thread of its own, sleeping between events, and never on the pool or a timer: a whole-process
+/// figure can then leave out exactly the noise's threads (<see cref="Threads"/>) and keep the pool and timer
+/// threads the service's own loops run on. Run on the pool, the noise alone came to thousands of the
+/// process's wakeups a second and drowned the figure it was there to test.
 /// </summary>
 internal sealed class Noise : IAsyncDisposable
 {
-    private readonly CancellationTokenSource _stop = new();
-    private readonly Task _running;
+    private readonly Thread _thread;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly TaskCompletionSource<uint> _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private volatile bool _stop;
     private int _count;
 
-    private Noise(Action<int> step)
+    private Noise(DesktopWindow window, Action<int> step)
     {
-        _running = Task.Run(
-            async () =>
+        _thread = new Thread(() =>
+        {
+            _started.TrySetResult(GetCurrentThreadId());
+            for (var i = 0; !_stop; i++)
             {
-                for (var i = 0; !_stop.IsCancellationRequested; i++)
-                {
-                    step(i);
-                    _ = Interlocked.Increment(ref _count);
-                    await Task.Delay(10, CancellationToken.None);
-                }
-            },
-            CancellationToken.None);
+                step(i);
+                _ = Interlocked.Increment(ref _count);
+                Thread.Sleep(10);
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "ScreenTail test noise",
+        };
+        _thread.Start();
+        Threads = [_started.Task.GetAwaiter().GetResult(), IdleHookTests.ThreadOf(window.Handle)];
     }
 
-    /// <summary>How many events a second it has actually raised: Task.Delay's ten milliseconds is a floor, not a promise.</summary>
+    /// <summary>The noise's own thread and the window's, which every event wakes by design.</summary>
+    public IReadOnlyList<long> Threads { get; }
+
+    /// <summary>How many events a second it has actually raised: a ten-millisecond sleep is a floor, not a promise.</summary>
     public double PerSecond => Volatile.Read(ref _count) / Math.Max(0.001, _clock.Elapsed.TotalSeconds);
 
     /// <summary><c>EVENT_OBJECT_NAMECHANGE</c> for the window itself: a background window retitling.</summary>
     public static Noise Renaming(DesktopWindow window) =>
-        new(i => window.Retitle(string.Create(CultureInfo.InvariantCulture, $"ScreenTail renaming {i}")));
+        new(window, i => window.Retitle(string.Create(CultureInfo.InvariantCulture, $"ScreenTail renaming {i}")));
 
     /// <summary><c>EVENT_OBJECT_FOCUS</c>: focus moving between the window's two fields.</summary>
     public static Noise Focusing(DesktopWindow window) =>
-        new(i => window.Focus(i % 2 == 0 ? window.PlainField : window.PasswordField));
+        new(window, i => window.Focus(i % 2 == 0 ? window.PlainField : window.PasswordField));
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        await _stop.CancelAsync();
-        await _running;
-        _stop.Dispose();
+        _stop = true;
+        _ = _thread.Join(TimeSpan.FromSeconds(5));
+        return ValueTask.CompletedTask;
     }
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
 }

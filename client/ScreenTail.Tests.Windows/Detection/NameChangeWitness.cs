@@ -44,6 +44,9 @@ internal sealed class NameChangeWitness : IDisposable
         return witness;
     }
 
+    /// <summary>The OS id of the thread the hook delivers to, so a measurement can leave it out.</summary>
+    public uint ThreadId => _threadId;
+
     /// <summary>How many name changes this window has raised with the given object id.</summary>
     public int Count(IntPtr window, int objectId)
     {
