@@ -137,7 +137,10 @@ function Start-InstalledService([string]$ErrorLog) {
     $start = @{ FilePath = $serviceExe; WorkingDirectory = $installDir; PassThru = $true }
     if ($ErrorLog) {
         # The service logs to standard error, scrubbed (INV-10); a Windows program's goes nowhere unless asked.
+        # Standard output to a file too: a redirected start hands the child every standard handle it does
+        # not redirect, and a service holding the job's own output open keeps the step from ever ending.
         $start.RedirectStandardError = $ErrorLog
+        $start.RedirectStandardOutput = "$ErrorLog.out"
     }
     $null = Start-Process @start
     for ($i = 0; $i -lt 60; $i++) {
@@ -167,8 +170,19 @@ function Invoke-Close([string]$Exe, [string]$Mode, [string]$Name, [switch]$Resta
     # In a process of its own, ended after 90 s: a Restart Manager call has no timeout of its own.
     $out = Join-Path $Logs "close-$Name.txt"
     $restartSwitch = $(if ($Restart) { " -Restart -StoreFolder `"$dataDir`"" } else { '' })
-    $code = Invoke-Process 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'close-running.ps1')`" -Exe `"$Exe`" -Mode $Mode$restartSwitch" 90 $out
+    # Both outputs to files, so neither this process nor what Restart Manager restarts from it holds the
+    # job's own output open.
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'close-running.ps1')`" -Exe `"$Exe`" -Mode $Mode$restartSwitch"
+    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+    $null = $process.Handle
+    if ($process.WaitForExit(90000)) {
+        $code = $process.ExitCode
+    } else {
+        $process.Kill()
+        $code = -1
+    }
     $lines = @(Get-Content $out -ErrorAction SilentlyContinue)
+    Get-Content "$out.err" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  stderr: $_" }
     $lines | ForEach-Object { Write-Host "  $_" }
     return [pscustomobject]@{ Code = $code; Lines = $lines }
 }
@@ -383,6 +397,10 @@ if ($again) {
     $alive = Get-Process -Id $againId -ErrorAction SilentlyContinue
     Check 'the restarted service is still running a few seconds later (it is the one copy, not a second refused by the name)' ($null -ne $alive)
     Test-StoreOpen 'the restarted service'
+
+    # Asked to close again, so the rest of the test meets a service it started itself.
+    $closed = Invoke-Close $serviceExe 'CloseMessage' 'restarted-service-close-message'
+    Test-ClosedByItself 'WM_CLOSE to the restarted service' $closed
 }
 
 Write-Step "Restart Manager's request to the running UI"
@@ -401,9 +419,7 @@ Test-RestartManagerShutdown 'the UI' $closed
 Test-ClosedByItself "Restart Manager's request to the UI" $closed
 Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-# The copy Restart Manager restarted is the one the uninstall meets; one is started only if it is not there.
-$serviceUp = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count -ge 1
-Check 'the installed service is running again for the uninstall' ($serviceUp -or (Start-InstalledService))
+Check 'the installed service starts again for the uninstall' (Start-InstalledService)
 
 # --- A second technician, never signed in, with data and a planted link --------------------------------
 # A real local account with a real profile that has never been used, which is what an MSP's uninstall
@@ -507,6 +523,12 @@ if ($Bundle) {
     }
     Remove-Item $sentinel -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# Anything of ScreenTail's still running here would be a failure above; ended now, so it cannot hold the
+# job's output open past the end of the script.
+$left = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
+Write-Host "ScreenTail processes left at the end: $($left.Count)"
+$left | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # --- Summary -------------------------------------------------------------------------------------------
 $failed = @($results | Where-Object { $_.Result -eq 'FAIL' })
