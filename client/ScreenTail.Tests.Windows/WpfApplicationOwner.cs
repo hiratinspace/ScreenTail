@@ -13,9 +13,14 @@ namespace ScreenTail.Tests.Windows;
 /// that hands its changes to <c>Application.Current</c>'s dispatcher would queue them for nobody. So the
 /// tests that need the app's styles share this collection, and <see cref="ApplicationOwnerRunsLast"/> puts
 /// it after every other. The assembly runs one collection at a time (AssemblyInfo.cs), so last is last.
+///
+/// The Application itself is the collection's fixture (<see cref="Accessibility.TheApplication"/>, ST-084):
+/// made once when the collection starts, on a thread that pumps until it ends, and shut down after its
+/// last test. Until the accessibility suite there was one test that needed it, and it made and shut down
+/// its own; a second test could not have done the same.
 /// </summary>
 [CollectionDefinition(Name)]
-public sealed class WpfApplicationOwner
+public sealed class WpfApplicationOwner : ICollectionFixture<Accessibility.TheApplication>
 {
     public const string Name = "Owns the WPF Application";
 }

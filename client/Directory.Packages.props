@@ -21,5 +21,9 @@
 
     <!-- xUnit v3 runs on Microsoft.Testing.Platform (global.json "test.runner"); no VSTest packages needed. -->
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
+
+    <!-- ST-084: the rules engine behind Accessibility Insights for Windows FastPass, run headlessly by the
+         Windows suite over every technician-facing window (AC2). Tests only; nothing ships with it. -->
+    <PackageVersion Include="Axe.Windows" Version="2.4.2" />
   </ItemGroup>
 </Project>
