@@ -34,7 +34,8 @@
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding}" VerticalAlignment="Center" />
                                 <Button Margin="8,0,0,0" Style="{StaticResource Button.Ghost}" Content="Remove"
-                                        Command="{Binding DataContext.RemoveProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                                        Command="{Binding DataContext.RemoveProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="{Binding StringFormat='Remove {0} from the excluded apps'}" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -64,7 +65,8 @@
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding}" VerticalAlignment="Center" />
                                 <Button Margin="8,0,0,0" Style="{StaticResource Button.Ghost}" Content="Remove"
-                                        Command="{Binding DataContext.RemovePatternCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                                        Command="{Binding DataContext.RemovePatternCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="{Binding StringFormat='Remove the pattern {0}'}" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

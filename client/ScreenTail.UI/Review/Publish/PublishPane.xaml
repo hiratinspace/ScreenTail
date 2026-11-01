@@ -172,6 +172,7 @@
                                                 Style="{StaticResource Button.Ghost}"
                                                 Foreground="{DynamicResource Brush.accent.primary}"
                                                 Content="Open in ConnectWise"
+                                                AutomationProperties.Name="{Binding Label, StringFormat='Open in ConnectWise: {0}'}"
                                                 Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Link}"
                                                 Visibility="{Binding LinkVisibility}" />

@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.NoteEditorView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              Background="Transparent"
              AutomationProperties.Name="Note">
@@ -80,7 +81,7 @@
                     HorizontalAlignment="Center"
                     Background="{DynamicResource Brush.bg.danger}"
                     CornerRadius="28">
-                <TextBlock Style="{StaticResource EmptyState.Icon}"
+                <controls:Glyph Style="{StaticResource EmptyState.Icon}"
                            Foreground="{DynamicResource Brush.state.danger}"
                            Text="&#xE7BA;" />
             </Border>
@@ -112,7 +113,7 @@
                     HorizontalAlignment="Center"
                     Background="{DynamicResource Brush.bg.selected}"
                     CornerRadius="28">
-                <TextBlock Style="{StaticResource EmptyState.Icon}"
+                <controls:Glyph Style="{StaticResource EmptyState.Icon}"
                            Foreground="{DynamicResource Brush.accent.primary}"
                            Text="&#xE895;" />
             </Border>

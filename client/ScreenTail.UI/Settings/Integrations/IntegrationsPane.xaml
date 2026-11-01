@@ -39,7 +39,8 @@
                                 VerticalAlignment="Top"
                                 Style="{StaticResource Button.Secondary}"
                                 Content="Change"
-                                Command="{Binding ChangeCommand}" />
+                                Command="{Binding ChangeCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Change the {0} connection'}" />
                     </Grid>
 
                     <!-- Nothing saved, or Change pressed: the fields. -->
@@ -95,6 +96,7 @@
                                 Style="{StaticResource Button.Primary}"
                                 Content="Save"
                                 Command="{Binding SaveCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Save the {0} connection'}"
                                 IsEnabled="{Binding CanSave}" />
                     </StackPanel>
 
@@ -103,11 +105,13 @@
                         <Button Style="{StaticResource Button.Secondary}"
                                 Content="Test connection"
                                 Command="{Binding CheckCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Test connection to {0}'}"
                                 IsEnabled="{Binding Connected}" />
                         <Button Margin="8,0,0,0"
                                 Style="{StaticResource Button.Ghost}"
                                 Content="Remove"
                                 Command="{Binding RemoveCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"
                                 Visibility="{Binding ConnectedBadgeVisibility}" />
                     </StackPanel>
                     <StackPanel Margin="0,6,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
@@ -181,6 +185,7 @@
                                             Margin="8,0,0,0"
                                             Style="{StaticResource Button.Ghost}"
                                             Content="Forget"
+                                            AutomationProperties.Name="{Binding PsaCompany, StringFormat='Forget the mapping for {0}'}"
                                             Command="{Binding DataContext.UnmapCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                             CommandParameter="{Binding}" />
                                 </Grid>

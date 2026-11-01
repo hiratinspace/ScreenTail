@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.FilmstripView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              Background="Transparent"
              AutomationProperties.Name="Screenshots">
@@ -22,7 +23,7 @@
                     <!-- The glyph sits under the image: it shows while the thumbnail loads, and is covered
                          once it arrives. -->
                     <Grid>
-                        <TextBlock HorizontalAlignment="Center"
+                        <controls:Glyph HorizontalAlignment="Center"
                                    Style="{StaticResource Icon}"
                                    FontSize="20"
                                    Foreground="{DynamicResource Brush.text.muted}"

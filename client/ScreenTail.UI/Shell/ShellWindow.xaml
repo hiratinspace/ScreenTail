@@ -1,6 +1,7 @@
 <Window x:Class="ScreenTail.UI.Shell.ShellWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
         xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         xmlns:review="clr-namespace:ScreenTail.UI.Review"
         xmlns:history="clr-namespace:ScreenTail.UI.History"
@@ -41,7 +42,7 @@
                             HorizontalAlignment="Center"
                             Background="{DynamicResource Brush.bg.selected}"
                             CornerRadius="28">
-                        <TextBlock Style="{StaticResource EmptyState.Icon}"
+                        <controls:Glyph Style="{StaticResource EmptyState.Icon}"
                                    Foreground="{DynamicResource Brush.accent.primary}"
                                    Text="&#xE8A5;" />
                     </Border>

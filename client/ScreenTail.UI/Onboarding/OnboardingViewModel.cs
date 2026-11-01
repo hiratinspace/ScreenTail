@@ -77,6 +77,10 @@ public sealed partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     public partial string Title { get; set; } = string.Empty;
 
+    /// <summary>"Step 3 of 7": the progress dots in words, for a screen reader (ST-084). The dots have none.</summary>
+    [ObservableProperty]
+    public partial string Progress { get; set; } = string.Empty;
+
     [ObservableProperty]
     public partial string Blocker { get; set; } = string.Empty;
 
@@ -221,6 +225,7 @@ public sealed partial class OnboardingViewModel : ObservableObject
             OnboardingStep.TryIt => "Try it",
             _ => "You're set",
         };
+        Progress = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Step {_wizard.StepNumber} of {_wizard.StepCount}");
         Dots.Clear();
         for (var i = 1; i <= _wizard.StepCount; i++)
         {
