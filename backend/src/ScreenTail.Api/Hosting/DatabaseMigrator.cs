@@ -32,7 +32,9 @@ public static class DatabaseMigrator
                   AND grantee <> current_user
                   AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')
             LOOP
-                EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.%I FROM %I', '__EFMigrationsHistory', grantee_name);
+                -- PUBLIC is a keyword, not a role: quoted, it would name a role that does not exist.
+                EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.%I FROM %s', '__EFMigrationsHistory',
+                    CASE WHEN grantee_name = 'PUBLIC' THEN 'PUBLIC' ELSE quote_ident(grantee_name) END);
             END LOOP;
         END $$;
         """;

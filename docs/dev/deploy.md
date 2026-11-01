@@ -142,7 +142,7 @@ A restore onto a new host needs the same `secrets/` directory copied there first
 `up` (the API's role and its password are made when the volume is first initialised): then
 `docker compose up -d postgres`, the restore and `migrate` as above, then `docker compose up -d`. Keep
 backups of `secrets/` readable by their owner only (`umask 077`, files 0600, for example
-`(umask 077 && tar -czf ~/screentail-secrets-$(date +%F).tgz -C deploy secrets)`), and apart from the
+`(umask 077 && tar -czf ~/screentail-secrets-$(date +%F).tgz -C . secrets)`), and apart from the
 database dumps. Caddy's volume `screentail_caddy-data` holds the certificate and ACME account; losing it
 only means asking for a new certificate. No frame or capture is ever in the database (INV-7), only
 tenants, devices, policy, sealed credentials and counts.
@@ -159,11 +159,14 @@ services:
         target: Vault__PreviousMasterKey
 secrets:
   vault-previous-master-key:
-    file: ./secrets/vault-previous-master-key
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/vault-previous-master-key
 ```
 
 1. Make the new key: `mv secrets/vault-master-key secrets/vault-previous-master-key`, then
    `(umask 077 && openssl rand -base64 32 | tr -d '\n' > secrets/vault-master-key) && chmod 0644 secrets/vault-master-key`.
+   **Do not restart the API** (nor run `up`, or reboot) between the `mv` and the override being in
+   place: it would start with the new key alone, and every stored credential would be unreadable until
+   the previous key is back.
 2. and 3. With the override in place, `docker compose up -d api`: the API now has both keys, seals new
    credentials under the new one and still opens rows under the old one.
 4. Rewrap: `docker compose run --rm api --rotate-vault-keys`, then run it again; the second run must
@@ -198,6 +201,8 @@ secret file with target `Summarization__FallbackApiKey`, never in `api.env`.
   certificates. `docker compose down` alone keeps them.
 - **Never run this under rootless Docker or Podman**: their port forwarding hides each client's
   address (see section 1).
+- **Never run the Docker daemon with `"iptables": false`**: every published connection then goes
+  through `docker-proxy`, so every client arrives from the edge network's gateway and shares one count.
 - **Never keep a copy of `secrets/` readable by anyone else**: back it up with `umask 077`, files 0600.
 - Do not turn on Caddy's access log: a request's path can carry text a technician typed (INV-10).
 - Do not put another proxy or CDN in front without telling Caddy how to find the real client, or every

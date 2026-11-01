@@ -135,8 +135,14 @@ if compose port postgres 5432 >/dev/null 2>&1 && [ -n "$(compose port postgres 5
 fi
 pass "postgres has no port on the host"
 
-if curl --silent --output /dev/null --max-time 5 --globoff --insecure "https://[::1]:$https_port/" 2>/dev/null; then
-    fail "the proxy answers on IPv6, where every client would look like the edge network's gateway"
+# Asked as a browser would, so a listener there would answer: plain HTTP, and HTTPS with the name in
+# SNI (without it Caddy picks no certificate and the handshake would fail whether or not it listens).
+# Any HTTP status means something listened; 000 means no connection.
+v6_http=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 --globoff "http://[::1]:$http_port/" 2>/dev/null || true)
+v6_https=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 --insecure \
+    --resolve "localhost:$https_port:[::1]" "https://localhost:$https_port/" 2>/dev/null || true)
+if [ "${v6_http:-000}" != 000 ] || [ "${v6_https:-000}" != 000 ]; then
+    fail "the proxy answers on IPv6 (http $v6_http, https $v6_https), where every client would look like the edge network's gateway"
 fi
 pass "the proxy does not answer on IPv6"
 
