@@ -26,46 +26,103 @@ public static class DevicesEndpoint
 {
     public const string SeatLimitMessage = "Seat limit reached — contact your admin";
 
+    /// <summary>The answer to any code that is not one we issued, malformed or well-formed: it names no tenant and says nothing about which.</summary>
+    public const string UnknownCodeMessage = "That code is not one we issued. Check it against the invite.";
+
+    public const string UsedCodeMessage = "That code has already been used. Ask your admin for a new invite.";
+
+    public const string ExpiredCodeMessage = "That code has expired. Ask your admin for a new invite.";
+
     public static RouteGroupBuilder MapDevices(this RouteGroupBuilder group)
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/activate", async (ActivateDeviceRequest request, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
+        group.MapPost("/activate", async (ActivateDeviceRequest request, ScreenTailContext db, TokenIssuer issuer, ActivationWatch watch, TimeProvider time, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceName) || request.DeviceName.Length > 200)
             {
                 return Results.BadRequest(new { error = "bad_device_name", message = "The device needs a name of up to 200 characters." });
             }
 
+            // A code that could not be one we issued (the wrong length, a character outside the
+            // alphabet, nothing at all) gets the same answer as one nobody issued, without a lookup.
+            // Every well-formed guess costs exactly one indexed lookup by hash, whichever tenant's
+            // invites exist, and is answered with the same bytes (ADR-0009, "Guessing invite codes").
             var now = time.GetUtcNow();
-            var invite = await db.Invites.SingleOrDefaultAsync(i => i.CodeHash == Invites.Hash(request.Code), ct).ConfigureAwait(false);
-            if (invite is null)
+            var code = Invites.Normalise(request.Code);
+            Invite? invite = null;
+            if (Invites.IsWellFormed(code))
             {
-                return Results.BadRequest(new { error = "invite_unknown", message = "That code is not one we issued. Check it against the invite." });
+                // The function that stored the hash when the invite was made, so the two cannot drift apart.
+                var hash = Invites.Hash(code);
+                invite = await db.Invites.SingleOrDefaultAsync(i => i.CodeHash == hash, ct).ConfigureAwait(false);
             }
 
+            if (invite is null)
+            {
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_unknown", message = UnknownCodeMessage });
+            }
+
+            // Reachable only with a code that was issued, which a guess finds with odds of about 2^-99.
             if (invite.AcceptedAt is not null)
             {
-                return Results.BadRequest(new { error = "invite_used", message = "That code has already been used. Ask your admin for a new invite." });
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_used", message = UsedCodeMessage });
             }
 
             if (invite.ExpiresAt <= now)
             {
-                return Results.BadRequest(new { error = "invite_expired", message = "That code has expired. Ask your admin for a new invite." });
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_expired", message = ExpiredCodeMessage });
             }
 
-            var tenant = await db.Tenants.SingleAsync(t => t.Id == invite.TenantId, ct).ConfigureAwait(false);
+            // Two activations at once must not both win. Everything from here to the commit is one
+            // transaction that starts by locking the tenant's row (TenantLock, the same first step as
+            // offboarding's): activations of one tenant queue here, and each reads the tenant and counts
+            // its seats only after the one before it has committed or rolled back. Activations of
+            // different tenants do not wait for each other.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+            if (!await TenantLock.TakeAsync(db, invite.TenantId, ct).ConfigureAwait(false))
+            {
+                // Offboarded since the invite was read: the code is now one nobody issued.
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_unknown", message = UnknownCodeMessage });
+            }
+
+            // Read under the lock, so the seats and the switch are the ones this activation is held to.
+            var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == invite.TenantId, ct).ConfigureAwait(false);
             if (tenant.DisabledAt is not null)
             {
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
                 return Results.Json(new { error = "tenant_disabled", message = "This organisation's ScreenTail is switched off. Contact your admin." }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            // A seat is an active device (AC2). Counted now, inside the same request that adds one, so
-            // two activations racing for the last seat are settled by the database's row count rather
-            // than by a number read a moment earlier.
+            // The invite is claimed only if it is still unclaimed and unexpired when this write runs, not
+            // when it was read above: of two activations with one code exactly one changes the row. The
+            // loser is told why, from the row as it is now: used, expired since the first read, or gone.
+            var claimAt = time.GetUtcNow();
+            var claimed = await db.Invites
+                .Where(i => i.Id == invite.Id && i.AcceptedAt == null && i.ExpiresAt > claimAt)
+                .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedAt, now), ct).ConfigureAwait(false);
+            if (claimed == 0)
+            {
+                var current = await db.Invites.AsNoTracking().Where(i => i.Id == invite.Id).Select(i => new { i.AcceptedAt }).SingleOrDefaultAsync(ct).ConfigureAwait(false);
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                watch.Refused();
+                return current is null ? Results.BadRequest(new { error = "invite_unknown", message = UnknownCodeMessage })
+                    : current.AcceptedAt is not null ? Results.BadRequest(new { error = "invite_used", message = UsedCodeMessage })
+                    : Results.BadRequest(new { error = "invite_expired", message = ExpiredCodeMessage });
+            }
+
+            // A seat is an active device (AC2), counted under the tenant's lock, so no other activation of
+            // this tenant can add one between this count and the insert below. A refusal rolls the claim
+            // back, and the code works again once a seat is free.
             var seated = await db.Devices.CountAsync(d => d.TenantId == tenant.Id && d.RevokedAt == null, ct).ConfigureAwait(false);
             if (seated >= tenant.Seats)
             {
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
                 return Results.Json(new { error = "seat_limit", message = SeatLimitMessage }, statusCode: StatusCodes.Status409Conflict);
             }
 
@@ -88,18 +145,27 @@ public static class DevicesEndpoint
                 LastSeenAt = now,
             };
             db.Devices.Add(device);
+
+            // AcceptedAt is already written by the claim; this records which device the code went to.
             invite.AcceptedAt = now;
             invite.DeviceId = device.Id;
             _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+            // Not cancellable. Once the commit is sent it may land whatever happens to the request, and
+            // a caller who gave up then would hold a used code, a taken seat and no refresh token; so an
+            // abort is honoured up to here (everything before rolls back) and not during the commit.
+            await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
 
             var (access, expires) = issuer.ForDevice(tenant.Id, user.Id, device.Id, time);
             return Results.Ok(new ActivatedDevice(tenant.Name, device.Id, refresh, access, expires));
         })
         .WithName("ActivateDevice")
 
-        // An invite code is a guess away from a seat in somebody's tenant: counted per client address
-        // with the admin's sign-in (ADR-0009). The token exchange is not, as its secret is 256 bits.
+        // Counted per client address with the admin's sign-in (ADR-0009): a guess at a 99-bit code is
+        // hopeless, but each still costs a lookup. The token exchange is not, as its secret is 256 bits.
+        // A body is a code and a machine's name, so the anonymous routes' 16 KB is plenty.
         .RequireRateLimiting(AnonymousRateLimit.Policy)
+        .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit))
         .WithSummary("Activates this device with an invite's code and binds it to the tenant.");
 
         group.MapPost("/token", async (RefreshRequest request, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>

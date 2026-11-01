@@ -97,7 +97,7 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     }
 
     /// <summary>Anything EF or Npgsql put in the container, so the SQLite provider is the only one left.</summary>
-    private static bool IsEntityFramework(ServiceDescriptor registration) =>
+    protected static bool IsEntityFramework(ServiceDescriptor registration) =>
         registration.ServiceType == typeof(ScreenTailContext)
         || registration.ServiceType == typeof(DbContextOptions)
         || registration.ServiceType == typeof(DbContextOptions<ScreenTailContext>)
