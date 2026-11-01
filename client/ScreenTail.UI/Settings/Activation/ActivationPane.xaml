@@ -23,11 +23,15 @@
             <StackPanel Margin="0,16,0,0" Visibility="{Binding FormVisibility}">
                 <TextBlock Style="{StaticResource Text.Label}" Text="Invite code" />
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <TextBox Width="220"
+                    <!-- Twenty characters in four groups of five (ADR-0009, "Guessing invite codes"): wide
+                         enough for all of them in the mono face, typed in capitals as the invite shows them. -->
+                    <TextBox Width="300"
+                             MaxLength="64"
+                             CharacterCasing="Upper"
                              Style="{StaticResource Input.Mono}"
                              Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="Invite code"
-                             AutomationProperties.HelpText="Ten letters and digits, like KX7PM-4R2WQ" />
+                             AutomationProperties.HelpText="Twenty letters and digits in four groups, like KX7PM-4R2WQ-9HTCE-B3NVA" />
                     <Button Margin="8,0,0,0"
                             Style="{StaticResource Button.Primary}"
                             Content="Activate"

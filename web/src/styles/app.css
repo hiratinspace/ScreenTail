@@ -521,6 +521,10 @@ input[aria-invalid='true'] {
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-control);
   width: fit-content;
+  max-width: 100%;
+  /* Twenty characters in four groups: on a narrow window the code wraps rather than overflows. A
+     hyphen before a digit is not a break opportunity by itself, hence anywhere. */
+  overflow-wrap: anywhere;
   user-select: all;
 }
 

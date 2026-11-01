@@ -18,6 +18,10 @@ public static class Offboarding
     {
         ArgumentNullException.ThrowIfNull(db);
         await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        // The tenant's row first, the order activation takes its locks in (TenantLock), so an activation
+        // and an offboarding of one tenant queue rather than each holding a row the other waits for.
+        _ = await TenantLock.TakeAsync(db, tenantId, ct).ConfigureAwait(false);
         var rows = 0;
         rows += await db.DraftCosts.Where(c => c.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.SessionMetrics.Where(m => m.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);

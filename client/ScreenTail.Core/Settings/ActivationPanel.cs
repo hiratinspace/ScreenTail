@@ -21,13 +21,16 @@ public interface IDeviceGateway
 
 /// <summary>
 /// The activation card's rules (ST-010, Spec §5 S8 step 2, in Settings until the onboarding wizard
-/// exists). The code is checked for shape before anything is sent, the machine's name goes with it,
+/// exists). The code is checked for shape before anything is sent (<see cref="InviteCodes"/>), and sent
+/// grouped as the invite shows it, the machine's name goes with it,
 /// the tenant's name comes back, and a refusal is shown in the backend's words with the code left in
 /// place to correct. The refresh token never reaches this side of the pipe.
 /// </summary>
 public sealed class ActivationPanel(IDeviceGateway gateway, string deviceName)
 {
-    public const string CodeLength = "A code is ten letters and digits, like KX7PM-4R2WQ.";
+    public const string CodeLength = "A code is twenty letters and digits in four groups, like " + InviteCodes.Example + ".";
+
+    public const string ForeignCharacter = "A code has no 0, 1, I, L or O, and only the letters and digits on the invite. Check it against the invite.";
 
     private readonly IDeviceGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
     private readonly string _deviceName = string.IsNullOrWhiteSpace(deviceName) ? "this device" : deviceName;
@@ -84,7 +87,8 @@ public sealed class ActivationPanel(IDeviceGateway gateway, string deviceName)
         _busy = true;
         try
         {
-            var answer = await _gateway.ActivateAsync(Code.Trim(), _deviceName, ct).ConfigureAwait(false);
+            // Sent as the invite shows it, whatever spacing and case it was typed in.
+            var answer = await _gateway.ActivateAsync(InviteCodes.Format(Code), _deviceName, ct).ConfigureAwait(false);
             if (answer.Refusal is { } refusal)
             {
                 _refusal = refusal;
@@ -112,13 +116,19 @@ public sealed class ActivationPanel(IDeviceGateway gateway, string deviceName)
 
     private string? Validate()
     {
-        var letters = Code.Count(char.IsLetterOrDigit);
-        if (letters == 0)
+        var code = InviteCodes.Normalise(Code);
+        if (code.Length == 0)
         {
             return "Enter the code from your invite.";
         }
 
-        return letters == 10 ? null : CodeLength;
+        if (InviteCodes.HasForeignCharacter(code))
+        {
+            return ForeignCharacter;
+        }
+
+        // The count, so a technician typing twenty characters from a message can see how far along they are.
+        return InviteCodes.IsComplete(code) ? null : $"{CodeLength} This has {code.Length}.";
     }
 }
 

@@ -6,7 +6,9 @@
   decides the defaults listed under "Decisions for the owner" before this leaves Proposed.
   **Hardened 2026-11-01:** the three items this record first listed as owed (a rate limit on the
   anonymous routes, a single-use sign-in nonce, and a Content-Security-Policy with related headers) are
-  built and tested; "Hardening" below has the design.
+  built and tested; "Hardening" below has the design. **Invite-code guessing addressed 2026-11-01**
+  (decision 16, the follow-up it named): invite codes are 20 characters (about 99 bits), and refused codes
+  across all addresses raise a warning for the operator; "Guessing invite codes" below has the analysis.
 - **Date:** 2026-10-31
 - **Ticket:** ST-099 (owner signup and SSO, owed by ST-010; the policy model is ST-047's)
 - **Deciders:** project owner (Google); build agent (everything else, for the owner to confirm)
@@ -142,7 +144,8 @@ peers, only the last entry (the one the listed proxy wrote, `ForwardedHeaders:Fo
 counts, and ASP.NET Core's own default of trusting loopback is cleared. These options are applied after
 all other configuration, so `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (with which the framework runs the
 middleware itself and, with empty lists, would trust every caller) forwards nothing unless a proxy is
-listed. Without the list, behind a proxy every caller shares the proxy's count, which is why listing it
+listed; with a proxy listed as well, the service refuses to start (ST-007), since the headers would be
+read twice. Without the list, behind a proxy every caller shares the proxy's count, which is why listing it
 is an owner step for any hosted deployment. The counts are in memory, per API instance. A connection
 with no address (a Unix socket) counts in one shared partition, and with a proxy listed the framework
 also honours forwarded headers on such a connection, so a deployment that puts the API on a socket
@@ -215,6 +218,136 @@ same-origin-allow-popups` (Google's COOP guidance for the pop-up), `X-Frame-Opti
 Permissions-Policy that leaves `identity-credentials-get` and `publickey-credentials-get` at the
 browser's default, as Google's sign-in (FedCM, passkeys) may need them inside its own frame.
 
+### Guessing invite codes (built 2026-11-01)
+
+Decision 16 left one door open: activation is limited per address, so an attacker with many addresses
+guesses in parallel. The numbers, before and after.
+
+**The code as it was generated.** Ten characters from a 31-character alphabet (no 0, 1, I, L or O), each
+taken as a random byte modulo 31. 256 is 8 x 31 + 8, so the first eight characters (A to H) came up with
+probability 9/256 and the other twenty-three with 8/256. That is 4.952 bits a character and **49.5 bits
+a code** (Shannon; a uniform draw would give 49.54), and a min-entropy of **48.3 bits**: a guesser who
+tries the likeliest codes first gains at most a factor of 2.3.
+
+**How many codes a guess is against.** Activation looks the code up by its hash across the whole
+`invites` table (one unique index), not inside a tenant, so every guess is a guess at **every tenant's
+outstanding invites at once** (not used, not expired). Nothing caps the invites a tenant may have
+outstanding. A pilot has a handful; a thousand tenants with a few pending each is thousands. Below, N is
+100, 1,000 and 10,000.
+
+**How fast one can guess.** 10 calls a minute per partition is 43,200 per address over a code's 72 hours.
+IPv4 needs a botnet for scale. **IPv6 does not:** a partition is a /64, a hosting customer is routinely
+given a /48, which is 65,536 partitions (2.8 billion guesses in 72 hours from one allocation), and a /32
+is four billion, at which point the bound is how many requests the API can serve, not the limit.
+
+**The chance of at least one hit within one 72-hour lifetime**, 1 - exp(-G x N / 2^48.3), G the guesses:
+
+| Addresses (partitions) | Guesses in 72 h | N = 100 | N = 1,000 | N = 10,000 |
+|---|---|---|---|---|
+| 1 | 43,200 | 1.2e-8 | 1.2e-7 | 1.2e-6 |
+| 1,000 | 4.3e7 | 1.2e-5 | 1.2e-4 | 0.12% |
+| 100,000 (a botnet, or one and a half IPv6 /48s) | 4.3e9 | 0.12% | 1.2% | 11.7% |
+| 1,000,000 | 4.3e10 | 1.2% | 11.7% | 71% |
+
+The run can be repeated every 72 hours against fresh codes. A hit enrols a device in a tenant chosen by
+luck: it takes a seat, reads the policy, publishes, and (ST-009) manages the tenant's PSA and Hudu
+credentials. **A copy of the database was a second route:** codes are kept as unsalted SHA-256, and 2^49.5
+hashes is about 22 hours on one GPU at ten billion a second, inside a code's life.
+
+**After: twenty characters, drawn uniformly, about 99.1 bits** (`Invites`, 20 x log2 31). The worst row
+above becomes 6.4e-16. An attacker the API could not even serve, ten thousand guesses a second for a year
+(3.2e11) against a million live codes, succeeds with probability 4.7e-13. Searching a copy of the table is
+2^99 hashes, about 2e12 years at the same rate. No lockout is needed to get there, so there is no lockout
+for an attacker to turn against a real technician.
+
+**What was weighed, and why each was taken or not:**
+
+1. **A longer code: built.** Twenty characters from the same alphabet in four groups of five,
+   `XXXXX-XXXXX-XXXXX-XXXXX`: the groups people already read out over the phone, shorter than a Windows
+   product key (25). Dashes, spaces and case are still forgiven on both sides. Drawn with
+   `RandomNumberGenerator.GetString`, which rejects rather than folds the values past a multiple of 31, so
+   every character is equally likely (a test counts 400,000 of them). 16 characters is 79.3 bits, under
+   the 80 aimed for; 18 (89.2 bits) would also clear the year-long bound but splits into awkward groups;
+   20 keeps the fives with ten bits to spare beyond 18. The length is an owner decision (21 below).
+2. **A split code with a per-invite lockout: not built.** A counter of wrong attempts per invite needs a
+   public part the server looks up before it checks the secret. If that part is short enough to be found,
+   enumerating it finds live invites, and N wrong secrets against each lock them: a way to stop a
+   tenant's technicians activating, invite by invite, for N calls apiece. If it is long enough not to be
+   found, a guesser never reaches a real one and the counter never moves; it helps only somebody who
+   holds the public part without the secret, which handing the whole code on does not produce. It would
+   also add an oracle to close (unknown id against wrong secret) for no gain over 99 bits.
+3. **A cap on failures across all addresses: not built.** Anybody can trip it by guessing badly on
+   purpose, and then nobody activates. That is the denial-of-service lever decision 16 warned of.
+4. **A delay on failed attempts: not built.** A guesser with many addresses has many requests in flight
+   rather than one after another, so a delay does not slow it; it holds the API's connections, which is a
+   cost to us, and it slows the technician who mistyped.
+5. **A warning for the operator: built** (`ActivationWatch`). Every activation refused for its code
+   (unknown, malformed, used or expired; not the seat limit, a switched-off tenant or a bad device name)
+   is counted across all addresses, and **one warning per window** is logged once the count reaches
+   `ActivationWatch:WarnAt` in `ActivationWatch:Window` (**50 in 10 minutes**; 1 to 1,000,000, and 1 minute
+   to 24 hours in whole seconds, checked at startup). The line carries the count and the window, in
+   exact seconds, and nothing else: no code, no address, no tenant (INV-10), and no claim about the
+   codes' strength, since old ten-character codes may still be live. Nobody is refused or slowed for it. The count is per instance,
+   like the rate limit's (decision 20).
+6. **Uniform refusals: built.** A code that cannot be one we issued (the wrong length, a character outside
+   the alphabet, nothing at all) is answered, without a lookup, with the same 400 and the same bytes as a
+   well-formed code nobody issued; an empty code or one of only dashes used to reach the hash and answer
+   500. The answer names no tenant, invite or person (a test seeds two tenants' invites and checks every
+   refusal: unknown, used, expired, the seat limit's 409 and a switched-off tenant's 403). The activation
+   body is capped at the anonymous routes' 16 KB, refused with 413 before it is read.
+
+**Timing.** Every well-formed code costs exactly one indexed lookup by its SHA-256, whatever invites
+exist, whose they would be and how many; a miss is answered with the same bytes. A malformed code skips
+the lookup, which tells the caller only what it sent. The answers that differ (used, expired, the seat
+limit, a switched-off tenant) differ on purpose, for the technician holding the code, and are reachable
+only with a code that was issued, which guessing finds with odds of about 2^-99. Our code compares no
+secret as a string: the database matches the hash of a 99-bit value, so even a measurable difference in
+the index would say something about a hash rather than a code. There is nothing for a constant-time
+comparison to apply to (`DeviceTokens.Matches` stays for any path that compares two values).
+
+**Codes issued before the change** were ten characters and **are accepted until they expire**, 72 hours
+at most: the lookup is by hash whatever the length, and the shape check admits both lengths. A ten-character
+guess can only ever match a ten-character code, so accepting the old length makes no new code weaker;
+for those 72 hours the old codes keep their old odds. Nothing is deployed yet (ST-007), so in practice
+there are none. Dropping the old length once 72 hours have passed after the first deployment is one line
+(decision 23).
+
+**The client.** The Settings and onboarding card (`ActivationPanel`, `InviteCodes` in Core) takes a
+twenty-character code and still an old ten-character one, says how many characters it has so far, names a
+look-alike (0, 1, I, L, O) as soon as one is typed, and sends the code grouped as the invite shows it.
+The box is wider and types in capitals. The pipe carries the code as a string, so the IPC contract is
+unchanged. A test reads the backend's alphabet and lengths so the client's copy cannot drift. The web
+admin shows the code as the backend returns it and lets it wrap on a narrow window; the operator's
+`--invite` prints it unchanged. Both sides read typed codes by the same table,
+`shared/contracts/invite-code.v1.json` (the alphabet, the lengths and eighteen typed codes with what each
+must become), so a change to one side's reading alone, such as Unicode normalisation, fails a test.
+
+**Client and backend ship together.** A client built before this change (the #224 MSI, and the
+`demo-setup` and `demo-psa` branches) checks for exactly ten characters and refuses a twenty-character
+code on the card before sending it, so a new backend's codes cannot be entered on an old client. The
+client and the backend must come from the same build, and the demo laptop must be set up from `main`
+once this is merged. (An old client with an old backend, or a new client with either, works.)
+
+**Two activations at once** (fixed with this change, review of #248). Before, two requests with one code
+could both read the invite as unclaimed and both add a device, and two requests for a tenant's last seat
+could both count a free seat. The activation now runs in one transaction whose first statement locks the
+tenant's row (`TenantLock`: the row written unchanged, which Postgres holds locked to the commit; SQLite
+locks the database for its one writer). Under that lock it reads the tenant's seats and switch, claims the
+invite with a conditional update (`AcceptedAt IS NULL` and unexpired at the moment of the claim, checked by
+its row count), counts the seats and adds the device. A loser is told why from the row as it is then:
+used, expired since the first read, or gone (a tenant offboarded meanwhile answers like an unknown code). A
+seat refusal rolls the claim back, so the code works once a seat is free. The commit is not cancellable,
+so a request aborted then cannot leave an activation committed with nobody holding its refresh token.
+**Offboarding takes the same lock first**, so the two always lock a tenant's rows in one order. The tests
+make the race happen every time, with an interceptor that runs a second activation right after the first
+one's read; another pins the lock inside the transaction before the claim and the count (on SQLite the
+transaction alone would serialise, so only this notices the lock missing); and two tests run the race on
+a real Postgres, in a database of their own, in CI's Backend job (`PostgresActivationRaceTests`, which
+fails rather than skips on CI without it).
+
+**The rate limit stays**, as a bound on what each guess costs us rather than as the defence against
+guessing.
+
 ## Decisions for the owner (fail-closed defaults, built and switchable)
 
 1. **Who may sign up: an operator-set allowlist, empty by default** (`Admin:SignupAllowlist`). Empty
@@ -248,9 +381,12 @@ browser's default, as Google's sign-in (FedCM, passkeys) may need them inside it
 14. **A sign-in nonce lasts 10 minutes**, from drawing the button to the session starting, the first-run
     screen included; past that the owner signs in with Google again.
 15. **Inline styles are allowed in the page's CSP** because the GIS client needs them; scripts are not.
-16. **Device activation is limited per address only.** An invite code is 10 characters from 31 (about
-    49 bits), so guessing any live code is hopeless at 10 a minute per address; a cap on failed
-    activations across all addresses (or longer codes) is the follow-up if many addresses guess at once.
+16. **Guessing invite codes is answered by the code's length, not by a lockout** (built 2026-11-01,
+    "Guessing invite codes" above). Activation is still limited per address only, but an invite code is
+    now 20 characters drawn uniformly from 31 (about 99 bits): many addresses guessing at once stay
+    hopeless, and no count across addresses refuses anybody. Refused codes across all addresses log one
+    content-free warning per window. The ten-character codes (about 49 bits) this replaced gave a
+    botnet-sized guesser up to a 1 in 9 chance of a hit within one code's life.
 
 Open for the owner (raised in review, 2026-11-01; the build keeps the conservative choice and decides
 none of these):
@@ -262,7 +398,20 @@ none of these):
     a /48, which lets one subscriber count as up to 256 or 65,536 callers.
 19. **Binding the nonce to the browser** with a cookie as defence in depth (see 2 above).
 20. **Counts in memory, per instance.** Fine for one API instance; more than one means more than one
-    allowance per address unless the counts move to a shared store.
+    allowance per address unless the counts move to a shared store. The activation warning (below)
+    counts per instance too.
+
+Open for the owner (invite-code guessing, 2026-11-01; built with the conservative choice):
+
+21. **An invite code's length: 20 characters, about 99 bits.** 18 (about 89 bits) would also clear the
+    worst case worked above, in groups of six; 16 (79 bits) would not reach 80. Longer is safer and only
+    slower to type.
+22. **When the operator is warned: 50 refused codes in 10 minutes**, all addresses together, per
+    instance (`ActivationWatch:WarnAt`, `ActivationWatch:Window`). It is a log line only: there is no
+    alerting channel until hosting exists (ST-007).
+23. **Old ten-character codes accepted until they expire.** Nothing is deployed, so there should be none,
+    and the old length could be dropped from the shape check now; otherwise it can go once 72 hours have
+    passed after the first deployment. Kept for now as the choice that refuses no code anybody holds.
 
 ## Owner steps
 
@@ -278,6 +427,10 @@ none of these):
    `ForwardedHeaders__KnownNetworks__0`, CIDR) so the rate limit counts each client rather than the
    proxy, and have the proxy **set** `X-Forwarded-For` (overwrite or append, never pass on the client's
    own). Have the web server send the headers in `web/security-headers.ts` (`appHeaders`) with the page.
+   **Steps 3 and 4 are built in `deploy/`** (ST-007, `docs/dev/deploy.md`): Caddy serves the page and
+   forwards `/v1` and `/health` from one name, sets `X-Forwarded-For` itself, is listed by its fixed
+   address, and sends the page's headers generated from that file. What is left is choosing the host
+   and the name.
 5. Sign in once with a real Google account under the CSP and confirm the button draws, the pop-up
    answers and the session starts (the check this build could not make without a client id).
 
@@ -297,9 +450,12 @@ none of these):
 - The page's CSP was checked in Chrome with a placeholder client id (Google's button frame loads, no
   violation on any page, Lighthouse accessibility 100 on every page with the CSP on). A sign-in with a
   real Google account under it is owner step 5.
-- Follow-ups: a cap on failed device activations across addresses (decision 16); a store shared by API
-  instances for the rate limit, if there is ever more than one (decision 20); CSP violation reporting
-  (`report-to`) once there is somewhere to send reports.
+- Invite-code guessing across many addresses is answered (2026-11-01, decision 16): 99-bit codes, uniform
+  refusals and a warning for the operator, with no lockout. A per-invite lockout and a cap across
+  addresses were weighed and not built ("Guessing invite codes").
+- Follow-ups: a store shared by API instances for the rate limit and the activation warning, if there is
+  ever more than one (decision 20); dropping the old ten-character code length after the first deployment
+  (decision 23); CSP violation reporting (`report-to`) once there is somewhere to send reports.
 - The device client turns the 429 into "Too many activation attempts from this network. Wait a minute
   and try again." on the Settings card (`DeviceSession`).
 - Exclusions, redaction patterns and telemetry are not policy fields yet (ST-047), so the editor does

@@ -53,11 +53,15 @@ public static class ProgramFilesRelease
     public static TimeSpan StepDeadline { get; } = TimeSpan.FromSeconds(45);
 
     /// <summary>
-    /// How long the step waited, and how many files another program still had open when it stopped. No
-    /// wait at all when no look found a file held: asking, and looking a second time, is not waiting for
-    /// anybody.
+    /// How long the step waited, and which files another program still had open when it stopped (empty
+    /// when none, in the order they were given). No wait at all when no look found a file held: asking,
+    /// and looking a second time, is not waiting for anybody.
     /// </summary>
-    public readonly record struct Outcome(TimeSpan Waited, int StillHeld);
+    public readonly record struct Outcome(TimeSpan Waited, IReadOnlyList<string> Held)
+    {
+        /// <summary>How many files another program still had open when the wait stopped.</summary>
+        public int StillHeld => Held?.Count ?? 0;
+    }
 
     /// <summary>
     /// The wait's budget once the step has already used <paramref name="used"/>: what is left of
@@ -73,6 +77,22 @@ public static class ProgramFilesRelease
         }
 
         return left < Budget ? left : Budget;
+    }
+
+    /// <summary>
+    /// The files still held, by their path below the install folder, for the log: installed file names
+    /// are ScreenTail's own, never a user's (INV-10). A file that is not below the folder (which the
+    /// listing never yields) is not named. Windows paths, compared as text without regard to case.
+    /// </summary>
+    public static IReadOnlyList<string> BelowInstallFolder(IEnumerable<string> held, string installDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(held);
+        ArgumentException.ThrowIfNullOrEmpty(installDirectory);
+
+        var folder = installDirectory.EndsWith('\\') ? installDirectory : installDirectory + "\\";
+        return [.. held.Select(file => file.Length > folder.Length && file.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
+            ? file[folder.Length..]
+            : "(a file outside the install folder)")];
     }
 
     /// <param name="files">The installed files Windows Installer is about to remove.</param>
@@ -103,16 +123,16 @@ public static class ProgramFilesRelease
         var cleanLooks = 0;
         while (true)
         {
-            var held = files.Count(file => holders(file)?.Any(id => id != self) == true);
+            var held = files.Where(file => holders(file)?.Any(id => id != self) == true).ToList();
             var waited = time.GetElapsedTime(start);
-            everHeld |= held > 0;
-            cleanLooks = held == 0 ? cleanLooks + 1 : 0;
+            everHeld |= held.Count > 0;
+            cleanLooks = held.Count == 0 ? cleanLooks + 1 : 0;
             if (cleanLooks >= 2 || waited >= budget)
             {
                 return new Outcome(everHeld ? waited : TimeSpan.Zero, held);
             }
 
-            var pause = held == 0 ? confirmAfter : pollEvery;
+            var pause = held.Count == 0 ? confirmAfter : pollEvery;
             var left = budget - waited;
             sleep(left < pause ? left : pause);
         }

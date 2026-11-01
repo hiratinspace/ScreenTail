@@ -32,7 +32,7 @@ public sealed class AdminEndpointsTests(AdminApiFixture api) : IClassFixture<Adm
         using var invited = await browser.PostAsJsonAsync(new Uri("/v1/admin/invites", UriKind.Relative), new CreateInviteRequest("T.Ortiz@Acme.example", "Tomas Ortiz"), TestContext.Current.CancellationToken);
         var invite = await invited.Content.ReadFromJsonAsync<CreatedInvite>(TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Created, invited.StatusCode);
-        Assert.Matches("^[A-Z2-9]{5}-[A-Z2-9]{5}$", invite!.Code);
+        Assert.Matches("^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$", invite!.Code);
         Assert.Equal("t.ortiz@acme.example", invite.Email);
 
         using var policy = await browser.PutAsJsonAsync(new Uri("/v1/admin/policy", UriKind.Relative), Policy(retention: 3, localOnly: true, locked: true), TestContext.Current.CancellationToken);

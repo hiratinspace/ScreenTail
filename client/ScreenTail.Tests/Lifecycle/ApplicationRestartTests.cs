@@ -30,7 +30,7 @@ public sealed class ApplicationRestartTests
 
     [Theory]
     [InlineData(InstalledFootprint.UninstallFlag)]
-    [InlineData("--upgrade-release")]
+    [InlineData(InstalledFootprint.UpgradeReleaseFlag)]
     [InlineData("--capabilities")]
     [InlineData("--transcribe")]
     public void NoOneShotModeRegisters(string mode)
@@ -52,7 +52,7 @@ public sealed class ApplicationRestartTests
         var guard = program.LastIndexOf("ApplicationRestart.ShouldRegister(args)", register, StringComparison.Ordinal);
         Assert.True(guard > 0 && register - guard < 200, "the registration is not guarded by ShouldRegister");
 
-        foreach (var earlier in new[] { "UninstallCleanup.Run(", "Transcribe.RunAsync(", "--capabilities", "SingleInstance.TryAcquire", "Another ScreenTail capture service is already running" })
+        foreach (var earlier in new[] { "UninstallCleanup.Run(", "UpgradeRelease.Run(", "Transcribe.RunAsync(", "--capabilities", "SingleInstance.TryAcquire", "Another ScreenTail capture service is already running" })
         {
             var at = program.LastIndexOf(earlier, StringComparison.Ordinal);
             Assert.True(at > 0 && at < register, $"'{earlier}' comes after the registration");
@@ -74,7 +74,7 @@ public sealed class ApplicationRestartTests
         // Before the name, so a refused elevated copy never holds it; after the one-shot modes, which run as
         // the system account in session 0 for the installer and must not be refused.
         Assert.True(guard < program.IndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal), "the single-instance name is taken before the check");
-        foreach (var oneShot in new[] { "UninstallCleanup.Run(", "Transcribe.RunAsync(" })
+        foreach (var oneShot in new[] { "UninstallCleanup.Run(", "UpgradeRelease.Run(", "Transcribe.RunAsync(" })
         {
             Assert.True(program.IndexOf(oneShot, StringComparison.Ordinal) < guard, $"'{oneShot}' comes after the check");
         }

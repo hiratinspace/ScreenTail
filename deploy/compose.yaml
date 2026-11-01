@@ -1,0 +1,217 @@
+# ScreenTail on one Linux host with Docker (ST-007): the API, PostgreSQL, and Caddy serving the web
+# admin's page and the API from one HTTPS origin. docs/dev/deploy.md is the guide.
+#
+#   cp env.example .env && cp api.env.example api.env     # then fill both in (no secrets go in either)
+#   ./make-secrets.sh                                     # the keys and passwords, as files in ./secrets
+#   docker compose build
+#   docker compose run --rm migrate                       # the schema, as a deliberate step
+#   docker compose up -d
+#
+# What this file holds to: every container runs as a non-root user with every capability dropped,
+# no-new-privileges and a read-only root filesystem; secrets are files under /run/secrets, never
+# environment variables or image layers; PostgreSQL is on a network with no route out and no port on
+# the host; the API is reachable only through the proxy; nothing is migrated unless asked.
+
+name: screentail
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "5"
+
+x-api-build: &api-build
+  context: ..
+  dockerfile: backend/Dockerfile
+
+x-dotnet-env: &dotnet-env
+  # Docker's secrets, one file per configuration key (SecretFiles in the API).
+  SCREENTAIL_SECRETS_DIR: /run/secrets
+  # The root filesystem is read-only; the runtime's scratch space is the tmpfs below.
+  HOME: /tmp
+  # No debugger, profiler or diagnostics socket in production.
+  DOTNET_EnableDiagnostics: "0"
+
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    <<: *hardening
+    # The image's own postgres user. The data volume is created owned by it.
+    user: "70:70"
+    # INV-10: an error is logged without its DETAIL line, which for a unique violation quotes the
+    # conflicting value (an address, a company's name).
+    command: ["postgres", "-c", "log_error_verbosity=terse"]
+    environment:
+      # The schema's owner: migrations and backups connect as this role, the API never does.
+      POSTGRES_USER: screentail
+      POSTGRES_DB: screentail
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+    secrets:
+      - postgres-password
+      - postgres-app-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Run once, when the volume is first initialised: creates the API's own role (rows only).
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/run/postgresql
+      - /tmp
+    shm_size: 128m
+    stop_grace_period: 1m
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username=screentail", "--dbname=screentail"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  # One-shot: applies the migrations compiled into the API image and exits. Not started by `up`
+  # (profile "tools"); run it after every build, before `up`. It connects as the schema's owner.
+  migrate:
+    build: *api-build
+    image: screentail-api:local
+    profiles: [tools]
+    <<: *hardening
+    restart: "no"
+    command: ["--migrate"]
+    environment:
+      <<: *dotnet-env
+      ASPNETCORE_ENVIRONMENT: Production
+    secrets:
+      - source: migrate-connection
+        target: ConnectionStrings__Postgres
+    tmpfs:
+      - /tmp
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: *api-build
+    image: screentail-api:local
+    <<: *hardening
+    # The settings that are not secret (Admin__*, Summarization__*, RateLimit__*, ...). The keys set under
+    # `environment` below win over the same keys in that file.
+    env_file:
+      - path: ${SCREENTAIL_API_ENV:-./api.env}
+        required: true
+    environment:
+      <<: *dotnet-env
+      ASPNETCORE_ENVIRONMENT: Production
+      # The proxy, by its fixed address on the edge network, is the one peer whose X-Forwarded-For and
+      # X-Forwarded-Proto the API reads (ADR-0009). Its address, not the network's: the network also holds
+      # Docker's gateway, which is how the host itself reaches a container. Never set
+      # ASPNETCORE_FORWARDEDHEADERS_ENABLED: the API refuses to start with it and a proxy listed.
+      ForwardedHeaders__KnownProxies__0: ${SCREENTAIL_PROXY_IP:-172.30.80.2}
+      # One value for the backend and the page (the build argument below).
+      Admin__GoogleClientId: ${ADMIN_GOOGLE_CLIENT_ID:-}
+    secrets:
+      - source: api-connection
+        target: ConnectionStrings__Postgres
+      - source: jwt-signing-key
+        target: Jwt__SigningKey
+      - source: vault-master-key
+        target: Vault__MasterKey
+      - source: summarization-api-key
+        target: Summarization__ApiKey
+    tmpfs:
+      - /tmp
+    # No ports: the proxy is the only way in. The edge network is also the API's way out (Google's keys,
+    # the drafting model, each tenant's PSA); the data network has no way out at all.
+    networks:
+      - edge
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "dotnet", "ScreenTail.Api.dll", "--health-probe"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  proxy:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+      args:
+        # Not a secret: the browser is given it. Baked into the page when the image is built.
+        VITE_GOOGLE_CLIENT_ID: ${ADMIN_GOOGLE_CLIENT_ID:-}
+    image: screentail-web:local
+    <<: *hardening
+    environment:
+      SCREENTAIL_DOMAIN: ${SCREENTAIL_DOMAIN:?Set SCREENTAIL_DOMAIN in .env to the name the admin is served at}
+    # Caddy runs unprivileged with no capabilities, so it binds 80 and 443 the way Docker allows in a
+    # container's own network namespace.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    # IPv4 only. The edge network has no IPv6, so Docker would hand every IPv6 connection to Caddy from
+    # the network's gateway, and the API would count every IPv6 client as that one address for the rate
+    # limit. Full IPv6 (a v6 subnet here and the proxy's v6 address listed too) is a follow-up.
+    ports:
+      - "0.0.0.0:${SCREENTAIL_HTTP_PORT:-80}:80"
+      - "0.0.0.0:${SCREENTAIL_HTTPS_PORT:-443}:443"
+      - "0.0.0.0:${SCREENTAIL_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      # Certificates and the ACME account. Keep it: losing it means asking the CA again.
+      - caddy-data:/data
+    tmpfs:
+      - /config
+      - /tmp
+    networks:
+      edge:
+        ipv4_address: ${SCREENTAIL_PROXY_IP:-172.30.80.2}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  edge:
+    # IPv4 only, said rather than left to the daemon's default (see the proxy's ports).
+    enable_ipv6: false
+    ipam:
+      config:
+        # The proxy has a fixed address outside the range Docker hands out, so nothing else can take it.
+        - subnet: ${SCREENTAIL_EDGE_SUBNET:-172.30.80.0/28}
+          ip_range: ${SCREENTAIL_EDGE_DYNAMIC_RANGE:-172.30.80.8/29}
+  data:
+    internal: true
+    enable_ipv6: false
+
+volumes:
+  postgres-data:
+  caddy-data:
+
+# Files written by make-secrets.sh, in a directory only their owner can enter. Docker mounts each one
+# into /run/secrets of the services that list it, and no other.
+secrets:
+  postgres-password:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/postgres-password
+  postgres-app-password:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/postgres-app-password
+  migrate-connection:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/migrate-connection
+  api-connection:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/api-connection
+  jwt-signing-key:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/jwt-signing-key
+  vault-master-key:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/vault-master-key
+  summarization-api-key:
+    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/summarization-api-key

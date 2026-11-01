@@ -256,11 +256,9 @@ public sealed class InstallerAuthoringTests
         // on 2026-11-01 when the hosted runner's monitor was reading ScreenTail.Service.exe. The wait for
         // other programs to let go is the step's last act, after stopping the running copies (whose own
         // holds it then waits out) and after everything else that touches a file.
-        var cleanup = File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Install", "UninstallCleanup.cs"));
-        var run = cleanup[cleanup.IndexOf("public static int Run(", StringComparison.Ordinal)..];
-        run = run[..run.IndexOf("\n    }\n", StringComparison.Ordinal)];
+        var run = Method(Source("UninstallCleanup.cs"), "public static int Run(");
 
-        var wait = run.IndexOf("ProgramFilesRelease.WaitForOthers(", StringComparison.Ordinal);
+        var wait = run.IndexOf("ReleaseInstalledFiles(installDirectory, started)", StringComparison.Ordinal);
         Assert.True(wait > 0, "the uninstall step waits for the installed files");
         foreach (var before in new[] { "StopInstalledCopies(", "RemoveData(", "RemoveRunValues(" })
         {
@@ -268,18 +266,102 @@ public sealed class InstallerAuthoringTests
             Assert.True(at > 0 && at < wait, $"{before} comes before the wait");
         }
 
-        // Asked of Windows, about every installed file, for any process but this one.
-        var call = run[wait..run.IndexOf(';', wait)];
+        var started = run.IndexOf("var started = TimeProvider.System.GetTimestamp();", StringComparison.Ordinal);
+        Assert.True(started > 0 && started < run.IndexOf("StopInstalledCopies(", StringComparison.Ordinal), "the step's clock starts before it stops anything");
+    }
+
+    [Fact]
+    public void TheWaitAsksWindowsAboutEveryInstalledFileWithinTheStepsDeadline()
+    {
+        // Shared by the uninstall step and the upgrade step. Asked of Windows, about every installed file,
+        // for any process but this one, two clean looks apart; bounded by what is left of the step's own
+        // deadline, measured from the step's start, so the step as a whole ends inside WixQuietExec's minute.
+        var cleanup = Source("UninstallCleanup.cs");
+        var at = cleanup.IndexOf("internal static ProgramFilesRelease.Outcome ReleaseInstalledFiles(string installDirectory, long started) =>", StringComparison.Ordinal);
+        Assert.True(at > 0, "the shared wait is in UninstallCleanup");
+        var call = cleanup[at..cleanup.IndexOf(';', at)];
+
+        Assert.Contains("ProgramFilesRelease.WaitForOthers(", call, StringComparison.Ordinal);
         Assert.Contains("InstalledFiles(installDirectory)", call, StringComparison.Ordinal);
         Assert.Contains("FileHolders.Of", call, StringComparison.Ordinal);
         Assert.Contains("Environment.ProcessId", call, StringComparison.Ordinal);
         Assert.Contains("ProgramFilesRelease.ConfirmAfter", call, StringComparison.Ordinal);
-
-        // Bounded by what is left of the step's own deadline, measured from the step's start, so the step as
-        // a whole ends inside WixQuietExec's minute.
         Assert.Contains("ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started))", call, StringComparison.Ordinal);
-        var started = run.IndexOf("var started = TimeProvider.System.GetTimestamp();", StringComparison.Ordinal);
-        Assert.True(started > 0 && started < run.IndexOf("StopInstalledCopies(", StringComparison.Ordinal), "the step's clock starts before it stops anything");
+    }
+
+    [Fact]
+    public void AnUpgradeWaitsForTheOldVersionsFilesBeforeRemovingThem()
+    {
+        // A major upgrade removes the old version before installing the new one, and that removal never
+        // runs the uninstall step. Without a wait of its own, a scanner still reading the service's
+        // executable a second after Restart Manager ended it turns the upgrade into 3010 (ST-112, #247).
+        // The version being removed runs its own upgrade mode straight before its files go, as the system
+        // account, and only when an upgrade is what removes it.
+        const string OnlyAnUpgradesRemoval = "REMOVE~=\"ALL\" AND UPGRADINGPRODUCTCODE";
+        var action = Package().Descendants(Wix + "CustomAction").Single(a => (string?)a.Attribute("Id") == "ReleaseForUpgrade");
+        var command = Package().Descendants(Wix + "SetProperty").Single(p => (string?)p.Attribute("Id") == "ReleaseForUpgrade");
+        var scheduled = Package().Descendants(Wix + "InstallExecuteSequence").Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == "ReleaseForUpgrade");
+
+        Assert.Equal($"\"[INSTALLFOLDER]{InstalledFootprint.ServiceExecutable}\" {InstalledFootprint.UpgradeReleaseFlag}", (string?)command.Attribute("Value"));
+        Assert.Equal("execute", (string?)command.Attribute("Sequence"));
+        Assert.Equal(OnlyAnUpgradesRemoval, (string?)command.Attribute("Condition"));
+        Assert.Equal("RemoveFiles", (string?)scheduled.Attribute("Before"));
+        Assert.Equal(OnlyAnUpgradesRemoval, (string?)scheduled.Attribute("Condition"));
+
+        Assert.Equal("deferred", (string?)action.Attribute("Execute"));
+        Assert.Equal("no", (string?)action.Attribute("Impersonate"));
+        Assert.Equal("WixQuietExec", (string?)action.Attribute("DllEntry"));
+
+        // Ignored: a file still held costs a restart, never the upgrade itself.
+        Assert.Equal("ignore", (string?)action.Attribute("Return"));
+
+        // Never the uninstall mode, which would erase every technician's data during the upgrade.
+        Assert.DoesNotContain(InstalledFootprint.UninstallFlag, (string)command.Attribute("Value")!, StringComparison.Ordinal);
+        Assert.DoesNotContain(InstalledFootprint.UpgradeReleaseFlag, InstalledFootprint.UninstallFlag, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheUpgradeModeStopsTheInstalledCopiesThenWaitsAndDoesNothingElse()
+    {
+        // It runs as the system account during every upgrade, so what it does is held here: refuse anybody
+        // but the installer, stop the copies running from the install folder, wait, and report. Never a
+        // user's data, a Run value or the service itself.
+        var release = Source("UpgradeRelease.cs");
+        var outer = Method(release, "public static int Run(TextWriter output)");
+        var clock = outer.IndexOf("var started = TimeProvider.System.GetTimestamp();", StringComparison.Ordinal);
+        var check = outer.IndexOf("UninstallCleanup.RunByTheInstaller()", StringComparison.Ordinal);
+        var step = outer.IndexOf("Run(output, AppContext.BaseDirectory, started)", StringComparison.Ordinal);
+        Assert.True(clock > 0 && clock < check, "the step's clock starts first");
+        Assert.True(check > 0 && check < step, "the upgrade mode refuses anybody but the installer before it does anything");
+
+        var body = Method(release, "internal static int Run(TextWriter output, string installDirectory, long started)");
+        var stop = body.IndexOf("UninstallCleanup.StopInstalledCopies(installDirectory)", StringComparison.Ordinal);
+        var wait = body.IndexOf("UninstallCleanup.ReleaseInstalledFiles(installDirectory, started)", StringComparison.Ordinal);
+        Assert.True(stop > 0 && stop < wait, "it stops the installed copies, then waits for the files");
+
+        var code = release[release.IndexOf("internal static class UpgradeRelease", StringComparison.Ordinal)..];
+        foreach (var never in new[] { "RemoveData", "RemoveRunValues", "Shred", "Registry", "Delete", "Host", "Capture" })
+        {
+            Assert.DoesNotContain(never, code, StringComparison.Ordinal);
+        }
+
+        // Dispatched before the single-instance mutex and before the service is built, like the uninstall mode.
+        var program = File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Program.cs"));
+        var mode = program.IndexOf("InstalledFootprint.UpgradeReleaseFlag", StringComparison.Ordinal);
+        Assert.True(mode > 0 && mode < program.IndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal), "the upgrade mode is dispatched before the mutex");
+        Assert.True(mode < program.IndexOf("Host.CreateApplicationBuilder", StringComparison.Ordinal), "and before the service is built");
+        Assert.Contains("return UpgradeRelease.Run(Console.Out);", program[mode..program.IndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal)], StringComparison.Ordinal);
+    }
+
+    private static string Source(string file) => File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Install", file));
+
+    /// <summary>A block-bodied method's text, from its signature to its closing brace at member indentation.</summary>
+    private static string Method(string source, string signature)
+    {
+        var at = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(at >= 0, $"{signature} is in the source");
+        var body = source[at..];
+        return body[..body.IndexOf("\n    }\n", StringComparison.Ordinal)];
     }
 
     /// <summary>The custom action whose command line (set, for a deferred action, by a property of its name) is the uninstall mode.</summary>

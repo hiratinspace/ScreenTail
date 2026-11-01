@@ -37,6 +37,8 @@ Backend (environment variables, or `dotnet user-secrets` in Development):
 | `Admin__SignInNonceLifetime` | `00:10:00` | How long a sign-in nonce is accepted after the page asks for it, first-run screen included (1 to 60 minutes). Nonces are signed with a key derived from `Jwt__SigningKey`, so changing that key voids the ones handed out. |
 | `RateLimit__PermitLimit` | `10` | Calls one client address may make in a window to the sign-in nonce, sign-in, signup and device activation, together (1 to 100000). Sign-out is never counted. |
 | `RateLimit__Window` | `00:01:00` | That window (1 second to 1 hour). The call past the limit gets 429 with `Retry-After` and no body. |
+| `ActivationWatch__WarnAt` | `50` | Device activations refused for their invite code (unknown, malformed, used or expired), from all addresses together, at which one warning is logged per window (1 to 1000000). Nobody is refused or slowed for it. |
+| `ActivationWatch__Window` | `00:10:00` | That window, in whole seconds (1 minute to 24 hours). The warning carries the count and the window in seconds, never a code, an address or a tenant. |
 | `ForwardedHeaders__KnownProxies__0`, `__1`, ... | empty | The reverse proxies in front of the API, as IP addresses. Only a connection from one of them has its `X-Forwarded-For` and `X-Forwarded-Proto` read. Empty: no forwarded header is read from anybody. |
 | `ForwardedHeaders__KnownNetworks__0`, ... | empty | The same, as networks in CIDR form (`10.0.0.0/24`). |
 | `ForwardedHeaders__ForwardLimit` | `1` | How many listed proxies in a row, counted back from the API (1 to 5). |
@@ -73,7 +75,12 @@ VITE_GOOGLE_CLIENT_ID='<your client id>.apps.googleusercontent.com' npm run dev 
 
 Open `http://localhost:5173`, sign in with an address on the allowlist, name the organisation, then:
 
-1. **Technicians and seats → Invite a technician**: the code is shown once. Copy it.
+1. **Technicians and seats → Invite a technician**: the code is shown once. Copy it. It is twenty
+   letters and digits in four groups of five (`XXXXX-XXXXX-XXXXX-XXXXX`, about 99 bits, so it cannot be
+   guessed from any number of addresses; ADR-0009, "Guessing invite codes"). Dashes, spaces and case do
+   not matter when it is typed. Codes issued before 2026-11-01 were ten characters and work until they
+   expire. **A client built before then refuses a twenty-character code on the card**, so run a client
+   and a backend from the same build (the demo laptop from `main`).
 2. On a Windows PC with the client, **Settings → This device**, enter the code. Within fifteen seconds
    (or on **Refresh**) the device appears under Technicians and devices, and the seat count goes up.
 3. **Policy**: change retention or lock local-only and **Save policy**. Devices pick it up within the
@@ -99,7 +106,9 @@ there:
   inline scripts and styles for hot reload.
 - `vite preview` sends **all of them**, so the built page and a local Lighthouse run see the real policy.
 - **A deployment's web server must send them with the page**, exactly as `appHeaders` in that file says.
-  Today they are:
+  The deployment in `deploy/` (ST-007, `docs/dev/deploy.md`) does this without a copy: its Caddy
+  snippet is generated from this file when the proxy image is built, and `deploy/smoke.sh` compares
+  what the running proxy sends with it. Today they are:
 
 ```
 Content-Security-Policy: default-src 'none'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self'; font-src 'self'; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
@@ -123,7 +132,8 @@ Two edges to know about:
 - `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` does not switch forwarding on by itself. With no proxy
   listed the API reads no forwarded header from anybody, whatever that variable says. With a proxy
   listed, leave the variable unset: set as well, the forwarded headers are processed twice, so a client
-  address inside a listed proxy network would be trusted as a proxy too.
+  address inside a listed proxy network would be trusted as a proxy too. Since ST-007 the API refuses
+  to start with both.
 - A connection with **no address** (the API listening on a Unix socket) counts in one shared partition
   for the rate limit, and once a proxy is listed the framework also honours `X-Forwarded-For` on such a
   connection. If the API is put on a socket, make sure only the proxy can reach that socket.

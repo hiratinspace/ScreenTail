@@ -43,7 +43,7 @@ public sealed class OnboardingWizardTests
         Assert.False(wizard.CanContinue);
         Assert.Contains("code", wizard.Blocker, StringComparison.OrdinalIgnoreCase);
 
-        wizard.Activation.Code = "KX7PM-4R2WQ";
+        wizard.Activation.Code = InviteCodes.Example;
         Assert.True(await wizard.Activation.ActivateAsync());
         Assert.True(wizard.CanContinue);
         Assert.Equal("Acme IT", wizard.Activation.TenantName);

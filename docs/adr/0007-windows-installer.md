@@ -196,6 +196,25 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   carry on with the step's executable still mapped. Found on CI on 2026-11-01, where the hosted runner's
   own monitor kept ScreenTail.Service.exe open for about four seconds as the step ended; virus scanners
   and endpoint agents on MSP machines read running programs the same way.
+- **When an upgrade removes a version**, that version's removal first runs its installed service once in
+  an upgrade mode (`--upgrade-release`), as the system account, straight before its files are removed:
+  it stops any copy still running from the install folder and makes the same bounded wait, and does
+  nothing else (no data, no Run value, no capture). A major upgrade removes the old version
+  (RemoveExistingProducts, after InstallValidate) without the uninstall step, and in the CI upgrade logs
+  Restart Manager ended the running service only about a second before the old files were deleted, so a
+  scanner still reading the executable turned the upgrade into 3010. On CI the step found the old
+  service still running, and stopped it, in every upgrade, under a second after Restart Manager had
+  reported it shut down (given five seconds in one round of runs, it never ended on its own: the service
+  did not answer Restart Manager's request then, and only being ended stopped it, which CloseApplication would
+  otherwise do after the files were gone; since the session-end window above it answers where Restart
+  Manager reaches it, and the step stays for every case it does not); with the step's wait switched off, all three upgrades in the smoke test ended
+  in 3010 with `ScreenTail.Service.exe` queued for deletion at the next restart. It lives in the version being
+  removed because nothing else can run it in time: before RemoveExistingProducts the new files are not on
+  the machine, and a version without this mode, given a flag it does not know, would start the capture
+  service as the system account. **So upgrades are covered from the first version that has the mode**;
+  an upgrade from an earlier build can still end in 3010 once. Rescheduling RemoveExistingProducts
+  (after InstallExecute) was rejected: the new files would then replace the old ones while the same
+  scanner holds them, which is 3010 the same way, and the component rules would bind every future build.
 - **INV-12 after an uninstall**: a signed-in technician's data is gone; a signed-out technician's store
   is unreadable and their device credential is gone, with the empty shell of the folder left for them or
   an administrator to delete. The retention purge does not run once the service is uninstalled, which is

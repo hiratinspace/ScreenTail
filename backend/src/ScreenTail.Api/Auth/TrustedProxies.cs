@@ -29,9 +29,31 @@ public sealed class TrustedProxyOptions
 
     public bool Configured => KnownProxies.Any(p => !string.IsNullOrWhiteSpace(p)) || KnownNetworks.Any(n => !string.IsNullOrWhiteSpace(n));
 
-    /// <summary>Refuses, at startup, an address or network that does not parse, rather than trusting less or more than was meant.</summary>
-    public void Validate()
+    /// <summary>
+    /// The configuration key ASP.NET Core reads <c>ASPNETCORE_FORWARDEDHEADERS_ENABLED</c> as. With it on,
+    /// the framework runs the forwarded-headers middleware itself, ahead of ours.
+    /// </summary>
+    public const string FrameworkSwitch = "FORWARDEDHEADERS_ENABLED";
+
+    /// <summary>
+    /// Refuses, at startup, an address or network that does not parse, rather than trusting less or more
+    /// than was meant. And, with a proxy listed, the framework's own switch (<see cref="FrameworkSwitch"/>,
+    /// passed in as configured) on as well: the forwarded headers would then be read twice, and the
+    /// second pass treats the address the first one found as a peer, so a client inside a listed network
+    /// could choose its own address (ADR-0009, ST-007).
+    /// </summary>
+    public void Validate() => Validate(frameworkSwitch: null);
+
+    /// <inheritdoc cref="Validate()"/>
+    public void Validate(string? frameworkSwitch)
     {
+        if (Configured && bool.TryParse(frameworkSwitch?.Trim(), out var on) && on)
+        {
+            throw new InvalidOperationException(
+                $"ASPNETCORE_FORWARDEDHEADERS_ENABLED is on and {Section}:KnownProxies or KnownNetworks lists a proxy. "
+                + "Leave the variable unset: the listed proxies are all the service needs, and with both on the forwarded headers are read twice.");
+        }
+
         foreach (var proxy in KnownProxies.Where(p => !string.IsNullOrWhiteSpace(p)))
         {
             if (!IPAddress.TryParse(proxy.Trim(), out _))

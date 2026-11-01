@@ -30,6 +30,7 @@ to trust it and where to change it.
 | `dev/performance.md` | ST-031's budgets: how each is measured on the laptop, whether CI enforces it, the latest numbers, and what still wakes at idle |
 | `dev/windows-test-loop.md` | How Windows-bound work is verified from a Mac dev box, getting the laptop ready for a CI run, and what keeps strangers' code off the laptop |
 | `dev/web-admin.md` | Running the web admin locally, creating the Google OAuth client id, and the admin configuration keys (ST-099) |
+| `dev/deploy.md` | Running the backend, PostgreSQL and the web admin on one Linux host with Docker from one HTTPS origin: setup, the first tenant, updates, backups, and what not to do (ST-007) |
 
 ## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)
 
@@ -41,7 +42,7 @@ to trust it and where to change it.
 | `research/fixtures/` | Hand-drawn session bundles (ST-006) and the empty audio folder that needs a human recording (ST-027) |
 | `research/prompts/` | The note prompt, its post-condition checks and the hardening cases both the Python and the C# validators run |
 | `research/eval/` | The WER script; the redaction and draft-quality harnesses arrive with ST-030 and ST-062 |
-| `shared/contracts/` | The wire contracts (summarize request, publish request, session metric, tenant policy), each tested from both the client and the backend |
+| `shared/contracts/` | The wire contracts (summarize request, publish request, session metric, tenant policy, invite code), each tested from both the client and the backend |
 
 ## Conventions
 

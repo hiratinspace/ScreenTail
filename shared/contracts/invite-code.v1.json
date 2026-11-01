@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "An invite code's shape and how a typed code is read, on both ends (ST-010; ADR-0009, 'Guessing invite codes').",
+    "",
+    "The backend's Invites issues codes and looks them up by the hash of the normalised code; the client's",
+    "InviteCodes checks a typed code before it is sent and sends it formatted. Each keeps its own copy of the",
+    "rules, so this table is the contract: InviteCodeContractTests (backend) and InviteCodesTests (client) run",
+    "every case through their own normaliser, shape check and formatter. A change on one side only, such as",
+    "Unicode normalisation (NFKC would fold the full-width and superscript cases below), fails one of them.",
+    "",
+    "normalised: the letters and digits of what was typed, upper-cased, everything else dropped.",
+    "wellFormed: today's length or the old one, every character from the alphabet.",
+    "formatted: the normalised code in groups of groupLength joined by '-'.",
+    "Every code here is made up; none was issued."
+  ],
+  "alphabet": "ABCDEFGHJKMNPQRSTUVWXYZ23456789",
+  "length": 20,
+  "legacyLength": 10,
+  "groupLength": 5,
+  "cases": [
+    { "typed": "KX7PM-4R2WQ-9HTCE-B3NVA", "normalised": "KX7PM4R2WQ9HTCEB3NVA", "wellFormed": true, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVA" },
+    { "typed": " kx7pm 4r2wq\t9htce-b3nva ", "normalised": "KX7PM4R2WQ9HTCEB3NVA", "wellFormed": true, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVA" },
+    { "typed": "KX7PM—4R2WQ–9HTCE_B3NVA", "normalised": "KX7PM4R2WQ9HTCEB3NVA", "wellFormed": true, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVA" },
+    { "typed": "KX7PM.4R2WQ/9HTCE:B3NVA", "normalised": "KX7PM4R2WQ9HTCEB3NVA", "wellFormed": true, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVA" },
+    { "typed": "KX7PM-4R2WQ-9HTCE-B3NVA²", "normalised": "KX7PM4R2WQ9HTCEB3NVA", "wellFormed": true, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVA" },
+    { "typed": "kx7pm-4r2wq", "normalised": "KX7PM4R2WQ", "wellFormed": true, "formatted": "KX7PM-4R2WQ" },
+    { "typed": "ＫＸ７ＰＭ４Ｒ２ＷＱ９ＨＴＣＥＢ３ＮＶＡ", "normalised": "ＫＸ７ＰＭ４Ｒ２ＷＱ９ＨＴＣＥＢ３ＮＶＡ", "wellFormed": false, "formatted": "ＫＸ７ＰＭ-４Ｒ２ＷＱ-９ＨＴＣＥ-Ｂ３ＮＶＡ" },
+    { "typed": "kx7pm4r2wq9htceb3nvé", "normalised": "KX7PM4R2WQ9HTCEB3NVÉ", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVÉ" },
+    { "typed": "KX7PM4R2WQ9HTCEB3NV٣", "normalised": "KX7PM4R2WQ9HTCEB3NV٣", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NV٣" },
+    { "typed": "KX7PM-4R2WQ-9HTCE-B3NV0", "normalised": "KX7PM4R2WQ9HTCEB3NV0", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NV0" },
+    { "typed": "kx7pm-4r2wq-9htce-b3nvo", "normalised": "KX7PM4R2WQ9HTCEB3NVO", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVO" },
+    { "typed": "kx7pm-4r2wq-9htce-b3nvl", "normalised": "KX7PM4R2WQ9HTCEB3NVL", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVL" },
+    { "typed": "KX7PM-4R2WQ-9HTCE-B3NV", "normalised": "KX7PM4R2WQ9HTCEB3NV", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NV" },
+    { "typed": "KX7PM-4R2WQ-9HTCE-B3NVAA", "normalised": "KX7PM4R2WQ9HTCEB3NVAA", "wellFormed": false, "formatted": "KX7PM-4R2WQ-9HTCE-B3NVA-A" },
+    { "typed": "KX7PM-4R2W", "normalised": "KX7PM4R2W", "wellFormed": false, "formatted": "KX7PM-4R2W" },
+    { "typed": "-----", "normalised": "", "wellFormed": false, "formatted": "" },
+    { "typed": "", "normalised": "", "wellFormed": false, "formatted": "" },
+    { "typed": null, "normalised": "", "wellFormed": false, "formatted": "" }
+  ]
+}

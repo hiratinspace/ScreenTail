@@ -36,9 +36,18 @@ public sealed class ActivationPanelTests
 
     [Theory]
     [InlineData("", "Enter the code from your invite.")]
-    [InlineData("KX7P", "A code is ten letters and digits, like KX7PM-4R2WQ.")]
+    [InlineData(" - ", "Enter the code from your invite.")]
+    [InlineData("KX7P", "A code is twenty letters and digits in four groups, like KX7PM-4R2WQ-9HTCE-B3NVA. This has 4.")]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NV", "A code is twenty letters and digits in four groups, like KX7PM-4R2WQ-9HTCE-B3NVA. This has 19.")]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NVAA", "A code is twenty letters and digits in four groups, like KX7PM-4R2WQ-9HTCE-B3NVA. This has 21.")]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NV0", ActivationPanel.ForeignCharacter)]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NVO", ActivationPanel.ForeignCharacter)]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NVI", ActivationPanel.ForeignCharacter)]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NV\u00c9", ActivationPanel.ForeignCharacter)]
+    [InlineData("KX7PM-4R2WQ-9HTCE-B3NVA", null)]
+    [InlineData("kx7pm 4r2wq 9htce b3nva", null)]
+    [InlineData("KX7PM4R2WQ9HTCEB3NVA", null)]
     [InlineData("KX7PM-4R2WQ", null)]
-    [InlineData("kx7pm 4r2wq", null)]
     public async Task TheCodeIsCheckedBeforeAnythingIsSent(string code, string? problem)
     {
         var gateway = new FakeDevice();
@@ -57,11 +66,12 @@ public sealed class ActivationPanelTests
         var gateway = new FakeDevice { TenantName = "Acme IT" };
         var panel = new ActivationPanel(gateway, "TECH-LAPTOP");
         await panel.LoadAsync();
-        panel.Code = "kx7pm-4r2wq";
+        panel.Code = " kx7pm 4r2wq9htce-b3nva ";
 
         Assert.True(await panel.ActivateAsync());
 
-        Assert.Equal(("kx7pm-4r2wq", "TECH-LAPTOP"), gateway.Sent);
+        // Sent as the invite shows it, however it was typed.
+        Assert.Equal(("KX7PM-4R2WQ-9HTCE-B3NVA", "TECH-LAPTOP"), gateway.Sent);
         Assert.True(panel.Activated);
         Assert.Equal("Acme IT", panel.TenantName);
         Assert.Equal(string.Empty, panel.Code);
@@ -74,13 +84,13 @@ public sealed class ActivationPanelTests
         var gateway = new FakeDevice { Refusal = "Seat limit reached — contact your admin" };
         var panel = new ActivationPanel(gateway, "TECH-LAPTOP");
         await panel.LoadAsync();
-        panel.Code = "KX7PM-4R2WQ";
+        panel.Code = "kx7pm-4r2wq-9htce-b3nva";
 
         Assert.False(await panel.ActivateAsync());
 
         Assert.Equal("Seat limit reached — contact your admin", panel.Problem);
         Assert.False(panel.Activated);
-        Assert.Equal("KX7PM-4R2WQ", panel.Code);
+        Assert.Equal("kx7pm-4r2wq-9htce-b3nva", panel.Code);
     }
 
     [Fact]

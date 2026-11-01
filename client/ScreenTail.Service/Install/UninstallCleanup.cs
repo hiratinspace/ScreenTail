@@ -86,13 +86,10 @@ internal static class UninstallCleanup
         // For the uninstaller, which runs it as the system account: holding another user's token needs
         // that account's privilege anyway. An ordinary user who found the flag gets a sentence and
         // nothing removed; "delete everything" for one person is the Settings button, which asks first.
-        using (var identity = WindowsIdentity.GetCurrent())
+        if (!RunByTheInstaller())
         {
-            if (!identity.IsSystem && !new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
-            {
-                output.WriteLine("This step is run by the ScreenTail uninstaller as an administrator. Nothing was removed.");
-                return 2;
-            }
+            output.WriteLine("This step is run by the ScreenTail uninstaller as an administrator. Nothing was removed.");
+            return 2;
         }
 
         var installDirectory = AppContext.BaseDirectory;
@@ -114,15 +111,7 @@ internal static class UninstallCleanup
         // Last, so nothing this step does afterwards can open a file again: Windows Installer deletes the
         // installed files the moment this process exits, and one another program still has open is left
         // for a restart, which ends the uninstall with 3010 (ProgramFilesRelease says who does that).
-        var release = ProgramFilesRelease.WaitForOthers(
-            InstalledFiles(installDirectory),
-            FileHolders.Of,
-            Environment.ProcessId,
-            TimeProvider.System,
-            Thread.Sleep,
-            ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
-            ProgramFilesRelease.PollEvery,
-            ProgramFilesRelease.ConfirmAfter);
+        var release = ReleaseInstalledFiles(installDirectory, started);
 
         output.WriteLine($"ScreenTail uninstall: {stopped} running copies stopped.");
         output.WriteLine(
@@ -144,8 +133,63 @@ internal static class UninstallCleanup
         output.WriteLine(
             $"ScreenTail uninstall: waited {(long)release.Waited.TotalMilliseconds} ms for other programs to close the installed files; "
             + $"{release.StillHeld} still open.");
+        if (StillOpen("ScreenTail uninstall:", installDirectory, release) is { } stillOpen)
+        {
+            output.WriteLine(stillOpen);
+        }
 
         return tally.PartlyDeleted + tally.SecretsInDoubt + tally.FoldersUnopened + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Whether this process is the installer's: the system account, or an administrator. Holding another
+    /// user's token needs the system account's privilege anyway; the check is what gives an ordinary user
+    /// who found a flag a sentence instead of a half-done step.
+    /// </summary>
+    internal static bool RunByTheInstaller()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return identity.IsSystem || new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    /// <summary>
+    /// The installer's steps' last act (<see cref="ProgramFilesRelease"/>): wait until no process but this
+    /// one has a file in <paramref name="installDirectory"/> open, two clean looks apart, for what is left
+    /// of the step's deadline counted from <paramref name="started"/>, the step's own first timestamp.
+    /// Windows Installer removes the files the moment the step exits.
+    /// </summary>
+    internal static ProgramFilesRelease.Outcome ReleaseInstalledFiles(string installDirectory, long started) =>
+        ProgramFilesRelease.WaitForOthers(
+            InstalledFiles(installDirectory),
+            FileHolders.Of,
+            Environment.ProcessId,
+            TimeProvider.System,
+            Thread.Sleep,
+            ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
+            ProgramFilesRelease.PollEvery,
+            ProgramFilesRelease.ConfirmAfter);
+
+    /// <summary>
+    /// When the wait ran out with files still held: which ones, by their path below the install folder,
+    /// and whether the hold refuses deletion (the kind that costs a restart) or shares it. Installed file
+    /// names are ScreenTail's own; no process, id or user path is named (INV-10). Null when nothing was
+    /// left open.
+    /// </summary>
+    internal static string? StillOpen(string prefix, string installDirectory, ProgramFilesRelease.Outcome release)
+    {
+        if (release.StillHeld == 0)
+        {
+            return null;
+        }
+
+        var names = ProgramFilesRelease.BelowInstallFolder(release.Held, installDirectory);
+        var described = release.Held.Zip(names, (file, name) => name + FileHolders.RefusesDeletion(file) switch
+        {
+            true => " (held without sharing deletion)",
+            false => " (held, sharing deletion)",
+            null => " (held; whether it shares deletion could not be told)",
+        });
+        return $"{prefix} still open when the wait ended: {string.Join(", ", described)}.";
     }
 
     /// <summary>
@@ -153,7 +197,7 @@ internal static class UninstallCleanup
     /// closed them; this is for one that started since, and it is what lets a store be deleted, since an
     /// open database file cannot be.
     /// </summary>
-    private static int StopInstalledCopies(string installDirectory)
+    internal static int StopInstalledCopies(string installDirectory)
     {
         var stopped = 0;
         foreach (var name in ProcessNames)

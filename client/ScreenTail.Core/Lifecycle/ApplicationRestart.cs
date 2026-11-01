@@ -35,8 +35,8 @@ public static class ApplicationRestart
     /// <summary>No arguments: the restart is the service's ordinary start, exactly as the Run key starts it.</summary>
     public const string CommandLine = "";
 
-    /// <summary>The flags of the modes that run once and exit. #250's upgrade step is listed for when it lands.</summary>
-    public static readonly IReadOnlyList<string> OneShotModes = [InstalledFootprint.UninstallFlag, "--upgrade-release", "--capabilities", "--transcribe"];
+    /// <summary>The flags of the modes that run once and exit, the installer's two steps among them.</summary>
+    public static readonly IReadOnlyList<string> OneShotModes = [InstalledFootprint.UninstallFlag, InstalledFootprint.UpgradeReleaseFlag, "--capabilities", "--transcribe"];
 
     /// <summary>Whether a process started with these arguments is the service, and so registers for restart.</summary>
     public static bool ShouldRegister(IReadOnlyList<string> args)
