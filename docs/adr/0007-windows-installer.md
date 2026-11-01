@@ -129,11 +129,14 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
     reports), and the folder itself. Anything in doubt is left and counted.
   - **A link anywhere between the profile and the data folder, or a profile path that cannot be read
     plainly:** nothing there is touched.
-  The step writes how many of each into the uninstall log, as counts only. **Its last act is to wait**,
-  at most 15 seconds, until no other program has an installed file open: Windows Installer deletes the
-  files the moment the step exits, and leaves one another program still has open for a restart (3010).
-  Found on CI on 2026-11-01, where the hosted runner's own monitor read ScreenTail.Service.exe as the
-  step ended; virus scanners and endpoint agents on MSP machines read running programs the same way.
+  The step writes how many of each into the uninstall log, as counts only. **Its last act is to wait**
+  until no other program has an installed file open, two clean looks 250 ms apart: Windows Installer
+  deletes the files the moment the step exits, and leaves one another program still has open for a
+  restart (3010). The wait gets at most 15 seconds, and only what is left of a 45-second deadline from
+  the step's start, because WixQuietExec gives the whole step a minute and then lets Windows Installer
+  carry on with the step's executable still mapped. Found on CI on 2026-11-01, where the hosted runner's
+  own monitor kept ScreenTail.Service.exe open for about four seconds as the step ended; virus scanners
+  and endpoint agents on MSP machines read running programs the same way.
 - **INV-12 after an uninstall**: a signed-in technician's data is gone; a signed-out technician's store
   is unreadable and their device credential is gone, with the empty shell of the folder left for them or
   an administrator to delete. The retention purge does not run once the service is uninstalled, which is
