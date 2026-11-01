@@ -16,6 +16,11 @@ namespace ScreenTail.Service.Detection;
 ///
 /// The same thread also runs a slow timer. Titles change without a foreground event (a browser tab loading,
 /// a document being saved), and the technician moving between tabs matters as much as moving between apps.
+///
+/// Title changes come from <c>EVENT_OBJECT_NAMECHANGE</c>, hooked for the thread that owns the window in
+/// front and moved with the foreground (<see cref="ForegroundNameHook"/>, ST-031). Hooked for every thread,
+/// every rename on the desktop woke this thread to be thrown away, and the idle service's cost followed
+/// whatever else was open.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsForegroundWatcher : IForegroundWatcher
@@ -27,6 +32,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private readonly WinEventProc _callback;
     private Thread? _pump;
     private uint _pumpThreadId;
+    private ForegroundNameHook? _names;
     private IntPtr _settleTimer;
     private (uint ProcessId, string? Name, bool Elevated) _lastProcess;
     private volatile bool _hookInstalled;
@@ -57,6 +63,9 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     /// <summary>OS id of the pump thread, so a test can measure what this watcher actually costs.</summary>
     internal uint PumpThreadId => _pumpThreadId;
+
+    /// <summary>The thread the name-change hook listens to: the foreground window's, or 0 for every thread or none.</summary>
+    internal uint NameHookThread => _names is { Installed: true } names ? names.Thread : 0;
 
     public Task StartAsync(CancellationToken ct = default)
     {
@@ -103,7 +112,6 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private void Pump(TaskCompletionSource ready)
     {
         var foregroundHook = IntPtr.Zero;
-        var nameHook = IntPtr.Zero;
         var timer = IntPtr.Zero;
         try
         {
@@ -114,12 +122,20 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             // subscribed to all 32,778 event types between them — every window move, focus change, menu
             // and console caret on the desktop, each delivered with its own window handle and published as
             // the foreground window (ST-048, weaknesses P0-5).
-            foregroundHook = Hook(ForegroundEvents.SystemForeground);
-            nameHook = Hook(ForegroundEvents.ObjectNameChange);
-            _hookInstalled = foregroundHook != IntPtr.Zero && nameHook != IntPtr.Zero;
+            //
+            // The foreground hook hears every thread: the foreground moving is rare and is the news. The
+            // name hook hears one thread, the foreground window's, and follows it (ST-031).
+            foregroundHook = Hook(ForegroundEvents.SystemForeground, ForegroundNameHook.EveryThread);
+            _names = new ForegroundNameHook(
+                thread => Hook(ForegroundEvents.ObjectNameChange, thread),
+                hook => _ = UnhookWinEvent(hook));
+            var front = GetForegroundWindow();
+            var frontThread = ThreadOf(front);
+            _ = _names.Follow(frontThread);
+            _hookInstalled = foregroundHook != IntPtr.Zero && (_names.Installed || frontThread == 0);
 
             // Report where we start, so a session that begins mid-task knows what was on screen.
-            Publish(_filter.Offer(Read(GetForegroundWindow())));
+            Publish(_filter.Offer(Read(front)));
 
             // With the hooks installed, EVENT_OBJECT_NAMECHANGE already delivers title changes, so the timer is
             // only a safety net and can be slow. Without it, the timer is the whole mechanism and has to be
@@ -141,8 +157,10 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                 else if (message.Message == WM_TIMER)
                 {
                     // Catches title changes and anything the hook missed; also the whole mechanism when the
-                    // hook couldn't be installed.
-                    Publish(_filter.Flush(Read(GetForegroundWindow())));
+                    // hook couldn't be installed. A foreground change the hook missed moves the name hook too.
+                    var window = GetForegroundWindow();
+                    _ = _names.Follow(ThreadOf(window));
+                    Publish(_filter.Flush(Read(window)));
                 }
 
                 _ = TranslateMessage(ref message);
@@ -166,10 +184,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                 _ = KillTimer(IntPtr.Zero, timer);
             }
 
-            if (nameHook != IntPtr.Zero)
-            {
-                _ = UnhookWinEvent(nameHook);
-            }
+            _names?.Dispose();
 
             if (foregroundHook != IntPtr.Zero)
             {
@@ -180,9 +195,12 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         }
     }
 
-    /// <summary>One hook for one event type, out of context, across every process.</summary>
-    private IntPtr Hook(uint eventType) =>
-        SetWinEventHook(eventType, eventType, IntPtr.Zero, _callback, 0, 0, WINEVENT_OUTOFCONTEXT);
+    /// <summary>One hook for one event type, out of context, for one thread or (0) every thread on the desktop.</summary>
+    private IntPtr Hook(uint eventType, uint thread) =>
+        SetWinEventHook(eventType, eventType, IntPtr.Zero, _callback, 0, thread, WINEVENT_OUTOFCONTEXT);
+
+    /// <summary>The thread that owns a window, or 0 for none.</summary>
+    private static uint ThreadOf(IntPtr window) => window == IntPtr.Zero ? 0 : GetWindowThreadProcessId(window, out _);
 
     private void OnWinEvent(IntPtr hook, uint eventType, IntPtr window, int objectId, int childId, uint thread, uint time)
     {
@@ -203,6 +221,13 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         if (eventType == ForegroundEvents.ObjectNameChange && (objectId != OBJID_WINDOW || window != GetForegroundWindow()))
         {
             return;
+        }
+
+        // The name hook moves to the new foreground window's thread before the window is read, so a
+        // retitle straight after the switch reaches the new hook instead of falling between the two.
+        if (eventType == ForegroundEvents.SystemForeground)
+        {
+            _ = _names?.Follow(ThreadOf(window));
         }
 
         var observed = Read(window);

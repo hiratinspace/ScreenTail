@@ -588,6 +588,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         focus.FocusMoved += password.FocusMoved;
         await focus.StartAsync(stoppingToken).ConfigureAwait(false);
         LogFocusMode(logger, focus.UsingHook ? "event hook" : "polling");
+
+        // ST-031: the focus hook hears every control on the machine take focus, and with no session the
+        // guard has nothing to decide, so the hook is in only while a session is under way or a hold is
+        // kept. Subscribed before the guard's own loop, so a starting session puts the hook back before the
+        // guard wakes to ask what has focus.
+        using var focusInterest = new FocusInterest(machine, focus.Listen);
         var watchingFields = password.RunAsync(stoppingToken);
 
         var redacting = redaction.RunAsync(stoppingToken);

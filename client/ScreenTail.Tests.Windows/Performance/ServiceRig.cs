@@ -190,6 +190,7 @@ internal sealed class ServiceRig : IAsyncDisposable
         focus.FocusMoved += password.FocusMoved;
         await focus.StartAsync(ct);
         FocusPumpThread = focus.PumpThreadId;
+        _ownedSync.Add(new FocusInterest(Machine, focus.Listen));
         _running.Add(password.RunAsync(stopping));
 
         _running.Add(Redaction.RunAsync(stopping));
