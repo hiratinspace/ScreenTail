@@ -64,6 +64,9 @@ public sealed class TrayIconHost : IDisposable
         };
     }
 
+    /// <summary>The quick menu (Spec §5 S1), for the accessibility suite's checks of its names and sizes (ST-084).</summary>
+    internal Forms.ContextMenuStrip Menu => _icon.ContextMenuStrip!;
+
     public event Action? Pause;
 
     public event Action? Stop;

@@ -62,6 +62,23 @@ public partial class ShellWindow : Window
     /// now. Left subscribed, every window ever closed would keep loading each new draft and reloading
     /// Settings until the UI restarted.
     /// </summary>
+    /// <summary>
+    /// Spec §4: <c>?</c> opens the shortcut sheet, from any pane, unless the technician is typing into a
+    /// text box, where it is a question mark (ST-084).
+    /// </summary>
+    protected override void OnPreviewTextInput(System.Windows.Input.TextCompositionEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        if (ShortcutSheet.Opens(e.Text, System.Windows.Input.Keyboard.FocusedElement))
+        {
+            e.Handled = true;
+            _ = ShortcutSheet.Open(this);
+            return;
+        }
+
+        base.OnPreviewTextInput(e);
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _model.Dispose();

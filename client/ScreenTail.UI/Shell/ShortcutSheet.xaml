@@ -1,0 +1,50 @@
+<Window x:Class="ScreenTail.UI.Shell.ShortcutSheet"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Keyboard shortcuts"
+        Width="560"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        FocusManager.FocusedElement="{Binding ElementName=CloseButton}"
+        Style="{StaticResource Window.Base}">
+    <!-- Spec §4: ? opens a shortcut sheet. Every chord Spec §5 lists, grouped by where it works. Text, not
+         controls: a screen reader reads it as a document, and Esc or Close puts the technician back. -->
+    <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="{DynamicResource Padding.pane}">
+        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Keyboard shortcuts" />
+        <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding}" Focusable="False">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel>
+                        <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="{Binding Name}" />
+                        <ItemsControl ItemsSource="{Binding Chords}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource Brush.text.primary}" Text="{Binding Keys}" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" Text="{Binding Action}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Button x:Name="CloseButton"
+                Margin="0,24,0,0"
+                MinWidth="96"
+                HorizontalAlignment="Right"
+                Style="{StaticResource Button.Primary}"
+                Content="Close"
+                IsDefault="True"
+                Click="OnClose"
+                AutomationProperties.Name="Close the shortcut sheet" />
+    </StackPanel>
+</Window>

@@ -11,6 +11,9 @@
     <!-- The Review pane's view models live in the UI project and need WPF's imaging to decode a
          thumbnail; the one test that measures what the filmstrip holds in memory needs both. -->
     <UseWPF>true</UseWPF>
+    <!-- The tray's quick menu is a Windows Forms menu (ScreenTail.UI says why); the accessibility suite
+         reads its items (ST-084). Its implicit usings are removed below, as the UI project removes them. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>ScreenTail.Tests.Windows</RootNamespace>
   </PropertyGroup>
 
@@ -24,6 +27,8 @@
     <!-- UseWPF drops System.IO from the implicit usings (Path would be ambiguous with WPF's Shapes.Path
          in XAML-heavy code); these tests are not that, and they read files. -->
     <Using Include="System.IO" />
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 
   <ItemGroup>
