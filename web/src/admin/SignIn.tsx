@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import type { SignInNonce } from '../api';
 import type { GoogleButton } from '../google';
+import { messageOf } from './format';
 
 interface SignInProps {
   /** Google's button, or undefined when this build has no client id. */
   button: GoogleButton | undefined;
+  /** Asks the backend for a fresh one-time nonce, which Google signs into the token (ADR-0009). */
+  nextNonce: () => Promise<SignInNonce>;
   /** Called with Google's ID token. */
   onCredential: (credential: string) => void;
   busy: boolean;
@@ -11,7 +15,7 @@ interface SignInProps {
 }
 
 /** Sign up / Sign in (Spec §5 S9): Google's button, and nothing else to type. */
-export function SignIn({ button, onCredential, busy, error }: SignInProps) {
+export function SignIn({ button, nextNonce, onCredential, busy, error }: SignInProps) {
   const slot = useRef<HTMLDivElement>(null);
   const [loadError, setLoadError] = useState<string>();
   const latest = useRef(onCredential);
@@ -20,14 +24,44 @@ export function SignIn({ button, onCredential, busy, error }: SignInProps) {
     latest.current = onCredential;
   }, [onCredential]);
 
+  // Each drawing of the button has a nonce of its own, good for one sign-in. A new round asks for a
+  // fresh one: after Google hands back a token (that nonce is spent, whatever the backend says of it)
+  // and shortly before the nonce runs out, so a page left open still signs in.
+  const [round, setRound] = useState(0);
+
   useEffect(() => {
-    if (!button || !slot.current) {
+    const element = slot.current;
+    if (!button || !element) {
       return;
     }
-    button.render(slot.current, (credential) => latest.current(credential)).catch((e: unknown) => {
-      setLoadError(e instanceof Error ? e.message : 'Google sign-in could not be loaded.');
-    });
-  }, [button]);
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    nextNonce()
+      .then(async ({ nonce, expiresInSeconds }) => {
+        if (!live) {
+          return;
+        }
+        await button.render(element, nonce, (credential) => {
+          setRound((r) => r + 1);
+          latest.current(credential);
+        });
+        if (!live) {
+          return;
+        }
+        setLoadError(undefined);
+        const refreshIn = Math.max(expiresInSeconds - 60, expiresInSeconds / 2, 30);
+        timer = setTimeout(() => setRound((r) => r + 1), refreshIn * 1000);
+      })
+      .catch((e: unknown) => {
+        if (live) {
+          setLoadError(messageOf(e));
+        }
+      });
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [button, nextNonce, round]);
 
   return (
     <main id="content" className="center-pane" aria-labelledby="signin-title">

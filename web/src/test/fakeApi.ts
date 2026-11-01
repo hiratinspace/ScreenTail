@@ -53,6 +53,7 @@ export type FakeApi = { [K in keyof AdminApi]: Mock<AdminApi[K]> };
 export function fakeApi(overrides: Partial<{ [K in keyof AdminApi]: AdminApi[K] }> = {}): FakeApi {
   const api = {
     session: vi.fn(async () => null),
+    signInNonce: vi.fn(async () => ({ nonce: 'nonce-1', expiresAt: later, expiresInSeconds: 600 })),
     signIn: vi.fn(async () => ({ status: 'signed_in' as const, ...session })),
     signUp: vi.fn(async () => session),
     signOut: vi.fn(async () => undefined),

@@ -48,6 +48,23 @@ describe('httpApi', () => {
     expect(sent.every((s) => s.init.credentials === 'same-origin')).toBe(true);
   });
 
+  it('asks for a sign-in nonce with a POST, and turns a bare 429 into a sentence', async () => {
+    const sent = backend([
+      { status: 200, body: { nonce: 'n-1', expiresAt: 'x', expiresInSeconds: 600 } },
+      { status: 429 },
+    ]);
+    const api = httpApi();
+
+    expect(await api.signInNonce()).toEqual({ nonce: 'n-1', expiresAt: 'x', expiresInSeconds: 600 });
+    const refused = await api.signInNonce().catch((e: unknown) => e);
+
+    expect(sent[0]!.url).toBe('/v1/admin/session/nonce');
+    expect(sent[0]!.init.method).toBe('POST');
+    expect(refused).toBeInstanceOf(ApiError);
+    expect((refused as ApiError).status).toBe(429);
+    expect((refused as ApiError).message).toBe('Too many sign-in attempts from this network. Wait a minute and try again.');
+  });
+
   it('reads no session as signed out rather than as an error', async () => {
     backend([{ status: 401 }]);
 

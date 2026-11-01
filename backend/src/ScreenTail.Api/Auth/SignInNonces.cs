@@ -6,8 +6,11 @@ using ScreenTail.Api.Data;
 
 namespace ScreenTail.Api.Auth;
 
-/// <summary>A nonce for the page to give Google, and when it stops being accepted.</summary>
-public sealed record IssuedNonce(string Nonce, DateTimeOffset ExpiresAt);
+/// <summary>
+/// A nonce for the page to give Google, and when it stops being accepted, also as seconds from now so
+/// the page can draw a fresh button in time without trusting its own clock.
+/// </summary>
+public sealed record IssuedNonce(string Nonce, DateTimeOffset ExpiresAt, int ExpiresInSeconds);
 
 /// <summary>
 /// The Google ID token's nonce (ST-099 hardening, ADR-0009): replay protection for owner sign-in.
@@ -34,7 +37,7 @@ public static class SignInNonces
         var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var now = time.GetUtcNow();
         var expires = now + lifetime;
-        return (new IssuedNonce(nonce, expires), new AdminSignInNonce { Id = Hash(nonce), CreatedAt = now, ExpiresAt = expires });
+        return (new IssuedNonce(nonce, expires, (int)lifetime.TotalSeconds), new AdminSignInNonce { Id = Hash(nonce), CreatedAt = now, ExpiresAt = expires });
     }
 
     /// <summary>Issues one, deleting every row past its expiry first so the table holds only live nonces and recently used ones.</summary>

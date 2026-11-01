@@ -1,14 +1,19 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api';
 import { App } from './App';
 import type { GoogleButton } from './google';
 import { fakeApi, session } from './test/fakeApi';
 
-/** Google's button, in the test: drawn as a plain button that hands back the token the test chose. */
-function fakeGoogle(credential = 'google-id-token'): GoogleButton {
+/**
+ * Google's button, in the test: drawn as a plain button that hands back the token the test chose.
+ * Records the nonce each drawing was given, as Google would sign it into the token.
+ */
+function fakeGoogle(credential = 'google-id-token', nonces: string[] = []): GoogleButton {
   return {
-    async render(element, onCredential) {
+    async render(element, nonce, onCredential) {
+      nonces.push(nonce);
+      element.replaceChildren();
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = 'Sign in with Google';
@@ -20,6 +25,7 @@ function fakeGoogle(credential = 'google-id-token'): GoogleButton {
 
 afterEach(() => {
   window.location.hash = '';
+  vi.useRealTimers();
 });
 
 describe('App', () => {
@@ -110,6 +116,55 @@ describe('App', () => {
     const heading = await screen.findByRole('heading', { level: 1, name: 'Policy' });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(nav.querySelector('[aria-current="page"]')?.textContent).toBe('Policy');
+  });
+
+  it("gives Google the backend's nonce, and a fresh one for the next attempt once a token is handed back", async () => {
+    const nonces: string[] = [];
+    let issued = 0;
+    const api = fakeApi({
+      signInNonce: async () => ({ nonce: `nonce-${++issued}`, expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 600 }),
+      signIn: async () => {
+        throw new ApiError(401, 'Google did not confirm this sign-in. Try signing in again.', 'sign_in_failed');
+      },
+    });
+    render(<App api={api} button={fakeGoogle('t', nonces)} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Try signing in again');
+
+    await waitFor(() => expect(nonces).toEqual(['nonce-1', 'nonce-2']));
+    expect(api.signInNonce).toHaveBeenCalledTimes(2);
+  });
+
+  it('draws the button again with a fresh nonce a minute before the old one runs out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const nonces: string[] = [];
+    let issued = 0;
+    const api = fakeApi({
+      signInNonce: async () => ({ nonce: `nonce-${++issued}`, expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 300 }),
+    });
+    render(<App api={api} button={fakeGoogle('t', nonces)} />);
+    await waitFor(() => expect(nonces).toEqual(['nonce-1']));
+
+    await vi.advanceTimersByTimeAsync(239_000);
+    expect(nonces).toEqual(['nonce-1']);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitFor(() => expect(nonces).toEqual(['nonce-1', 'nonce-2']));
+    expect(screen.getAllByRole('button', { name: 'Sign in with Google' })).toHaveLength(1);
+  });
+
+  it('says why when no nonce can be had, and draws no button to sign in with', async () => {
+    const nonces: string[] = [];
+    const api = fakeApi({
+      signInNonce: async () => {
+        throw new ApiError(429, 'Too many sign-in attempts from this network. Wait a minute and try again.');
+      },
+    });
+    render(<App api={api} button={fakeGoogle('t', nonces)} />);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Too many sign-in attempts');
+    expect(nonces).toEqual([]);
+    expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
   });
 
   it('sends an expired Google sign-in back to the start of signup', async () => {

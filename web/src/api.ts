@@ -21,6 +21,14 @@ export type SessionAnswer =
   | { status: 'signed_in'; csrf: string; expiresAt: string; owner: OwnerInfo; tenant: TenantInfo }
   | { status: 'needs_tenant'; email: string };
 
+/** A one-time value for Google to sign into the ID token, so a captured token cannot be used twice (ADR-0009). */
+export interface SignInNonce {
+  nonce: string;
+  expiresAt: string;
+  /** The same deadline as seconds from when the backend answered, so the page need not trust its clock. */
+  expiresInSeconds: number;
+}
+
 export interface SignedIn {
   csrf: string;
   expiresAt: string;
@@ -114,6 +122,8 @@ export class ApiError extends Error {
 export interface AdminApi {
   /** The current session, or null when there is none. */
   session(): Promise<SignedIn | null>;
+  /** A fresh nonce, asked for each time Google's button is drawn. */
+  signInNonce(): Promise<SignInNonce>;
   signIn(credential: string): Promise<SessionAnswer>;
   signUp(credential: string, tenantName: string): Promise<SignedIn>;
   signOut(): Promise<void>;
@@ -132,6 +142,7 @@ const fallback: Record<number, string> = {
   401: 'Your session has ended. Sign in again.',
   403: 'That was refused. Sign in again and retry.',
   404: 'That item no longer exists. Refresh the page.',
+  429: 'Too many sign-in attempts from this network. Wait a minute and try again.',
   501: 'Sign-in is not set up on this deployment.',
   503: 'ScreenTail could not reach Google. Try again in a minute.',
 };
@@ -199,6 +210,7 @@ export function httpApi(base = ''): AdminApi {
         throw error;
       }
     },
+    signInNonce: () => call<SignInNonce>('POST', '/v1/admin/session/nonce'),
     async signIn(credential) {
       return keep(await call<SessionAnswer>('POST', '/v1/admin/session', { credential }));
     },

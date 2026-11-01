@@ -57,6 +57,7 @@ public sealed class SignInNonceTests(AdminApiFixture api) : IClassFixture<AdminA
 
         Assert.NotEqual(first.Nonce, second.Nonce);
         Assert.Equal(SignInNonces.Length, first.Nonce.Length);
+        Assert.Equal(600, first.ExpiresInSeconds);
         Assert.InRange(first.ExpiresAt, before.AddMinutes(10).AddSeconds(-5), DateTimeOffset.UtcNow.AddMinutes(10).AddSeconds(5));
         Assert.True(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == SignInNonces.Hash(first.Nonce))));
         Assert.False(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == first.Nonce)));
