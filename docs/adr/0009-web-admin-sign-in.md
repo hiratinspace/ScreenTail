@@ -165,7 +165,8 @@ many addresses call it. **A use writes the nonce's SHA-256 as the table's primar
 as the sign-in time or the new tenant and owner; a second use of the same nonce is a key conflict, so of
 two requests with one token exactly one wins on any number of instances, and a signup whose save fails
 for another reason leaves its nonce unused for the owner to retry. Rows grow only with real sign-ins,
-and each use deletes the rows already past their expiry. Learning that an account may create a tenant
+and each use deletes the rows whose nonces expired more than one lifetime ago (not at expiry, so an
+instance whose clock runs behind still finds the record that refuses a replay). Learning that an account may create a tenant
 (`needs_tenant`) does not use the nonce, so the first-run screen sends the same token on; a refused
 organisation name does not either. Lifetime **10 minutes** (`Admin:SignInNonceLifetime`, 1 to 60
 minutes), and the answer carries `expiresInSeconds` so the page draws a fresh button a minute before it
@@ -182,7 +183,7 @@ minutes; it is listed for the owner below rather than built.
 
 **3. Security headers.** Every API answer, refusals and errors included (added as headers are sent,
 and an exception nobody caught is turned into a bare 500 by an exception handler right after, so the
-server never writes one without them), carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';
+server never writes one without them; a body the endpoint could not bind keeps its 400 or 415), carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';
 form-action 'none'`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
 no-referrer`, `Cross-Origin-Resource-Policy: same-origin` and a Permissions-Policy that turns off the
 camera, microphone, location, payment and the rest (`SecurityHeaders`). The API serves JSON only, so

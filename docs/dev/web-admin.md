@@ -121,7 +121,9 @@ address for the rate limit, and one person's ten calls a minute lock everyone el
 Two edges to know about:
 
 - `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` does not switch forwarding on by itself. With no proxy
-  listed the API reads no forwarded header from anybody, whatever that variable says.
+  listed the API reads no forwarded header from anybody, whatever that variable says. With a proxy
+  listed, leave the variable unset: set as well, the forwarded headers are processed twice, so a client
+  address inside a listed proxy network would be trusted as a proxy too.
 - A connection with **no address** (the API listening on a Unix socket) counts in one shared partition
   for the rate limit, and once a proxy is listed the framework also honours `X-Forwarded-For` on such a
   connection. If the API is put on a socket, make sure only the proxy can reach that socket.
