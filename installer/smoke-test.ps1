@@ -417,6 +417,7 @@ for ($i = 0; $i -lt 60; $i++) {
 Start-Sleep -Seconds 1
 $closed = Invoke-Close $uiExe 'RestartManager' 'ui-restart-manager'
 Test-RestartManagerShutdown 'the UI' $closed
+Check 'Restart Manager can restart the UI: it registered for restart' (@($closed.Lines | Where-Object { $_ -match '^restartable \d+ True$' }).Count -eq 1)
 Test-ClosedByItself "Restart Manager's request to the UI" $closed
 Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -450,6 +451,8 @@ New-Item -ItemType SymbolicLink -Path (Join-Path $otherData 'device.cred.tmp') -
 # --- Uninstall -----------------------------------------------------------------------------------------
 Write-Step 'Silent uninstall while the service is running'
 $runningBefore = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count
+# ScreenTail's own processes, so the check below can tell another program's hold from theirs.
+$screenTailIds = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
 Check 'the installed service is running before the uninstall' ($runningBefore -ge 1) "running $runningBefore"
 $since = Get-Date
 $code = Invoke-Msi '/x' $Msi 'uninstall.log'
@@ -460,11 +463,18 @@ $report | ForEach-Object { Write-Host "  $_" }
 Check 'the uninstall step reported what it did in the log' ($report.Count -ge 5)
 Test-ReleaseWait $report
 # ST-112: Windows Installer's Restart Manager asks the running service to close in InstallValidate, and it
-# does, so the uninstall step usually finds none left to end (before the service had a window this always
-# said 1). Not a check: the package asks only when nothing unregistered holds an installed file
-# (MSIRMSHUTDOWN=2), and the runner's own monitor sometimes does, so 1 is also right.
+# does, so the uninstall step finds none left to end (before the service had a window this always said 1).
+# The package asks only programs registered for restart and nobody when anything else holds an installed
+# file (MSIRMSHUTDOWN=2), so 1 is right too, but only when the installer's log shows such a holder: one
+# Restart Manager detected that is not a ScreenTail process. Counted, never named: a friendly name can be
+# a window title.
 $stoppedLine = @($report | Where-Object { $_ -match 'running copies stopped' }) | Select-Object -First 1
-Write-Host "  Restart Manager before the uninstall step: $stoppedLine"
+$stopped = if ("$stoppedLine" -match 'uninstall: (\d+) running copies stopped') { [int]$Matches[1] } else { -1 }
+$detected = @(Get-Content (Join-Path $Logs 'uninstall.log') -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match 'RESTART MANAGER: Detected that application with id (\d+)' } |
+    ForEach-Object { [int]([regex]::Match($_, 'with id (\d+)').Groups[1].Value) })
+$otherHolders = @($detected | Where-Object { $screenTailIds -notcontains $_ } | Select-Object -Unique).Count
+Check 'Restart Manager closed the running service before the uninstall step, or another program held a file so nobody was asked' ($stopped -eq 0 -or ($stopped -eq 1 -and $otherHolders -ge 1)) "stopped $stopped, other holders $otherHolders"
 Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)
 Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinue

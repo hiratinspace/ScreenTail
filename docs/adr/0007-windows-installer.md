@@ -142,11 +142,23 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   "down until the next sign-in" above, and from the installer's own elevated process. **For the owner:**
   (1) whether to refuse Restart Manager's close while a session is recording instead (answer
   WM_QUERYENDSESSION with FALSE for ENDSESSION_CLOSEAPP), which keeps a recording whole but makes those
-  installers leave their files for a reboot, as before; (2) Restart Manager restarts a program from the
-  process that asked, so after another program's installer run elevated from the technician's session
-  the service may run elevated until the next sign-in. Not seen on CI, where everything runs elevated; a
-  guard (a restart that finds itself elevated exits and waits for the next sign-in) is possible. Neither
-  is decided here.
+  installers leave their files for a reboot, as before; (2) the UI registers for restart too (below),
+  which the owner may revert. Not decided here.
+- **The UI registers for restart as well.** Windows Installer, with `MSIRMSHUTDOWN=2`, asks nobody while
+  any unregistered program holds an installed file, and the UI holds its own executable whenever it
+  runs, so the service would be ended rather than asked. The UI registers the same way, as the
+  application only. Other holders (a virus scanner, an endpoint agent) still make Windows Installer ask
+  nobody, and the close steps and the uninstall step end the service as before.
+- **The service never runs elevated, as another user, or in session 0 (INV-6).** Restart Manager
+  restarts a program with the token of the process that asked, so a restart by another program's
+  elevated installer, or "Run as administrator", gave a High-integrity service, which judges windows
+  against itself (`ProcessElevation`) and so would photograph an administrator's regedit or elevated
+  PowerShell, with the same user's UI attached and an automatic session under the pill. Every start
+  checks itself right after the single-instance name and before anything is built (`StartGuard`):
+  `TokenElevationTypeFull`, a token user who is not the session's signed-in user, or session 0 exits 0
+  with a fixed sentence, and the next sign-in starts it as the technician. `TokenElevationTypeDefault`
+  (a standard user, or UAC off) runs, as before. Not yet seen: the laptop check, an elevated
+  third-party installer closing the service and Restart Manager's restarted copy at Medium or exited.
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in
