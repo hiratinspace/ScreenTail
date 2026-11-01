@@ -82,6 +82,25 @@ public static class AnonymousRateLimit
     }
 
     /// <summary>
+    /// Refuses, with 403 and before it is counted, a call to a limited route that a browser says another
+    /// site started (<c>Sec-Fetch-Site: cross-site</c>). Without this a page anywhere could spend an
+    /// office's allowance from its visitors' browsers, which share the office's address. The admin's own
+    /// page is same-origin, and a device is not a browser and sends no such header.
+    /// </summary>
+    public static IApplicationBuilder UseCrossSiteRefusal(this IApplicationBuilder app) =>
+        app.Use((context, next) =>
+        {
+            if (context.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>() is not null
+                && string.Equals(context.Request.Headers["Sec-Fetch-Site"].ToString(), "cross-site", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            }
+
+            return next(context);
+        });
+
+    /// <summary>
     /// The partition for a client address: IPv4 as it is, IPv4 carried in IPv6 as the IPv4 it is, IPv6
     /// by its /64. A connection with no address (a Unix socket, a test host) shares one partition.
     /// </summary>

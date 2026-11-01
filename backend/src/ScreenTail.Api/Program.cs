@@ -346,7 +346,8 @@ app.UseRequestTimeouts();
 app.UseAdminNoStore();
 
 // After the no-store guard, so a refusal is not kept either; before authentication, so a refused call
-// costs nothing more than the count.
+// costs nothing more than the count. A call another site's page started is refused before it is counted.
+app.UseCrossSiteRefusal();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

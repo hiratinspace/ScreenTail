@@ -219,6 +219,56 @@ public sealed class RateLimitTests(RateLimitedApiFixture api) : IClassFixture<Ra
         }
     }
 
+    [Fact]
+    public async Task ACallAnotherSitesPageStartedIsRefusedAndNotCounted()
+    {
+        using var client = api.From("203.0.113.140");
+        for (var i = 0; i < RateLimitedApiFixture.Limit * 3; i++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, NonceRoute);
+            request.Headers.Add("Sec-Fetch-Site", "cross-site");
+            using var refused = await client.SendAsync(request, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            Assert.Empty(await refused.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        }
+
+        // None of those was counted: the page's own calls (same-origin, same-site, a typed address) get the
+        // whole allowance of three, and the next call, a device's with no header, is the one past it.
+        foreach (var site in new[] { "same-origin", "same-site", "none", null })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, NonceRoute);
+            if (site is not null)
+            {
+                request.Headers.Add("Sec-Fetch-Site", site);
+            }
+
+            using var answered = await client.SendAsync(request, TestContext.Current.CancellationToken);
+            Assert.Equal(site == null ? HttpStatusCode.TooManyRequests : HttpStatusCode.OK, answered.StatusCode);
+        }
+    }
+
+    [Fact]
+    public void EveryAnonymousRouteIsCountedButTheOnesExemptOnPurpose()
+    {
+        // Sign-out must never wait for a window; the token exchange carries a 256-bit secret and every
+        // device behind an office's address renews hourly; /health is a liveness probe; the OpenAPI
+        // document is Development only. Anything else anybody can call without a session is counted.
+        string[] exempt = ["POST /v1/admin/session/end", "POST /v1/devices/token", "GET /health", "GET /swagger/v1/swagger.json"];
+        var anonymous = api.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Where(e => e.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAllowAnonymous>() is not null
+                || !e.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>().Any())
+            .SelectMany(e => (e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.IHttpMethodMetadata>()?.HttpMethods ?? ["*"])
+                .Select(m => (Route: $"{m} {e.RoutePattern.RawText}", Limited: e.Metadata.GetMetadata<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>()?.PolicyName == AnonymousRateLimit.Policy)))
+            .ToList();
+
+        Assert.Equal(
+            ["POST /v1/admin/session", "POST /v1/admin/session/nonce", "POST /v1/admin/signup", "POST /v1/devices/activate"],
+            anonymous.Where(r => !exempt.Contains(r.Route)).Select(r => r.Route).Order(StringComparer.Ordinal));
+        Assert.All(anonymous.Where(r => !exempt.Contains(r.Route)), r => Assert.True(r.Limited, r.Route));
+        Assert.All(anonymous.Where(r => exempt.Contains(r.Route)), r => Assert.False(r.Limited, r.Route));
+    }
+
     [Theory]
     [InlineData("203.0.113.5", "203.0.113.5")]
     [InlineData("::ffff:203.0.113.5", "203.0.113.5")]
