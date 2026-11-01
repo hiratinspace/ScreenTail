@@ -262,7 +262,10 @@ This document describes what is enforced today. These are named here rather than
   recording, and otherwise only for Settings' level meter (below); there is no code path for system or
   remote audio, so INV-9 is enforced by there being no other source to open. The microphone is the one
   chosen in Settings, Capture when it is connected and Windows' default communications device otherwise
-  (ST-080 AC3); a chosen device that is not connected never stops a session. Each stretch of speech is stamped with the session it
+  (ST-080 AC3); a chosen device that is not connected never stops a session. The choice is read each
+  time the microphone opens, so within a session it can apply after a pause or a moment of
+  suppression. The service's log says only how the choice went (chosen, default, fallback, none),
+  never a device's name. Each stretch of speech is stamped with the session it
   was heard in and is written into that session or nowhere, so a segment the model finishes after one
   session ends cannot land in the next customer's transcript; discarding a session drops what was still
   queued for it. Stop waits, within the same grace as the last screenshots, for speech still being
@@ -280,11 +283,15 @@ This document describes what is enforced today. These are named here rather than
   transcribe and loaded again by the next sentence.
 - **The level meter in Settings, Capture opens the microphone outside a session** (ST-080 AC3, 2026-10-31),
   and only this way: while the microphone card is on screen, scrolled into view, with the window in
-  front and not minimised. The UI asks for the level about ten times a second; each request keeps the
-  device open for 1.5 seconds, so it closes by itself when the card is hidden, the window goes behind
-  another or the UI stops. It never opens while a session is recording, paused, suppressed or finishing,
-  and a session that starts closes it; the pill and the tray are not involved, because nothing is
-  captured. Each frame of audio becomes one number and is dropped: nothing heard is kept, transcribed,
+  front and not minimised, and the desktop unlocked and awake (Win+L, a user switch, a Remote Desktop
+  disconnect and sleep each close it). The UI asks for the level about ten times a second, each request
+  after a round trip through its own UI thread; each request keeps the device open for a moment, so it
+  closes by itself within a few seconds when the card is hidden, the window goes behind another, or the
+  UI hangs or stops. It is open five minutes at most at a stretch, then stays closed until the card is
+  put away and looked at again. It never opens while a session is recording, paused, suppressed or
+  finishing, and a session that starts closes it; the pill and the tray are not involved, because
+  nothing is captured. It opens the device as plain capture, not as a call, so Windows does not turn
+  other sound down. Each frame of audio becomes one number and is dropped: nothing heard is kept, transcribed,
   written, sent or logged, and the meter has no field that could hold a sample. Windows' own
   microphone-in-use indicator lights while it runs, which the technician sees beside the card.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from

@@ -146,8 +146,9 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - **The microphone is chosen in Settings, Capture, with a live level** (ST-080 AC3, IPC contract 7). The
   choice is kept by Windows' id in `capture.json` and used the next time the microphone opens; one that
   is not connected falls back to Windows' default and the card says so. The level is read only while the
-  card is on screen with the window in front, through a short lease the service ends by itself, never
-  during a session, and nothing heard is kept or sent.
+  card is on screen with the window in front and the desktop unlocked, through a short lease the service
+  ends by itself, five minutes at most at a stretch, never during a session, and nothing heard is kept
+  or sent.
 - **The drafting path is wired end to end.** Bundle, outbox, sender, `POST v1/sessions/summarize` with a
   device token, Gemini Flash, the validator (invented frames, fake quotations, credentials,
   instruction-shaped text; the backend's and the research copy share one rule set since #206), and the
@@ -197,7 +198,8 @@ the heaviest bundle a client may send, not on a recorded session.
 - The processor limit tripping on a real overload (the laptop step in `docs/dev/performance.md`).
 - The tray and pill following a real session with the service up, and screenshots over a remote window
   (ST-085's own walk-through).
-- The microphone picker and its level meter with a real headset, plugged and unplugged (ST-080 AC3).
+- The microphone picker and its level meter with a real headset, plugged and unplugged, and Win+L with
+  the card open turning Windows' microphone light off (ST-080 AC3).
 - Review, History, Settings and the onboarding wizard on a real screen, in the new look. CI renders them
   over fixtures in three themes; dropdowns, tool tips, hover and pressed states are not rendered there.
 - A publish to ConnectWise or Hudu. Both clients are tested against recorded shapes and, since #226,
