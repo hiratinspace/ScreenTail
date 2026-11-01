@@ -37,6 +37,8 @@ Backend (environment variables, or `dotnet user-secrets` in Development):
 | `Admin__SignInNonceLifetime` | `00:10:00` | How long a sign-in nonce is accepted after the page asks for it, first-run screen included (1 to 60 minutes). Nonces are signed with a key derived from `Jwt__SigningKey`, so changing that key voids the ones handed out. |
 | `RateLimit__PermitLimit` | `10` | Calls one client address may make in a window to the sign-in nonce, sign-in, signup and device activation, together (1 to 100000). Sign-out is never counted. |
 | `RateLimit__Window` | `00:01:00` | That window (1 second to 1 hour). The call past the limit gets 429 with `Retry-After` and no body. |
+| `ActivationWatch__WarnAt` | `50` | Device activations refused for their invite code (unknown, malformed, used or expired), from all addresses together, at which one warning is logged per window (1 to 1000000). Nobody is refused or slowed for it. |
+| `ActivationWatch__Window` | `00:10:00` | That window (1 minute to 24 hours). The warning carries the count and the window, never a code, an address or a tenant. |
 | `ForwardedHeaders__KnownProxies__0`, `__1`, ... | empty | The reverse proxies in front of the API, as IP addresses. Only a connection from one of them has its `X-Forwarded-For` and `X-Forwarded-Proto` read. Empty: no forwarded header is read from anybody. |
 | `ForwardedHeaders__KnownNetworks__0`, ... | empty | The same, as networks in CIDR form (`10.0.0.0/24`). |
 | `ForwardedHeaders__ForwardLimit` | `1` | How many listed proxies in a row, counted back from the API (1 to 5). |
@@ -73,7 +75,11 @@ VITE_GOOGLE_CLIENT_ID='<your client id>.apps.googleusercontent.com' npm run dev 
 
 Open `http://localhost:5173`, sign in with an address on the allowlist, name the organisation, then:
 
-1. **Technicians and seats → Invite a technician**: the code is shown once. Copy it.
+1. **Technicians and seats → Invite a technician**: the code is shown once. Copy it. It is twenty
+   letters and digits in four groups of five (`XXXXX-XXXXX-XXXXX-XXXXX`, about 99 bits, so it cannot be
+   guessed from any number of addresses; ADR-0009, "Guessing invite codes"). Dashes, spaces and case do
+   not matter when it is typed. Codes issued before 2026-11-01 were ten characters and work until they
+   expire.
 2. On a Windows PC with the client, **Settings → This device**, enter the code. Within fifteen seconds
    (or on **Refresh**) the device appears under Technicians and devices, and the seat count goes up.
 3. **Policy**: change retention or lock local-only and **Save policy**. Devices pick it up within the
