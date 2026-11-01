@@ -296,6 +296,18 @@ Check 'the installed UI renders its gallery (WPF from the single file)' ($code -
 
 Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
 
+# TEMPORARY PROBE (ST-112 graceful close): what Restart Manager makes of each process. Removed before the final head.
+Write-Step 'PROBE: Restart Manager and the running service'
+& (Join-Path $PSScriptRoot 'rm-probe.ps1') -Exe $serviceExe
+Write-Step 'PROBE: Restart Manager and the running UI'
+$null = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
+Start-Sleep -Seconds 10
+& (Join-Path $PSScriptRoot 'rm-probe.ps1') -Exe $uiExe
+Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+if (@(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count -eq 0) {
+    $null = Start-InstalledService
+}
+
 # --- A second technician, never signed in, with data and a planted link --------------------------------
 # A real local account with a real profile that has never been used, which is what an MSP's uninstall
 # meets for every technician who is not at their desk. Its data folder gets a key, a credential and a
