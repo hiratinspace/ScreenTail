@@ -131,6 +131,8 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [ -s "$scratch/root.crt" ] || fail "Caddy made no local CA for localhost"
+# A certificate, not a secret: readable by the client container below, which runs as its own user.
+chmod 0644 "$scratch/root.crt"
 fetch() { curl --silent --show-error --cacert "$scratch/root.crt" --max-time 20 "$@"; }
 for _ in $(seq 1 30); do
     fetch --output /dev/null "$origin/health" 2>/dev/null && break
@@ -247,8 +249,9 @@ pass "a client's own X-Forwarded-For is not believed (limited at call $limited)"
 proxy_ip=$(sed -n 's/^SCREENTAIL_PROXY_IP=//p' "$scratch/compose.env")
 other=$(docker run --rm --network "${project}_edge" --read-only --cap-drop ALL --security-opt no-new-privileges:true \
     -v "$scratch/root.crt:/root.crt:ro" "$curl_image" \
-    --silent --output /dev/null --write-out '%{http_code}' --cacert /root.crt --max-time 20 \
-    --resolve "localhost:443:$proxy_ip" -X POST https://localhost/v1/admin/session/nonce)
+    --silent --show-error --output /dev/null --write-out '%{http_code}' --cacert /root.crt --max-time 20 \
+    --resolve "localhost:443:$proxy_ip" -X POST https://localhost/v1/admin/session/nonce) \
+    || fail "the second client could not reach the proxy (curl exit $?)"
 [ "$other" = 200 ] || fail "a second client was answered $other: the API is not reading the listed proxy's X-Forwarded-For"
 pass "a second client is counted apart from the first"
 
