@@ -286,7 +286,8 @@ internal static partial class Audit
     public static List<string> HitTargets(Window window, double minimum = HitTarget)
     {
         var findings = new List<string>();
-        foreach (var control in Interactive(window).Where(c => c.IsEnabled))
+        // Disabled ones too: they are enabled the moment their reason goes, and are the same size then.
+        foreach (var control in Interactive(window))
         {
             var size = Bounds(control, window);
             if (size.Width + 0.5 < minimum || size.Height + 0.5 < minimum)
@@ -351,16 +352,21 @@ internal static partial class Audit
                 break;
             }
 
-            // Back at the first stop is the round closing, including a window with one stop, where Tab
-            // stays where it is because there is nowhere else to go.
-            if (ReferenceEquals(now, first))
+            // Focus that does not move is a trap, unless there is nowhere else for it to go: a window
+            // whose only enabled control is this one.
+            if (ReferenceEquals(now, before))
             {
+                if (Interactive(window).Any(c => !ReferenceEquals(c, now) && c.IsEnabled && c.Focusable && !now.IsDescendantOf(c) && !c.IsDescendantOf(now)))
+                {
+                    findings.Add($"Tab does not move focus off {Describe(now)}: a keyboard trap");
+                }
+
                 break;
             }
 
-            if (ReferenceEquals(now, before))
+            // Back at the first stop is the round closing.
+            if (ReferenceEquals(now, first))
             {
-                findings.Add($"Tab does not move focus off {Describe(now)}: a keyboard trap");
                 break;
             }
 
