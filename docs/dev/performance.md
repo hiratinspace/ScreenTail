@@ -15,7 +15,7 @@ change).
 | Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.41% of one core net (0.05% of the machine) |
 | Idle CPU, UI, under 1% | `ShellCostTests.WithNoSessionTheShellIsAlmostSilent` | Yes, on the laptop, against 1% of one core | 0.0% net (0.22% of one core gross, the test host included) |
 | Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 17 a second net (14 to 17 across four runs), down from 129 |
-| Idle wakeups, service, on a busy desktop | `ServiceCostTests.WithNoSessionABusyDesktopDoesNotWakeTheService`, `IdleHookTests` | Each watcher's pump thread under 10 a second, everywhere (hosted runner included); the whole service under the same ceiling of 40, on the laptop | Hosted: 0.0 a second for each pump with 68 renames a second behind the window in front. Laptop (41347969730): pumps 2.0 and 0.0, the service 28.1 net |
+| Idle wakeups, service, on a busy desktop | `ServiceCostTests.WithNoSessionABusyDesktopDoesNotWakeTheService`, `IdleHookTests` | Each watcher's pump thread under 10 a second, everywhere (hosted runner included); the whole service under the same ceiling of 40, on the laptop | Hosted: 0.0 a second for each pump with 68 renames a second behind the window in front. Laptop (41349604369): pumps 2.3 and 0.0, the service 25.0 net |
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
 | Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.7% of one core without speech (4.4 to 4.9% across four runs); conservative, since the test's own repainting and staging are counted with it |
 | Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 70 KB a stored frame, 5.8 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.5 MB per session-minute, about 30 MB per 20 minutes; that figure is reported, not enforced |
@@ -145,7 +145,10 @@ run with the narrowed hooks (41347969730, before the console fix) measured the q
 **22.4 wakeups a second** net, the foreground watcher's pump at 0.6 and the focus watcher's at 0.0, the
 busiest threads the .NET timer (8.3), pool gate (4.5) and a pool worker (4.2); nothing near the 29.4 a
 second one thread took in the failing runs. On the busy desktop it measured 28.1 net, the pumps 2.0 and
-0.0. That run cannot prove the laptop's busy desktop of the failing runs was back, so the evidence for the
+0.0. The run with the console fix (41349604369) measured 21.7 net at a quiet idle (pumps 0.7 and 0.0;
+busiest the timer 8.3, pool gate 5.6, a pool worker 4.2) and 25.0 on the busy desktop (pumps 2.3 and
+0.0); a classic console in front had all 5 of its announced titles reported, Windows Terminal all 4.
+Neither run can prove the laptop's busy desktop of the failing runs was back, so the evidence for the
 cause is the shape of the failure (one thread, nothing handed on) and the hosted measurements above.
 
 ## Over budget: what gives first (AC2)
