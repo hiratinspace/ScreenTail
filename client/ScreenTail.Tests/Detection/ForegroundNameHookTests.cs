@@ -118,6 +118,50 @@ public sealed class ForegroundNameHookTests
         Assert.Empty(_hooks.Live);
     }
 
+    [Fact]
+    public void AWindowWhoseRenamesComeFromElsewhereIsHeardOverEveryThreadAndNarrowedAgainAfter()
+    {
+        // A classic console in front (review of #252, M1): its renames come from conhost, not from the
+        // thread Windows names as its owner.
+        using var names = _hooks.Follower();
+        _ = names.Follow(42);
+
+        Assert.True(names.FollowEveryThread());
+        Assert.Equal([ForegroundNameHook.EveryThread], _hooks.Live);
+        Assert.False(names.FollowEveryThread());
+        Assert.Equal(2, _hooks.Asked.Count);
+
+        // An ordinary window in front again: narrowed again. Not a refusal, so not counted as one.
+        Assert.True(names.Follow(7));
+        Assert.Equal([7u], _hooks.Live);
+        Assert.Equal(0, names.Refusals);
+    }
+
+    [Fact]
+    public void EachRefusalIsCountedAndTheNarrowHookIsTriedAgainEachTime()
+    {
+        // The fallback is not silent: the count is what a log or the diagnostics can show.
+        _hooks.Refuse.Add(13);
+        using var names = _hooks.Follower();
+
+        _ = names.Follow(13);
+        _ = names.Follow(13);
+
+        Assert.Equal(2, names.Refusals);
+        Assert.Equal(2, _hooks.Asked.Count(thread => thread == 13));
+        Assert.Equal([ForegroundNameHook.EveryThread], _hooks.Live);
+    }
+
+    [Theory]
+    [InlineData("ConsoleWindowClass", true)]
+    [InlineData("CASCADIA_HOSTING_WINDOW_CLASS", false)]
+    [InlineData("Chrome_WidgetWin_1", false)]
+    [InlineData("TscShellContainerClass", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void OnlyAClassicConsoleRenamesFromAThreadItsOwnerIsNot(string? className, bool elsewhere) =>
+        Assert.Equal(elsewhere, ForegroundEvents.OwnerIsNotTheRenamer(className));
+
     private sealed class FakeHooks
     {
         private readonly Dictionary<nint, uint> _live = [];

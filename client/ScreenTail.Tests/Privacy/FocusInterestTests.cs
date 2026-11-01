@@ -124,6 +124,30 @@ public sealed class FocusInterestTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task ASessionStartingWhileItIsBeingBuiltIsNotMissed()
+    {
+        // Review of #252: the service builds this while the pipe, the hotkeys and the coordinator already
+        // run, so a session can start at any moment of the constructor. Here it starts inside the first
+        // answer's callback, the last moment before the old code subscribed, which left the hook out for
+        // the whole session.
+        _harness = await MachineHarness.StartAsync();
+        var machine = _harness.Machine;
+        var started = false;
+        using var interest = new FocusInterest(machine, wanted =>
+        {
+            _told.Add(wanted);
+            if (!started)
+            {
+                started = true;
+                Assert.True(machine.StartAsync(Rdp, localOnly: false, policyVersion: null).GetAwaiter().GetResult());
+            }
+        });
+
+        Assert.True(interest.Listening);
+        Assert.Equal([false, true], _told);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_harness is not null)

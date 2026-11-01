@@ -7,16 +7,19 @@ namespace ScreenTail.Core.Detection;
 /// A rename matters to the watcher only when the window in front retitles itself; every other rename is
 /// thrown away in the callback (<see cref="ForegroundEvents"/>). Hooked for every thread on the desktop,
 /// though, each of those renames still woke the watcher's thread first, and a desktop has plenty: a
-/// progress bar, a clock, a list refreshing in the background. On the laptop that was one thread waking
-/// about thirty times a second with no session, and the idle service's cost moved with whatever else
-/// happened to be open. <c>SetWinEventHook</c> can be told a thread, and Windows then does the filtering
-/// before anything is delivered, so this hooks the foreground window's thread and moves the hook when the
-/// foreground moves.
+/// progress bar, a clock, a list refreshing in the background. The idle service's cost moved with whatever
+/// else happened to be open. <c>SetWinEventHook</c> can be told a thread, and Windows then does the
+/// filtering before anything is delivered, so this hooks the foreground window's thread and moves the hook
+/// when the foreground moves.
 ///
 /// <b>Never less than before.</b> A window's own title change is raised on the thread that owns it, which
-/// is the thread this follows. Should Windows refuse a hook for that thread, the hook goes back to every
-/// thread, the old subscription, rather than leave the title to the two-second poll; it tries the scoped
-/// hook again at the next foreground change.
+/// is the thread this follows, with one known exception: a classic console's window is drawn by conhost,
+/// but Windows names the shell running in it as the owner, so its renames come from a thread this cannot
+/// name. While such a window is in front the watcher asks for every thread (<see cref="FollowEveryThread"/>,
+/// <see cref="ForegroundEvents.OwnerIsNotTheRenamer"/>). And should Windows refuse a hook for a thread, the
+/// hook goes back to every thread, the old subscription, rather than leave the title to the two-second
+/// poll; it tries the narrow hook again at the next foreground change and at every poll, and counts the
+/// refusals (<see cref="Refusals"/>).
 ///
 /// Platform-neutral so the rule is tested on any machine; the Windows watcher supplies the two calls and
 /// makes every one of them on its own pump thread, which is where a WinEvent hook has to live.
@@ -29,6 +32,7 @@ public sealed class ForegroundNameHook : IDisposable
     private readonly Func<uint, nint> _hook;
     private readonly Action<nint> _unhook;
     private nint _handle;
+    private long _refusals;
 
     /// <param name="hook">Installs the name-change hook for one thread (<see cref="EveryThread"/> for all) and returns its handle, or zero when Windows refuses.</param>
     /// <param name="unhook">Removes a hook <paramref name="hook"/> returned.</param>
@@ -46,8 +50,14 @@ public sealed class ForegroundNameHook : IDisposable
     /// <summary>The thread the hook listens to, or <see cref="EveryThread"/>. Meaningless when not <see cref="Installed"/>.</summary>
     public uint Thread { get; private set; }
 
-    /// <summary>Whether the hook is narrowed to one thread, as it should be, rather than the fallback over every thread.</summary>
+    /// <summary>Whether the hook is narrowed to one thread, as it should be, rather than over every thread.</summary>
     public bool Scoped => Installed && Thread != EveryThread;
+
+    /// <summary>
+    /// How many times Windows refused the hook for the thread in front, so that it went back to every
+    /// thread. A count only, for diagnostics: no window, title or process is kept (INV-10).
+    /// </summary>
+    public long Refusals => Interlocked.Read(ref _refusals);
 
     /// <summary>
     /// Points the hook at the thread that owns the window now in front, or takes it out when nothing is in
@@ -82,6 +92,18 @@ public sealed class ForegroundNameHook : IDisposable
         }
 
         // Refused for this thread. The old subscription, every thread, keeps the title news coming.
+        _ = Interlocked.Increment(ref _refusals);
+        return FollowEveryThread();
+    }
+
+    /// <summary>
+    /// Listens to every thread: for a window in front whose renames come from a thread other than the one
+    /// Windows names as its owner, and as the fallback when the narrow hook is refused. Kept as it is when
+    /// it is already over every thread.
+    /// </summary>
+    /// <returns>True when the hook changed.</returns>
+    public bool FollowEveryThread()
+    {
         if (Installed && Thread == EveryThread)
         {
             return false;

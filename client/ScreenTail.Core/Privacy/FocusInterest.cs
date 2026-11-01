@@ -39,13 +39,18 @@ public sealed class FocusInterest : IDisposable
         ArgumentNullException.ThrowIfNull(listen);
         _machine = machine;
         _listen = listen;
+
+        // Subscribed before the first answer is read, and both under the gate: the pipe, the hotkeys and
+        // the coordinator are already running when the service builds this, and a session starting between
+        // reading the state and subscribing would have kept the hook out for the whole of that session. A
+        // transition now either lands before the read (and the read sees it) or waits at the gate and is
+        // told after (review of #252).
         lock (_gate)
         {
+            machine.StateChanged += OnStateChanged;
             _wanted = Wanted(machine);
             _listen(_wanted);
         }
-
-        machine.StateChanged += OnStateChanged;
     }
 
     /// <summary>Whether focus events are wanted right now.</summary>

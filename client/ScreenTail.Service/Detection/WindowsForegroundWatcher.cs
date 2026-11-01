@@ -67,6 +67,12 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     /// <summary>The thread the name-change hook listens to: the foreground window's, or 0 for every thread or none.</summary>
     internal uint NameHookThread => _names is { Installed: true } names ? names.Thread : 0;
 
+    /// <summary>
+    /// How many times Windows refused the name hook for the thread in front, so that it heard every thread
+    /// instead. A count, for the log and the diagnostics; nothing about the window (INV-10).
+    /// </summary>
+    public long NameHookRefusals => _names?.Refusals ?? 0;
+
     public Task StartAsync(CancellationToken ct = default)
     {
         if (_pump is not null)
@@ -130,9 +136,8 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                 thread => Hook(ForegroundEvents.ObjectNameChange, thread),
                 hook => _ = UnhookWinEvent(hook));
             var front = GetForegroundWindow();
-            var frontThread = ThreadOf(front);
-            _ = _names.Follow(frontThread);
-            _hookInstalled = foregroundHook != IntPtr.Zero && (_names.Installed || frontThread == 0);
+            FollowFront(front);
+            _hookInstalled = foregroundHook != IntPtr.Zero && (_names.Installed || front == IntPtr.Zero);
 
             // Report where we start, so a session that begins mid-task knows what was on screen.
             Publish(_filter.Offer(Read(front)));
@@ -159,7 +164,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                     // Catches title changes and anything the hook missed; also the whole mechanism when the
                     // hook couldn't be installed. A foreground change the hook missed moves the name hook too.
                     var window = GetForegroundWindow();
-                    _ = _names.Follow(ThreadOf(window));
+                    FollowFront(window);
                     Publish(_filter.Flush(Read(window)));
                 }
 
@@ -202,6 +207,27 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     /// <summary>The thread that owns a window, or 0 for none.</summary>
     private static uint ThreadOf(IntPtr window) => window == IntPtr.Zero ? 0 : GetWindowThreadProcessId(window, out _);
 
+    /// <summary>
+    /// Points the name hook at the window in front: its owner's thread, or every thread for a window whose
+    /// renames come from elsewhere (a classic console, <see cref="ForegroundEvents.OwnerIsNotTheRenamer"/>),
+    /// or nothing when nothing is in front.
+    /// </summary>
+    private void FollowFront(IntPtr window)
+    {
+        if (_names is null)
+        {
+            return;
+        }
+
+        if (window != IntPtr.Zero && ForegroundEvents.OwnerIsNotTheRenamer(ReadClassName(window)))
+        {
+            _ = _names.FollowEveryThread();
+            return;
+        }
+
+        _ = _names.Follow(ThreadOf(window));
+    }
+
     private void OnWinEvent(IntPtr hook, uint eventType, IntPtr window, int objectId, int childId, uint thread, uint time)
     {
         if (window == IntPtr.Zero || _stopping.IsCancellationRequested)
@@ -227,7 +253,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         // retitle straight after the switch reaches the new hook instead of falling between the two.
         if (eventType == ForegroundEvents.SystemForeground)
         {
-            _ = _names?.Follow(ThreadOf(window));
+            FollowFront(window);
         }
 
         var observed = Read(window);
