@@ -24,10 +24,12 @@ public sealed class IdleHookTests
 {
     /// <summary>
     /// What a pump may wake for while the noise below runs: nothing it hears, and the odd stray (a timer, a
-    /// window of the test's own coming and going). The noise is 100 events a second, and the hooks as they
-    /// were woke the pump for each one.
+    /// window of the test's own coming and going, the window in front retitling itself). The noise is about
+    /// 70 events a second, and the hooks as they were woke the foreground pump 215 times a second for it
+    /// (hosted run 41344523601); fixed, the hosted runner measured 0 to 3. Ten leaves a desktop busier than
+    /// a cloud VM's its strays and still fails the old subscription twenty times over.
     /// </summary>
-    internal const double PumpCeiling = 5;
+    internal const double PumpCeiling = 10;
 
     private static TimeSpan Window => TimeSpan.FromSeconds(3);
 
