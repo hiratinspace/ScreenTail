@@ -111,6 +111,18 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   silent push while somebody is signed in needs no restart. That reaches every session when the
   installer runs as the system account, as MSP tools run it. **After an upgrade the service is down
   until the technician's next sign-in**; a session that was recording is recovered then (ST-020).
+- **Asked first, where Windows can ask (amended 2026-11-01).** The service used to have no window, so
+  Restart Manager listed it as `RmUnknownApp` and refused to shut it down without force (CI, 2026-11-01:
+  `RmShutdown` returned 351 and the service ran on), and an uninstall's step ended it. It now has one
+  hidden top-level window (`SessionEndWindow`, rules in `CloseRequests`): Restart Manager lists it as
+  `RmOtherWindow`, its shutdown without force succeeds, and the service stops capture, closes its store
+  and exits by itself in about 150 ms (CI smoke test). Windows Installer's own Restart Manager, in
+  InstallValidate, then closes it on an uninstall run from the technician's session, and the uninstall
+  step reports `0 running copies stopped`. The terminating steps stay, for what Restart Manager does not
+  reach: other sessions when the installer runs as the system account, and an upgrade whose files carry
+  the same version (Windows Installer registers only files it will replace). A session that was
+  recording is left for recovery, never finalized at that moment: finishing a note needs up to twenty
+  seconds of redaction and Windows gives about five. The UI, a WPF program, already closed on request.
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in

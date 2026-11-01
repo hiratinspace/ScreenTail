@@ -226,7 +226,10 @@ msiexec /i ScreenTail.msi /qn /norestart /l*v C:\Windows\Temp\screentail-install
 - **Upgrades:** deploy the newer package the same way. It replaces the old version and keeps every
   user's data. Running ScreenTail processes are ended first, so no restart is needed. That reaches
   every signed-in user when the installer runs as the system account (as Intune and RMM tools run it);
-  run by hand from one user's session, it may only reach that session. **After an upgrade the service
+  run by hand from one user's session, it may only reach that session. Where Windows Installer's Restart
+  Manager reaches a session (the session the installer was started from), it asks first, and both
+  programs close by themselves: the service stops capture and closes its store, and a session that was
+  recording is left for the next start to recover, exactly as after a crash. **After an upgrade the service
   stays down until each technician's next sign-in**, so schedule upgrades outside working hours; a
   session that was recording is recovered when the service next starts. A first install or a repair
   ends nothing.
@@ -266,6 +269,16 @@ still open (`waited ... ms for other programs`). A restart can still be asked fo
   Installer's helper gives it); the log then says how many files were still open;
 - a program opens a file in the moment after the second check, before the step exits;
 - a running ScreenTail copy could not be stopped.
+
+**Running copies close by themselves when Windows asks.** The capture service has one hidden window
+for this (ST-112): at sign-out, at shutdown, when Restart Manager asks for an installer, and on a
+`WM_CLOSE` (`taskkill /im ScreenTail.Service.exe` without `/f`), it stops capture, releases the
+microphone, closes its store and exits, in well under a second when idle and never holding Windows more
+than four seconds. A session that was recording is not finalized then: it is recovered as partial at the
+next start, as after a crash, because finishing a note needs up to twenty seconds of redaction that
+Windows does not give. The UI already closed on Windows' request. In the uninstall log, the step's line
+`N running copies stopped` counts only the copies Restart Manager could not reach: other users'
+sessions when the installer runs as the system account.
 
 `3010` still means the uninstall succeeded; the files left are deleted at the next restart.
 

@@ -130,11 +130,16 @@ function Get-Subsystem([string]$Path) {
     }
 }
 
-function Start-InstalledService {
+function Start-InstalledService([string]$ErrorLog) {
     # The token is rewritten at every start, so one left by an earlier run would prove nothing.
     $token = Join-Path $dataDir 'ipc.token'
     Remove-Item $token -Force -ErrorAction SilentlyContinue
-    $null = Start-Process -FilePath $serviceExe -WorkingDirectory $installDir -PassThru
+    $start = @{ FilePath = $serviceExe; WorkingDirectory = $installDir; PassThru = $true }
+    if ($ErrorLog) {
+        # The service logs to standard error, scrubbed (INV-10); a Windows program's goes nowhere unless asked.
+        $start.RedirectStandardError = $ErrorLog
+    }
+    $null = Start-Process @start
     for ($i = 0; $i -lt 60; $i++) {
         if (Test-Path $token) {
             return $true
@@ -156,6 +161,42 @@ function Test-ReleaseWait([string[]]$Report) {
     # until no other program has one open. "0 still open" is what lets the delete succeed without a restart.
     $line = @($Report | Where-Object { $_ -match 'waited \d+ ms for other programs to close the installed files' }) | Select-Object -First 1
     Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') "$line"
+}
+
+function Invoke-Close([string]$Exe, [string]$Mode, [string]$Name) {
+    # In a process of its own, ended after 90 s: a Restart Manager call has no timeout of its own.
+    $out = Join-Path $Logs "close-$Name.txt"
+    $code = Invoke-Process 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'close-running.ps1')`" -Exe `"$Exe`" -Mode $Mode" 90 $out
+    $lines = @(Get-Content $out -ErrorAction SilentlyContinue)
+    $lines | ForEach-Object { Write-Host "  $_" }
+    return [pscustomobject]@{ Code = $code; Lines = $lines }
+}
+
+function Test-ClosedByItself([string]$What, $Result) {
+    # Windows waits about five seconds for a program it asked; ScreenTail takes a fraction of that.
+    Check "${What}: the request was made" ($Result.Code -eq 0 -and @($Result.Lines | Where-Object { $_ -eq 'processes 1' }).Count -eq 1) "exit $($Result.Code)"
+    $line = @($Result.Lines | Where-Object { $_ -match '^exited \d+ \d+ -?\d+$' }) | Select-Object -First 1
+    $parts = "$line" -split ' '
+    Check "${What}: it ended by itself within 5 s, with exit code 0" ($line -and [int]$parts[2] -le 5000 -and [int]$parts[3] -eq 0) "$line"
+}
+
+function Test-RestartManagerShutdown([string]$What, $Result) {
+    $shutdown = @($Result.Lines | Where-Object { $_ -match '^shutdown ' }) | Select-Object -First 1
+    Check "${What}: Restart Manager's shutdown without force succeeded" ($shutdown -match '^shutdown 0 ') "$shutdown"
+}
+
+function Test-StoreOpen([string]$What) {
+    # What makes Test-StoreClosed mean something: while the service runs, the files are there.
+    $wal = Join-Path $dataDir 'store.db-wal'
+    for ($i = 0; $i -lt 20 -and -not (Test-Path $wal); $i++) { Start-Sleep -Milliseconds 250 }
+    Check "${What}: while the service runs, its store has a write-ahead log" (Test-Path $wal)
+}
+
+function Test-StoreClosed([string]$What) {
+    # SQLite folds its write-ahead log in and removes it, with the shared-memory file, when the store is
+    # closed; a process ended mid-run leaves both behind.
+    $left = @(Get-ChildItem $dataDir -Filter 'store.db-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    Check "${What}: the store was closed, no write-ahead log or shared-memory file left" ($left.Count -eq 0) ($left -join ', ')
 }
 
 function Test-InstalledLayout([string]$ExpectedVersion) {
@@ -296,37 +337,40 @@ Check 'the installed UI renders its gallery (WPF from the single file)' ($code -
 
 Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
 
-# TEMPORARY PROBE (ST-112 graceful close): what Restart Manager makes of each process. Removed before the final head.
-function Invoke-Probe([string]$Title, [string]$Exe, [string]$Mode, [string]$ServiceLog) {
-    Write-Step "PROBE: $Title"
-    if ($ServiceLog) {
-        Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
-        Remove-Item (Join-Path $dataDir 'ipc.token') -Force -ErrorAction SilentlyContinue
-        $null = Start-Process -FilePath $serviceExe -WorkingDirectory $installDir -RedirectStandardError $ServiceLog -PassThru
-        for ($i = 0; $i -lt 60 -and -not (Test-Path (Join-Path $dataDir 'ipc.token')); $i++) { Start-Sleep -Seconds 1 }
-        Start-Sleep -Seconds 2
-        Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: before: $($_.Name)" }
-    }
-    $out = Join-Path $Logs ("probe-" + $Mode + "-" + [IO.Path]::GetFileNameWithoutExtension($Exe) + ".txt")
-    $code = Invoke-Process 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'rm-probe.ps1')`" -Exe `"$Exe`" -Mode $Mode" 90 $out
-    Write-Host "PROBE: probe exit $code"
-    Get-Content $out -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-    if ($ServiceLog) {
-        Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: after: $($_.Name)" }
-        Get-Content $ServiceLog -ErrorAction SilentlyContinue | Select-Object -Last 25 | ForEach-Object { Write-Host "PROBE: log: $_" }
-    }
-}
-Invoke-Probe 'WM_CLOSE to the running service' $serviceExe 'close' (Join-Path $Logs 'probe-service-close.log')
-Invoke-Probe 'Restart Manager and the running service' $serviceExe 'rm' (Join-Path $Logs 'probe-service-rm.log')
-Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+# --- Windows asks the running programs to close ------------------------------------------------------
+# ST-112. The service has one hidden window so that Windows can ask it to close (sign-out, shutdown, an
+# installer's Restart Manager, WM_CLOSE). Before it, Restart Manager listed the service as a program it
+# could not ask (RmUnknownApp), refused to shut it down without force, and every installer had to end it.
+# Each request must end the program by itself, promptly, with its store closed.
+Write-Step 'WM_CLOSE to the running service, as taskkill without /f sends it'
+Test-StoreOpen 'the running service'
+$closed = Invoke-Close $serviceExe 'CloseMessage' 'service-close-message'
+Check 'WM_CLOSE reached the service through its session-end window' (@($closed.Lines | Where-Object { $_ -match '^posted \d+ 1$' }).Count -eq 1)
+Test-ClosedByItself 'WM_CLOSE to the service' $closed
+Test-StoreClosed 'WM_CLOSE to the service'
+
+Write-Step "Restart Manager's request to the running service, as Windows Installer makes it"
+$serviceLog = Join-Path $Logs 'service-restart-manager.log'
+Check 'the installed service starts again, logging to a file' (Start-InstalledService $serviceLog)
+Test-StoreOpen 'the restarted service'
+$closed = Invoke-Close $serviceExe 'RestartManager' 'service-restart-manager'
+$type = @($closed.Lines | Where-Object { $_ -match '^app-type \d+ ' }) | Select-Object -First 1
+Check 'Restart Manager sees the service as a program with a window it can ask, not RmUnknownApp' ($type -match '^app-type \d+ [12]$') "$type"
+Test-RestartManagerShutdown 'the service' $closed
+Test-ClosedByItself "Restart Manager's request to the service" $closed
+Test-StoreClosed "Restart Manager's request to the service"
+$said = @(Get-Content $serviceLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Windows ended the session for the capture service \(restart-manager\): Stopped' })
+Check "the service's log says Restart Manager asked, and that it had stopped before it answered" ($said.Count -eq 1)
+
+Write-Step "Restart Manager's request to the running UI"
 $null = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
 Start-Sleep -Seconds 10
-Invoke-Probe 'Restart Manager and the running UI' $uiExe 'rm' $null
+$closed = Invoke-Close $uiExe 'RestartManager' 'ui-restart-manager'
+Test-RestartManagerShutdown 'the UI' $closed
+Test-ClosedByItself "Restart Manager's request to the UI" $closed
 Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-if (@(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count -eq 0) {
-    $null = Start-InstalledService
-}
+
+Check 'the installed service starts again for the uninstall' (Start-InstalledService)
 
 # --- A second technician, never signed in, with data and a planted link --------------------------------
 # A real local account with a real profile that has never been used, which is what an MSP's uninstall
@@ -355,6 +399,8 @@ New-Item -ItemType SymbolicLink -Path (Join-Path $otherData 'device.cred.tmp') -
 
 # --- Uninstall -----------------------------------------------------------------------------------------
 Write-Step 'Silent uninstall while the service is running'
+$runningBefore = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count
+Check 'the installed service is running before the uninstall' ($runningBefore -ge 1) "running $runningBefore"
 $since = Get-Date
 $code = Invoke-Msi '/x' $Msi 'uninstall.log'
 Check 'msiexec /x /qn exits 0, with no restart needed' ($code -eq 0) "exit $code"
@@ -363,6 +409,9 @@ $report = Get-UninstallReport $Logs $since
 $report | ForEach-Object { Write-Host "  $_" }
 Check 'the uninstall step reported what it did in the log' ($report.Count -ge 5)
 Test-ReleaseWait $report
+# ST-112: Windows Installer's Restart Manager asks the running service to close in InstallValidate, and it
+# does, so the uninstall step finds none left to end. Before the service had a window this said 1.
+Check 'Restart Manager closed the running service before the uninstall step, which had none left to stop' (@($report | Where-Object { $_ -eq 'ScreenTail uninstall: 0 running copies stopped.' }).Count -eq 1) (@($report | Where-Object { $_ -match 'running copies stopped' }) -join ' ')
 Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)
 Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinue
