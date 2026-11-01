@@ -4,8 +4,12 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace ScreenTail.Api.Auth;
 
-/// <summary>Who Google says signed in: the account's stable id, its verified address and the name it shows.</summary>
-public sealed record GoogleIdentity(string Subject, string Email, string Name);
+/// <summary>
+/// Who Google says signed in: the account's stable id, its verified address and the name it shows, and
+/// the nonce the page gave Google, which the sign-in endpoints check against the ones they issued
+/// (<see cref="SignInNonces"/>). Null when the token carries none.
+/// </summary>
+public sealed record GoogleIdentity(string Subject, string Email, string Name, string? Nonce = null);
 
 /// <summary>Google's published signing keys, behind a seam so that no test ever calls Google.</summary>
 public interface IGoogleSigningKeys
@@ -97,7 +101,7 @@ public sealed class GoogleIdTokenVerifier(IGoogleSigningKeys keys, AdminOptions 
         // becomes a plain k), and an address that is not ASCII is refused for signup anyway.
         var address = AsciiLower(email.Trim());
         var name = identity.FindFirst("name")?.Value;
-        return new GoogleIdentity(subject, address, Truncate(string.IsNullOrWhiteSpace(name) ? address : name.Trim(), DisplayNameLength));
+        return new GoogleIdentity(subject, address, Truncate(string.IsNullOrWhiteSpace(name) ? address : name.Trim(), DisplayNameLength), identity.FindFirst(JwtRegisteredClaimNames.Nonce)?.Value);
     }
 
     /// <summary>The owners table's display-name column. A name, or the address standing in for one, is cut to fit.</summary>

@@ -27,6 +27,18 @@ public class AdminApiFixture : ApiFixture
     public AdminApiFixture()
     {
         Keys = new FakeGoogleKeys(Google.Key);
+        Google.NonceSource = () => IssueNonce().Nonce;
+    }
+
+    /// <summary>A live sign-in nonce, issued straight into the database as POST /v1/admin/session/nonce would.</summary>
+    public IssuedNonce IssueNonce(TimeSpan? lifetime = null)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScreenTailContext>();
+        var (issued, row) = SignInNonces.Create(lifetime ?? TimeSpan.FromMinutes(10), TimeProvider.System);
+        _ = db.AdminSignInNonces.Add(row);
+        _ = db.SaveChanges();
+        return issued;
     }
 
     internal GoogleTokens Google { get; } = new();

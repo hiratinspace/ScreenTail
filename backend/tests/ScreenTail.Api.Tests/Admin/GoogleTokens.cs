@@ -33,6 +33,12 @@ internal sealed class GoogleTokens : IDisposable
     /// <summary>A key that is not in the published set, under whatever id a test gives it.</summary>
     public RsaSecurityKey Other(string keyId) => new(_other) { KeyId = keyId };
 
+    /// <summary>
+    /// Where a token gets its nonce when a test names none: the admin fixture issues a live one, as the
+    /// page would have asked for before drawing the button. Unset, a token carries no nonce.
+    /// </summary>
+    public Func<string>? NonceSource { get; set; }
+
     /// <summary>A good token for a Google account unless a test says otherwise.</summary>
     public string Mint(
         string subject = "google-sub-1",
@@ -45,7 +51,9 @@ internal sealed class GoogleTokens : IDisposable
         DateTimeOffset? notBefore = null,
         SecurityKey? signWith = null,
         string algorithm = SecurityAlgorithms.RsaSha256,
-        string? name = "Pat Owner")
+        string? name = "Pat Owner",
+        string? nonce = null,
+        bool omitNonce = false)
     {
         var until = expires ?? DateTimeOffset.UtcNow.AddMinutes(30);
         var claims = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -62,6 +70,11 @@ internal sealed class GoogleTokens : IDisposable
         if (name is not null)
         {
             claims["name"] = name;
+        }
+
+        if (!omitNonce && (nonce ?? NonceSource?.Invoke()) is { } value)
+        {
+            claims["nonce"] = value;
         }
 
         return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor

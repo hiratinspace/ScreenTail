@@ -199,7 +199,11 @@ public sealed class AdminSignInTests(AdminApiFixture api) : IClassFixture<AdminA
         using var client = api.CreateClient(new() { HandleCookies = false });
 
         using var first = await client.PostAsJsonAsync(Signup, new AdminSignupRequest(token, "First"), TestContext.Current.CancellationToken);
-        using var second = await client.PostAsJsonAsync(Signup, new AdminSignupRequest(token, "Second"), TestContext.Current.CancellationToken);
+
+        // A second sign-in of the same account, with a nonce of its own: the same token again is a replay
+        // and is refused before anybody asks whether the account has a tenant (SignInNonceTests).
+        var again = api.Google.Mint(subject: "sub-twice", email: AdminApiFixture.Allowed[3]);
+        using var second = await client.PostAsJsonAsync(Signup, new AdminSignupRequest(again, "Second"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);

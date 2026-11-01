@@ -49,9 +49,16 @@ public static class AdminSessionEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
+        group.MapPost("/session/nonce", async (AdminOptions options, ScreenTailContext db, TimeProvider time, CancellationToken ct) =>
+            options.SignInConfigured
+                ? Results.Ok(await SignInNonces.IssueAsync(db, options.SignInNonceLifetime, time, ct).ConfigureAwait(false))
+                : NotConfigured)
+        .WithName("AdminSignInNonce")
+        .WithSummary("Issues a one-time nonce for the page to give Google before it draws the sign-in button.");
+
         group.MapPost("/session", async (AdminSignInRequest request, HttpContext http, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
-            var (identity, refusal) = await VerifyAsync(request.Credential, google, options, ct).ConfigureAwait(false);
+            var (identity, refusal) = await VerifyAsync(request.Credential, google, options, db, time, ct).ConfigureAwait(false);
             if (identity is null)
             {
                 return refusal;
@@ -71,6 +78,13 @@ public static class AdminSessionEndpoint
                 return Results.Json(new { error = "owner_disabled", message = "This organisation's ScreenTail admin is switched off. Contact ScreenTail support." }, statusCode: StatusCodes.Status403Forbidden);
             }
 
+            // The nonce is used up here, as the session starts, and not before: a token that only learned
+            // it may create a tenant goes on to signup with the same nonce.
+            if (!await SignInNonces.ConsumeAsync(db, identity.Nonce, time, ct).ConfigureAwait(false))
+            {
+                return Refusal;
+            }
+
             owner.LastSignInAt = time.GetUtcNow();
             _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return Results.Ok(StartSession(http, issuer, options, owner, owner.Tenant, time));
@@ -80,7 +94,7 @@ public static class AdminSessionEndpoint
 
         group.MapPost("/signup", async (AdminSignupRequest request, HttpContext http, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
-            var (identity, refusal) = await VerifyAsync(request.Credential, google, options, ct).ConfigureAwait(false);
+            var (identity, refusal) = await VerifyAsync(request.Credential, google, options, db, time, ct).ConfigureAwait(false);
             if (identity is null)
             {
                 return refusal;
@@ -100,6 +114,12 @@ public static class AdminSessionEndpoint
             if (await db.Owners.AnyAsync(o => o.GoogleSubject == identity.Subject, ct).ConfigureAwait(false))
             {
                 return AlreadySignedUp();
+            }
+
+            // Used up as the tenant is made: a name refused above can be corrected and sent again.
+            if (!await SignInNonces.ConsumeAsync(db, identity.Nonce, time, ct).ConfigureAwait(false))
+            {
+                return Refusal;
             }
 
             var now = time.GetUtcNow();
@@ -184,8 +204,12 @@ public static class AdminSessionEndpoint
         new { error = "sign_in_unavailable", message = "ScreenTail could not reach Google to check this sign-in. Try again in a minute." },
         statusCode: StatusCodes.Status503ServiceUnavailable);
 
-    /// <summary>The identity, or the refusal to give: not configured, Google's keys out of reach, or a token that is not good.</summary>
-    private static async Task<(GoogleIdentity? Identity, IResult Refusal)> VerifyAsync(string? credential, GoogleIdTokenVerifier google, AdminOptions options, CancellationToken ct)
+    /// <summary>
+    /// The identity, or the refusal to give: not configured, Google's keys out of reach, a token that is
+    /// not good, or one whose nonce is missing, not ours, expired or used. Those last are the same 401 as a
+    /// bad signature: which check failed helps only the person replaying the token.
+    /// </summary>
+    private static async Task<(GoogleIdentity? Identity, IResult Refusal)> VerifyAsync(string? credential, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TimeProvider time, CancellationToken ct)
     {
         if (!options.SignInConfigured)
         {
@@ -194,7 +218,10 @@ public static class AdminSessionEndpoint
 
         try
         {
-            return (await google.VerifyAsync(credential, ct).ConfigureAwait(false), Refusal);
+            var identity = await google.VerifyAsync(credential, ct).ConfigureAwait(false);
+            return identity is not null && await SignInNonces.IsLiveAsync(db, identity.Nonce, time, ct).ConfigureAwait(false)
+                ? (identity, Refusal)
+                : (null, Refusal);
         }
         catch (GoogleKeysUnavailableException)
         {
