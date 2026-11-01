@@ -38,6 +38,14 @@ public static class InstalledFootprint
     /// </summary>
     public const string UninstallFlag = "--uninstall-cleanup";
 
+    /// <summary>
+    /// The service's upgrade mode: when an upgrade removes this version, the installer runs it as the
+    /// system account just before the installed files are removed. It stops running copies and waits
+    /// until no other program has an installed file open, and touches nothing else: no user's data, no
+    /// Run value, no capture.
+    /// </summary>
+    public const string UpgradeReleaseFlag = "--upgrade-release";
+
     /// <summary>Under each profile, the folder every ScreenTail process keeps its data in.</summary>
     private const string DataUnderProfile = @"AppData\Local\ScreenTail";
 

@@ -50,6 +50,20 @@ if (args.Contains(InstalledFootprint.UninstallFlag, StringComparer.Ordinal))
     return UninstallCleanup.Run(Console.Out);
 }
 
+// ST-112: the installer's step when an upgrade removes this version (ADR-0007). Before the mutex for the
+// same reason as the uninstall step, and it runs nothing but that: it stops the copies running from the
+// install folder and waits until no other program has an installed file open. No data, no capture.
+if (args.Contains(InstalledFootprint.UpgradeReleaseFlag, StringComparer.Ordinal))
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("The capture service runs on Windows only.");
+        return 2;
+    }
+
+    return UpgradeRelease.Run(Console.Out);
+}
+
 // The two utility modes first, because neither is the service and neither should be stopped by one, or
 // stop one. `--transcribe` on a ten-minute recording used to hold the single-instance mutex for as long
 // as it ran, so the real service could not start while somebody was measuring word error rate

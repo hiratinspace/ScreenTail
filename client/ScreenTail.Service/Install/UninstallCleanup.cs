@@ -86,13 +86,10 @@ internal static class UninstallCleanup
         // For the uninstaller, which runs it as the system account: holding another user's token needs
         // that account's privilege anyway. An ordinary user who found the flag gets a sentence and
         // nothing removed; "delete everything" for one person is the Settings button, which asks first.
-        using (var identity = WindowsIdentity.GetCurrent())
+        if (!RunByTheInstaller())
         {
-            if (!identity.IsSystem && !new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
-            {
-                output.WriteLine("This step is run by the ScreenTail uninstaller as an administrator. Nothing was removed.");
-                return 2;
-            }
+            output.WriteLine("This step is run by the ScreenTail uninstaller as an administrator. Nothing was removed.");
+            return 2;
         }
 
         var installDirectory = AppContext.BaseDirectory;
@@ -114,15 +111,7 @@ internal static class UninstallCleanup
         // Last, so nothing this step does afterwards can open a file again: Windows Installer deletes the
         // installed files the moment this process exits, and one another program still has open is left
         // for a restart, which ends the uninstall with 3010 (ProgramFilesRelease says who does that).
-        var release = ProgramFilesRelease.WaitForOthers(
-            InstalledFiles(installDirectory),
-            FileHolders.Of,
-            Environment.ProcessId,
-            TimeProvider.System,
-            Thread.Sleep,
-            ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
-            ProgramFilesRelease.PollEvery,
-            ProgramFilesRelease.ConfirmAfter);
+        var release = ReleaseInstalledFiles(installDirectory, started);
 
         output.WriteLine($"ScreenTail uninstall: {stopped} running copies stopped.");
         output.WriteLine(
@@ -149,11 +138,39 @@ internal static class UninstallCleanup
     }
 
     /// <summary>
+    /// Whether this process is the installer's: the system account, or an administrator. Holding another
+    /// user's token needs the system account's privilege anyway; the check is what gives an ordinary user
+    /// who found a flag a sentence instead of a half-done step.
+    /// </summary>
+    internal static bool RunByTheInstaller()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return identity.IsSystem || new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    /// <summary>
+    /// The installer's steps' last act (<see cref="ProgramFilesRelease"/>): wait until no process but this
+    /// one has a file in <paramref name="installDirectory"/> open, two clean looks apart, for what is left
+    /// of the step's deadline counted from <paramref name="started"/>, the step's own first timestamp.
+    /// Windows Installer removes the files the moment the step exits.
+    /// </summary>
+    internal static ProgramFilesRelease.Outcome ReleaseInstalledFiles(string installDirectory, long started) =>
+        ProgramFilesRelease.WaitForOthers(
+            InstalledFiles(installDirectory),
+            FileHolders.Of,
+            Environment.ProcessId,
+            TimeProvider.System,
+            Thread.Sleep,
+            ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
+            ProgramFilesRelease.PollEvery,
+            ProgramFilesRelease.ConfirmAfter);
+
+    /// <summary>
     /// Every service and UI started from this installation, in every session. The installer has already
     /// closed them; this is for one that started since, and it is what lets a store be deleted, since an
     /// open database file cannot be.
     /// </summary>
-    private static int StopInstalledCopies(string installDirectory)
+    internal static int StopInstalledCopies(string installDirectory)
     {
         var stopped = 0;
         foreach (var name in ProcessNames)
