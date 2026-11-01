@@ -5,7 +5,7 @@
     names and visibility only, never a title), what Restart Manager says about it, and what happens when
     Restart Manager is asked to shut it down without force, as Windows Installer asks in InstallValidate.
 #>
-param([Parameter(Mandatory = $true)][string]$Exe, [int]$WaitSeconds = 8)
+param([Parameter(Mandatory = $true)][string]$Exe, [int]$WaitSeconds = 15, [string]$Mode = 'rm')
 
 $ErrorActionPreference = 'Stop'
 
@@ -44,6 +44,19 @@ public static class StRmProbe
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+
+    public static int PostClose(int pid, string cls)
+    {
+        var posted = 0;
+        EnumWindows((h, l) =>
+        {
+            uint owner; GetWindowThreadProcessId(h, out owner);
+            if (owner == pid && ClassOf(h) == cls && PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero)) posted++;
+            return true;
+        }, IntPtr.Zero);
+        return posted;
+    }
 
     static string ClassOf(IntPtr hwnd) { var b = new StringBuilder(256); GetClassName(hwnd, b, b.Capacity); return b.ToString(); }
 
@@ -113,11 +126,18 @@ foreach ($p in $processes) {
     Write-Host "PROBE: pid $($p.Id) session $($p.SessionId)"
     [StRmProbe]::Windows($p.Id) | ForEach-Object { Write-Host "PROBE:   $_" }
 }
-[StRmProbe]::Shutdown($Exe, $true) | ForEach-Object { Write-Host "PROBE: $_" }
+$watch = [Diagnostics.Stopwatch]::StartNew()
+if ($Mode -eq 'close') {
+    foreach ($p in $processes) {
+        Write-Host "PROBE: WM_CLOSE posted to $([StRmProbe]::PostClose($p.Id, 'ScreenTail.Service.SessionEnd')) window(s) of pid $($p.Id)"
+    }
+} else {
+    [StRmProbe]::Shutdown($Exe, $true) | ForEach-Object { Write-Host "PROBE: $_" }
+}
 foreach ($p in $processes) {
     $exited = $p.WaitForExit($WaitSeconds * 1000)
     if ($exited) {
-        Write-Host "PROBE: pid $($p.Id) exited by itself within $WaitSeconds s, code $($p.ExitCode)"
+        Write-Host "PROBE: pid $($p.Id) exited by itself $($watch.ElapsedMilliseconds) ms after the request, code $($p.ExitCode)"
     } else {
         Write-Host "PROBE: pid $($p.Id) still running after $WaitSeconds s"
     }

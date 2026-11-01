@@ -297,22 +297,32 @@ Check 'the installed UI renders its gallery (WPF from the single file)' ($code -
 Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
 
 # TEMPORARY PROBE (ST-112 graceful close): what Restart Manager makes of each process. Removed before the final head.
-Write-Step 'PROBE: Restart Manager and the running service'
+function Invoke-Probe([string]$Title, [string]$Exe, [string]$Mode, [string]$ServiceLog) {
+    Write-Step "PROBE: $Title"
+    if ($ServiceLog) {
+        Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        Remove-Item (Join-Path $dataDir 'ipc.token') -Force -ErrorAction SilentlyContinue
+        $null = Start-Process -FilePath $serviceExe -WorkingDirectory $installDir -RedirectStandardError $ServiceLog -PassThru
+        for ($i = 0; $i -lt 60 -and -not (Test-Path (Join-Path $dataDir 'ipc.token')); $i++) { Start-Sleep -Seconds 1 }
+        Start-Sleep -Seconds 2
+        Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: before: $($_.Name)" }
+    }
+    $out = Join-Path $Logs ("probe-" + $Mode + "-" + [IO.Path]::GetFileNameWithoutExtension($Exe) + ".txt")
+    $code = Invoke-Process 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'rm-probe.ps1')`" -Exe `"$Exe`" -Mode $Mode" 90 $out
+    Write-Host "PROBE: probe exit $code"
+    Get-Content $out -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    if ($ServiceLog) {
+        Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: after: $($_.Name)" }
+        Get-Content $ServiceLog -ErrorAction SilentlyContinue | Select-Object -Last 25 | ForEach-Object { Write-Host "PROBE: log: $_" }
+    }
+}
+Invoke-Probe 'WM_CLOSE to the running service' $serviceExe 'close' (Join-Path $Logs 'probe-service-close.log')
+Invoke-Probe 'Restart Manager and the running service' $serviceExe 'rm' (Join-Path $Logs 'probe-service-rm.log')
 Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-Remove-Item (Join-Path $dataDir 'ipc.token') -Force -ErrorAction SilentlyContinue
-$probeLog = Join-Path $Logs 'probe-service.log'
-$null = Start-Process -FilePath $serviceExe -WorkingDirectory $installDir -RedirectStandardError $probeLog -PassThru
-for ($i = 0; $i -lt 60 -and -not (Test-Path (Join-Path $dataDir 'ipc.token')); $i++) { Start-Sleep -Seconds 1 }
-Start-Sleep -Seconds 2
-Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: before: $($_.Name)" }
-& (Join-Path $PSScriptRoot 'rm-probe.ps1') -Exe $serviceExe
-Get-ChildItem $dataDir -Filter 'store.db*' | ForEach-Object { Write-Host "PROBE: after: $($_.Name)" }
-Get-Content $probeLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'close|session|stopping|Windows' } | ForEach-Object { Write-Host "PROBE: log: $_" }
-Write-Step 'PROBE: Restart Manager and the running UI'
 $null = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
 Start-Sleep -Seconds 10
-& (Join-Path $PSScriptRoot 'rm-probe.ps1') -Exe $uiExe
+Invoke-Probe 'Restart Manager and the running UI' $uiExe 'rm' $null
 Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 if (@(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count -eq 0) {
     $null = Start-InstalledService
