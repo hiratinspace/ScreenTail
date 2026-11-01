@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
+using ScreenTail.Api.Hosting;
 using ScreenTail.Api.Logging;
 using ScreenTail.Api.Providers;
 using ScreenTail.Api.Providers.ConnectWise;
@@ -15,7 +16,18 @@ using ScreenTail.Api.Summarize;
 using ScreenTail.Api.Tenancy;
 using ScreenTail.Api.Vault;
 
+// ST-007. The container's health check: this program run again, asking the running one for /health.
+// First, so it builds no host and reads no configuration or secret.
+if (args is [HealthProbe.Argument])
+{
+    Environment.ExitCode = await HealthProbe.RunAsync(HealthProbe.Target(Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS")), HealthProbe.Timeout);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
+
+// ST-007. A deployment's secrets as one file per key (Docker secrets), kept out of the environment.
+builder.Configuration.AddSecretFiles(Environment.GetEnvironmentVariable(SecretFiles.DirectoryVariable));
 
 // ST-011: one log sink, scrubbed (INV-10), in place of the framework's providers. The level comes from
 // the usual Logging:LogLevel:Default setting and is Information unless said otherwise.
@@ -41,6 +53,18 @@ var connection = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException(
         "ConnectionStrings:Postgres must be set. The service talks to one database and cannot serve any "
         + "authenticated request without it.");
+
+// ST-007. `--migrate` applies the migrations and exits. The service never migrates at startup: it is a
+// deliberate step of a deployment, run with the role that owns the schema (DatabaseMigrator). Here,
+// before any other setting is checked, so that step is given the connection string and nothing else.
+if (args is [DatabaseMigrator.Argument])
+{
+    var applied = await DatabaseMigrator.ApplyAsync(connection, CancellationToken.None);
+    Console.WriteLine(applied.Count == 0
+        ? "migrations: the database is up to date"
+        : $"migrations: applied {applied.Count}: {string.Join(", ", applied)}");
+    return;
+}
 
 builder.Services.AddDbContext<ScreenTailContext>(options => options.UseNpgsql(connection));
 
@@ -93,7 +117,7 @@ builder.Services.AddAnonymousRateLimit(rateLimits);
 // ForwardedHeaders:KnownNetworks); only a connection from one of them has its X-Forwarded-For read.
 // Nothing is listed by default, and then no forwarded header is read from anybody.
 var trustedProxies = builder.Configuration.GetSection(TrustedProxyOptions.Section).Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
-trustedProxies.Validate();
+trustedProxies.Validate(builder.Configuration[TrustedProxyOptions.FrameworkSwitch]);
 builder.Services.PostConfigure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(trustedProxies.Apply);
 
 // ST-063. The key has no default and is read from the environment; with none set the service still
