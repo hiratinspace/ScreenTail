@@ -112,6 +112,14 @@ rateLimits.Validate();
 builder.Services.AddSingleton(rateLimits);
 builder.Services.AddAnonymousRateLimit(rateLimits);
 
+// ST-010 follow-up (ADR-0009 decision 16). Activations refused for their code are counted across every
+// address, and the operator is warned, in a line with two numbers in it, when they pass a threshold.
+// Nobody is refused or slowed for it: the invite code's 99 bits are what stop guessing.
+var activationWatch = builder.Configuration.GetSection(ActivationWatchOptions.Section).Get<ActivationWatchOptions>() ?? new ActivationWatchOptions();
+activationWatch.Validate();
+builder.Services.AddSingleton(activationWatch);
+builder.Services.AddSingleton<ActivationWatch>();
+
 // Behind a reverse proxy every caller would arrive from the proxy and share one count, so one person
 // could lock everyone out of sign-in. The operator lists the proxies (ForwardedHeaders:KnownProxies,
 // ForwardedHeaders:KnownNetworks); only a connection from one of them has its X-Forwarded-For read.

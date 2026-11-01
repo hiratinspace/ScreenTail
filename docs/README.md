@@ -42,7 +42,7 @@ to trust it and where to change it.
 | `research/fixtures/` | Hand-drawn session bundles (ST-006) and the empty audio folder that needs a human recording (ST-027) |
 | `research/prompts/` | The note prompt, its post-condition checks and the hardening cases both the Python and the C# validators run |
 | `research/eval/` | The WER script; the redaction and draft-quality harnesses arrive with ST-030 and ST-062 |
-| `shared/contracts/` | The wire contracts (summarize request, publish request, session metric, tenant policy), each tested from both the client and the backend |
+| `shared/contracts/` | The wire contracts (summarize request, publish request, session metric, tenant policy, invite code), each tested from both the client and the backend |
 
 ## Conventions
 

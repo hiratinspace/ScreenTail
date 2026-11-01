@@ -29,17 +29,17 @@ describe('TechniciansPage', () => {
     fireEvent.change(screen.getByLabelText('Name (optional)'), { target: { value: 'New Tech' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
 
-    expect(await screen.findByText('ABCDE-FGHJK')).toBeDefined();
+    expect(await screen.findByText('ABCDE-FGHJK-MNPQR-STUVW')).toBeDefined();
     expect(api.invite).toHaveBeenCalledWith('tech@acme.example', 'New Tech');
     expect(screen.getByText(/shown once/)).toBeDefined();
     await waitFor(() => expect(document.activeElement?.textContent).toBe('Invite code for tech@acme.example'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     expect(await screen.findByText('Code copied.')).toBeDefined();
-    expect(writeText).toHaveBeenCalledWith('ABCDE-FGHJK');
+    expect(writeText).toHaveBeenCalledWith('ABCDE-FGHJK-MNPQR-STUVW');
 
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(screen.queryByText('ABCDE-FGHJK')).toBeNull();
+    expect(screen.queryByText('ABCDE-FGHJK-MNPQR-STUVW')).toBeNull();
     expect(screen.getByLabelText('Work email')).toBeDefined();
   });
 
