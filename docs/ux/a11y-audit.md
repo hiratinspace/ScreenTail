@@ -80,6 +80,27 @@ The suite's first runs found these, each now held by the test named beside it:
 - **The shortcut sheet** (new) did not fit a 768 px screen in one column.
 - **Empty text lines** were zero-sized elements Accessibility Insights fails; they now collapse.
 
+### The tests have teeth
+
+On 2026-11-01 each rule was broken on purpose on a throwaway branch (two rounds, CI runs 41350929256
+and 41351907662, branches since deleted), and the suite failed on each, naming it:
+
+| Sabotage | What failed |
+|---|---|
+| The ticket search box's name removed | `Names` ("TextBox has no name"), Accessibility Insights `NameNotNull`, and the Mac XAML test |
+| Export audit log set to 20 px tall | `HitTargets` ("127 x 20, under 28 x 28") |
+| The typed confirmation's box swallows Tab | `TabAsync` ("Tab does not move focus off ... a keyboard trap", and Keep it never reached) |
+| The timeline declared before the panes again | `TabAsync` reading order ("... to TextBox Problem, which is above it") |
+| History's Open taken out of the Tab order; Install update made unfocusable | "never reached by Tab"; "can be clicked but not reached by the keyboard" |
+| The shortcut sheet's Close with no focus visual | "does not look focused", in all three palettes |
+| A storyboard fading the shortcut sheet | `WithAnimationsOffNothingMoves` (animating, and a trigger starts a storyboard) |
+| A colour written into the diagnostics heading | `InHighContrastEveryColourIsTheSystems` ("#123456, not a system colour") |
+| Live regions never watched | all three `LiveRegionTests` |
+| Ctrl+S unbound | `ReviewsChordsDoWhatTheSpecSays` |
+| Test connection's two buttons sharing a name | Accessibility Insights `SiblingUniqueAndFocusable` |
+| Keep it no longer the cancel button | `EscClosesTheDialog(confirm-erase)` |
+| The strip left showing under the enlarged screenshot | `TabAsync` ("covered by Border") |
+
 ## Needs a person
 
 What no test can hold is how it sounds. Run on the laptop (or any Windows machine) with Narrator on
