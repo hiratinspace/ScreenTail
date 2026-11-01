@@ -133,6 +133,10 @@ internal static class UninstallCleanup
         output.WriteLine(
             $"ScreenTail uninstall: waited {(long)release.Waited.TotalMilliseconds} ms for other programs to close the installed files; "
             + $"{release.StillHeld} still open.");
+        if (StillOpen("ScreenTail uninstall:", installDirectory, release) is { } stillOpen)
+        {
+            output.WriteLine(stillOpen);
+        }
 
         return tally.PartlyDeleted + tally.SecretsInDoubt + tally.FoldersUnopened + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
     }
@@ -164,6 +168,29 @@ internal static class UninstallCleanup
             ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
             ProgramFilesRelease.PollEvery,
             ProgramFilesRelease.ConfirmAfter);
+
+    /// <summary>
+    /// When the wait ran out with files still held: which ones, by their path below the install folder,
+    /// and whether the hold refuses deletion (the kind that costs a restart) or shares it. Installed file
+    /// names are ScreenTail's own; no process, id or user path is named (INV-10). Null when nothing was
+    /// left open.
+    /// </summary>
+    internal static string? StillOpen(string prefix, string installDirectory, ProgramFilesRelease.Outcome release)
+    {
+        if (release.StillHeld == 0)
+        {
+            return null;
+        }
+
+        var names = ProgramFilesRelease.BelowInstallFolder(release.Held, installDirectory);
+        var described = release.Held.Zip(names, (file, name) => name + FileHolders.RefusesDeletion(file) switch
+        {
+            true => " (held without sharing deletion)",
+            false => " (held, sharing deletion)",
+            null => " (held; whether it shares deletion could not be told)",
+        });
+        return $"{prefix} still open when the wait ended: {string.Join(", ", described)}.";
+    }
 
     /// <summary>
     /// Every service and UI started from this installation, in every session. The installer has already

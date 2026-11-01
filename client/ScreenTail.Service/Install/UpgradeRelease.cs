@@ -66,6 +66,11 @@ internal static class UpgradeRelease
         output.WriteLine(
             $"{Prefix} waited {(long)release.Waited.TotalMilliseconds} ms for other programs to close the installed files; "
             + $"{release.StillHeld} still open.");
+        if (UninstallCleanup.StillOpen(Prefix, installDirectory, release) is { } stillOpen)
+        {
+            output.WriteLine(stillOpen);
+        }
+
         return release.StillHeld == 0 ? 0 : 1;
     }
 }

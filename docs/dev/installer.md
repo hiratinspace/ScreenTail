@@ -266,7 +266,9 @@ until no other program has one of them open, and checks twice, a quarter of a se
 scanners and endpoint agents read a program's file while it runs, and one still reading
 `ScreenTail.Service.exe` when the files go would make Windows Installer leave it for a restart (exit
 code `3010`, the folder left behind until then). The log says how long it waited and how many files were
-still open (`waited ... ms for other programs`). A restart can still be asked for when:
+still open (`waited ... ms for other programs`); when the wait ran out, the next line names those files
+by their path inside the install folder and says whether the hold shares deletion (only one that does not
+costs a restart). A restart can still be asked for when:
 
 - a program keeps a file open for longer than the wait (15 seconds at most, less when stopping running
   copies and removing data took a while: the whole step has to end inside the minute Windows

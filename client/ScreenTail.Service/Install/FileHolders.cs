@@ -18,6 +18,9 @@ internal static class FileHolders
     private const uint ReadAttributes = 0x80;
     private const uint ShareAll = 0x7;
     private const uint OpenExisting = 3;
+    private const uint Delete = 0x10000;
+    private const uint OpenReparsePoint = 0x200000;
+    private const int SharingViolation = 32;
     private const int FileProcessIdsUsingFileInformation = 47;
     private const int StatusBufferOverflow = unchecked((int)0x80000005);
     private const int StatusInfoLengthMismatch = unchecked((int)0xC0000004);
@@ -64,6 +67,24 @@ internal static class FileHolders
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether a holder of the file refuses to share deletion, which is the hold Windows Installer cannot
+    /// get past without a restart; null when that cannot be told. Asked by opening the file for deletion
+    /// (without deleting it, and without following a link), sharing everything, and closing it again: only
+    /// a handle that does not share deletion makes that open fail with a sharing violation. For the log
+    /// of a wait that ran out, so the next one says what kind of hold it was.
+    /// </summary>
+    public static bool? RefusesDeletion(string path)
+    {
+        using var file = CreateFileW(path, Delete, ShareAll, IntPtr.Zero, OpenExisting, OpenReparsePoint, IntPtr.Zero);
+        if (!file.IsInvalid)
+        {
+            return false;
+        }
+
+        return Marshal.GetLastPInvokeError() == SharingViolation ? true : null;
     }
 
     [StructLayout(LayoutKind.Sequential)]
