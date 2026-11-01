@@ -37,6 +37,7 @@ jobs:
       client: ${{ steps.areas.outputs.client }}
       installer: ${{ steps.areas.outputs.installer }}
       backend: ${{ steps.areas.outputs.backend }}
+      deploy: ${{ steps.areas.outputs.deploy }}
       web: ${{ steps.areas.outputs.web }}
       research: ${{ steps.areas.outputs.research }}
       schema: ${{ steps.areas.outputs.schema }}
@@ -85,7 +86,11 @@ jobs:
             # backend's copy of production's instruction rule to check it is the one the corpus was
             # pinned with. The workflows job below checks these against the files that do the reading.
             flag '^(backend/|\.dockerignore|research/prompts/)' backend
-            flag '^(web/|\.nvmrc)' web
+            # ST-007: the deployment's files, and what its images are made from beyond the backend's
+            # own. Runs the Backend job (where the stack is built and smoke-tested) without the Windows
+            # end-to-end job, which follows the backend flag.
+            flag '^(deploy/|web/security-headers\.ts|web/package(-lock)?\.json|\.nvmrc)' deploy
+            flag '^(web/|\.nvmrc|deploy/web/)' web
             flag '^(research/|client/ScreenTail\.Core/Privacy/PatternLibrary\.cs|backend/tests/ScreenTail\.Api\.Tests/Summarize/DifferentialCasesTests\.cs)' research
             flag '^(shared/schema/|client/ScreenTail\.Shared/Generated/|web/src/generated/)' schema
             flag '^(shared/design/|client/ScreenTail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
@@ -580,7 +585,7 @@ jobs:
   backend:
     name: Backend (build, test, container)
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -659,6 +664,14 @@ jobs:
       - name: Container build
         working-directory: .
         run: docker build -f backend/Dockerfile -t screentail-api:ci .
+
+      # ST-007. The deployment in deploy/, built and started as the owner would start it, with throwaway
+      # secrets and Caddy's own CA for localhost, then checked from outside: the page's headers against
+      # web/security-headers.ts, what reaches the API and what does not, the explicit migration, a device
+      # activating through the proxy, and whose address the rate limit counts. No secret is needed.
+      - name: The deployment builds, starts and answers as it should
+        working-directory: .
+        run: ./deploy/smoke.sh
 
   web:
     name: Web

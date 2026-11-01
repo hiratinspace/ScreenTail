@@ -1,0 +1,70 @@
+# ScreenTail's one origin (ST-007): the web admin's page and the API, over HTTPS, from one name. The
+# admin session's cookie is host-only and SameSite=Strict, so the page and /v1 must share this origin
+# (ADR-0009). SCREENTAIL_DOMAIN comes from compose.yaml. docs/dev/deploy.md is the guide.
+
+{
+	# No admin endpoint: nothing inside the container can change the running configuration. A change
+	# is a new image and a restart.
+	admin off
+	persist_config off
+	# A local name (localhost, in the smoke test) gets Caddy's own CA; never install it anywhere.
+	skip_install_trust
+	# No access log on purpose: a request's path can carry text a technician typed (INV-10).
+}
+
+# (page_headers): the page's headers, generated from web/security-headers.ts (page-headers.ts).
+import /etc/caddy/page-headers.caddy
+
+(transport_headers) {
+	header {
+		# A year. includeSubDomains and preload are the owner's to add, as they reach other names.
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+		# After the handler, so it replaces the API's own HSTS rather than adding a second one.
+		defer
+	}
+}
+
+# The container's health check only, on loopback inside the container (compose.yaml).
+http://:8081 {
+	bind 127.0.0.1
+	respond /healthz 200
+}
+
+{$SCREENTAIL_DOMAIN} {
+	import transport_headers
+
+	# The API answers /health and everything under /v1 and nothing else outside Development
+	# (DeploymentSurfaceTests), so these two are all that is forwarded. Every other path is the page's,
+	# which is why /swagger and /dev/demo-psa cannot be reached through here.
+	@api path /v1/* /health
+	handle @api {
+		reverse_proxy api:8080 {
+			# Set, never appended: the API trusts this proxy's X-Forwarded-For (ForwardedHeaders:
+			# KnownProxies), so the one entry must be the address Caddy saw, whatever the client sent.
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# The page: the built web/dist. Hash routing, so there is no fallback to index.html; a path that is
+	# not a file is a 404.
+	handle {
+		import page_headers
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@notAssets not path /assets/*
+		header @notAssets Cache-Control "no-cache"
+		encode zstd gzip
+		file_server
+	}
+
+	# A 404 from the page, or a 502 while the API restarts: the same headers, and no body worth reading.
+	handle_errors {
+		import transport_headers
+		import page_headers
+		header Cache-Control "no-store"
+		respond "{err.status_code}" {err.status_code}
+	}
+}
