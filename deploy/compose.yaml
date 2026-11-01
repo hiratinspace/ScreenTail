@@ -43,6 +43,9 @@ services:
     <<: *hardening
     # The image's own postgres user. The data volume is created owned by it.
     user: "70:70"
+    # INV-10: an error is logged without its DETAIL line, which for a unique violation quotes the
+    # conflicting value (an address, a company's name).
+    command: ["postgres", "-c", "log_error_verbosity=terse"]
     environment:
       # The schema's owner: migrations and backups connect as this role, the API never does.
       POSTGRES_USER: screentail
@@ -152,10 +155,13 @@ services:
     # container's own network namespace.
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 0
+    # IPv4 only. The edge network has no IPv6, so Docker would hand every IPv6 connection to Caddy from
+    # the network's gateway, and the API would count every IPv6 client as that one address for the rate
+    # limit. Full IPv6 (a v6 subnet here and the proxy's v6 address listed too) is a follow-up.
     ports:
-      - "${SCREENTAIL_HTTP_PORT:-80}:80"
-      - "${SCREENTAIL_HTTPS_PORT:-443}:443"
-      - "${SCREENTAIL_HTTPS_PORT:-443}:443/udp"
+      - "0.0.0.0:${SCREENTAIL_HTTP_PORT:-80}:80"
+      - "0.0.0.0:${SCREENTAIL_HTTPS_PORT:-443}:443"
+      - "0.0.0.0:${SCREENTAIL_HTTPS_PORT:-443}:443/udp"
     volumes:
       # Certificates and the ACME account. Keep it: losing it means asking the CA again.
       - caddy-data:/data
@@ -177,6 +183,8 @@ services:
 
 networks:
   edge:
+    # IPv4 only, said rather than left to the daemon's default (see the proxy's ports).
+    enable_ipv6: false
     ipam:
       config:
         # The proxy has a fixed address outside the range Docker hands out, so nothing else can take it.
@@ -184,6 +192,7 @@ networks:
           ip_range: ${SCREENTAIL_EDGE_DYNAMIC_RANGE:-172.30.80.8/29}
   data:
     internal: true
+    enable_ipv6: false
 
 volumes:
   postgres-data:

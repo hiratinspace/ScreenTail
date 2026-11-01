@@ -93,10 +93,21 @@ if not config["networks"]["data"].get("internal"):
     bad.append("the data network has a way out")
 if [p.get("target") for p in services["proxy"].get("ports", [])] != [80, 443, 443]:
     bad.append("the proxy publishes something other than 80 and 443")
+# IPv6 would reach Caddy from the edge network's gateway, and every IPv6 client would share that one
+# address's rate-limit count: published on IPv4 only, and no network with IPv6.
+for port in services["proxy"].get("ports", []):
+    if port.get("host_ip") != "0.0.0.0":
+        bad.append(f"the proxy's port {port.get('target')} is published on {port.get('host_ip') or 'every address'}, not IPv4 only")
+for name, network in config["networks"].items():
+    if network.get("enable_ipv6") is not False:
+        bad.append(f"the {name} network does not say enable_ipv6: false")
+# INV-10: a unique violation's DETAIL quotes the value (an address, a company's name).
+if "log_error_verbosity=terse" not in (services["postgres"].get("command") or []):
+    bad.append("postgres logs errors with their DETAIL lines")
 print("\n".join(bad) if bad else "")
 sys.exit(1 if bad else 0)
 EOF
-pass "only the proxy publishes a port; postgres is on the internal network; no service is root, writable or capable"
+pass "only the proxy publishes a port, on IPv4 only; postgres is internal and terse; no service is root, writable or capable"
 
 # --- Build, migrate, start ---------------------------------------------------------------------------
 
@@ -123,6 +134,28 @@ if compose port postgres 5432 >/dev/null 2>&1 && [ -n "$(compose port postgres 5
     fail "postgres is published on the host"
 fi
 pass "postgres has no port on the host"
+
+if curl --silent --output /dev/null --max-time 5 --globoff --insecure "https://[::1]:$https_port/" 2>/dev/null; then
+    fail "the proxy answers on IPv6, where every client would look like the edge network's gateway"
+fi
+pass "the proxy does not answer on IPv6"
+
+# The database as each role sees it. The API's role reads and writes rows and does nothing else: no
+# table, no temporary table, and no write to the record of which migrations ran.
+psql_as() { compose exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align -v ON_ERROR_STOP=1 --username "$1" --dbname screentail --command "$2" 2>&1; }
+[ "$(psql_as screentail 'SHOW log_error_verbosity')" = terse ] || fail "postgres is not logging tersely"
+psql_as screentail_app 'SELECT count(*) FROM "__EFMigrationsHistory"' | grep -Eq '^[1-9][0-9]*$' \
+    || fail "the API's role cannot read the migration history (the control for the refusals below)"
+for statement in \
+    "INSERT INTO \"__EFMigrationsHistory\" VALUES ('99999999999999_Forged', '0')" \
+    "UPDATE \"__EFMigrationsHistory\" SET \"ProductVersion\" = '0'" \
+    "DELETE FROM \"__EFMigrationsHistory\"" \
+    "CREATE TABLE forged (id int)" \
+    "CREATE TEMPORARY TABLE forged (id int)"; do
+    answer=$(psql_as screentail_app "$statement") && fail "the API's role was allowed: $statement"
+    echo "$answer" | grep -q "permission denied" || fail "the API's role was refused for another reason: $answer"
+done
+pass "postgres logs tersely; the API's role cannot write the migration history, create a table or a temporary one"
 
 # Caddy's own CA for `localhost`, made as it starts, so the checks below verify the chain rather than
 # skipping it.
@@ -246,6 +279,10 @@ pass "a client's own X-Forwarded-For is not believed (limited at call $limited)"
 
 # Another client, from another address on the edge network: counted apart, which it is only if the API
 # reads the proxy's X-Forwarded-For. With the proxy unlisted, both would be the proxy and share a count.
+# The calls above came from this machine through Docker's port forwarding, so they arrived from the edge
+# network's gateway and used up the gateway's count: this one is answered only if the API counts it as
+# the container's own address, not the gateway's (what every IPv6 client would look like, were IPv6
+# published).
 proxy_ip=$(sed -n 's/^SCREENTAIL_PROXY_IP=//p' "$scratch/compose.env")
 other=$(docker run --rm --network "${project}_edge" --read-only --cap-drop ALL --security-opt no-new-privileges:true \
     -v "$scratch/root.crt:/root.crt:ro" "$curl_image" \
@@ -253,7 +290,7 @@ other=$(docker run --rm --network "${project}_edge" --read-only --cap-drop ALL -
     --resolve "localhost:443:$proxy_ip" -X POST https://localhost/v1/admin/session/nonce) \
     || fail "the second client could not reach the proxy (curl exit $?)"
 [ "$other" = 200 ] || fail "a second client was answered $other: the API is not reading the listed proxy's X-Forwarded-For"
-pass "a second client is counted apart from the first"
+pass "a second client is counted as its own address, apart from the first and from the gateway"
 
 # --- The switch ADR-0009 says to leave unset -------------------------------------------------------
 

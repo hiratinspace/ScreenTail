@@ -13,7 +13,7 @@ Internet --443/80--> proxy (Caddy: TLS, the page, /v1 and /health forwarded) --e
 
 | Container | Image | Runs as | Network | Ports on the host |
 |---|---|---|---|---|
-| `proxy` | built from `deploy/web/Dockerfile` (Caddy 2.11.7, the built `web/`) | uid 10001 | `edge` (fixed address) | 80, 443 (tcp and udp) |
+| `proxy` | built from `deploy/web/Dockerfile` (Caddy 2.11.7, the built `web/`) | uid 10001 | `edge` (fixed address) | 80, 443 (tcp and udp), IPv4 only |
 | `api` | built from `backend/Dockerfile` (.NET 10 chiseled: no shell) | uid 1654 | `edge`, `data` | none |
 | `postgres` | `postgres:17.11-alpine3.24` | uid 70 | `data` (internal: no way out) | none |
 | `migrate` | the API image with `--migrate`, run by hand | uid 1654 | `data` | none |
@@ -26,11 +26,14 @@ schema's owner, `screentail`.
 
 ## 1. Pick a host and a name (owner decision)
 
-Any Linux machine you can reach over SSH, with **Docker Engine 24 or later and Compose 2.24 or later**
-(`docker compose version`), about 2 GB of memory, and ports **80 and 443 open from the internet**
-(Let's Encrypt checks them; nothing else needs to be open). Pick the name the admin will live at, for
-example `admin.yourcompany.example`. Put the host's address in DNS as an `A` record for that name (and
-`AAAA` if it has IPv6), and wait until `dig +short admin.yourcompany.example` answers it.
+Any Linux machine you can reach over SSH, with **rootful Docker Engine 24 or later and Compose 2.24 or
+later** (`docker compose version`), about 2 GB of memory, and **TCP 80 and 443 and UDP 443 open from
+the internet** (Let's Encrypt checks TCP 80 and 443; UDP 443 carries HTTP/3; nothing else needs to be
+open). Rootless Docker and Podman forward ports through a user-space helper that hides each client's
+address, so every client would share one rate-limit count. Pick the name the admin will live at, for
+example `admin.yourcompany.example`. Put the host's IPv4 address in DNS as an `A` record for that name
+(**no `AAAA` record**: see "What not to do"), and wait until `dig +short admin.yourcompany.example`
+answers it.
 
 ## 2. Get the code and fill in the two settings files
 
@@ -108,7 +111,8 @@ docker compose run --rm api --offboard-tenant <tenant-id>
 ## 7. Updating
 
 ```bash
-docker compose exec -T postgres pg_dump -U screentail -Fc screentail > backup-$(date +%F).dump
+(umask 077 && mkdir -p ~/screentail-backups && docker compose exec -T postgres \
+    pg_dump -U screentail -Fc screentail > ~/screentail-backups/backup-$(date +%F).dump)
 git pull
 docker compose build
 docker compose run --rm migrate
@@ -122,25 +126,56 @@ Dockerfile or `compose.yaml`.
 ## 8. Backups and restore
 
 The database is the volume `screentail_postgres-data`. Back it up with `pg_dump` (above) as often as
-you can afford to lose, keep copies off the host, and restore one now and then to know it works:
+you can afford to lose. Write dumps **outside the checkout** with `umask 077`, as above (git also
+ignores `deploy/*.dump`), keep copies off the host, and restore one now and then to know it works:
 
 ```bash
 docker compose stop api proxy
-docker compose exec -T postgres pg_restore -U screentail -d screentail --clean --if-exists < backup.dump
+docker compose exec -T postgres pg_restore -U screentail -d screentail --clean --if-exists \
+    < ~/screentail-backups/backup-YYYY-MM-DD.dump
+docker compose run --rm migrate     # brings an older dump up to this build's schema, and takes the
+                                    # API's role's writes on the migration record back
 docker compose up -d
 ```
 
 A restore onto a new host needs the same `secrets/` directory copied there first, before the first
-`up` (the API's role and its password are made when the volume is first initialised). Caddy's volume
-`screentail_caddy-data` holds the certificate and ACME account; losing it only means asking for a new
-certificate. No frame or capture is ever in the database (INV-7), only tenants, devices, policy,
-sealed credentials and counts.
+`up` (the API's role and its password are made when the volume is first initialised): then
+`docker compose up -d postgres`, the restore and `migrate` as above, then `docker compose up -d`. Keep
+backups of `secrets/` readable by their owner only (`umask 077`, files 0600, for example
+`(umask 077 && tar -czf ~/screentail-secrets-$(date +%F).tgz -C deploy secrets)`), and apart from the
+database dumps. Caddy's volume `screentail_caddy-data` holds the certificate and ACME account; losing it
+only means asking for a new certificate. No frame or capture is ever in the database (INV-7), only
+tenants, devices, policy, sealed credentials and counts.
 
-Rotating the vault's master key follows `docs/security/key-rotation.md`: put the old key in a file such
-as `secrets/vault-previous-master-key`, add it to the `api` service's secrets with target
-`Vault__PreviousMasterKey`, and run `docker compose run --rm api --rotate-vault-keys`. Changing
-`jwt-signing-key` ends every admin session and every access token at once (devices renew with their
-refresh tokens); there is no reason to change it unless it leaked.
+**Rotating the vault's master key** is `docs/security/key-rotation.md`, steps 1 to 5, exactly. Put the
+second key in a `compose.override.yaml` beside `compose.yaml` (compose reads it on its own; git does
+not track it) rather than editing the tracked file:
+
+```yaml
+services:
+  api:
+    secrets:
+      - source: vault-previous-master-key
+        target: Vault__PreviousMasterKey
+secrets:
+  vault-previous-master-key:
+    file: ./secrets/vault-previous-master-key
+```
+
+1. Make the new key: `mv secrets/vault-master-key secrets/vault-previous-master-key`, then
+   `(umask 077 && openssl rand -base64 32 | tr -d '\n' > secrets/vault-master-key) && chmod 0644 secrets/vault-master-key`.
+2. and 3. With the override in place, `docker compose up -d api`: the API now has both keys, seals new
+   credentials under the new one and still opens rows under the old one.
+4. Rewrap: `docker compose run --rm api --rotate-vault-keys`, then run it again; the second run must
+   print `rotated 0` (key-rotation.md says what to do if it does not).
+5. Remove the override and `secrets/vault-previous-master-key`, then `docker compose up -d api`.
+
+Changing `jwt-signing-key` ends every admin session and every access token at once (devices renew with
+their refresh tokens); there is no reason to change it unless it leaked.
+
+`Summarization__FallbackApiKey` is not supplied by this layout: the service has no fallback drafting
+provider wired yet. When it does, it goes in the same way as the vault's previous key above, as a
+secret file with target `Summarization__FallbackApiKey`, never in `api.env`.
 
 ## 9. What not to do
 
@@ -152,9 +187,25 @@ refresh tokens); there is no reason to change it unless it leaked.
 - **Never put a secret in `.env`, `api.env` or `compose.yaml`**, and never commit `secrets/`.
 - **Never run the API in Development** on a host: Development reads user secrets and allows the demo
   PSA and the scripted drafting provider, which the API refuses anywhere else for good reason.
+- **Never add an `AAAA` record or publish the proxy on IPv6.** The edge network is IPv4 only, so Docker
+  would hand every IPv6 connection to Caddy from the network's gateway, and the API would count every
+  IPv6 client as that one address: one of them could lock all the others out of sign-in and
+  activation. `compose.yaml` publishes on `0.0.0.0` only. Full IPv6 is a follow-up (below).
+- **Never set `ForwardedHeaders__KnownNetworks`** to the edge subnet (or anything wider than the
+  proxy's one address). The subnet holds Docker's gateway, which is where the host and, with IPv6,
+  every IPv6 client come from, so it would trust them to name their own address.
+- **Never run `docker compose down -v`** (or `--volumes`): it deletes the database volume and Caddy's
+  certificates. `docker compose down` alone keeps them.
+- **Never run this under rootless Docker or Podman**: their port forwarding hides each client's
+  address (see section 1).
+- **Never keep a copy of `secrets/` readable by anyone else**: back it up with `umask 077`, files 0600.
 - Do not turn on Caddy's access log: a request's path can carry text a technician typed (INV-10).
-- Do not put another proxy or CDN in front without telling Caddy (`trusted_proxies` in its global
-  options), or every client's address becomes the CDN's and shares one rate-limit count.
+- Do not put another proxy or CDN in front without telling Caddy how to find the real client, or every
+  client's address becomes the CDN's and shares one rate-limit count. Plain `trusted_proxies` is not
+  enough: Caddy then takes the left-most `X-Forwarded-For` entry, which the client wrote. Use
+  `trusted_proxies_strict` with the CDN's ranges, or the CDN's own client-address header (for
+  Cloudflare, `client_ip_headers CF-Connecting-IP` with `trusted_proxies` set to Cloudflare's ranges),
+  and let only the CDN's ranges reach ports 80 and 443 at the host's firewall.
 
 ## 10. Owner decisions still open
 
@@ -165,6 +216,20 @@ refresh tokens); there is no reason to change it unless it leaked.
   more than one API instance (20; this layout runs one).
 - **HSTS beyond `max-age=31536000`** (`includeSubDomains`, `preload`), which reaches other names.
 - **Backups**: where they go, how often, and who restores one to check.
+- **Full IPv6**: an IPv6 subnet on the edge network with a fixed IPv6 address for the proxy, listed as
+  `ForwardedHeaders__KnownProxies__1`, then publishing on `[::]` and adding the `AAAA` record.
+- **A superuser as the schema owner.** `POSTGRES_USER` (`screentail`), which migrations and backups use,
+  is a superuser, as the postgres image makes it. A non-superuser owner of the database and schema would
+  narrow what a leaked `migrate-connection` can do.
+- **Plaintext between the API and PostgreSQL** on the internal bridge. If PostgreSQL moves off this host
+  (a managed database), the connection string needs `SSL Mode=VerifyFull` and the server's CA.
+- **No memory or process limits** on the containers (`mem_limit`, `pids_limit`): sized to the host
+  once it is chosen.
+- **The proxy build's two Alpine packages are not pinned** (`libcap-getcap`, `libcap-setcap`, used only
+  to strip a file capability and then removed); the base images are pinned by digest.
+- **Processes on the host can reach the API directly** on the edge network, bypassing Caddy (but not
+  the forwarded-headers trust, which names only the proxy's address). This layout assumes a host that
+  runs nothing else of anybody else's.
 - The rest of ST-007's ticket (Terraform for a chosen cloud, managed Postgres, a KMS in place of the
   vault key file, a release-feed bucket for ST-113, a CI deployment with manual approval and the cost
   estimate) waits for the cloud choice; on that day, add the cloud's platform addresses in public ranges
@@ -174,11 +239,14 @@ refresh tokens); there is no reason to change it unless it leaked.
 
 `deploy/smoke.sh` builds the images and starts the stack on the machine it runs on, with throwaway
 secrets and `localhost` under Caddy's own CA, and checks it from outside: the configuration (only the
-proxy publishes a port, the database network is internal, nobody is root, writable or capable), the
-page's headers against `web/security-headers.ts` plus HSTS, that `/health` and `/v1` reach the API and
+proxy publishes a port, on IPv4 only; no network has IPv6; the database network is internal; postgres
+logs tersely; nobody is root, writable or capable), that nothing answers on IPv6, the database roles
+(the API's role cannot write the migration record or create a table, temporary or not), the page's
+headers against `web/security-headers.ts` plus HSTS, that `/health` and `/v1` reach the API and
 `/swagger` and `/dev/demo-psa` do not, the migration twice, a device activating through the proxy with
 an invite (rows written as `screentail_app`), that a client's own `X-Forwarded-For` is ignored while a
-second client is counted apart, and that the forwarded-headers switch is refused. CI runs it in the
+second client is counted as its own address rather than the gateway's, and that the forwarded-headers
+switch is refused. CI runs it in the
 Backend job whenever `deploy/`, the backend or the page's headers change. The proxy's header snippet is
 generated from `web/security-headers.ts` when the image is built (`deploy/web/page-headers.ts`, tested
 by `web/src/deployHeaders.test.ts`), so the two cannot drift, and `DeploymentSurfaceTests` holds the
