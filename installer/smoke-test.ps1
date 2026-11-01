@@ -87,9 +87,9 @@ function Invoke-Process([string]$File, [string]$Arguments, [int]$TimeoutSeconds 
     return $process.ExitCode
 }
 
-function Invoke-Msi([string]$Action, [string]$Package, [string]$LogName, [string]$Properties = '') {
+function Invoke-Msi([string]$Action, [string]$Package, [string]$LogName, [string]$Properties = '', [string]$Ui = '/qn') {
     $log = Join-Path $Logs $LogName
-    $code = Invoke-Process 'msiexec.exe' "$Action `"$Package`" /qn /norestart /l*v `"$log`" $Properties"
+    $code = Invoke-Process 'msiexec.exe' "$Action `"$Package`" $Ui /norestart /l*v `"$log`" $Properties"
     if ($code -ne 0 -and (Test-Path $log)) {
         Write-Host "--- last lines of $LogName"
         Get-Content $log -Tail 40 | ForEach-Object { Write-Host "    $_" }
@@ -144,18 +144,121 @@ function Start-InstalledService {
     return $false
 }
 
-function Get-UninstallReport([string]$Folder, [datetime]$Since) {
-    # What the uninstall step said about itself, which WixQuietExec copied into the installer's log.
+function Get-UninstallReport([string]$Folder, [datetime]$Since, [string]$Prefix = 'ScreenTail uninstall:') {
+    # What the uninstall step (or the upgrade step, by its own prefix) said about itself, which
+    # WixQuietExec copied into the installer's log.
     @(Get-ChildItem $Folder -Filter '*.log' | Where-Object { $_.LastWriteTime -ge $Since } |
-        ForEach-Object { Get-Content $_.FullName } | Where-Object { $_ -match 'ScreenTail uninstall:' } |
-        ForEach-Object { $_.Substring($_.IndexOf('ScreenTail uninstall:')) } | Select-Object -Unique)
+        ForEach-Object { Get-Content $_.FullName } | Where-Object { $_.Contains($Prefix) } |
+        ForEach-Object { $_.Substring($_.IndexOf($Prefix)) } | Select-Object -Unique)
+}
+
+# ST-112: another program reading the installed service's executable as an upgrade removes it, the way the
+# hosted runner's monitor (provjobd) and virus scanners read a program's file while it runs and keep it open
+# a few seconds past its exit, without sharing deletion. Windows Installer cannot delete a file held like
+# that and leaves it for a restart (3010), so the old version's removal has to wait for it. The holder is a
+# separate process: it waits for the running service to end (Restart Manager ends it about a second before
+# the old version's files are removed), then opens the executable for reading, read sharing only, for
+# $holdMs, and writes how long it held it. The paths and the process id reach it through its environment,
+# and its command is encoded, so nothing in a path can change what it runs.
+$holdMs = 4000
+$holdScript = @'
+$record = $env:ST_HOLD_RECORD
+try {
+    if ($env:ST_HOLD_PID) {
+        $service = $null
+        try { $service = [Diagnostics.Process]::GetProcessById([int]$env:ST_HOLD_PID) } catch { $service = $null }
+        if ($service -and -not $service.WaitForExit(300000)) {
+            Set-Content -Path $record -Value 'the service did not end'
+            exit 2
+        }
+    }
+    $file = [IO.File]::Open($env:ST_HOLD_PATH, 'Open', 'Read', 'Read')
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    Start-Sleep -Milliseconds ([int]$env:ST_HOLD_MS)
+    $file.Dispose()
+    Set-Content -Path $record -Value ('held {0} ms' -f $clock.ElapsedMilliseconds)
+    exit 0
+} catch {
+    Set-Content -Path $record -Value ('could not hold it: ' + $_.Exception.GetType().Name)
+    exit 1
+}
+'@
+
+function Start-ForeignHolder([string]$Name) {
+    $service = @(Get-InstalledProcesses | Where-Object { $_.ProcessName -eq 'ScreenTail.Service' }) | Select-Object -First 1
+    Check "${Name}: the installed service is running before the upgrade" ($null -ne $service)
+    # A file name from the step's name: "msiexec /qn upgrade" has a slash in it.
+    $record = Join-Path $Logs ('holder-' + ($Name -replace '[^A-Za-z0-9]+', '-') + '.txt')
+    Remove-Item $record -Force -ErrorAction SilentlyContinue
+    $env:ST_HOLD_PATH = $serviceExe
+    $env:ST_HOLD_PID = $(if ($service) { [string]$service.Id } else { '' })
+    $env:ST_HOLD_MS = [string]$holdMs
+    $env:ST_HOLD_RECORD = $record
+    try {
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($holdScript))
+        $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $process = Start-Process -FilePath $powershell -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded -WindowStyle Hidden -PassThru
+        $null = $process.Handle
+    } finally {
+        Remove-Item Env:\ST_HOLD_PATH, Env:\ST_HOLD_PID, Env:\ST_HOLD_MS, Env:\ST_HOLD_RECORD -ErrorAction SilentlyContinue
+    }
+    return [pscustomobject]@{ Name = $Name; Process = $process; Record = $record }
+}
+
+function Get-PendingRestartFiles {
+    # Windows' list of file operations left for the next restart, which is where a file Windows Installer
+    # could not delete or replace goes. Only entries for the install folder count.
+    $item = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -ErrorAction SilentlyContinue
+    $entries = @()
+    foreach ($name in @('PendingFileRenameOperations', 'PendingFileRenameOperations2')) {
+        if ($item -and $item.PSObject.Properties[$name]) {
+            $entries += @($item.$name)
+        }
+    }
+    @($entries | Where-Object { $_ -and $_.IndexOf($installDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+}
+
+function Test-UpgradeHeld($Holder, [string[]]$Report) {
+    # The holder really held the file through the old version's removal, the removal waited for it, and
+    # nothing was left for a restart.
+    $name = $Holder.Name
+    if (-not $Holder.Process.WaitForExit(60000)) {
+        $Holder.Process.Kill()
+    }
+    $line = Get-Content $Holder.Record -ErrorAction SilentlyContinue | Select-Object -First 1
+    $held = 0
+    if ($line -match '^held (\d+) ms$') {
+        $held = [int]$Matches[1]
+    }
+    Check "${name}: another program held ScreenTail.Service.exe open, read sharing only, from the old service's end for $holdMs ms" ($held -ge ($holdMs - 50)) "$line"
+    $wait = @($Report | Where-Object { $_ -match 'waited (\d+) ms for other programs to close the installed files; (\d+) still open\.' }) | Select-Object -First 1
+    $waited = -1
+    $open = -1
+    if ($wait -match 'waited (\d+) ms for other programs to close the installed files; (\d+) still open\.') {
+        $waited = [long]$Matches[1]
+        $open = [int]$Matches[2]
+    }
+    # Any momentary holder (the runner's own monitor) can make the wait non-zero, so it has to have lasted
+    # at least half the hold: that is what proves the hold overlapped the removal and the removal outlasted
+    # it. The holder opens the file only once the old service has ended, and the step looks twice, 250 ms
+    # apart, after ending it; a runner slow enough to start the hold after both looks would lose that race
+    # and fail here, never pass falsely. Opening earlier, while the service still runs, would put the
+    # holder on Restart Manager's list of programs to close, which is not what a scanner meets.
+    $stillOpen = @($Report | Where-Object { $_ -match 'still open when the wait ended' })
+    Check "${name}: the old version's removal waited for the other program before its files were removed" ($waited -ge ($holdMs / 2) -and $open -eq 0) ((@($wait) + $stillOpen) -join ' ')
+    $pending = @(Get-PendingRestartFiles)
+    Check "${name}: no installed file is left for the next restart" ($pending.Count -eq 0) ($pending -join ', ')
 }
 
 function Test-ReleaseWait([string[]]$Report) {
     # The uninstall step's last act: Windows Installer deletes the files the moment it exits, so it waits
     # until no other program has one open. "0 still open" is what lets the delete succeed without a restart.
     $line = @($Report | Where-Object { $_ -match 'waited \d+ ms for other programs to close the installed files' }) | Select-Object -First 1
-    Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') "$line"
+    # When the wait ran out, the step names the files still open below the install folder and the kind of
+    # hold; printed with the failure, so the next one says which file it was.
+    $stillOpen = @($Report | Where-Object { $_ -match 'still open when the wait ended' })
+    $stillOpen | ForEach-Object { Write-Host "  $_" }
+    Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') ((@($line) + $stillOpen) -join ' ')
 }
 
 function Test-InstalledLayout([string]$ExpectedVersion) {
@@ -257,6 +360,9 @@ if ($OlderMsi) {
     # ST-113: the update installer holds the package open, sharing it for reading only, for as long as
     # Windows Installer runs. The upgrade runs the same way here, so a package Windows Installer could not
     # open alongside that handle fails this check rather than a technician's update.
+    # And another program reads the service's executable as the old version is removed.
+    $since = Get-Date
+    $holder = Start-ForeignHolder 'msiexec /qn upgrade'
     $held = [System.IO.File]::Open((Resolve-Path $Msi).Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
     try {
         $code = Invoke-Msi '/i' $Msi 'upgrade.log'
@@ -265,6 +371,10 @@ if ($OlderMsi) {
     }
     Check 'msiexec /i new /qn over the older one exits 0, with no restart needed' ($code -eq 0) "exit $code"
     Check 'the upgrade ran while the package was held open for reading only, as the update installer holds it' ($code -eq 0)
+    $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
+    $upgradeReport | ForEach-Object { Write-Host "  $_" }
+    Test-UpgradeHeld $holder $upgradeReport
+    Check 'the upgrade ran no uninstall step' (@(Get-UninstallReport $Logs $since).Count -eq 0)
     Check 'the upgrade closed the running copies' ((Get-InstalledProcesses).Count -eq 0)
     Check 'the upgrade kept the user data (store key still there)' (Test-Path (Join-Path $dataDir 'store.key'))
     Check "the upgrade left the UI's own Run value alone" ($null -ne (Get-RunValue $userRun 'ScreenTail'))
@@ -392,6 +502,65 @@ if ($Bundle) {
         [IO.Directory]::Delete($dataDir)
     }
     Remove-Item $sentinel -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- Upgrades the way the update installer and the setup program run them, with the executable held ----
+# ST-113's update installer starts msiexec /i <package> /passive /norestart; the setup program upgrades
+# through its own engine. Each runs over the older package with its service running, while another program
+# reads the service's executable from the moment that service ends, and must end 0 with the new version
+# installed and nothing left for a restart.
+if ($OlderMsi) {
+    Write-Step 'Upgrade with the update installer''s command line while another program reads the service'
+    $code = Invoke-Msi '/i' (Resolve-Path $OlderMsi).Path 'install-older-2.log'
+    Check 'msiexec /i older /qn exits 0 (for the update installer''s upgrade)' ($code -eq 0) "exit $code"
+    Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
+    $since = Get-Date
+    $holder = Start-ForeignHolder 'msiexec /passive upgrade'
+    $code = Invoke-Msi '/i' $Msi 'upgrade-passive.log' '' '/passive'
+    Check 'msiexec /i new /passive /norestart over the older one exits 0, with no restart needed' ($code -eq 0) "exit $code"
+    $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
+    $upgradeReport | ForEach-Object { Write-Host "  $_" }
+    Test-UpgradeHeld $holder $upgradeReport
+    Test-InstalledLayout $version
+    Check 'the upgrade kept the user data (store key still there)' (Test-Path (Join-Path $dataDir 'store.key'))
+
+    if ($Bundle) {
+        Write-Step 'Upgrade with the setup program while another program reads the service'
+        $since = Get-Date
+        $code = Invoke-Msi '/x' $Msi 'uninstall-2.log'
+        Check 'msiexec /x /qn exits 0, with no restart needed (before the setup program''s upgrade)' ($code -eq 0) "exit $code"
+        Test-Removed
+        Test-ReleaseWait (Get-UninstallReport $Logs $since)
+        $code = Invoke-Msi '/i' (Resolve-Path $OlderMsi).Path 'install-older-3.log'
+        Check 'msiexec /i older /qn exits 0 (for the setup program''s upgrade)' ($code -eq 0) "exit $code"
+        Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
+        $since = Get-Date
+        $holder = Start-ForeignHolder 'setup program upgrade'
+        $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-upgrade.log')`""
+        Check 'ScreenTail-Setup.exe /quiet over the older package exits 0, with no restart needed' ($code -eq 0) "exit $code"
+        $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
+        $upgradeReport | ForEach-Object { Write-Host "  $_" }
+        Test-UpgradeHeld $holder $upgradeReport
+        Test-InstalledLayout $version
+
+        Write-Step 'Silent uninstall with the setup program, after its upgrade'
+        $since = Get-Date
+        $code = Invoke-Process $Bundle "/uninstall /quiet /norestart /log `"$(Join-Path $Logs 'setup-uninstall-2.log')`""
+        Check 'ScreenTail-Setup.exe /uninstall /quiet exits 0, after its upgrade' ($code -eq 0) "exit $code"
+        Test-Removed
+        Test-ReleaseWait (Get-UninstallReport $Logs $since)
+    } else {
+        $since = Get-Date
+        $code = Invoke-Msi '/x' $Msi 'uninstall-2.log'
+        Check 'msiexec /x /qn exits 0, with no restart needed (after the update installer''s upgrade)' ($code -eq 0) "exit $code"
+        Test-Removed
+        Test-ReleaseWait (Get-UninstallReport $Logs $since)
+    }
+    $pending = @(Get-PendingRestartFiles)
+    Check 'no installed file is left for the next restart at the end' ($pending.Count -eq 0) ($pending -join ', ')
+    if (Test-Path $dataDir) {
+        Remove-Item $dataDir -Recurse -Force
+    }
 }
 
 # --- Summary -------------------------------------------------------------------------------------------

@@ -44,7 +44,10 @@ pull request.
 
 CI builds it on every pull request that touches `client/` or `installer/` (the **Installer (Windows)**
 job): it runs the same steps the signing job runs, with nothing signed, then installs, upgrades over an
-older build, runs both installed programs, uninstalls, and checks what each step left. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
+older build, runs both installed programs, uninstalls, and checks what each step left. It also upgrades
+three ways (msiexec `/qn`, the update installer's `/passive /norestart`, and the setup program) while
+another process reads `ScreenTail.Service.exe` for 4 seconds from the moment the old service ends, and
+each must exit 0 with nothing left for a restart. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
 kept seven days. To try one: download it from the run's summary page, on a throwaway VM.
 
 `installer\smoke-test.ps1` is that check, and can be run on a VM by hand. It uninstalls ScreenTail and
@@ -229,7 +232,11 @@ msiexec /i ScreenTail.msi /qn /norestart /l*v C:\Windows\Temp\screentail-install
   run by hand from one user's session, it may only reach that session. **After an upgrade the service
   stays down until each technician's next sign-in**, so schedule upgrades outside working hours; a
   session that was recording is recovered when the service next starts. A first install or a repair
-  ends nothing.
+  ends nothing. Before the old version's files are removed, its removal waits, the way the uninstall
+  does (below), until no other program has one of them open, so a scanner reading the service's
+  executable does not turn the upgrade into `3010`; the log says so in lines starting
+  `ScreenTail upgrade:`. That wait is part of the version being removed, so it covers upgrades from the
+  first version that has it: an upgrade from an older build can still ask for a restart once.
 - The service starts at each user's **next sign-in**. Nothing starts for a user who is already signed in
   until then. The UI opens from the Start menu (or at sign-in, if the technician turns "Start UI at login"
   on in Settings).
@@ -259,7 +266,9 @@ until no other program has one of them open, and checks twice, a quarter of a se
 scanners and endpoint agents read a program's file while it runs, and one still reading
 `ScreenTail.Service.exe` when the files go would make Windows Installer leave it for a restart (exit
 code `3010`, the folder left behind until then). The log says how long it waited and how many files were
-still open (`waited ... ms for other programs`). A restart can still be asked for when:
+still open (`waited ... ms for other programs`); when the wait ran out, the next line names those files
+by their path inside the install folder and says whether the hold shares deletion (only one that does not
+costs a restart). A restart can still be asked for when:
 
 - a program keeps a file open for longer than the wait (15 seconds at most, less when stopping running
   copies and removing data took a while: the whole step has to end inside the minute Windows
