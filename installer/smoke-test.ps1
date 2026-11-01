@@ -238,7 +238,14 @@ function Test-UpgradeHeld($Holder, [string[]]$Report) {
         $waited = [long]$Matches[1]
         $open = [int]$Matches[2]
     }
-    Check "${name}: the old version's removal waited for the other program before its files were removed" ($waited -gt 0 -and $open -eq 0) "$wait"
+    # Any momentary holder (the runner's own monitor) can make the wait non-zero, so it has to have lasted
+    # at least half the hold: that is what proves the hold overlapped the removal and the removal outlasted
+    # it. The holder opens the file only once the old service has ended, and the step looks twice, 250 ms
+    # apart, after ending it; a runner slow enough to start the hold after both looks would lose that race
+    # and fail here, never pass falsely. Opening earlier, while the service still runs, would put the
+    # holder on Restart Manager's list of programs to close, which is not what a scanner meets.
+    $stillOpen = @($Report | Where-Object { $_ -match 'still open when the wait ended' })
+    Check "${name}: the old version's removal waited for the other program before its files were removed" ($waited -ge ($holdMs / 2) -and $open -eq 0) ((@($wait) + $stillOpen) -join ' ')
     $pending = @(Get-PendingRestartFiles)
     Check "${name}: no installed file is left for the next restart" ($pending.Count -eq 0) ($pending -join ', ')
 }
@@ -247,7 +254,11 @@ function Test-ReleaseWait([string[]]$Report) {
     # The uninstall step's last act: Windows Installer deletes the files the moment it exits, so it waits
     # until no other program has one open. "0 still open" is what lets the delete succeed without a restart.
     $line = @($Report | Where-Object { $_ -match 'waited \d+ ms for other programs to close the installed files' }) | Select-Object -First 1
-    Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') "$line"
+    # When the wait ran out, the step names the files still open below the install folder and the kind of
+    # hold; printed with the failure, so the next one says which file it was.
+    $stillOpen = @($Report | Where-Object { $_ -match 'still open when the wait ended' })
+    $stillOpen | ForEach-Object { Write-Host "  $_" }
+    Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') ((@($line) + $stillOpen) -join ' ')
 }
 
 function Test-InstalledLayout([string]$ExpectedVersion) {
