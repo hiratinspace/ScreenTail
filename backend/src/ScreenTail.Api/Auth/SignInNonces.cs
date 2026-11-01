@@ -116,7 +116,7 @@ public sealed class SignInNonces(JwtOptions jwt, AdminOptions options, TimeProvi
     /// <summary>
     /// Adds the record that this nonce is used to <paramref name="db"/>, for the caller's own save to
     /// write with whatever else the sign-in writes; false, adding nothing, for a nonce that is not good.
-    /// Deletes the records already past their expiry first. The save fails with a key conflict when
+    /// Deletes first the records whose nonces expired more than one lifetime ago. The save fails with a key conflict when
     /// another request used the nonce first; <see cref="WasUsedAsync"/> tells that apart from any other
     /// failure.
     /// </summary>
@@ -128,8 +128,12 @@ public sealed class SignInNonces(JwtOptions jwt, AdminOptions options, TimeProvi
             return false;
         }
 
+        // Only rows expired for a whole further lifetime go: an instance whose clock runs behind this one
+        // still accepts a nonce a little past its expiry here, and its record must still be there to
+        // refuse the replay.
         var now = time.GetUtcNow();
-        _ = await db.AdminSignInNonces.Where(n => n.ExpiresAt <= now).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        var purgeBefore = now - options.SignInNonceLifetime;
+        _ = await db.AdminSignInNonces.Where(n => n.ExpiresAt <= purgeBefore).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         db.AdminSignInNonces.Add(new AdminSignInNonce { Id = Hash(nonce!), ExpiresAt = expires, UsedAt = now });
         return true;
     }

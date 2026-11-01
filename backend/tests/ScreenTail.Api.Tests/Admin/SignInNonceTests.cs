@@ -255,12 +255,17 @@ public sealed class SignInNonceTests(AdminApiFixture api) : IClassFixture<AdminA
     }
 
     [Fact]
-    public async Task UsingANonceDeletesTheRecordsOfOnesPastTheirExpiry()
+    public async Task UsingANonceDeletesRecordsExpiredForALifetimeAndKeepsJustExpiredOnes()
     {
+        // Expired eleven minutes ago (more than the ten-minute lifetime past expiry): gone. Expired a
+        // minute ago: kept, as another instance with a slow clock may still take that nonce, and this
+        // record is what refuses its replay there.
         var stale = SignInNonces.Hash("a-nonce-used-and-long-expired");
+        var recent = SignInNonces.Hash("a-nonce-used-and-just-expired");
         _ = await api.UseAsync(async db =>
         {
-            db.AdminSignInNonces.Add(new AdminSignInNonce { Id = stale, ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1), UsedAt = DateTimeOffset.UtcNow.AddMinutes(-9) });
+            db.AdminSignInNonces.Add(new AdminSignInNonce { Id = stale, ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-11), UsedAt = DateTimeOffset.UtcNow.AddMinutes(-19) });
+            db.AdminSignInNonces.Add(new AdminSignInNonce { Id = recent, ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1), UsedAt = DateTimeOffset.UtcNow.AddMinutes(-9) });
             return await db.SaveChangesAsync();
         });
 
@@ -270,6 +275,7 @@ public sealed class SignInNonceTests(AdminApiFixture api) : IClassFixture<AdminA
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.False(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == stale)));
+        Assert.True(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == recent)));
     }
 
     [Fact]
