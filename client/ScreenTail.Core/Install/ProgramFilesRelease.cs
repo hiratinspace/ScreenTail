@@ -8,13 +8,17 @@ namespace ScreenTail.Core.Install;
 /// own executable. A program that has one of those files open without sharing deletion makes Windows
 /// Installer schedule that file for deletion at the next restart and end with 3010, "restart required",
 /// leaving the install folder behind. Programs that open other programs' executables are common: virus
-/// scanners and endpoint agents read a program's file when it starts, and on GitHub's hosted runner its own
-/// monitor (provjobd) read ScreenTail.Service.exe, 131 MB, for about a second while the service ran. When
-/// that read was still going as the step exited, the uninstall ended with 3010 (2026-11-01).
+/// scanners and endpoint agents read the file of a program that is running. On GitHub's hosted runner its
+/// own monitor (provjobd) opens a ScreenTail executable while the process runs, at a moment of its own
+/// choosing, and keeps it open for up to three seconds after the process has exited, at times without
+/// sharing deletion. When it had ScreenTail.Service.exe open as the step exited, the uninstall ended with
+/// 3010 (2026-11-01). It opens a program while it runs, so a hold that starts after the step's last look
+/// is the one this cannot see, and the step exits straight after looking.
 ///
 /// What counts as "another program" is any process but this one: this process holds its own image, which
 /// goes when it exits, before Windows Installer moves on. ScreenTail's own copies were stopped earlier in
-/// the step; one that has not gone yet is waited for like anything else.
+/// the step; one that has not gone yet is waited for like anything else. A hold that shares deletion is
+/// waited for too: the file it keeps is deleted only when it lets go, and the folder cannot go before.
 ///
 /// Every file is asked again on every round, because a scanner can open a file again after letting go of
 /// it: the wait ends on a round in which nothing is held, or when the budget is spent. A file that cannot

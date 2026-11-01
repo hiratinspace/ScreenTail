@@ -12,7 +12,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Msi,
     [string]$Logs = (Join-Path ([IO.Path]::GetTempPath()) 'screentail-diag'),
-    [int]$Iterations = 20,
+    [int]$Iterations = 300,
     [int]$MsiCycles = 8
 )
 
@@ -180,7 +180,7 @@ function Run-And-Wait([string]$File, [string]$Arguments, $Sampler) {
     $info.CreateNoWindow = $true
     $p = [Diagnostics.Process]::Start($info)
     if ($Sampler) { $Sampler.ExcludePid = $p.Id }
-    $null = $p.StandardOutput.ReadToEnd()
+    $script:lastOutput = $p.StandardOutput.ReadToEnd()
     $p.WaitForExit()
     $code = $p.ExitCode
     $p.Dispose()
@@ -245,21 +245,29 @@ function Probe-Fresh([string]$Tag, [int]$I, [string]$Mode) {
     return ($sampler.Blocks.Keys -join ',')
 }
 
-$foreign = @{ K = 0; N = 0; Z = 0 }
-Write-Host "== K: a fresh copy runs as the service and is killed ($Iterations times)"
-for ($i = 0; $i -lt $Iterations; $i++) { if (Probe-Fresh 'K' $i 'kill') { $foreign.K++ } }
-
-Write-Host "== N: a fresh copy runs --uninstall-cleanup and exits 1 (a junction where the data folder is) ($Iterations times)"
-$sentinel = Join-Path $env:SystemDrive 'ScreenTailDiagSentinel'
-New-Item -ItemType Directory -Force -Path $sentinel | Out-Null
-Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Junction -Path $dataDir -Target $sentinel | Out-Null
-for ($i = 0; $i -lt $Iterations; $i++) { if (Probe-Fresh 'N' $i 'cleanup') { $foreign.N++ } }
-[IO.Directory]::Delete($dataDir)
-
-Write-Host "== Z: a fresh copy runs --uninstall-cleanup and exits 0 ($Iterations times)"
-for ($i = 0; $i -lt $Iterations; $i++) { if (Probe-Fresh 'Z' $i 'cleanup') { $foreign.Z++ } }
-Write-Host "Fresh copies with a foreign holder: killed $($foreign.K), exit 1 $($foreign.N), exit 0 $($foreign.Z), of $Iterations each"
+Write-Host "== W: with the fix, a fresh copy runs --uninstall-cleanup ($Iterations times): is the executable free the moment it exits"
+$heldAfter = 0; $waitedRuns = 0; $foreignRuns = 0
+for ($i = 0; $i -lt $Iterations; $i++) {
+    $copy = Join-Path $installDir ("diag-W-$i.exe")
+    Copy-Item $serviceExe $copy -Force
+    $sampler = New-Object HolderSampler($copy)
+    $code = Run-And-Wait $copy '--uninstall-cleanup' $sampler
+    $exit = $sampler.Now
+    $first = [LockProbe]::OpenForDelete($copy)
+    Start-Sleep -Milliseconds 400
+    $sampler.Stop()
+    $waitLine = @($script:lastOutput -split "`n" | Where-Object { $_ -match 'waited' }) -join ''
+    $waited = if ($waitLine -match 'waited (\d+) ms') { [int]$Matches[1] } else { -1 }
+    $hasForeign = $sampler.Blocks.Count -gt 0
+    if ($first -ne 0) { $heldAfter++ }
+    if ($waited -gt 0) { $waitedRuns++ }
+    if ($hasForeign) { $foreignRuns++ }
+    if ($first -ne 0 -or $waited -ne 0 -or $hasForeign) {
+        Write-Host ("W[{0}] exit {1}; step waited {2} ms; open-for-delete right after exit: {3}; holders (ms from exit): {4} {5}" -f $i, $code, $waited, $first, (Format-Seen $sampler $exit), (Format-Blocks $sampler))
+    }
+    for ($w = 0; $w -lt 50 -and (Test-Path $copy); $w++) { Remove-Item $copy -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 }
+}
+Write-Host "W: $heldAfter of $Iterations still held the moment the step exited; the step waited in $waitedRuns; a foreign holder was seen in $foreignRuns"
 
 Write-Host '== Uninstall after A'
 $null = Run-And-Wait 'msiexec.exe' "/x `"$Msi`" /qn /norestart" $null
@@ -285,4 +293,4 @@ for ($i = 0; $i -lt $MsiCycles; $i++) {
     }
 }
 Write-Host ''
-Write-Host "== Summary: fresh copies with a foreign holder: killed $($foreign.K), exit 1 $($foreign.N), exit 0 $($foreign.Z) of $Iterations; E exits $($codes['E'] -join ','); F exits $($codes['F'] -join ',')"
+Write-Host "== Summary: W $heldAfter of $Iterations held at exit, waited in $waitedRuns, foreign in $foreignRuns; E exits $($codes['E'] -join ','); F exits $($codes['F'] -join ',')"

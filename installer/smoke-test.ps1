@@ -151,6 +151,13 @@ function Get-UninstallReport([string]$Folder, [datetime]$Since) {
         ForEach-Object { $_.Substring($_.IndexOf('ScreenTail uninstall:')) } | Select-Object -Unique)
 }
 
+function Test-ReleaseWait([string[]]$Report) {
+    # The uninstall step's last act: Windows Installer deletes the files the moment it exits, so it waits
+    # until no other program has one open. "0 still open" is what lets the delete succeed without a restart.
+    $line = @($Report | Where-Object { $_ -match 'waited \d+ ms for other programs to close the installed files' }) | Select-Object -First 1
+    Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') "$line"
+}
+
 function Test-InstalledLayout([string]$ExpectedVersion) {
     foreach ($file in @('ScreenTail.Service.exe', 'ScreenTail.UI.exe', 'e_sqlcipher.dll', 'Registry\remote-tools.json', 'Registry\exclusions-default.json', 'runtimes\win-x64\whisper.dll')) {
         Check "installed: $file" (Test-Path (Join-Path $installDir $file))
@@ -323,6 +330,7 @@ Test-Removed
 $report = Get-UninstallReport $Logs $since
 $report | ForEach-Object { Write-Host "  $_" }
 Check 'the uninstall step reported what it did in the log' ($report.Count -ge 5)
+Test-ReleaseWait $report
 Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)
 Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinue
@@ -377,6 +385,7 @@ if ($Bundle) {
     $report | ForEach-Object { Write-Host "  $_" }
     Check 'what the link points at is untouched' (Test-Path (Join-Path $sentinel 'keep.txt'))
     Check 'the uninstall log says it left a folder reached through a link' (@($report | Where-Object { $_ -match 'left alone: 1 reached through a link' }).Count -eq 1)
+    Test-ReleaseWait $report
 
     if (Test-Path $dataDir) {
         # Removes the junction, not what it points at.

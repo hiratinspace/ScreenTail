@@ -254,6 +254,12 @@ Or *Settings → Apps → ScreenTail → Uninstall*.
 entry that starts the service at sign-in, every running ScreenTail process, and the "Start UI at login"
 entry of every signed-in user.
 
+**No restart needed.** Before Windows Installer deletes the program files, the uninstall waits, for up to
+15 seconds, until no other program has one of them open. Virus scanners and endpoint agents read a
+program's file while it runs, and one still reading `ScreenTail.Service.exe` when the files go would
+make Windows Installer leave it for a restart (exit code `3010`, the folder left behind). The log says
+how long it waited and how many files were still open (`waited ... ms for other programs`).
+
 **For a technician who is signed in at that moment:** their whole ScreenTail data folder,
 `%LOCALAPPDATA%\ScreenTail`: the recorded sessions and drafts, the store's key, the device's sign-in
 token, the speech models, settings and crash reports. The key and the token go first. It runs with that

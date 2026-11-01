@@ -135,7 +135,10 @@
          credentials, through handles that refuse links, so the store left behind cannot be read. It says
          how many of each in this log (WixQuietExec writes the program's output into it). Only for an uninstall: never during the
          uninstall step of an upgrade, which would erase every technician's sessions. Its result is
-         ignored, so a folder that cannot be removed does not leave the product half uninstalled. -->
+         ignored, so a folder that cannot be removed does not leave the product half uninstalled. Its last act
+         is to wait, at most 15 seconds, until no other program (a scanner reading the executable) has an
+         installed file open, because RemoveFiles straight after it would otherwise leave that file for a
+         restart and end with 3010 (ProgramFilesRelease). -->
     <SetProperty Id="RemoveUserData"
                  Value="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot; --uninstall-cleanup"
                  Before="RemoveUserData"
