@@ -12,7 +12,7 @@ using ScreenTail.Api.Data;
 namespace ScreenTail.Api.Data.Migrations
 {
     [DbContext(typeof(ScreenTailContext))]
-    [Migration("20261101012956_Owners")]
+    [Migration("20261101014212_Owners")]
     partial class Owners
     {
         /// <inheritdoc />
@@ -275,6 +275,9 @@ namespace ScreenTail.Api.Data.Migrations
 
                     b.Property<DateTimeOffset?>("LastSignInAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SessionVersion")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");

@@ -648,7 +648,7 @@ jobs:
           PGPASSWORD: ci-only-not-a-secret
         run: |
           missing=0
-          for table in tenants users devices invites integrations company_mappings policies session_metrics draft_costs weekly_tenant_metrics; do
+          for table in tenants users owners devices invites integrations company_mappings policies session_metrics draft_costs weekly_tenant_metrics; do
             if ! psql -h localhost -U postgres -d screentail -tAc "select to_regclass('public.$table')" | grep -q "^$table$"; then
               echo "::error::The migrations did not create '$table'."
               missing=1

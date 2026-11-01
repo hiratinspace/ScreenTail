@@ -204,6 +204,50 @@ public sealed class AdminSignInTests(AdminApiFixture api) : IClassFixture<AdminA
     }
 
     [Fact]
+    public async Task ASessionCopiedBeforeSignOutIsRefusedAfterIt()
+    {
+        // Somebody copied the cookie (or the owner is signed in on a second browser). Signing out ends
+        // that copy on the server, not just the cookie in this browser.
+        var seeded = await api.SeedOwnerAsync();
+        var subject = await api.UseAsync(db => db.Owners.Where(o => o.Id == seeded.OwnerId).Select(o => o.GoogleSubject).SingleAsync());
+        using var copy = api.Owner(seeded);
+        using var browser = api.Owner(seeded);
+        var technicians = new Uri("/v1/admin/technicians", UriKind.Relative);
+        using var before = await copy.GetAsync(technicians, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+
+        using var signedOut = await browser.PostAsync(new Uri("/v1/admin/session/end", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        using var after = await copy.GetAsync(technicians, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, signedOut.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+
+        // Signing in again gives a session that works.
+        using var anonymous = api.CreateClient(new() { HandleCookies = false });
+        using var signIn = await anonymous.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: subject)), TestContext.Current.CancellationToken);
+        var cookie = Assert.Single(signIn.Headers.GetValues("Set-Cookie"));
+        var fresh = seeded with { Token = cookie[(AdminSession.CookieName.Length + 1)..cookie.IndexOf(';', StringComparison.Ordinal)] };
+        using var again = await api.Owner(fresh).GetAsync(technicians, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task ASignOutWithoutTheSessionsCsrfValueEndsNothingOnTheServer()
+    {
+        // Another site cannot sign the owner out everywhere: without the CSRF value only the cookie of
+        // the browser that asked is deleted.
+        var seeded = await api.SeedOwnerAsync();
+        using var noCsrf = api.Owner(seeded, csrf: false);
+        using var copy = api.Owner(seeded);
+
+        using var signedOut = await noCsrf.PostAsync(new Uri("/v1/admin/session/end", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        using var after = await copy.GetAsync(new Uri("/v1/admin/technicians", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, signedOut.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, after.StatusCode);
+    }
+
+    [Fact]
     public async Task SigningOutDeletesTheCookie()
     {
         using var client = api.CreateClient(new() { HandleCookies = false });

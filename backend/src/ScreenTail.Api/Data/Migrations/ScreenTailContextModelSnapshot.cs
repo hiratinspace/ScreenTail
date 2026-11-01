@@ -273,6 +273,9 @@ namespace ScreenTail.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("LastSignInAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("SessionVersion")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 

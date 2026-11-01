@@ -131,13 +131,26 @@ public static class AdminSessionEndpoint
         .WithName("AdminSignup")
         .WithSummary("Creates a tenant with this Google account as its owner, when the account is on the signup list.");
 
-        group.MapPost("/session/end", (HttpContext http) =>
+        group.MapPost("/session/end", async (HttpContext http, ScreenTailContext db, CancellationToken ct) =>
         {
+            // Deleting the cookie ends this browser's copy. A copy taken from it before now (a stolen
+            // cookie, a second browser) is ended on the server: the owner's session version moves on, and
+            // every session that carries the old one is refused from the next request. Only for the
+            // session's own page, which knows its CSRF value, so another site cannot sign the owner out.
+            if (await AdminCaller.BindAsync(http).ConfigureAwait(false) is { } owner
+                && CsrfHandler.Matches(owner.Csrf, http.Request.Headers[AdminSession.CsrfHeader].ToString()))
+            {
+                _ = await db.Owners
+                    .Where(o => o.Id == owner.OwnerId && o.TenantId == owner.TenantId)
+                    .ExecuteUpdateAsync(set => set.SetProperty(o => o.SessionVersion, o => o.SessionVersion + 1), ct)
+                    .ConfigureAwait(false);
+            }
+
             http.Response.Cookies.Delete(AdminSession.CookieName, AdminSession.Cookie(expires: null));
             return Results.NoContent();
         })
         .WithName("AdminSignOut")
-        .WithSummary("Ends the admin session in this browser.");
+        .WithSummary("Ends the owner's admin sessions: this browser's cookie, and on the server every session issued before now.");
 
         return group;
     }
@@ -184,7 +197,7 @@ public static class AdminSessionEndpoint
     private static AdminSessionResponse StartSession(HttpContext http, TokenIssuer issuer, AdminOptions options, Owner owner, Tenant tenant, TimeProvider time)
     {
         var csrf = AdminSession.NewCsrf();
-        var (token, expires) = issuer.ForOwner(tenant.Id, owner.Id, csrf, options.SessionLifetime, time);
+        var (token, expires) = issuer.ForOwner(tenant.Id, owner.Id, owner.SessionVersion, csrf, options.SessionLifetime, time);
         http.Response.Cookies.Append(AdminSession.CookieName, token, AdminSession.Cookie(expires));
         return new AdminSessionResponse(AdminSessionResponse.SignedIn, csrf, expires, new AdminOwnerInfo(owner.Email, owner.DisplayName), new AdminTenantInfo(tenant.Id, tenant.Name, tenant.Seats));
     }

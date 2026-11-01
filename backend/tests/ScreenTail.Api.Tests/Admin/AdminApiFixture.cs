@@ -72,7 +72,7 @@ public class AdminApiFixture : ApiFixture
             return await db.SaveChangesAsync();
         });
         var csrf = AdminSession.NewCsrf();
-        var (token, _) = Issuer.ForOwner(tenant.Id, owner.Id, csrf, TimeSpan.FromHours(1));
+        var (token, _) = Issuer.ForOwner(tenant.Id, owner.Id, owner.SessionVersion, csrf, TimeSpan.FromHours(1));
         return new OwnerSession(tenant.Id, owner.Id, token, csrf);
     }
 

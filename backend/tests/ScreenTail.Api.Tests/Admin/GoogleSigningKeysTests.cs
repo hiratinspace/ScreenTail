@@ -98,6 +98,68 @@ public sealed class GoogleSigningKeysTests : IDisposable
     }
 
     [Fact]
+    public async Task RefreshAsksWhileGoogleFailsMakeOneRequestPerFloor()
+    {
+        // The failure path counts toward the floor too. Without that, every made-up key id sent while
+        // Google is failing would be another request to Google.
+        _google.Answer(KeySet("k1"), maxAge: TimeSpan.FromHours(6));
+        _ = await _keys.GetAsync(refresh: false, TestContext.Current.CancellationToken);
+        _google.Fail(HttpStatusCode.ServiceUnavailable);
+        _clock.Advance(GoogleSigningKeys.RefreshFloor);
+
+        for (var i = 0; i < 20; i++)
+        {
+            var kept = await _keys.GetAsync(refresh: true, TestContext.Current.CancellationToken);
+            Assert.Equal("k1", Assert.Single(kept).KeyId);
+            _clock.Advance(TimeSpan.FromSeconds(10));
+        }
+
+        Assert.Equal(2, _keys.Fetches);
+    }
+
+    [Fact]
+    public async Task WithNoCopyAtAllAFailureIsNotRetriedForThirtySeconds()
+    {
+        _google.Fail(HttpStatusCode.ServiceUnavailable);
+        for (var i = 0; i < 20; i++)
+        {
+            _ = await Assert.ThrowsAsync<GoogleKeysUnavailableException>(() => _keys.GetAsync(refresh: i % 2 == 0, TestContext.Current.CancellationToken));
+            _clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal(1, _keys.Fetches);
+
+        _clock.Advance(GoogleSigningKeys.RetryAfterFailure);
+        _google.Answer(KeySet("k1"), maxAge: TimeSpan.FromHours(1));
+        Assert.Equal("k1", Assert.Single(await _keys.GetAsync(refresh: false, TestContext.Current.CancellationToken)).KeyId);
+        Assert.Equal(2, _keys.Fetches);
+    }
+
+    [Fact]
+    public async Task AFreshCopyAnswersWhileAnotherCallersFetchIsUnderWay()
+    {
+        _google.Answer(KeySet("k1"), maxAge: TimeSpan.FromHours(6));
+        _ = await _keys.GetAsync(refresh: false, TestContext.Current.CancellationToken);
+        _clock.Advance(GoogleSigningKeys.RefreshFloor);
+        _google.Hang();
+        _google.ResetAsked();
+
+        var stuck = _keys.GetAsync(refresh: true, TestContext.Current.CancellationToken);
+        await _google.Asked.WaitAsync(TestContext.Current.CancellationToken);
+        var plain = _keys.GetAsync(refresh: false, TestContext.Current.CancellationToken);
+        var another = _keys.GetAsync(refresh: true, TestContext.Current.CancellationToken);
+
+        Assert.True(plain.IsCompletedSuccessfully);
+        Assert.True(another.IsCompletedSuccessfully);
+        Assert.Equal("k1", Assert.Single(await another).KeyId);
+        Assert.False(stuck.IsCompleted);
+        Assert.Equal(2, _keys.Fetches);
+
+        _clock.Advance(GoogleSigningKeys.FetchTimeout);
+        Assert.Equal("k1", Assert.Single(await stuck).KeyId);
+    }
+
+    [Fact]
     public async Task WithNoFreshCopyAFailedFetchFailsClosed()
     {
         _google.Fail(HttpStatusCode.InternalServerError);
@@ -105,6 +167,7 @@ public sealed class GoogleSigningKeysTests : IDisposable
 
         // A copy that has gone stale is not used either: Google may have withdrawn one of its keys.
         _google.Answer(KeySet("k1"), maxAge: TimeSpan.FromHours(1));
+        _clock.Advance(GoogleSigningKeys.RetryAfterFailure);
         _ = await _keys.GetAsync(refresh: false, TestContext.Current.CancellationToken);
         _google.Fail(HttpStatusCode.InternalServerError);
         _clock.Advance(TimeSpan.FromHours(1));
@@ -152,9 +215,11 @@ public sealed class GoogleSigningKeysTests : IDisposable
     private sealed class Scripted : HttpMessageHandler
     {
         private Func<CancellationToken, Task<HttpResponseMessage>> _reply = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-        private readonly TaskCompletionSource _asked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource _asked = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Uri? LastAsked { get; private set; }
+
+        public void ResetAsked() => _asked = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task Asked => _asked.Task;
 

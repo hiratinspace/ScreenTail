@@ -47,6 +47,9 @@ public static class ScreenTailClaims
 
     /// <summary>The admin session's CSRF value, which every change must also carry in a header (ADR-0009).</summary>
     public const string Csrf = "csrf";
+
+    /// <summary>The owner's <see cref="Data.Owner.SessionVersion"/> when the session was issued. Sign-out moves it on.</summary>
+    public const string SessionVersion = "sv";
 }
 
 /// <summary>Mints and describes access tokens (ST-008).</summary>
@@ -94,7 +97,7 @@ public sealed class TokenIssuer(JwtOptions options)
     /// in a cookie the device scheme never reads. The CSRF value rides inside it, so the server keeps no
     /// session state at all.
     /// </summary>
-    public (string Token, DateTimeOffset ExpiresAt) ForOwner(Guid tenantId, Guid ownerId, string csrf, TimeSpan lifetime, TimeProvider? time = null)
+    public (string Token, DateTimeOffset ExpiresAt) ForOwner(Guid tenantId, Guid ownerId, int sessionVersion, string csrf, TimeSpan lifetime, TimeProvider? time = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(csrf);
         var now = (time ?? TimeProvider.System).GetUtcNow();
@@ -115,6 +118,7 @@ public sealed class TokenIssuer(JwtOptions options)
                 new Claim(ScreenTailClaims.OwnerId, ownerId.ToString()),
                 new Claim(ScreenTailClaims.Role, AdminSession.OwnerRole),
                 new Claim(ScreenTailClaims.Csrf, csrf),
+                new Claim(ScreenTailClaims.SessionVersion, sessionVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             ]),
             SigningCredentials = new SigningCredentials(KeyFrom(options.SigningKey), SecurityAlgorithms.HmacSha256),
         };

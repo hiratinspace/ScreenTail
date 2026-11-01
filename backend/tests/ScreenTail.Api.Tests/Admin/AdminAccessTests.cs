@@ -52,8 +52,54 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
             new(ScreenTailClaims.OwnerId, owner.OwnerId.ToString()),
             new(ScreenTailClaims.Role, AdminSession.OwnerRole),
             new(ScreenTailClaims.Csrf, owner.Csrf),
+            new(ScreenTailClaims.SessionVersion, "0"),
         ]);
         using var client = api.Owner(owner with { Token = forged });
+
+        Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, OwnerRoutes()));
+    }
+
+    [Theory]
+    [InlineData("no role")]
+    [InlineData("another role")]
+    [InlineData("a device id")]
+    public async Task AnAdminAudienceTokenThatIsNotAnOwnersSessionOpensNoAdminRoute(string flaw)
+    {
+        // The admin audience and an owner who exists, but not an owner's session: no role, a role that
+        // is not the owner's, or a device id beside the owner's (a device's token, whatever else it says).
+        var owner = await api.SeedOwnerAsync();
+        List<Claim> claims = [
+            new(ScreenTailClaims.TenantId, owner.TenantId.ToString()),
+            new(ScreenTailClaims.OwnerId, owner.OwnerId.ToString()),
+            new(ScreenTailClaims.Csrf, owner.Csrf),
+            new(ScreenTailClaims.SessionVersion, "0"),
+        ];
+        switch (flaw)
+        {
+            case "another role":
+                claims.Add(new(ScreenTailClaims.Role, "technician"));
+                break;
+            case "a device id":
+                claims.Add(new(ScreenTailClaims.Role, AdminSession.OwnerRole));
+                claims.Add(new(ScreenTailClaims.DeviceId, Guid.NewGuid().ToString()));
+                break;
+            default:
+                break;
+        }
+
+        using var client = api.Owner(owner with { Token = Sign(AdminSession.Audience, [.. claims]) });
+
+        Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, OwnerRoutes()));
+    }
+
+    [Fact]
+    public async Task TheAdminSessionIsReadFromTheCookieAndNeverFromTheAuthorizationHeader()
+    {
+        // A good owner's session in the header, where a device's token travels, opens nothing. The
+        // header is the device scheme's; the admin scheme reads its cookie and nothing else.
+        var owner = await api.SeedOwnerAsync();
+        using var client = api.Device(owner.Token);
+        client.DefaultRequestHeaders.Add(AdminSession.CsrfHeader, owner.Csrf);
 
         Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, OwnerRoutes()));
     }
@@ -157,6 +203,7 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
             new(ScreenTailClaims.OwnerId, mine.OwnerId.ToString()),
             new(ScreenTailClaims.Role, AdminSession.OwnerRole),
             new(ScreenTailClaims.Csrf, mine.Csrf),
+            new(ScreenTailClaims.SessionVersion, "0"),
         ]);
         using var client = api.Owner(mine with { Token = crossed });
 

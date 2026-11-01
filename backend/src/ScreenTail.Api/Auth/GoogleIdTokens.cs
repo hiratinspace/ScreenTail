@@ -135,12 +135,15 @@ public sealed class GoogleIdTokenVerifier(IGoogleSigningKeys keys, AdminOptions 
 /// Google's published keys, fetched from the one address Google documents and cached (ST-099).
 ///
 /// <b>Cached</b> for as long as Google's Cache-Control says, held between five minutes and a day. A
-/// token naming a key that is not cached asks for a fresh copy, at most once every five minutes, so a
-/// stream of made-up key ids cannot turn into a stream of requests to Google.
+/// token naming a key that is not cached asks for a fresh copy, at most once every five minutes counted
+/// from the last attempt whether it worked or failed, so a stream of made-up key ids cannot turn into a
+/// stream of requests to Google. While a fetch is under way, a caller with a fresh copy to hand is
+/// answered from it rather than queued.
 ///
 /// <b>Time-bounded:</b> ten seconds for the whole fetch, and 64 KB for the answer. A fetch that fails
 /// keeps a copy that is still fresh. With no fresh copy it fails closed: sign-in is refused until Google
-/// answers, rather than checked against keys that may since have been withdrawn.
+/// answers, rather than checked against keys that may since have been withdrawn, and Google is asked
+/// again no sooner than thirty seconds after the failure.
 /// </summary>
 public sealed class GoogleSigningKeys(Func<HttpClient> client, TimeProvider time) : IGoogleSigningKeys, IDisposable
 {
@@ -157,49 +160,77 @@ public sealed class GoogleSigningKeys(Func<HttpClient> client, TimeProvider time
     /// <summary>When Google's answer carries no max-age.</summary>
     public static readonly TimeSpan DefaultCache = TimeSpan.FromHours(1);
 
-    /// <summary>The least time between two fetches asked for by an unknown key id.</summary>
+    /// <summary>The least time between two fetches asked for by an unknown key id, counted from the last attempt, whether it worked or not.</summary>
     public static readonly TimeSpan RefreshFloor = TimeSpan.FromMinutes(5);
+
+    /// <summary>With no usable copy, the least time between a failed fetch and the next one. Sign-in waits that long after Google fails.</summary>
+    public static readonly TimeSpan RetryAfterFailure = TimeSpan.FromSeconds(30);
 
     private const int MaximumBytes = 64 * 1024;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private IReadOnlyList<SecurityKey> _keys = [];
-    private DateTimeOffset _fetchedAt = DateTimeOffset.MinValue;
-    private DateTimeOffset _freshUntil = DateTimeOffset.MinValue;
+
+    // One immutable snapshot, swapped whole, so a caller that does not take the gate never reads half of
+    // an update.
+    private volatile Snapshot _state = new([], DateTimeOffset.MinValue, DateTimeOffset.MinValue, LastFailed: false);
+
+    private int _fetches;
 
     /// <summary>How many times Google was asked. For the tests that prove the cache holds.</summary>
-    public int Fetches { get; private set; }
+    public int Fetches => Volatile.Read(ref _fetches);
 
     public async Task<IReadOnlyList<SecurityKey>> GetAsync(bool refresh, CancellationToken ct)
     {
-        if (Serves(time.GetUtcNow(), refresh))
+        var state = _state;
+        var now = time.GetUtcNow();
+        if (Serves(state, now, refresh))
         {
-            return _keys;
+            return state.Keys;
         }
 
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
-        try
+        // A fetch already under way and a copy that is still fresh: answer with the copy rather than
+        // queue behind somebody else's request to Google.
+        if (!await _gate.WaitAsync(0, ct).ConfigureAwait(false))
         {
-            var now = time.GetUtcNow();
-            if (Serves(now, refresh))
+            if (now < state.FreshUntil)
             {
-                return _keys;
+                return state.Keys;
             }
 
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+        }
+
+        try
+        {
+            state = _state;
+            now = time.GetUtcNow();
+            if (Serves(state, now, refresh))
+            {
+                return state.Keys;
+            }
+
+            // Nothing usable, and Google failed a moment ago: refuse without asking again, so a stream of
+            // sign-ins while Google is down is not a stream of requests to it.
+            if (now >= state.FreshUntil && state.LastFailed && now - state.LastAttempt < RetryAfterFailure)
+            {
+                throw new GoogleKeysUnavailableException();
+            }
+
+            // The attempt counts from here, whatever comes of it: the floor holds on the failure path too.
+            _state = state with { LastAttempt = now };
             try
             {
                 var (keys, lifetime) = await FetchAsync(ct).ConfigureAwait(false);
-                _keys = keys;
-                _fetchedAt = now;
-                _freshUntil = now + lifetime;
+                _state = new Snapshot(keys, now + lifetime, now, LastFailed: false);
                 return keys;
             }
             catch (Exception e) when (e is HttpRequestException or JsonException or ArgumentException or InvalidOperationException or GoogleKeysUnavailableException
                 || (e is OperationCanceledException && !ct.IsCancellationRequested))
             {
-                if (now < _freshUntil)
+                _state = state with { LastAttempt = now, LastFailed = true };
+                if (now < state.FreshUntil)
                 {
-                    return _keys;
+                    return state.Keys;
                 }
 
                 throw new GoogleKeysUnavailableException("Google's signing keys could not be fetched and no fresh copy is cached.", e);
@@ -215,14 +246,16 @@ public sealed class GoogleSigningKeys(Func<HttpClient> client, TimeProvider time
 
     /// <summary>
     /// Whether the cached copy answers this ask: it is fresh, and either nobody asked for a refresh or the
-    /// last fetch was too recent for another one.
+    /// last attempt to fetch, good or failed, was too recent for another one.
     /// </summary>
-    private bool Serves(DateTimeOffset now, bool refresh) =>
-        now < _freshUntil && (!refresh || now - _fetchedAt < RefreshFloor);
+    private static bool Serves(Snapshot state, DateTimeOffset now, bool refresh) =>
+        now < state.FreshUntil && (!refresh || now - state.LastAttempt < RefreshFloor);
+
+    private sealed record Snapshot(IReadOnlyList<SecurityKey> Keys, DateTimeOffset FreshUntil, DateTimeOffset LastAttempt, bool LastFailed);
 
     private async Task<(IReadOnlyList<SecurityKey> Keys, TimeSpan Lifetime)> FetchAsync(CancellationToken ct)
     {
-        Fetches++;
+        _ = Interlocked.Increment(ref _fetches);
         using var deadline = new CancellationTokenSource(FetchTimeout, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         var http = client();

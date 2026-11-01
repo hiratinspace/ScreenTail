@@ -22,6 +22,7 @@ namespace ScreenTail.Api.Data.Migrations
                     DisplayName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     LastSignInAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    SessionVersion = table.Column<int>(type: "integer", nullable: false),
                     DisabledAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>

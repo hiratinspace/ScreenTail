@@ -119,6 +119,7 @@ public static class OwnerCheck
             || !Guid.TryParse(principal.FindFirstValue(ScreenTailClaims.TenantId), out var tenantId)
             || !Guid.TryParse(principal.FindFirstValue(ScreenTailClaims.OwnerId), out var ownerId)
             || principal.FindFirstValue(ScreenTailClaims.Csrf) is not { Length: > 0 } csrf
+            || !int.TryParse(principal.FindFirstValue(ScreenTailClaims.SessionVersion), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var sessionVersion)
             || !long.TryParse(principal.FindFirstValue("exp"), out var exp))
         {
             return null;
@@ -130,7 +131,8 @@ public static class OwnerCheck
             .SingleOrDefaultAsync(o => o.Id == ownerId && o.TenantId == tenantId, ct)
             .ConfigureAwait(false);
 
-        return owner is { DisabledAt: null, Tenant: { DisabledAt: null } tenant }
+        // A session from before the owner last signed out is over, however long it had left.
+        return owner is { DisabledAt: null, Tenant: { DisabledAt: null } tenant } && owner.SessionVersion == sessionVersion
             ? new AdminCaller(tenantId, ownerId, owner, tenant, csrf, DateTimeOffset.FromUnixTimeSeconds(exp))
             : null;
     }
@@ -207,15 +209,17 @@ internal sealed class CsrfHandler : AuthorizationHandler<CsrfRequirement>
             return Task.CompletedTask;
         }
 
-        var expected = context.User.FindFirstValue(ScreenTailClaims.Csrf);
-        var presented = http.Request.Headers[AdminSession.CsrfHeader].ToString();
-        if (!string.IsNullOrEmpty(expected)
-            && !string.IsNullOrEmpty(presented)
-            && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(presented)))
+        if (Matches(context.User.FindFirstValue(ScreenTailClaims.Csrf), http.Request.Headers[AdminSession.CsrfHeader].ToString()))
         {
             context.Succeed(requirement);
         }
 
         return Task.CompletedTask;
     }
+
+    /// <summary>The header repeats the session's value exactly, compared in constant time.</summary>
+    internal static bool Matches(string? expected, string? presented) =>
+        !string.IsNullOrEmpty(expected)
+        && !string.IsNullOrEmpty(presented)
+        && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(presented));
 }

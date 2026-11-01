@@ -220,6 +220,25 @@ public sealed class AdminEndpointsTests(AdminApiFixture api) : IClassFixture<Adm
     }
 
     [Fact]
+    public async Task TwoSavesInTheSameMillisecondBothLandAndTheSecondIsTheLatest()
+    {
+        // A double click on Save. The version is the time to the millisecond, so the second row is put
+        // a millisecond on rather than refused by the unique index as a 500.
+        var owner = await api.SeedOwnerAsync();
+        var at = new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero).AddTicks(4_000);
+        var first = await api.UseAsync(db => Policies.SetAsync(db, owner.TenantId, 7, false, false, false, new Held(at)));
+        var second = await api.UseAsync(db => Policies.SetAsync(db, owner.TenantId, 9, false, false, false, new Held(at.AddTicks(5_000))));
+
+        Assert.NotEqual(first.Version, second.Version);
+        Assert.Equal(second.Version, (await api.UseAsync(db => Policies.LatestAsync(db, owner.TenantId)))!.Version);
+    }
+
+    private sealed class Held(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    [Fact]
     public async Task CapturingEveryWindowNeedsConfirmingWhenItIsTurnedOn()
     {
         // INV-5: the remote tools and the admin allowlist by default; every window is opt-in and confirmed.

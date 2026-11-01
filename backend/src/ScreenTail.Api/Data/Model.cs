@@ -58,6 +58,13 @@ public sealed class Owner
 
     public DateTimeOffset? LastSignInAt { get; set; }
 
+    /// <summary>
+    /// Every admin session carries the number this held when it was issued, and one that no longer
+    /// matches is refused. Signing out moves it on, so a session copied before then stops working at
+    /// once rather than at its expiry, in every browser the owner had signed in on.
+    /// </summary>
+    public int SessionVersion { get; set; }
+
     /// <summary>Set to stop this person signing in. Checked on every admin request.</summary>
     public DateTimeOffset? DisabledAt { get; set; }
 }
