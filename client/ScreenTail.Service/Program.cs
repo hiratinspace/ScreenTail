@@ -158,18 +158,21 @@ var closeRequests = new CloseRequests(lifetime.StopApplication, stopped.Task);
 // logging have been disposed.
 using var sessionEndLog = new ScrubbingLoggerProvider(Console.Error, logLevel);
 using var sessionEnd = SessionEndWindow.Start(closeRequests, sessionEndLog.CreateLogger("ScreenTail.Service.SessionEnd"));
-try
+
+// ST-112: answering Restart Manager means any program's installer that replaces a file the service has
+// loaded (the Visual C++ runtime, for one) can close it, where before it could not and the service ran on.
+// Registered for restart, Restart Manager starts it again when that installer is done, in its ordinary
+// at-sign-in state: watching, not recording; a session the close interrupted is recovered as partial. Only
+// here, in the service itself: every one-shot mode has returned above (ApplicationRestart).
+if (ApplicationRestart.ShouldRegister(args))
 {
-    // Disposes the host when it returns, so the store is closed and the microphone and hooks released by the
-    // time the window is told the service has stopped.
-    await host.RunAsync().ConfigureAwait(false);
-}
-finally
-{
-    _ = stopped.TrySetResult();
+    _ = WindowsApplicationRestart.Register(sessionEndLog.CreateLogger("ScreenTail.Service.Restart"));
 }
 
-return 0;
+// Disposes the host when it returns, so the store is closed and the microphone and hooks released by the
+// time the window is told the service has stopped. A close that arrived before the host had started is a
+// stop, not a failure (ServiceRun).
+return await ServiceRun.RunAsync(host, () => lifetime.ApplicationStopping.IsCancellationRequested, stopped).ConfigureAwait(false);
 
 static string ServiceVersion() => typeof(CaptureHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 

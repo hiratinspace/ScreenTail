@@ -192,7 +192,7 @@ internal sealed partial class SessionEndWindow : IDisposable
         _ = _thread.Join(TimeSpan.FromSeconds(2));
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The capture service's session-end window could not be made; Windows will end the service rather than ask it to close")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The capture service's session-end window was not ready within 5 s or could not be made; until it exists, Windows ends the service rather than asking it to close")]
     private static partial void LogNoWindow(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Windows asked whether the capture service may close ({Reason}): yes")]

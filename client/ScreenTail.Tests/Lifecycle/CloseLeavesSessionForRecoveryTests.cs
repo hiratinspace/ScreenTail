@@ -101,6 +101,11 @@ public sealed class CloseLeavesSessionForRecoveryTests : IAsyncDisposable
         Assert.True(recovered.PartialCapture);
         Assert.True(recovered.DurationMs > 1_000, $"duration {recovered.DurationMs} ms: the clicks before the close were kept");
         Assert.Empty(await reopened.ListSessionsInStatesAsync(SessionStateNames.Orphanable, ct));
+
+        // Restarted, by the next sign-in or by Restart Manager after another program's installer (the restart
+        // is the ordinary start, ApplicationRestart): watching, not recording. Nothing was resumed.
+        Assert.NotEqual(SessionState.Recording, restarted.State);
+        Assert.Null(restarted.Hearing);
     }
 
     public ValueTask DisposeAsync()
