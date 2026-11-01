@@ -6,7 +6,7 @@ interface Sent {
   init: RequestInit;
 }
 
-function backend(answers: Array<{ status: number; body?: unknown }>) {
+function backend(answers: Array<{ status: number; body?: unknown; headers?: Record<string, string> }>) {
   const sent: Sent[] = [];
   vi.stubGlobal(
     'fetch',
@@ -15,7 +15,7 @@ function backend(answers: Array<{ status: number; body?: unknown }>) {
       const answer = answers.shift() ?? { status: 204 };
       return new Response(answer.body === undefined ? null : JSON.stringify(answer.body), {
         status: answer.status,
-        headers: answer.body === undefined ? {} : { 'Content-Type': 'application/json' },
+        headers: { ...(answer.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...answer.headers },
       });
     }),
   );
@@ -51,7 +51,7 @@ describe('httpApi', () => {
   it('asks for a sign-in nonce with a POST, and turns a bare 429 into a sentence', async () => {
     const sent = backend([
       { status: 200, body: { nonce: 'n-1', expiresAt: 'x', expiresInSeconds: 600 } },
-      { status: 429 },
+      { status: 429, headers: { 'Retry-After': '42' } },
     ]);
     const api = httpApi();
 
@@ -62,6 +62,7 @@ describe('httpApi', () => {
     expect(sent[0]!.init.method).toBe('POST');
     expect(refused).toBeInstanceOf(ApiError);
     expect((refused as ApiError).status).toBe(429);
+    expect((refused as ApiError).retryAfterSeconds).toBe(42);
     expect((refused as ApiError).message).toBe('Too many sign-in attempts from this network. Wait a minute and try again.');
   });
 

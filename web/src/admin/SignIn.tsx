@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { SignInNonce } from '../api';
+import { ApiError, type SignInNonce } from '../api';
 import type { GoogleButton } from '../google';
 import { messageOf } from './format';
 
@@ -42,6 +42,8 @@ export function SignIn({ button, nextNonce, onCredential, busy, error }: SignInP
           return;
         }
         await button.render(element, nonce, (credential) => {
+          // That nonce is spent: take its button away until the next one is drawn.
+          element.replaceChildren();
           setRound((r) => r + 1);
           latest.current(credential);
         });
@@ -53,8 +55,15 @@ export function SignIn({ button, nextNonce, onCredential, busy, error }: SignInP
         timer = setTimeout(() => setRound((r) => r + 1), refreshIn * 1000);
       })
       .catch((e: unknown) => {
-        if (live) {
-          setLoadError(messageOf(e));
+        if (!live) {
+          return;
+        }
+        // No good nonce, so no button: one left on screen would carry a spent or expiring nonce.
+        element.replaceChildren();
+        setLoadError(messageOf(e));
+        // Refused for asking too often: ask again once the backend says the window has passed.
+        if (e instanceof ApiError && e.status === 429) {
+          timer = setTimeout(() => setRound((r) => r + 1), (e.retryAfterSeconds ?? 60) * 1000);
         }
       });
     return () => {

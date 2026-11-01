@@ -110,12 +110,15 @@ export interface Download {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  /** From a refusal's Retry-After, in seconds, when it gave one (a 429 does). */
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, retryAfterSeconds?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -182,7 +185,8 @@ export function httpApi(base = ''): AdminApi {
       } catch {
         // An empty body: the sentence above stands.
       }
-      throw new ApiError(response.status, message, code);
+      const retryAfter = Number(response.headers.get('Retry-After'));
+      throw new ApiError(response.status, message, code, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
     }
 
     if (response.status === 204) {

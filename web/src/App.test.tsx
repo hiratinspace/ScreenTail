@@ -167,6 +167,86 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
   });
 
+  it('asks for a nonce again once the Retry-After of a 429 has passed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const nonces: string[] = [];
+    let asked = 0;
+    const api = fakeApi({
+      signInNonce: async () => {
+        asked += 1;
+        if (asked === 1) {
+          throw new ApiError(429, 'Too many sign-in attempts from this network. Wait a minute and try again.', undefined, 30);
+        }
+        return { nonce: 'nonce-after-wait', expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 600 };
+      },
+    });
+    render(<App api={api} button={fakeGoogle('t', nonces)} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Too many sign-in attempts');
+
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(asked).toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await waitFor(() => expect(nonces).toEqual(['nonce-after-wait']));
+    expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeDefined();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('takes a spent button away at once, and leaves none when no fresh nonce can be had', async () => {
+    const nonces: string[] = [];
+    let asked = 0;
+    let release: (() => void) | undefined;
+    const api = fakeApi({
+      signInNonce: async () => {
+        asked += 1;
+        if (asked === 1) {
+          return { nonce: 'nonce-1', expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 600 };
+        }
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        throw new ApiError(503, 'ScreenTail could not reach Google. Try again in a minute.');
+      },
+      signIn: async () => {
+        throw new ApiError(401, 'Google did not confirm this sign-in. Try signing in again.', 'sign_in_failed');
+      },
+    });
+    render(<App api={api} button={fakeGoogle('t', nonces)} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
+
+    // Gone while the next nonce is still being fetched, so the spent one cannot be clicked again...
+    await waitFor(() => expect(release).toBeDefined());
+    expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
+
+    // ...and still gone once that fetch fails.
+    release!();
+    expect((await screen.findByRole('alert')).textContent).toContain('Try signing in again');
+    expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
+    expect(nonces).toEqual(['nonce-1']);
+  });
+
+  it('takes the button away when its nonce is about to run out and no fresh one can be had', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let asked = 0;
+    const api = fakeApi({
+      signInNonce: async () => {
+        asked += 1;
+        if (asked === 1) {
+          return { nonce: 'nonce-1', expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 120 };
+        }
+        throw new ApiError(503, 'ScreenTail could not reach Google. Try again in a minute.');
+      },
+    });
+    render(<App api={api} button={fakeGoogle()} />);
+    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(61_000);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('could not reach Google');
+    expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
+  });
+
   it('sends an expired Google sign-in back to the start of signup', async () => {
     const api = fakeApi({
       signIn: async () => ({ status: 'needs_tenant', email: 'pat@acme.example' }),
