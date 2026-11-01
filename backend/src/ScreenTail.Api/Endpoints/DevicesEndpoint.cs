@@ -31,6 +31,8 @@ public static class DevicesEndpoint
 
     public const string UsedCodeMessage = "That code has already been used. Ask your admin for a new invite.";
 
+    public const string ExpiredCodeMessage = "That code has expired. Ask your admin for a new invite.";
+
     public static RouteGroupBuilder MapDevices(this RouteGroupBuilder group)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -72,34 +74,46 @@ public static class DevicesEndpoint
             if (invite.ExpiresAt <= now)
             {
                 watch.Refused();
-                return Results.BadRequest(new { error = "invite_expired", message = "That code has expired. Ask your admin for a new invite." });
-            }
-
-            var tenant = await db.Tenants.SingleAsync(t => t.Id == invite.TenantId, ct).ConfigureAwait(false);
-            if (tenant.DisabledAt is not null)
-            {
-                return Results.Json(new { error = "tenant_disabled", message = "This organisation's ScreenTail is switched off. Contact your admin." }, statusCode: StatusCodes.Status403Forbidden);
+                return Results.BadRequest(new { error = "invite_expired", message = ExpiredCodeMessage });
             }
 
             // Two activations at once must not both win. Everything from here to the commit is one
-            // transaction that starts by writing the tenant's row, which Postgres then holds locked until
-            // the commit (SQLite locks the whole database for its one writer): activations of one tenant
-            // queue here, and each counts the seats only after the one before it has committed or rolled
-            // back. Activations of different tenants do not wait for each other.
+            // transaction that starts by locking the tenant's row (TenantLock, the same first step as
+            // offboarding's): activations of one tenant queue here, and each reads the tenant and counts
+            // its seats only after the one before it has committed or rolled back. Activations of
+            // different tenants do not wait for each other.
             await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
-            _ = await db.Tenants.Where(t => t.Id == tenant.Id).ExecuteUpdateAsync(set => set.SetProperty(t => t.Seats, t => t.Seats), ct).ConfigureAwait(false);
+            if (!await TenantLock.TakeAsync(db, invite.TenantId, ct).ConfigureAwait(false))
+            {
+                // Offboarded since the invite was read: the code is now one nobody issued.
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_unknown", message = UnknownCodeMessage });
+            }
+
+            // Read under the lock, so the seats and the switch are the ones this activation is held to.
+            var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == invite.TenantId, ct).ConfigureAwait(false);
+            if (tenant.DisabledAt is not null)
+            {
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                return Results.Json(new { error = "tenant_disabled", message = "This organisation's ScreenTail is switched off. Contact your admin." }, statusCode: StatusCodes.Status403Forbidden);
+            }
 
             // The invite is claimed only if it is still unclaimed and unexpired when this write runs, not
-            // when it was read above: of two activations with one code exactly one changes the row, and
-            // the other is told the code has been used.
+            // when it was read above: of two activations with one code exactly one changes the row. The
+            // loser is told why, from the row as it is now: used, expired since the first read, or gone.
+            var claimAt = time.GetUtcNow();
             var claimed = await db.Invites
-                .Where(i => i.Id == invite.Id && i.AcceptedAt == null && i.ExpiresAt > now)
+                .Where(i => i.Id == invite.Id && i.AcceptedAt == null && i.ExpiresAt > claimAt)
                 .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedAt, now), ct).ConfigureAwait(false);
             if (claimed == 0)
             {
+                var current = await db.Invites.AsNoTracking().Where(i => i.Id == invite.Id).Select(i => new { i.AcceptedAt }).SingleOrDefaultAsync(ct).ConfigureAwait(false);
                 await transaction.RollbackAsync(ct).ConfigureAwait(false);
                 watch.Refused();
-                return Results.BadRequest(new { error = "invite_used", message = UsedCodeMessage });
+                return current is null ? Results.BadRequest(new { error = "invite_unknown", message = UnknownCodeMessage })
+                    : current.AcceptedAt is not null ? Results.BadRequest(new { error = "invite_used", message = UsedCodeMessage })
+                    : Results.BadRequest(new { error = "invite_expired", message = ExpiredCodeMessage });
             }
 
             // A seat is an active device (AC2), counted under the tenant's lock, so no other activation of
@@ -136,7 +150,11 @@ public static class DevicesEndpoint
             invite.AcceptedAt = now;
             invite.DeviceId = device.Id;
             _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            await transaction.CommitAsync(ct).ConfigureAwait(false);
+
+            // Not cancellable. Once the commit is sent it may land whatever happens to the request, and
+            // a caller who gave up then would hold a used code, a taken seat and no refresh token; so an
+            // abort is honoured up to here (everything before rolls back) and not during the commit.
+            await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
 
             var (access, expires) = issuer.ForDevice(tenant.Id, user.Id, device.Id, time);
             return Results.Ok(new ActivatedDevice(tenant.Name, device.Id, refresh, access, expires));

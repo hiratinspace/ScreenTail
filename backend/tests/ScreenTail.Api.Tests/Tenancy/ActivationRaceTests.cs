@@ -102,6 +102,103 @@ public sealed class ActivationRaceTests(ApiFixture api) : IClassFixture<ApiFixtu
         Assert.Equal(HttpStatusCode.OK, seated.StatusCode);
     }
 
+    [Fact]
+    public async Task TheTenantIsLockedInsideTheTransactionBeforeTheSeatsAreCounted()
+    {
+        // On SQLite the transaction alone serialises writers, so the race tests above would pass without
+        // the tenant's row lock; on Postgres they would not. This pins the lock itself: an UPDATE of the
+        // tenant's row, in the activation's transaction, before the invite is claimed and the seats
+        // counted (PostgresActivationRaceTests runs the race on Postgres when one is configured).
+        var (_, invites) = await TenantAsync(seats: 2, invites: 1);
+        var recorder = new Recorder();
+        using var host = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(recorder))));
+        using var client = host.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(Activate, new ActivateDeviceRequest(invites[0].Code, "LOCKED"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var commands = recorder.Commands.ToList();
+        var locking = commands.FindIndex(c => IsTenantLock(c.Sql));
+        var claiming = commands.FindIndex(c => c.Sql.StartsWith("UPDATE \"invites\"", StringComparison.Ordinal));
+        var counting = commands.FindIndex(c => c.Sql.Contains("COUNT(*)", StringComparison.Ordinal) && c.Sql.Contains("FROM \"devices\"", StringComparison.Ordinal));
+        Assert.True(locking >= 0, "no UPDATE of the tenant's row");
+        Assert.True(locking < claiming && claiming < counting, $"lock {locking}, claim {claiming}, count {counting}");
+        Assert.NotNull(commands[locking].Transaction);
+        Assert.Same(commands[locking].Transaction, commands[claiming].Transaction);
+        Assert.Same(commands[locking].Transaction, commands[counting].Transaction);
+    }
+
+    [Fact]
+    public async Task OffboardingLocksTheTenantFirstInTheOrderActivationDoes()
+    {
+        // Activation locks the tenant's row and then writes the invite; offboarding must not hold the
+        // invites and then wait for the tenant, or the two could each wait for the other.
+        var (tenantId, _) = await TenantAsync(seats: 1, invites: 2);
+        var recorder = new Recorder();
+        using var host = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(recorder))));
+        using var scope = host.Services.CreateScope();
+
+        var gone = await Offboarding.DeleteTenantAsync(scope.ServiceProvider.GetRequiredService<ScreenTailContext>(), tenantId, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, gone.Rows);
+        var commands = recorder.Commands.ToList();
+        Assert.True(IsTenantLock(commands[0].Sql), commands[0].Sql);
+        Assert.NotNull(commands[0].Transaction);
+        Assert.All(commands, c => Assert.Same(commands[0].Transaction, c.Transaction));
+        Assert.True(commands.FindIndex(c => c.Sql.StartsWith("DELETE FROM \"invites\"", StringComparison.Ordinal)) > 0);
+    }
+
+    [Fact]
+    public async Task AnInviteThatExpiresBetweenTheReadAndTheClaimIsExpiredNotUsed()
+    {
+        var clock = new HeldClock();
+        var (_, invites) = await TenantAsync(seats: 5, invites: 1);
+        var racer = new AfterRead(
+            sql => sql.Contains("FROM \"invites\"", StringComparison.Ordinal) && sql.Contains("\"CodeHash\"", StringComparison.Ordinal),
+            () =>
+            {
+                clock.Advance(Invites.Lifetime + TimeSpan.FromMinutes(1));
+                return Task.CompletedTask;
+            },
+            waitFor: Timeout.InfiniteTimeSpan);
+        using var host = api.WithWebHostBuilder(b => b.ConfigureServices(s =>
+        {
+            clock.Install(s);
+            _ = s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(racer));
+        }));
+        using var client = host.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(Activate, new ActivateDeviceRequest(invites[0].Code, "LATE"), TestContext.Current.CancellationToken);
+
+        Assert.True(racer.Fired);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        Assert.Equal("invite_expired", body.GetProperty("error").GetString());
+        Assert.Equal(DevicesEndpoint.ExpiredCodeMessage, body.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task ATenantOffboardedBetweenTheReadAndTheLockIsAnUnknownCode()
+    {
+        var (tenantId, invites) = await TenantAsync(seats: 5, invites: 1);
+        var racer = new AfterRead(
+            sql => sql.Contains("FROM \"invites\"", StringComparison.Ordinal) && sql.Contains("\"CodeHash\"", StringComparison.Ordinal),
+            () => api.UseAsync(db => Offboarding.DeleteTenantAsync(db, tenantId)),
+            waitFor: Timeout.InfiniteTimeSpan);
+        using var host = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(racer))));
+        using var client = host.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(Activate, new ActivateDeviceRequest(invites[0].Code, "GONE"), TestContext.Current.CancellationToken);
+
+        Assert.True(racer.Fired);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invite_unknown", (await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("error").GetString());
+        Assert.Equal(0, await api.UseAsync(db => db.Devices.CountAsync(d => d.TenantId == tenantId)));
+    }
+
+    private static bool IsTenantLock(string sql) =>
+        sql.StartsWith("UPDATE \"tenants\"", StringComparison.Ordinal) && sql.Contains("\"Seats\"", StringComparison.Ordinal);
+
     private async Task<(Guid TenantId, IReadOnlyList<IssuedInvite> Invites)> TenantAsync(int seats, int invites)
     {
         var tenantId = Guid.NewGuid();
@@ -120,12 +217,42 @@ public sealed class ActivationRaceTests(ApiFixture api) : IClassFixture<ApiFixtu
         return (tenantId, issued);
     }
 
+    /// <summary>Every command the context sends, with the transaction it ran in, in order.</summary>
+    private sealed class Recorder : DbCommandInterceptor
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<(string Sql, DbTransaction? Transaction)> Commands { get; } = new();
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            Record(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            Record(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<object> result, CancellationToken cancellationToken = default)
+        {
+            Record(command);
+            return base.ScalarExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private void Record(DbCommand command)
+        {
+            ArgumentNullException.ThrowIfNull(command);
+            Commands.Enqueue((command.CommandText.TrimStart(), command.Transaction));
+        }
+    }
+
     /// <summary>
     /// Once, right after the first command whose SQL matches has run, starts <paramref name="rival"/> and
     /// waits for it (or for <paramref name="waitFor"/>, whichever is first) before the request under test
     /// goes on.
     /// </summary>
-    private sealed class AfterRead(Func<string, bool> matches, Func<Task> rival, TimeSpan waitFor) : DbCommandInterceptor
+    internal sealed class AfterRead(Func<string, bool> matches, Func<Task> rival, TimeSpan waitFor) : DbCommandInterceptor
     {
         private int _fired;
 

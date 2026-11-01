@@ -623,6 +623,10 @@ jobs:
       - name: Build (warnings are errors)
         run: dotnet build ScreenTail.Backend.sln -c Release --no-restore
       - name: Test
+        # The suite runs on SQLite; PostgresActivationRaceTests also needs the job's Postgres, where it
+        # makes and drops a database of its own (ST-010, the activation race). On CI it fails without this.
+        env:
+          SCREENTAIL_TEST_POSTGRES: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=ci-only-not-a-secret
         run: dotnet test ScreenTail.Backend.sln -c Release --no-build
 
       # The migrations are what a deployment actually runs, and they are generated code: a model change
