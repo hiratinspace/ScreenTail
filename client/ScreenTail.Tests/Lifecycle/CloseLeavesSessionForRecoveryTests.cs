@@ -78,8 +78,9 @@ public sealed class CloseLeavesSessionForRecoveryTests : IAsyncDisposable
         await Task.Delay(100, ct);
         var requests = new CloseRequests(stopping.Cancel, stopped.Task);
         Assert.True(CloseRequests.MayEnd(CloseRequest.FromEndSession(0x1)));
-        var outcome = await Task.Factory.StartNew(() => requests.Ended(ending: true, CloseRequest.FromEndSession(0x1)), ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        await host;
+        var outcome = await Task.Factory.StartNew(() => requests.Ended(ending: true, CloseRequest.FromEndSession(0x1)), ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+            .WaitAsync(TimeSpan.FromSeconds(10), ct);
+        await host.WaitAsync(TimeSpan.FromSeconds(10), ct);
 
         Assert.Equal(CloseOutcome.Stopped, outcome);
         Assert.Equal(["capture", "machine", "store"], order);

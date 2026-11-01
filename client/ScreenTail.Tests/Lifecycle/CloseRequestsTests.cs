@@ -87,7 +87,7 @@ public sealed class CloseRequestsTests
     }
 
     [Fact]
-    public void TheWaitIsBoundedWhenTheProcessDoesNotStopInTime()
+    public async Task TheWaitIsBoundedWhenTheProcessDoesNotStopInTime()
     {
         var stops = 0;
         var ranOut = 0;
@@ -95,8 +95,14 @@ public sealed class CloseRequestsTests
         var requests = new CloseRequests(() => stops++, new TaskCompletionSource().Task, budget);
         requests.WaitRanOut += _ => ranOut++;
 
+        // On a thread of its own and watched from outside, so a wait that is not bounded fails here rather
+        // than hanging the suite.
         var watch = Stopwatch.StartNew();
-        var outcome = requests.Ended(ending: true, new CloseRequest(CloseKind.SignOut, Critical: false));
+        var outcome = await Task.Factory.StartNew(
+            () => requests.Ended(ending: true, new CloseRequest(CloseKind.SignOut, Critical: false)),
+            TestContext.Current.CancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         watch.Stop();
 
         Assert.Equal(CloseOutcome.StillStopping, outcome);
@@ -148,7 +154,7 @@ public sealed class CloseRequestsTests
     }
 
     [Fact]
-    public void NothingThrowsIntoTheWindowProcedure()
+    public async Task NothingThrowsIntoTheWindowProcedure()
     {
         // A stop that throws (the host already disposed), a failed stop, and listeners that throw.
         var stopped = new TaskCompletionSource();
@@ -163,6 +169,6 @@ public sealed class CloseRequestsTests
 
         var never = new CloseRequests(() => { }, new TaskCompletionSource().Task, TimeSpan.FromMilliseconds(50));
         never.WaitRanOut += _ => throw new IOException("log closed");
-        Assert.Equal(CloseOutcome.StillStopping, never.Ended(ending: true, RestartManager));
+        Assert.Equal(CloseOutcome.StillStopping, await Task.Run(() => never.Ended(ending: true, RestartManager), TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
     }
 }
