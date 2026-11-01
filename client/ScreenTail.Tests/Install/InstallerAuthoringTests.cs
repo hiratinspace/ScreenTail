@@ -254,7 +254,13 @@ public sealed class InstallerAuthoringTests
         Assert.Contains("InstalledFiles(installDirectory)", call, StringComparison.Ordinal);
         Assert.Contains("FileHolders.Of", call, StringComparison.Ordinal);
         Assert.Contains("Environment.ProcessId", call, StringComparison.Ordinal);
-        Assert.Contains("ProgramFilesRelease.Budget", call, StringComparison.Ordinal);
+        Assert.Contains("ProgramFilesRelease.ConfirmAfter", call, StringComparison.Ordinal);
+
+        // Bounded by what is left of the step's own deadline, measured from the step's start, so the step as
+        // a whole ends inside WixQuietExec's minute.
+        Assert.Contains("ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started))", call, StringComparison.Ordinal);
+        var started = run.IndexOf("var started = TimeProvider.System.GetTimestamp();", StringComparison.Ordinal);
+        Assert.True(started > 0 && started < run.IndexOf("StopInstalledCopies(", StringComparison.Ordinal), "the step's clock starts before it stops anything");
     }
 
     /// <summary>The custom action whose command line (set, for a deferred action, by a property of its name) is the uninstall mode.</summary>

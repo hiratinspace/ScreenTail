@@ -35,9 +35,10 @@ namespace ScreenTail.Service.Install;
 /// prints is counts, never a path or a name (INV-10). A failure for one user is counted and the next user
 /// is handled; the Run values are removed whatever happened before.
 ///
-/// Last of all it waits, for at most <see cref="ProgramFilesRelease.Budget"/>, until no other program has
-/// an installed file open, because Windows Installer deletes them as soon as this exits and leaves one
-/// still open for a restart (<see cref="ProgramFilesRelease"/>).
+/// Last of all it waits until no other program has an installed file open, two looks in a row, because
+/// Windows Installer deletes them as soon as this exits and leaves one still open for a restart. The wait
+/// gets what is left of the step's own deadline, at most <see cref="ProgramFilesRelease.Budget"/>, so the
+/// step as a whole ends inside WixQuietExec's minute (<see cref="ProgramFilesRelease"/>).
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class UninstallCleanup
@@ -79,6 +80,9 @@ internal static class UninstallCleanup
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        // WixQuietExec gives the whole step a minute; the wait at the end gets what is left of it.
+        var started = TimeProvider.System.GetTimestamp();
+
         // For the uninstaller, which runs it as the system account: holding another user's token needs
         // that account's privilege anyway. An ordinary user who found the flag gets a sentence and
         // nothing removed; "delete everything" for one person is the Settings button, which asks first.
@@ -116,8 +120,9 @@ internal static class UninstallCleanup
             Environment.ProcessId,
             TimeProvider.System,
             Thread.Sleep,
-            ProgramFilesRelease.Budget,
-            ProgramFilesRelease.PollEvery);
+            ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
+            ProgramFilesRelease.PollEvery,
+            ProgramFilesRelease.ConfirmAfter);
 
         output.WriteLine($"ScreenTail uninstall: {stopped} running copies stopped.");
         output.WriteLine(

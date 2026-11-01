@@ -6,7 +6,7 @@ namespace ScreenTail.Tests.Install;
 /// The uninstall step's wait for other programs to let go of the installed files (ST-112). The step runs
 /// straight before Windows Installer deletes them, and a file another program still has open is one
 /// Windows Installer leaves for a restart, ending the uninstall with 3010. The clock here moves only when
-/// the wait sleeps, so every duration below is exact.
+/// the wait sleeps (or a test moves it while answering), so every duration below is exact.
 /// </summary>
 public sealed class ProgramFilesReleaseTests
 {
@@ -14,13 +14,14 @@ public sealed class ProgramFilesReleaseTests
     private const long Scanner = 200;
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan Confirm = TimeSpan.FromMilliseconds(250);
     private static readonly string[] Files = [@"C:\Program Files\ScreenTail\ScreenTail.Service.exe", @"C:\Program Files\ScreenTail\ScreenTail.UI.exe"];
 
     private readonly ManualTime _time = new(new DateTimeOffset(2026, 11, 1, 3, 20, 0, TimeSpan.Zero));
     private readonly List<TimeSpan> _sleeps = [];
 
-    private ProgramFilesRelease.Outcome Wait(Func<string, IReadOnlyCollection<long>?> holders) =>
-        ProgramFilesRelease.WaitForOthers(Files, holders, Self, _time, Sleep, Budget, Poll);
+    private ProgramFilesRelease.Outcome Wait(Func<string, IReadOnlyCollection<long>?> holders, TimeSpan? budget = null) =>
+        ProgramFilesRelease.WaitForOthers(Files, holders, Self, _time, Sleep, budget ?? Budget, Poll, Confirm);
 
     private void Sleep(TimeSpan by)
     {
@@ -30,21 +31,50 @@ public sealed class ProgramFilesReleaseTests
 
     private TimeSpan Elapsed(DateTimeOffset since) => _time.GetUtcNow() - since;
 
+    private static bool IsService(string file) => file.EndsWith("Service.exe", StringComparison.Ordinal);
+
     [Fact]
-    public void NothingHeldMeansNoWaitAtAll()
+    public void NothingHeldIsLookedAtTwiceAndIsNoWait()
     {
         var outcome = Wait(_ => []);
 
         Assert.Equal(TimeSpan.Zero, outcome.Waited);
         Assert.Equal(0, outcome.StillHeld);
-        Assert.Empty(_sleeps);
+        Assert.Equal([Confirm], _sleeps);
+    }
+
+    [Fact]
+    public void AMonitorThatOpensTheFileJustAfterACleanLookIsSeenByTheSecond()
+    {
+        // The window the first version left open: it exited on the first clean look, so a monitor that
+        // opened the executable a moment later was never seen and still had it when Windows Installer
+        // came to delete it. Here it opens 100 ms after the first look and holds it for a second.
+        var start = _time.GetUtcNow();
+        var asked = new List<TimeSpan>();
+        IReadOnlyCollection<long> Holders(string file)
+        {
+            var at = Elapsed(start);
+            if (IsService(file))
+            {
+                asked.Add(at);
+            }
+
+            return IsService(file) && at >= TimeSpan.FromMilliseconds(100) && at < TimeSpan.FromMilliseconds(1_100) ? [Self, Scanner] : [Self];
+        }
+
+        var outcome = Wait(Holders);
+
+        Assert.Equal(0, outcome.StillHeld);
+        Assert.Equal(TimeSpan.FromMilliseconds(250), asked[1]);
+        // Held from the second look to 1100 ms, then two clean looks 250 ms apart.
+        Assert.Equal(TimeSpan.FromMilliseconds(1_350), outcome.Waited);
     }
 
     [Fact]
     public void AskingIsNotWaiting()
     {
-        // Asking Windows about every installed file takes tens of milliseconds on a real machine. When the
-        // first answer is that nobody else has them, the step waited for nobody and says so.
+        // Asking Windows about every installed file takes tens of milliseconds on a real machine. When no
+        // look finds anybody else, the step waited for nobody and says so.
         var outcome = Wait(_ =>
         {
             _time.Advance(TimeSpan.FromMilliseconds(3));
@@ -60,7 +90,7 @@ public sealed class ProgramFilesReleaseTests
     {
         // The step runs from ScreenTail.Service.exe, so that file always lists this process. Its hold ends
         // when it exits, before Windows Installer moves on; waiting for it would always spend the budget.
-        var outcome = Wait(file => file.EndsWith("Service.exe", StringComparison.Ordinal) ? [Self] : []);
+        var outcome = Wait(file => IsService(file) ? [Self] : []);
 
         Assert.Equal(TimeSpan.Zero, outcome.Waited);
         Assert.Equal(0, outcome.StillHeld);
@@ -69,27 +99,27 @@ public sealed class ProgramFilesReleaseTests
     [Fact]
     public void AnotherProgramReadingTheExecutableIsWaitedForUntilItLetsGo()
     {
-        // What GitHub's runner monitor did on 2026-11-01: it read the 131 MB executable for about a
-        // second, and the step exited while it still had it open.
+        // What GitHub's runner monitor did on 2026-11-01: it had the 131 MB executable open for about four
+        // seconds, and the step exited while it still had it.
         var start = _time.GetUtcNow();
-        var outcome = Wait(file => file.EndsWith("Service.exe", StringComparison.Ordinal) && Elapsed(start) < TimeSpan.FromMilliseconds(1_000) ? [Self, Scanner] : [Self]);
+        var outcome = Wait(file => IsService(file) && Elapsed(start) < TimeSpan.FromSeconds(4) ? [Self, Scanner] : [Self]);
 
         Assert.Equal(0, outcome.StillHeld);
-        Assert.Equal(TimeSpan.FromMilliseconds(1_000), outcome.Waited);
-        Assert.All(_sleeps, s => Assert.Equal(Poll, s));
+        Assert.Equal(TimeSpan.FromMilliseconds(4_250), outcome.Waited);
+        Assert.All(_sleeps.SkipLast(1), s => Assert.Equal(Poll, s));
+        Assert.Equal(Confirm, _sleeps[^1]);
     }
 
     [Fact]
     public void AFileOpenedAgainAfterBeingLetGoIsWaitedForAgain()
     {
-        // Every file is asked on every round: a scanner that lets go of the service and then opens the UI,
+        // Every file is asked on every look: a scanner that lets go of the service and then opens the UI,
         // or the service again, has not finished.
         var start = _time.GetUtcNow();
         IReadOnlyCollection<long> Holders(string file)
         {
             var at = Elapsed(start);
-            var service = file.EndsWith("Service.exe", StringComparison.Ordinal);
-            return (service && at < TimeSpan.FromMilliseconds(200)) || (!service && at >= TimeSpan.FromMilliseconds(200) && at < TimeSpan.FromMilliseconds(500))
+            return (IsService(file) && at < TimeSpan.FromMilliseconds(200)) || (!IsService(file) && at >= TimeSpan.FromMilliseconds(200) && at < TimeSpan.FromMilliseconds(500))
                 ? [Scanner]
                 : [];
         }
@@ -97,7 +127,7 @@ public sealed class ProgramFilesReleaseTests
         var outcome = Wait(Holders);
 
         Assert.Equal(0, outcome.StillHeld);
-        Assert.Equal(TimeSpan.FromMilliseconds(500), outcome.Waited);
+        Assert.Equal(TimeSpan.FromMilliseconds(750), outcome.Waited);
     }
 
     [Fact]
@@ -115,10 +145,30 @@ public sealed class ProgramFilesReleaseTests
     [Fact]
     public void TheLastSleepStopsAtTheBudget()
     {
-        var outcome = ProgramFilesRelease.WaitForOthers(Files, _ => [Scanner], Self, _time, Sleep, TimeSpan.FromMilliseconds(120), Poll);
+        var outcome = Wait(_ => [Scanner], TimeSpan.FromMilliseconds(120));
 
         Assert.Equal(TimeSpan.FromMilliseconds(120), outcome.Waited);
         Assert.Equal([Poll, Poll, TimeSpan.FromMilliseconds(20)], _sleeps);
+    }
+
+    [Fact]
+    public void TheSecondLookStaysInsideTheBudget()
+    {
+        var outcome = Wait(_ => [], TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(0, outcome.StillHeld);
+        Assert.Equal([TimeSpan.FromMilliseconds(100)], _sleeps);
+    }
+
+    [Fact]
+    public void WithNoBudgetLeftItLooksOnceAndReturns()
+    {
+        // The step already used its minute's share stopping copies and removing data: say what is held,
+        // and get out of Windows Installer's way.
+        var outcome = Wait(_ => [Scanner], TimeSpan.Zero);
+
+        Assert.Equal(Files.Length, outcome.StillHeld);
+        Assert.Empty(_sleeps);
     }
 
     [Fact]
@@ -132,11 +182,19 @@ public sealed class ProgramFilesReleaseTests
     }
 
     [Fact]
-    public void TheBudgetFitsInsideWixQuietExecsMinute()
+    public void TheWaitGetsWhatIsLeftOfTheStepsMinute()
     {
-        // WixQuietExec waits a minute for the step, which also stops running copies (up to ten seconds
-        // each) and removes every profile's data before this.
+        // WixQuietExec waits a minute for the step, then lets Windows Installer carry on with the step's
+        // executable still mapped, which is 3010 too. Stopping copies (up to ten seconds each) and removing
+        // every profile's data come first; the wait gets what is left before the step's deadline.
+        Assert.Equal(ProgramFilesRelease.Budget, ProgramFilesRelease.BudgetLeft(TimeSpan.Zero));
+        Assert.Equal(ProgramFilesRelease.Budget, ProgramFilesRelease.BudgetLeft(ProgramFilesRelease.StepDeadline - ProgramFilesRelease.Budget));
+        Assert.Equal(TimeSpan.FromSeconds(5), ProgramFilesRelease.BudgetLeft(ProgramFilesRelease.StepDeadline - TimeSpan.FromSeconds(5)));
+        Assert.Equal(TimeSpan.Zero, ProgramFilesRelease.BudgetLeft(ProgramFilesRelease.StepDeadline));
+        Assert.Equal(TimeSpan.Zero, ProgramFilesRelease.BudgetLeft(TimeSpan.FromMinutes(2)));
+
+        Assert.True(ProgramFilesRelease.StepDeadline + TimeSpan.FromSeconds(10) <= TimeSpan.FromMinutes(1), "the deadline leaves room inside WixQuietExec's minute");
         Assert.InRange(ProgramFilesRelease.Budget, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(20));
-        Assert.True(ProgramFilesRelease.PollEvery < TimeSpan.FromMilliseconds(250));
+        Assert.True(ProgramFilesRelease.PollEvery < ProgramFilesRelease.ConfirmAfter);
     }
 }

@@ -61,17 +61,22 @@ public sealed class FileHoldersTests : IDisposable
         var opened = Path.Combine(_folder, "opened");
 
         // Read access, read sharing only: no delete sharing, as the runner's monitor opened it. It holds
-        // the file for a second and a half after saying it has it.
-        using var reader = Process.Start(new ProcessStartInfo(PowerShell)
+        // the file for a second and a half after saying it has it. The paths reach it through its
+        // environment rather than spliced into the command, so no character in a temp path (an apostrophe
+        // in a user name) can change what the command says.
+        var start = new ProcessStartInfo(PowerShell)
         {
             ArgumentList =
             {
                 "-NoProfile", "-NonInteractive", "-Command",
-                $"$f = [IO.File]::Open('{path}', 'Open', 'Read', 'Read'); [IO.File]::WriteAllText('{opened}', 'yes'); Start-Sleep -Milliseconds 1500; $f.Dispose()",
+                "$f = [IO.File]::Open($env:ST_HOLD_PATH, 'Open', 'Read', 'Read'); [IO.File]::WriteAllText($env:ST_HOLD_OPENED, 'yes'); Start-Sleep -Milliseconds 1500; $f.Dispose()",
             },
             UseShellExecute = false,
             CreateNoWindow = true,
-        })!;
+        };
+        start.Environment["ST_HOLD_PATH"] = path;
+        start.Environment["ST_HOLD_OPENED"] = opened;
+        using var reader = Process.Start(start)!;
         try
         {
             var deadline = Stopwatch.StartNew();
@@ -94,7 +99,8 @@ public sealed class FileHoldersTests : IDisposable
                 TimeProvider.System,
                 Thread.Sleep,
                 ProgramFilesRelease.Budget,
-                ProgramFilesRelease.PollEvery);
+                ProgramFilesRelease.PollEvery,
+                ProgramFilesRelease.ConfirmAfter);
 
             Assert.Equal(0, outcome.StillHeld);
             Assert.True(outcome.Waited > TimeSpan.Zero, "the wait saw the other process holding the file");
@@ -110,6 +116,8 @@ public sealed class FileHoldersTests : IDisposable
             {
                 reader.Kill();
             }
+
+            reader.WaitForExit();
         }
     }
 }
