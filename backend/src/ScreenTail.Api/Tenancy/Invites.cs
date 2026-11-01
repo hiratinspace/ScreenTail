@@ -83,7 +83,8 @@ public static class Invites
     /// <summary>
     /// A new code, grouped. <see cref="RandomNumberGenerator.GetString"/> picks each character uniformly:
     /// it rejects the random values past the largest multiple of 31 rather than folding them back with a
-    /// remainder, which made the first eight letters of the alphabet one ninth likelier than the rest.
+    /// remainder, which made the first eight letters of the alphabet one eighth likelier than the rest
+    /// (9/256 against 8/256).
     /// </summary>
     internal static string NewCode() => Format(RandomNumberGenerator.GetString(Alphabet, CodeLength));
 

@@ -44,10 +44,11 @@ public sealed partial class InviteGuessingTests(ApiFixture api) : IClassFixture<
     [Fact]
     public void EveryCharacterOfTheAlphabetIsEquallyLikely()
     {
-        // A byte taken modulo 31 makes the first eight characters one ninth likelier than the other
-        // twenty-three (256 = 8 x 31 + 8), which is how codes were drawn before. 400,000 characters put
-        // each count about 12,900, with a standard deviation near 112: five per cent either way is more
-        // than five deviations, and the old bias (+9 per cent) is well outside it.
+        // A byte taken modulo 31 makes the first eight characters one eighth likelier than the other
+        // twenty-three (9/256 against 8/256, as 256 = 8 x 31 + 8), which is how codes were drawn before.
+        // 400,000 characters put each count about 12,900, with a standard deviation near 112: five per
+        // cent either way is more than five deviations, and the old bias (9 per cent above an even
+        // share for those eight) is well outside it.
         var counts = new Dictionary<char, int>();
         for (var i = 0; i < 20_000; i++)
         {
@@ -235,8 +236,9 @@ public sealed partial class InviteGuessingTests(ApiFixture api) : IClassFixture<
 
         var (level, message, values) = Assert.Single(log.Entries);
         Assert.Equal(LogLevel.Warning, level);
-        Assert.StartsWith("3 device activations were refused for their invite code within 10 minutes", message, StringComparison.Ordinal);
-        Assert.Equal(["Refused", "WindowMinutes", "{OriginalFormat}"], values.Select(v => v.Key));
+        Assert.StartsWith("3 device activations were refused for their invite code within 600 seconds", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("bits", message, StringComparison.Ordinal);
+        Assert.Equal(["Refused", "WindowSeconds", "{OriginalFormat}"], values.Select(v => v.Key));
 
         // A new window counts from nothing and may warn again.
         clock.Advance(TimeSpan.FromMinutes(1));
@@ -256,6 +258,25 @@ public sealed partial class InviteGuessingTests(ApiFixture api) : IClassFixture<
     public void AWatchThatWouldWarnAboutNothingOrNeverIsRefusedAtStartup(int warnAt, int minutes)
     {
         var options = new ActivationWatchOptions { WarnAt = warnAt, Window = TimeSpan.FromMinutes(minutes) };
+        _ = Assert.Throws<InvalidOperationException>(options.Validate);
+    }
+
+    [Fact]
+    public void TheWarningGivesTheWindowExactlyAsConfigured()
+    {
+        // A 90-second window once read "2 minutes".
+        var log = new Written();
+        var watch = new ActivationWatch(new ActivationWatchOptions { WarnAt = 1, Window = TimeSpan.FromSeconds(90) }, new HeldClock(), log);
+
+        watch.Refused();
+
+        Assert.Contains("within 90 seconds", Assert.Single(log.Entries).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AWindowThatIsNotWholeSecondsIsRefusedAtStartup()
+    {
+        var options = new ActivationWatchOptions { Window = TimeSpan.FromMilliseconds(90_500) };
         _ = Assert.Throws<InvalidOperationException>(options.Validate);
     }
 

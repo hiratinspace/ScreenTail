@@ -23,9 +23,10 @@ public sealed class ActivationWatchOptions
             throw new InvalidOperationException("ActivationWatch:WarnAt must be between 1 and 1000000.");
         }
 
-        if (Window < TimeSpan.FromMinutes(1) || Window > TimeSpan.FromHours(24))
+        // Whole seconds, so the warning can say exactly how long the window is.
+        if (Window < TimeSpan.FromMinutes(1) || Window > TimeSpan.FromHours(24) || Window.Ticks % TimeSpan.TicksPerSecond != 0)
         {
-            throw new InvalidOperationException("ActivationWatch:Window must be between 1 minute and 24 hours.");
+            throw new InvalidOperationException("ActivationWatch:Window must be a whole number of seconds between 1 minute and 24 hours.");
         }
     }
 }
@@ -91,10 +92,12 @@ public sealed partial class ActivationWatch(ActivationWatchOptions options, Time
 
         if (reached is { } count)
         {
-            Warn(_log, count, (int)Math.Round(_options.Window.TotalMinutes));
+            Warn(_log, count, (long)_options.Window.TotalSeconds);
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "{Refused} device activations were refused for their invite code within {WindowMinutes} minutes, from all addresses together: invite codes may be being guessed. Nobody is refused or slowed for this; a code has about 99 bits.")]
-    private static partial void Warn(ILogger logger, int refused, int windowMinutes);
+    // No claim about the codes' strength: until the last ten-character code has expired, some live codes
+    // are the old, weaker kind. The window in seconds, exactly as configured (a 90-second window is 90).
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Refused} device activations were refused for their invite code within {WindowSeconds} seconds, from all addresses together: invite codes may be being guessed. Nobody is refused or slowed for this.")]
+    private static partial void Warn(ILogger logger, int refused, long windowSeconds);
 }

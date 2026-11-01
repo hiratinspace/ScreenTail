@@ -29,6 +29,8 @@ public static class DevicesEndpoint
     /// <summary>The answer to any code that is not one we issued, malformed or well-formed: it names no tenant and says nothing about which.</summary>
     public const string UnknownCodeMessage = "That code is not one we issued. Check it against the invite.";
 
+    public const string UsedCodeMessage = "That code has already been used. Ask your admin for a new invite.";
+
     public static RouteGroupBuilder MapDevices(this RouteGroupBuilder group)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -46,9 +48,14 @@ public static class DevicesEndpoint
             // invites exist, and is answered with the same bytes (ADR-0009, "Guessing invite codes").
             var now = time.GetUtcNow();
             var code = Invites.Normalise(request.Code);
-            var invite = Invites.IsWellFormed(code)
-                ? await db.Invites.SingleOrDefaultAsync(i => i.CodeHash == DeviceTokens.Hash(code), ct).ConfigureAwait(false)
-                : null;
+            Invite? invite = null;
+            if (Invites.IsWellFormed(code))
+            {
+                // The function that stored the hash when the invite was made, so the two cannot drift apart.
+                var hash = Invites.Hash(code);
+                invite = await db.Invites.SingleOrDefaultAsync(i => i.CodeHash == hash, ct).ConfigureAwait(false);
+            }
+
             if (invite is null)
             {
                 watch.Refused();
@@ -59,7 +66,7 @@ public static class DevicesEndpoint
             if (invite.AcceptedAt is not null)
             {
                 watch.Refused();
-                return Results.BadRequest(new { error = "invite_used", message = "That code has already been used. Ask your admin for a new invite." });
+                return Results.BadRequest(new { error = "invite_used", message = UsedCodeMessage });
             }
 
             if (invite.ExpiresAt <= now)
@@ -74,12 +81,34 @@ public static class DevicesEndpoint
                 return Results.Json(new { error = "tenant_disabled", message = "This organisation's ScreenTail is switched off. Contact your admin." }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            // A seat is an active device (AC2). Counted now, inside the same request that adds one, so
-            // two activations racing for the last seat are settled by the database's row count rather
-            // than by a number read a moment earlier.
+            // Two activations at once must not both win. Everything from here to the commit is one
+            // transaction that starts by writing the tenant's row, which Postgres then holds locked until
+            // the commit (SQLite locks the whole database for its one writer): activations of one tenant
+            // queue here, and each counts the seats only after the one before it has committed or rolled
+            // back. Activations of different tenants do not wait for each other.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+            _ = await db.Tenants.Where(t => t.Id == tenant.Id).ExecuteUpdateAsync(set => set.SetProperty(t => t.Seats, t => t.Seats), ct).ConfigureAwait(false);
+
+            // The invite is claimed only if it is still unclaimed and unexpired when this write runs, not
+            // when it was read above: of two activations with one code exactly one changes the row, and
+            // the other is told the code has been used.
+            var claimed = await db.Invites
+                .Where(i => i.Id == invite.Id && i.AcceptedAt == null && i.ExpiresAt > now)
+                .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedAt, now), ct).ConfigureAwait(false);
+            if (claimed == 0)
+            {
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                watch.Refused();
+                return Results.BadRequest(new { error = "invite_used", message = UsedCodeMessage });
+            }
+
+            // A seat is an active device (AC2), counted under the tenant's lock, so no other activation of
+            // this tenant can add one between this count and the insert below. A refusal rolls the claim
+            // back, and the code works again once a seat is free.
             var seated = await db.Devices.CountAsync(d => d.TenantId == tenant.Id && d.RevokedAt == null, ct).ConfigureAwait(false);
             if (seated >= tenant.Seats)
             {
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
                 return Results.Json(new { error = "seat_limit", message = SeatLimitMessage }, statusCode: StatusCodes.Status409Conflict);
             }
 
@@ -102,9 +131,12 @@ public static class DevicesEndpoint
                 LastSeenAt = now,
             };
             db.Devices.Add(device);
+
+            // AcceptedAt is already written by the claim; this records which device the code went to.
             invite.AcceptedAt = now;
             invite.DeviceId = device.Id;
             _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
 
             var (access, expires) = issuer.ForDevice(tenant.Id, user.Id, device.Id, time);
             return Results.Ok(new ActivatedDevice(tenant.Name, device.Id, refresh, access, expires));
