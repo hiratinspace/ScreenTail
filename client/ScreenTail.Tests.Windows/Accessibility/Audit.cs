@@ -137,6 +137,16 @@ internal static partial class Audit
             }
         }
 
+        // A live region on an element with no automation peer (a Border, a ContentControl, a panel) is
+        // announced to nobody: the event is raised on the peer.
+        foreach (var region in Descendants(window).OfType<UIElement>().Where(e => UI.Controls.LiveRegion.GetSetting(e) != AutomationLiveSetting.Off))
+        {
+            if (UIElementAutomationPeer.CreatePeerForElement(region) is null)
+            {
+                findings.Add($"a live region on a {region.GetType().Name} has no automation peer, so no screen reader hears it");
+            }
+        }
+
         foreach (var control in Interactive(window))
         {
             if (UIElementAutomationPeer.CreatePeerForElement(control) is not { } peer)

@@ -127,13 +127,17 @@
 
                 <!-- What the service says it is doing. Its own region so a screen reader is told when it
                      changes without the whole window being re-announced (Spec §7). -->
+                <!-- The words are a TextBlock inside the badge, named and announced there: a ContentControl
+                     has no automation peer, so a name or a live region on the badge itself reached no screen
+                     reader (ST-084). -->
                 <ContentControl Grid.Column="3"
                                 Margin="0,0,0,8"
                                 VerticalAlignment="Center"
-                                Style="{StaticResource Badge.Status}"
-                                Content="{Binding Status}"
-                                AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
-                                controls:LiveRegion.Setting="Polite" />
+                                Style="{StaticResource Badge.Status}">
+                    <TextBlock Text="{Binding Status}"
+                               AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
+                               controls:LiveRegion.Setting="Polite" />
+                </ContentControl>
             </Grid>
         </Border>
 

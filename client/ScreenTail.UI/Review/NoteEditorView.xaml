@@ -32,7 +32,9 @@
         <controls:Repeater Grid.Row="1" Margin="20,0,20,4" ItemsSource="{Binding Banners}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border Margin="0,0,0,8" controls:LiveRegion.Setting="Polite">
+                    <!-- Announced from its words below: a Border has no automation peer, so a live region on it
+                         reached no screen reader (ST-084). -->
+                    <Border Margin="0,0,0,8">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource Banner.Info}">
                                 <Style.Triggers>
@@ -62,7 +64,8 @@
                                            Text="{Binding Kind}" />
                                 <TextBlock Style="{StaticResource Text.Body}"
                                            TextWrapping="Wrap"
-                                           Text="{Binding Text}" />
+                                           Text="{Binding Text}"
+                                           controls:LiveRegion.Setting="Polite" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -163,7 +166,7 @@
                                     <TextBox Style="{StaticResource Input.Multiline}"
                                              PreviewKeyDown="OnStepKeyDown"
                                              Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
-                                             AutomationProperties.Name="Step text" />
+                                             AutomationProperties.Name="{Binding Place}" />
 
                                     <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
                                         <!-- Glyph, word and rule: readable with no colour at all (Spec §7). -->

@@ -17,7 +17,6 @@ public partial class ShortcutSheet : Window
     public ShortcutSheet()
     {
         InitializeComponent();
-        DataContext = Groups;
     }
 
     /// <summary>One line of the sheet: the keys, and what they do.</summary>
@@ -61,6 +60,12 @@ public partial class ShortcutSheet : Window
             new("B", "Blur a region of an enlarged screenshot"),
         ]),
     ];
+
+    /// <summary>The sheet's left column: where you are anywhere, during a session, and in Review.</summary>
+    public static IReadOnlyList<Group> LeftColumn { get; } = [.. Groups.Take(3)];
+
+    /// <summary>The right column: inside a step and in the screenshots.</summary>
+    public static IReadOnlyList<Group> RightColumn { get; } = [.. Groups.Skip(3)];
 
     /// <summary>
     /// Whether <c>?</c> typed with focus on <paramref name="focused"/> means the sheet. In a text box, a
