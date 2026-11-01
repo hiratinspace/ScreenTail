@@ -94,6 +94,11 @@ internal sealed class ServiceRig : IAsyncDisposable
 
     private WindowsForegroundWatcher? _foreground;
 
+    /// <summary>Whether the focus hook is in right now. Out with no session (ST-031, FocusInterest).</summary>
+    public bool FocusHooked => _focus?.Hooked ?? false;
+
+    private WindowsFocusWatcher? _focus;
+
     /// <summary>The focus watcher's pump thread, likewise.</summary>
     public uint FocusPumpThread { get; private set; }
 
@@ -196,6 +201,7 @@ internal sealed class ServiceRig : IAsyncDisposable
         focus.FocusMoved += password.FocusMoved;
         await focus.StartAsync(ct);
         FocusPumpThread = focus.PumpThreadId;
+        _focus = focus;
         _ownedSync.Add(new FocusInterest(Machine, focus.Listen));
         _running.Add(password.RunAsync(stopping));
 
