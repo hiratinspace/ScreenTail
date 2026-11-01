@@ -31,7 +31,8 @@ public sealed class CardWatchTests
             var scroller = new ScrollViewer { Height = 200, Content = new StackPanel { Children = { card, new Border { Height = 2000 } } } };
             var window = new Window { Width = 300, Height = 260, Content = scroller, ShowInTaskbar = false, ShowActivated = false, Left = 0, Top = 0 };
             var front = true;
-            var watch = new CardWatch(card, said.Add) { InFront = _ => front };
+            var locked = false;
+            var watch = new CardWatch(card, said.Add) { InFront = _ => front, DesktopLocked = () => locked };
             try
             {
                 window.Show();
@@ -81,8 +82,25 @@ public sealed class CardWatchTests
 
                 watch.PowerChanged(PowerModes.Suspend);
                 Assert.False(watch.Watched, "asleep");
+                watch.WindowActivated();
+                Assert.False(watch.Watched, "activated while asleep");
                 watch.PowerChanged(PowerModes.Resume);
                 Assert.True(watch.Watched, "awake");
+
+                // An activation behind the lock screen keeps it off, whatever Windows' lock read says.
+                watch.SessionSwitched(SessionSwitchReason.SessionLock);
+                watch.WindowActivated();
+                Assert.False(watch.Watched, "activated while locked");
+                watch.SessionSwitched(SessionSwitchReason.SessionUnlock);
+                Assert.True(watch.Watched, "unlocked");
+
+                // A lock whose event never came is read from Windows when the window is activated.
+                locked = true;
+                watch.WindowActivated();
+                Assert.False(watch.Watched, "activated and Windows says locked");
+                locked = false;
+                watch.SessionSwitched(SessionSwitchReason.SessionUnlock);
+                Assert.True(watch.Watched);
 
                 window.Hide();
                 await Settle();
@@ -103,6 +121,35 @@ public sealed class CardWatchTests
 
             // Told once per change, never twice in a row the same.
             Assert.All(said.Zip(said.Skip(1)), pair => Assert.NotEqual(pair.First, pair.Second));
+        });
+    }
+
+    [Fact]
+    public void ACardThatLoadsWhileTheDesktopIsLockedStaysOffUntilUnlocked()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        OnUiThread(async () =>
+        {
+            var card = new Border { Height = 100 };
+            var window = new Window { Width = 300, Height = 260, Content = card, ShowInTaskbar = false, ShowActivated = false, Left = 0, Top = 0 };
+            var watch = new CardWatch(card, _ => { }) { InFront = _ => true, DesktopLocked = () => true };
+            try
+            {
+                window.Show();
+                await Settle();
+                Assert.False(watch.Watched, "loaded behind the lock screen");
+
+                watch.WindowActivated();
+                Assert.False(watch.Watched, "activated behind the lock screen");
+
+                watch.SessionSwitched(SessionSwitchReason.SessionUnlock);
+                Assert.True(watch.Watched, "unlocked");
+            }
+            finally
+            {
+                window.Close();
+                await Settle();
+            }
         });
     }
 

@@ -1,7 +1,9 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Microsoft.Win32;
+using ScreenTail.Core.Settings;
 
 namespace ScreenTail.UI.Settings.Capture;
 
@@ -14,7 +16,9 @@ namespace ScreenTail.UI.Settings.Capture;
 /// disconnected or asleep). The last needs Windows' own events: locking with Win+L, a fast user switch, a
 /// Remote Desktop disconnect or a sleep may leave the window looking active to WPF, and the microphone
 /// must not stay open behind a lock screen. Those events are process-wide and hold whatever subscribes,
-/// so they are taken while the card is loaded and given back when it unloads.
+/// so they are taken while the card is loaded and given back when it unloads. Whether the desktop is
+/// locked when the card loads, and again whenever its window is activated, is read from Windows itself;
+/// only an unlock, a sign-in or a resume brings the card back (<see cref="DesktopPresence"/>).
 /// </summary>
 internal sealed class CardWatch
 {
@@ -22,8 +26,7 @@ internal sealed class CardWatch
     private readonly Action<bool> _watched;
     private Window? _window;
     private ScrollViewer? _scroller;
-    private bool _locked;
-    private bool _asleep;
+    private DesktopPresence _presence = new(lockedAtStart: false);
 
     /// <param name="watched">Told each time the answer changes, on the card's thread.</param>
     public CardWatch(FrameworkElement card, Action<bool> watched)
@@ -48,25 +51,24 @@ internal sealed class CardWatch
     /// <summary>How "in front" is read. The window's own <see cref="Window.IsActive"/>; a test that cannot activate a window passes its own.</summary>
     public Func<Window, bool> InFront { get; set; } = static window => window.IsActive;
 
+    /// <summary>Whether Windows' input desktop is locked right now. Read from Windows; a test passes its own.</summary>
+    public Func<bool> DesktopLocked { get; set; } = InputDesktopLocked;
+
     /// <summary>Looks again, for a change no event announced (a test's <see cref="InFront"/>).</summary>
     public void Recheck() => Tell(LookedAt());
 
     /// <summary>Windows said the desktop changed hands: locked or unlocked, switched, connected or disconnected.</summary>
     public void SessionSwitched(SessionSwitchReason reason)
     {
-        switch (reason)
+        _presence.Switched(reason switch
         {
-            case SessionSwitchReason.SessionLock or SessionSwitchReason.ConsoleDisconnect or SessionSwitchReason.RemoteDisconnect or SessionSwitchReason.SessionLogoff:
-                _locked = true;
-                break;
-            case SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon:
-                _locked = false;
-                break;
-            default:
-                // A connect may land on the lock screen; the unlock that follows says the technician is back.
-                return;
-        }
-
+            SessionSwitchReason.SessionLock => DesktopSwitch.Locked,
+            SessionSwitchReason.SessionUnlock => DesktopSwitch.Unlocked,
+            SessionSwitchReason.ConsoleDisconnect or SessionSwitchReason.RemoteDisconnect => DesktopSwitch.Disconnected,
+            SessionSwitchReason.SessionLogoff => DesktopSwitch.LoggedOff,
+            SessionSwitchReason.SessionLogon => DesktopSwitch.LoggedOn,
+            _ => DesktopSwitch.Connected,
+        });
         Recheck();
     }
 
@@ -76,10 +78,10 @@ internal sealed class CardWatch
         switch (mode)
         {
             case PowerModes.Suspend:
-                _asleep = true;
+                _presence.Suspended();
                 break;
             case PowerModes.Resume:
-                _asleep = false;
+                _presence.Resumed();
                 break;
             default:
                 return;
@@ -88,8 +90,21 @@ internal sealed class CardWatch
         Recheck();
     }
 
+    /// <summary>
+    /// The window came to the front. That proves nothing about the desktop (a window can be activated
+    /// behind the lock screen), so it only reads the lock state from Windows, which can keep the card off
+    /// but never brings it back.
+    /// </summary>
+    public void WindowActivated()
+    {
+        _presence.WindowActivated(DesktopLocked());
+        Recheck();
+    }
+
     private void Attach()
     {
+        // The events may have come while the card was not loaded: start from what Windows says now.
+        _presence = new DesktopPresence(DesktopLocked());
         _window = Window.GetWindow(_card);
         if (_window is not null)
         {
@@ -147,13 +162,7 @@ internal sealed class CardWatch
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e) => _ = _card.Dispatcher.BeginInvoke(() => PowerChanged(e.Mode));
 
-    private void Activated(object? sender, EventArgs e)
-    {
-        // The technician brought the window to the front, so they are at this desktop and awake.
-        _locked = false;
-        _asleep = false;
-        Recheck();
-    }
+    private void Activated(object? sender, EventArgs e) => WindowActivated();
 
     private void Changed(object? sender, EventArgs e) => Recheck();
 
@@ -161,7 +170,7 @@ internal sealed class CardWatch
 
     private bool LookedAt()
     {
-        if (_locked || _asleep || !_card.IsLoaded || !_card.IsVisible
+        if (_presence.Away || !_card.IsLoaded || !_card.IsVisible
             || _window is not { IsVisible: true } window || window.WindowState == WindowState.Minimized || !InFront(window))
         {
             return false;
@@ -194,6 +203,42 @@ internal sealed class CardWatch
         Watched = watched;
         _watched(watched);
     }
+
+    /// <summary>
+    /// Locked, or any desktop that is not the technician's: the input desktop cannot be opened, or cannot
+    /// be switched to, when the secure desktop (the lock screen, a sign-in, a UAC prompt) has the input.
+    /// A failure to ask reads as locked, so the meter stays off rather than guessing.
+    /// </summary>
+    private static bool InputDesktopLocked()
+    {
+        var desktop = OpenInputDesktop(0, false, DesktopSwitchDesktop);
+        if (desktop == IntPtr.Zero)
+        {
+            return true;
+        }
+
+        try
+        {
+            return !SwitchDesktop(desktop);
+        }
+        finally
+        {
+            _ = CloseDesktop(desktop);
+        }
+    }
+
+    private const uint DesktopSwitchDesktop = 0x0100;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenInputDesktop(uint flags, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint desiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SwitchDesktop(IntPtr desktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseDesktop(IntPtr desktop);
 
     private static T? Ancestor<T>(DependencyObject start)
         where T : DependencyObject
