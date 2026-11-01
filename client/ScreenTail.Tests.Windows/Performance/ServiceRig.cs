@@ -86,6 +86,12 @@ internal sealed class ServiceRig : IAsyncDisposable
 
     public HookLifetime Hooks { get; private set; } = null!;
 
+    /// <summary>The foreground watcher's pump thread, so a measurement can say what it alone cost.</summary>
+    public uint ForegroundPumpThread { get; private set; }
+
+    /// <summary>The focus watcher's pump thread, likewise.</summary>
+    public uint FocusPumpThread { get; private set; }
+
     /// <summary>Frames waiting to be read or being read, so a test can let the worker finish.</summary>
     public PendingFrames Pending { get; private set; } = null!;
 
@@ -142,6 +148,7 @@ internal sealed class ServiceRig : IAsyncDisposable
         _owned.Add(foreground);
         foreground.Changed += coordinator.Observe;
         await foreground.StartAsync(ct);
+        ForegroundPumpThread = foreground.PumpThreadId;
         _running.Add(coordinator.RunAsync(stopping));
 
         var hooks = new WindowsInputHooks();
@@ -182,6 +189,7 @@ internal sealed class ServiceRig : IAsyncDisposable
         _ownedSync.Add(password);
         focus.FocusMoved += password.FocusMoved;
         await focus.StartAsync(ct);
+        FocusPumpThread = focus.PumpThreadId;
         _running.Add(password.RunAsync(stopping));
 
         _running.Add(Redaction.RunAsync(stopping));

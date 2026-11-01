@@ -34,6 +34,9 @@ internal sealed class WindowsFocusWatcher : IAsyncDisposable
     /// <summary>False when the hook could not be installed and only the guard's backstop poll is running.</summary>
     public bool UsingHook => _hookInstalled;
 
+    /// <summary>OS id of the pump thread, so a test can count what this watcher costs (ST-031).</summary>
+    internal uint PumpThreadId => _pumpThreadId;
+
     public Task StartAsync(CancellationToken ct = default)
     {
         if (_pump is not null)
