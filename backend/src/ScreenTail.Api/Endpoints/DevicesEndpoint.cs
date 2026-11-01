@@ -96,6 +96,10 @@ public static class DevicesEndpoint
             return Results.Ok(new ActivatedDevice(tenant.Name, device.Id, refresh, access, expires));
         })
         .WithName("ActivateDevice")
+
+        // An invite code is a guess away from a seat in somebody's tenant: counted per client address
+        // with the admin's sign-in (ADR-0009). The token exchange is not, as its secret is 256 bits.
+        .RequireRateLimiting(AnonymousRateLimit.Policy)
         .WithSummary("Activates this device with an invite's code and binds it to the tenant.");
 
         group.MapPost("/token", async (RefreshRequest request, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>

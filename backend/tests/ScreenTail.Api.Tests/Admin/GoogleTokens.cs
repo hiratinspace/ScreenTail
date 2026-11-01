@@ -115,10 +115,14 @@ internal sealed class FakeGoogleKeys : IGoogleSigningKeys
 
     public int Refreshes { get; private set; }
 
+    /// <summary>Every time a token was checked against these keys: how a test sees a request reach the verifier.</summary>
+    public int Calls { get; private set; }
+
     public Task<IReadOnlyList<SecurityKey>> GetAsync(bool refresh, CancellationToken ct)
     {
         lock (_gate)
         {
+            Calls++;
             if (Unavailable)
             {
                 throw new GoogleKeysUnavailableException();

@@ -79,6 +79,14 @@ builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningK
 builder.Services.AddSingleton<GoogleIdTokenVerifier>();
 builder.Services.AddOwnerPolicy();
 
+// ST-099 hardening. The anonymous routes (the admin's sign-in, signup and sign-out, a device's
+// activation) are counted per client address and the call past the limit is refused with 429 before
+// anything checks it. The address is the connection's: no forwarded header is trusted (ADR-0009).
+var rateLimits = builder.Configuration.GetSection(RateLimitOptions.Section).Get<RateLimitOptions>() ?? new RateLimitOptions();
+rateLimits.Validate();
+builder.Services.AddSingleton(rateLimits);
+builder.Services.AddAnonymousRateLimit(rateLimits);
+
 // ST-063. The key has no default and is read from the environment; with none set the service still
 // starts and says drafting is not configured, which is true and actionable rather than a dead deployment.
 var summarization = builder.Configuration.GetSection(SummarizationOptions.Section).Get<SummarizationOptions>()
@@ -311,6 +319,10 @@ if (!app.Environment.IsDevelopment())
 app.UseRequestStart();
 app.UseRequestTimeouts();
 app.UseAdminNoStore();
+
+// After the no-store guard, so a refusal is not kept either; before authentication, so a refused call
+// costs nothing more than the count.
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDraftingConcurrency();
@@ -340,7 +352,7 @@ _ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 // ST-099. The web admin: sign-in and signup are anonymous, everything else is an owner's, by cookie.
 // Mapped beside the device group, not inside it, so no device policy applies here and no owner policy
 // applies there.
-_ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).MapAdminSession();
+_ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).RequireRateLimiting(AnonymousRateLimit.Policy).MapAdminSession();
 _ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin();
 
 var v1 = app.MapGroup("/v1").RequireAuthorization(CallerPolicy.Name);
