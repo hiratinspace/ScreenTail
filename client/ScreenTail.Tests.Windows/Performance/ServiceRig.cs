@@ -89,6 +89,11 @@ internal sealed class ServiceRig : IAsyncDisposable
     /// <summary>The foreground watcher's pump thread, so a measurement can say what it alone cost.</summary>
     public uint ForegroundPumpThread { get; private set; }
 
+    /// <summary>The thread the foreground watcher's name hook listens to (0: every thread, or none).</summary>
+    public uint NameHookThread => _foreground?.NameHookThread ?? 0;
+
+    private WindowsForegroundWatcher? _foreground;
+
     /// <summary>The focus watcher's pump thread, likewise.</summary>
     public uint FocusPumpThread { get; private set; }
 
@@ -149,6 +154,7 @@ internal sealed class ServiceRig : IAsyncDisposable
         foreground.Changed += coordinator.Observe;
         await foreground.StartAsync(ct);
         ForegroundPumpThread = foreground.PumpThreadId;
+        _foreground = foreground;
         _running.Add(coordinator.RunAsync(stopping));
 
         var hooks = new WindowsInputHooks();
