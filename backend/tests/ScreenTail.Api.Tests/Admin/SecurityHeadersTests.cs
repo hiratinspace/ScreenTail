@@ -94,6 +94,22 @@ public sealed class SecurityHeadersTests(AdminApiFixture api) : IClassFixture<Ad
         Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("{not json", "application/json", HttpStatusCode.BadRequest)]
+    [InlineData("credential=x", "application/x-www-form-urlencoded", HttpStatusCode.UnsupportedMediaType)]
+    public async Task ABodyThatCannotBeBoundInDevelopmentIsTheCallersMistakeNotA500(string body, string contentType, HttpStatusCode expected)
+    {
+        // This host runs as Development, where minimal APIs throw a binding failure rather than answer it,
+        // as the demo laptop does: the exception handler keeps its 400 or 415, with the headers.
+        using var client = api.CreateClient(new() { HandleCookies = false });
+        using var content = new StringContent(body, Encoding.UTF8, contentType);
+
+        using var response = await client.PostAsync(new Uri("/v1/admin/session", UriKind.Relative), content, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, response.StatusCode);
+        AssertHeaders(response);
+    }
+
     [Fact]
     public async Task ARateLimitRefusalCarriesThemToo()
     {
