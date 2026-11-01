@@ -109,6 +109,7 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
         Assert.Contains("POST /v1/sessions/summarize", routes);
         Assert.Contains("GET /v1/me", routes);
         Assert.DoesNotContain(routes, r => r.Contains("/v1/devices/", StringComparison.Ordinal));
+        Assert.DoesNotContain(routes, r => r.Contains("/v1/admin/", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -248,8 +249,10 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
     private static partial Regex RouteParameter();
 
     /// <summary>
-    /// Every method and path under /v1 except the anonymous device door, with each route parameter filled
-    /// by a value that is valid wherever it appears (a provider name, a company name).
+    /// Every method and path under /v1 except the anonymous device door and the web admin, with each route
+    /// parameter filled by a value that is valid wherever it appears (a provider name, a company name).
+    /// The admin routes are an owner's, by cookie, and refuse every device: AdminAccessTests holds them
+    /// to that the same way, from the same enumeration (ST-099).
     /// </summary>
     private List<(string Method, string Path)> AuthenticatedRoutes() =>
     [
@@ -257,7 +260,8 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
             .OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText is { } raw
                 && raw.StartsWith("/v1/", StringComparison.Ordinal)
-                && !raw.StartsWith("/v1/devices/", StringComparison.Ordinal))
+                && !raw.StartsWith("/v1/devices/", StringComparison.Ordinal)
+                && !raw.StartsWith("/v1/admin/", StringComparison.Ordinal))
             .SelectMany(e => (e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? ["GET"])
                 .Select(method => (method, RouteParameter().Replace(e.RoutePattern.RawText!, "connectwise"))))
             .Distinct()

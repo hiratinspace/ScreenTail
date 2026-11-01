@@ -35,6 +35,10 @@ time somebody forgets to set one, and nothing about the failure is visible: toke
 perfectly, and anyone who has read the source can mint one for any tenant. Keys shorter than 32 bytes are
 refused for the same reason.
 
+**Owner sign-in for the web admin is off** until `Admin__GoogleClientId` is set, and nobody can create a
+tenant until `Admin__SignupAllowlist__0` names an address. `docs/dev/web-admin.md` has the Google steps
+and every `Admin__*` key; ADR-0009 says how the session works.
+
 ## Tests
 
 `dotnet test ScreenTail.Backend.sln` runs the whole API against SQLite over the same EF model, so every

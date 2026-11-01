@@ -243,6 +243,53 @@ namespace ScreenTail.Api.Data.Migrations
                     b.ToTable("invites", (string)null);
                 });
 
+            modelBuilder.Entity("ScreenTail.Api.Data.Owner", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DisabledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("GoogleSubject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset?>("LastSignInAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SessionVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GoogleSubject")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("owners", (string)null);
+                });
+
             modelBuilder.Entity("ScreenTail.Api.Data.Policy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -411,6 +458,17 @@ namespace ScreenTail.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ScreenTail.Api.Data.Owner", b =>
+                {
+                    b.HasOne("ScreenTail.Api.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("ScreenTail.Api.Data.Policy", b =>

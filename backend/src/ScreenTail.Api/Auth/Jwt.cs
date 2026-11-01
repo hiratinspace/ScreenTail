@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 
@@ -38,6 +39,18 @@ public static class ScreenTailClaims
     public const string UserId = "uid";
 
     public const string DeviceId = "did";
+
+    /// <summary>The owner an admin session is for (ST-099). Never on a device token.</summary>
+    public const string OwnerId = "oid";
+
+    /// <summary>What an admin session may do: <see cref="AdminSession.OwnerRole"/>. Never on a device token.</summary>
+    public const string Role = "role";
+
+    /// <summary>The admin session's CSRF value, which every change must also carry in a header (ADR-0009).</summary>
+    public const string Csrf = "csrf";
+
+    /// <summary>The owner's <see cref="Data.Owner.SessionVersion"/> when the session was issued. Sign-out moves it on.</summary>
+    public const string SessionVersion = "sv";
 }
 
 /// <summary>Mints and describes access tokens (ST-008).</summary>
@@ -75,6 +88,68 @@ public sealed class TokenIssuer(JwtOptions options)
 
         return (new JwtSecurityTokenHandler().CreateEncodedJwt(descriptor), expires);
     }
+
+    /// <summary>
+    /// An admin session for a tenant's owner (ST-099, ADR-0009), carried in an HttpOnly cookie.
+    ///
+    /// Told apart from a device token four ways, any one of which is enough on its own: it is signed with
+    /// a key derived for admin sessions alone (<see cref="AdminKeyFrom"/>); its audience is
+    /// <see cref="AdminSession.Audience"/>, which the device scheme does not accept; it carries an owner
+    /// id and a role and no device id, so <see cref="CallerCheck"/> finds no device in it; and it arrives
+    /// in a cookie the device scheme never reads. The CSRF value rides inside it, so the server keeps no
+    /// session state at all.
+    /// </summary>
+    public (string Token, DateTimeOffset ExpiresAt) ForOwner(Guid tenantId, Guid ownerId, int sessionVersion, string csrf, TimeSpan lifetime, TimeProvider? time = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(csrf);
+        var now = (time ?? TimeProvider.System).GetUtcNow();
+        var expires = now + lifetime;
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = options.Issuer,
+            Audience = AdminSession.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expires.UtcDateTime,
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(JwtRegisteredClaimNames.Sub, ownerId.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(ScreenTailClaims.TenantId, tenantId.ToString()),
+                new Claim(ScreenTailClaims.OwnerId, ownerId.ToString()),
+                new Claim(ScreenTailClaims.Role, AdminSession.OwnerRole),
+                new Claim(ScreenTailClaims.Csrf, csrf),
+                new Claim(ScreenTailClaims.SessionVersion, sessionVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ]),
+            SigningCredentials = new SigningCredentials(AdminKeyFrom(options.SigningKey), SecurityAlgorithms.HmacSha256),
+        };
+
+        return (new JwtSecurityTokenHandler().CreateEncodedJwt(descriptor), expires);
+    }
+
+    /// <summary>
+    /// The device rules with the admin session's audience and the admin session's own key in place of the
+    /// devices' ones. Neither scheme can check the other's signature.
+    /// </summary>
+    public static TokenValidationParameters AdminValidation(JwtOptions options)
+    {
+        var validation = Validation(options);
+        validation.ValidAudience = AdminSession.Audience;
+        validation.IssuerSigningKey = AdminKeyFrom(options.SigningKey);
+        return validation;
+    }
+
+    /// <summary>The label the admin session's key is derived under. Changing it ends every admin session.</summary>
+    public const string AdminKeyLabel = "screentail-admin-session-key-v1";
+
+    /// <summary>
+    /// The admin session's signing key: HMAC-SHA256 of a fixed label under the configured key (ADR-0009).
+    /// One secret to configure, two keys in use, so a device token and an admin session never share a key
+    /// and a mistake that let one scheme read the other's tokens would still fail on the signature.
+    /// </summary>
+    public static SymmetricSecurityKey AdminKeyFrom(string key) =>
+        new(HMACSHA256.HashData(KeyFrom(key).Key, Encoding.UTF8.GetBytes(AdminKeyLabel)));
 
     /// <summary>
     /// The rules a token must satisfy, all of them on.

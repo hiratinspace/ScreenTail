@@ -139,8 +139,15 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Summarization:Provider", SummarizationOptions.Gemini);
         builder.UseSetting("Vault:MasterKey", VaultMasterKey ?? string.Empty);
 
+        // ST-099. Owner sign-in is off unless a test's host switches it on (AdminApiFixture), whatever a
+        // developer keeps in user secrets, and no host in this suite can fetch Google's keys.
+        builder.UseSetting("Admin:GoogleClientId", string.Empty);
+
         builder.ConfigureServices(services =>
         {
+            _ = services.RemoveAll<IGoogleSigningKeys>();
+            _ = services.AddSingleton<IGoogleSigningKeys, Admin.NoGoogle>();
+
             // AddDbContext registers the provider's whole service graph, not just the options, and EF
             // refuses to hold two providers at once. Removing the options alone leaves Npgsql's services
             // behind and the host fails to start with a message about two providers rather than about
