@@ -280,6 +280,17 @@ Windows does not give. The UI already closed on Windows' request. In the uninsta
 `N running copies stopped` counts only the copies Restart Manager could not reach: other users'
 sessions when the installer runs as the system account.
 
+**Other programs' installers can close ScreenTail, and it starts again.** Any installer that replaces a
+file ScreenTail has loaded, a silent Visual C++ runtime update for one, can now ask it to close through
+Restart Manager, and it does. The service is registered for restart, so Restart Manager starts it again
+when that installer is done, in its ordinary state: watching, not recording. A session that was recording
+then is split: the part before the close is recovered as partial when the service starts again, and the
+technician starts a new one if the support session goes on. The same restart can bring the new service
+up straight after a ScreenTail upgrade run from the technician's session. Not yet measured: how long the
+service takes to stop in the middle of a recording, with speech, OCR, the microphone and the hooks all
+busy. The idle figure is about 150 ms on CI, and the four-second limit holds whatever happens; the
+laptop is where the busy figure has to be taken.
+
 `3010` still means the uninstall succeeded; the files left are deleted at the next restart.
 
 **For a technician who is signed in at that moment:** their whole ScreenTail data folder,

@@ -123,6 +123,22 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   the same version (Windows Installer registers only files it will replace). A session that was
   recording is left for recovery, never finalized at that moment: finishing a note needs up to twenty
   seconds of redaction and Windows gives about five. The UI, a WPF program, already closed on request.
+- **Other programs' installers can close it too, so it registers for restart.** Answering Restart
+  Manager means any silent installer that replaces a file the service has loaded can close it: the
+  Visual C++ runtime, which Whisper's libraries load from the first session, is the likely one. Before,
+  such an installer could not, and the service ran on with the file left for a reboot. To keep "the
+  service keeps running across other programs' installs", it calls `RegisterApplicationRestart` at
+  start (`ApplicationRestart`; never in a one-shot mode), for Restart Manager's restart only
+  (`RESTART_NO_CRASH | RESTART_NO_HANG | RESTART_NO_REBOOT`) and with no arguments: the restart is the
+  ordinary start, watching, not recording. **A recording in progress is split**: the part before the
+  close is recovered as partial at the restart, and a new session begins only the way any session
+  begins. The smoke test checks that Restart Manager restarts it. One consequence for ScreenTail's own
+  upgrades: where Restart Manager closed the old service (an upgrade from the technician's session whose
+  files carry a newer version), Windows Installer starts the new one when it finishes, rather than it
+  waiting for the next sign-in (also ADR-0008's update installer). An uninstall's restart finds no
+  program to start. **For the owner:** whether to refuse Restart Manager's close while a session is
+  recording instead (answer WM_QUERYENDSESSION with FALSE for ENDSESSION_CLOSEAPP), which keeps a
+  recording whole but makes those installers leave their files for a reboot, as before; not decided here.
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in

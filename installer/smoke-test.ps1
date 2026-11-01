@@ -163,10 +163,11 @@ function Test-ReleaseWait([string[]]$Report) {
     Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') "$line"
 }
 
-function Invoke-Close([string]$Exe, [string]$Mode, [string]$Name) {
+function Invoke-Close([string]$Exe, [string]$Mode, [string]$Name, [switch]$Restart) {
     # In a process of its own, ended after 90 s: a Restart Manager call has no timeout of its own.
     $out = Join-Path $Logs "close-$Name.txt"
-    $code = Invoke-Process 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'close-running.ps1')`" -Exe `"$Exe`" -Mode $Mode" 90 $out
+    $restartSwitch = $(if ($Restart) { " -Restart -StoreFolder `"$dataDir`"" } else { '' })
+    $code = Invoke-Process 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'close-running.ps1')`" -Exe `"$Exe`" -Mode $Mode$restartSwitch" 90 $out
     $lines = @(Get-Content $out -ErrorAction SilentlyContinue)
     $lines | ForEach-Object { Write-Host "  $_" }
     return [pscustomobject]@{ Code = $code; Lines = $lines }
@@ -192,10 +193,16 @@ function Test-StoreOpen([string]$What) {
     Check "${What}: while the service runs, its store has a write-ahead log" (Test-Path $wal)
 }
 
-function Test-StoreClosed([string]$What) {
+function Test-StoreClosed([string]$What, $Result) {
     # SQLite folds its write-ahead log in and removes it, with the shared-memory file, when the store is
-    # closed; a process ended mid-run leaves both behind.
-    $left = @(Get-ChildItem $dataDir -Filter 'store.db-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    # closed; a process ended mid-run leaves both behind. After a restart, what was there between the end
+    # and the restart, as close-running.ps1 saw it.
+    $seen = @($Result.Lines | Where-Object { $_ -match '^store-left ' }) | Select-Object -First 1
+    if ($seen) {
+        $left = @(("$seen" -replace '^store-left ', '') -split ',' | Where-Object { $_ -and $_ -ne 'none' })
+    } else {
+        $left = @(Get-ChildItem $dataDir -Filter 'store.db-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    }
     Check "${What}: the store was closed, no write-ahead log or shared-memory file left" ($left.Count -eq 0) ($left -join ', ')
 }
 
@@ -353,24 +360,50 @@ Write-Step "Restart Manager's request to the running service, as Windows Install
 $serviceLog = Join-Path $Logs 'service-restart-manager.log'
 Check 'the installed service starts again, logging to a file' (Start-InstalledService $serviceLog)
 Test-StoreOpen 'the restarted service'
-$closed = Invoke-Close $serviceExe 'RestartManager' 'service-restart-manager'
+$closed = Invoke-Close $serviceExe 'RestartManager' 'service-restart-manager' -Restart
 $type = @($closed.Lines | Where-Object { $_ -match '^app-type \d+ ' }) | Select-Object -First 1
 Check 'Restart Manager sees the service as a program with a window it can ask, not RmUnknownApp' ($type -match '^app-type \d+ [12]$') "$type"
 Test-RestartManagerShutdown 'the service' $closed
 Test-ClosedByItself "Restart Manager's request to the service" $closed
-Test-StoreClosed "Restart Manager's request to the service"
+Test-StoreClosed "Restart Manager's request to the service" $closed
+Check 'the store was looked at between the end and the restart' (@($closed.Lines | Where-Object { $_ -match '^store-left ' }).Count -eq 1)
 $said = @(Get-Content $serviceLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Windows ended the session for the capture service \(restart-manager\): Stopped' })
 Check "the service's log says Restart Manager asked, and that it had stopped before it answered" ($said.Count -eq 1)
 
+# Registered for restart, so another program's installer that closes it (one replacing the Visual C++
+# runtime its speech libraries load) does not leave it down until the next sign-in. The restart is the
+# ordinary start: watching, not recording.
+Check 'Restart Manager can restart the service: it registered for restart' (@($closed.Lines | Where-Object { $_ -match '^restartable \d+ True$' }).Count -eq 1)
+Check "Restart Manager's restart succeeded" (@($closed.Lines | Where-Object { $_ -eq 'restart 0' }).Count -eq 1) (@($closed.Lines | Where-Object { $_ -match '^restart ' }) -join ' ')
+$again = @($closed.Lines | Where-Object { $_ -match '^restarted \d+$' }) | Select-Object -First 1
+Check 'Restart Manager started the installed service again' ($null -ne $again) "$again"
+if ($again) {
+    $againId = [int]("$again" -split ' ')[1]
+    Start-Sleep -Seconds 3
+    $alive = Get-Process -Id $againId -ErrorAction SilentlyContinue
+    Check 'the restarted service is still running a few seconds later (it is the one copy, not a second refused by the name)' ($null -ne $alive)
+    Test-StoreOpen 'the restarted service'
+}
+
 Write-Step "Restart Manager's request to the running UI"
-$null = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
-Start-Sleep -Seconds 10
+$ui = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
+# Until the UI has a window up (its tray and pill come with the shell), at most 30 s.
+for ($i = 0; $i -lt 60; $i++) {
+    $ui.Refresh()
+    if ($ui.HasExited -or $ui.MainWindowHandle -ne [IntPtr]::Zero) {
+        break
+    }
+    Start-Sleep -Milliseconds 500
+}
+Start-Sleep -Seconds 1
 $closed = Invoke-Close $uiExe 'RestartManager' 'ui-restart-manager'
 Test-RestartManagerShutdown 'the UI' $closed
 Test-ClosedByItself "Restart Manager's request to the UI" $closed
 Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-Check 'the installed service starts again for the uninstall' (Start-InstalledService)
+# The copy Restart Manager restarted is the one the uninstall meets; one is started only if it is not there.
+$serviceUp = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count -ge 1
+Check 'the installed service is running again for the uninstall' ($serviceUp -or (Start-InstalledService))
 
 # --- A second technician, never signed in, with data and a planted link --------------------------------
 # A real local account with a real profile that has never been used, which is what an MSP's uninstall
