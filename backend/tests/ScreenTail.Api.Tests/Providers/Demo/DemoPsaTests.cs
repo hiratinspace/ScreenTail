@@ -177,7 +177,15 @@ public sealed class DemoPsaTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Contains("Printer offline in reception", html, StringComparison.Ordinal);
         Assert.Contains("The spooler had stopped.", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<script>", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("default-src 'none'", page.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+
+        // The page's own policy, which lets its inline styles in, and not the API's closed default laid
+        // over it (SecurityHeaders): without style-src the demo page is drawn unstyled. The other
+        // security headers are still added.
+        var policy = page.Headers.GetValues("Content-Security-Policy").Single();
+        Assert.Contains("default-src 'none'", policy, StringComparison.Ordinal);
+        Assert.Contains("style-src 'unsafe-inline'", policy, StringComparison.Ordinal);
+        Assert.Contains("style-src 'unsafe-inline'", index.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+        Assert.Equal("nosniff", page.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal(HttpStatusCode.OK, index.StatusCode);
         Assert.Contains("/dev/demo-psa/tickets/48213/view", list, StringComparison.Ordinal);
     }

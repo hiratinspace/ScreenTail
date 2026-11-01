@@ -21,13 +21,15 @@ public static class SecurityHeaders
         {
             context.Response.OnStarting(static state =>
             {
+                // A route that set its own (the demo PSA's page allows its inline styles) keeps it: this is
+                // the default for answers that said nothing, never a replacement.
                 var headers = ((HttpResponse)state).Headers;
-                headers.ContentSecurityPolicy = ContentSecurityPolicy;
-                headers.XContentTypeOptions = "nosniff";
-                headers.XFrameOptions = "DENY";
-                headers["Referrer-Policy"] = "no-referrer";
-                headers["Permissions-Policy"] = PermissionsPolicy;
-                headers["Cross-Origin-Resource-Policy"] = "same-origin";
+                _ = headers.TryAdd("Content-Security-Policy", ContentSecurityPolicy);
+                _ = headers.TryAdd("X-Content-Type-Options", "nosniff");
+                _ = headers.TryAdd("X-Frame-Options", "DENY");
+                _ = headers.TryAdd("Referrer-Policy", "no-referrer");
+                _ = headers.TryAdd("Permissions-Policy", PermissionsPolicy);
+                _ = headers.TryAdd("Cross-Origin-Resource-Policy", "same-origin");
                 return Task.CompletedTask;
             }, context.Response);
             return next(context);
