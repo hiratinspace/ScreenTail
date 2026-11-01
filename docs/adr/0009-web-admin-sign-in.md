@@ -284,8 +284,9 @@ for an attacker to turn against a real technician.
    (unknown, malformed, used or expired; not the seat limit, a switched-off tenant or a bad device name)
    is counted across all addresses, and **one warning per window** is logged once the count reaches
    `ActivationWatch:WarnAt` in `ActivationWatch:Window` (**50 in 10 minutes**; 1 to 1,000,000, and 1 minute
-   to 24 hours, checked at startup). The line carries the count and the window and nothing else: no
-   code, no address, no tenant (INV-10). Nobody is refused or slowed for it. The count is per instance,
+   to 24 hours in whole seconds, checked at startup). The line carries the count and the window, in
+   exact seconds, and nothing else: no code, no address, no tenant (INV-10), and no claim about the
+   codes' strength, since old ten-character codes may still be live. Nobody is refused or slowed for it. The count is per instance,
    like the rate limit's (decision 20).
 6. **Uniform refusals: built.** A code that cannot be one we issued (the wrong length, a character outside
    the alphabet, nothing at all) is answered, without a lookup, with the same 400 and the same bytes as a
@@ -316,7 +317,25 @@ look-alike (0, 1, I, L, O) as soon as one is typed, and sends the code grouped a
 The box is wider and types in capitals. The pipe carries the code as a string, so the IPC contract is
 unchanged. A test reads the backend's alphabet and lengths so the client's copy cannot drift. The web
 admin shows the code as the backend returns it and lets it wrap on a narrow window; the operator's
-`--invite` prints it unchanged.
+`--invite` prints it unchanged. Both sides read typed codes by the same table,
+`shared/contracts/invite-code.v1.json` (the alphabet, the lengths and eighteen typed codes with what each
+must become), so a change to one side's reading alone, such as Unicode normalisation, fails a test.
+
+**Client and backend ship together.** A client built before this change (the #224 MSI, and the
+`demo-setup` and `demo-psa` branches) checks for exactly ten characters and refuses a twenty-character
+code on the card before sending it, so a new backend's codes cannot be entered on an old client. The
+client and the backend must come from the same build, and the demo laptop must be set up from `main`
+once this is merged. (An old client with an old backend, or a new client with either, works.)
+
+**Two activations at once** (fixed with this change, review of #248). Before, two requests with one code
+could both read the invite as unclaimed and both add a device, and two requests for a tenant's last seat
+could both count a free seat. The activation now runs in one transaction that first writes the tenant's
+row (Postgres holds that row locked to the commit, SQLite locks the database for its one writer), so
+activations of one tenant count seats one at a time; it claims the invite with a conditional update
+(`AcceptedAt IS NULL` and unexpired, checked by its row count), and the loser is told the code was used;
+a seat refusal rolls the claim back, so the code works once a seat is free. The tests make the race happen
+every time, with an interceptor that runs a second activation right after the first one's read; the
+suite runs on SQLite, so the Postgres row lock itself is argued here rather than exercised.
 
 **The rate limit stays**, as a bound on what each guess costs us rather than as the defence against
 guessing.
@@ -382,9 +401,9 @@ Open for the owner (invite-code guessing, 2026-11-01; built with the conservativ
 22. **When the operator is warned: 50 refused codes in 10 minutes**, all addresses together, per
     instance (`ActivationWatch:WarnAt`, `ActivationWatch:Window`). It is a log line only: there is no
     alerting channel until hosting exists (ST-007).
-23. **Old ten-character codes accepted until they expire.** Nothing is deployed, so there should be none;
-    the old length can be dropped from the shape check once 72 hours have passed after the first
-    deployment.
+23. **Old ten-character codes accepted until they expire.** Nothing is deployed, so there should be none,
+    and the old length could be dropped from the shape check now; otherwise it can go once 72 hours have
+    passed after the first deployment. Kept for now as the choice that refuses no code anybody holds.
 
 ## Owner steps
 
