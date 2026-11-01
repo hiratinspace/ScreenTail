@@ -1,5 +1,11 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 
 namespace ScreenTail.Api.Tests.Admin;
@@ -61,6 +67,61 @@ public sealed class SecurityHeadersTests(AdminApiFixture api) : IClassFixture<Ad
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
         AssertHeaders(response);
+    }
+
+    [Fact]
+    public async Task AnUnhandledErrorOutsideDevelopmentIsABare500WithThemToo()
+    {
+        // Production, where no developer exception page stands between the exception and the server: the
+        // database fails as a signup saves, nothing catches it, and the 500 still carries the headers and
+        // says nothing about what went wrong.
+        using var host = api.WithWebHostBuilder(b =>
+        {
+            _ = b.UseEnvironment(Environments.Production);
+            _ = b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(new FailOwnerInserts())));
+        });
+        using var client = host.CreateClient(new() { BaseAddress = new Uri("https://localhost"), HandleCookies = false });
+
+        using var response = await client.PostAsJsonAsync(
+            new Uri("/v1/admin/signup", UriKind.Relative),
+            new AdminSignupRequest(api.Google.Mint(subject: "sub-headers-500", email: AdminApiFixture.Allowed[25]), "Broken Headers Co"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        AssertHeaders(response);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("database went away", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARateLimitRefusalCarriesThemToo()
+    {
+        await using var limited = new RateLimitedApiFixture();
+        await limited.InitializeAsync();
+        using var client = limited.From("203.0.113.130");
+        HttpResponseMessage? last = null;
+        for (var i = 0; i <= RateLimitedApiFixture.Limit; i++)
+        {
+            last?.Dispose();
+            last = await client.PostAsync(new Uri("/v1/admin/session/nonce", UriKind.Relative), content: null, TestContext.Current.CancellationToken);
+        }
+
+        using var refused = last!;
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        AssertHeaders(refused);
+    }
+
+    /// <summary>Fails any save that adds an owner, the way a dropped connection would.</summary>
+    private sealed class FailOwnerInserts : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData, Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(eventData);
+            return eventData.Context!.ChangeTracker.Entries<ScreenTail.Api.Data.Owner>().Any(e => e.State == EntityState.Added)
+                ? throw new DbUpdateException("The database went away.")
+                : base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     [Fact]

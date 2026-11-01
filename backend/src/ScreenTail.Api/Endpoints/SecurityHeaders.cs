@@ -7,8 +7,10 @@ namespace ScreenTail.Api.Endpoints;
 /// own, looser policy that lets Google's sign-in in (<c>web/security-headers.ts</c>), sent by whatever
 /// serves the page.
 ///
-/// Added as the headers are sent rather than as the request comes in, so an answer that the framework
-/// clears and rewrites on the way out (an unhandled error, a refusal from a later middleware) has them too.
+/// Added as the headers are sent rather than as the request comes in, so an answer that a later
+/// middleware clears and rewrites on the way out has them too. An exception nobody caught is turned into
+/// a 500 by the exception handler Program.cs puts right after this, so it carries them as well; left to
+/// the server, that 500 would be written with none of them.
 /// </summary>
 public static class SecurityHeaders
 {

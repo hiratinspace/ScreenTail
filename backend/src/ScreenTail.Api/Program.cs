@@ -322,6 +322,11 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
 // sniffed or followed by a referrer (ADR-0009).
 app.UseSecurityHeaders();
 
+// An exception nobody caught becomes a bare 500 here rather than in the server, which would drop the
+// headers above with everything else it had set. The exception is still logged (scrubbed, INV-10), and
+// nothing about it reaches the caller. In Development too, so the tests see what a deployment does.
+app.UseExceptionHandler(new ExceptionHandlerOptions { ExceptionHandler = static _ => Task.CompletedTask });
+
 // Before anything that reads the client's address or scheme (the rate limit's partition, HTTPS
 // redirection), so each sees the client a listed proxy speaks for, and only then.
 if (trustedProxies.Configured)
