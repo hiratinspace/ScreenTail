@@ -49,17 +49,16 @@ public static class AdminSessionEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        group.MapPost("/session/nonce", async (AdminOptions options, ScreenTailContext db, TimeProvider time, CancellationToken ct) =>
-            options.SignInConfigured
-                ? Results.Ok(await SignInNonces.IssueAsync(db, options.SignInNonceLifetime, time, ct).ConfigureAwait(false))
-                : NotConfigured)
+        // Signed, not stored: handing a nonce out writes nothing (ADR-0009).
+        group.MapPost("/session/nonce", (AdminOptions options, SignInNonces nonces) =>
+            options.SignInConfigured ? Results.Ok(nonces.Issue()) : NotConfigured)
         .WithName("AdminSignInNonce")
         .WithSummary("Issues a one-time nonce for the page to give Google before it draws the sign-in button.")
         .RequireRateLimiting(AnonymousRateLimit.Policy);
 
-        group.MapPost("/session", async (AdminSignInRequest request, HttpContext http, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
+        group.MapPost("/session", async (AdminSignInRequest request, HttpContext http, GoogleIdTokenVerifier google, SignInNonces nonces, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
-            var (identity, refusal) = await VerifyAsync(request.Credential, google, options, db, time, ct).ConfigureAwait(false);
+            var (identity, refusal) = await VerifyAsync(request.Credential, google, nonces, options, db, ct).ConfigureAwait(false);
             if (identity is null)
             {
                 return refusal;
@@ -79,24 +78,28 @@ public static class AdminSessionEndpoint
                 return Results.Json(new { error = "owner_disabled", message = "This organisation's ScreenTail admin is switched off. Contact ScreenTail support." }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            // The nonce is used up here, as the session starts, and not before: a token that only learned
-            // it may create a tenant goes on to signup with the same nonce.
-            if (!await SignInNonces.ConsumeAsync(db, identity.Nonce, time, ct).ConfigureAwait(false))
+            // The nonce is used up here, as the session starts, in the same save as the sign-in time, and
+            // not before: a token that only learned it may create a tenant goes on to signup with it.
+            if (!await nonces.MarkUsedAsync(db, identity.Nonce, ct).ConfigureAwait(false))
             {
                 return Refusal;
             }
 
             owner.LastSignInAt = time.GetUtcNow();
-            _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            if (!await SaveUnlessReplayedAsync(db, identity.Nonce, ct).ConfigureAwait(false))
+            {
+                return Refusal;
+            }
+
             return Results.Ok(StartSession(http, issuer, options, owner, owner.Tenant, time));
         })
         .WithName("AdminSignIn")
         .WithSummary("Signs a tenant's owner in with a Google ID token, or says the account may create a tenant.")
         .RequireRateLimiting(AnonymousRateLimit.Policy);
 
-        group.MapPost("/signup", async (AdminSignupRequest request, HttpContext http, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
+        group.MapPost("/signup", async (AdminSignupRequest request, HttpContext http, GoogleIdTokenVerifier google, SignInNonces nonces, AdminOptions options, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
-            var (identity, refusal) = await VerifyAsync(request.Credential, google, options, db, time, ct).ConfigureAwait(false);
+            var (identity, refusal) = await VerifyAsync(request.Credential, google, nonces, options, db, ct).ConfigureAwait(false);
             if (identity is null)
             {
                 return refusal;
@@ -118,8 +121,9 @@ public static class AdminSessionEndpoint
                 return AlreadySignedUp();
             }
 
-            // Used up as the tenant is made: a name refused above can be corrected and sent again.
-            if (!await SignInNonces.ConsumeAsync(db, identity.Nonce, time, ct).ConfigureAwait(false))
+            // Used up in the same save that makes the tenant, so a name refused above can be corrected
+            // and sent again, and a save that fails leaves the nonce unused for the owner to retry.
+            if (!await nonces.MarkUsedAsync(db, identity.Nonce, ct).ConfigureAwait(false))
             {
                 return Refusal;
             }
@@ -145,12 +149,18 @@ public static class AdminSessionEndpoint
             catch (DbUpdateException)
             {
                 // Two signups with the same account at once: the unique index let one through, and the
-                // other finds that account's owner row now. Any other failure is not this one, and is
-                // not answered as if it were: it goes on as the error it is (a 500).
+                // other finds that account's owner row now. The same token twice at once: the nonce's key
+                // let one through. Any other failure is neither, and is not answered as if it were: it
+                // goes on as the error it is (a 500), and the nonce, saved with the tenant, is not used.
                 db.ChangeTracker.Clear();
                 if (await db.Owners.AsNoTracking().AnyAsync(o => o.GoogleSubject == identity.Subject, ct).ConfigureAwait(false))
                 {
                     return AlreadySignedUp();
+                }
+
+                if (await SignInNonces.WasUsedAsync(db, identity.Nonce, ct).ConfigureAwait(false))
+                {
+                    return Refusal;
                 }
 
                 throw;
@@ -215,7 +225,7 @@ public static class AdminSessionEndpoint
     /// not good, or one whose nonce is missing, not ours, expired or used. Those last are the same 401 as a
     /// bad signature: which check failed helps only the person replaying the token.
     /// </summary>
-    private static async Task<(GoogleIdentity? Identity, IResult Refusal)> VerifyAsync(string? credential, GoogleIdTokenVerifier google, AdminOptions options, ScreenTailContext db, TimeProvider time, CancellationToken ct)
+    private static async Task<(GoogleIdentity? Identity, IResult Refusal)> VerifyAsync(string? credential, GoogleIdTokenVerifier google, SignInNonces nonces, AdminOptions options, ScreenTailContext db, CancellationToken ct)
     {
         if (!options.SignInConfigured)
         {
@@ -225,13 +235,36 @@ public static class AdminSessionEndpoint
         try
         {
             var identity = await google.VerifyAsync(credential, ct).ConfigureAwait(false);
-            return identity is not null && await SignInNonces.IsLiveAsync(db, identity.Nonce, time, ct).ConfigureAwait(false)
+            return identity is not null && await nonces.IsLiveAsync(db, identity.Nonce, ct).ConfigureAwait(false)
                 ? (identity, Refusal)
                 : (null, Refusal);
         }
         catch (GoogleKeysUnavailableException)
         {
             return (null, Unavailable);
+        }
+    }
+
+    /// <summary>
+    /// Saves the sign-in with its nonce's record. False when the save failed because another request used
+    /// the nonce first; any other failure goes on as the error it is.
+    /// </summary>
+    private static async Task<bool> SaveUnlessReplayedAsync(ScreenTailContext db, string? nonce, CancellationToken ct)
+    {
+        try
+        {
+            _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            if (await SignInNonces.WasUsedAsync(db, nonce, ct).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            throw;
         }
     }
 

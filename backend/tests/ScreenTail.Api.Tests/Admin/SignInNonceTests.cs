@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
@@ -48,19 +49,102 @@ public sealed class SignInNonceTests(AdminApiFixture api) : IClassFixture<AdminA
     }
 
     [Fact]
-    public async Task ANonceIsFreshEachTimeShortLivedAndOnlyItsHashIsKept()
+    public async Task ANonceIsFreshEachTimeShortLivedAndHandingOneOutStoresNothing()
     {
         using var client = api.CreateClient(new() { HandleCookies = false });
+        var rows = await api.UseAsync(db => db.AdminSignInNonces.CountAsync());
         var before = DateTimeOffset.UtcNow;
         var first = await AskForNonceAsync(client);
         var second = await AskForNonceAsync(client);
+        for (var i = 0; i < 20; i++)
+        {
+            _ = await AskForNonceAsync(client);
+        }
 
         Assert.NotEqual(first.Nonce, second.Nonce);
         Assert.Equal(SignInNonces.Length, first.Nonce.Length);
         Assert.Equal(600, first.ExpiresInSeconds);
         Assert.InRange(first.ExpiresAt, before.AddMinutes(10).AddSeconds(-5), DateTimeOffset.UtcNow.AddMinutes(10).AddSeconds(5));
-        Assert.True(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == SignInNonces.Hash(first.Nonce))));
-        Assert.False(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == first.Nonce)));
+
+        // The anonymous route cannot fill a table: nonces are signed, and only a use is written.
+        Assert.Equal(rows, await api.UseAsync(db => db.AdminSignInNonces.CountAsync()));
+    }
+
+    [Fact]
+    public async Task AUsedNonceIsKeptAsItsHashOnly()
+    {
+        var owner = await api.SeedOwnerAsync("Nonce Hash");
+        var issued = api.IssueNonce();
+        using var client = api.CreateClient(new() { HandleCookies = false });
+
+        using var response = await client.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: await SubjectOfAsync(owner), nonce: issued.Nonce)), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == SignInNonces.Hash(issued.Nonce))));
+        Assert.False(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == issued.Nonce)));
+    }
+
+    [Fact]
+    public async Task ANonceWithAForgedMacOrSignedUnderAnotherKeyIsRefused()
+    {
+        var owner = await api.SeedOwnerAsync("Nonce Forged");
+        var subject = await SubjectOfAsync(owner);
+        var good = api.IssueNonce().Nonce;
+        var expires = DateTimeOffset.UtcNow.AddMinutes(5);
+
+        // One character of the MAC changed; the right shape under the admin session's key, the devices'
+        // key and a key of the attacker's own; and the right key with an expiry further off than any
+        // nonce this service hands out.
+        var last = good[^1] == 'A' ? 'B' : 'A';
+        var forged = new[]
+        {
+            good[..^1] + last,
+            SignInNonces.Mint(TokenIssuer.AdminKeyFrom(ApiFixture.SigningKey).Key, expires),
+            SignInNonces.Mint(System.Text.Encoding.UTF8.GetBytes(ApiFixture.SigningKey), expires),
+            SignInNonces.Mint(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), expires),
+            SignInNonces.Mint(AdminApiFixture.NonceKey, DateTimeOffset.UtcNow.AddHours(2)),
+        };
+
+        using var client = api.CreateClient(new() { HandleCookies = false });
+        foreach (var nonce in forged)
+        {
+            using var refused = await client.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: subject, nonce: nonce)), Ct);
+            Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        }
+
+        // And the same construction under this host's key is accepted: the refusals above are the key's
+        // and the expiry's doing, not the shape's.
+        using var accepted = await client.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: subject, nonce: SignInNonces.Mint(AdminApiFixture.NonceKey, expires))), Ct);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+    }
+
+    [Fact]
+    public async Task ASignupThatFailsToSaveLeavesItsNonceUnusedForTheRetry()
+    {
+        var token = api.Google.Mint(subject: "sub-nonce-failed-save", email: AdminApiFixture.Allowed[24]);
+        using (var failing = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(new FailOwnerInserts())))))
+        {
+            using var broken = failing.CreateClient(new() { HandleCookies = false });
+            using var failed = await broken.PostAsJsonAsync(Signup, new AdminSignupRequest(token, "Retry Co"), Ct);
+            Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        }
+
+        using var client = api.CreateClient(new() { HandleCookies = false });
+        using var retried = await client.PostAsJsonAsync(Signup, new AdminSignupRequest(token, "Retry Co"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+    }
+
+    /// <summary>Fails any save that adds an owner, the way a dropped connection would.</summary>
+    private sealed class FailOwnerInserts : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData, Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(eventData);
+            return eventData.Context!.ChangeTracker.Entries<Owner>().Any(e => e.State == EntityState.Added)
+                ? throw new DbUpdateException("The database went away.")
+                : base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     [Fact]
@@ -84,7 +168,7 @@ public sealed class SignInNonceTests(AdminApiFixture api) : IClassFixture<AdminA
     }
 
     [Theory]
-    [InlineData("never-issued-but-the-right-shape-0123456789")]
+    [InlineData("never-issued-and-the-right-length-but-not-base64-of-anything-we-made-0123456")]
     [InlineData("short")]
     [InlineData("")]
     [InlineData("never issued, wrong shape, and far longer than anything this service hands out to a page")]
@@ -171,15 +255,21 @@ public sealed class SignInNonceTests(AdminApiFixture api) : IClassFixture<AdminA
     }
 
     [Fact]
-    public async Task IssuingDeletesNoncesPastTheirExpiry()
+    public async Task UsingANonceDeletesTheRecordsOfOnesPastTheirExpiry()
     {
-        var stale = api.IssueNonce(TimeSpan.FromSeconds(-1));
-        Assert.True(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == SignInNonces.Hash(stale.Nonce))));
+        var stale = SignInNonces.Hash("a-nonce-used-and-long-expired");
+        _ = await api.UseAsync(async db =>
+        {
+            db.AdminSignInNonces.Add(new AdminSignInNonce { Id = stale, ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1), UsedAt = DateTimeOffset.UtcNow.AddMinutes(-9) });
+            return await db.SaveChangesAsync();
+        });
 
+        var owner = await api.SeedOwnerAsync("Nonce Purge");
         using var client = api.CreateClient(new() { HandleCookies = false });
-        _ = await AskForNonceAsync(client);
+        using var response = await client.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: await SubjectOfAsync(owner))), Ct);
 
-        Assert.False(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == SignInNonces.Hash(stale.Nonce))));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(await api.UseAsync(db => db.AdminSignInNonces.AnyAsync(n => n.Id == stale)));
     }
 
     [Fact]

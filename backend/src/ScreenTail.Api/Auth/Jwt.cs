@@ -140,6 +140,13 @@ public sealed class TokenIssuer(JwtOptions options)
         return validation;
     }
 
+    /// <summary>The label the sign-in nonce's MAC key is derived under (ADR-0009). Changing it voids every nonce handed out.</summary>
+    public const string NonceKeyLabel = "screentail-admin-sign-in-nonce-key-v1";
+
+    /// <summary>The sign-in nonce's MAC key: HMAC-SHA256 of its own label under the configured key, like <see cref="AdminKeyFrom"/>.</summary>
+    public static byte[] NonceKeyFrom(string key) =>
+        HMACSHA256.HashData(KeyFrom(key).Key, Encoding.UTF8.GetBytes(NonceKeyLabel));
+
     /// <summary>The label the admin session's key is derived under. Changing it ends every admin session.</summary>
     public const string AdminKeyLabel = "screentail-admin-session-key-v1";
 

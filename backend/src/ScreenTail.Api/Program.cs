@@ -77,6 +77,7 @@ builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningK
     services.GetRequiredService<TimeProvider>(),
     services.GetRequiredService<ILogger<GoogleSigningKeys>>()));
 builder.Services.AddSingleton<GoogleIdTokenVerifier>();
+builder.Services.AddSingleton<SignInNonces>();
 builder.Services.AddOwnerPolicy();
 
 // ST-099 hardening. The anonymous routes (the admin's sign-in nonce, sign-in and signup, a device's

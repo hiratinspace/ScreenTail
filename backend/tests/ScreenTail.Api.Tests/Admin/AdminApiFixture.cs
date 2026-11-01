@@ -30,16 +30,11 @@ public class AdminApiFixture : ApiFixture
         Google.NonceSource = () => IssueNonce().Nonce;
     }
 
-    /// <summary>A live sign-in nonce, issued straight into the database as POST /v1/admin/session/nonce would.</summary>
-    public IssuedNonce IssueNonce(TimeSpan? lifetime = null)
-    {
-        using var scope = Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<ScreenTailContext>();
-        var (issued, row) = SignInNonces.Create(lifetime ?? TimeSpan.FromMinutes(10), TimeProvider.System);
-        _ = db.AdminSignInNonces.Add(row);
-        _ = db.SaveChanges();
-        return issued;
-    }
+    /// <summary>A live sign-in nonce, as POST /v1/admin/session/nonce hands out.</summary>
+    public IssuedNonce IssueNonce() => Services.GetRequiredService<SignInNonces>().Issue();
+
+    /// <summary>The key this host's nonces are signed with, for tests that make ones it must refuse.</summary>
+    public static byte[] NonceKey => TokenIssuer.NonceKeyFrom(SigningKey);
 
     internal GoogleTokens Google { get; } = new();
 

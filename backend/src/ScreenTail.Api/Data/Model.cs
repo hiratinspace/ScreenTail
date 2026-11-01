@@ -70,13 +70,10 @@ public sealed class Owner
 }
 
 /// <summary>
-/// A one-time value the web admin asked for before drawing Google's button, which Google writes into the
-/// ID token it hands back (ST-099 hardening, ADR-0009). A token is accepted only with a nonce that is
-/// here, unexpired and unused, and the one that starts a session marks it used, so a token captured
-/// after it was used cannot be used again.
-///
-/// Held as a hash, like an invite code, and belonging to no tenant: it is issued before anybody is known.
-/// Rows past their expiry are deleted whenever a new one is issued.
+/// A sign-in nonce that has been used (ST-099 hardening, ADR-0009). Nonces are signed, not stored, when
+/// they are handed out; one is written here only when a session starts or a tenant is made with it, and
+/// its key is what makes a second use fail. Held as a hash and belonging to no tenant. A row is useless
+/// once its nonce has expired, and each new use deletes those.
 /// </summary>
 public sealed class AdminSignInNonce
 {
@@ -84,12 +81,10 @@ public sealed class AdminSignInNonce
     [MaxLength(64)]
     public required string Id { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; }
-
+    /// <summary>When the nonce itself stops being accepted; after that the row can go.</summary>
     public DateTimeOffset ExpiresAt { get; set; }
 
-    /// <summary>When a session was started with it. Never cleared.</summary>
-    public DateTimeOffset? UsedAt { get; set; }
+    public DateTimeOffset UsedAt { get; set; }
 }
 
 /// <summary>A technician.</summary>

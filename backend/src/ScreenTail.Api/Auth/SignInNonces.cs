@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -17,84 +17,136 @@ public sealed record IssuedNonce(string Nonce, DateTimeOffset ExpiresAt, int Exp
 ///
 /// The page asks for a nonce before it draws Google's button and hands it to Google Identity Services,
 /// which writes it into the ID token's <c>nonce</c> claim under Google's signature. The backend accepts
-/// a token only when that claim names a nonce it issued, that has not expired and has not been used, and
-/// marks it used in the same statement that checks it, at the moment a session is started. A token
-/// captured after it was used, or one minted for a nonce we never issued, is refused.
+/// a token only when that claim is a nonce this service made, that has not expired and has not been
+/// used, and records it as used at the moment a session starts or a tenant is made.
 ///
-/// Kept in the database rather than in memory or a cookie: single use has to hold across a restart and
-/// across more than one API instance, and a cookie cannot be "used up" in the copy an attacker took.
-/// Only the SHA-256 of a nonce is stored, as with invite codes.
+/// <b>Issuing stores nothing.</b> A nonce is its expiry and 128 random bits, signed with HMAC-SHA256
+/// under a key of its own (<see cref="TokenIssuer.NonceKeyFrom"/>), so any instance can check that it
+/// made it and when it runs out without a lookup, and the anonymous route that hands nonces out cannot
+/// fill a table. <b>Using one stores its hash</b> (the primary key of <c>admin_sign_in_nonces</c>), in
+/// the same save as the session's or the tenant's own write: a second use is a key conflict, so of two
+/// requests carrying the same token exactly one gets through, on any number of instances. Rows grow only
+/// with real sign-ins, and each use deletes the rows already past their expiry.
 /// </summary>
-public static class SignInNonces
+public sealed class SignInNonces(JwtOptions jwt, AdminOptions options, TimeProvider time)
 {
-    /// <summary>256 random bits, URL-safe base64 without padding: 43 characters.</summary>
-    public const int Length = 43;
+    private const byte Version = 1;
 
-    /// <summary>A fresh nonce and the row that records it. Not yet saved.</summary>
-    public static (IssuedNonce Issued, AdminSignInNonce Row) Create(TimeSpan lifetime, TimeProvider time)
+    private const int ExpiryBytes = 8;
+
+    private const int RandomBytes = 16;
+
+    private const int MacBytes = 32;
+
+    private const int SignedBytes = 1 + ExpiryBytes + RandomBytes;
+
+    /// <summary>The nonce's length as text: 57 bytes, URL-safe base64 without padding.</summary>
+    public const int Length = 76;
+
+    private readonly byte[] _key = TokenIssuer.NonceKeyFrom(jwt.SigningKey);
+
+    /// <summary>A fresh nonce, good for <see cref="AdminOptions.SignInNonceLifetime"/>. Writes nothing anywhere.</summary>
+    public IssuedNonce Issue()
     {
-        ArgumentNullException.ThrowIfNull(time);
-        var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var now = time.GetUtcNow();
-        var expires = now + lifetime;
-        return (new IssuedNonce(nonce, expires, (int)lifetime.TotalSeconds), new AdminSignInNonce { Id = Hash(nonce), CreatedAt = now, ExpiresAt = expires });
+        var lifetime = options.SignInNonceLifetime;
+        var expires = DateTimeOffset.FromUnixTimeSeconds((time.GetUtcNow() + lifetime).ToUnixTimeSeconds());
+        return new IssuedNonce(Mint(_key, expires), expires, (int)lifetime.TotalSeconds);
     }
 
-    /// <summary>Issues one, deleting every row past its expiry first so the table holds only live nonces and recently used ones.</summary>
-    public static async Task<IssuedNonce> IssueAsync(ScreenTailContext db, TimeSpan lifetime, TimeProvider time, CancellationToken ct = default)
+    /// <summary>A nonce under any key and expiry. The service uses its own; tests make ones it must refuse.</summary>
+    internal static string Mint(byte[] key, DateTimeOffset expires)
     {
-        ArgumentNullException.ThrowIfNull(db);
-        ArgumentNullException.ThrowIfNull(time);
-        var now = time.GetUtcNow();
-        _ = await db.AdminSignInNonces.Where(n => n.ExpiresAt <= now).ExecuteDeleteAsync(ct).ConfigureAwait(false);
-        var (issued, row) = Create(lifetime, time);
-        db.AdminSignInNonces.Add(row);
-        _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        return issued;
-    }
-
-    /// <summary>Whether this nonce was issued here, has not expired and has not been used. Reads only.</summary>
-    public static async Task<bool> IsLiveAsync(ScreenTailContext db, string? nonce, TimeProvider time, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(db);
-        ArgumentNullException.ThrowIfNull(time);
-        if (!WellFormed(nonce))
-        {
-            return false;
-        }
-
-        return await db.AdminSignInNonces.AnyAsync(Live(Hash(nonce), time.GetUtcNow()), ct).ConfigureAwait(false);
+        var bytes = new byte[SignedBytes + MacBytes];
+        bytes[0] = Version;
+        BinaryPrimitives.WriteInt64BigEndian(bytes.AsSpan(1, ExpiryBytes), expires.ToUnixTimeSeconds());
+        RandomNumberGenerator.Fill(bytes.AsSpan(1 + ExpiryBytes, RandomBytes));
+        _ = HMACSHA256.HashData(key, bytes.AsSpan(0, SignedBytes), bytes.AsSpan(SignedBytes));
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
     /// <summary>
-    /// Marks the nonce used if, and only if, it is live, in one statement: of two requests carrying the
-    /// same token at once, exactly one gets true.
+    /// Whether this service made the nonce (its MAC, compared in constant time) and it has not expired,
+    /// with no expiry further away than one lifetime. Reads nothing.
     /// </summary>
-    public static async Task<bool> ConsumeAsync(ScreenTailContext db, string? nonce, TimeProvider time, CancellationToken ct = default)
+    internal bool TryRead(string? nonce, out DateTimeOffset expires)
+    {
+        expires = default;
+        if (nonce is not { Length: Length } || !nonce.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
+        {
+            return false;
+        }
+
+        var bytes = Convert.FromBase64String(nonce.Replace('-', '+').Replace('_', '/'));
+        if (bytes.Length != SignedBytes + MacBytes || bytes[0] != Version)
+        {
+            return false;
+        }
+
+        Span<byte> expected = stackalloc byte[MacBytes];
+        _ = HMACSHA256.HashData(_key, bytes.AsSpan(0, SignedBytes), expected);
+        if (!CryptographicOperations.FixedTimeEquals(expected, bytes.AsSpan(SignedBytes)))
+        {
+            return false;
+        }
+
+        var seconds = BinaryPrimitives.ReadInt64BigEndian(bytes.AsSpan(1, ExpiryBytes));
+        if (seconds < 0 || seconds > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
+        {
+            return false;
+        }
+
+        expires = DateTimeOffset.FromUnixTimeSeconds(seconds);
+        var now = time.GetUtcNow();
+        return now < expires && expires <= now + options.SignInNonceLifetime + TimeSpan.FromSeconds(1);
+    }
+
+    /// <summary>Made here, unexpired, and not used yet. Reads only.</summary>
+    public async Task<bool> IsLiveAsync(ScreenTailContext db, string? nonce, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(db);
-        ArgumentNullException.ThrowIfNull(time);
-        if (!WellFormed(nonce))
+        if (!TryRead(nonce, out _))
+        {
+            return false;
+        }
+
+        var hash = Hash(nonce!);
+        return !await db.AdminSignInNonces.AnyAsync(n => n.Id == hash, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Adds the record that this nonce is used to <paramref name="db"/>, for the caller's own save to
+    /// write with whatever else the sign-in writes; false, adding nothing, for a nonce that is not good.
+    /// Deletes the records already past their expiry first. The save fails with a key conflict when
+    /// another request used the nonce first; <see cref="WasUsedAsync"/> tells that apart from any other
+    /// failure.
+    /// </summary>
+    public async Task<bool> MarkUsedAsync(ScreenTailContext db, string? nonce, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        if (!TryRead(nonce, out var expires))
         {
             return false;
         }
 
         var now = time.GetUtcNow();
-        var marked = await db.AdminSignInNonces
-            .Where(Live(Hash(nonce), now))
-            .ExecuteUpdateAsync(set => set.SetProperty(n => n.UsedAt, now), ct)
-            .ConfigureAwait(false);
-        return marked == 1;
+        _ = await db.AdminSignInNonces.Where(n => n.ExpiresAt <= now).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        db.AdminSignInNonces.Add(new AdminSignInNonce { Id = Hash(nonce!), ExpiresAt = expires, UsedAt = now });
+        return true;
     }
 
-    /// <summary>Issued here, unused and unexpired: the one rule both the check and the use apply.</summary>
-    private static Expression<Func<AdminSignInNonce, bool>> Live(string hash, DateTimeOffset now) =>
-        n => n.Id == hash && n.UsedAt == null && n.ExpiresAt > now;
+    /// <summary>Whether a record of this nonce's use is in the database: after a failed save, the conflict was a second use.</summary>
+    public static async Task<bool> WasUsedAsync(ScreenTailContext db, string? nonce, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        if (string.IsNullOrEmpty(nonce))
+        {
+            return false;
+        }
+
+        var hash = Hash(nonce);
+        return await db.AdminSignInNonces.AsNoTracking().AnyAsync(n => n.Id == hash, ct).ConfigureAwait(false);
+    }
 
     public static string Hash(string nonce) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(nonce)));
-
-    /// <summary>The shape this service issues, and nothing else: anything longer or stranger is refused without a lookup.</summary>
-    private static bool WellFormed([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? nonce) =>
-        nonce is { Length: Length } && nonce.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 }

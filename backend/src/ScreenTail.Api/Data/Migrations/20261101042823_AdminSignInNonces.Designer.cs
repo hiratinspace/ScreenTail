@@ -12,7 +12,7 @@ using ScreenTail.Api.Data;
 namespace ScreenTail.Api.Data.Migrations
 {
     [DbContext(typeof(ScreenTailContext))]
-    [Migration("20261101034920_AdminSignInNonces")]
+    [Migration("20261101042823_AdminSignInNonces")]
     partial class AdminSignInNonces
     {
         /// <inheritdoc />
@@ -31,13 +31,10 @@ namespace ScreenTail.Api.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTimeOffset?>("UsedAt")
+                    b.Property<DateTimeOffset>("UsedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
