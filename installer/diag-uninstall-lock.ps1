@@ -245,29 +245,13 @@ function Probe-Fresh([string]$Tag, [int]$I, [string]$Mode) {
     return ($sampler.Blocks.Keys -join ',')
 }
 
-Write-Host "== W: with the fix, a fresh copy runs --uninstall-cleanup ($Iterations times): is the executable free the moment it exits"
+Write-Host "== D: the installed step runs alone, nothing sampling it (30 times): what does it wait for"
 $heldAfter = 0; $waitedRuns = 0; $foreignRuns = 0
-for ($i = 0; $i -lt $Iterations; $i++) {
-    $copy = Join-Path $installDir ("diag-W-$i.exe")
-    Copy-Item $serviceExe $copy -Force
-    $sampler = New-Object HolderSampler($copy)
-    $code = Run-And-Wait $copy '--uninstall-cleanup' $sampler
-    $exit = $sampler.Now
-    $first = [LockProbe]::OpenForDelete($copy)
-    Start-Sleep -Milliseconds 400
-    $sampler.Stop()
+for ($i = 0; $i -lt 30; $i++) {
+    $code = Run-And-Wait $serviceExe '--uninstall-cleanup' $null
     $waitLine = @($script:lastOutput -split "`n" | Where-Object { $_ -match 'waited' }) -join ''
-    $waited = if ($waitLine -match 'waited (\d+) ms') { [int]$Matches[1] } else { -1 }
-    $hasForeign = $sampler.Blocks.Count -gt 0
-    if ($first -ne 0) { $heldAfter++ }
-    if ($waited -gt 0) { $waitedRuns++ }
-    if ($hasForeign) { $foreignRuns++ }
-    if ($first -ne 0 -or $waited -ne 0 -or $hasForeign) {
-        Write-Host ("W[{0}] exit {1}; step waited {2} ms; open-for-delete right after exit: {3}; holders (ms from exit): {4} {5}" -f $i, $code, $waited, $first, (Format-Seen $sampler $exit), (Format-Blocks $sampler))
-    }
-    for ($w = 0; $w -lt 50 -and (Test-Path $copy); $w++) { Remove-Item $copy -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 }
+    Write-Host ("D[{0}] exit {1}: {2}" -f $i, $code, $waitLine.Trim())
 }
-Write-Host "W: $heldAfter of $Iterations still held the moment the step exited; the step waited in $waitedRuns; a foreign holder was seen in $foreignRuns"
 
 Write-Host '== Uninstall after A'
 $null = Run-And-Wait 'msiexec.exe' "/x `"$Msi`" /qn /norestart" $null
@@ -293,4 +277,4 @@ for ($i = 0; $i -lt $MsiCycles; $i++) {
     }
 }
 Write-Host ''
-Write-Host "== Summary: W $heldAfter of $Iterations held at exit, waited in $waitedRuns, foreign in $foreignRuns; E exits $($codes['E'] -join ','); F exits $($codes['F'] -join ',')"
+Write-Host "== Summary: E exits $($codes['E'] -join ','); F exits $($codes['F'] -join ',')"
