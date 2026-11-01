@@ -288,7 +288,8 @@ This document describes what is enforced today. These are named here rather than
   after a round trip through its own UI thread; each request keeps the device open for a moment, so it
   closes by itself within a few seconds when the card is hidden, the window goes behind another, or the
   UI hangs or stops. It is open five minutes at most at a stretch, then stays closed until the card is
-  put away and looked at again. It never opens while a session is recording, paused, suppressed or
+  put away and looked at again (a session in between does not reset it). A window brought to the
+  front never counts as the technician being back at a locked desktop; only an unlock or a resume does. It never opens while a session is recording, paused, suppressed or
   finishing, and a session that starts closes it; the pill and the tray are not involved, because
   nothing is captured. It opens the device as plain capture, not as a call, so Windows does not turn
   other sound down. Each frame of audio becomes one number and is dropped: nothing heard is kept, transcribed,

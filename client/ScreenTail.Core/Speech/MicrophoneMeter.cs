@@ -223,25 +223,7 @@ public sealed class MicrophoneMeter : IAsyncDisposable
     /// The card left the screen: the device is closed now rather than when the lease runs out, and a meter
     /// that reached <see cref="MaxOpen"/> may open again the next time the card is looked at.
     /// </summary>
-    public async Task StopAsync()
-    {
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (!_disposed)
-            {
-                await CloseAsync().ConfigureAwait(false);
-                lock (_state)
-                {
-                    _timedOut = false;
-                }
-            }
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
+    public Task StopAsync() => CloseUnderGateAsync(cardPutAway: true);
 
     /// <summary>
     /// Closes the device once its lease has run out, or once it has been open for <see cref="MaxOpen"/>.
@@ -290,7 +272,10 @@ public sealed class MicrophoneMeter : IAsyncDisposable
         }
     }
 
-    /// <summary>The session's state changed: a session that now holds the microphone closes the meter at once.</summary>
+    /// <summary>
+    /// The session's state changed: a session that now holds the microphone closes the meter at once. A
+    /// meter that reached <see cref="MaxOpen"/> stays that way: only the card being put away resets it.
+    /// </summary>
     public async Task SessionChangedAsync()
     {
         if (!_sessionHoldsMicrophone())
@@ -298,7 +283,32 @@ public sealed class MicrophoneMeter : IAsyncDisposable
             return;
         }
 
-        await StopAsync().ConfigureAwait(false);
+        await CloseUnderGateAsync(cardPutAway: false).ConfigureAwait(false);
+    }
+
+    private async Task CloseUnderGateAsync(bool cardPutAway)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            await CloseAsync().ConfigureAwait(false);
+            if (cardPutAway)
+            {
+                lock (_state)
+                {
+                    _timedOut = false;
+                }
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -199,7 +199,8 @@ the heaviest bundle a client may send, not on a recorded session.
 - The tray and pill following a real session with the service up, and screenshots over a remote window
   (ST-085's own walk-through).
 - The microphone picker and its level meter with a real headset, plugged and unplugged, and Win+L with
-  the card open turning Windows' microphone light off (ST-080 AC3).
+  the card open turning Windows' microphone light off (ST-080 AC3). The tests drive the lock, sleep and
+  activation rules directly; Windows' real delivery of those events (Win+L, sleep) is checked only by hand.
 - Review, History, Settings and the onboarding wizard on a real screen, in the new look. CI renders them
   over fixtures in three themes; dropdowns, tool tips, hover and pressed states are not rendered there.
 - A publish to ConnectWise or Hudu. Both clients are tested against recorded shapes and, since #226,

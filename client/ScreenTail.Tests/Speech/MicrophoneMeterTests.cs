@@ -263,6 +263,35 @@ public sealed class MicrophoneMeterTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ASessionInBetweenDoesNotResetTheLongestStretch()
+    {
+        // Only the card being put away resets it. A session that starts and ends while the card stays
+        // in front is not the technician looking at it again.
+        await using var meter = new MicrophoneMeter(_microphone, () => _sessionHoldsMicrophone, _time, cap: TimeSpan.FromSeconds(10));
+        _ = await meter.ReadAsync(null, Ct);
+        await WaitUntilAsync(() => _microphone.Open == 1);
+        for (var second = 0; second < 11; second++)
+        {
+            _time.Advance(TimeSpan.FromSeconds(1));
+            _ = await meter.ReadAsync(null, Ct);
+        }
+
+        await meter.ExpireAsync();
+        Assert.Equal(MicrophoneLevelStates.TimedOut, (await meter.ReadAsync(null, Ct)).State);
+
+        _sessionHoldsMicrophone = true;
+        await meter.SessionChangedAsync();
+        _sessionHoldsMicrophone = false;
+        await meter.SessionChangedAsync();
+
+        Assert.Equal(MicrophoneLevelStates.TimedOut, (await meter.ReadAsync(null, Ct)).State);
+        Assert.Single(_microphone.OpenedIds);
+
+        await meter.StopAsync();
+        Assert.Equal(MicrophoneLevelStates.Opening, (await meter.ReadAsync(null, Ct)).State);
+    }
+
+    [Fact]
     public async Task AFrameAfterTheLongestStretchClosesTheDeviceEvenWithoutTheTimer()
     {
         await using var meter = new MicrophoneMeter(_microphone, () => false, _time, cap: TimeSpan.FromSeconds(10));
