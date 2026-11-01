@@ -51,7 +51,6 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     /// </summary>
     private volatile bool _eraseOnShutdown;
     private static PolicySync? _policySync;
-    private static string? _microphoneName;
 
     internal static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -289,7 +288,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // the technician presses Install, by Windows Installer, which asks for an administrator's approval.
         var updatePreferences = new UpdatePreferences(Path.Combine(DataDirectory, "updates.json"));
         UpdatePolicy UpdatePolicyNow() => UpdatePolicies.Resolve(policySync.Current, updatePreferences.Load());
-        bool SessionBusy() => machine.State is SessionState.Recording or SessionState.Paused or SessionState.Suppressed or SessionState.Finalizing;
+        // One definition of a session in progress: the same states that keep Settings' meter off the microphone.
+        bool SessionBusy() => MicrophoneMeter.HeldBy(machine.State);
         var runningPublisher = PackageSignature.Running();
         using var updates = new UpdateService(
             new HttpClient(EgressGuard.ForUpdates(egressPolicy)) { Timeout = TimeSpan.FromMinutes(30) },
@@ -314,6 +314,22 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var installer = new UpdateInstaller(updates, new PackageSignature(), new MsiLauncher(), runningPublisher, machine.HoldStartsAsync, () => retryForeground());
         var updateCommands = new UpdateCommands(updates, installer, UpdatePolicyNow, updatePreferences, SessionBusy, updates.CheckSoon);
 
+        // ST-027, ST-080 AC3: the technician's microphone, built here rather than with the recorder below
+        // because Settings, Capture lists its devices and shows its level. It opens the device saved in
+        // Settings when that is connected and Windows' default otherwise, read each time a listen begins,
+        // so a save takes effect the next time the microphone opens (the next session, or sooner within a
+        // session: a resume, or the end of a suppression) and a device left at home never stops a session.
+        //
+        // The level meter is the one place the microphone opens outside a session, and only while the
+        // card keeps asking: each request is a short lease, it is open five minutes at most at a stretch,
+        // it never opens while the machine's session holds the microphone, and a session that starts
+        // closes it (MicrophoneMeter.ForMachine). Levels only; nothing heard is kept, transcribed,
+        // sent or logged (INV-9, INV-10). Declared before the pipe, so the pipe closes first and no request
+        // reaches a meter that has been put away.
+        var chosenMicrophone = captureSettings.MicrophoneId;
+        await using var microphone = new WindowsMicrophone(() => chosenMicrophone);
+        await using var meter = MicrophoneMeter.ForMachine(microphone, machine);
+
         var controller = new CaptureController(
             machine,
             // P2-7: a report is good for five seconds, so the wizard's "Check again" and a burst of pipe
@@ -333,10 +349,15 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new CaptureSettingsCommands(
                 captureStore,
                 () => [.. registry.Tools.Select(t => new ToolRow(t.Id, t.DisplayName)), .. registry.BrowserPatterns.Select(b => new ToolRow(b.Id, b.DisplayName))],
-                () => _microphoneName is { } name ? [name] : [],
+                microphone.Devices,
                 () => policySync.Current,
                 () => (int)registry.Grace.TotalSeconds,
-                capture => _ = applyCapture(capture)),
+                capture =>
+                {
+                    chosenMicrophone = capture.MicrophoneId;
+                    _ = applyCapture(capture);
+                },
+                meter),
             () => diagnostics(),
             _ =>
             {
@@ -577,9 +598,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         //
         // Nothing here can stop the session. A machine with no microphone, a blocked one, or a model that
         // will not download all end the same way: clicks and screenshots are still recorded and the note
-        // is written without narration.
-        await using var microphone = new WindowsMicrophone();
-        _microphoneName = microphone.DeviceName;
+        // is written without narration. The microphone itself is built above, beside Settings' meter.
         await using var whisper = new WhisperRecogniser(
             new ModelDownload(new HttpClient(egress)),
             SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, captureSettings.SpeechModel, StringComparison.OrdinalIgnoreCase)));
@@ -617,7 +636,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             }
         };
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
-        LogMicrophone(logger, microphone.DeviceName ?? "none", whisper.ModelName);
+        // Which way the choice went, never the device's name: a name can be personal ("Sam's headset").
+        var choiceAtStart = MicrophoneChoice.Resolve(microphone.Devices(), chosenMicrophone).ForLog;
+        LogMicrophone(logger, choiceAtStart, whisper.ModelName);
 
         // Nothing awaits this task, so anything it throws goes unobserved until shutdown. That is how an
         // egress refusal became a service with no narration and no explanation: PrepareAsync did not
@@ -828,8 +849,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
     private static partial void LogUpdate(ILogger logger, UpdateState state);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Device}; speech model {Model}")]
-    private static partial void LogMicrophone(ILogger logger, string device, string model);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Microphone}; speech model {Model}")]
+    private static partial void LogMicrophone(ILogger logger, string microphone, string model);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Speech model {Model} could not be prepared ({Reason}); sessions will have no narration")]
     private static partial void LogNoModel(ILogger logger, string model, string reason);

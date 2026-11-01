@@ -27,8 +27,73 @@ public interface IMicrophone : IAsyncDisposable
     /// <summary>
     /// Yields frames of 16-bit mono samples until cancelled. Ends immediately when there is no
     /// microphone, which is a session without narration rather than an error.
+    ///
+    /// Opens the device chosen in Settings, Capture when it is connected, and Windows' default
+    /// communications device when it is not (ST-080 AC3), decided each time it is called: a choice made
+    /// between two listens is used by the second.
     /// </summary>
     IAsyncEnumerable<ReadOnlyMemory<short>> ListenAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The capture devices connected now, the default communications device marked. Ids and names,
+    /// never audio. The default here, for a source that cannot tell one device from another, is the one
+    /// <see cref="DeviceName"/> names.
+    /// </summary>
+    IReadOnlyList<MicrophoneDevice> Devices() =>
+        DeviceName is { } name ? [new MicrophoneDevice(MicrophoneDevice.OnlyDeviceId, name, IsDefault: true)] : [];
+
+    /// <summary>
+    /// <see cref="ListenAsync(CancellationToken)"/> on a named device rather than the chosen one, for
+    /// Settings' level meter, which listens to what the picker shows before it is saved. A device that is
+    /// not connected falls back to Windows' default, as it does for a session. Opened as plain capture,
+    /// not as a call, so Windows does not turn other sound down while the card is open.
+    /// </summary>
+    IAsyncEnumerable<ReadOnlyMemory<short>> ListenToAsync(string? deviceId, CancellationToken ct = default) => ListenAsync(ct);
+}
+
+/// <param name="Id">Windows' endpoint id. Not a name and not personal: it is what Settings keeps.</param>
+/// <param name="Name">The friendly name, which can be personal ("Sam's headset"): shown in Settings, never logged (INV-10).</param>
+/// <param name="IsDefault">Windows' default communications device.</param>
+public sealed record MicrophoneDevice(string Id, string Name, bool IsDefault)
+{
+    /// <summary>The id a source that has only one device gives it.</summary>
+    public const string OnlyDeviceId = "default";
+}
+
+/// <param name="Device">The device that opens, or null when none is connected.</param>
+/// <param name="ChosenIsMissing">A device was chosen and is not connected, so <paramref name="Device"/> is Windows' default.</param>
+public sealed record ResolvedMicrophone(MicrophoneDevice? Device, bool ChosenIsMissing)
+{
+    /// <summary>
+    /// How the choice went, in words fit for a log: <c>none</c>, <c>fallback to default</c>, <c>chosen</c>
+    /// or <c>default</c>. Never the device's name, which can be personal (INV-10).
+    /// </summary>
+    public string ForLog => Device is null ? "none" : ChosenIsMissing ? "fallback to default" : Device.IsDefault ? "default" : "chosen";
+}
+
+/// <summary>
+/// Which device opens (ST-080 AC3): the chosen one when it is connected, otherwise Windows' default.
+///
+/// A chosen device that has gone (a headset left at home, a dock unplugged) is not a reason for a session
+/// to fail or to go without narration. The default opens in its place, Settings says so, and the choice
+/// is kept for when the device is back.
+/// </summary>
+public static class MicrophoneChoice
+{
+    public static ResolvedMicrophone Resolve(IReadOnlyList<MicrophoneDevice> devices, string? chosenId)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var fallback = devices.FirstOrDefault(d => d.IsDefault) ?? (devices.Count > 0 ? devices[0] : null);
+        if (string.IsNullOrWhiteSpace(chosenId))
+        {
+            return new ResolvedMicrophone(fallback, ChosenIsMissing: false);
+        }
+
+        var chosen = devices.FirstOrDefault(d => string.Equals(d.Id, chosenId, StringComparison.OrdinalIgnoreCase));
+        return chosen is not null
+            ? new ResolvedMicrophone(chosen, ChosenIsMissing: false)
+            : new ResolvedMicrophone(fallback, ChosenIsMissing: true);
+    }
 }
 
 /// <summary>

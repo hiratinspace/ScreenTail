@@ -6,6 +6,7 @@ using ScreenTail.Core.Onboarding;
 using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Settings;
 using ScreenTail.Core.Shell;
+using ScreenTail.Core.Speech;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Settings;
 
@@ -90,7 +91,7 @@ public sealed class PipeSettingsGatewaysTests : IAsyncDisposable
             {
                 Settings = new CaptureSettings { CaptureAllWindows = !forced, GraceSeconds = 45, DisabledTools = ["anydesk"] },
                 Tools = [new ToolRow("rdp", "Remote Desktop"), new ToolRow("anydesk", "AnyDesk")],
-                Microphones = ["Headset", "Built-in microphone"],
+                Microphones = [new MicrophoneRow("{0.0.1.00000000}.{headset}", "Headset", IsDefault: false), new MicrophoneRow("{0.0.1.00000000}.{built-in}", "Built-in microphone", IsDefault: true)],
                 PolicyForcesAllWindows = forced,
                 DefaultGraceSeconds = 120,
             }
@@ -106,7 +107,7 @@ public sealed class PipeSettingsGatewaysTests : IAsyncDisposable
         Assert.Equal(120, snapshot.DefaultGraceSeconds);
         Assert.Equal(["anydesk"], snapshot.Settings.DisabledTools);
         Assert.Equal([new ToolChoice("rdp", "Remote Desktop"), new ToolChoice("anydesk", "AnyDesk")], snapshot.Tools);
-        Assert.Equal(["Headset", "Built-in microphone"], snapshot.Microphones);
+        Assert.Equal([new MicrophoneDevice("{0.0.1.00000000}.{headset}", "Headset", IsDefault: false), new MicrophoneDevice("{0.0.1.00000000}.{built-in}", "Built-in microphone", IsDefault: true)], snapshot.Microphones);
     }
 
     [Fact]
@@ -119,6 +120,25 @@ public sealed class PipeSettingsGatewaysTests : IAsyncDisposable
 
         Assert.Equal("The settings could not be written to disk.", refused);
         Assert.False(Assert.Single(_service.Received.OfType<SetCaptureSettingsCommand>()).Settings.AutoStart);
+    }
+
+    [Fact]
+    public async Task TheLevelGatewayAsksForTheDeviceInThePickerAndClosesWhenTold()
+    {
+        // ST-080 AC3. The device id goes out as chosen, the state, level and device listened to come back
+        // each in its own place, and the close is one message.
+        _service.Reply = command => command is GetMicrophoneLevelCommand
+            ? new MicrophoneLevelReported { State = MicrophoneLevelStates.Listening, Level = 0.25, DeviceId = "{0.0.1.00000000}.{built-in}" }
+            : null;
+        _service.Result = command => new CommandResult { RequestId = command.RequestId, Ok = true };
+        var levels = new PipeCapture(await ConnectAsync());
+
+        var reading = await levels.ReadLevelAsync("{0.0.1.00000000}.{left-at-home}", TestContext.Current.CancellationToken);
+        await levels.StopLevelAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new MeterReading(MicrophoneLevelStates.Listening, 0.25, "{0.0.1.00000000}.{built-in}"), reading);
+        Assert.Equal("{0.0.1.00000000}.{left-at-home}", Assert.Single(_service.Received.OfType<GetMicrophoneLevelCommand>()).DeviceId);
+        _ = Assert.Single(_service.Received.OfType<StopMicrophoneLevelCommand>());
     }
 
     [Fact]

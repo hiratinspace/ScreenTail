@@ -1088,6 +1088,30 @@
         <Setter Property="Fill" Value="{DynamicResource Brush.state.recording}" />
     </Style>
 
+    <!-- Meter.Level: the microphone's live level in Settings, Capture (ST-080 AC3, Spec §5 S5). A thin
+         track with the accent fill, as the wireframe draws it; not focusable, since there is nothing to
+         do with it. Its words are beside it, never only the bar. -->
+    <Style x:Key="Meter.Level" TargetType="ProgressBar">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Minimum" Value="0" />
+        <Setter Property="Maximum" Value="100" />
+        <Setter Property="Width" Value="160" />
+        <Setter Property="Height" Value="8" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Border BorderBrush="{DynamicResource Brush.border.strong}" BorderThickness="1" Background="{DynamicResource Brush.bg.base}" CornerRadius="2">
+                        <Grid x:Name="PART_Track">
+                            <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource Brush.accent.primary}" CornerRadius="1" />
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Banner: inline at the top of a pane; info, warning and error. A tinted fill and a border in the
          kind's colour, and the kind always in words and a glyph too (Spec §7). -->
     <Style x:Key="Banner.Info" TargetType="Border">

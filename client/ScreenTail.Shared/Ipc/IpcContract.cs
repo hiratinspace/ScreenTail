@@ -30,8 +30,14 @@ namespace ScreenTail.Shared.Ipc;
 /// <c>session_ids</c>, the token it issues is bound to exactly those ids, and <c>discard_sessions</c>
 /// carries them back. A new field on a command both sides already exchange, which an older service would
 /// refuse as an unknown member, so the version moves and the handshake goes on refusing a mismatched pair.
+///
+/// 7: ST-080 AC3, choosing the microphone. <c>capture_settings</c> lists <c>microphones[]</c> as rows with
+/// an id, a name and the default marked, where it had names alone, and the capture settings document gains
+/// <c>microphone_id</c>. A changed reply and a new member on a document both sides exchange, so an older
+/// reader would fail on either. The level meter's <c>get_microphone_level</c>, <c>stop_microphone_level</c>
+/// and <c>microphone_level</c> are new messages and would not have moved it on their own.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 6;
+    public const int Version = 7;
 }

@@ -152,6 +152,12 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   loaded when the first session wants it; the model download is hash-checked and cannot fill the disk; a
   voice-activity gate and a hallucination filter sit in front of the transcript. What is said while
   capture is suppressed is dropped, and the last sentence before Stop is waited for (#212).
+- **The microphone is chosen in Settings, Capture, with a live level** (ST-080 AC3, IPC contract 7). The
+  choice is kept by Windows' id in `capture.json` and used the next time the microphone opens; one that
+  is not connected falls back to Windows' default and the card says so. The level is read only while the
+  card is on screen with the window in front and the desktop unlocked, through a short lease the service
+  ends by itself, five minutes at most at a stretch, never during a session, and nothing heard is kept
+  or sent.
 - **The drafting path is wired end to end.** Bundle, outbox, sender, `POST v1/sessions/summarize` with a
   device token, Gemini Flash, the validator (invented frames, fake quotations, credentials,
   instruction-shaped text; the backend's and the research copy share one rule set since #206), and the
@@ -181,11 +187,10 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - Design tokens generate WPF dictionaries and web CSS from one source; the gallery renders in CI in
   dark, light and high contrast. Since #228 they give the client a Windows 11 look (tokens v0.5.0).
 
-**Not built:** the microphone picker and level meter in Settings, Capture (ST-080's AC3); the local text
-model (ST-065); hosting (ST-007); mail for invites (the operator's CLI and the web admin show the code
-once, to hand on). **Built and switched off until the owner sets them up:** the installer's signature
-(ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner sign-in to the web admin (ST-099,
-ADR-0009: off until a Google OAuth client id is set).
+**Not built:** the local text model (ST-065); hosting (ST-007); mail for invites (the operator's CLI and
+the web admin show the code once, to hand on). **Built and switched off until the owner sets them up:** the
+installer's signature (ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner sign-in to the web admin
+(ST-099, ADR-0009: off until a Google OAuth client id is set).
 
 ### Seen on real hardware, and not
 
@@ -203,6 +208,9 @@ the heaviest bundle a client may send, not on a recorded session.
 - The processor limit tripping on a real overload (the laptop step in `docs/dev/performance.md`).
 - The tray and pill following a real session with the service up, and screenshots over a remote window
   (ST-085's own walk-through).
+- The microphone picker and its level meter with a real headset, plugged and unplugged, and Win+L with
+  the card open turning Windows' microphone light off (ST-080 AC3). The tests drive the lock, sleep and
+  activation rules directly; Windows' real delivery of those events (Win+L, sleep) is checked only by hand.
 - Review, History, Settings and the onboarding wizard on a real screen, in the new look. CI renders them
   over fixtures in three themes; dropdowns, tool tips, hover and pressed states are not rendered there.
 - A publish to ConnectWise or Hudu. Both clients are tested against recorded shapes and, since #226,

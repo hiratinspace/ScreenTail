@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ScreenTail.Core.Net;
+using ScreenTail.Core.Speech;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Settings;
 
@@ -72,21 +73,28 @@ public static class CaptureSettingsDocument
             DisabledTools = cleanTools,
             Hotkeys = cleanHotkeys,
             Sensitivity = string.IsNullOrWhiteSpace(sensitivity) ? defaults.Sensitivity : sensitivity,
+
+            // A blank choice is no choice: Windows' default, as an absent one is.
+            MicrophoneId = string.IsNullOrWhiteSpace(settings.MicrophoneId) ? null : settings.MicrophoneId.Trim(),
         };
     }
 }
 
 /// <summary>
 /// The service's side of Settings → Capture (ST-080): the document with the registry's tools, the
-/// device(s) found and what the policy forces beside it; save, validate and apply in place.
+/// devices connected and what the policy forces beside it; save, validate and apply in place; and the
+/// microphone's live level while the card is on screen (AC3).
 /// </summary>
+/// <param name="microphones">The capture devices connected now (<see cref="IMicrophone.Devices"/>), asked each time the card loads.</param>
+/// <param name="meter">The level meter, or null where there is none to offer; the meter's requests are then refused.</param>
 public sealed class CaptureSettingsCommands(
     CaptureSettingsStore store,
     Func<IReadOnlyList<ToolRow>> tools,
-    Func<IReadOnlyList<string>> microphones,
+    Func<IReadOnlyList<MicrophoneDevice>> microphones,
     Func<TenantPolicy> policy,
     Func<int> defaultGraceSeconds,
-    Action<CaptureSettings> apply)
+    Action<CaptureSettings> apply,
+    MicrophoneMeter? meter = null)
 {
     private readonly CaptureSettingsStore _store = store ?? throw new ArgumentNullException(nameof(store));
 
@@ -94,25 +102,63 @@ public sealed class CaptureSettingsCommands(
     // must end on the same document when two connections save at once.
     private readonly Lock _saving = new();
 
-    public Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
-        return Task.FromResult<IpcEvent?>(command is GetCaptureSettingsCommand
-            ? new CaptureSettingsReported
-            {
-                RequestId = command.RequestId,
-                Settings = _store.Load(),
-                Tools = tools(),
-                Microphones = microphones(),
-                PolicyForcesAllWindows = policy().CaptureAllWindows,
-                DefaultGraceSeconds = defaultGraceSeconds(),
-            }
-            : null);
+        switch (command)
+        {
+            case GetCaptureSettingsCommand:
+                return new CaptureSettingsReported
+                {
+                    RequestId = command.RequestId,
+                    Settings = _store.Load(),
+                    Tools = tools(),
+                    Microphones = [.. microphones().Select(m => new MicrophoneRow(m.Id, m.Name, m.IsDefault))],
+                    PolicyForcesAllWindows = policy().CaptureAllWindows,
+                    DefaultGraceSeconds = defaultGraceSeconds(),
+                };
+
+            case GetMicrophoneLevelCommand level when meter is not null:
+                {
+                    var reading = await meter.ReadAsync(level.DeviceId, ct).ConfigureAwait(false);
+                    return new MicrophoneLevelReported
+                    {
+                        RequestId = command.RequestId,
+                        State = reading.State,
+                        Level = reading.Level,
+                        DeviceId = reading.DeviceId,
+                    };
+                }
+
+            default:
+                return null;
+        }
     }
 
-    public Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
+    public async Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+        switch (command)
+        {
+            case StopMicrophoneLevelCommand:
+                if (meter is not null)
+                {
+                    await meter.StopAsync().ConfigureAwait(false);
+                }
+
+                // Nothing open is the outcome asked for, whether or not there was a meter to close.
+                return new CommandResult { RequestId = command.RequestId, Ok = true };
+
+            case GetMicrophoneLevelCommand:
+                return new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The level meter is not available in this build." };
+
+            default:
+                return Save(command);
+        }
+    }
+
+    private CommandResult? Save(IpcCommand command)
+    {
         switch (command)
         {
             case SetCaptureSettingsCommand set:
@@ -121,34 +167,34 @@ public sealed class CaptureSettingsCommands(
                     // an exception in the middle of a save. A missing document is refused.
                     if (set.Settings is null)
                     {
-                        return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "No capture settings were sent." });
+                        return new CommandResult { RequestId = command.RequestId, Ok = false, Error = "No capture settings were sent." };
                     }
 
                     var settings = set.Settings.WithDefaultsForNulls();
                     var problems = settings.Problems();
                     if (problems.Count > 0)
                     {
-                        return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = problems[0] });
+                        return new CommandResult { RequestId = command.RequestId, Ok = false, Error = problems[0] };
                     }
 
                     lock (_saving)
                     {
                         if (!_store.Save(settings))
                         {
-                            return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be written to disk." });
+                            return new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The settings could not be written to disk." };
                         }
 
                         apply(settings);
                     }
 
-                    return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = true });
+                    return new CommandResult { RequestId = command.RequestId, Ok = true };
                 }
 
             case GetCaptureSettingsCommand:
-                return Task.FromResult<CommandResult?>(new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The capture settings could not be read." });
+                return new CommandResult { RequestId = command.RequestId, Ok = false, Error = "The capture settings could not be read." };
 
             default:
-                return Task.FromResult<CommandResult?>(null);
+                return null;
         }
     }
 }

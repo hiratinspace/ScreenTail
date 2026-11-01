@@ -445,7 +445,20 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 5, Token = IpcToken.Encode(_token), ClientName = "v5-ui" });
 
-        Assert.Equal(6, IpcContract.Version);
+        Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
+    public async Task AVersionSixUiIsTurnedAwayByAVersionSevenService()
+    {
+        // Contract v7 (ST-080 AC3) lists the microphones as rows and adds microphone_id to the capture
+        // settings. A v6 UI would fail reading the first and a v6 service would refuse the second, so the
+        // pair is refused at the handshake rather than on the first visit to Settings.
+        await StartServerAsync();
+
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 6, Token = IpcToken.Encode(_token), ClientName = "v6-ui" });
+
+        Assert.Equal(7, IpcContract.Version);
         Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
     }
 
