@@ -117,7 +117,8 @@
          close anything for the removal. What ends running copies before files are removed is Windows
          Installer's Restart Manager, in InstallValidate (it closed the old service in the upgrade logs),
          and, on an uninstall, the uninstall step below, which stops every installed copy before RemoveFiles
-         (UninstallCleanup). These still end a copy that is running when new files are about to be
+         (UninstallCleanup), and, in the old version's removal during an upgrade, the upgrade step below,
+         which does the same (UpgradeRelease). These still end a copy that is running when new files are about to be
          installed. Whether to move them earlier is the owner's decision (#247). -->
     <util:CloseApplication Id="CloseService"
                            Target="ScreenTail.Service.exe"
