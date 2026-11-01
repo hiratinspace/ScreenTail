@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ST-084: runs Accessibility Insights' automated rules (the axe-windows engine) over one window of
+       another process and prints what fails. Its own process because axe-windows ignores every element
+       that belongs to the process doing the scan, and the Windows suite's windows are in the suite's.
+       A test tool: nothing ships with it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- The suite's framework, so its build output sits beside the suite's under the same folder names
+         (AxeScan.cs finds it there). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ScreenTail.Tests.AxeRunner</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Axe.Windows" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,5 @@
-using Axe.Windows.Automation;
-using Axe.Windows.Automation.Data;
+using System.Diagnostics;
+using System.Globalization;
 
 namespace ScreenTail.Tests.Windows.Accessibility;
 
@@ -8,69 +8,66 @@ namespace ScreenTail.Tests.Windows.Accessibility;
 /// over one window through UI Automation, as Accessibility Insights itself runs them (ST-084 AC2).
 ///
 /// Every finding the engine reports as an error fails the test: those are the rules Accessibility
-/// Insights marks as failures, and AC2 asks for none. Called from the test's thread while the window's
-/// thread sits idle in its message loop, which is how UI Automation reaches a window in the same process.
+/// Insights marks as failures, and AC2 asks for none.
 ///
-/// Nothing is written: the output format is None, so no .a11ytest file and no screenshot is made, and a
-/// finding names the element's role, class and automation id, plus its name unless it is a window, whose
-/// name is its title (INV-10 holds for the suite's own logs, which the laptop uploads).
+/// The engine runs in a process of its own (ScreenTail.Tests.AxeRunner) because it skips every element
+/// that belongs to the process doing the scan, and the windows under test are this one's: in-process it
+/// found nothing at all. Called from the test's thread while the window's thread sits idle in its message
+/// loop, so UI Automation calls from the runner are answered. The runner writes nothing to disk and never
+/// prints a window's title.
 /// </summary>
 internal static class AxeScan
 {
     public static async Task<List<string>> ErrorsAsync(IntPtr window)
     {
-        var scratch = Path.Combine(Path.GetTempPath(), "screentail-a11y-" + Guid.NewGuid().ToString("N"));
+        var runner = Runner();
+        var start = new ProcessStartInfo(Host())
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.ArgumentList.Add(runner);
+        start.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        start.ArgumentList.Add(window.ToInt64().ToString(CultureInfo.InvariantCulture));
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("The axe-windows runner did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         try
         {
-            return await Task.Run(() =>
-            {
-                var config = Config.Builder.ForProcessId(Environment.ProcessId)
-                    .WithOutputFileFormat(OutputFileFormat.None)
-                    .WithOutputDirectory(scratch)
-                    .Build();
-                var scanner = ScannerFactory.CreateScanner(config);
-                var output = scanner.Scan(new ScanOptions("st-084", window));
-                var findings = new List<string>();
-                foreach (var scanned in output.WindowScanOutputs)
-                {
-                    foreach (var error in scanned.Errors)
-                    {
-                        findings.Add($"{error.Rule.ID}: {error.Rule.Description} ({Element(error.Element.Properties)})");
-                    }
-                }
-
-                return findings;
-            }).ConfigureAwait(false);
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            if (Directory.Exists(scratch))
-            {
-                Directory.Delete(scratch, recursive: true);
-            }
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException("The axe-windows scan took more than two minutes.");
         }
+
+        var lines = (await output.ConfigureAwait(false)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"The axe-windows runner exited {process.ExitCode}: {(await error.ConfigureAwait(false)).Trim()}");
+        }
+
+        return lines;
     }
 
-    private static string Element(IReadOnlyDictionary<string, string>? properties)
+    /// <summary>The runner's build output, beside this suite's under the same configuration and framework.</summary>
+    private static string Runner()
     {
-        if (properties is null)
-        {
-            return "no element";
-        }
-
-        string Get(string key) => properties.TryGetValue(key, out var value) ? value : string.Empty;
-        var type = Get("ControlType");
-        var parts = new List<string> { type, Get("LocalizedControlType"), Get("ClassName") };
-        if (!type.Contains("Window", StringComparison.OrdinalIgnoreCase))
-        {
-            parts.Add($"\"{Get("Name")}\"");
-        }
-
-        if (Get("AutomationId") is { Length: > 0 } id)
-        {
-            parts.Add($"#{id}");
-        }
-
-        return string.Join(", ", parts.Where(p => p.Length > 0));
+        var here = AppContext.BaseDirectory;
+        var path = Path.Combine(
+            here.Replace($"{Path.DirectorySeparatorChar}ScreenTail.Tests.Windows{Path.DirectorySeparatorChar}", $"{Path.DirectorySeparatorChar}ScreenTail.Tests.AxeRunner{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase),
+            "ScreenTail.Tests.AxeRunner.dll");
+        return File.Exists(path) ? path : throw new FileNotFoundException($"The axe-windows runner is not built at {path}.");
     }
+
+    /// <summary>The dotnet host running this suite, or the one on the path when the suite runs from its apphost.</summary>
+    private static string Host() =>
+        Environment.ProcessPath is { } self && Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+            ? self
+            : "dotnet";
 }

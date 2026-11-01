@@ -1226,6 +1226,16 @@
 
     <!-- Table: 36 px rows, a quiet header, a tint on hover and on the selected row. High contrast selects
          the system way, highlight on highlight text, because its tint is the window colour. -->
+    <!-- A table's row, keyed so a table can name its rows for a screen reader on top of it (ST-084). -->
+    <Style x:Key="Table.Row" TargetType="DataGridRow">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
     <Style x:Key="Table" TargetType="DataGrid">
         <Setter Property="Background" Value="{DynamicResource Brush.bg.surface}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
@@ -1253,6 +1263,10 @@
                     <Setter Property="Height" Value="{DynamicResource Layout.row-height}" />
                     <Setter Property="BorderThickness" Value="0,0,0,1" />
                     <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.subtle}" />
+                    <!-- Spec §3 makes the table sortable, and a header is how it sorts. WPF's headers take no
+                         focus, so sorting needed the mouse (ST-084); focusable, Space or Enter sorts. -->
+                    <Setter Property="Focusable" Value="True" />
+                    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="DataGridColumnHeader">
@@ -1275,19 +1289,7 @@
                 </Style>
             </Setter.Value>
         </Setter>
-        <Setter Property="RowStyle">
-            <Setter.Value>
-                <Style TargetType="DataGridRow">
-                    <Setter Property="Background" Value="Transparent" />
-                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                    <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource Brush.bg.hover}" />
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="RowStyle" Value="{StaticResource Table.Row}" />
         <Setter Property="CellStyle">
             <Setter.Value>
                 <Style TargetType="DataGridCell">
@@ -1369,6 +1371,8 @@
         <Setter Property="ItemContainerStyle">
             <Setter.Value>
                 <Style TargetType="ListBoxItem">
+                    <!-- The strip's items are StripItems; a screen reader says SpokenName (ST-084). -->
+                    <Setter Property="AutomationProperties.Name" Value="{Binding SpokenName}" />
                     <Setter Property="Margin" Value="0,0,8,8" />
                     <Setter Property="Padding" Value="6" />
                     <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />

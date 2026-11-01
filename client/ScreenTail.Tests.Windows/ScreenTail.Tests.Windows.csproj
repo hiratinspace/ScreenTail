@@ -19,7 +19,6 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
-    <PackageReference Include="Axe.Windows" />
   </ItemGroup>
 
   <ItemGroup>
@@ -50,5 +49,7 @@
     <ProjectReference Include="..\ScreenTail.Core\ScreenTail.Core.csproj" />
     <ProjectReference Include="..\ScreenTail.Service\ScreenTail.Service.csproj" />
     <ProjectReference Include="..\ScreenTail.UI\ScreenTail.UI.csproj" />
+    <!-- ST-084: built first, and run as its own process by Accessibility/AxeScan.cs; not referenced as code. -->
+    <ProjectReference Include="..\ScreenTail.Tests.AxeRunner\ScreenTail.Tests.AxeRunner.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

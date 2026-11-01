@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTail.Platform", "Scre
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTail.E2E", "ScreenTail.E2E\ScreenTail.E2E.csproj", "{E6B5660C-F8DC-4C2A-9CE7-2D3A49E27485}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTail.Tests.AxeRunner", "ScreenTail.Tests.AxeRunner\ScreenTail.Tests.AxeRunner.csproj", "{61B6641D-BE44-452F-AEE0-93BBB5BB928A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -125,6 +127,18 @@ Global
 		{E6B5660C-F8DC-4C2A-9CE7-2D3A49E27485}.Release|x64.Build.0 = Release|Any CPU
 		{E6B5660C-F8DC-4C2A-9CE7-2D3A49E27485}.Release|x86.ActiveCfg = Release|Any CPU
 		{E6B5660C-F8DC-4C2A-9CE7-2D3A49E27485}.Release|x86.Build.0 = Release|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Debug|x64.Build.0 = Debug|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Debug|x86.Build.0 = Debug|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Release|x64.ActiveCfg = Release|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Release|x64.Build.0 = Release|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Release|x86.ActiveCfg = Release|Any CPU
+		{61B6641D-BE44-452F-AEE0-93BBB5BB928A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

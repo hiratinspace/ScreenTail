@@ -27,7 +27,7 @@
                                    FontSize="20"
                                    Foreground="{DynamicResource Brush.text.muted}"
                                    Text="&#xEB9F;" />
-                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" AutomationProperties.Name="{Binding Label}" />
                     </Grid>
                     <Border.Style>
                         <Style TargetType="Border">

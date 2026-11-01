@@ -11,7 +11,11 @@ namespace ScreenTail.UI.History;
 
 /// <summary>One row of the History screen, already worded (Spec §5 S4).</summary>
 /// <param name="Frames">"7", or "7 (+1 purged)" when frames were deleted unredacted, because that is a fact about coverage the technician should see before publishing.</param>
-public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames);
+public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames)
+{
+    /// <summary>The row as a screen reader says it (Spec §7); it read the record itself until ST-084.</summary>
+    public string Spoken => $"{Status}, started {Started}, {Duration}, {Tool}, {Frames} screenshots";
+}
 
 /// <summary>
 /// The History screen (ST-079), fed by <c>list_sessions</c> over the pipe. The service computes the

@@ -206,7 +206,13 @@
                                   ItemsSource="{Binding Companies}"
                                   SelectedItem="{Binding NewDocCompany}"
                                   DisplayMemberPath="Name"
-                                  AutomationProperties.Name="Company in Hudu" />
+                                  AutomationProperties.Name="Company in Hudu">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                        </ComboBox>
                         <Button Grid.Column="2"
                                 Margin="8,0,0,0"
                                 Style="{StaticResource Button.Secondary}"

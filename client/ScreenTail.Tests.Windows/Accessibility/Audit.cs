@@ -643,7 +643,10 @@ internal static partial class Audit
         var findings = new List<string>();
         foreach (var element in Descendants(window).Prepend(window))
         {
-            if (element is UIElement { HasAnimatedProperties: true } moving)
+            // The text caret blinks by an animation of its own. Blinking is not motion, and its rate and
+            // whether it blinks at all are Windows' own keyboard settings (Settings, Accessibility, Text
+            // cursor), so it is the one animation this rule leaves to the system.
+            if (element is UIElement { HasAnimatedProperties: true } moving && moving.GetType().Name != "CaretSubElement")
             {
                 findings.Add($"{Describe(moving)} is animating with reduce motion on");
             }
@@ -801,7 +804,11 @@ internal static partial class Audit
         {
             case Border border:
                 yield return ("background", border.Background);
-                yield return ("border", border.BorderBrush);
+                if (border.BorderThickness != default)
+                {
+                    yield return ("border", border.BorderBrush);
+                }
+
                 break;
             case Panel panel:
                 yield return ("background", panel.Background);
@@ -814,8 +821,9 @@ internal static partial class Audit
                 yield return ("fill", shape.Fill);
                 yield return ("outline", shape.Stroke);
                 break;
-            case Control control:
-                yield return ("text", control.Foreground);
+            // Text is drawn by text blocks, checked above, and by the edit controls' own text view.
+            case TextBoxBase or PasswordBox:
+                yield return ("text", ((Control)element).Foreground);
                 break;
             default:
                 break;

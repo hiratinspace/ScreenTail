@@ -52,7 +52,14 @@
                              SelectedItem="{Binding SelectedMatch}"
                              DisplayMemberPath="Label"
                              Visibility="{Binding MatchesVisibility}"
-                             AutomationProperties.Name="Matching tickets" />
+                             AutomationProperties.Name="Matching tickets">
+                        <!-- Each ticket is read as its row, not as the record behind it (ST-084). -->
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
                     <WrapPanel Margin="0,8,0,0" Orientation="Horizontal" Visibility="{Binding TicketVisibility}">
                         <TextBlock Margin="0,0,8,0" Style="{StaticResource Text.Body}" Text="{Binding TicketLabel}" VerticalAlignment="Center" />
                         <ContentControl Style="{StaticResource Badge.Suggested}"
@@ -189,7 +196,13 @@
                                   ItemsSource="{Binding Companies}"
                                   SelectedItem="{Binding SelectedCompany}"
                                   DisplayMemberPath="Name"
-                                  AutomationProperties.Name="Company in the documentation platform" />
+                                  AutomationProperties.Name="Company in the documentation platform">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                        </ComboBox>
                         <TextBlock Margin="0,6,0,0"
                                    Style="{StaticResource Text.Error}"
                                    TextWrapping="Wrap"

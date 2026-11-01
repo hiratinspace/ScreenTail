@@ -51,6 +51,15 @@ public sealed class TrayIconHost : IDisposable
         menu.Items.Add(Item("Hide the recording pill (this session)", () => HidePill?.Invoke()));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Item("Quit", () => Quit?.Invoke()));
+
+        // Spec §7's 28 px target: a Windows Forms menu item is 22 px tall at 100%, so each gets 3 px more
+        // above and below, scaled with the menu's DPI (ST-084 measured them).
+        var extra = menu.LogicalToDeviceUnits(3);
+        foreach (var item in menu.Items.OfType<Forms.ToolStripMenuItem>())
+        {
+            item.Padding = new Forms.Padding(item.Padding.Left, item.Padding.Top + extra, item.Padding.Right, item.Padding.Bottom + extra);
+        }
+
         _icon.ContextMenuStrip = menu;
         _icon.DoubleClick += (_, _) => Open?.Invoke();
         _icon.BalloonTipClicked += (_, _) =>

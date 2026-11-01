@@ -67,6 +67,12 @@
                   MouseDoubleClick="OnOpen"
                   AutomationProperties.Name="Sessions"
                   AutomationProperties.HelpText="Select one or more sessions with Shift or Ctrl, then choose Bulk discard.">
+            <!-- The table's row style with each row named for a screen reader (ST-084). -->
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow" BasedOn="{StaticResource Table.Row}">
+                    <Setter Property="AutomationProperties.Name" Value="{Binding Spoken}" />
+                </Style>
+            </DataGrid.RowStyle>
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Started" Binding="{Binding Started}" Width="180" />
                 <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="100" />
