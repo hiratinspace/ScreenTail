@@ -132,13 +132,17 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   (`RESTART_NO_CRASH | RESTART_NO_HANG | RESTART_NO_REBOOT`) and with no arguments: the restart is the
   ordinary start, watching, not recording. **A recording in progress is split**: the part before the
   close is recovered as partial at the restart, and a new session begins only the way any session
-  begins. The smoke test checks that Restart Manager restarts it. One consequence for ScreenTail's own
-  upgrades: where Restart Manager closed the old service (an upgrade from the technician's session whose
-  files carry a newer version), Windows Installer starts the new one when it finishes, rather than it
-  waiting for the next sign-in (also ADR-0008's update installer). An uninstall's restart finds no
-  program to start. **For the owner:** whether to refuse Restart Manager's close while a session is
-  recording instead (answer WM_QUERYENDSESSION with FALSE for ENDSESSION_CLOSEAPP), which keeps a
-  recording whole but makes those installers leave their files for a reboot, as before; not decided here.
+  begins. The smoke test checks that Restart Manager restarts it. **ScreenTail's own package turns that
+  restart off** (`MSIDISABLERMRESTART=1`): without it, Restart Manager closing the old service in an
+  upgrade's removal made Windows Installer start the new one when it finished (CI, 2026-11-01), against
+  "down until the next sign-in" above, and from the installer's own elevated process. **For the owner:**
+  (1) whether to refuse Restart Manager's close while a session is recording instead (answer
+  WM_QUERYENDSESSION with FALSE for ENDSESSION_CLOSEAPP), which keeps a recording whole but makes those
+  installers leave their files for a reboot, as before; (2) Restart Manager restarts a program from the
+  process that asked, so after another program's installer run elevated from the technician's session
+  the service may run elevated until the next sign-in. Not seen on CI, where everything runs elevated; a
+  guard (a restart that finds itself elevated exits and waits for the next sign-in) is possible. Neither
+  is decided here.
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in

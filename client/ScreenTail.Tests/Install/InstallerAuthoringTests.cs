@@ -19,6 +19,16 @@ public sealed class InstallerAuthoringTests
     private static readonly XNamespace MsBuild = string.Empty;
 
     [Fact]
+    public void ScreenTailsOwnInstallerNeverRestartsWhatRestartManagerClosed()
+    {
+        // The service registers for restart for other programs' installers (ApplicationRestart). This
+        // package turns Windows Installer's restart off, so its upgrade and uninstall leave the service down
+        // until the next sign-in, and nothing is started from the installer's elevated process (ST-112).
+        var property = Assert.Single(Package().Descendants(Wix + "Property"), p => (string?)p.Attribute("Id") == "MSIDISABLERMRESTART");
+        Assert.Equal("1", (string?)property.Attribute("Value"));
+    }
+
+    [Fact]
     public void TheInstallIsPerMachine()
     {
         // MSP tools (Intune, RMM agents) install as the system account, so a per-user package would land

@@ -33,6 +33,12 @@
     <!-- Nothing to choose: there are no optional features. Repair stays, because it is how an MSP puts
          back a deleted file without uninstalling. -->
     <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- ST-112. The service registers for Restart Manager's restart, so that another program's installer
+         that closes it starts it again. ScreenTail's own package does not: an upgrade or an uninstall
+         leaves the service down until the next sign-in, as ADR-0007 says, and Windows Installer's restart
+         would otherwise start the new service from the installer's own, elevated, process. -->
+    <Property Id="MSIDISABLERMRESTART" Value="1" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
 
     <!-- Whisper's native libraries need the Visual C++ 2015-2022 x64 runtime, which a fresh Windows does

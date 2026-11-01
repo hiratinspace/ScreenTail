@@ -285,8 +285,9 @@ file ScreenTail has loaded, a silent Visual C++ runtime update for one, can now 
 Restart Manager, and it does. The service is registered for restart, so Restart Manager starts it again
 when that installer is done, in its ordinary state: watching, not recording. A session that was recording
 then is split: the part before the close is recovered as partial when the service starts again, and the
-technician starts a new one if the support session goes on. The same restart can bring the new service
-up straight after a ScreenTail upgrade run from the technician's session. Not yet measured: how long the
+technician starts a new one if the support session goes on. ScreenTail's own installer does not
+restart it (`MSIDISABLERMRESTART`): after a ScreenTail upgrade or uninstall the service stays down until
+the next sign-in, as above. Not yet measured: how long the
 service takes to stop in the middle of a recording, with speech, OCR, the microphone and the hooks all
 busy. The idle figure is about 150 ms on CI, and the four-second limit holds whatever happens; the
 laptop is where the busy figure has to be taken.
