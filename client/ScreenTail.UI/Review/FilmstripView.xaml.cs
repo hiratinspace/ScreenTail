@@ -164,7 +164,7 @@ public partial class FilmstripView : UserControl
             });
     }
 
-    /// <summary>Esc, T and B from any control of the enlarged view, not only from the strip under it (ST-084).</summary>
+    /// <summary>Esc, T, B and Ctrl+Z from any control of the enlarged view, not only from the strip under it (ST-084).</summary>
     private void OnEnlargedKeyDown(object sender, KeyEventArgs e)
     {
         if (Model is not { } model)
@@ -185,6 +185,13 @@ public partial class FilmstripView : UserControl
                 break;
             case FilmstripKey.ToggleBlur:
                 BlurMode.IsChecked = BlurMode.IsChecked != true;
+                e.Handled = true;
+                break;
+
+            // The undo toast is under the enlarged view, but its five seconds run on: Ctrl+Z still takes
+            // the delete back from here (ST-084 review).
+            case FilmstripKey.Undo:
+                model.UndoCommand.Execute(null);
                 e.Handled = true;
                 break;
             default:

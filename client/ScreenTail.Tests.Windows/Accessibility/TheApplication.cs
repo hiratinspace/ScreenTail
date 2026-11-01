@@ -24,6 +24,7 @@ public sealed class TheApplication : IDisposable
     private readonly Thread _thread;
     private readonly TaskCompletionSource<Dispatcher> _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Application? _app;
+    private volatile string? _hung;
 
     public TheApplication()
     {
@@ -38,14 +39,29 @@ public sealed class TheApplication : IDisposable
     /// <summary>The application's resources, where <see cref="ThemeManager.Apply"/> swaps the palette.</summary>
     public ResourceDictionary Resources => _app!.Resources;
 
-    /// <summary>Runs <paramref name="body"/> on the application's thread and waits for it, at most two minutes.</summary>
+    /// <summary>
+    /// Runs <paramref name="body"/> on the application's thread and waits for it, at most two minutes.
+    ///
+    /// A body that hangs keeps the one UI thread busy for good, and every later test would queue behind it
+    /// and time out in turn, two minutes each. So the first timeout is remembered and every later call
+    /// fails at once, naming the test that hung.
+    /// </summary>
     public async Task<T> RunAsync<T>(Func<Task<T>> body)
     {
         ArgumentNullException.ThrowIfNull(body);
-        var operation = Dispatcher.InvokeAsync(body);
-        var task = await operation.Task.ConfigureAwait(false);
+        if (_hung is { } earlier)
+        {
+            Assert.Fail($"Not run: {earlier} did not finish, and the UI thread is still busy with it.");
+        }
+
+        var task = Dispatcher.InvokeAsync(body).Task.Unwrap();
         var finished = await Task.WhenAny(task, Task.Delay(TimeSpan.FromMinutes(2))).ConfigureAwait(false);
-        Assert.True(finished == task, "The UI thread did not finish within two minutes.");
+        if (finished != task)
+        {
+            _hung = TestContext.Current.Test?.TestDisplayName ?? "an earlier test";
+            Assert.Fail("The UI thread did not finish within two minutes.");
+        }
+
         return await task.ConfigureAwait(false);
     }
 
@@ -63,12 +79,11 @@ public sealed class TheApplication : IDisposable
 
     public void Dispose()
     {
+        AxeScan.Stop();
         if (_app is { } app)
         {
-            Dispatcher.Invoke(() =>
-            {
-                app.Shutdown();
-            });
+            // Queued rather than waited for: a thread that hung would never run it.
+            _ = Dispatcher.BeginInvoke(() => app.Shutdown());
             Dispatcher.InvokeShutdown();
             _ = _thread.Join(TimeSpan.FromSeconds(30));
             _app = null;

@@ -132,6 +132,75 @@ public sealed class KeyboardShortcutTests(TheApplication app)
         });
     }
 
+    /// <summary>
+    /// Alt+1/2/3 is the digit row only. With the number pad, Alt types a character by its code (Alt+0233
+    /// is é), so a technician typing one must keep their place (ST-084 review).
+    /// </summary>
+    [Fact]
+    public async Task AltWithTheNumberPadIsLeftForTyping()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var shell = await Screens.OpenAsync("review");
+            try
+            {
+                var minutes = Screens.Named<TextBox>(shell, "Minutes");
+                foreach (var key in new[] { Key.NumPad1, Key.NumPad2, Key.NumPad3 })
+                {
+                    _ = minutes.Focus();
+                    await Audit.Settle();
+                    _ = Keys.Press(shell, key, ModifierKeys.Alt);
+                    await Audit.Settle();
+                    Assert.True(ReferenceEquals(Keyboard.FocusedElement, minutes), $"Alt+{key} moved focus out of the box being typed in.");
+                }
+
+                // The control: the digit row does move it.
+                _ = Keys.Press(shell, Key.D1, ModifierKeys.Alt);
+                await Audit.Settle();
+                Assert.True(Screens.Within(Keyboard.FocusedElement, Audit.Descendants(shell).OfType<NoteEditorView>().Single()), "Alt+1 did not go to the note.");
+            }
+            finally
+            {
+                await Screens.CloseAsync(shell);
+            }
+        });
+    }
+
+    /// <summary>
+    /// A delete is undone with Ctrl+Z for five seconds (Spec §4), and enlarging another screenshot in that
+    /// time hides the toast but not the undo (ST-084 review).
+    /// </summary>
+    [Fact]
+    public async Task CtrlZUndoesADeleteFromTheEnlargedView()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var shell = await Screens.OpenAsync("review");
+            try
+            {
+                var strip = Screens.Review(shell).Strip;
+                var count = strip.Items.Count;
+                _ = await Screens.FocusFirstFrameAsync(shell);
+                _ = Keys.Press(shell, Key.Delete);
+                await Screens.UntilAsync(() => strip.Items.Count == count - 1);
+                Assert.Equal(count - 1, strip.Items.Count);
+
+                await Screens.EnlargeFirstFrameAsync(shell);
+                Assert.True(strip.HasUndoToast, "The undo window closed before the test could use it.");
+                Assert.True(Screens.Within(Keyboard.FocusedElement, Audit.Descendants(shell).OfType<FilmstripView>().Single()), "Focus left the screenshots when the frame was enlarged.");
+                _ = Keys.Press(shell, Key.Z, ModifierKeys.Control);
+                await Screens.UntilAsync(() => strip.Items.Count == count);
+                Assert.Equal(count, strip.Items.Count);
+            }
+            finally
+            {
+                await Screens.CloseAsync(shell);
+            }
+        });
+    }
+
     [Fact]
     public async Task CtrlEnterPublishes()
     {

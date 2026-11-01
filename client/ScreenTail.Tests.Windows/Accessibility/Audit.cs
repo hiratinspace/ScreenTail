@@ -299,6 +299,43 @@ internal static partial class Audit
         return findings;
     }
 
+    /// <summary>The scroll bars a person can see in the window, vertical and horizontal.</summary>
+    public static IReadOnlyList<ScrollBar> ScrollBars(Window window) =>
+        [.. Descendants(window).OfType<ScrollBar>().Where(b => b.IsVisible && b.ActualWidth > 0 && b.ActualHeight > 0)];
+
+    /// <summary>
+    /// Nothing lies over a visible scroll bar: along its track, the pointer reaches the bar. Scroll bars
+    /// are not Tab stops, so the keyboard checks never look at them, and a splitter reaching over a
+    /// pane's edge once took the drag that should have scrolled the pane (ST-084 review).
+    /// </summary>
+    public static List<string> CoveredScrollBars(Window window)
+    {
+        var findings = new List<string>();
+        foreach (var bar in ScrollBars(window))
+        {
+            var bounds = Bounds(bar, window);
+            for (var step = 1; step <= 9; step += 2)
+            {
+                var point = bar.Orientation == Orientation.Vertical
+                    ? new Point(bounds.Left + (bounds.Width / 2), bounds.Top + (bounds.Height * step / 10))
+                    : new Point(bounds.Left + (bounds.Width * step / 10), bounds.Top + (bounds.Height / 2));
+                if (!Client(window).Contains(point))
+                {
+                    continue;
+                }
+
+                if (Hit(window, point) is { } hit && !ReferenceEquals(hit, bar) && !hit.IsDescendantOf(bar))
+                {
+                    var owner = bar.TemplatedParent is DependencyObject scroller ? Ancestor<Control>(scroller) ?? scroller : bar;
+                    findings.Add(string.Create(CultureInfo.InvariantCulture, $"the scroll bar of {Describe(owner)} is covered at {point.X:0},{point.Y:0} by {Describe(hit)} in {Lineage(hit)}"));
+                    break;
+                }
+            }
+        }
+
+        return findings;
+    }
+
     /// <summary>
     /// A button nobody can reach from the keyboard: not focusable, and not part of a control that is. Every
     /// action has to be reachable without a mouse (Spec §4).
@@ -330,7 +367,11 @@ internal static partial class Audit
     /// <item>Shift+Tab goes round the same stops in reverse.</item>
     /// </list>
     /// </summary>
-    public static async Task<Traversal> TabAsync(Window window, bool focusVisuals = true)
+    /// <param name="focusVisualsOnly">
+    /// Only the focus-visual check, for a second palette: what Tab reaches, in what order and whether it is
+    /// covered does not change with the colours, and was checked in the first.
+    /// </param>
+    public static async Task<Traversal> TabAsync(Window window, bool focusVisuals = true, bool focusVisualsOnly = false)
     {
         ArgumentNullException.ThrowIfNull(window);
         var findings = new List<string>();
@@ -378,16 +419,24 @@ internal static partial class Audit
 
             first ??= now;
             stops.Add(now);
-            Visible(window, now, findings);
+            if (!focusVisualsOnly)
+            {
+                Visible(window, now, findings);
+            }
+
             if (focusVisuals)
             {
                 await FocusShowsAsync(window, now, findings);
             }
         }
 
-        Reached(window, stops, findings);
-        ReadingOrder(window, stops, findings);
-        await ReverseAsync(window, stops, findings);
+        if (!focusVisualsOnly)
+        {
+            Reached(window, stops, findings);
+            ReadingOrder(window, stops, findings);
+            await ReverseAsync(window, stops, findings);
+        }
+
         return new Traversal(stops, findings);
     }
 

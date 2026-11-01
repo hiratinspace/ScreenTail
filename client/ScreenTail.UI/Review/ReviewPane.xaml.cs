@@ -33,11 +33,13 @@ public partial class ReviewPane : UserControl
         base.OnPreviewKeyDown(e);
     }
 
+    // The digit row only: Alt with the number pad types a character by its code (Alt+0233 is é), and a
+    // technician typing one into a step must get the character, not a jump to another pane.
     private FrameworkElement? PaneFor(Key key, ModifierKeys modifiers) => modifiers != ModifierKeys.Alt ? null : key switch
     {
-        Key.D1 or Key.NumPad1 => Note,
-        Key.D2 or Key.NumPad2 => Strip,
-        Key.D3 or Key.NumPad3 => Publish,
+        Key.D1 => Note,
+        Key.D2 => Strip,
+        Key.D3 => Publish,
         _ => null,
     };
 }

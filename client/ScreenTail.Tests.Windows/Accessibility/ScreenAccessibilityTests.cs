@@ -15,8 +15,14 @@ namespace ScreenTail.Tests.Windows.Accessibility;
 /// that is words, and every control has the role and pattern its kind needs, with its visible label in
 /// its name; every control is at least 28 x 28; no button is mouse-only; Tab reaches every control in
 /// reading order with no trap, focus never lands on something covered, Shift+Tab retraces it, and the
-/// focused control visibly changes with 3:1 contrast, in the dark, light and high-contrast palettes; and
-/// Accessibility Insights' automated rules (axe-windows) report no error (AC2).
+/// focused control visibly changes with 3:1 contrast, in the dark, light and high-contrast palettes; no
+/// scroll bar is covered; with Windows' animations off (simulated) nothing moves and no storyboard is
+/// declared; under the high-contrast palette every colour drawn is a system colour; and Accessibility
+/// Insights' automated rules (axe-windows) report no error (AC2).
+///
+/// Each screen is opened once for all of it: the palettes are switched on the open window, the second and
+/// third only for the focus visuals (what Tab reaches does not change with the colours), and the scan goes
+/// to the one runner process the suite shares. The suite's cost on the laptop is the reason.
 ///
 /// What still needs a person is in docs/ux/a11y-audit.md: listening to Narrator read each screen.
 /// </summary>
@@ -42,6 +48,8 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var findings = new List<string>();
         Window? window = null;
+        var animations = ThemeManager.ClientAreaAnimation;
+        ThemeManager.ClientAreaAnimation = () => false;
         try
         {
             var handle = await app.RunAsync(async () =>
@@ -50,14 +58,20 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
                 findings.AddRange(Audit.Names(window).Select(f => "name: " + f));
                 findings.AddRange(Audit.HitTargets(window).Select(f => "hit target: " + f));
                 findings.AddRange(Audit.MouseOnly(window).Select(f => "keyboard: " + f));
-                foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+                findings.AddRange(Audit.CoveredScrollBars(window).Select(f => "scroll bar: " + f));
+                findings.AddRange(Audit.Moving(window).Select(f => "reduce motion: " + f));
+                findings.AddRange(Audit.Storyboards(app.Resources, window).Select(f => "reduce motion: " + f));
+                findings.AddRange((await Audit.TabAsync(window)).Findings.Select(f => $"keyboard ({AppTheme.Dark}): {f}"));
+                foreach (var theme in new[] { AppTheme.Light, AppTheme.HighContrast })
                 {
                     ThemeManager.Apply(theme, app.Resources);
                     await Audit.Settle();
-                    var tab = await Audit.TabAsync(window);
-                    findings.AddRange(tab.Findings
-                        .Where(f => theme == AppTheme.Dark || f.Contains("does not look focused", StringComparison.Ordinal))
-                        .Select(f => $"keyboard ({theme}): {f}"));
+                    if (theme == AppTheme.HighContrast)
+                    {
+                        findings.AddRange(Audit.OffPalette(window).Select(f => "high contrast: " + f));
+                    }
+
+                    findings.AddRange((await Audit.TabAsync(window, focusVisualsOnly: true)).Findings.Select(f => $"keyboard ({theme}): {f}"));
                 }
 
                 ThemeManager.Apply(AppTheme.Dark, app.Resources);
@@ -69,6 +83,7 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
         }
         finally
         {
+            ThemeManager.ClientAreaAnimation = animations;
             await app.RunAsync(async () =>
             {
                 ThemeManager.Apply(AppTheme.Dark, app.Resources);
@@ -80,6 +95,48 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
         }
 
         Assert.True(findings.Count == 0, $"{screen}: {findings.Count} findings\n" + string.Join('\n', findings.Distinct()));
+    }
+
+    /// <summary>
+    /// The splitters are 28 px wide (Spec §7) and must not take the drag meant for the scroll bars beside
+    /// them (ST-084 review): the first 28 px splitters reached over the panes' edges and lay on top of the
+    /// note's and the screenshots' scroll bars. Review at the smallest window, where both panes scroll.
+    /// </summary>
+    [Fact]
+    public async Task NoSplitterLiesOverAPanesScrollBar()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var shell = await Screens.OpenAsync("review");
+            try
+            {
+                var bars = Audit.ScrollBars(shell);
+                foreach (var pane in new FrameworkElement[]
+                {
+                    Audit.Descendants(shell).OfType<UI.Review.NoteEditorView>().Single(),
+                    Audit.Descendants(shell).OfType<UI.Review.FilmstripView>().Single(),
+                })
+                {
+                    Assert.True(bars.Any(b => b.IsDescendantOf(pane)), $"{pane.GetType().Name} shows no scroll bar at 1024 x 680, so this would check nothing.");
+                }
+
+                foreach (var splitter in Audit.Descendants(shell).OfType<System.Windows.Controls.GridSplitter>())
+                {
+                    var grip = Audit.Bounds(splitter, shell);
+                    foreach (var bar in bars)
+                    {
+                        Assert.False(grip.IntersectsWith(Audit.Bounds(bar, shell)), $"\"{System.Windows.Automation.AutomationProperties.GetName(splitter)}\" lies over a scroll bar.");
+                    }
+                }
+
+                Assert.Empty(Audit.CoveredScrollBars(shell));
+            }
+            finally
+            {
+                await Screens.CloseAsync(shell);
+            }
+        });
     }
 
     /// <summary>

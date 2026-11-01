@@ -36,13 +36,15 @@ shortcut sheet, the pill in all ten states, and the tray menu.
 | No keyboard trap | `Audit.TabAsync` | A Tab that does not move focus, or a round that never comes back to the first stop |
 | Focus order | `Audit.TabAsync` | A Tab that moves to something wholly above, or wholly to the left on the same row, at the level where the two branches of the tree part; Shift+Tab not retracing Tab |
 | Focus lands on something visible | `Audit.TabAsync` | Focus outside the window, or on a control another element covers |
-| Focus is visible | `Audit.TabAsync`, in the dark, light and high-contrast palettes | A focused control that, drawn again without focus, changes in fewer pixels with 3:1 contrast than half its perimeter |
+| Focus is visible | `Audit.TabAsync`, in the dark, light and high-contrast palettes | A focused control that, drawn again without focus, changes in fewer pixels with 3:1 contrast than a quarter of the perimeter of the region around it ((width + height) / 2) |
+| Scroll bars can be grabbed | `Audit.CoveredScrollBars` on every screen, `NoSplitterLiesOverAPanesScrollBar` | Anything lying over a visible scroll bar's track (scroll bars are not Tab stops, so the keyboard checks never see them) |
 | Documented shortcuts | `KeyboardShortcutTests` | Ctrl+S, Ctrl+Enter, Alt+1/2/3, Alt+T, Alt+C, Alt+Down, Space, Enter, T, Esc (from the strip and from the enlarged view's own buttons), Del and Ctrl+Z not doing what Spec §5 S3 says; ? not opening the shortcut sheet outside a text box, or not typing a ? inside one |
+| Undo and Alt codes | `KeyboardShortcutTests` | Ctrl+Z not taking a delete back from the enlarged view; Alt with the number pad moving focus instead of being left to type a character |
 | Esc closes dialogs | `KeyboardShortcutTests.EscClosesTheDialog` | A typed confirmation that opens without the caret in its box, or that Esc does not close; the shortcut sheet not closing on Esc |
 | Disabled reasons are spoken | `KeyboardShortcutTests.ADisabledPublishSaysWhyToAScreenReader` | A disabled Publish whose help text is not the reason written beside it |
 | Live regions | `LiveRegionTests` | The shell's capture state, the service-down banner or the pill's state changing without an announcement; the pill announcing its clock every second |
-| Reduce motion | `MotionAndContrastTests.WithAnimationsOffNothingMoves` | With Windows' animations off (simulated through `ThemeManager.ClientAreaAnimation`, not changed on the machine): any element animating while screens open, the timeline toggles or a combo box drops down, a popup that animates, or a storyboard declared in any style or template. The text caret's blink is left to Windows' own cursor settings |
-| High contrast | `MotionAndContrastTests.InHighContrastEveryColourIsTheSystems` | With Windows' high contrast simulated (`ThemeManager.SystemHighContrast`): the app not switching to the high-contrast palette whatever theme was chosen, or not remembering the choice; a colour token that is not a system colour; any opaque colour drawn on any screen that is not one of the system's |
+| Reduce motion | every screen (`ScreenAccessibilityTests`), and `MotionAndContrastTests.WithAnimationsOffNothingMoves` for the timeline and the combo boxes | With Windows' animations off (simulated through `ThemeManager.ClientAreaAnimation`, not changed on the machine): any element animating as a screen opens, as the timeline toggles or as a combo box drops down, a popup that animates, or a storyboard declared in any style or template. The text caret's blink is left to Windows' own cursor settings |
+| High contrast | every screen under the high-contrast palette (`ScreenAccessibilityTests`), and `MotionAndContrastTests.InHighContrastEveryColourIsTheSystems` | With Windows' high contrast simulated (`ThemeManager.SystemHighContrast`): the app not switching to the high-contrast palette whatever theme was chosen, or not remembering the choice; a colour token that is not a system colour; any opaque colour drawn on any screen that is not one of the system's |
 | Accessibility Insights FastPass, automated checks (AC2) | every screen and pill state, through `ScreenTail.Tests.AxeRunner` | Any error the axe-windows engine reports. It runs in its own process because the engine skips the elements of the process that runs it; it writes no file and prints no window title |
 
 The keyboard is driven without injecting input: `Keys.Press` hands the window's `HwndSource` the key
@@ -70,7 +72,9 @@ The suite's first runs found these, each now held by the test named beside it:
 - **Icon-font glyphs were read as private-use characters** (`Names`, Accessibility Insights).
 - **Buttons repeated on one screen with the same name** (Remove, Change, Test connection, Forget, Save,
   Fix in Windows Settings, Open in ConnectWise), which Accessibility Insights fails (sibling names).
-- **Hit targets:** the splitters were 12 px wide, transcript rows 26 px, tray menu items 22 px.
+- **Hit targets:** the splitters were 12 px wide, transcript rows 26 px, tray menu items 22 px. The
+  splitters are now the 28 px gaps between the panes; a first fix that reached over the panes' edges lay
+  on top of their scroll bars (found in review, now a rule).
 - **History sorted only with the mouse:** the table's headers took no focus; the filler header after the
   last column was clickable and unnamed.
 - **Focus was hard to see** on a screenshot and on a table header, where the focus ring is clipped by the
@@ -79,6 +83,14 @@ The suite's first runs found these, each now held by the test named beside it:
   reader no reason.
 - **The shortcut sheet** (new) did not fit a 768 px screen in one column.
 - **Empty text lines** were zero-sized elements Accessibility Insights fails; they now collapse.
+
+### What it costs
+
+The Windows assembly ran in about 109 s on the hosted runner before this suite. With it, after opening
+each screen once for every rule, switching palettes on the open window, re-walking only the focus
+visuals in the second and third palette, and sharing one axe-windows runner process across the suite,
+see the PR for the measured figure. The laptop's capabilities job runs the whole assembly too; its
+first run since will show whether it still fits the job's limit.
 
 ### The tests have teeth
 
@@ -145,7 +157,12 @@ mouse; scroll bars are 12 px.
   WCAG 2.5.8's "equivalent" exception.
 - **Blurring a region needs the mouse** (Spec §5 S3 draws it as a drag on the enlarged screenshot). A
   keyboard way to place and size the region is a new ticket, not part of this one.
-- **History's headers are Tab stops** so the table sorts from the keyboard (Spec §3: sortable).
+- **History's headers are Tab stops** so the table sorts from the keyboard (Spec §3: sortable). That adds
+  five stops before the rows; the alternative is a sort chord, which the spec does not name.
+- **The gaps between Review's panes are 28 px** (were 12), because the splitter is the gap: Spec §7's
+  target size without lying over a pane's scroll bar.
+- **The shortcut sheet lists the shipped capture hotkeys** and says to change them in Settings; reading the
+  technician's own chords would need the service's settings every time the sheet opens.
 - **The caret's blink** is not suppressed by reduce motion; Windows' own text cursor settings govern it.
 
 What to record from the manual pass: the screen, the finding, and whether it is a name (fix the XAML; the

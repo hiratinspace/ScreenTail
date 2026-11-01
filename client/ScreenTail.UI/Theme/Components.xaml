@@ -1348,9 +1348,10 @@
         </Setter>
     </Style>
 
-    <!-- Split pane: resizable; a 1 px rule in a 6 px grip, so it is easy to catch and quiet to look at. -->
+    <!-- Split pane: resizable; a 1 px rule in a grip as wide as Spec §7's smallest target, so it is easy to
+         catch and quiet to look at. The grip is the gap between two panes, never over them (ST-084). -->
     <Style x:Key="SplitPane.Splitter" TargetType="GridSplitter">
-        <Setter Property="Width" Value="6" />
+        <Setter Property="Width" Value="{DynamicResource Layout.hit-target-min}" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Stretch" />
         <Setter Property="Background" Value="Transparent" />

@@ -16,16 +16,18 @@ namespace ScreenTail.Tests.Windows.Accessibility;
 [Collection(WpfApplicationOwner.Name)]
 public sealed class MotionAndContrastTests(TheApplication app)
 {
-    private static readonly string[] Moving =
-    [
-        "review", "review-timeline", "review-enlarged", "history", "settings", "onboarding-welcome", "onboarding-permissions", "diagnostics", "shortcut-sheet",
-    ];
+    /// <summary>
+    /// The screens where something changes on a key or a click: the timeline opens and closes, and Settings
+    /// and the mapping prompt have combo boxes that drop down. Every screen is also checked still, as it
+    /// opens, by <see cref="ScreenAccessibilityTests"/>.
+    /// </summary>
+    private static readonly string[] Moving = ["review", "settings", "review-needs-mapping"];
 
     /// <summary>
     /// With animations off in Windows, the app says reduce motion, its motion helper gives no duration,
-    /// nothing on any screen animates while it opens, while the timeline opens and closes or while a combo
-    /// box drops down, and no style or template anywhere declares a storyboard (which would run whatever
-    /// the setting said).
+    /// and nothing animates while the timeline opens and closes or while a combo box drops down. That no
+    /// screen animates as it opens, and that no style or template declares a storyboard (which would run
+    /// whatever the setting said), is held per screen by <see cref="ScreenAccessibilityTests"/>.
     /// </summary>
     [Fact]
     public async Task WithAnimationsOffNothingMoves()
@@ -45,9 +47,7 @@ public sealed class MotionAndContrastTests(TheApplication app)
                     var window = await Screens.OpenAsync(screen);
                     try
                     {
-                        findings.AddRange(Audit.Moving(window).Select(f => $"{screen}: {f}"));
-                        findings.AddRange(Audit.Storyboards(app.Resources, window).Select(f => $"{screen}: {f}"));
-                        if (screen.StartsWith("review", StringComparison.Ordinal) && screen != "review-enlarged")
+                        if (screen == "review")
                         {
                             _ = Screens.Named<TextBox>(window, "Problem").Focus();
                             _ = Keys.Press(window, Key.T, ModifierKeys.Alt);
@@ -81,8 +81,9 @@ public sealed class MotionAndContrastTests(TheApplication app)
 
     /// <summary>
     /// With Windows in high contrast, whatever theme the technician chose, the app applies the
-    /// high-contrast palette and remembers their choice; every colour token then resolves to a system
-    /// colour; and every opaque colour drawn on every screen is one of the system's.
+    /// high-contrast palette and remembers their choice, and every colour token then resolves to a system
+    /// colour. That every opaque colour drawn on every screen is one of the system's is held per screen by
+    /// <see cref="ScreenAccessibilityTests"/>, under the same palette.
     /// </summary>
     [Fact]
     public async Task InHighContrastEveryColourIsTheSystems()
@@ -107,23 +108,6 @@ public sealed class MotionAndContrastTests(TheApplication app)
                     }
                 }
             });
-
-            foreach (var screen in Screens.All)
-            {
-                await app.RunAsync(async () =>
-                {
-                    ThemeManager.Apply(AppTheme.Dark, app.Resources);
-                    var window = await Screens.OpenAsync(screen);
-                    try
-                    {
-                        findings.AddRange(Audit.OffPalette(window).Select(f => $"{screen}: {f}"));
-                    }
-                    finally
-                    {
-                        await Screens.CloseAsync(window);
-                    }
-                });
-            }
         }
         finally
         {
