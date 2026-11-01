@@ -22,11 +22,13 @@ function fromHash(): SectionId {
 interface ShellProps {
   api: AdminApi;
   session: SignedIn;
+  /** A message about the session itself, such as a sign-out that did not complete. */
+  notice?: string;
   onSignOut: () => void;
 }
 
 /** The admin shell (Spec §5 S9): the tenant and owner, the sections, and one section at a time. No marketing chrome. */
-export function Shell({ api, session, onSignOut }: ShellProps) {
+export function Shell({ api, session, notice, onSignOut }: ShellProps) {
   const [section, setSection] = useState<SectionId>(fromHash);
   const heading = useRef<HTMLHeadingElement>(null);
   const first = useRef(true);
@@ -80,6 +82,11 @@ export function Shell({ api, session, onSignOut }: ShellProps) {
         <h1 ref={heading} tabIndex={-1} className="title">
           {current.label}
         </h1>
+        {notice && (
+          <div className="banner danger" role="alert">
+            <p>{notice}</p>
+          </div>
+        )}
         {section === 'technicians' && <TechniciansPage api={api} />}
         {section === 'policy' && <PolicyPage api={api} />}
         {section === 'integrations' && <IntegrationsPage api={api} />}

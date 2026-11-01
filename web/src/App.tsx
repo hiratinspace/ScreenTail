@@ -29,6 +29,7 @@ const defaultButton = clientId ? googleButton(clientId) : undefined;
 export function App({ api = defaultApi, button = defaultButton }: AppProps) {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
+  const [signOutError, setSignOutError] = useState<string>();
 
   useEffect(() => {
     let live = true;
@@ -77,10 +78,13 @@ export function App({ api = defaultApi, button = defaultButton }: AppProps) {
   }
 
   async function signOut() {
+    setSignOutError(undefined);
     try {
       await api.signOut();
-    } catch {
-      // Signed out here either way; the cookie expires on its own.
+    } catch (e) {
+      // Not signed out: the cookie and the session on the server are both still good. Say so, and stay.
+      setSignOutError(`Sign-out did not complete, so you are still signed in. ${messageOf(e)}`);
+      return;
     }
     setView({ kind: 'signedOut' });
   }
@@ -107,7 +111,9 @@ export function App({ api = defaultApi, button = defaultButton }: AppProps) {
           onCancel={() => setView({ kind: 'signedOut' })}
         />
       )}
-      {view.kind === 'signedIn' && <Shell api={api} session={view.session} onSignOut={() => void signOut()} />}
+      {view.kind === 'signedIn' && (
+        <Shell api={api} session={view.session} notice={signOutError} onSignOut={() => void signOut()} />
+      )}
     </>
   );
 }

@@ -82,6 +82,24 @@ describe('App', () => {
     expect(api.signOut).toHaveBeenCalledOnce();
   });
 
+  it('says so, and stays signed in, when sign-out does not complete', async () => {
+    const api = fakeApi({
+      session: async () => session,
+      signOut: async () => {
+        throw new ApiError(0, 'ScreenTail could not reach the server. Check your connection and try again.');
+      },
+    });
+    render(<App api={api} button={fakeGoogle()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Sign-out did not complete, so you are still signed in.');
+    expect(alert.textContent).toContain('could not reach the server');
+    expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeDefined();
+    expect(screen.queryByRole('heading', { name: 'Sign in to ScreenTail admin' })).toBeNull();
+  });
+
   it('moves between sections from the navigation, marks the current one and focuses its heading', async () => {
     render(<App api={fakeApi({ session: async () => session })} />);
     const nav = await screen.findByRole('navigation', { name: 'Admin sections' });
