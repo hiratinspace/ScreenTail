@@ -187,7 +187,8 @@ try {
 function Start-ForeignHolder([string]$Name) {
     $service = @(Get-InstalledProcesses | Where-Object { $_.ProcessName -eq 'ScreenTail.Service' }) | Select-Object -First 1
     Check "${Name}: the installed service is running before the upgrade" ($null -ne $service)
-    $record = Join-Path $Logs "holder-$Name.txt"
+    # A file name from the step's name: "msiexec /qn upgrade" has a slash in it.
+    $record = Join-Path $Logs ('holder-' + ($Name -replace '[^A-Za-z0-9]+', '-') + '.txt')
     Remove-Item $record -Force -ErrorAction SilentlyContinue
     $env:ST_HOLD_PATH = $serviceExe
     $env:ST_HOLD_PID = $(if ($service) { [string]$service.Id } else { '' })
