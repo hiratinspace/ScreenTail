@@ -111,6 +111,14 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
                 findings.AddRange(Audit.Names(pill).Select(f => "name: " + f));
                 findings.AddRange(Audit.HitTargets(pill, Audit.HudHitTarget).Select(f => "hit target: " + f));
                 findings.AddRange(Audit.MouseOnly(pill).Select(f => "keyboard: " + f));
+                // Spec §7: the state pill is read as the state ("Recording, 12 minutes 41 seconds, ..."),
+                // not as a label for it.
+                var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(pill);
+                if (!Audit.Peers(peer).Any(p => p.GetName() == model.SpokenState))
+                {
+                    findings.Add($"name: nothing in the pill is read as \"{model.SpokenState}\"");
+                }
+
                 if (pill.IsActive || pill.IsKeyboardFocusWithin)
                 {
                     findings.Add("focus: the pill took focus when it appeared");

@@ -23,6 +23,41 @@ public sealed class HudStateTests
         Assert.Equal("●", hud.State.Glyph);
     }
 
+    /// <summary>
+    /// Spec §7's screen-reader text for the pill (ST-084). It was the fixed words "Capture state", which
+    /// Narrator read instead of the state.
+    /// </summary>
+    [Fact]
+    public void AScreenReaderHearsTheStateTheClockAndTheBacklogInWords()
+    {
+        var hud = HudState.For(Capture(CaptureStates.Recording, elapsedMs: 761_000, pending: 3));
+        Assert.Equal("Recording, 12 minutes 41 seconds, 3 screenshots still being redacted", hud.Spoken);
+
+        var offline = HudState.For(Capture(CaptureStates.Recording, elapsedMs: 3_661_000), online: false);
+        Assert.Equal("Recording, 1 hour 1 minute 1 second, Offline: draft will be created when connected.", offline.Spoken);
+
+        Assert.Equal("Paused: sensitive field", HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.PasswordField)).Spoken);
+        Assert.Equal("Capture state unknown. Not connected to the capture service. It may still be recording.", HudState.For(null).Spoken);
+        Assert.Equal("Not recording", HudState.For(Capture(CaptureStates.Idle)).Spoken);
+    }
+
+    /// <summary>
+    /// What is announced when it changes leaves the clock out, so a screen reader is not interrupted every
+    /// second of a session, and still changes with the state.
+    /// </summary>
+    [Fact]
+    public void TheAnnouncementChangesWithTheStateAndNotWithTheClock()
+    {
+        var early = HudState.For(Capture(CaptureStates.Recording, elapsedMs: 1_000));
+        var later = HudState.For(Capture(CaptureStates.Recording, elapsedMs: 61_000));
+        var paused = HudState.For(Capture(CaptureStates.Paused, reason: CaptureReasons.User));
+
+        Assert.Equal(early.Announcement, later.Announcement);
+        Assert.NotEqual(early.Spoken, later.Spoken);
+        Assert.NotEqual(early.Announcement, paused.Announcement);
+        Assert.Equal("Paused: press Ctrl+Alt+P to resume", paused.Announcement);
+    }
+
     [Theory]
     [InlineData(0, "00:00")]
     [InlineData(59_999, "00:59")]

@@ -131,7 +131,7 @@
                                 VerticalAlignment="Center"
                                 Style="{StaticResource Badge.Status}"
                                 Content="{Binding Status}"
-                                AutomationProperties.Name="Capture state"
+                                AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
                                 AutomationProperties.LiveSetting="Polite" />
             </Grid>
         </Border>
