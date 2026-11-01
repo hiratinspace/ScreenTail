@@ -21,6 +21,8 @@ internal sealed class NameChangeWitness : IDisposable
     private readonly WinEventProc _callback;
     private readonly TaskCompletionSource<bool> _installed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<(IntPtr Window, int ObjectId)> _seen = [];
+    private readonly HashSet<string> _titles = new(StringComparer.Ordinal);
+    private IntPtr _titlesOf;
     private uint _threadId;
 
     private NameChangeWitness()
@@ -46,6 +48,29 @@ internal sealed class NameChangeWitness : IDisposable
 
     /// <summary>The OS id of the thread the hook delivers to, so a measurement can leave it out.</summary>
     public uint ThreadId => _threadId;
+
+    /// <summary>
+    /// Reads the window's own title at every rename it raises from now on, so a test can say which titles
+    /// the window actually announced. Kept in memory for the test's assertions and never written anywhere.
+    /// One window at a time: reading a title is a message to the window's thread.
+    /// </summary>
+    public void TrackTitles(IntPtr window)
+    {
+        lock (_seen)
+        {
+            _titlesOf = window;
+            _titles.Clear();
+        }
+    }
+
+    /// <summary>The distinct titles the tracked window announced with a rename that start with a prefix.</summary>
+    public IReadOnlyList<string> TitlesStartingWith(string prefix)
+    {
+        lock (_seen)
+        {
+            return [.. _titles.Where(title => title.StartsWith(prefix, StringComparison.Ordinal))];
+        }
+    }
 
     /// <summary>How many name changes this window has raised with the given object id.</summary>
     public int Count(IntPtr window, int objectId)
@@ -114,9 +139,24 @@ internal sealed class NameChangeWitness : IDisposable
 
     private void OnWinEvent(IntPtr hook, uint eventType, IntPtr window, int objectId, int childId, uint thread, uint time)
     {
+        IntPtr tracked;
         lock (_seen)
         {
             _seen.Add((window, objectId));
+            tracked = _titlesOf;
+        }
+
+        if (tracked != IntPtr.Zero && window == tracked && objectId == WindowObject)
+        {
+            var buffer = new char[512];
+            var length = GetWindowText(window, buffer, buffer.Length);
+            if (length > 0)
+            {
+                lock (_seen)
+                {
+                    _ = _titles.Add(new string(buffer, 0, length));
+                }
+            }
         }
     }
 
@@ -144,6 +184,9 @@ internal sealed class NameChangeWitness : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int GetWindowText(IntPtr hWnd, [Out] char[] lpString, int nMaxCount);
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();

@@ -135,8 +135,10 @@ public sealed class IdleHookTests
     /// is in front. Windows Terminal draws its own window and is checked the same way.
     ///
     /// The poll is out of reach, so a title can only arrive through the hook. The console retitles itself
-    /// every half second; within four seconds the watcher must report at least three of its titles, which
-    /// the foreground event alone (one read as the console comes to the front) cannot give.
+    /// every half second, and a hook of the test's own over every thread counts the renames the console's
+    /// window actually raised: Windows Terminal, on the laptop, raised fewer than it was asked for. Each
+    /// rename is more than the filter's settle time apart, so every one the witness heard after the console
+    /// came to the front must reach the watcher as a title of its own, and there must be at least two.
     /// </summary>
     [Theory]
     [InlineData(ConsoleHost.Classic)]
@@ -152,6 +154,7 @@ public sealed class IdleHookTests
         }
 
         using var console = await PrintingConsole.StartAsync(host, retitle: true, ct);
+        using var witness = NameChangeWitness.Start();
         await using var watcher = new WindowsForegroundWatcher(pollInterval: TimeSpan.FromMinutes(10));
         var titles = new HashSet<string>(StringComparer.Ordinal);
         watcher.Changed += info =>
@@ -167,22 +170,31 @@ public sealed class IdleHookTests
         await watcher.StartAsync(ct);
         Assert.True(console.TakeForeground(), $"the {host} console ({console.ClassName}) could not be brought to the front");
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
-        int seen;
-        do
+        // Counted from here: the console is in front and the watcher's hook follows it.
+        await Task.Delay(300, ct);
+        lock (titles)
         {
-            await Task.Delay(100, ct);
-            lock (titles)
-            {
-                seen = titles.Count;
-            }
+            titles.Clear();
         }
-        while (seen < 3 && DateTime.UtcNow < deadline);
+
+        witness.TrackTitles(console.Window);
+        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        var announced = witness.TitlesStartingWith(PrintingConsole.TitlePrefix);
+
+        // The last rename may still be inside the settle time; it is allowed to be late.
+        await Task.Delay(400, ct);
+        int raised = announced.Count, seen;
+        lock (titles)
+        {
+            seen = announced.Count(titles.Contains);
+        }
 
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
-            $"A {host} console in front (class {console.ClassName}, still in front: {console.IsForeground}) retitling itself every 0.5 s: the watcher reported **{seen}** of its titles within 4 s with the poll out of reach (must be 3 or more), its name hook on thread {watcher.NameHookThread} (0 is every thread)"));
-        Assert.True(seen >= 3, $"the watcher reported {seen} titles of a {host} console ({console.ClassName}) retitling itself in front; its renames are not reaching the name hook");
+            $"A {host} console in front (class {console.ClassName}, still in front: {console.IsForeground}) retitling itself every 0.5 s for 5 s with the poll out of reach: "
+            + $"it announced **{raised}** titles with a rename of its window (a hook over every thread) and the watcher reported **{seen}** of them (must be all, and at least 2), its name hook on thread {watcher.NameHookThread} (0 is every thread)"));
+        Assert.True(raised >= 2, $"the {host} console ({console.ClassName}) announced {raised} titles with a rename of its window in 5 s, so the watcher's count proves nothing");
+        Assert.True(seen == raised, $"the {host} console ({console.ClassName}) announced {raised} titles in front and the watcher reported {seen} of them; its renames are not reaching the name hook");
     }
 
     /// <summary>A pump thread's wakeups a second over <see cref="Window"/>, from the kernel's context-switch counts.</summary>
