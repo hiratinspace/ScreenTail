@@ -50,6 +50,39 @@ public sealed partial class AutomationNamesTests
         Assert.Empty(unnamed);
     }
 
+    /// <summary>
+    /// ST-084: WPF declares a live region and never announces it, so a view that sets
+    /// <c>AutomationProperties.LiveSetting</c> itself is silent to a screen reader. Every live region goes
+    /// through <c>controls:LiveRegion.Setting</c>, which announces the change; the Windows suite holds that
+    /// it does.
+    /// </summary>
+    [Fact]
+    public void EveryLiveRegionIsOneThatIsAnnounced()
+    {
+        var silent = Xaml()
+            .SelectMany(file => File.ReadAllLines(file).Select((line, at) => (file, line, at)))
+            .Where(l => l.line.Contains("AutomationProperties.LiveSetting", StringComparison.Ordinal))
+            .Select(l => $"{Path.GetFileName(l.file)}:{l.at + 1}")
+            .ToList();
+        Assert.Empty(silent);
+    }
+
+    /// <summary>
+    /// ST-084: a plain <c>ItemsControl</c> is a Tab stop with nothing to focus and reads as an unnamed list
+    /// of type names. The views lay out repeated content with <c>controls:Repeater</c>, and a list a person
+    /// moves through is a <c>ListBox</c>.
+    /// </summary>
+    [Fact]
+    public void NoViewLaysOutRowsWithAPlainItemsControl()
+    {
+        var plain = Xaml()
+            .SelectMany(file => File.ReadAllLines(file).Select((line, at) => (file, line, at)))
+            .Where(l => Regex.IsMatch(l.line, @"<ItemsControl[\s>]"))
+            .Select(l => $"{Path.GetFileName(l.file)}:{l.at + 1}")
+            .ToList();
+        Assert.Empty(plain);
+    }
+
     private static IReadOnlyList<string> Xaml()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

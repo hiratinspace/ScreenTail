@@ -52,7 +52,7 @@
                                TextAlignment="Center"
                                TextWrapping="Wrap"
                                Text="{Binding}"
-                               AutomationProperties.LiveSetting="Polite" />
+                               controls:LiveRegion.Setting="Polite" />
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -133,7 +133,7 @@
                                 Style="{StaticResource Badge.Status}"
                                 Content="{Binding Status}"
                                 AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
-                                AutomationProperties.LiveSetting="Polite" />
+                                controls:LiveRegion.Setting="Polite" />
             </Grid>
         </Border>
 
@@ -158,7 +158,7 @@
                            VerticalAlignment="Center"
                            Style="{StaticResource Text.Body}"
                            Text="{Binding Banner}"
-                           AutomationProperties.LiveSetting="Assertive" />
+                           controls:LiveRegion.Setting="Assertive" />
                 <Button Grid.Column="2"
                         Margin="12,0,0,0"
                         Style="{StaticResource Button.Secondary}"

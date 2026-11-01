@@ -56,10 +56,6 @@ public partial class App : Application, IDisposable
         ThemeManager.Apply(AppTheme.Dark, Resources);
         ThemeManager.FollowSystem(Resources);
 
-        // Before any window: WPF declares live regions but never announces them, so this is what makes a
-        // changed status, banner or validation message reach a screen reader (ST-084).
-        Controls.LiveRegion.Watch();
-
         var args = e.Args;
         var screenshotIndex = Array.IndexOf(args, "--screenshot");
         var directory = screenshotIndex >= 0 && screenshotIndex + 1 < args.Length ? args[screenshotIndex + 1] : null;

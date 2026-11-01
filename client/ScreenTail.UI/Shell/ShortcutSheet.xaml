@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
         Title="Keyboard shortcuts"
-        Width="560"
+        Width="780"
         SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
@@ -11,20 +11,28 @@
         FocusManager.FocusedElement="{Binding ElementName=CloseButton}"
         Style="{StaticResource Window.Base}">
     <!-- Spec §4: ? opens a shortcut sheet. Every chord Spec §5 lists, grouped by where it works. Text, not
-         controls: a screen reader reads it as a document, and Esc or Close puts the technician back. -->
+         controls: a screen reader reads it as a document, and Esc or Close puts the technician back. Two
+         groups to a row, so the whole sheet fits a 768 px screen with Close on it: in one column Close fell
+         off the bottom of the hosted runner's screen, and a sheet that scrolls cannot be scrolled from the
+         keyboard when nothing in it takes focus (ST-084). -->
     <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="{DynamicResource Padding.pane}">
         <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Keyboard shortcuts" />
         <controls:Repeater Margin="0,4,0,0" ItemsSource="{Binding}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Columns="2" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <StackPanel>
+                    <StackPanel Margin="0,0,24,0">
                         <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="{Binding Name}" />
                         <controls:Repeater ItemsSource="{Binding Chords}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Margin="0,2">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="170" />
+                                            <ColumnDefinition Width="140" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource Brush.text.primary}" Text="{Binding Keys}" />

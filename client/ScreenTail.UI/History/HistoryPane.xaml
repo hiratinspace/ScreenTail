@@ -51,7 +51,7 @@
                        VerticalAlignment="Bottom"
                        Style="{StaticResource History.Count}"
                        Text="{Binding Status}"
-                       AutomationProperties.LiveSetting="Polite" />
+                       controls:LiveRegion.Setting="Polite" />
         </StackPanel>
 
         <!-- Extended: click, Shift and Ctrl with the mouse, Shift and Ctrl with the arrows and Space, and
@@ -113,7 +113,7 @@
                            Style="{StaticResource Text.Body}"
                            TextAlignment="Center"
                            Text="{Binding Status}"
-                           AutomationProperties.LiveSetting="Polite" />
+                           controls:LiveRegion.Setting="Polite" />
             </StackPanel>
         </Border>
 
@@ -148,7 +148,7 @@
                        VerticalAlignment="Center"
                        Style="{StaticResource Text.Secondary}"
                        Text="{Binding SelectionNote}"
-                       AutomationProperties.LiveSetting="Polite" />
+                       controls:LiveRegion.Setting="Polite" />
             <Button Grid.Row="0"
                     Grid.Column="2"
                     Style="{StaticResource Button.Danger}"
@@ -168,7 +168,7 @@
                        Style="{StaticResource Text.Error}"
                        Visibility="{Binding DiscardFailed, Converter={StaticResource Visible}}"
                        Text="{Binding DiscardError}"
-                       AutomationProperties.LiveSetting="Assertive" />
+                       controls:LiveRegion.Setting="Assertive" />
             <TextBlock Grid.Row="1"
                        Grid.Column="0"
                        Grid.ColumnSpan="3"
@@ -176,7 +176,7 @@
                        HorizontalAlignment="Right"
                        Style="{StaticResource History.Notice}"
                        Text="{Binding Notice}"
-                       AutomationProperties.LiveSetting="Polite" />
+                       controls:LiveRegion.Setting="Polite" />
         </Grid>
     </Grid>
 </UserControl>

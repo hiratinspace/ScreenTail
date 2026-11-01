@@ -32,7 +32,7 @@
         <controls:Repeater Grid.Row="1" Margin="20,0,20,4" ItemsSource="{Binding Banners}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">
+                    <Border Margin="0,0,0,8" controls:LiveRegion.Setting="Polite">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource Banner.Info}">
                                 <Style.Triggers>
@@ -122,7 +122,7 @@
                        HorizontalAlignment="Center"
                        TextAlignment="Center"
                        TextWrapping="Wrap"
-                       AutomationProperties.LiveSetting="Polite"
+                       controls:LiveRegion.Setting="Polite"
                        Text="{Binding DraftPendingMessage}" />
         </StackPanel>
 
@@ -242,7 +242,7 @@
                                Foreground="{DynamicResource Brush.text.secondary}"
                                Text="{Binding SaveLabel}"
                                AutomationProperties.Name="{Binding SaveLabel}"
-                               AutomationProperties.LiveSetting="Polite">
+                               controls:LiveRegion.Setting="Polite">
                         <!-- Gone when there is nothing to say: an empty, zero-sized text is an element a screen
                              reader finds with nothing in it, and Accessibility Insights fails it (ST-084). -->
                         <TextBlock.Style>

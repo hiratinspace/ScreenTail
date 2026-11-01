@@ -26,7 +26,7 @@
                        FontWeight="{DynamicResource Weight.semibold}"
                        Text="{Binding Headline}"
                        AutomationProperties.Name="Capture status"
-                       AutomationProperties.LiveSetting="Polite" />
+                       controls:LiveRegion.Setting="Polite" />
         </Border>
 
         <!-- Spec §5 S1 fixes the panel at 360x420 and there are twelve rows, so it has to scroll: without

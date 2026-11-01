@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
-using System.Windows.Input;
 
 namespace ScreenTail.UI.Controls;
 
@@ -13,8 +12,9 @@ namespace ScreenTail.UI.Controls;
 /// stop with nothing to focus, so Tab landed on an invisible container in every pane that had one. And
 /// UI Automation exposes it as an unnamed list whose items are read as their view models' type names
 /// ("ScreenTail.UI.Review.StepRow", "StepDot { Number = 3, ... }"), which Accessibility Insights fails
-/// twice over. This one takes no focus and exposes no list; its items' controls are its parent's.
-/// A real list a person moves through, like the screenshots or the transcript, is a ListBox.
+/// twice over. This one takes no focus, and its peer is a plain container that is neither a control nor
+/// content, so a screen reader passes through it to its items' own controls. A real list a person moves
+/// through, like the screenshots or the transcript, is a ListBox.
 /// </summary>
 public sealed class Repeater : ItemsControl
 {
@@ -24,6 +24,18 @@ public sealed class Repeater : ItemsControl
         IsTabStopProperty.OverrideMetadata(typeof(Repeater), new FrameworkPropertyMetadata(false));
     }
 
-    /// <summary>No peer of its own: its items' controls appear in the automation tree where it sits.</summary>
-    protected override AutomationPeer OnCreateAutomationPeer() => null!;
+    // Not null: WPF gives an items control that answers null a list peer of its own anyway.
+    protected override AutomationPeer OnCreateAutomationPeer() => new LayoutPeer(this);
+
+    /// <summary>A container in the raw automation tree only; its children are the visual tree's controls.</summary>
+    private sealed class LayoutPeer(Repeater owner) : FrameworkElementAutomationPeer(owner)
+    {
+        protected override bool IsControlElementCore() => false;
+
+        protected override bool IsContentElementCore() => false;
+
+        protected override string GetClassNameCore() => nameof(Repeater);
+
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Group;
+    }
 }

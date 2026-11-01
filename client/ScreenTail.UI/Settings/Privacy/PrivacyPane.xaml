@@ -76,7 +76,7 @@
                     <TextBox Width="320" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding NewPattern, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New pattern" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddPatternCommand}" IsEnabled="{Binding CanAddPattern}" />
                 </StackPanel>
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" controls:LiveRegion.Setting="Polite" />
                 <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Try it on some text" />
                 <TextBox Style="{StaticResource Input.Default}" Text="{Binding Sample, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Sample text" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding SampleMasked}" AutomationProperties.Name="What the sample becomes" />
@@ -109,8 +109,8 @@
         </Border>
 
         <Button Margin="0,4,0,0" MinWidth="96" Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" controls:LiveRegion.Setting="Polite" />
 
         <!-- Your data: export the audit log; delete everything, typed (INV-12). -->
         <Border Style="{StaticResource Card}" Margin="0,16,0,12">

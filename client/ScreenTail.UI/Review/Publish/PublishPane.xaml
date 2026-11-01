@@ -116,7 +116,7 @@
                                TextWrapping="Wrap"
                                Text="{Binding BlockedBecause}"
                                Visibility="{Binding BlockedVisibility}"
-                               AutomationProperties.LiveSetting="Polite" />
+                               controls:LiveRegion.Setting="Polite" />
 
                     <!-- No integration: the button is replaced, not disabled (Spec §5 S3). -->
                     <Border Style="{StaticResource Banner.Info}" Visibility="{Binding ConnectVisibility}">
@@ -147,7 +147,7 @@
                            Style="{StaticResource Text.Body}"
                            TextWrapping="Wrap"
                            Text="{Binding Summary}"
-                           AutomationProperties.LiveSetting="Assertive" />
+                           controls:LiveRegion.Setting="Assertive" />
                 <controls:Repeater Margin="0,14,0,0" ItemsSource="{Binding Results}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -193,7 +193,7 @@
                         <TextBlock Style="{StaticResource Text.Body}"
                                    TextWrapping="Wrap"
                                    Text="{Binding MappingPrompt}"
-                                   AutomationProperties.LiveSetting="Polite" />
+                                   controls:LiveRegion.Setting="Polite" />
                         <ComboBox Margin="0,10,0,0"
                                   ItemsSource="{Binding Companies}"
                                   SelectedItem="{Binding SelectedCompany}"
@@ -210,7 +210,7 @@
                                    TextWrapping="Wrap"
                                    Text="{Binding MappingError}"
                                    Visibility="{Binding MappingErrorVisibility}"
-                                   AutomationProperties.LiveSetting="Assertive" />
+                                   controls:LiveRegion.Setting="Assertive" />
                         <Button Margin="0,10,0,0"
                                 Style="{StaticResource Button.Primary}"
                                 HorizontalAlignment="Left"

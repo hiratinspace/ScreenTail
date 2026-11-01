@@ -33,6 +33,14 @@
         <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="TextWrapping" Value="Wrap" />
+        <!-- A line with nothing to say takes no room and is not there for a screen reader: an empty text
+             is a zero-sized element that Accessibility Insights fails (ST-084). Every text style is based on
+             this one. A visibility bound on the element itself still wins. -->
+        <Style.Triggers>
+            <Trigger Property="Text" Value="">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="Text.Secondary" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
@@ -1291,6 +1299,7 @@
                         <!-- The filler WPF adds after the last column is no column and sorts nothing. -->
                         <DataTrigger Binding="{Binding Column, RelativeSource={RelativeSource Self}}" Value="{x:Null}">
                             <Setter Property="Focusable" Value="False" />
+                            <Setter Property="IsEnabled" Value="False" />
                         </DataTrigger>
                         <!-- The ring is cut off at the table's top edge, so focus also underlines the header
                              in the accent and brings its words to full strength. -->

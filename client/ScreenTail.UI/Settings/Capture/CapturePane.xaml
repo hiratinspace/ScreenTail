@@ -28,7 +28,7 @@
                 <RadioButton Margin="0,4,0,0" GroupName="Scope" Content="All windows during a session" IsChecked="{Binding AllWindows}" IsEnabled="{Binding ScopeEditable}" />
                 <Border Style="{StaticResource Banner.Warning}" Margin="0,8,0,0" Visibility="{Binding ScopeWarningVisibility}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding ScopeWarning}" AutomationProperties.LiveSetting="Assertive" />
+                        <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding ScopeWarning}" controls:LiveRegion.Setting="Assertive" />
                         <Button Margin="0,8,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Secondary}" Content="I understand, capture all windows" Command="{Binding ConfirmAllWindowsCommand}" />
                     </StackPanel>
                 </Border>
@@ -64,7 +64,7 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding Label}" />
                                 <TextBox Grid.Column="1" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{Binding Label}" />
-                                <TextBlock Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
+                                <TextBlock Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -91,7 +91,7 @@
                             </Style>
                         </ComboBox.ItemContainerStyle>
                     </ComboBox>
-                    <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding MicrophoneNote}" Visibility="{Binding MicrophoneNoteVisibility}" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding MicrophoneNote}" Visibility="{Binding MicrophoneNoteVisibility}" controls:LiveRegion.Setting="Polite" />
                     <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
                         <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Level" />
                         <ProgressBar Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Meter.Level}" Value="{Binding MicrophoneLevel, Mode=OneWay}" AutomationProperties.Name="Microphone level" AutomationProperties.HelpText="{Binding MicrophoneLevelStatus}" />
@@ -131,7 +131,7 @@
         </Border>
 
         <Button Margin="0,4,0,0" MinWidth="96" Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
-        <TextBlock Margin="0,6,0,12" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
+        <TextBlock Margin="0,6,0,12" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" controls:LiveRegion.Setting="Polite" />
     </StackPanel>
 </UserControl>

@@ -134,21 +134,18 @@ public partial class FilmstripView : UserControl
     }
 
     /// <summary>
-    /// The enlarged view opening or closing (ST-084). Open, it covers the strip, so the strip leaves the Tab
-    /// order and focus moves to Close; Tab could otherwise walk the keyboard through thumbnails nobody can
-    /// see. Closed, the strip comes back and focus returns to the screenshot that was enlarged.
+    /// The enlarged view opening or closing (ST-084). Open, it covers the strip, its header and its footer,
+    /// so they are hidden under it (keeping their place) and focus moves to Close: Tab could otherwise walk
+    /// the keyboard through thumbnails and an Undo nobody can see. Closed, they come back and focus returns
+    /// to the screenshot that was enlarged.
     /// </summary>
     private void OnEnlargedVisibility(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
     {
         var open = e.NewValue is true;
-        if (open)
-        {
-            KeyboardNavigation.SetTabNavigation(Strip, KeyboardNavigationMode.None);
-        }
-        else
-        {
-            Strip.ClearValue(KeyboardNavigation.TabNavigationProperty);
-        }
+        var covered = open ? System.Windows.Visibility.Hidden : System.Windows.Visibility.Visible;
+        Strip.Visibility = covered;
+        StripHeader.Visibility = covered;
+        StripFooter.Visibility = covered;
 
         // After layout, so the control being focused is visible and its container exists.
         _ = Dispatcher.BeginInvoke(

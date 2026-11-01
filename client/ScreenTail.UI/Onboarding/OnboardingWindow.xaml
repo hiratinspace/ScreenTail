@@ -83,7 +83,7 @@
                 <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding Progress}" />
             </StackPanel>
 
-            <TextBlock Margin="0,14,0,20" Style="{StaticResource Text.ScreenTitle}" Text="{Binding Title}" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Margin="0,14,0,20" Style="{StaticResource Text.ScreenTitle}" Text="{Binding Title}" controls:LiveRegion.Setting="Polite" />
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" Padding="40,0,28,0" VerticalScrollBarVisibility="Auto">
@@ -203,8 +203,8 @@
                 BorderBrush="{DynamicResource Brush.border.subtle}"
                 BorderThickness="0,1,0,0">
             <StackPanel>
-                <TextBlock Margin="0,0,0,10" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Note}" Visibility="{Binding NoteVisibility}" AutomationProperties.LiveSetting="Polite" />
-                <TextBlock Margin="0,0,0,10" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Blocker}" Visibility="{Binding BlockerVisibility}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Margin="0,0,0,10" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Note}" Visibility="{Binding NoteVisibility}" controls:LiveRegion.Setting="Polite" />
+                <TextBlock Margin="0,0,0,10" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Blocker}" Visibility="{Binding BlockerVisibility}" controls:LiveRegion.Setting="Polite" />
                 <Grid>
                     <Button HorizontalAlignment="Left" Style="{StaticResource Button.Ghost}" Content="Back" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

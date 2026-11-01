@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.ReviewPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              xmlns:publish="clr-namespace:ScreenTail.UI.Review.Publish"
              xmlns:timeline="clr-namespace:ScreenTail.UI.Review.Timeline"
@@ -51,7 +52,7 @@
                        Style="{StaticResource Text.Error}"
                        Visibility="{Binding Note.DiscardFailed, Converter={StaticResource Visible}}"
                        Text="{Binding Note.DiscardError}"
-                       AutomationProperties.LiveSetting="Assertive" />
+                       controls:LiveRegion.Setting="Assertive" />
 
             <Button Grid.Column="2"
                     Style="{StaticResource Button.GhostDanger}"

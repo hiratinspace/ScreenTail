@@ -90,7 +90,7 @@
                                    TextWrapping="Wrap"
                                    Text="{Binding Problem}"
                                    Visibility="{Binding ProblemVisibility}"
-                                   AutomationProperties.LiveSetting="Polite" />
+                                   controls:LiveRegion.Setting="Polite" />
 
                         <Button Margin="0,10,0,0"
                                 HorizontalAlignment="Left"
@@ -122,7 +122,7 @@
                                    TextWrapping="Wrap"
                                    MaxWidth="520"
                                    Text="{Binding CheckResult}"
-                                   AutomationProperties.LiveSetting="Polite" />
+                                   controls:LiveRegion.Setting="Polite" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -132,7 +132,7 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
             <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
-                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" controls:LiveRegion.Setting="Polite" />
             </Border>
 
             <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
@@ -232,7 +232,7 @@
                                TextWrapping="Wrap"
                                Text="{Binding MappingProblem}"
                                Visibility="{Binding MappingProblemVisibility}"
-                               AutomationProperties.LiveSetting="Polite" />
+                               controls:LiveRegion.Setting="Polite" />
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -86,7 +86,6 @@ public sealed class TheApplication : IDisposable
             }
 
             ThemeManager.Apply(AppTheme.Dark, app.Resources);
-            UI.Controls.LiveRegion.Watch();
             _app = app;
             _started.SetResult(Dispatcher.CurrentDispatcher);
         }

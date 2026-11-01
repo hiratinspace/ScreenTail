@@ -95,7 +95,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,6,0">
+        <StackPanel x:Name="StripHeader" Grid.Row="0" Margin="0,0,6,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -106,7 +106,7 @@
                            VerticalAlignment="Center"
                            Style="{StaticResource Text.Label}"
                            Text="{Binding Header}"
-                           AutomationProperties.LiveSetting="Polite" />
+                           controls:LiveRegion.Setting="Polite" />
             </Grid>
 
             <!-- An exclusion or a delete the service did not record (S-35, T-136). Said in words with a
@@ -116,7 +116,7 @@
                        Foreground="{DynamicResource Brush.state.danger}"
                        TextWrapping="Wrap"
                        Visibility="{Binding HasEditError, Converter={StaticResource Visible}}"
-                       AutomationProperties.LiveSetting="Assertive">
+                       controls:LiveRegion.Setting="Assertive">
                 <Run Text="⚠ " /><Run Text="{Binding EditError, Mode=OneWay}" />
             </TextBlock>
         </StackPanel>
@@ -136,7 +136,7 @@
                  AutomationProperties.Name="Screenshots" />
 
         <!-- The chords that apply to this pane, on screen where they are used (Spec §5 S3). -->
-        <Grid Grid.Row="2" Margin="0,8,6,12">
+        <Grid x:Name="StripFooter" Grid.Row="2" Margin="0,8,6,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -152,7 +152,7 @@
                     <TextBlock VerticalAlignment="Center"
                                Style="{StaticResource Text.Body}"
                                Text="{Binding UndoToast}"
-                               AutomationProperties.LiveSetting="Assertive" />
+                               controls:LiveRegion.Setting="Assertive" />
                     <Button Margin="12,0,0,0"
                             Style="{StaticResource Button.Secondary}"
                             Content="Undo"
@@ -221,12 +221,12 @@
                     </Border>
                 </Grid>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,12">
                     <Button x:Name="CloseEnlarged"
                             Style="{StaticResource Button.Secondary}"
                             Content="Close  Esc"
                             Command="{Binding CloseEnlargedCommand}" />
-                    <Button Margin="8,0,0,0"
+                    <Button Margin="8,0,0,8"
                             Style="{StaticResource Button.Secondary}"
                             Content="OCR text  T"
                             Command="{Binding ToggleOcrTextCommand}"
@@ -257,7 +257,7 @@
                                Style="{StaticResource Text.Muted}"
                                Text="Drag over what should be covered. This cannot be undone."
                                Visibility="{Binding IsChecked, ElementName=BlurMode, Converter={StaticResource Visible}}" />
-                </StackPanel>
+                </WrapPanel>
             </Grid>
         </Border>
     </Grid>
