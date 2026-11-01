@@ -102,7 +102,7 @@ public partial class ShellWindow : Window
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
-                new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask),
+                new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
                 new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.CompletedTask),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
                 new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
@@ -221,18 +221,27 @@ public partial class ShellWindow : Window
             Task.FromResult(new AuditSaved(true, true, "All 0 audit rows verify."));
     }
 
-    /// <summary>Capture settings with one tool off and a clashing hotkey, so the harness renders the inline conflict (ST-029).</summary>
-    private sealed class SampleCapture : ICaptureGateway
+    /// <summary>
+    /// Capture settings with one tool off and a clashing hotkey, so the harness renders the inline conflict
+    /// (ST-029); and a chosen headset that is not connected, so it renders the microphone's fallback note
+    /// (ST-080 AC3). The level is a fixed number: the harness opens no device.
+    /// </summary>
+    private sealed class SampleCapture : ICaptureGateway, IMicrophoneLevelGateway
     {
         public Task<CaptureSnapshot?> LoadAsync(CancellationToken ct = default) =>
             Task.FromResult<CaptureSnapshot?>(new CaptureSnapshot(
-                new Shared.Settings.CaptureSettings { DisabledTools = ["anydesk"], GraceSeconds = 90 },
+                new Shared.Settings.CaptureSettings { DisabledTools = ["anydesk"], GraceSeconds = 90, MicrophoneId = "{0.0.1.00000000}.{jabra}" },
                 [new("screenconnect", "ScreenConnect"), new("rdp", "Remote Desktop"), new("anydesk", "AnyDesk")],
-                ["Headset (Jabra Evolve2)"],
+                [new Core.Speech.MicrophoneDevice("{0.0.1.00000000}.{array}", "Laptop microphone array", IsDefault: true)],
                 PolicyForcesAllWindows: false,
                 DefaultGraceSeconds: 120));
 
         public Task<string?> SaveAsync(Shared.Settings.CaptureSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<Core.Speech.MeterReading?> ReadLevelAsync(string? deviceId, CancellationToken ct = default) =>
+            Task.FromResult<Core.Speech.MeterReading?>(new Core.Speech.MeterReading(MicrophoneLevelStates.Listening, 0.45, "{0.0.1.00000000}.{array}"));
+
+        public Task StopLevelAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     /// <summary>A blocked microphone with its deep link, so the harness renders the Permissions step's fix (AC3).</summary>

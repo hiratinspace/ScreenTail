@@ -10,6 +10,9 @@ public static class CaptureSettingsRules
 {
     public static readonly IReadOnlyList<string> Sensitivities = ["low", "medium", "high"];
 
+    /// <summary>Windows' endpoint ids run to about 60 characters; this is room to spare, not a guess at the format.</summary>
+    public const int MaxMicrophoneIdLength = 512;
+
     public static IReadOnlyList<string> Problems(this CaptureSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -44,6 +47,13 @@ public static class CaptureSettingsRules
         if (settings.SpeechModel is { } model && SpeechModels.All.All(m => !string.Equals(m.Name, model, StringComparison.OrdinalIgnoreCase)))
         {
             problems.Add($"\"{model}\" is not a speech model this build ships.");
+        }
+
+        // An id Windows gave, kept as it was given. One that is not connected is fine (it falls back to
+        // the default); one that could not be an endpoint id at all is refused rather than kept.
+        if (settings.MicrophoneId is { } microphone && (microphone.Length > MaxMicrophoneIdLength || microphone.Any(char.IsControl)))
+        {
+            problems.Add("The microphone is not one Windows listed. Choose it again from the list.");
         }
 
         return problems;

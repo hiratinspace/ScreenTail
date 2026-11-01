@@ -41,6 +41,15 @@ public sealed record CaptureSettings
     [JsonPropertyName("speech_model")]
     public string? SpeechModel { get; init; }
 
+    /// <summary>
+    /// The microphone chosen in Settings, Capture (ST-080 AC3): Windows' endpoint id for it, never its name,
+    /// or null for Windows' default communications device. A chosen device that is not connected when the
+    /// microphone opens is not an error: the default is opened instead, the card says so, and the choice
+    /// is kept for when the device comes back. A session never fails to start over it.
+    /// </summary>
+    [JsonPropertyName("microphone_id")]
+    public string? MicrophoneId { get; init; }
+
     [JsonPropertyName("start_ui_at_login")]
     public bool StartUiAtLogin { get; init; }
 }

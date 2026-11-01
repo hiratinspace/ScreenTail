@@ -1,5 +1,6 @@
 using ScreenTail.Core.Input;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Speech;
 using ScreenTail.Shared.Settings;
 
 namespace ScreenTail.Tests.Settings;
@@ -20,7 +21,7 @@ public sealed class CapturePanelTests
             Snapshot = new CaptureSnapshot(
                 new CaptureSettings { DisabledTools = ["screenconnect"] },
                 [new ToolChoice("screenconnect", "ScreenConnect"), new ToolChoice("rdp", "Remote Desktop")],
-                ["Headset (Jabra)", "Built-in microphone"],
+                [new MicrophoneDevice("{0.0.1.00000000}.{jabra}", "Headset (Jabra)", IsDefault: false), new MicrophoneDevice("{0.0.1.00000000}.{built-in}", "Built-in microphone", IsDefault: true)],
                 PolicyForcesAllWindows: false,
                 DefaultGraceSeconds: 120),
         };
@@ -196,9 +197,80 @@ public sealed class CapturePanelTests
         Assert.Equal(ownChoice, panel.CaptureAllWindows);
     }
 
+    [Fact]
+    public async Task TheChosenMicrophoneIsSavedByItsIdAndReadBack()
+    {
+        var gateway = new FakeCapture { Snapshot = WithDevices(new CaptureSettings()) };
+        var panel = new CapturePanel(gateway);
+        await panel.LoadAsync();
+
+        Assert.Null(panel.MicrophoneId);
+        Assert.Equal(new MicrophoneOption(null, "Windows default (Built-in microphone)"), panel.MicrophoneOptions[0]);
+        Assert.Equal([null, Jabra, BuiltIn], panel.MicrophoneOptions.Select(o => o.Id));
+        Assert.Null(panel.MicrophoneNote);
+        Assert.False(panel.HasUnsavedEdits);
+
+        panel.MicrophoneId = Jabra;
+        Assert.True(panel.HasUnsavedEdits);
+        Assert.Equal("Headset (Jabra)", panel.SelectedMicrophone.Label);
+        Assert.True(await panel.SaveAsync());
+
+        Assert.Equal(Jabra, gateway.Saved!.MicrophoneId);
+        gateway.Snapshot = WithDevices(gateway.Saved);
+        await panel.LoadAsync();
+        Assert.Equal(Jabra, panel.MicrophoneId);
+        Assert.False(panel.HasUnsavedEdits);
+    }
+
+    [Fact]
+    public async Task AChosenMicrophoneThatIsNotConnectedFallsBackToTheDefaultAndSaysSo()
+    {
+        // The headset was left at home. The card says which device is used instead and that sessions
+        // start anyway, and the choice stays on the list so that saving a hotkey does not forget it.
+        const string gone = "{0.0.1.00000000}.{left-at-home}";
+        var gateway = new FakeCapture { Snapshot = WithDevices(new CaptureSettings { MicrophoneId = gone }) };
+        var panel = new CapturePanel(gateway);
+        await panel.LoadAsync();
+
+        Assert.Equal(gone, panel.MicrophoneId);
+        Assert.Equal(gone, panel.SelectedMicrophone.Id);
+        Assert.Contains("not connected", panel.SelectedMicrophone.Label, StringComparison.Ordinal);
+        Assert.Contains("not connected", panel.MicrophoneNote, StringComparison.Ordinal);
+        Assert.Contains("Built-in microphone", panel.MicrophoneNote, StringComparison.Ordinal);
+        Assert.Contains("Sessions start", panel.MicrophoneNote, StringComparison.Ordinal);
+
+        panel.Sensitivity = "high";
+        Assert.True(await panel.SaveAsync());
+        Assert.Equal(gone, gateway.Saved!.MicrophoneId);
+
+        panel.MicrophoneId = null;
+        Assert.Null(panel.MicrophoneNote);
+    }
+
+    [Fact]
+    public async Task WithNoMicrophoneTheCardSaysSessionsStillRecord()
+    {
+        var panel = new CapturePanel(new FakeCapture { Snapshot = new CaptureSnapshot(new CaptureSettings(), [], [], false, 120) });
+        await panel.LoadAsync();
+
+        Assert.Equal("Windows default (none connected)", Assert.Single(panel.MicrophoneOptions).Label);
+        Assert.Contains("still record clicks and screenshots", panel.MicrophoneNote, StringComparison.Ordinal);
+        Assert.True(panel.CanSave);
+    }
+
+    private const string Jabra = "{0.0.1.00000000}.{jabra}";
+    private const string BuiltIn = "{0.0.1.00000000}.{built-in}";
+
+    private static CaptureSnapshot WithDevices(CaptureSettings settings) => new(
+        settings,
+        [],
+        [new MicrophoneDevice(Jabra, "Headset (Jabra)", IsDefault: false), new MicrophoneDevice(BuiltIn, "Built-in microphone", IsDefault: true)],
+        false,
+        120);
+
     private sealed class FakeCapture : ICaptureGateway
     {
-        public CaptureSnapshot? Snapshot { get; set; } = new(new CaptureSettings(), [new ToolChoice("rdp", "Remote Desktop")], ["Built-in microphone"], false, 120);
+        public CaptureSnapshot? Snapshot { get; set; } = new(new CaptureSettings(), [new ToolChoice("rdp", "Remote Desktop")], [new MicrophoneDevice("{0.0.1.00000000}.{built-in}", "Built-in microphone", IsDefault: true)], false, 120);
 
         public CaptureSettings? Saved { get; private set; }
 

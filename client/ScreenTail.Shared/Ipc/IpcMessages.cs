@@ -42,6 +42,8 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(ExportAuditCommand), "export_audit")]
 [JsonDerivedType(typeof(GetCaptureSettingsCommand), "get_capture_settings")]
 [JsonDerivedType(typeof(SetCaptureSettingsCommand), "set_capture_settings")]
+[JsonDerivedType(typeof(GetMicrophoneLevelCommand), "get_microphone_level")]
+[JsonDerivedType(typeof(StopMicrophoneLevelCommand), "stop_microphone_level")]
 [JsonDerivedType(typeof(ListIntegrationsCommand), "list_integrations")]
 [JsonDerivedType(typeof(StoreIntegrationCommand), "store_integration")]
 [JsonDerivedType(typeof(RemoveIntegrationCommand), "remove_integration")]
@@ -599,9 +601,13 @@ public sealed record CaptureSettingsReported : IpcEvent
     [JsonPropertyName("tools")]
     public required IReadOnlyList<ToolRow> Tools { get; init; }
 
-    /// <summary>Capture devices by friendly name. Names, never audio (INV-10).</summary>
+    /// <summary>
+    /// The capture devices connected now, each with Windows' id for it and its name, the default
+    /// communications device marked (contract v7). Names and ids, never audio. A name crosses the pipe to
+    /// the same user's Settings and goes no further: it is never logged (INV-10).
+    /// </summary>
     [JsonPropertyName("microphones")]
-    public required IReadOnlyList<string> Microphones { get; init; }
+    public required IReadOnlyList<MicrophoneRow> Microphones { get; init; }
 
     [JsonPropertyName("policy_forces_all_windows")]
     public required bool PolicyForcesAllWindows { get; init; }
@@ -615,6 +621,79 @@ public sealed record SetCaptureSettingsCommand : IpcCommand
 {
     [JsonPropertyName("settings")]
     public required ScreenTail.Shared.Settings.CaptureSettings Settings { get; init; }
+}
+
+/// <param name="Id">Windows' endpoint id, the value <c>microphone_id</c> keeps.</param>
+/// <param name="Name">The device's friendly name, for the picker only.</param>
+/// <param name="IsDefault">Windows' default communications device, the one opened when nothing is chosen.</param>
+public sealed record MicrophoneRow(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("is_default")] bool IsDefault);
+
+/// <summary>
+/// Settings, Capture's level meter (ST-080 AC3): how loud the microphone is right now. Sent only while
+/// the card is on screen, about ten times a second, each one after the last was answered.
+///
+/// Each request is also a lease. The first opens the device; each one after keeps it open a moment
+/// longer; and the service closes it by itself once the requests stop, so a Settings window that hangs,
+/// crashes or is simply hidden cannot leave the microphone open. Refused, without opening anything,
+/// while a session holds the microphone. Levels only: no audio crosses the pipe, and nothing heard is
+/// kept, transcribed or sent. Answered by a <see cref="MicrophoneLevelReported"/>.
+/// </summary>
+public sealed record GetMicrophoneLevelCommand : IpcCommand
+{
+    /// <summary>The device to listen to, as chosen in the picker (saved or not); null is Windows' default.</summary>
+    [JsonPropertyName("device_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeviceId { get; init; }
+}
+
+/// <summary>The card left the screen: the meter closes the microphone now rather than when its lease runs out.</summary>
+public sealed record StopMicrophoneLevelCommand : IpcCommand;
+
+/// <summary>The meter's answer: a state from <see cref="MicrophoneLevelStates"/> and a level from 0 to 1.</summary>
+public sealed record MicrophoneLevelReported : IpcEvent
+{
+    [JsonPropertyName("state")]
+    public required string State { get; init; }
+
+    /// <summary>0 is silence, 1 is full scale, on a decibel scale so that speech moves it. A number, never audio.</summary>
+    [JsonPropertyName("level")]
+    public required double Level { get; init; }
+
+    /// <summary>The device being listened to: Windows' default when the one asked for is not connected.</summary>
+    [JsonPropertyName("device_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeviceId { get; init; }
+}
+
+/// <summary>What the level meter is doing.</summary>
+public static class MicrophoneLevelStates
+{
+    /// <summary>Not listening: nothing has asked, or the last request's lease ran out.</summary>
+    public const string Closed = "closed";
+
+    /// <summary>The device is being opened; no level yet.</summary>
+    public const string Opening = "opening";
+
+    /// <summary>The level is live.</summary>
+    public const string Listening = "listening";
+
+    /// <summary>A session holds the microphone, so the meter does not open it. It shows between sessions.</summary>
+    public const string Session = "session";
+
+    /// <summary>No capture device is connected.</summary>
+    public const string NoMicrophone = "no_microphone";
+
+    /// <summary>The device would not open or stopped: unplugged, or blocked by Windows' privacy settings.</summary>
+    public const string Unavailable = "unavailable";
+
+    /// <summary>
+    /// The meter was open for its longest stretch (five minutes) and closed. It stays closed until a
+    /// <c>stop_microphone_level</c>, which the card sends when it is put away, so looking at it again opens it.
+    /// </summary>
+    public const string TimedOut = "timed_out";
 }
 
 // ---- The company mapping (ST-097; 2026-09-25) ---------------------------------------------------------
@@ -795,6 +874,7 @@ public sealed record UpdateReported : IpcEvent
 [JsonDerivedType(typeof(SettingsReported), "settings")]
 [JsonDerivedType(typeof(AuditExported), "audit")]
 [JsonDerivedType(typeof(CaptureSettingsReported), "capture_settings")]
+[JsonDerivedType(typeof(MicrophoneLevelReported), "microphone_level")]
 [JsonDerivedType(typeof(IntegrationDetailsListed), "integration_details")]
 [JsonDerivedType(typeof(IntegrationChecked), "integration_checked")]
 [JsonDerivedType(typeof(UpdateReported), "update")]
