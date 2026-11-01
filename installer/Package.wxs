@@ -105,13 +105,20 @@
     </Feature>
 
     <!-- A running executable can be neither replaced nor removed. On an upgrade or an uninstall, and on
-         nothing else, every running copy is ended before the files are touched, so an MSP push while a
-         technician is signed in finishes without "restart required"; in every session when the installer
-         runs as the system account, as MSP tools run it. Ended, not asked: the UI answers a close by
-         asking whether to stop a recording, and nobody is there to answer a silent install. After an
-         upgrade the service is down until the next sign-in, and a session that was recording is
-         recovered at that start (ST-020). A first install has nothing to close, and a repair must not
-         end a recording. -->
+         nothing else, these end every running copy, in every session when the installer runs as the
+         system account, as MSP tools run it. Ended, not asked: the UI answers a close by asking whether
+         to stop a recording, and nobody is there to answer a silent install. After an upgrade the service
+         is down until the next sign-in, and a session that was recording is recovered at that start
+         (ST-020). A first install has nothing to close, and a repair must not end a recording.
+
+         When they run matters. WiX schedules the closing step just before InstallFiles, which is after
+         RemoveFiles: on an uninstall, and in the old version's own removal during an upgrade, it runs
+         once the files have already been removed (the logs of 2026-11-01 show the order), so it does not
+         close anything for the removal. What ends running copies before files are removed is Windows
+         Installer's Restart Manager, in InstallValidate (it closed the old service in the upgrade logs),
+         and, on an uninstall, the uninstall step below, which stops every installed copy before RemoveFiles
+         (UninstallCleanup). These still end a copy that is running when new files are about to be
+         installed. Whether to move them earlier is the owner's decision (#247). -->
     <util:CloseApplication Id="CloseService"
                            Target="ScreenTail.Service.exe"
                            CloseMessage="no"
@@ -135,7 +142,12 @@
          credentials, through handles that refuse links, so the store left behind cannot be read. It says
          how many of each in this log (WixQuietExec writes the program's output into it). Only for an uninstall: never during the
          uninstall step of an upgrade, which would erase every technician's sessions. Its result is
-         ignored, so a folder that cannot be removed does not leave the product half uninstalled. -->
+         ignored, so a folder that cannot be removed does not leave the product half uninstalled. Its last act
+         is to wait until no other program (a scanner reading the executable) has an installed file open,
+         two clean looks apart, because RemoveFiles straight after it would otherwise leave that file for a
+         restart and end with 3010. The wait gets what is left of a 45-second deadline from the step's
+         start, at most 15 seconds, so the step ends inside the minute WixQuietExec waits for it
+         (ProgramFilesRelease). -->
     <SetProperty Id="RemoveUserData"
                  Value="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot; --uninstall-cleanup"
                  Before="RemoveUserData"

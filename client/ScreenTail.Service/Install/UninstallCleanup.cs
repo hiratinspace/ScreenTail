@@ -34,6 +34,11 @@ namespace ScreenTail.Service.Install;
 /// Everything left is counted in what this prints, which the installer writes into its log. What it
 /// prints is counts, never a path or a name (INV-10). A failure for one user is counted and the next user
 /// is handled; the Run values are removed whatever happened before.
+///
+/// Last of all it waits until no other program has an installed file open, two looks in a row, because
+/// Windows Installer deletes them as soon as this exits and leaves one still open for a restart. The wait
+/// gets what is left of the step's own deadline, at most <see cref="ProgramFilesRelease.Budget"/>, so the
+/// step as a whole ends inside WixQuietExec's minute (<see cref="ProgramFilesRelease"/>).
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class UninstallCleanup
@@ -75,6 +80,9 @@ internal static class UninstallCleanup
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        // WixQuietExec gives the whole step a minute; the wait at the end gets what is left of it.
+        var started = TimeProvider.System.GetTimestamp();
+
         // For the uninstaller, which runs it as the system account: holding another user's token needs
         // that account's privilege anyway. An ordinary user who found the flag gets a sentence and
         // nothing removed; "delete everything" for one person is the Settings button, which asks first.
@@ -103,6 +111,19 @@ internal static class UninstallCleanup
 
         var (valuesRemoved, valuesLeft) = RemoveRunValues(installDirectory);
 
+        // Last, so nothing this step does afterwards can open a file again: Windows Installer deletes the
+        // installed files the moment this process exits, and one another program still has open is left
+        // for a restart, which ends the uninstall with 3010 (ProgramFilesRelease says who does that).
+        var release = ProgramFilesRelease.WaitForOthers(
+            InstalledFiles(installDirectory),
+            FileHolders.Of,
+            Environment.ProcessId,
+            TimeProvider.System,
+            Thread.Sleep,
+            ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started)),
+            ProgramFilesRelease.PollEvery,
+            ProgramFilesRelease.ConfirmAfter);
+
         output.WriteLine($"ScreenTail uninstall: {stopped} running copies stopped.");
         output.WriteLine(
             $"ScreenTail uninstall: signed in: {tally.Deleted} data folders deleted with their owner's rights, "
@@ -120,6 +141,9 @@ internal static class UninstallCleanup
         }
 
         output.WriteLine($"ScreenTail uninstall: {valuesRemoved} Run values removed, {valuesLeft} could not be removed.");
+        output.WriteLine(
+            $"ScreenTail uninstall: waited {(long)release.Waited.TotalMilliseconds} ms for other programs to close the installed files; "
+            + $"{release.StillHeld} still open.");
 
         return tally.PartlyDeleted + tally.SecretsInDoubt + tally.FoldersUnopened + tally.Linked + tally.Unreadable + valuesLeft == 0 ? 0 : 1;
     }
@@ -167,6 +191,27 @@ internal static class UninstallCleanup
         }
 
         return stopped;
+    }
+
+    /// <summary>
+    /// The files Windows Installer is about to remove: everything in the install folder, without
+    /// following a link out of it. Empty when the folder cannot be listed, which makes the wait a no-op.
+    /// </summary>
+    private static List<string> InstalledFiles(string installDirectory)
+    {
+        try
+        {
+            return [.. Directory.EnumerateFiles(installDirectory, "*", new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+                IgnoreInaccessible = true,
+            })];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return [];
+        }
     }
 
     private static void RemoveData(Tally tally)

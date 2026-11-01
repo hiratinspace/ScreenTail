@@ -229,6 +229,40 @@ public sealed class InstallerAuthoringTests
         Assert.True(mode > 0 && mode < mutex, "the uninstall mode is dispatched before the single-instance mutex is taken");
     }
 
+    [Fact]
+    public void TheUninstallStepWaitsForTheInstalledFilesAfterEverythingElseItDoes()
+    {
+        // Windows Installer deletes the installed files the moment this step exits, and leaves one that
+        // another program still has open for a restart: exit 3010 and the install folder left behind, as
+        // on 2026-11-01 when the hosted runner's monitor was reading ScreenTail.Service.exe. The wait for
+        // other programs to let go is the step's last act, after stopping the running copies (whose own
+        // holds it then waits out) and after everything else that touches a file.
+        var cleanup = File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Install", "UninstallCleanup.cs"));
+        var run = cleanup[cleanup.IndexOf("public static int Run(", StringComparison.Ordinal)..];
+        run = run[..run.IndexOf("\n    }\n", StringComparison.Ordinal)];
+
+        var wait = run.IndexOf("ProgramFilesRelease.WaitForOthers(", StringComparison.Ordinal);
+        Assert.True(wait > 0, "the uninstall step waits for the installed files");
+        foreach (var before in new[] { "StopInstalledCopies(", "RemoveData(", "RemoveRunValues(" })
+        {
+            var at = run.IndexOf(before, StringComparison.Ordinal);
+            Assert.True(at > 0 && at < wait, $"{before} comes before the wait");
+        }
+
+        // Asked of Windows, about every installed file, for any process but this one.
+        var call = run[wait..run.IndexOf(';', wait)];
+        Assert.Contains("InstalledFiles(installDirectory)", call, StringComparison.Ordinal);
+        Assert.Contains("FileHolders.Of", call, StringComparison.Ordinal);
+        Assert.Contains("Environment.ProcessId", call, StringComparison.Ordinal);
+        Assert.Contains("ProgramFilesRelease.ConfirmAfter", call, StringComparison.Ordinal);
+
+        // Bounded by what is left of the step's own deadline, measured from the step's start, so the step as
+        // a whole ends inside WixQuietExec's minute.
+        Assert.Contains("ProgramFilesRelease.BudgetLeft(TimeProvider.System.GetElapsedTime(started))", call, StringComparison.Ordinal);
+        var started = run.IndexOf("var started = TimeProvider.System.GetTimestamp();", StringComparison.Ordinal);
+        Assert.True(started > 0 && started < run.IndexOf("StopInstalledCopies(", StringComparison.Ordinal), "the step's clock starts before it stops anything");
+    }
+
     /// <summary>The custom action whose command line (set, for a deferred action, by a property of its name) is the uninstall mode.</summary>
     private static XElement RemovalAction()
     {
