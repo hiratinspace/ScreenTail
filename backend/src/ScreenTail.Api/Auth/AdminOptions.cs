@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace ScreenTail.Api.Auth;
 
 /// <summary>
@@ -33,10 +35,19 @@ public sealed class AdminOptions
 
     public bool SignInConfigured => !string.IsNullOrWhiteSpace(GoogleClientId);
 
-    /// <summary>Whether this address may create a tenant. Only a verified address is ever asked about.</summary>
+    /// <summary>
+    /// Whether this address may create a tenant. Only a verified address is ever asked about.
+    ///
+    /// ASCII only, on both sides. Case-folding outside ASCII is where look-alikes match: the Kelvin sign
+    /// lowers to a plain k, a dotless i uppers to a plain I. An address with anything else in it is
+    /// refused rather than compared.
+    /// </summary>
     public bool MaySignUp(string email) =>
         !string.IsNullOrWhiteSpace(email)
-        && SignupAllowlist.Any(allowed => string.Equals(allowed?.Trim(), email.Trim(), StringComparison.OrdinalIgnoreCase));
+        && Ascii.IsValid(email)
+        && SignupAllowlist.Any(allowed => allowed is not null
+            && Ascii.IsValid(allowed)
+            && Ascii.EqualsIgnoreCase(allowed.Trim(), email.Trim()));
 
     /// <summary>The download link, when it is an absolute https address; otherwise none.</summary>
     public Uri? DownloadUri() =>
@@ -63,7 +74,9 @@ public sealed class AdminOptions
 
         // A device token and an admin session are told apart by their audience first of all. Configured
         // to the same value, a device token would pass the admin scheme's signature and audience checks.
-        if (string.Equals(jwt.Audience, AdminSession.Audience, StringComparison.Ordinal))
+        // Compared the way the token handler compares audiences: a trailing slash is ignored, and case
+        // is ignored too, so no spelling of the same value slips through.
+        if (string.Equals(jwt.Audience?.Trim().TrimEnd('/'), AdminSession.Audience, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"Jwt:Audience must not be '{AdminSession.Audience}', which is the admin session's audience.");
         }

@@ -42,6 +42,7 @@ internal sealed class GoogleTokens : IDisposable
         string audience = ClientId,
         string issuer = "https://accounts.google.com",
         DateTimeOffset? expires = null,
+        DateTimeOffset? notBefore = null,
         SecurityKey? signWith = null,
         string algorithm = SecurityAlgorithms.RsaSha256,
         string? name = "Pat Owner")
@@ -68,7 +69,7 @@ internal sealed class GoogleTokens : IDisposable
             Issuer = issuer,
             Audience = audience,
             IssuedAt = until.AddHours(-1).UtcDateTime,
-            NotBefore = until.AddHours(-1).UtcDateTime,
+            NotBefore = (notBefore ?? until.AddHours(-1)).UtcDateTime,
             Expires = until.UtcDateTime,
             Claims = claims,
             SigningCredentials = new SigningCredentials(signWith ?? Key, algorithm),

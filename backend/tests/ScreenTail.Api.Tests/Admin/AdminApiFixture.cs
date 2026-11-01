@@ -18,6 +18,12 @@ public class AdminApiFixture : ApiFixture
 
     public const int NewTenantSeats = 3;
 
+    /// <summary>On the list in plain ASCII. A token whose address spells it with the Kelvin sign must not match it.</summary>
+    public const string Kelvin = "kelvin@acme.example";
+
+    /// <summary>On the list, and longer than the owners table's display-name column.</summary>
+    public static readonly string LongAddress = new string('a', 280) + "@acme.example";
+
     public AdminApiFixture()
     {
         Keys = new FakeGoogleKeys(Google.Key);
@@ -36,6 +42,9 @@ public class AdminApiFixture : ApiFixture
         {
             builder.UseSetting($"Admin:SignupAllowlist:{i}", Allowed[i]);
         }
+
+        builder.UseSetting($"Admin:SignupAllowlist:{Allowed.Count}", Kelvin);
+        builder.UseSetting($"Admin:SignupAllowlist:{Allowed.Count + 1}", LongAddress);
 
         builder.UseSetting("Admin:NewTenantSeats", NewTenantSeats.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.ConfigureServices(services =>

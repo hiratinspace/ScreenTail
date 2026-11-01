@@ -52,12 +52,30 @@ public sealed class AdminOptionsTests
     public void ASeatCountOutsideTheRangeIsRefused(int seats) =>
         Assert.Throws<InvalidOperationException>(() => new AdminOptions { NewTenantSeats = seats }.Validate(new JwtOptions()));
 
-    [Fact]
-    public void ADeviceAudienceEqualToTheAdminOneIsRefused()
+    [Theory]
+    [InlineData("screentail-admin")]
+    [InlineData("screentail-admin/")]
+    [InlineData("Screentail-Admin")]
+    [InlineData(" screentail-admin// ")]
+    public void ADeviceAudienceEqualToTheAdminOneIsRefusedHoweverItIsSpelled(string audience)
     {
-        // Configured the same, a device token would pass the admin scheme's audience check.
-        var thrown = Assert.Throws<InvalidOperationException>(() => new AdminOptions().Validate(new JwtOptions { Audience = AdminSession.Audience }));
+        // Configured the same, a device token would pass the admin scheme's audience check, and the token
+        // handler ignores a trailing slash when it compares.
+        var thrown = Assert.Throws<InvalidOperationException>(() => new AdminOptions().Validate(new JwtOptions { Audience = audience }));
 
         Assert.Contains("Jwt:Audience", thrown.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Kelvin@acme.example")]
+    [InlineData("kelvın@acme.example")]
+    [InlineData("kelvin@acme.example​")]
+    public void AnAddressThatIsNotAsciiCannotSignUpEvenIfItFoldsToOneOnTheList(string email)
+    {
+        var options = new AdminOptions();
+        options.SignupAllowlist.Add("kelvin@acme.example");
+
+        Assert.True(options.MaySignUp("KELVIN@acme.example"));
+        Assert.False(options.MaySignUp(email));
     }
 }

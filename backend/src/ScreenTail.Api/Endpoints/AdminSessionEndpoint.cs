@@ -122,8 +122,16 @@ public static class AdminSessionEndpoint
             }
             catch (DbUpdateException)
             {
-                // Two signups with the same account at once: the unique index let one through.
-                return AlreadySignedUp();
+                // Two signups with the same account at once: the unique index let one through, and the
+                // other finds that account's owner row now. Any other failure is not this one, and is
+                // not answered as if it were: it goes on as the error it is (a 500).
+                db.ChangeTracker.Clear();
+                if (await db.Owners.AsNoTracking().AnyAsync(o => o.GoogleSubject == identity.Subject, ct).ConfigureAwait(false))
+                {
+                    return AlreadySignedUp();
+                }
+
+                throw;
             }
 
             return Results.Ok(StartSession(http, issuer, options, owner, tenant, time));

@@ -59,6 +59,52 @@ public sealed class GoogleIdTokenVerifierTests : IDisposable
         Assert.Null(await _verifier.VerifyAsync(_google.Mint(expires: DateTimeOffset.UtcNow.AddSeconds(-5)), TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task ATokenNotYetValidIsRefused()
+    {
+        // Google's tokens carry no nbf, but one that names a time still to come is not good yet.
+        Assert.Null(await _verifier.VerifyAsync(_google.Mint(notBefore: DateTimeOffset.UtcNow.AddMinutes(5)), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AnAddressIsLoweredInAsciiOnlySoALookalikeStaysItself()
+    {
+        var identity = await _verifier.VerifyAsync(_google.Mint(email: "KELVIN@Acme.example"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Kelvin@acme.example", identity!.Email);
+    }
+
+    [Fact]
+    public async Task AGoodTokenIsCheckedAgainstAKeySetParsedFromGooglesJsonShape()
+    {
+        // The real key source, fed the JSON body Google serves (only the key is this suite's), and the
+        // verifier on top of it: the parsing and the checking meet, with no fake in between.
+        var p = _google.Key.Rsa.ExportParameters(includePrivateParameters: false);
+        var body = $$"""
+            {"keys":[
+              {"kty":"RSA","alg":"RS256","use":"sig","kid":"other-key","n":"{{Base64UrlEncoder.Encode(p.Modulus)}}","e":"AQAB"},
+              {"e":"{{Base64UrlEncoder.Encode(p.Exponent)}}","kty":"RSA","use":"sig","alg":"RS256","kid":"{{GoogleTokens.KeyId}}","n":"{{Base64UrlEncoder.Encode(p.Modulus)}}"}
+            ]}
+            """;
+        using var handler = new JwksHandler(body);
+        using var source = new GoogleSigningKeys(() => new HttpClient(handler, disposeHandler: false), TimeProvider.System);
+        var verifier = new GoogleIdTokenVerifier(source, new AdminOptions { GoogleClientId = GoogleTokens.ClientId }, TimeProvider.System);
+
+        Assert.NotNull(await verifier.VerifyAsync(_google.Mint(), TestContext.Current.CancellationToken));
+        Assert.Null(await verifier.VerifyAsync(_google.Mint(signWith: _google.Other(GoogleTokens.KeyId)), TestContext.Current.CancellationToken));
+        Assert.Equal(1, source.Fetches);
+    }
+
+    private sealed class JwksHandler(string body) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+                Headers = { CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromHours(6) } },
+            });
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData("false")]

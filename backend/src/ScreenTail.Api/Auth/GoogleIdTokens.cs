@@ -93,9 +93,24 @@ public sealed class GoogleIdTokenVerifier(IGoogleSigningKeys keys, AdminOptions 
             return null;
         }
 
+        // Lower-cased in ASCII only. Lowering the rest folds look-alikes into ASCII (the Kelvin sign
+        // becomes a plain k), and an address that is not ASCII is refused for signup anyway.
+        var address = AsciiLower(email.Trim());
         var name = identity.FindFirst("name")?.Value;
-        return new GoogleIdentity(subject, email.Trim().ToLowerInvariant(), string.IsNullOrWhiteSpace(name) ? email.Trim() : Truncate(name.Trim(), 200));
+        return new GoogleIdentity(subject, address, Truncate(string.IsNullOrWhiteSpace(name) ? address : name.Trim(), DisplayNameLength));
     }
+
+    /// <summary>The owners table's display-name column. A name, or the address standing in for one, is cut to fit.</summary>
+    public const int DisplayNameLength = 200;
+
+    private static string AsciiLower(string value) =>
+        string.Create(value.Length, value, static (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+            {
+                span[i] = source[i] is >= 'A' and <= 'Z' ? (char)(source[i] + 32) : source[i];
+            }
+        });
 
     /// <summary>The rules, all on. Exposed so a test can see that none was switched off.</summary>
     public TokenValidationParameters Parameters(IReadOnlyList<SecurityKey> signingKeys) => new()
@@ -145,8 +160,17 @@ public sealed class GoogleIdTokenVerifier(IGoogleSigningKeys keys, AdminOptions 
 /// answers, rather than checked against keys that may since have been withdrawn, and Google is asked
 /// again no sooner than thirty seconds after the failure.
 /// </summary>
-public sealed class GoogleSigningKeys(Func<HttpClient> client, TimeProvider time) : IGoogleSigningKeys, IDisposable
+public sealed partial class GoogleSigningKeys(Func<HttpClient> client, TimeProvider time, ILogger<GoogleSigningKeys>? logger = null) : IGoogleSigningKeys, IDisposable
 {
+    private readonly ILogger _log = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+    /// <summary>
+    /// Says that a fetch failed and what kind of failure it was, and nothing else: no key, no body, no
+    /// address beyond the one fixed host (INV-10). Sign-in is refused while this keeps happening.
+    /// </summary>
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Google's signing keys could not be fetched ({Failure}); a fresh cached copy is in use: {CopyInUse}.")]
+    private static partial void FetchFailed(ILogger logger, string failure, bool copyInUse);
+
     public const string HttpClientName = nameof(GoogleSigningKeys);
 
     public static readonly Uri Address = new("https://www.googleapis.com/oauth2/v3/certs");
@@ -228,6 +252,7 @@ public sealed class GoogleSigningKeys(Func<HttpClient> client, TimeProvider time
                 || (e is OperationCanceledException && !ct.IsCancellationRequested))
             {
                 _state = state with { LastAttempt = now, LastFailed = true };
+                FetchFailed(_log, e is OperationCanceledException ? "timed out" : e.GetType().Name, now < state.FreshUntil);
                 if (now < state.FreshUntil)
                 {
                     return state.Keys;

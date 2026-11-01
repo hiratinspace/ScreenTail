@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ScreenTail.Api.Auth;
+using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 
 namespace ScreenTail.Api.Tests.Admin;
@@ -120,6 +123,73 @@ public sealed class AdminSignInTests(AdminApiFixture api) : IClassFixture<AdminA
         Assert.Equal(AdminSessionResponse.SignedIn, session!.Status);
         Assert.Equal(seeded.TenantId, session.Tenant!.Id);
         Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith(AdminSession.CookieName, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnAddressThatOnlyLooksLikeOneOnTheListCannotSignUp()
+    {
+        // "kelvin@" with the Kelvin sign (U+212A) in place of the k. Lowered the culture-free way it
+        // becomes the plain address on the list; lowered in ASCII only it stays itself, and is refused.
+        using var client = api.CreateClient();
+        using var lookalike = await client.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: "sub-kelvin-sign", email: "Kelvin@acme.example")), TestContext.Current.CancellationToken);
+        using var plain = await client.PostAsJsonAsync(SignIn, new AdminSignInRequest(api.Google.Mint(subject: "sub-kelvin-plain", email: AdminApiFixture.Kelvin)), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, lookalike.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, plain.StatusCode);
+    }
+
+    [Fact]
+    public async Task ALongAddressWithNoNameFitsTheDisplayNameColumn()
+    {
+        // Google gave no name, so the address stands in for one, and the column holds 200 characters.
+        // SQLite does not enforce the length; Postgres would refuse the row, so the length is asserted.
+        using var client = api.CreateClient(new() { HandleCookies = false });
+        using var response = await client.PostAsJsonAsync(Signup, new AdminSignupRequest(api.Google.Mint(subject: "sub-long", email: AdminApiFixture.LongAddress, name: null), "Long Co"), TestContext.Current.CancellationToken);
+        var owner = await api.UseAsync(db => db.Owners.SingleAsync(o => o.GoogleSubject == "sub-long"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(GoogleIdTokenVerifier.DisplayNameLength, owner.DisplayName.Length);
+        Assert.StartsWith(owner.DisplayName, AdminApiFixture.LongAddress, StringComparison.Ordinal);
+        Assert.Equal(AdminApiFixture.LongAddress, owner.Email);
+    }
+
+    [Fact]
+    public async Task ASignupThatFailsForAnotherReasonIsNotAnsweredAsAlreadySignedUp()
+    {
+        // The save fails, and not because the account already has a tenant. That is a server error, not
+        // a 409 telling the person to sign in with an account that has nothing.
+        using var failing = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(new FailOwnerInserts()))));
+        using var client = failing.CreateClient(new() { HandleCookies = false });
+
+        using var response = await client.PostAsJsonAsync(Signup, new AdminSignupRequest(api.Google.Mint(subject: "sub-broken", email: AdminApiFixture.Allowed[7]), "Broken Co"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Owners.AnyAsync(o => o.GoogleSubject == "sub-broken")));
+    }
+
+    [Theory]
+    [InlineData("/v1/admin/session")]
+    [InlineData("/v1/admin/signup")]
+    public async Task ABodyLargerThanSixteenKilobytesIsNotRead(string path)
+    {
+        using var client = api.CreateClient(new() { HandleCookies = false });
+        var huge = $$"""{"credential":"{{new string('x', 20 * 1024)}}","tenantName":"Big"}""";
+
+        using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(huge, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    /// <summary>Fails any save that adds an owner, the way a dropped connection or a full disk would.</summary>
+    private sealed class FailOwnerInserts : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData, Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(eventData);
+            return eventData.Context!.ChangeTracker.Entries<Owner>().Any(e => e.State == EntityState.Added)
+                ? throw new DbUpdateException("The database went away.")
+                : base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Timeouts;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
@@ -73,7 +74,8 @@ builder.Services.AddSingleton(adminOptions);
 builder.Services.AddHttpClient(GoogleSigningKeys.HttpClientName, client => client.Timeout = GoogleSigningKeys.FetchTimeout);
 builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningKeys(
     () => services.GetRequiredService<IHttpClientFactory>().CreateClient(GoogleSigningKeys.HttpClientName),
-    services.GetRequiredService<TimeProvider>()));
+    services.GetRequiredService<TimeProvider>(),
+    services.GetRequiredService<ILogger<GoogleSigningKeys>>()));
 builder.Services.AddSingleton<GoogleIdTokenVerifier>();
 builder.Services.AddOwnerPolicy();
 
@@ -308,6 +310,7 @@ if (!app.Environment.IsDevelopment())
 // Before the timeout, so the publish deadline counts from no later than the timeout does (S-68).
 app.UseRequestStart();
 app.UseRequestTimeouts();
+app.UseAdminNoStore();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDraftingConcurrency();
@@ -337,7 +340,7 @@ _ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 // ST-099. The web admin: sign-in and signup are anonymous, everything else is an owner's, by cookie.
 // Mapped beside the device group, not inside it, so no device policy applies here and no owner policy
 // applies there.
-_ = app.MapGroup("/v1/admin").AllowAnonymous().MapAdminSession();
+_ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).MapAdminSession();
 _ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin();
 
 var v1 = app.MapGroup("/v1").RequireAuthorization(CallerPolicy.Name);

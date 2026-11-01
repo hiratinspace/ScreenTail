@@ -44,10 +44,10 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
     [Fact]
     public async Task ATokenWithAnOwnersClaimsButADevicesAudienceOpensNoAdminRoute()
     {
-        // Everything an owner's session carries, for an owner who exists, signed with the right key, but
+        // Everything an owner's session carries, for an owner who exists, signed with the admin key, but
         // minted for the devices' audience. Only the admin scheme's audience check stands in its way.
         var owner = await api.SeedOwnerAsync();
-        var forged = Sign(api.Jwt.Audience, [
+        var forged = Sign(api.Jwt.Audience, AdminKey, [
             new(ScreenTailClaims.TenantId, owner.TenantId.ToString()),
             new(ScreenTailClaims.OwnerId, owner.OwnerId.ToString()),
             new(ScreenTailClaims.Role, AdminSession.OwnerRole),
@@ -87,7 +87,7 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
                 break;
         }
 
-        using var client = api.Owner(owner with { Token = Sign(AdminSession.Audience, [.. claims]) });
+        using var client = api.Owner(owner with { Token = Sign(AdminSession.Audience, AdminKey, [.. claims]) });
 
         Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, OwnerRoutes()));
     }
@@ -122,7 +122,7 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
         // the device scheme's audience check stands in its way.
         var owner = await api.SeedOwnerAsync();
         var (userId, deviceId, _) = await api.SeedDeviceAsync(owner.TenantId);
-        var forged = Sign(AdminSession.Audience, [
+        var forged = Sign(AdminSession.Audience, DeviceKey, [
             new(ScreenTailClaims.TenantId, owner.TenantId.ToString()),
             new(ScreenTailClaims.UserId, userId.ToString()),
             new(ScreenTailClaims.DeviceId, deviceId.ToString()),
@@ -198,7 +198,7 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
         // The owner of one tenant with the other tenant's id in the claim: the row must match both.
         var mine = await api.SeedOwnerAsync();
         var theirs = await api.SeedOwnerAsync();
-        var crossed = Sign(AdminSession.Audience, [
+        var crossed = Sign(AdminSession.Audience, AdminKey, [
             new(ScreenTailClaims.TenantId, theirs.TenantId.ToString()),
             new(ScreenTailClaims.OwnerId, mine.OwnerId.ToString()),
             new(ScreenTailClaims.Role, AdminSession.OwnerRole),
@@ -208,6 +208,88 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
         using var client = api.Owner(mine with { Token = crossed });
 
         Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, OwnerRoutes()));
+    }
+
+    [Fact]
+    public async Task AnOwnersSessionSignedWithTheDeviceKeyOpensNoAdminRoute()
+    {
+        // An owner's session in every respect but the key: the devices' key, not the admin sessions' own.
+        var owner = await api.SeedOwnerAsync();
+        var forged = Sign(AdminSession.Audience, DeviceKey, [
+            new(ScreenTailClaims.TenantId, owner.TenantId.ToString()),
+            new(ScreenTailClaims.OwnerId, owner.OwnerId.ToString()),
+            new(ScreenTailClaims.Role, AdminSession.OwnerRole),
+            new(ScreenTailClaims.Csrf, owner.Csrf),
+            new(ScreenTailClaims.SessionVersion, "0"),
+        ]);
+        using var client = api.Owner(owner with { Token = forged });
+
+        Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, OwnerRoutes()));
+    }
+
+    [Fact]
+    public async Task ADeviceTokenSignedWithTheAdminKeyActsAsNoDevice()
+    {
+        // A real device's token in every respect but the key: the admin sessions' key.
+        var owner = await api.SeedOwnerAsync();
+        var (userId, deviceId, _) = await api.SeedDeviceAsync(owner.TenantId);
+        var forged = Sign(api.Jwt.Audience, AdminKey, [
+            new(ScreenTailClaims.TenantId, owner.TenantId.ToString()),
+            new(ScreenTailClaims.UserId, userId.ToString()),
+            new(ScreenTailClaims.DeviceId, deviceId.ToString()),
+        ]);
+        using var client = api.Device(forged);
+
+        Assert.Empty(await AnsweredOtherThan(client, HttpStatusCode.Unauthorized, DeviceRoutes()));
+    }
+
+    [Fact]
+    public void TheAdminSessionKeyIsNotTheDeviceKey()
+    {
+        Assert.NotEqual(DeviceKey.Key, AdminKey.Key);
+        Assert.Equal(32, AdminKey.Key.Length);
+    }
+
+    [Fact]
+    public void ExactlyThreeAdminRoutesAreAnonymousAndEachReadsAtMostSixteenKilobytes()
+    {
+        // Sign-in, signup and sign-out. Anything else mapped under /v1/admin without the owner policy
+        // would be an admin route anybody can call.
+        var anonymous = api.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.StartsWith("/v1/admin/", StringComparison.Ordinal) == true
+                && !e.Metadata.GetOrderedMetadata<IAuthorizeData>().Any(a => a.Policy == OwnerPolicy.Name))
+            .ToList();
+
+        Assert.Equal(
+            ["POST /v1/admin/session", "POST /v1/admin/session/end", "POST /v1/admin/signup"],
+            anonymous.SelectMany(e => e.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Select(m => $"{m} {e.RoutePattern.RawText}")).Order(StringComparer.Ordinal));
+        Assert.All(anonymous, e => Assert.Equal(AdminSession.AnonymousBodyLimit, e.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>()?.MaxRequestBodySize));
+    }
+
+    [Fact]
+    public async Task NoAdminAnswerIsStoredByABrowserOrAProxy()
+    {
+        var owner = await api.SeedOwnerAsync();
+        using var client = api.Owner(owner);
+        using var anonymous = api.CreateClient(new() { HandleCookies = false });
+        var missing = new List<string>();
+
+        foreach (var (method, path) in OwnerRoutes())
+        {
+            using var request = Request(method, path);
+            using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+            if (response.Headers.CacheControl?.NoStore != true)
+            {
+                missing.Add($"{method} {path}");
+            }
+        }
+
+        using var refused = await anonymous.GetAsync(new Uri("/v1/admin/session", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var signIn = await anonymous.PostAsync(new Uri("/v1/admin/session", UriKind.Relative), new StringContent("{}", Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+        Assert.Empty(missing);
+        Assert.True(refused.Headers.CacheControl?.NoStore);
+        Assert.True(signIn.Headers.CacheControl?.NoStore);
     }
 
     [Fact]
@@ -225,7 +307,11 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
         }
     }
 
-    private string Sign(string audience, Claim[] claims)
+    private SymmetricSecurityKey DeviceKey => new(Encoding.UTF8.GetBytes(api.Jwt.SigningKey));
+
+    private SymmetricSecurityKey AdminKey => TokenIssuer.AdminKeyFrom(api.Jwt.SigningKey);
+
+    private string Sign(string audience, SecurityKey key, Claim[] claims)
     {
         var now = DateTime.UtcNow;
         return new JwtSecurityTokenHandler().CreateEncodedJwt(new SecurityTokenDescriptor
@@ -236,7 +322,7 @@ public sealed partial class AdminAccessTests(AdminApiFixture api) : IClassFixtur
             NotBefore = now,
             Expires = now.AddMinutes(30),
             Subject = new ClaimsIdentity(claims),
-            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(api.Jwt.SigningKey)), SecurityAlgorithms.HmacSha256),
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
         });
     }
 

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using ScreenTail.Api.Auth;
 
@@ -17,11 +18,42 @@ public sealed class GoogleSigningKeysTests : IDisposable
     private readonly RSA _rsa = RSA.Create(2048);
     private readonly HeldClock _clock = new();
     private readonly Scripted _google = new();
+    private readonly Written _log = new();
     private readonly GoogleSigningKeys _keys;
 
     public GoogleSigningKeysTests()
     {
-        _keys = new GoogleSigningKeys(() => new HttpClient(_google, disposeHandler: false), _clock);
+        _keys = new GoogleSigningKeys(() => new HttpClient(_google, disposeHandler: false), _clock, _log);
+    }
+
+    [Fact]
+    public async Task AFailedFetchIsLoggedWithoutContent()
+    {
+        _google.Fail(HttpStatusCode.ServiceUnavailable);
+        _ = await Assert.ThrowsAsync<GoogleKeysUnavailableException>(() => _keys.GetAsync(refresh: false, TestContext.Current.CancellationToken));
+
+        var (level, message) = Assert.Single(_log.Entries);
+        Assert.Equal(LogLevel.Warning, level);
+        Assert.Contains("Google's signing keys could not be fetched", message, StringComparison.Ordinal);
+        Assert.Contains("HttpRequestException", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("googleapis", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>What the key source logged, as the sink would get it.</summary>
+    private sealed class Written : ILogger<GoogleSigningKeys>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            ArgumentNullException.ThrowIfNull(formatter);
+            Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 
     public void Dispose()

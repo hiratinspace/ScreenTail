@@ -181,8 +181,15 @@ public static class AdminEndpoint
                 return Results.BadRequest(new { error = "all_windows_unconfirmed", message = "Capturing every window needs confirming. Tick the confirmation and save again." });
             }
 
-            var saved = await Policies.SetAsync(db, owner.TenantId, retention, localOnly, localOnlyLocked, allWindows, new Policies.UpdateSettings(channel, channelLocked, hours, underLocalOnly), time, ct).ConfigureAwait(false);
-            return Results.Ok(PolicyEndpoint.Describe(saved));
+            try
+            {
+                var saved = await Policies.SetAsync(db, owner.TenantId, retention, localOnly, localOnlyLocked, allWindows, new Policies.UpdateSettings(channel, channelLocked, hours, underLocalOnly), time, ct).ConfigureAwait(false);
+                return Results.Ok(PolicyEndpoint.Describe(saved));
+            }
+            catch (PolicyVersionConflictException)
+            {
+                return Results.Json(new { error = "policy_conflict", message = "Another change to the policy was saved at the same moment. Reload the policy and save again." }, statusCode: StatusCodes.Status409Conflict);
+            }
         })
         .WithName("AdminSetPolicy")
         .WithSummary("Sets the tenant's policy as a new version. Devices pick it up within the hour.");

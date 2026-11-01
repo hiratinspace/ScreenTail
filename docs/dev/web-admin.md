@@ -14,7 +14,8 @@ how to run it.
 2. Go to **APIs & Services → Credentials → Create credentials → OAuth client ID**, application type
    **Web application**.
 3. Under **Authorized JavaScript origins** add every origin the admin page is served from:
-   - local work: `http://localhost:5173` and `http://localhost` (Google asks for both for local pages);
+   - local work: `http://localhost:5173` (the dev server), `http://localhost:4173` (`vite preview`, which the
+     Lighthouse check below uses) and `http://localhost` (Google asks for the bare one too for local pages);
    - a deployment: its `https://` origin, for example `https://admin.example.com`.
 
    Leave **Authorized redirect URIs** empty: the page uses the pop-up flow and nothing is redirected.

@@ -34,6 +34,36 @@ public static class AdminSession
 
     public const string OwnerRole = "owner";
 
+    /// <summary>The largest body the anonymous sign-in and signup routes read: a Google ID token and a name fit in far less.</summary>
+    public const long AnonymousBodyLimit = 16 * 1024;
+
+    /// <summary>
+    /// <c>Cache-Control: no-store</c> on every answer under /v1/admin, refusals included: a session's CSRF
+    /// value, an invite's one-time code and the technician list must not be kept by a browser or a proxy.
+    /// Set before anything else runs, so no path out of the pipeline can leave without it.
+    /// </summary>
+    public static IApplicationBuilder UseAdminNoStore(this IApplicationBuilder app) =>
+        app.Use((context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/v1/admin", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.Headers.Pragma = "no-cache";
+            }
+
+            // A route that declares a body limit refuses a body that says it is larger, with 413, before
+            // anything reads it. Kestrel enforces the same declared limit on a body that does not say its
+            // length (chunked) while it is read; this covers every server, the test host included.
+            if (context.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>()?.MaxRequestBodySize is { } limit
+                && context.Request.ContentLength > limit)
+            {
+                context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+                return Task.CompletedTask;
+            }
+
+            return next(context);
+        });
+
     /// <summary>The cookie's settings, the same for writing and for deleting it.</summary>
     public static CookieOptions Cookie(DateTimeOffset? expires) => new()
     {

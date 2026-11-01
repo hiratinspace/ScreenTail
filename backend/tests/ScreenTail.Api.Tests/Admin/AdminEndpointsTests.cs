@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 using ScreenTail.Api.Tenancy;
@@ -231,6 +233,76 @@ public sealed class AdminEndpointsTests(AdminApiFixture api) : IClassFixture<Adm
 
         Assert.NotEqual(first.Version, second.Version);
         Assert.Equal(second.Version, (await api.UseAsync(db => Policies.LatestAsync(db, owner.TenantId)))!.Version);
+    }
+
+    [Fact]
+    public async Task ASaveThatLosesTheRaceForItsVersionGoesAgainOnce()
+    {
+        // Another save lands the same version between this one reading the latest and writing: the unique
+        // index refuses this one, and it goes again from the new latest instead of answering 500.
+        var owner = await api.SeedOwnerAsync();
+        var racer = new ConcurrentSave(api.Services, times: 1);
+        using var host = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(racer))));
+        using var client = Owner(host, owner);
+
+        using var response = await client.PutAsJsonAsync(new Uri("/v1/admin/policy", UriKind.Relative), Policy(retention: 4), TestContext.Current.CancellationToken);
+        var saved = await response.Content.ReadFromJsonAsync<TenantPolicyResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(4, saved!.RetentionDays);
+        Assert.Equal(2, await api.UseAsync(db => db.Policies.CountAsync(p => p.TenantId == owner.TenantId)));
+        Assert.Equal(saved.Version, (await api.UseAsync(db => Policies.LatestAsync(db, owner.TenantId)))!.Version);
+        Assert.NotEqual(racer.Taken.Single(), saved.Version);
+    }
+
+    [Fact]
+    public async Task ASaveThatLosesTheRaceTwiceIsAConflictNotAServerError()
+    {
+        var owner = await api.SeedOwnerAsync();
+        var racer = new ConcurrentSave(api.Services, times: 2);
+        using var host = api.WithWebHostBuilder(b => b.ConfigureServices(s => s.ConfigureDbContext<ScreenTailContext>(o => o.AddInterceptors(racer))));
+        using var client = Owner(host, owner);
+
+        using var response = await client.PutAsJsonAsync(new Uri("/v1/admin/policy", UriKind.Relative), Policy(retention: 4), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("policy_conflict", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    private static HttpClient Owner(WebApplicationFactory<Program> host, OwnerSession session)
+    {
+        var client = host.CreateClient(new() { HandleCookies = false });
+        client.DefaultRequestHeaders.Add("Cookie", $"__Host-screentail-admin={session.Token}");
+        client.DefaultRequestHeaders.Add("X-ScreenTail-CSRF", session.Csrf);
+        return client;
+    }
+
+    /// <summary>
+    /// Another writer, landing a policy with the same version just before this save, the given number of
+    /// times. It writes through the suite's own host, which has no interceptor, so it never races itself.
+    /// </summary>
+    private sealed class ConcurrentSave(IServiceProvider other, int times) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private int _left = times;
+
+        public List<string> Taken { get; } = [];
+
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData, Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(eventData);
+            var adding = eventData.Context!.ChangeTracker.Entries<Policy>().Where(e => e.State == EntityState.Added).Select(e => e.Entity).FirstOrDefault();
+            if (adding is not null && _left > 0)
+            {
+                _left--;
+                using var scope = other.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<ScreenTailContext>();
+                db.Policies.Add(new Policy { Id = Guid.NewGuid(), TenantId = adding.TenantId, Version = adding.Version, CreatedAt = adding.CreatedAt });
+                _ = await db.SaveChangesAsync(cancellationToken);
+                Taken.Add(adding.Version);
+            }
+
+            return await base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     private sealed class Held(DateTimeOffset now) : TimeProvider

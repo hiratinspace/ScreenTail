@@ -60,7 +60,8 @@ the key source with a fake (`FakeGoogleKeys`, `NoGoogle`); no test calls Google.
 
 ### The admin session: an HttpOnly cookie, not a bearer token
 
-A ScreenTail JWT signed with the existing key (HS256, `Jwt:SigningKey`), carried in a cookie named
+A ScreenTail JWT (HS256) signed with a key derived from `Jwt:SigningKey` for admin sessions alone (below),
+carried in a cookie named
 `__Host-screentail-admin`: **HttpOnly, Secure, SameSite=Strict, Path=/**, no Domain. Its claims are the
 tenant, the owner, `role=owner`, a CSRF value and the owner's session version, and its audience is
 **`screentail-admin`**. It lasts `Admin:SessionLifetime` (8 hours by default) with no refresh; the
@@ -85,14 +86,25 @@ value only the asking browser's cookie is deleted, so another site cannot sign t
 
 ### Devices and owners never cross
 
-Told apart four ways, any one of which suffices: **the audience** (`screentail-api` for devices,
-`screentail-admin` for owners, and startup refuses a `Jwt:Audience` equal to the admin one); **the
+Told apart five ways, any one of which suffices: **the key** (admin sessions are signed with their own
+key, HMAC-SHA256 of the fixed label `screentail-admin-session-key-v1` under `Jwt:SigningKey`, so one
+secret is configured and neither scheme can check the other's signature; changing the label ends every
+admin session); **the audience** (`screentail-api` for devices, `screentail-admin` for owners, and
+startup refuses a `Jwt:Audience` equal to the admin one in any case or with a trailing slash); **the
 transport** (the admin scheme reads only its cookie and never the Authorization header; the device
 scheme reads only the header); **the claims** (`OwnerCheck` wants `role=owner` and an owner id and
 refuses a token with a device id; `CallerCheck` wants a device id); and **the route policies** (admin
 routes are behind `ActiveOwner`, authenticated by the admin scheme alone; device routes are behind
 `ActiveCaller`, by the default scheme alone, and `AdminAccessTests` checks no route has both). Every
 admin request reloads the owner and tenant and refuses either one disabled, like a revoked device.
+
+### Small guards on every admin answer
+
+Every response under `/v1/admin`, refusals included, carries `Cache-Control: no-store`: the CSRF value,
+an invite's one-time code and the technician list are not kept by a browser or a proxy. The three
+anonymous routes (sign-in, signup, sign-out; `AdminAccessTests` fails if a fourth appears) read at most
+16 KB of body, and a body that says it is larger is refused with 413 before it is read. A key fetch that
+fails is logged as a warning naming only the kind of failure.
 
 ### Tenant scoping
 
@@ -115,14 +127,24 @@ seed a second tenant beside every read and write and prove none of it is returne
    tenant may manage them is unchanged here).
 7. **Google's keys out of reach means no sign-in** rather than checking against a stale copy.
 8. **Signup matches the Google account by its subject**; the address is checked against the allowlist
-   only when a tenant is created.
+   only when a tenant is created. Only ASCII addresses can sign up, compared without regard to ASCII
+   case: an address with any other character is refused rather than case-folded (the Kelvin sign
+   lowers to a plain k).
+9. **No `hd` (Google Workspace domain) check.** Any Google account whose verified address is on the
+   allowlist can sign up, a consumer Gmail account included. Requiring a Workspace domain is a setting
+   the owner may want.
+10. **An allowlist entry is not consumed.** An allowlisted address can create one tenant per Google
+    account it controls (the address is per account, the uniqueness is per subject); a second account
+    showing the same verified address could create a second tenant.
+11. **Locking local-only off is allowed**, as the operator's CLI allows it: `localOnly` false with
+    `localOnlyLocked` true stops technicians turning local-only on.
 
 ## Owner steps
 
 1. In Google Cloud Console, create an OAuth client id of type **Web application**, with the admin's
-   origins under **Authorized JavaScript origins** (for local work `http://localhost:5173` and
-   `http://localhost`). No redirect URI and no client secret are used. `docs/dev/web-admin.md` has the
-   steps.
+   origins under **Authorized JavaScript origins** (for local work `http://localhost:5173`,
+   `http://localhost:4173` and `http://localhost`). No redirect URI and no client secret are used.
+   `docs/dev/web-admin.md` has the steps.
 2. Set `Admin__GoogleClientId` on the backend and `VITE_GOOGLE_CLIENT_ID` for the web build to that id,
    and `Admin__SignupAllowlist__0` (and `__1`, ...) to the addresses that may create a tenant.
 3. Serve the web app and the API from **one origin** (a reverse proxy routing `/v1` to the API), as
