@@ -120,6 +120,16 @@ if (!OperatingSystem.IsWindows())
     return 2;
 }
 
+// ST-112, INV-6: never the capture service elevated, as another user, or in session 0. A service at High
+// integrity judges windows against itself and would photograph an administrator's regedit or elevated
+// PowerShell; it gets there by "Run as administrator", or by Restart Manager restarting it from another
+// program's elevated installer. Refused before anything is built, said in a fixed sentence, exit 0: the
+// next sign-in starts it as the technician (StartGuard).
+if (ServiceStart.RefuseIfUnfit(ServiceStart.Read(), Console.Error) is { } refused)
+{
+    return refused;
+}
+
 // Per-monitor DPI awareness, before any window is touched. Without it Windows lies to us about window
 // rectangles on a scaled display — a 3840-wide window on a 150% monitor reports 2560 — and every screenshot
 // would be captured from the wrong rectangle and stored at the wrong size (ST-025).

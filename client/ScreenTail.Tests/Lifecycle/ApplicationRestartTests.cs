@@ -61,6 +61,22 @@ public sealed class ApplicationRestartTests
         Assert.True(register < program.IndexOf("ServiceRun.RunAsync(", StringComparison.Ordinal), "the host runs before the service registers");
     }
 
+    [Fact]
+    public void EveryStartIsCheckedAfterTheNameIsTakenAndBeforeTheHostIsBuilt()
+    {
+        // StartGuard (INV-6): an elevated or foreign process never gets as far as building the host. After
+        // the single-instance name, so a refused copy cannot be told apart from one that lost the name.
+        var program = File.ReadAllText(Repo.File("client", "ScreenTail.Service", "Program.cs"));
+
+        var guard = program.IndexOf("ServiceStart.RefuseIfUnfit(ServiceStart.Read()", StringComparison.Ordinal);
+        Assert.True(guard > 0, "the service does not check itself at start");
+        Assert.Equal(guard, program.LastIndexOf("ServiceStart.RefuseIfUnfit(", StringComparison.Ordinal));
+        Assert.True(program.LastIndexOf("SingleInstance.TryAcquire", StringComparison.Ordinal) < guard, "the check comes before the single-instance name");
+        Assert.True(guard < program.IndexOf("Host.CreateApplicationBuilder", StringComparison.Ordinal), "the host is built before the check");
+        Assert.True(guard < program.IndexOf("SessionEndWindow.Start(", StringComparison.Ordinal), "a window is made before the check");
+        Assert.True(guard < program.IndexOf("WindowsApplicationRestart.Register(", StringComparison.Ordinal), "a refused copy registers for restart");
+    }
+
     /// <summary>A file in the repository, found from the test binary the way InstallerAuthoringTests finds one.</summary>
     private static class Repo
     {
