@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using System.Windows.Shapes;
 using ScreenTail.Core.Review;
 
@@ -11,6 +10,9 @@ namespace ScreenTail.UI.Review.Timeline;
 /// The scrubber (ST-076). Layout only: which markers exist and where they sit are
 /// <see cref="TimelineViewModel"/>'s, from <see cref="SessionTimeline"/>; this turns fractions into
 /// pixels each time the track is measured, and a click on a frame square into the model's command.
+///
+/// The markers' colours are resource references, not brushes looked up once: drawn with the brush of the
+/// palette at the time, they kept the dark colours when Windows switched to high contrast (ST-084).
 /// </summary>
 public partial class TimelineView : UserControl
 {
@@ -40,12 +42,12 @@ public partial class TimelineView : UserControl
             {
                 Width = Math.Max(2, marker.Span * width),
                 Height = 12,
-                Fill = Brush(marker.Kind == TimelineMarkerKind.OutOfScope ? "Brush.state.scope" : "Brush.state.paused"),
                 Opacity = 0.45,
                 RadiusX = 2,
                 RadiusY = 2,
                 ToolTip = marker.Tooltip,
             };
+            band.SetResourceReference(Shape.FillProperty, marker.Kind == TimelineMarkerKind.OutOfScope ? "Brush.state.scope" : "Brush.state.paused");
             Canvas.SetLeft(band, marker.Position * width);
             Canvas.SetTop(band, 3);
             Track.Children.Add(band);
@@ -66,15 +68,15 @@ public partial class TimelineView : UserControl
         }
     }
 
-    private Rectangle Square(double x, MarkerItem marker, TimelineViewModel model)
+    private static Rectangle Square(double x, MarkerItem marker, TimelineViewModel model)
     {
         var square = new Rectangle
         {
             Width = 8,
             Height = 8,
-            Fill = Brush("Brush.accent.primary"),
             Cursor = Cursors.Hand,
         };
+        square.SetResourceReference(Shape.FillProperty, "Brush.accent.primary");
         square.MouseLeftButtonUp += (_, e) =>
         {
             model.JumpToCommand.Execute(marker.FrameId);
@@ -85,34 +87,35 @@ public partial class TimelineView : UserControl
         return square;
     }
 
-    private TextBlock Flag(double x)
+    private static TextBlock Flag(double x)
     {
         var flag = new TextBlock
         {
             Text = "⚑",
             FontSize = 12,
-            Foreground = Brush("Brush.accent.primary.hover"),
         };
+        flag.SetResourceReference(TextBlock.ForegroundProperty, "Brush.accent.primary.hover");
         Canvas.SetLeft(flag, x - 3);
         Canvas.SetTop(flag, 0);
         return flag;
     }
 
-    private Rectangle Tick(double x)
+    private static Rectangle Tick(double x)
     {
-        var tick = new Rectangle { Width = 2, Height = 5, Fill = Brush("Brush.text.secondary") };
+        var tick = new Rectangle { Width = 2, Height = 5 };
+        tick.SetResourceReference(Shape.FillProperty, "Brush.text.secondary");
         Canvas.SetLeft(tick, x - 1);
         Canvas.SetTop(tick, 13);
         return tick;
     }
 
-    private Ellipse Dot(double x)
+    private static Ellipse Dot(double x)
     {
-        var dot = new Ellipse { Width = 4, Height = 4, Fill = Brush("Brush.text.muted") };
+        var dot = new Ellipse { Width = 4, Height = 4 };
+        dot.SetResourceReference(Shape.FillProperty, "Brush.text.muted");
         Canvas.SetLeft(dot, x - 2);
         Canvas.SetTop(dot, 7);
         return dot;
     }
 
-    private Brush Brush(string key) => TryFindResource(key) as Brush ?? Brushes.Gray;
 }

@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.FilmstripView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              Background="Transparent"
              AutomationProperties.Name="Screenshots">
@@ -22,12 +23,12 @@
                     <!-- The glyph sits under the image: it shows while the thumbnail loads, and is covered
                          once it arrives. -->
                     <Grid>
-                        <TextBlock HorizontalAlignment="Center"
+                        <controls:Glyph HorizontalAlignment="Center"
                                    Style="{StaticResource Icon}"
                                    FontSize="20"
                                    Foreground="{DynamicResource Brush.text.muted}"
                                    Text="&#xEB9F;" />
-                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" AutomationProperties.Name="{Binding Label}" />
                     </Grid>
                     <Border.Style>
                         <Style TargetType="Border">
@@ -94,7 +95,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,6,0">
+        <StackPanel x:Name="StripHeader" Grid.Row="0" Margin="0,0,6,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -105,7 +106,7 @@
                            VerticalAlignment="Center"
                            Style="{StaticResource Text.Label}"
                            Text="{Binding Header}"
-                           AutomationProperties.LiveSetting="Polite" />
+                           controls:LiveRegion.Setting="Polite" />
             </Grid>
 
             <!-- An exclusion or a delete the service did not record (S-35, T-136). Said in words with a
@@ -115,7 +116,7 @@
                        Foreground="{DynamicResource Brush.state.danger}"
                        TextWrapping="Wrap"
                        Visibility="{Binding HasEditError, Converter={StaticResource Visible}}"
-                       AutomationProperties.LiveSetting="Assertive">
+                       controls:LiveRegion.Setting="Assertive">
                 <Run Text="⚠ " /><Run Text="{Binding EditError, Mode=OneWay}" />
             </TextBlock>
         </StackPanel>
@@ -135,7 +136,7 @@
                  AutomationProperties.Name="Screenshots" />
 
         <!-- The chords that apply to this pane, on screen where they are used (Spec §5 S3). -->
-        <Grid Grid.Row="2" Margin="0,8,6,12">
+        <Grid x:Name="StripFooter" Grid.Row="2" Margin="0,8,6,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -151,7 +152,7 @@
                     <TextBlock VerticalAlignment="Center"
                                Style="{StaticResource Text.Body}"
                                Text="{Binding UndoToast}"
-                               AutomationProperties.LiveSetting="Assertive" />
+                               controls:LiveRegion.Setting="Assertive" />
                     <Button Margin="12,0,0,0"
                             Style="{StaticResource Button.Secondary}"
                             Content="Undo"
@@ -166,11 +167,16 @@
                        Text="Space include · Enter enlarge · B blur · Del delete" />
         </Grid>
 
-        <!-- Enlarged frame. Spans the pane, over everything, closed with Esc. -->
-        <Border Grid.Row="0"
+        <!-- Enlarged frame. Spans the pane, over everything, closed with Esc. While it is open the strip it
+             covers is out of the Tab order and focus is on Close; Esc, T and B work from any of its
+             controls, not only from the strip (ST-084). -->
+        <Border x:Name="EnlargedView"
+                Grid.Row="0"
                 Grid.RowSpan="3"
                 Background="{DynamicResource Brush.bg.surface}"
-                Visibility="{Binding IsEnlarged, Converter={StaticResource Visible}}">
+                Visibility="{Binding IsEnlarged, Converter={StaticResource Visible}}"
+                IsVisibleChanged="OnEnlargedVisibility"
+                PreviewKeyDown="OnEnlargedKeyDown">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -183,7 +189,7 @@
                            Text="{Binding Enlarged.Label}" />
 
                 <Grid Grid.Row="1" Margin="0,10,0,0">
-                    <Image x:Name="EnlargedImage" Source="{Binding Enlarged.Image}" Stretch="Uniform" />
+                    <Image x:Name="EnlargedImage" Source="{Binding Enlarged.Image}" Stretch="Uniform" AutomationProperties.Name="{Binding Enlarged.Label}" />
 
                     <!-- The blur surface. Transparent rather than absent, because a Canvas with no
                          background receives no mouse events at all and the drag would never start. -->
@@ -215,11 +221,12 @@
                     </Border>
                 </Grid>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button Style="{StaticResource Button.Secondary}"
+                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,12">
+                    <Button x:Name="CloseEnlarged"
+                            Style="{StaticResource Button.Secondary}"
                             Content="Close  Esc"
                             Command="{Binding CloseEnlargedCommand}" />
-                    <Button Margin="8,0,0,0"
+                    <Button Margin="8,0,0,8"
                             Style="{StaticResource Button.Secondary}"
                             Content="OCR text  T"
                             Command="{Binding ToggleOcrTextCommand}"
@@ -250,7 +257,7 @@
                                Style="{StaticResource Text.Muted}"
                                Text="Drag over what should be covered. This cannot be undone."
                                Visibility="{Binding IsChecked, ElementName=BlurMode, Converter={StaticResource Visible}}" />
-                </StackPanel>
+                </WrapPanel>
             </Grid>
         </Border>
     </Grid>

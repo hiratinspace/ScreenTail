@@ -47,6 +47,10 @@ public sealed partial class StepRow : ObservableObject
     [ObservableProperty]
     private string _text;
 
+    /// <summary>"Step 2": the step box's name for a screen reader, kept in step with the list's order.</summary>
+    [ObservableProperty]
+    private string _place = "Step";
+
     partial void OnTextChanged(string value)
     {
         _note.SetStepText(Id, value);
@@ -142,6 +146,19 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         _result = _note.Result;
         _followUps = _note.FollowUpsText();
         Steps = [.. _note.Steps.Select(RowFor)];
+
+        // Each step box is named by its place, so a screen reader says "Step 2" rather than the same words
+        // for every step, and the names follow a reorder, an added step and a removed one (ST-084).
+        Steps.CollectionChanged += (_, _) => Number();
+        Number();
+    }
+
+    private void Number()
+    {
+        for (var i = 0; i < Steps.Count; i++)
+        {
+            Steps[i].Place = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Step {i + 1}");
+        }
     }
 
     public bool HasDraft { get; }

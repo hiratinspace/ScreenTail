@@ -33,6 +33,14 @@
         <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="TextWrapping" Value="Wrap" />
+        <!-- A line with nothing to say takes no room and is not there for a screen reader: an empty text
+             is a zero-sized element that Accessibility Insights fails (ST-084). Every text style is based on
+             this one. A visibility bound on the element itself still wins. -->
+        <Style.Triggers>
+            <Trigger Property="Text" Value="">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="Text.Secondary" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
@@ -781,6 +789,7 @@
          transcript). Selection is a tint plus an accent bar at the left edge, so it survives high contrast,
          where the tint is the window colour. -->
     <Style TargetType="ListBoxItem">
+        <Setter Property="MinHeight" Value="{DynamicResource Layout.hit-target-min}" />
         <Setter Property="Padding" Value="10,6" />
         <Setter Property="Margin" Value="0,1" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
@@ -850,6 +859,8 @@
 
     <!-- Scroll bars: a slim rounded thumb on a clear track. The default is a light grey bar that sat
          on every dark pane like a stripe of white paint. -->
+    <!-- A track's page areas are PageButtons: repeat buttons UI Automation does not list as controls, since
+         a screen reader scrolls through the pane's Scroll pattern (ST-084). -->
     <Style x:Key="ScrollBar.Page" TargetType="RepeatButton">
         <Setter Property="Focusable" Value="False" />
         <Setter Property="IsTabStop" Value="False" />
@@ -887,13 +898,13 @@
         <Grid Background="Transparent">
             <Track x:Name="PART_Track" IsDirectionReversed="True">
                 <Track.DecreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
                     <Thumb Style="{StaticResource ScrollBar.Thumb}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.IncreaseRepeatButton>
             </Track>
         </Grid>
@@ -902,13 +913,13 @@
         <Grid Background="Transparent">
             <Track x:Name="PART_Track">
                 <Track.DecreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
                     <Thumb Style="{StaticResource ScrollBar.Thumb}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
-                    <RepeatButton Command="ScrollBar.PageRightCommand" Style="{StaticResource ScrollBar.Page}" />
+                    <controls:PageButton Command="ScrollBar.PageRightCommand" Style="{StaticResource ScrollBar.Page}" />
                 </Track.IncreaseRepeatButton>
             </Track>
         </Grid>
@@ -981,13 +992,13 @@
                         <Border Height="4" Margin="9,0" VerticalAlignment="Center" Background="{DynamicResource Brush.border.strong}" CornerRadius="2" />
                         <Track x:Name="PART_Track">
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Command="Slider.DecreaseLarge" Style="{StaticResource Slider.Fill}" />
+                                <controls:PageButton Command="Slider.DecreaseLarge" Style="{StaticResource Slider.Fill}" />
                             </Track.DecreaseRepeatButton>
                             <Track.Thumb>
                                 <Thumb Style="{StaticResource Slider.Thumb}" />
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Command="Slider.IncreaseLarge" Style="{StaticResource ScrollBar.Page}" />
+                                <controls:PageButton Command="Slider.IncreaseLarge" Style="{StaticResource ScrollBar.Page}" />
                             </Track.IncreaseRepeatButton>
                         </Track>
                     </Grid>
@@ -1226,6 +1237,16 @@
 
     <!-- Table: 36 px rows, a quiet header, a tint on hover and on the selected row. High contrast selects
          the system way, highlight on highlight text, because its tint is the window colour. -->
+    <!-- A table's row, keyed so a table can name its rows for a screen reader on top of it (ST-084). -->
+    <Style x:Key="Table.Row" TargetType="DataGridRow">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
     <Style x:Key="Table" TargetType="DataGrid">
         <Setter Property="Background" Value="{DynamicResource Brush.bg.surface}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
@@ -1253,6 +1274,10 @@
                     <Setter Property="Height" Value="{DynamicResource Layout.row-height}" />
                     <Setter Property="BorderThickness" Value="0,0,0,1" />
                     <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.subtle}" />
+                    <!-- Spec §3 makes the table sortable, and a header is how it sorts. WPF's headers take no
+                         focus, so sorting needed the mouse (ST-084); focusable, Space or Enter sorts. -->
+                    <Setter Property="Focusable" Value="True" />
+                    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="DataGridColumnHeader">
@@ -1272,22 +1297,24 @@
                             </ControlTemplate>
                         </Setter.Value>
                     </Setter>
-                </Style>
-            </Setter.Value>
-        </Setter>
-        <Setter Property="RowStyle">
-            <Setter.Value>
-                <Style TargetType="DataGridRow">
-                    <Setter Property="Background" Value="Transparent" />
-                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                     <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+                        <!-- The filler WPF adds after the last column is no column and sorts nothing. -->
+                        <DataTrigger Binding="{Binding Column, RelativeSource={RelativeSource Self}}" Value="{x:Null}">
+                            <Setter Property="Focusable" Value="False" />
+                            <Setter Property="IsEnabled" Value="False" />
+                        </DataTrigger>
+                        <!-- The ring is cut off at the table's top edge, so focus also underlines the header
+                             in the accent and brings its words to full strength. -->
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                            <Setter Property="BorderThickness" Value="0,0,0,2" />
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
                         </Trigger>
                     </Style.Triggers>
                 </Style>
             </Setter.Value>
         </Setter>
+        <Setter Property="RowStyle" Value="{StaticResource Table.Row}" />
         <Setter Property="CellStyle">
             <Setter.Value>
                 <Style TargetType="DataGridCell">
@@ -1323,9 +1350,10 @@
         </Setter>
     </Style>
 
-    <!-- Split pane: resizable; a 1 px rule in a 6 px grip, so it is easy to catch and quiet to look at. -->
+    <!-- Split pane: resizable; a 1 px rule in a grip as wide as Spec §7's smallest target, so it is easy to
+         catch and quiet to look at. The grip is the gap between two panes, never over them (ST-084). -->
     <Style x:Key="SplitPane.Splitter" TargetType="GridSplitter">
-        <Setter Property="Width" Value="6" />
+        <Setter Property="Width" Value="{DynamicResource Layout.hit-target-min}" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Stretch" />
         <Setter Property="Background" Value="Transparent" />
@@ -1369,6 +1397,8 @@
         <Setter Property="ItemContainerStyle">
             <Setter.Value>
                 <Style TargetType="ListBoxItem">
+                    <!-- The strip's items are StripItems; a screen reader says SpokenName (ST-084). -->
+                    <Setter Property="AutomationProperties.Name" Value="{Binding SpokenName}" />
                     <Setter Property="Margin" Value="0,0,8,8" />
                     <Setter Property="Padding" Value="6" />
                     <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
@@ -1393,6 +1423,11 @@
                                     </Trigger>
                                     <Trigger Property="IsSelected" Value="True">
                                         <Setter TargetName="Frame" Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+                                        <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                                    </Trigger>
+                                    <!-- Keyboard focus outlines the frame in the accent (ST-084): the focus ring is
+                                         drawn in the list's scrolling layer and is cut off at its edges. -->
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
                                         <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
                                     </Trigger>
                                 </ControlTemplate.Triggers>

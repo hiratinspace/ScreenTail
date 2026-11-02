@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.Publish.PublishPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              Background="Transparent"
              AutomationProperties.Name="Publish">
     <UserControl.Resources>
@@ -52,7 +53,14 @@
                              SelectedItem="{Binding SelectedMatch}"
                              DisplayMemberPath="Label"
                              Visibility="{Binding MatchesVisibility}"
-                             AutomationProperties.Name="Matching tickets" />
+                             AutomationProperties.Name="Matching tickets">
+                        <!-- Each ticket is read as its row, not as the record behind it (ST-084). -->
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
                     <WrapPanel Margin="0,8,0,0" Orientation="Horizontal" Visibility="{Binding TicketVisibility}">
                         <TextBlock Margin="0,0,8,0" Style="{StaticResource Text.Body}" Text="{Binding TicketLabel}" VerticalAlignment="Center" />
                         <ContentControl Style="{StaticResource Badge.Suggested}"
@@ -99,7 +107,8 @@
                             Content="Publish   Ctrl+Enter"
                             Command="{Binding PublishCommand}"
                             IsEnabled="{Binding CanPublish}"
-                            Visibility="{Binding PublishVisibility}" />
+                            Visibility="{Binding PublishVisibility}"
+                            AutomationProperties.HelpText="{Binding BlockedBecause}" />
 
                     <!-- v0.4.3: the reason beside the button, never only in a tooltip a keyboard user cannot reach. -->
                     <TextBlock Margin="0,8,0,0"
@@ -107,7 +116,7 @@
                                TextWrapping="Wrap"
                                Text="{Binding BlockedBecause}"
                                Visibility="{Binding BlockedVisibility}"
-                               AutomationProperties.LiveSetting="Polite" />
+                               controls:LiveRegion.Setting="Polite" />
 
                     <!-- No integration: the button is replaced, not disabled (Spec §5 S3). -->
                     <Border Style="{StaticResource Banner.Info}" Visibility="{Binding ConnectVisibility}">
@@ -138,8 +147,8 @@
                            Style="{StaticResource Text.Body}"
                            TextWrapping="Wrap"
                            Text="{Binding Summary}"
-                           AutomationProperties.LiveSetting="Assertive" />
-                <ItemsControl Margin="0,14,0,0" ItemsSource="{Binding Results}" Focusable="False">
+                           controls:LiveRegion.Setting="Assertive" />
+                <controls:Repeater Margin="0,14,0,0" ItemsSource="{Binding Results}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <!-- One row per destination: the mark and its name, then the link on its own line,
@@ -164,6 +173,7 @@
                                                 Style="{StaticResource Button.Ghost}"
                                                 Foreground="{DynamicResource Brush.accent.primary}"
                                                 Content="Open in ConnectWise"
+                                                AutomationProperties.Name="{Binding Label, StringFormat='Open in ConnectWise: {0}'}"
                                                 Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Link}"
                                                 Visibility="{Binding LinkVisibility}" />
@@ -172,7 +182,7 @@
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
                 <!-- ST-097 AC2: the article's company is not mapped, so ask once, here, and remember the answer.
                      Shown in place of Retry, which would only fail the same way. -->
                 <Border Style="{StaticResource Banner.Warning}"
@@ -183,18 +193,24 @@
                         <TextBlock Style="{StaticResource Text.Body}"
                                    TextWrapping="Wrap"
                                    Text="{Binding MappingPrompt}"
-                                   AutomationProperties.LiveSetting="Polite" />
+                                   controls:LiveRegion.Setting="Polite" />
                         <ComboBox Margin="0,10,0,0"
                                   ItemsSource="{Binding Companies}"
                                   SelectedItem="{Binding SelectedCompany}"
                                   DisplayMemberPath="Name"
-                                  AutomationProperties.Name="Company in the documentation platform" />
+                                  AutomationProperties.Name="Company in the documentation platform">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                        </ComboBox>
                         <TextBlock Margin="0,6,0,0"
                                    Style="{StaticResource Text.Error}"
                                    TextWrapping="Wrap"
                                    Text="{Binding MappingError}"
                                    Visibility="{Binding MappingErrorVisibility}"
-                                   AutomationProperties.LiveSetting="Assertive" />
+                                   controls:LiveRegion.Setting="Assertive" />
                         <Button Margin="0,10,0,0"
                                 Style="{StaticResource Button.Primary}"
                                 HorizontalAlignment="Left"

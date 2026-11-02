@@ -52,6 +52,29 @@ public partial class ShellWindow : Window
     }
 
     /// <summary>
+    /// The sample shell's store, so the accessibility suite (ST-084) can open the same session variants the
+    /// screenshot harness does. Null on the running application's window, which has no sample.
+    /// </summary>
+    internal ShellState? Sample { get; }
+
+    /// <summary>
+    /// Spec §4: <c>?</c> opens the shortcut sheet, from any pane, unless the technician is typing into a
+    /// text box, where it is a question mark (ST-084).
+    /// </summary>
+    protected override void OnPreviewTextInput(System.Windows.Input.TextCompositionEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        if (ShortcutSheet.Opens(e.Text, System.Windows.Input.Keyboard.FocusedElement))
+        {
+            e.Handled = true;
+            _ = ShortcutSheet.Open(this);
+            return;
+        }
+
+        base.OnPreviewTextInput(e);
+    }
+
+    /// <summary>
     /// The tray builds a new window after each close, so this one's model must stop listening to the store
     /// now. Left subscribed, every window ever closed would keep loading each new draft and reloading
     /// Settings until the UI restarted.
@@ -107,6 +130,7 @@ public partial class ShellWindow : Window
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
                 new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
         DataContext = _model;
+        Sample = state;
         if (_screenshotDirectory is not null)
         {
             ContentRendered += async (_, _) => await CaptureAsync(state);
@@ -333,16 +357,7 @@ public partial class ShellWindow : Window
         // this harness rather than the technician's first five minutes.
         foreach (var step in Enum.GetValues<OnboardingStep>())
         {
-            var wizard = new OnboardingWizard(
-                new Core.Settings.ActivationPanel(new SampleDevice(), "TECH-LAPTOP"),
-                new SampleCapabilities(),
-                new Core.Settings.CapturePanel(new SampleCapture()),
-                new Core.Settings.IntegrationsPanel(new SampleIntegrations()),
-                new SampleTestSession(),
-                _ => { });
-            wizard.Go(step);
-            var model = new Onboarding.OnboardingViewModel(wizard, () => { });
-            await model.LoadAsync();
+            var model = await SampleOnboardingAsync(step);
             foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
             {
                 ThemeManager.Apply(theme, Application.Current.Resources);
@@ -389,6 +404,25 @@ public partial class ShellWindow : Window
 
         Console.WriteLine($"{errors.Count} binding errors");
         Application.Current.Shutdown();
+    }
+
+    /// <summary>
+    /// ST-083's wizard at one step, over the sample gateways: what the screenshot harness renders, and what
+    /// the accessibility suite opens (ST-084). Nothing here reaches a service.
+    /// </summary>
+    internal static async Task<Onboarding.OnboardingViewModel> SampleOnboardingAsync(OnboardingStep step)
+    {
+        var wizard = new OnboardingWizard(
+            new Core.Settings.ActivationPanel(new SampleDevice(), "TECH-LAPTOP"),
+            new SampleCapabilities(),
+            new Core.Settings.CapturePanel(new SampleCapture()),
+            new Core.Settings.IntegrationsPanel(new SampleIntegrations()),
+            new SampleTestSession(),
+            _ => { });
+        wizard.Go(step);
+        var model = new Onboarding.OnboardingViewModel(wizard, () => { });
+        await model.LoadAsync().ConfigureAwait(true);
+        return model;
     }
 
     private void Save(string path) => Render.WindowRenderer.Save(this, path);

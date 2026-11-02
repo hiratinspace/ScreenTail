@@ -13,6 +13,9 @@ public sealed class DiscardControlsTests
     private static readonly XNamespace Wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace X = "http://schemas.microsoft.com/winfx/2006/xaml";
 
+    /// <summary>ScreenTail.UI.Controls, where LiveRegion.Setting (a live region that is announced, ST-084) lives.</summary>
+    private static readonly XNamespace Controls = "clr-namespace:ScreenTail.UI.Controls";
+
     [Fact]
     public void ReviewsHeaderHasAGhostDiscardBoundToTheNotesCommand()
     {
@@ -26,7 +29,7 @@ public sealed class DiscardControlsTests
 
         // Why it did not happen is said beside it, in a region Narrator reads out when it changes.
         var reason = Assert.Single(review.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding Note.DiscardError}");
-        Assert.Equal("Assertive", (string?)reason.Attribute("AutomationProperties.LiveSetting"));
+        Assert.Equal("Assertive", (string?)reason.Attribute(Controls + "LiveRegion.Setting"));
     }
 
     [Fact]
@@ -60,7 +63,7 @@ public sealed class DiscardControlsTests
         Assert.Equal("{StaticResource Button.Danger}", (string?)bulk.Attribute("Style"));
 
         var reason = Assert.Single(history.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding DiscardError}");
-        Assert.Equal("Assertive", (string?)reason.Attribute("AutomationProperties.LiveSetting"));
+        Assert.Equal("Assertive", (string?)reason.Attribute(Controls + "LiveRegion.Setting"));
     }
 
     [Theory]
