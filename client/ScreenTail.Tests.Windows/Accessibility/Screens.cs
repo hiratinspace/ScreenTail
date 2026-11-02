@@ -218,6 +218,10 @@ internal static class Screens
     {
         _ = await FocusFirstFrameAsync(shell);
         _ = Keys.Press(shell, Key.Enter);
+
+        // Enlarging reads the frame's picture and text first, so the view opens a moment after Enter,
+        // however long a busy runner takes over it.
+        await UntilAsync(() => Review(shell).Strip.IsEnlarged);
         await DrawnAsync(shell);
         Assert.True(Review(shell).Strip.IsEnlarged, "Enter on a screenshot did not enlarge it.");
     }

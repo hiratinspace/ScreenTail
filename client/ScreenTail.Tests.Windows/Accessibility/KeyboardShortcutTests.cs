@@ -90,7 +90,7 @@ public sealed class KeyboardShortcutTests(TheApplication app)
                 Assert.Equal(included, frame.Included);
 
                 _ = Keys.Press(shell, Key.Enter);
-                await Audit.Settle();
+                await Screens.UntilAsync(() => review.Strip.IsEnlarged);
                 Assert.True(review.Strip.IsEnlarged, "Enter did not enlarge the screenshot.");
                 if (review.Strip.Enlarged!.HasOcrText)
                 {
@@ -106,7 +106,7 @@ public sealed class KeyboardShortcutTests(TheApplication app)
                 // Esc closes it from its own buttons too, which is where Tab takes a keyboard user.
                 item = await Screens.FocusFirstFrameAsync(shell);
                 _ = Keys.Press(shell, Key.Enter);
-                await Audit.Settle();
+                await Screens.UntilAsync(() => review.Strip.IsEnlarged);
                 var close = Audit.Descendants(shell).OfType<Button>().Single(b => b.Command == review.Strip.CloseEnlargedCommand);
                 _ = close.Focus();
                 await Audit.Settle();
