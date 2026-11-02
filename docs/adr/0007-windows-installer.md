@@ -161,7 +161,10 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   or session 0 exits 0 with a fixed sentence, and the next sign-in starts it as the technician.
   `TokenElevationTypeDefault` (a standard user, or UAC off) runs, as before. **The user is compared
   without a name lookup** (`SessionUser`): this token's SID against the session shell's, and failing
-  that the logon session's user and domain against the session's as text. Translating a name to a SID
+  that the logon session's user and domain against the session's as text. Names that agree confirm the
+  user; names that disagree count as unknown, not as another user, because the two can format one
+  account differently (Entra ID, Microsoft accounts). Only differing SIDs refuse another user;
+  elevation and session 0 remain the barrier. Translating a name to a SID
   asks LSA, which for a domain account away from its controller or an Entra ID account can fail or hang
   and would refuse the service at every sign-in. The shell is looked for six times, half a second apart,
   in case it is still starting; a comparison that cannot be made runs, and only a definite mismatch
@@ -204,10 +207,11 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   Restart Manager ended the running service only about a second before the old files were deleted, so a
   scanner still reading the executable turned the upgrade into 3010. On CI the step found the old
   service still running, and stopped it, in every upgrade, under a second after Restart Manager had
-  reported it shut down (given five seconds in one round of runs, it never ended on its own: the service
-  did not answer Restart Manager's request then, and only being ended stopped it, which CloseApplication would
-  otherwise do after the files were gone; since the session-end window above it answers where Restart
-  Manager reaches it, and the step stays for every case it does not); with the step's wait switched off, all three upgrades in the smoke test ended
+  reported it shut down. Given five seconds in one round of runs, it never ended on its own: the service
+  did not answer Restart Manager's request then, and only being ended stopped it, which CloseApplication
+  would otherwise have done after the files were gone. Since the session-end window above, it answers
+  wherever Restart Manager reaches it, and the step stays for every case Restart Manager does not reach.
+  With the step's wait switched off, all three upgrades in the smoke test ended
   in 3010 with `ScreenTail.Service.exe` queued for deletion at the next restart. It lives in the version being
   removed because nothing else can run it in time: before RemoveExistingProducts the new files are not on
   the machine, and a version without this mode, given a flag it does not know, would start the capture

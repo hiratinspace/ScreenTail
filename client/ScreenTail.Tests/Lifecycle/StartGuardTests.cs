@@ -66,11 +66,21 @@ public sealed class StartGuardTests
     }
 
     [Fact]
-    public void WithoutAShellTheLogonSessionsNamesAreComparedAsText()
+    public void WithoutAShellNamesThatAgreeAreTheSameUser()
     {
         Assert.Equal(UserMatch.Same, SessionUser.Compare(Technician, null, new AccountName("Sam", "AzureAD"), new AccountName("sam", "AZUREAD")));
-        Assert.Equal(UserMatch.Different, SessionUser.Compare(Technician, null, new AccountName("admin", "PC"), new AccountName("sam", "PC")));
-        Assert.Equal(UserMatch.Different, SessionUser.Compare(Technician, null, new AccountName("sam", "OTHERDOMAIN"), new AccountName("sam", "PC")));
+    }
+
+    [Fact]
+    public void WithoutAShellNamesThatDisagreeAreUnknownNotAnotherUser()
+    {
+        // The logon session and the session can format one account differently (an Entra ID or Microsoft
+        // account), so a name mismatch alone never refuses. Elevation and session 0 still do, and the SIDs
+        // still refuse a definite other user.
+        Assert.Equal(UserMatch.Unknown, SessionUser.Compare(Technician, null, new AccountName("admin", "PC"), new AccountName("sam", "PC")));
+        Assert.Equal(UserMatch.Unknown, SessionUser.Compare(Technician, null, new AccountName("sam@example.com", "MicrosoftAccount"), new AccountName("sam", "PC")));
+        Assert.Equal(UserMatch.Unknown, SessionUser.Compare(Technician, null, new AccountName("sam", "OTHERDOMAIN"), new AccountName("sam", "PC")));
+        Assert.Equal(StartRefusal.None, StartGuard.Decide(new StartFacts(TokenElevation.Limited, 2, SessionUser.Compare(Technician, null, new AccountName("admin", "PC"), new AccountName("sam", "PC")))));
     }
 
     [Fact]
@@ -105,9 +115,9 @@ public sealed class StartGuardTests
     {
         var looks = 0;
         var waits = 0;
-        var match = SessionUser.Resolve(Technician, () => { looks++; return null; }, () => new AccountName("sam", "PC"), () => new AccountName("admin", "PC"), wait: () => waits++);
+        var match = SessionUser.Resolve(Technician, () => { looks++; return null; }, () => new AccountName("sam", "PC"), () => new AccountName("SAM", "pc"), wait: () => waits++);
 
-        Assert.Equal(UserMatch.Different, match);
+        Assert.Equal(UserMatch.Same, match);
         Assert.Equal(SessionUser.ShellAttempts, looks);
         Assert.Equal(SessionUser.ShellAttempts - 1, waits);
         Assert.True(SessionUser.ShellAttempts * SessionUser.ShellRetry <= TimeSpan.FromSeconds(5), "the wait at start is not short");

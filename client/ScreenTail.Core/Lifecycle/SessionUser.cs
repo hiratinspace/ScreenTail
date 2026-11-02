@@ -25,7 +25,9 @@ public readonly record struct AccountName(string User, string Domain);
 /// <list type="number">
 /// <item>the SID of the session's shell (the desktop's own process, explorer) against this token's SID;</item>
 /// <item>failing that, the user and domain of this token's logon session against the session's user and
-/// domain as Windows reports them, compared as text.</item>
+/// domain as Windows reports them, compared as text. Names that agree are the same user; names that do not
+/// are not taken as another user, because the two can format one account differently (Entra ID, Microsoft
+/// accounts), and an unknown runs. Only the SIDs can say "another user".</item>
 /// </list>
 ///
 /// The shell may not be up yet at sign-in, so it is looked for a few times, a short while apart, before the
@@ -38,7 +40,7 @@ public static class SessionUser
 
     public static readonly TimeSpan ShellRetry = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>Compares what could be read. SIDs win when both are there; then names; otherwise unknown.</summary>
+    /// <summary>Compares what could be read. SIDs decide when both are there, either way; names can only confirm the same user.</summary>
     public static UserMatch Compare(string? tokenSid, string? shellSid, AccountName? logonSession, AccountName? signedIn)
     {
         if (tokenSid is { Length: > 0 } mine && shellSid is { Length: > 0 } shell)
@@ -52,7 +54,7 @@ public static class SessionUser
             return string.Equals(logon.User, session.User, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(logon.Domain, session.Domain, StringComparison.OrdinalIgnoreCase)
                 ? UserMatch.Same
-                : UserMatch.Different;
+                : UserMatch.Unknown;
         }
 
         return UserMatch.Unknown;
