@@ -86,16 +86,18 @@ The suite's first runs found these, each now held by the test named beside it:
 
 ### What it costs
 
-The Windows assembly ran in about 109 s on the hosted runner before this suite. With it, after opening
-each screen once for every rule, switching palettes on the open window, re-walking only the focus
-visuals in the second and third palette, and sharing one axe-windows runner process across the suite,
-see the PR for the measured figure. The laptop's capabilities job runs the whole assembly too; its
-first run since will show whether it still fits the job's limit.
+The Windows assembly ran in about 109 s on the hosted runner before this suite, and in 213 s with it
+(run 41366077248). The suite prints its own cost when its collection ends: 88 runs on the UI thread
+took 28.7 s, and the 33 Accessibility Insights scans took 112.1 s, about 3.4 s each, most of the
+difference. Each screen is opened once for every rule, the second and third palettes re-walk only the
+focus visuals, and one axe-windows runner process serves the whole suite. The laptop's capabilities job
+runs the whole assembly too (it ran in about 430 s before); its first run since will show whether it
+still fits the job's 15-minute limit.
 
 ### The tests have teeth
 
-On 2026-11-01 each rule was broken on purpose on a throwaway branch (two rounds, CI runs 41350929256
-and 41351907662, branches since deleted), and the suite failed on each, naming it:
+On 2026-11-01 each rule was broken on purpose on a throwaway branch (three rounds, CI runs 41350929256,
+41351907662 and 41365067561, branches since deleted), and the suite failed on each, naming it:
 
 | Sabotage | What failed |
 |---|---|
@@ -112,6 +114,9 @@ and 41351907662, branches since deleted), and the suite failed on each, naming i
 | Test connection's two buttons sharing a name | Accessibility Insights `SiblingUniqueAndFocusable` |
 | Keep it no longer the cancel button | `EscClosesTheDialog(confirm-erase)` |
 | The strip left showing under the enlarged screenshot | `TabAsync` ("covered by Border") |
+| The splitters reaching over the panes' edges again (run 41365067561) | `CoveredScrollBars` ("the scroll bar of NoteEditorView is covered ... by GridSplitter"), `NoSplitterLiesOverAPanesScrollBar`, and the reading order |
+| Alt+NumPad1 jumping to the note again | `AltWithTheNumberPadIsLeftForTyping` |
+| Ctrl+Z ignored over the enlarged screenshot | `CtrlZUndoesADeleteFromTheEnlargedView` |
 
 ## Needs a person
 
