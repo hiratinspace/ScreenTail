@@ -111,6 +111,68 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   silent push while somebody is signed in needs no restart. That reaches every session when the
   installer runs as the system account, as MSP tools run it. **After an upgrade the service is down
   until the technician's next sign-in**; a session that was recording is recovered then (ST-020).
+- **Asked first, where Windows can ask (amended 2026-11-01).** The service used to have no window, so
+  Restart Manager listed it as `RmUnknownApp` and refused to shut it down without force (CI, 2026-11-01:
+  `RmShutdown` returned 351 and the service ran on), and an uninstall's step ended it. It now has one
+  hidden top-level window (`SessionEndWindow`, rules in `CloseRequests`): Restart Manager lists it as
+  `RmOtherWindow`, its shutdown without force succeeds, and the service stops capture, closes its store
+  and exits by itself in about 150 ms (CI smoke test). Windows Installer's own Restart Manager, in
+  InstallValidate, then closes it on an uninstall run from the technician's session, and the uninstall
+  step reports `0 running copies stopped`. The package sets `MSIRMSHUTDOWN=2`: Windows Installer asks
+  only programs registered for restart, which the service is, and asks nobody if anything else holds an
+  installed file, so a scanner, an endpoint agent or the CI runner's monitor reading the executable is
+  never asked to close by ScreenTail's installer. (Suspected cause of the CI runs of 2026-11-01 that
+  never ended and left no log once the service could be closed: a runner process asked to close.) The terminating steps stay, for what Restart Manager does not
+  reach: other sessions when the installer runs as the system account, and an upgrade whose files carry
+  the same version (Windows Installer registers only files it will replace). A session that was
+  recording is left for recovery, never finalized at that moment: finishing a note needs up to twenty
+  seconds of redaction and Windows gives about five. The UI, a WPF program, already closed on request.
+- **Other programs' installers can close it too, so it registers for restart.** Answering Restart
+  Manager means any silent installer that replaces a file the service has loaded can close it: the
+  Visual C++ runtime, which Whisper's libraries load from the first session, is the likely one. Before,
+  such an installer could not, and the service ran on with the file left for a reboot. To keep "the
+  service keeps running across other programs' installs", it calls `RegisterApplicationRestart` at
+  start (`ApplicationRestart`; never in a one-shot mode), for Restart Manager's restart only
+  (`RESTART_NO_CRASH | RESTART_NO_HANG | RESTART_NO_REBOOT`) and with no arguments: the restart is the
+  ordinary start, watching, not recording. **A recording in progress is split**: the part before the
+  close is recovered as partial at the restart, and a new session begins only the way any session
+  begins. The smoke test checks that Restart Manager restarts it. **ScreenTail's own package turns that
+  restart off** (`MSIDISABLERMRESTART=1`): without it, Restart Manager closing the old service in an
+  upgrade's removal made Windows Installer start the new one when it finished (CI, 2026-11-01), against
+  "down until the next sign-in" above, and from the installer's own elevated process. **For the owner:**
+  (1) whether to refuse Restart Manager's close while a session is recording instead (answer
+  WM_QUERYENDSESSION with FALSE for ENDSESSION_CLOSEAPP), which keeps a recording whole but makes those
+  installers leave their files for a reboot, as before; (2) the UI registers for restart too (below),
+  which the owner may revert. Not decided here.
+- **The UI registers for restart as well.** Windows Installer, with `MSIRMSHUTDOWN=2`, asks nobody while
+  any unregistered program holds an installed file, and the UI holds its own executable whenever it
+  runs, so the service would be ended rather than asked. The UI registers the same way, as the
+  application only. Other holders (a virus scanner, an endpoint agent) still make Windows Installer ask
+  nobody, and the close steps and the uninstall step end the service as before.
+- **Neither process runs elevated, as another user, or in session 0 (INV-6).** Restart Manager may
+  restart a program with the token of the process that asked (Microsoft does not document which token
+  it uses), so a restart by another program's elevated installer could give a High-integrity service,
+  as "Run as administrator" does. A High service judges windows against itself (`ProcessElevation`) and
+  so would photograph an administrator's regedit or elevated PowerShell, with the same user's UI
+  attached and an automatic session under the pill; a High UI opens links in an elevated browser. Every
+  start of either process checks itself (`StartGuard`; the service before the single-instance name and
+  before anything is built, the UI before it registers for restart or connects): `TokenElevationTypeFull`
+  or an elevation that cannot be read, a token user who is definitely not the session's signed-in user,
+  or session 0 exits 0 with a fixed sentence, and the next sign-in starts it as the technician.
+  `TokenElevationTypeDefault` (a standard user, or UAC off) runs, as before. **The user is compared
+  without a name lookup** (`SessionUser`): this token's SID against the session shell's, and failing
+  that the logon session's user and domain against the session's as text. Names that agree confirm the
+  user; names that disagree count as unknown, not as another user, because the two can format one
+  account differently (Entra ID, Microsoft accounts). Only differing SIDs refuse another user;
+  elevation and session 0 remain the barrier. Translating a name to a SID
+  asks LSA, which for a domain account away from its controller or an Entra ID account can fail or hang
+  and would refuse the service at every sign-in. The shell is looked for six times, half a second apart,
+  in case it is still starting; a comparison that cannot be made runs, and only a definite mismatch
+  refuses. **A refusal is recorded** in the Application log (source `ScreenTail`, event 1100 and up for
+  the service, 1200 and up for the UI, the fixed sentence as its only text), written with
+  `RegisterEventSource`, which needs no administrator rights and no registered source; standard error
+  goes nowhere in an installed build. Not yet seen: the laptop check, an elevated third-party installer
+  closing the service with UAC on, and Restart Manager's restarted copy at Medium or exited and recorded.
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in
@@ -145,9 +207,11 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   Restart Manager ended the running service only about a second before the old files were deleted, so a
   scanner still reading the executable turned the upgrade into 3010. On CI the step found the old
   service still running, and stopped it, in every upgrade, under a second after Restart Manager had
-  reported it shut down (given five seconds in one round of runs, it never ended on its own: the service
-  does not answer Restart Manager's request, and only being ended stops it, which CloseApplication would
-  otherwise do after the files were gone); with the step's wait switched off, all three upgrades in the smoke test ended
+  reported it shut down. Given five seconds in one round of runs, it never ended on its own: the service
+  did not answer Restart Manager's request then, and only being ended stopped it, which CloseApplication
+  would otherwise have done after the files were gone. Since the session-end window above, it answers
+  wherever Restart Manager reaches it, and the step stays for every case Restart Manager does not reach.
+  With the step's wait switched off, all three upgrades in the smoke test ended
   in 3010 with `ScreenTail.Service.exe` queued for deletion at the next restart. It lives in the version being
   removed because nothing else can run it in time: before RemoveExistingProducts the new files are not on
   the machine, and a version without this mode, given a flag it does not know, would start the capture
