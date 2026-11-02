@@ -3,6 +3,7 @@ using System.Text.Json;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Install;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Lifecycle;
 using ScreenTail.Core.Speech;
 using ScreenTail.Platform.Ipc;
 using ScreenTail.Service.Capabilities;
@@ -113,6 +114,18 @@ if (args.Contains("--capabilities", StringComparer.Ordinal) || Array.IndexOf(arg
     return 2;
 }
 
+// ST-112, INV-6: never the capture service elevated, as another user, or in session 0. A service at High
+// integrity judges windows against itself and would photograph an administrator's regedit or elevated
+// PowerShell; it gets there by "Run as administrator", or by Restart Manager restarting it from another
+// program's elevated installer. Refused before the single-instance name is taken (so a refused copy never
+// holds it) and before anything is built, said in a fixed sentence to standard error and the Application
+// log, exit 0: the next sign-in starts it as the technician (StartGuard). It reads only the token and the
+// session, with no name lookup, waiting at most about three seconds for the session's shell.
+if (OperatingSystem.IsWindows() && ServiceStart.RefuseIfUnfit(ServiceStart.Read(), Console.Error) is { } refused)
+{
+    return refused;
+}
+
 // One capture service per user (ADR-0003). A second copy exits quietly instead of fighting over the pipe.
 var userIdentity = OperatingSystem.IsWindows()
     ? WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName
@@ -158,8 +171,34 @@ _ = builder.Logging.ClearProviders();
 _ = builder.Logging.SetMinimumLevel(logLevel);
 _ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(Console.Error, logLevel));
 builder.Services.AddHostedService<CaptureHost>();
-await builder.Build().RunAsync().ConfigureAwait(false);
-return 0;
+var host = builder.Build();
+
+// ST-112: Windows asks a program to close through its windows, and this one had none, so sign-out, shutdown
+// and an installer's Restart Manager could only end it. The hidden window answers them by stopping the host
+// the way any other stop does, and holds WM_ENDSESSION, at most four seconds, until everything below has
+// closed: Windows may end the process the moment that message returns (CloseRequests).
+var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+var closeRequests = new CloseRequests(lifetime.StopApplication, stopped.Task);
+// Its own logger, the same scrubbed sink, because the window logs the outcome after the host and its
+// logging have been disposed.
+using var sessionEndLog = new ScrubbingLoggerProvider(Console.Error, logLevel);
+using var sessionEnd = SessionEndWindow.Start(closeRequests, sessionEndLog.CreateLogger("ScreenTail.Service.SessionEnd"));
+
+// ST-112: answering Restart Manager means any program's installer that replaces a file the service has
+// loaded (the Visual C++ runtime, for one) can close it, where before it could not and the service ran on.
+// Registered for restart, Restart Manager starts it again when that installer is done, in its ordinary
+// at-sign-in state: watching, not recording; a session the close interrupted is recovered as partial. Only
+// here, in the service itself: every one-shot mode has returned above (ApplicationRestart).
+if (ApplicationRestart.ShouldRegister(args))
+{
+    _ = WindowsApplicationRestart.Register(sessionEndLog.CreateLogger("ScreenTail.Service.Restart"));
+}
+
+// Disposes the host when it returns, so the store is closed and the microphone and hooks released by the
+// time the window is told the service has stopped. A close that arrived before the host had started is a
+// stop, not a failure (ServiceRun).
+return await ServiceRun.RunAsync(host, () => lifetime.ApplicationStopping.IsCancellationRequested, stopped).ConfigureAwait(false);
 
 static string ServiceVersion() => typeof(CaptureHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 

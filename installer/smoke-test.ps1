@@ -130,11 +130,19 @@ function Get-Subsystem([string]$Path) {
     }
 }
 
-function Start-InstalledService {
+function Start-InstalledService([string]$ErrorLog) {
     # The token is rewritten at every start, so one left by an earlier run would prove nothing.
     $token = Join-Path $dataDir 'ipc.token'
     Remove-Item $token -Force -ErrorAction SilentlyContinue
-    $null = Start-Process -FilePath $serviceExe -WorkingDirectory $installDir -PassThru
+    $start = @{ FilePath = $serviceExe; WorkingDirectory = $installDir; PassThru = $true }
+    if ($ErrorLog) {
+        # The service logs to standard error, scrubbed (INV-10); a Windows program's goes nowhere unless asked.
+        # Standard output to a file too: a redirected start hands the child every standard handle it does
+        # not redirect, and a service holding the job's own output open keeps the step from ever ending.
+        $start.RedirectStandardError = $ErrorLog
+        $start.RedirectStandardOutput = "$ErrorLog.out"
+    }
+    $null = Start-Process @start
     for ($i = 0; $i -lt 60; $i++) {
         if (Test-Path $token) {
             return $true
@@ -259,6 +267,63 @@ function Test-ReleaseWait([string[]]$Report) {
     $stillOpen = @($Report | Where-Object { $_ -match 'still open when the wait ended' })
     $stillOpen | ForEach-Object { Write-Host "  $_" }
     Check 'the uninstall step waited until no other program had an installed file open' ($line -match '; 0 still open\.') ((@($line) + $stillOpen) -join ' ')
+}
+
+function Invoke-Close([string]$Exe, [string]$Mode, [string]$Name, [switch]$Restart) {
+    # In a process of its own, ended after 90 s: a Restart Manager call has no timeout of its own.
+    $out = Join-Path $Logs "close-$Name.txt"
+    $restartSwitch = $(if ($Restart) { " -Restart -StoreFolder `"$dataDir`"" } else { '' })
+    # Both outputs to files, so neither this process nor what Restart Manager restarts from it holds the
+    # job's own output open.
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'close-running.ps1')`" -Exe `"$Exe`" -Mode $Mode$restartSwitch"
+    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+    $null = $process.Handle
+    if ($process.WaitForExit(90000)) {
+        $code = $process.ExitCode
+    } else {
+        $process.Kill()
+        $code = -1
+    }
+    $lines = @(Get-Content $out -ErrorAction SilentlyContinue)
+    Get-Content "$out.err" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  stderr: $_" }
+    $lines | ForEach-Object { Write-Host "  $_" }
+    return [pscustomobject]@{ Code = $code; Lines = $lines }
+}
+
+function Test-ClosedByItself([string]$What, $Result) {
+    # Windows waits about five seconds for a program it asked; ScreenTail takes a fraction of that.
+    Check "${What}: the request was made" ($Result.Code -eq 0 -and @($Result.Lines | Where-Object { $_ -eq 'processes 1' }).Count -eq 1) "exit $($Result.Code)"
+    $line = @($Result.Lines | Where-Object { $_ -match '^exited \d+ \d+ -?\d+$' }) | Select-Object -First 1
+    $parts = "$line" -split ' '
+    Check "${What}: it ended by itself within 5 s, with exit code 0" ($line -and [int]$parts[2] -le 5000 -and [int]$parts[3] -eq 0) "$line"
+}
+
+function Test-RestartManagerShutdown([string]$What, $Result) {
+    # Matched as strings: a line that is not there comes back from Select-Object as an empty result, and
+    # -match on that is an empty array, not $false.
+    Check "${What}: Restart Manager was asked about the one running copy and nothing else" (@($Result.Lines | Where-Object { $_ -eq 'listed 1' }).Count -eq 1) (@($Result.Lines | Where-Object { $_ -match '^listed ' }) -join ' ')
+    $shutdown = @($Result.Lines | Where-Object { $_ -match '^shutdown ' }) | Select-Object -First 1
+    Check "${What}: Restart Manager's shutdown without force succeeded" ("$shutdown" -match '^shutdown 0 ') "$shutdown"
+}
+
+function Test-StoreOpen([string]$What) {
+    # What makes Test-StoreClosed mean something: while the service runs, the files are there.
+    $wal = Join-Path $dataDir 'store.db-wal'
+    for ($i = 0; $i -lt 20 -and -not (Test-Path $wal); $i++) { Start-Sleep -Milliseconds 250 }
+    Check "${What}: while the service runs, its store has a write-ahead log" (Test-Path $wal)
+}
+
+function Test-StoreClosed([string]$What, $Result) {
+    # SQLite folds its write-ahead log in and removes it, with the shared-memory file, when the store is
+    # closed; a process ended mid-run leaves both behind. After a restart, what was there between the end
+    # and the restart, as close-running.ps1 saw it.
+    $seen = @($Result.Lines | Where-Object { $_ -match '^store-left ' }) | Select-Object -First 1
+    if ($seen) {
+        $left = @(("$seen" -replace '^store-left ', '') -split ',' | Where-Object { $_ -and $_ -ne 'none' })
+    } else {
+        $left = @(Get-ChildItem $dataDir -Filter 'store.db-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    }
+    Check "${What}: the store was closed, no write-ahead log or shared-memory file left" ($left.Count -eq 0) ($left -join ', ')
 }
 
 function Test-InstalledLayout([string]$ExpectedVersion) {
@@ -406,6 +471,70 @@ Check 'the installed UI renders its gallery (WPF from the single file)' ($code -
 
 Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
 
+# --- Windows asks the running programs to close ------------------------------------------------------
+# ST-112. The service has one hidden window so that Windows can ask it to close (sign-out, shutdown, an
+# installer's Restart Manager, WM_CLOSE). Before it, Restart Manager listed the service as a program it
+# could not ask (RmUnknownApp), refused to shut it down without force, and every installer had to end it.
+# Each request must end the program by itself, promptly, with its store closed.
+Write-Step 'WM_CLOSE to the running service, as taskkill without /f sends it'
+Test-StoreOpen 'the running service'
+$closed = Invoke-Close $serviceExe 'CloseMessage' 'service-close-message'
+Check 'WM_CLOSE reached the service through its session-end window' (@($closed.Lines | Where-Object { $_ -match '^posted \d+ 1$' }).Count -eq 1)
+Test-ClosedByItself 'WM_CLOSE to the service' $closed
+Test-StoreClosed 'WM_CLOSE to the service'
+
+Write-Step "Restart Manager's request to the running service, as Windows Installer makes it"
+$serviceLog = Join-Path $Logs 'service-restart-manager.log'
+Check 'the installed service starts again, logging to a file' (Start-InstalledService $serviceLog)
+Test-StoreOpen 'the restarted service'
+$closed = Invoke-Close $serviceExe 'RestartManager' 'service-restart-manager' -Restart
+$type = @($closed.Lines | Where-Object { $_ -match '^app-type \d+ ' }) | Select-Object -First 1
+Check 'Restart Manager sees the service as a program with a window it can ask, not RmUnknownApp' ("$type" -match '^app-type \d+ [12]$') "$type"
+Test-RestartManagerShutdown 'the service' $closed
+Test-ClosedByItself "Restart Manager's request to the service" $closed
+Test-StoreClosed "Restart Manager's request to the service" $closed
+Check 'the store was looked at between the end and the restart' (@($closed.Lines | Where-Object { $_ -match '^store-left ' }).Count -eq 1)
+$said = @(Get-Content $serviceLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Windows ended the session for the capture service \(restart-manager\): Stopped' })
+Check "the service's log says Restart Manager asked, and that it had stopped before it answered" ($said.Count -eq 1)
+
+# Registered for restart, so another program's installer that closes it (one replacing the Visual C++
+# runtime its speech libraries load) does not leave it down until the next sign-in. The restart is the
+# ordinary start: watching, not recording.
+Check 'Restart Manager can restart the service: it registered for restart' (@($closed.Lines | Where-Object { $_ -match '^restartable \d+ True$' }).Count -eq 1)
+Check "Restart Manager's restart succeeded" (@($closed.Lines | Where-Object { $_ -eq 'restart 0' }).Count -eq 1) (@($closed.Lines | Where-Object { $_ -match '^restart ' }) -join ' ')
+$again = @($closed.Lines | Where-Object { $_ -match '^restarted \d+$' }) | Select-Object -First 1
+Check 'Restart Manager started the installed service again' ($null -ne $again) "$again"
+if ($again) {
+    $againId = [int]("$again" -split ' ')[1]
+    Start-Sleep -Seconds 3
+    $alive = Get-Process -Id $againId -ErrorAction SilentlyContinue
+    Check 'the restarted service is still running a few seconds later (it is the one copy, not a second refused by the name)' ($null -ne $alive)
+    Test-StoreOpen 'the restarted service'
+
+    # Asked to close again, so the rest of the test meets a service it started itself.
+    $closed = Invoke-Close $serviceExe 'CloseMessage' 'restarted-service-close-message'
+    Test-ClosedByItself 'WM_CLOSE to the restarted service' $closed
+}
+
+Write-Step "Restart Manager's request to the running UI"
+$ui = Start-Process -FilePath $uiExe -WorkingDirectory $installDir -PassThru
+# Until the UI has a window up (its tray and pill come with the shell), at most 30 s.
+for ($i = 0; $i -lt 60; $i++) {
+    $ui.Refresh()
+    if ($ui.HasExited -or $ui.MainWindowHandle -ne [IntPtr]::Zero) {
+        break
+    }
+    Start-Sleep -Milliseconds 500
+}
+Start-Sleep -Seconds 1
+$closed = Invoke-Close $uiExe 'RestartManager' 'ui-restart-manager'
+Test-RestartManagerShutdown 'the UI' $closed
+Check 'Restart Manager can restart the UI: it registered for restart' (@($closed.Lines | Where-Object { $_ -match '^restartable \d+ True$' }).Count -eq 1)
+Test-ClosedByItself "Restart Manager's request to the UI" $closed
+Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+Check 'the installed service starts again for the uninstall' (Start-InstalledService)
+
 # --- A second technician, never signed in, with data and a planted link --------------------------------
 # A real local account with a real profile that has never been used, which is what an MSP's uninstall
 # meets for every technician who is not at their desk. Its data folder gets a key, a credential and a
@@ -433,6 +562,10 @@ New-Item -ItemType SymbolicLink -Path (Join-Path $otherData 'device.cred.tmp') -
 
 # --- Uninstall -----------------------------------------------------------------------------------------
 Write-Step 'Silent uninstall while the service is running'
+$runningBefore = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count
+# ScreenTail's own processes, so the check below can tell another program's hold from theirs.
+$screenTailIds = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+Check 'the installed service is running before the uninstall' ($runningBefore -ge 1) "running $runningBefore"
 $since = Get-Date
 $code = Invoke-Msi '/x' $Msi 'uninstall.log'
 Check 'msiexec /x /qn exits 0, with no restart needed' ($code -eq 0) "exit $code"
@@ -441,6 +574,19 @@ $report = Get-UninstallReport $Logs $since
 $report | ForEach-Object { Write-Host "  $_" }
 Check 'the uninstall step reported what it did in the log' ($report.Count -ge 5)
 Test-ReleaseWait $report
+# ST-112: Windows Installer's Restart Manager asks the running service to close in InstallValidate, and it
+# does, so the uninstall step finds none left to end (before the service had a window this always said 1).
+# The package asks only programs registered for restart and nobody when anything else holds an installed
+# file (MSIRMSHUTDOWN=2), so 1 is right too, but only when the installer's log shows such a holder: one
+# Restart Manager detected that is not a ScreenTail process. Counted, never named: a friendly name can be
+# a window title.
+$stoppedLine = @($report | Where-Object { $_ -match 'running copies stopped' }) | Select-Object -First 1
+$stopped = if ("$stoppedLine" -match 'uninstall: (\d+) running copies stopped') { [int]$Matches[1] } else { -1 }
+$detected = @(Get-Content (Join-Path $Logs 'uninstall.log') -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match 'RESTART MANAGER: Detected that application with id (\d+)' } |
+    ForEach-Object { [int]([regex]::Match($_, 'with id (\d+)').Groups[1].Value) })
+$otherHolders = @($detected | Where-Object { $screenTailIds -notcontains $_ } | Select-Object -Unique).Count
+Check 'Restart Manager closed the running service before the uninstall step, or another program held a file so nobody was asked' ($stopped -eq 0 -or ($stopped -eq 1 -and $otherHolders -ge 1)) "stopped $stopped, other holders $otherHolders"
 Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)
 Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinue
@@ -562,6 +708,12 @@ if ($OlderMsi) {
         Remove-Item $dataDir -Recurse -Force
     }
 }
+
+# Anything of ScreenTail's still running here would be a failure above; ended now, so it cannot hold the
+# job's output open past the end of the script.
+$left = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
+Write-Host "ScreenTail processes left at the end: $($left.Count)"
+$left | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # --- Summary -------------------------------------------------------------------------------------------
 $failed = @($results | Where-Object { $_.Result -eq 'FAIL' })
