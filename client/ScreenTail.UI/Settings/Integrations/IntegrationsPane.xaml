@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Settings.Integrations.IntegrationsPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:local="clr-namespace:ScreenTail.UI.Settings.Integrations"
              AutomationProperties.Name="Integrations">
     <UserControl.Resources>
@@ -39,7 +40,8 @@
                                 VerticalAlignment="Top"
                                 Style="{StaticResource Button.Secondary}"
                                 Content="Change"
-                                Command="{Binding ChangeCommand}" />
+                                Command="{Binding ChangeCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Change the {0} connection'}" />
                     </Grid>
 
                     <!-- Nothing saved, or Change pressed: the fields. -->
@@ -88,13 +90,14 @@
                                    TextWrapping="Wrap"
                                    Text="{Binding Problem}"
                                    Visibility="{Binding ProblemVisibility}"
-                                   AutomationProperties.LiveSetting="Polite" />
+                                   controls:LiveRegion.Setting="Polite" />
 
                         <Button Margin="0,10,0,0"
                                 HorizontalAlignment="Left"
                                 Style="{StaticResource Button.Primary}"
                                 Content="Save"
                                 Command="{Binding SaveCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Save the {0} connection'}"
                                 IsEnabled="{Binding CanSave}" />
                     </StackPanel>
 
@@ -103,11 +106,13 @@
                         <Button Style="{StaticResource Button.Secondary}"
                                 Content="Test connection"
                                 Command="{Binding CheckCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Test connection to {0}'}"
                                 IsEnabled="{Binding Connected}" />
                         <Button Margin="8,0,0,0"
                                 Style="{StaticResource Button.Ghost}"
                                 Content="Remove"
                                 Command="{Binding RemoveCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"
                                 Visibility="{Binding ConnectedBadgeVisibility}" />
                     </StackPanel>
                     <StackPanel Margin="0,6,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
@@ -117,7 +122,7 @@
                                    TextWrapping="Wrap"
                                    MaxWidth="520"
                                    Text="{Binding CheckResult}"
-                                   AutomationProperties.LiveSetting="Polite" />
+                                   controls:LiveRegion.Setting="Polite" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -127,13 +132,13 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
             <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
-                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" controls:LiveRegion.Setting="Polite" />
             </Border>
 
             <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
                  nobody takes it for ConnectWise or Hudu, or a provider this version does not know. -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding OthersVisibility}">
-                <ItemsControl ItemsSource="{Binding Others}" AutomationProperties.Name="Other connected providers">
+                <controls:Repeater ItemsSource="{Binding Others}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,0,0,8">
@@ -151,11 +156,12 @@
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
             </Border>
 
-            <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" />
-            <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" />
+            <!-- Not Tab stops themselves (a ContentControl is one by default): Tab goes to the card's fields (ST-084). -->
+            <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
 
             <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
                  filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
@@ -164,7 +170,7 @@
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
                     <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
-                    <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding Mappings}">
+                    <controls:Repeater Margin="0,10,0,0" ItemsSource="{Binding Mappings}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="0,0,0,6">
@@ -181,12 +187,13 @@
                                             Margin="8,0,0,0"
                                             Style="{StaticResource Button.Ghost}"
                                             Content="Forget"
+                                            AutomationProperties.Name="{Binding PsaCompany, StringFormat='Forget the mapping for {0}'}"
                                             Command="{Binding DataContext.UnmapCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                             CommandParameter="{Binding}" />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    </controls:Repeater>
 
                     <Border Margin="0,10,0,10" Height="1" Background="{DynamicResource Brush.border.subtle}" />
                     <TextBlock Style="{StaticResource Text.Label}" Text="Map a company by hand" />
@@ -206,7 +213,13 @@
                                   ItemsSource="{Binding Companies}"
                                   SelectedItem="{Binding NewDocCompany}"
                                   DisplayMemberPath="Name"
-                                  AutomationProperties.Name="Company in Hudu" />
+                                  AutomationProperties.Name="Company in Hudu">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                        </ComboBox>
                         <Button Grid.Column="2"
                                 Margin="8,0,0,0"
                                 Style="{StaticResource Button.Secondary}"
@@ -219,7 +232,7 @@
                                TextWrapping="Wrap"
                                Text="{Binding MappingProblem}"
                                Visibility="{Binding MappingProblemVisibility}"
-                               AutomationProperties.LiveSetting="Polite" />
+                               controls:LiveRegion.Setting="Polite" />
                 </StackPanel>
             </Border>
         </StackPanel>

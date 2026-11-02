@@ -97,7 +97,7 @@ for the owner to decide is in §5.
   recorded shapes and owe the real ConnectWise and Hudu checks; ST-093, ST-094 and ST-097 are done on the
   server side; ST-073, ST-076, ST-077, ST-078 and ST-085 are done on the Mac side; ST-080, ST-081, ST-082
   and ST-083 are built and not yet seen on a real screen; ST-010 (the device side), ST-062 (the harness;
-  the corpus is owed), ST-065 (the on-device draft; the local model is owed), ST-084 (the static half)
+  the corpus is owed), ST-065 (the on-device draft; the local model is owed), ST-084 (everything automatable; the Narrator listening pass is owed)
   and ST-115 (round one) each owe their second half.
 - **8 are Partial,** and each says what it waits for: ST-013 (the loop harness runs in CI; a passing
   laptop run with real clicks, the golden replay, resource figures and the nightly schedule are owed),
@@ -224,7 +224,7 @@ the heaviest bundle a client may send, not on a recorded session.
   stand-in servers only.
 - The speech model's word error rate on a real narration (ST-027), and redaction recall on real captures
   (ST-042).
-- RDP opacity from a second machine (ST-001 AC2), the Narrator and keyboard pass (ST-084), the toasts on
+- RDP opacity from a second machine (ST-001 AC2), the Narrator listening pass (ST-084; the keyboard pass is now automated), the toasts on
   Windows (ST-073), an installed, signed build, and an update installed through Windows' prompt.
 
 ## 4. Decisions already made
@@ -297,7 +297,7 @@ the heaviest bundle a client may send, not on a recorded session.
 - [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). It is unreviewed and says so.
 - [ ] **Record the ten-minute narration** for ST-027's WER number (`research/fixtures/audio/README.md`).
 - [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions and ST-001 AC2.
-- [ ] The Windows half of the accessibility audit with Accessibility Insights (ST-084).
+- [ ] The Narrator listening pass and an Accessibility Insights FastPass report (ST-084): the checklist is in `docs/ux/a11y-audit.md`, "Needs a person".
 - [ ] **Laptop checks from the 2026-10-29 merges:** a narrated session with the service log in view, to
       see whether the processor limit trips (`docs/dev/performance.md`, "Owner step on the laptop"); the
       loop harness with real clicks (`docs/dev/e2e.md`); and a look at the new UI where CI does not render

@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Review.ReviewPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              xmlns:publish="clr-namespace:ScreenTail.UI.Review.Publish"
              xmlns:timeline="clr-namespace:ScreenTail.UI.Review.Timeline"
@@ -10,6 +11,8 @@
         <KeyBinding Modifiers="Ctrl" Key="Return" Command="{Binding Publish.PublishCommand}" />
         <!-- Alt+T opens and closes the timeline and transcript panel (ST-076). -->
         <KeyBinding Modifiers="Alt" Key="T" Command="{Binding Timeline.ToggleCommand}" />
+        <!-- Ctrl+S saves the note now (Spec §5 S3). The footer said so and nothing was bound (ST-084). -->
+        <KeyBinding Modifiers="Ctrl" Key="S" Command="{Binding Note.SaveNowCommand}" />
     </UserControl.InputBindings>
     <!-- Spec §5 S3: three panes side by side, each a card on the window, the note widest, the publish pane
          a fixed column on the right with its button at the bottom, and the timeline row (ST-076) below all
@@ -49,7 +52,7 @@
                        Style="{StaticResource Text.Error}"
                        Visibility="{Binding Note.DiscardFailed, Converter={StaticResource Visible}}"
                        Text="{Binding Note.DiscardError}"
-                       AutomationProperties.LiveSetting="Assertive" />
+                       controls:LiveRegion.Setting="Assertive" />
 
             <Button Grid.Column="2"
                     Style="{StaticResource Button.GhostDanger}"
@@ -60,14 +63,17 @@
                     AutomationProperties.HelpText="Deletes the screenshots, transcript and note from this device. You will be asked to type DISCARD." />
         </Grid>
 
-        <timeline:TimelineView Grid.Row="2" Margin="0,12,0,0" DataContext="{Binding Timeline}" />
-
+        <!-- The gaps between the panes are the splitters, 28 px wide: Spec §7's smallest target, in a column
+             of their own, so they cover nothing. Reaching over the panes' edges instead put them on top of
+             the note's and the screenshots' scroll bars, and a drag there resized a pane instead of
+             scrolling it (ST-084 review). In tree order, so Tab goes note, splitter, screenshots, splitter,
+             publish. -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5*" MinWidth="340" />
-                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="28" />
                 <ColumnDefinition Width="4*" MinWidth="230" />
-                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="28" />
                 <ColumnDefinition Width="300" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
@@ -76,24 +82,28 @@
             </Border>
 
             <GridSplitter Grid.Column="1"
-                          Width="12"
+                          Width="28"
                           HorizontalAlignment="Stretch"
                           Style="{StaticResource SplitPane.Splitter}"
                           AutomationProperties.Name="Resize the note pane" />
 
             <Border Grid.Column="2" Style="{StaticResource Pane}">
-                <review:FilmstripView DataContext="{Binding Strip}" />
+                <review:FilmstripView x:Name="Strip" DataContext="{Binding Strip}" />
             </Border>
 
             <GridSplitter Grid.Column="3"
-                          Width="12"
+                          Width="28"
                           HorizontalAlignment="Stretch"
                           Style="{StaticResource SplitPane.Splitter}"
                           AutomationProperties.Name="Resize the publish pane" />
 
             <Border Grid.Column="4" Style="{StaticResource Pane}">
-                <publish:PublishPane DataContext="{Binding Publish}" />
+                <publish:PublishPane x:Name="Publish" DataContext="{Binding Publish}" />
             </Border>
         </Grid>
+
+        <!-- After the panes in the tree, not before them: Tab follows the tree, and the timeline is the
+             bottom row, so it comes last (ST-084 found it first, between Discard and the note). -->
+        <timeline:TimelineView Grid.Row="2" Margin="0,12,0,0" DataContext="{Binding Timeline}" />
     </Grid>
 </UserControl>

@@ -1,6 +1,7 @@
 <UserControl x:Class="ScreenTail.UI.Settings.Privacy.PrivacyPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              AutomationProperties.Name="Privacy and redaction">
     <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
 
@@ -28,17 +29,18 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Excluded apps" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Add any process that must never be captured." />
-                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
+                <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding}" VerticalAlignment="Center" />
                                 <Button Margin="8,0,0,0" Style="{StaticResource Button.Ghost}" Content="Remove"
-                                        Command="{Binding DataContext.RemoveProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                                        Command="{Binding DataContext.RemoveProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="{Binding StringFormat='Remove {0} from the excluded apps'}" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBox Width="240" Style="{StaticResource Input.Default}" Text="{Binding NewProcess, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Process to exclude" AutomationProperties.HelpText="As Task Manager shows it, like keepass" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddProcessCommand}" IsEnabled="{Binding CanAddProcess}" />
@@ -58,22 +60,23 @@
                 <CheckBox Margin="0,4,0,0" Content="Email addresses" IsChecked="{Binding Emails}" />
 
                 <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Custom patterns (regular expressions)" />
-                <ItemsControl ItemsSource="{Binding CustomPatterns}">
+                <controls:Repeater ItemsSource="{Binding CustomPatterns}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding}" VerticalAlignment="Center" />
                                 <Button Margin="8,0,0,0" Style="{StaticResource Button.Ghost}" Content="Remove"
-                                        Command="{Binding DataContext.RemovePatternCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                                        Command="{Binding DataContext.RemovePatternCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="{Binding StringFormat='Remove the pattern {0}'}" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                </controls:Repeater>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBox Width="320" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding NewPattern, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New pattern" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddPatternCommand}" IsEnabled="{Binding CanAddPattern}" />
                 </StackPanel>
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" controls:LiveRegion.Setting="Polite" />
                 <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Try it on some text" />
                 <TextBox Style="{StaticResource Input.Default}" Text="{Binding Sample, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Sample text" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding SampleMasked}" AutomationProperties.Name="What the sample becomes" />
@@ -106,8 +109,8 @@
         </Border>
 
         <Button Margin="0,4,0,0" MinWidth="96" Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" AutomationProperties.LiveSetting="Polite" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
+        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" controls:LiveRegion.Setting="Polite" />
 
         <!-- Your data: export the audit log; delete everything, typed (INV-12). -->
         <Border Style="{StaticResource Card}" Margin="0,16,0,12">

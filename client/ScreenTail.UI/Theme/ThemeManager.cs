@@ -20,9 +20,19 @@ public static class ThemeManager
     public static AppTheme Current { get; private set; } = AppTheme.Dark;
 
     /// <summary>Spec §2.3: honour the OS "reduce motion" (Windows: "Show animations") setting.</summary>
-    public static bool ReduceMotion => !SystemParameters.ClientAreaAnimation;
+    public static bool ReduceMotion => !ClientAreaAnimation();
 
-    public static AppTheme Effective(AppTheme requested) => SystemParameters.HighContrast ? AppTheme.HighContrast : requested;
+    public static AppTheme Effective(AppTheme requested) => SystemHighContrast() ? AppTheme.HighContrast : requested;
+
+    /// <summary>
+    /// Where the two Windows settings are read. Seams for the accessibility suite (ST-084), which checks
+    /// what the app does with each setting without changing the machine's: a test that switched Windows
+    /// animations or high contrast off and on would change them for everything else on the desktop.
+    /// </summary>
+    internal static Func<bool> ClientAreaAnimation { get; set; } = () => SystemParameters.ClientAreaAnimation;
+
+    /// <inheritdoc cref="ClientAreaAnimation"/>
+    internal static Func<bool> SystemHighContrast { get; set; } = () => SystemParameters.HighContrast;
 
     /// <summary>
     /// What the technician asked for, which is not always what is on screen. Persisted by ST-070, so it

@@ -20,8 +20,8 @@ namespace ScreenTail.UI.Hud;
 /// </summary>
 internal static class HudPreview
 {
-    /// <summary>Every variant the spec names, in the order it names them.</summary>
-    private static IEnumerable<(string Name, HudViewModel Model, HudTone Tone)> Variants()
+    /// <summary>Every variant the spec names, in the order it names them. The accessibility suite opens each too (ST-084).</summary>
+    internal static IEnumerable<(string Name, HudViewModel Model, HudTone Tone)> Variants()
     {
         yield return ("recording", For(CaptureStates.Recording, elapsedMs: 761_000), HudTone.Recording);
         yield return ("paused-user", For(CaptureStates.Paused, reason: CaptureReasons.User), HudTone.Paused);

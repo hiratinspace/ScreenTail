@@ -57,6 +57,12 @@ public sealed partial class HudViewModel : ObservableObject
 
     public string? StateTooltip => Snapshot.State.Tooltip;
 
+    /// <summary>The pill as a screen reader says it (Spec §7), clock included.</summary>
+    public string SpokenState => Snapshot.Spoken;
+
+    /// <summary>What is announced when it changes: the state without the clock (ST-084).</summary>
+    public string Announcement => Snapshot.Announcement;
+
     public HudTone Tone => Snapshot.State.Tone;
 
     public bool Visible => Snapshot.Visible;
@@ -113,6 +119,8 @@ public sealed partial class HudViewModel : ObservableObject
         OnPropertyChanged(nameof(StateText));
         OnPropertyChanged(nameof(StateGlyph));
         OnPropertyChanged(nameof(StateTooltip));
+        OnPropertyChanged(nameof(SpokenState));
+        OnPropertyChanged(nameof(Announcement));
         OnPropertyChanged(nameof(Tone));
         OnPropertyChanged(nameof(Visible));
         OnPropertyChanged(nameof(RedactionText));

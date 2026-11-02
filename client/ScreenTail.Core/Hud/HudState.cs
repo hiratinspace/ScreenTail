@@ -32,7 +32,52 @@ public sealed record HudSnapshot(
     HudSegment? Mic,
     HudSegment? Cloud,
     int PendingRedactions,
-    bool Visible);
+    bool Visible)
+{
+    /// <summary>How long the session has recorded, when it is recording; null otherwise.</summary>
+    public long? RecordingMs { get; init; }
+
+    /// <summary>
+    /// What a screen reader says for the pill (Spec §7: "Recording, 12 minutes 41 seconds, 3 items
+    /// redacted"). The pill's words for every other state, then the microphone, the connection and the
+    /// redaction backlog when they are worth saying. It was the fixed words "Capture state" until ST-084,
+    /// which told Narrator nothing about the one thing the pill is for.
+    /// </summary>
+    public string Spoken
+    {
+        get
+        {
+            var parts = new List<string> { Announcement };
+            if (RecordingMs is { } ms)
+            {
+                parts.Add(HudState.SpokenDuration(ms));
+            }
+
+            if (PendingRedactions > 0)
+            {
+                parts.Add(PendingRedactions == 1 ? "1 screenshot still being redacted" : string.Create(CultureInfo.InvariantCulture, $"{PendingRedactions} screenshots still being redacted"));
+            }
+
+            if (Mic is { } mic)
+            {
+                parts.Add(mic.Tooltip ?? mic.Text);
+            }
+
+            if (Cloud is { } cloud)
+            {
+                parts.Add(cloud.Tooltip ?? cloud.Text);
+            }
+
+            return string.Join(", ", parts);
+        }
+    }
+
+    /// <summary>
+    /// The state without the clock: what is announced when it changes. The clock changes every second and
+    /// is read when the technician asks, never interrupting them.
+    /// </summary>
+    public string Announcement => RecordingMs is not null ? "Recording" : State.Tooltip is { } why ? $"{State.Text}. {why}" : State.Text;
+}
 
 /// <summary>
 /// What the recording pill says (ST-072, Spec §5 S2).
@@ -69,7 +114,30 @@ public static class HudState
             // Hidden only ever hides the pill, and only while capture is known to be off — Spec v0.4.1 Q1
             // settled that the HUD stays up during screen sharing, because an auto-hiding indicator is a
             // silent-capture path wearing a convenience's clothes. The tray icon remains either way.
-            Visible: !hidden || !KnownIdle(capture));
+            Visible: !hidden || !KnownIdle(capture))
+        {
+            RecordingMs = capture?.State == CaptureStates.Recording ? Math.Max(0, capture.ElapsedMs ?? 0) : null,
+        };
+    }
+
+    /// <summary>"12 minutes 41 seconds", the clock in words for a screen reader.</summary>
+    public static string SpokenDuration(long milliseconds)
+    {
+        var span = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+        static string Unit(int n, string unit) => string.Create(CultureInfo.InvariantCulture, $"{n} {unit}{(n == 1 ? string.Empty : "s")}");
+        var parts = new List<string>();
+        if (span.TotalHours >= 1)
+        {
+            parts.Add(Unit((int)span.TotalHours, "hour"));
+        }
+
+        if (span.TotalMinutes >= 1)
+        {
+            parts.Add(Unit(span.Minutes, "minute"));
+        }
+
+        parts.Add(Unit(span.Seconds, "second"));
+        return string.Join(' ', parts);
     }
 
     /// <summary>

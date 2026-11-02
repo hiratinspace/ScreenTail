@@ -6,7 +6,9 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
+        FocusManager.FocusedElement="{Binding ElementName=Typed}"
         Style="{StaticResource Window.Base}">
+    <!-- The caret is in the box when it opens, as in the typed dialog: it was opened to type (ST-084). -->
     <Grid Background="{DynamicResource Brush.bg.base}" Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

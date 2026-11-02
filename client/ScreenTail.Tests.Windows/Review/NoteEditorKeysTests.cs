@@ -93,7 +93,7 @@ public sealed class NoteEditorKeysTests
         // The wiring itself, as NoteEditorView.xaml declares it. The XAML is copied beside the tests at build.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var xaml = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "Review", "Xaml", "NoteEditorView.xaml"));
-        var box = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "TextBox" && (string?)e.Attribute(XName.Get("AutomationProperties.Name")) == "Step text");
+        var box = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "TextBox" && (string?)e.Attribute(XName.Get("AutomationProperties.Name")) == "{Binding Place}");
 
         Assert.Equal("OnStepKeyDown", (string?)box.Attribute("PreviewKeyDown"));
         Assert.Null(box.Attribute("KeyDown"));

@@ -12,6 +12,9 @@ namespace ScreenTail.UI.Review;
 public abstract partial class StripItem : ObservableObject
 {
     public abstract long TsMs { get; }
+
+    /// <summary>What a screen reader calls the item in the strip (Spec §7). It read the type's name until ST-084.</summary>
+    public abstract string SpokenName { get; }
 }
 
 public sealed partial class FrameItem : StripItem
@@ -46,6 +49,9 @@ public sealed partial class FrameItem : StripItem
     /// </summary>
     public string StateLabel => Cell.Withheld ? "withheld" : Cell.Included ? "included" : "excluded";
 
+    /// <summary>"frame 2, included": the label and the state, as the strip shows them under the picture.</summary>
+    public override string SpokenName => $"{Label}, {StateLabel}";
+
     /// <summary>
     /// What redaction read on the frame, held only while it is enlarged, like <see cref="Image"/>. The
     /// session crosses the pipe without it (E-20), so it is asked for when the frame is opened.
@@ -65,6 +71,7 @@ public sealed partial class FrameItem : StripItem
         OnPropertyChanged(nameof(Label));
         OnPropertyChanged(nameof(Included));
         OnPropertyChanged(nameof(StateLabel));
+        OnPropertyChanged(nameof(SpokenName));
     }
 }
 
@@ -76,6 +83,8 @@ public sealed class GapItem(GapCell cell) : StripItem
     public override long TsMs => Cell.TsMs;
 
     public string Description => Cell.Description;
+
+    public override string SpokenName => Description;
 
     /// <summary>"18 s" — drawn on the gap, so the strip says how much is missing without a hover.</summary>
     public string Duration => Cell.DurationMs >= 1000

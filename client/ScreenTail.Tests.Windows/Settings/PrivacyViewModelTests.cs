@@ -1,4 +1,3 @@
-using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,13 +19,13 @@ namespace ScreenTail.Tests.Windows.Settings;
 /// </summary>
 [SupportedOSPlatform("windows")]
 [Collection(WpfApplicationOwner.Name)]
-public sealed class PrivacyViewModelTests
+public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
 {
     [Fact]
-    public void TheRetentionSliderFollowsThePolicyAsItChangesAndNeverSavesAClampedValue()
+    public async Task TheRetentionSliderFollowsThePolicyAsItChangesAndNeverSavesAClampedValue()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        OnUiThread(async () =>
+        await app.RunAsync(async () =>
         {
             var own = new ClientSettings { LocalOnly = true, RetentionDays = 7 };
             var gateway = new FakePrivacy();
@@ -65,23 +64,10 @@ public sealed class PrivacyViewModelTests
     /// were bound first a 12-day retention would be clamped to 10 and pushed back, and a save would write it.
     /// </summary>
     [Fact]
-    public void TheFirstTimeThePaneAppearsItShowsAndSavesTheRetentionUnclamped()
+    public async Task TheFirstTimeThePaneAppearsItShowsAndSavesTheRetentionUnclamped()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        OnUiThread(async () =>
-        {
-            var app = WithTheAppsStyles();
-            try
-            {
-                await FirstShowAsync();
-            }
-            finally
-            {
-                await ShutDownAsync(app);
-            }
-
-            Assert.Null(Application.Current);
-        });
+        await app.RunAsync(FirstShowAsync);
     }
 
     private static async Task FirstShowAsync()
@@ -141,63 +127,6 @@ public sealed class PrivacyViewModelTests
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// The pane's styles are the application's, as App.xaml merges them. Plain <see cref="Application"/>,
-    /// not the app's own subclass, so nothing of the app's start-up runs. One per process, so only this test
-    /// makes one, <see cref="ShutDownAsync"/> takes it away again, and its collection runs after every other
-    /// (<see cref="WpfApplicationOwner"/>), because no XAML component loads in the process after that.
-    /// </summary>
-    private static Application WithTheAppsStyles()
-    {
-        Assert.Null(Application.Current);
-        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        foreach (var file in new[] { "Tokens.Common.g.xaml", "Components.xaml" })
-        {
-            app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/ScreenTail.UI;component/Theme/{file}") });
-        }
-
-        return app;
-    }
-
-    /// <summary>
-    /// The application is process-wide and outlives this test's thread. Left behind, it keeps a dispatcher
-    /// that stops with this thread, and every later model that hands its changes to
-    /// <c>Application.Current</c>'s dispatcher (ShellViewModel, LiveShell, the tray) queues them there for
-    /// nobody: the shell lifetime tests then see no change arrive at all. Shutting it down on its own
-    /// thread, before that thread ends, clears <c>Application.Current</c>.
-    /// </summary>
-    private static async Task ShutDownAsync(Application app)
-    {
-        app.Shutdown();
-        await Dispatcher.Yield(DispatcherPriority.Background);
-    }
-
-    /// <summary>Runs the body on an STA thread with a dispatcher, as WPF controls and bindings require.</summary>
-    private static void OnUiThread(Func<Task> body)
-    {
-        ExceptionDispatchInfo? failure = null;
-        var thread = new Thread(() =>
-        {
-            var dispatcher = Dispatcher.CurrentDispatcher;
-            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
-            var frame = new DispatcherFrame();
-            var task = body();
-            _ = task.ContinueWith(_ => frame.Continue = false, TaskScheduler.FromCurrentSynchronizationContext());
-            Dispatcher.PushFrame(frame);
-            if (task.Exception is { } thrown)
-            {
-                failure = ExceptionDispatchInfo.Capture(thrown.InnerException ?? thrown);
-            }
-
-            dispatcher.InvokeShutdown();
-        })
-        { IsBackground = true, Name = "privacy view model test" };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "The UI thread did not finish.");
-        failure?.Throw();
     }
 
     private sealed class FakePrivacy : IPrivacyGateway

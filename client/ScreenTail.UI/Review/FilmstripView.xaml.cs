@@ -133,6 +133,73 @@ public partial class FilmstripView : UserControl
         BlurMode.IsChecked = false;
     }
 
+    /// <summary>
+    /// The enlarged view opening or closing (ST-084). Open, it covers the strip, its header and its footer,
+    /// so they are hidden under it (keeping their place) and focus moves to Close: Tab could otherwise walk
+    /// the keyboard through thumbnails and an Undo nobody can see. Closed, they come back and focus returns
+    /// to the screenshot that was enlarged.
+    /// </summary>
+    private void OnEnlargedVisibility(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
+    {
+        var open = e.NewValue is true;
+        var covered = open ? System.Windows.Visibility.Hidden : System.Windows.Visibility.Visible;
+        Strip.Visibility = covered;
+        StripHeader.Visibility = covered;
+        StripFooter.Visibility = covered;
+
+        // After layout, so the control being focused is visible and its container exists.
+        _ = Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Input,
+            () =>
+            {
+                if (open)
+                {
+                    _ = CloseEnlarged.Focus();
+                }
+                else if (IsKeyboardFocusWithin || Keyboard.FocusedElement is null)
+                {
+                    var container = Strip.SelectedItem is { } selected ? Strip.ItemContainerGenerator.ContainerFromItem(selected) as System.Windows.UIElement : null;
+                    _ = (container ?? Strip).Focus();
+                }
+            });
+    }
+
+    /// <summary>Esc, T, B and Ctrl+Z from any control of the enlarged view, not only from the strip under it (ST-084).</summary>
+    private void OnEnlargedKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Model is not { } model)
+        {
+            return;
+        }
+
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        switch (FilmstripKeys.Route(key, e.KeyboardDevice.Modifiers, model.IsEnlarged, frameSelected: true))
+        {
+            case FilmstripKey.CloseEnlarged:
+                model.CloseEnlargedCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case FilmstripKey.ToggleOcrText:
+                model.ToggleOcrTextCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case FilmstripKey.ToggleBlur:
+                BlurMode.IsChecked = BlurMode.IsChecked != true;
+                e.Handled = true;
+                break;
+
+            // The undo toast is under the enlarged view, but its five seconds run on: Ctrl+Z still takes
+            // the delete back from here (ST-084 review).
+            case FilmstripKey.Undo:
+                model.UndoCommand.Execute(null);
+                e.Handled = true;
+                break;
+            default:
+                // Space, Enter and Del belong to the button that has focus here, not to the strip.
+                break;
+        }
+    }
+
     /// <summary>A selection made from outside — a transcript line, a frame chip — is scrolled into view.</summary>
     private void OnStripSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
