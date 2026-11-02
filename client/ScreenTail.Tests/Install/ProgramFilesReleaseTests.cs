@@ -143,6 +143,44 @@ public sealed class ProgramFilesReleaseTests
     }
 
     [Fact]
+    public void AWaitThatRunsOutSaysWhichFilesWereStillHeldAtTheLastLook()
+    {
+        // What makes a wait that ran out diagnosable: the files held at the last look, in the order given,
+        // not the ones held at some earlier look. Here the UI is let go halfway; only the service is left.
+        var start = _time.GetUtcNow();
+        var outcome = Wait(file => IsService(file) || Elapsed(start) < Budget / 2 ? [Scanner] : []);
+
+        Assert.Equal([Files[0]], outcome.Held);
+        Assert.Equal(1, outcome.StillHeld);
+    }
+
+    [Fact]
+    public void NothingHeldAtTheEndNamesNothing()
+    {
+        Assert.Empty(Wait(_ => []).Held);
+        Assert.Equal(0, default(ProgramFilesRelease.Outcome).StillHeld);
+    }
+
+    [Fact]
+    public void FilesStillHeldAreNamedBelowTheInstallFolderOnly()
+    {
+        // Installed file names are ScreenTail's own; the folder they are in, and anything outside it, is not
+        // named (INV-10). Compared without regard to case, with or without the folder's trailing separator,
+        // and a sibling folder whose name merely starts the same is outside.
+        var held = new[]
+        {
+            @"C:\Program Files\ScreenTail\ScreenTail.Service.exe",
+            @"c:\program files\screentail\runtimes\win-x64\whisper.dll",
+            @"C:\Program Files\ScreenTailOther\x.dll",
+            @"C:\Users\someone\secret.txt",
+        };
+
+        string[] expected = ["ScreenTail.Service.exe", @"runtimes\win-x64\whisper.dll", "(a file outside the install folder)", "(a file outside the install folder)"];
+        Assert.Equal(expected, ProgramFilesRelease.BelowInstallFolder(held, @"C:\Program Files\ScreenTail"));
+        Assert.Equal(expected, ProgramFilesRelease.BelowInstallFolder(held, @"C:\Program Files\ScreenTail\"));
+    }
+
+    [Fact]
     public void TheLastSleepStopsAtTheBudget()
     {
         var outcome = Wait(_ => [Scanner], TimeSpan.FromMilliseconds(120));

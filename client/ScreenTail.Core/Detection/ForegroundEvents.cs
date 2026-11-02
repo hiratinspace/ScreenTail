@@ -29,4 +29,17 @@ public static class ForegroundEvents
 
     /// <summary>Whether this event type may change what the watcher believes is in front.</summary>
     public static bool Interesting(uint eventType) => eventType is SystemForeground or ObjectNameChange;
+
+    /// <summary>The window class of a classic console, drawn by conhost.</summary>
+    public const string ClassicConsoleClass = "ConsoleWindowClass";
+
+    /// <summary>
+    /// Whether a window of this class retitles itself on a thread other than the one Windows names as its
+    /// owner, so a name-change hook narrowed to the owner's thread would never hear it (ST-031, review of
+    /// #252). A classic console is the case: conhost draws the window and raises the rename, and Windows
+    /// names the shell running inside it as the owner, for compatibility. Windows Terminal draws its own
+    /// window and is not one.
+    /// </summary>
+    public static bool OwnerIsNotTheRenamer(string? className) =>
+        string.Equals(className, ClassicConsoleClass, StringComparison.Ordinal);
 }

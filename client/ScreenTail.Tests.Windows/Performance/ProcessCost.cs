@@ -102,6 +102,16 @@ internal sealed class CostWindow
 
     public ProcessSample First => _samples[0];
 
+    /// <summary>
+    /// The same window without some threads' switches: the noise a test raises on purpose, on threads of
+    /// its own, so the wakeup figures are the rest of the process's. Processor time is left as it was.
+    /// </summary>
+    public CostWindow Excluding(IReadOnlyCollection<long> threads) =>
+        new([.. _samples.Select(sample => sample with
+        {
+            Switches = sample.Switches.Where(thread => !threads.Contains(thread.Key)).ToDictionary(thread => thread.Key, thread => thread.Value),
+        })]);
+
     public ProcessSample Last => _samples[^1];
 
     public TimeSpan Elapsed => Stopwatch.GetElapsedTime(First.Timestamp, Last.Timestamp);
@@ -147,21 +157,38 @@ internal sealed class CostWindow
     private static double Median(IReadOnlyList<double> values) => values.Order().ElementAt(values.Count / 2);
 
     /// <summary>
-    /// "12 threads woke; the busiest 41.2, 20.1, 9.9/s": whether the wakeups are one loop or many. A thread
-    /// has no name the kernel will give, so this says how the wakeups are spread, not whose they are.
+    /// "12 threads woke; the busiest 41.2 (ScreenTail foreground watcher), 20.1 (.NET TP Worker), 9.9 (.NET
+    /// Timer)/s": whether the wakeups are one loop or many, and whose. The name is the thread's own
+    /// description, which .NET sets from <see cref="Thread.Name"/> and for its pool, timer and compiler
+    /// threads; a thread with none is named by the module it started in. Never anything a window shows.
+    ///
+    /// The laptop's idle failures (2026-11-01) said "the busiest 29.4, 6.2, 5.2/s" and nothing about whose
+    /// the 29.4 was; this says.
     /// </summary>
     public string ThreadsWoken(int busiest = 3)
     {
         var elapsed = Elapsed.TotalSeconds;
         var rates = Last.Switches
-            .Select(thread => (First.Switches.TryGetValue(thread.Key, out var before) ? unchecked(thread.Value - before) : thread.Value) / elapsed)
-            .Where(rate => rate > 0)
-            .OrderDescending()
+            .Select(thread => (Thread: thread.Key, Rate: (First.Switches.TryGetValue(thread.Key, out var before) ? unchecked(thread.Value - before) : thread.Value) / elapsed))
+            .Where(thread => thread.Rate > 0)
+            .OrderByDescending(thread => thread.Rate)
             .ToList();
         var culture = CultureInfo.InvariantCulture;
         return string.Create(
             culture,
-            $"{rates.Count} threads woke; the busiest {string.Join(", ", rates.Take(busiest).Select(rate => rate.ToString("F1", culture)))}/s");
+            $"{rates.Count} threads woke; the busiest {string.Join(", ", rates.Take(busiest).Select(thread => string.Create(culture, $"{thread.Rate:F1} ({ThreadNames.Of(thread.Thread)})")))}/s");
+    }
+
+    /// <summary>One thread's wakeups a second over the whole window; zero for a thread not seen at the end.</summary>
+    public double RateOf(long thread)
+    {
+        var elapsed = Elapsed.TotalSeconds;
+        if (elapsed <= 0 || !Last.Switches.TryGetValue(thread, out var after))
+        {
+            return 0;
+        }
+
+        return unchecked(after - First.Switches.GetValueOrDefault(thread)) / elapsed;
     }
 
     private List<double> Slices(Func<ProcessSample, ProcessSample, double> rate)
@@ -368,4 +395,82 @@ internal static class ThreadSwitches
 
     [DllImport("ntdll.dll")]
     private static extern int NtQuerySystemInformation(int infoClass, IntPtr buffer, int length, out int returnLength);
+}
+
+/// <summary>
+/// What a thread of this process calls itself, for a report: its description (<c>GetThreadDescription</c>,
+/// which .NET fills from <see cref="Thread.Name"/> and for its own pool, timer and compiler threads), or the
+/// module its start address is in. "?" for a thread that has gone.
+/// </summary>
+internal static class ThreadNames
+{
+    private const uint ThreadQueryLimitedInformation = 0x0800;
+    private const uint ThreadQueryInformation = 0x0040;
+    private const int ThreadQuerySetWin32StartAddress = 9;
+    private const uint FromAddress = 0x4;
+    private const uint UnchangedRefCount = 0x2;
+
+    public static string Of(long thread)
+    {
+        var handle = OpenThread(ThreadQueryLimitedInformation | ThreadQueryInformation, false, (uint)thread);
+        if (handle == IntPtr.Zero)
+        {
+            return "?";
+        }
+
+        try
+        {
+            if (GetThreadDescription(handle, out var text) >= 0 && text != IntPtr.Zero)
+            {
+                var name = Marshal.PtrToStringUni(text);
+                _ = LocalFree(text);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    return name;
+                }
+            }
+
+            if (NtQueryInformationThread(handle, ThreadQuerySetWin32StartAddress, out var start, IntPtr.Size, out _) == 0
+                && start != IntPtr.Zero
+                && GetModuleHandleEx(FromAddress | UnchangedRefCount, start, out var module)
+                && module != IntPtr.Zero)
+            {
+                var buffer = new char[260];
+                var length = GetModuleFileName(module, buffer, buffer.Length);
+                if (length > 0)
+                {
+                    return Path.GetFileName(new string(buffer, 0, length));
+                }
+            }
+
+            return "unnamed";
+        }
+        finally
+        {
+            _ = CloseHandle(handle);
+        }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenThread(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint threadId);
+
+    [DllImport("kernel32.dll")]
+    private static extern int GetThreadDescription(IntPtr thread, out IntPtr description);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationThread(IntPtr thread, int infoClass, out IntPtr info, int length, out int returned);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetModuleHandleEx(uint flags, IntPtr address, out IntPtr module);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int GetModuleFileName(IntPtr module, [Out] char[] buffer, int size);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
 }

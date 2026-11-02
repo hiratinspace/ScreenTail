@@ -15,7 +15,7 @@ Guide §2 and ST-004 describe a per-user background **capture service** and a se
 
 ### Hosting
 
-- **`ScreenTail.Service.exe` is a per-user background process, not a Windows Service.** It starts at sign-in from the user's Run key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, written by the installer in ST-112 and by `LoginStartup` until then) and runs for the whole session, windowless. It owns hooks, capture, redaction, the store and the outbox.
+- **`ScreenTail.Service.exe` is a per-user background process, not a Windows Service.** It starts at sign-in from the user's Run key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, written by the installer in ST-112 and by `LoginStartup` until then) and runs for the whole session with no visible window. Its one window, hidden and untitled, exists so that Windows can ask it to close at sign-out, at shutdown and for an installer's Restart Manager (ST-112, ADR-0007). It owns hooks, capture, redaction, the store and the outbox.
 - **`ScreenTail.UI.exe` runs on demand** (tray, HUD, Review, Settings) or at sign-in when the user chooses "Start UI at login". It holds no capture state; it is a view over the service.
 - Exactly one service per user: it takes a named mutex `ScreenTail.Service.<user-sid>` and exits if it already exists.
 
