@@ -24,7 +24,7 @@ public sealed class TheApplication : IDisposable
     private readonly Thread _thread;
     private readonly TaskCompletionSource<Dispatcher> _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Application? _app;
-    private volatile string? _hung;
+    private string? _hung;
     private readonly System.Diagnostics.Stopwatch _busy = new();
     private int _bodies;
 
@@ -41,17 +41,21 @@ public sealed class TheApplication : IDisposable
     /// <summary>The application's resources, where <see cref="ThemeManager.Apply"/> swaps the palette.</summary>
     public ResourceDictionary Resources => _app!.Resources;
 
+    /// <summary>How long a body may take. Two minutes; a test of the timeout itself shortens it.</summary>
+    internal TimeSpan Limit { get; set; } = TimeSpan.FromMinutes(2);
+
     /// <summary>
-    /// Runs <paramref name="body"/> on the application's thread and waits for it, at most two minutes.
+    /// Runs <paramref name="body"/> on the application's thread and waits for it, at most <see cref="Limit"/>.
     ///
-    /// A body that hangs keeps the one UI thread busy for good, and every later test would queue behind it
-    /// and time out in turn, two minutes each. So the first timeout is remembered and every later call
-    /// fails at once, naming the test that hung.
+    /// A body that hangs keeps the one UI thread busy, and every later test would queue behind it and time
+    /// out in turn, two minutes each. So a timeout is remembered and later calls fail at once, naming the
+    /// test that overran, until that body does finish: one that was only slow frees the thread, and the
+    /// tests after it run again.
     /// </summary>
     public async Task<T> RunAsync<T>(Func<Task<T>> body)
     {
         ArgumentNullException.ThrowIfNull(body);
-        if (_hung is { } earlier)
+        if (Volatile.Read(ref _hung) is { } earlier)
         {
             Assert.Fail($"Not run: {earlier} did not finish, and the UI thread is still busy with it.");
         }
@@ -59,12 +63,14 @@ public sealed class TheApplication : IDisposable
         _bodies++;
         _busy.Start();
         var task = Dispatcher.InvokeAsync(body).Task.Unwrap();
-        var finished = await Task.WhenAny(task, Task.Delay(TimeSpan.FromMinutes(2))).ConfigureAwait(false);
+        var finished = await Task.WhenAny(task, Task.Delay(Limit)).ConfigureAwait(false);
         _busy.Stop();
         if (finished != task)
         {
-            _hung = TestContext.Current.Test?.TestDisplayName ?? "an earlier test";
-            Assert.Fail("The UI thread did not finish within two minutes.");
+            var overran = TestContext.Current.Test?.TestDisplayName ?? "an earlier test";
+            _hung = overran;
+            _ = task.ContinueWith(_ => Interlocked.CompareExchange(ref _hung, null, overran), TaskScheduler.Default);
+            Assert.Fail(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The UI thread did not finish within {Limit.TotalSeconds:0.#} s."));
         }
 
         return await task.ConfigureAwait(false);
