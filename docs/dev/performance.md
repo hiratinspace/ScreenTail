@@ -15,6 +15,7 @@ change).
 | Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.41% of one core net (0.05% of the machine) |
 | Idle CPU, UI, under 1% | `ShellCostTests.WithNoSessionTheShellIsAlmostSilent` | Yes, on the laptop, against 1% of one core | 0.0% net (0.22% of one core gross, the test host included) |
 | Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 17 a second net (14 to 17 across four runs), down from 129 |
+| Idle wakeups, service, on a busy desktop | `ServiceCostTests.WithNoSessionABusyDesktopDoesNotWakeTheService`, `IdleHookTests` | Each watcher's pump thread under 10 a second, everywhere (hosted runner included); the whole service under the same ceiling of 40, on the laptop | Hosted: 0.0 a second for each pump with 68 renames a second behind the window in front. Laptop (41349604369): pumps 2.3 and 0.0, the service 25.0 net |
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
 | Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.7% of one core without speech (4.4 to 4.9% across four runs); conservative, since the test's own repainting and staging are counted with it |
 | Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 70 KB a stored frame, 5.8 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.5 MB per session-minute, about 30 MB per 20 minutes; that figure is reported, not enforced |
@@ -85,6 +86,70 @@ carries on.
 | Outbox, retention | 30 s, hourly | Minutes-scale work nobody waits on |
 
 The Review pane's two quarter-second timers run only while Review is on screen.
+
+## The idle hooks, and a figure that followed the desktop (2026-11-01)
+
+On 2026-11-01 the idle service measured 17 to 20 wakeups a second in some laptop runs and 47 to 52 in
+others, on the same code a few minutes apart (41326764559 passed at 16:38, 41308671440 failed at 16:50;
+main failed in 41310040373). The failing runs had one thread taking the difference: "the busiest 29.4,
+6.2, 5.2/s" against "6.3, 4.4, 3.0/s". The pool threads did not rise with it, so whatever woke that
+thread handed nothing on.
+
+The service keeps two WinEvent hooks with no session, and both heard every thread on the desktop:
+
+- **Foreground watcher, `EVENT_OBJECT_NAMECHANGE`.** Any window anywhere renaming itself (a progress
+  bar, a clock, a list refreshing) woke the watcher's pump, which threw the event away because the
+  window was not the one in front. That matches the single busy thread: the callback filters and hands
+  nothing on.
+- **Focus watcher, `EVENT_OBJECT_FOCUS`.** Every control on the machine taking focus woke the pump and
+  then the password-field guard, which saw no session and went back to sleep. On the hosted runner, focus
+  moving between two fields a hundred times a second woke the pump 157 times a second.
+
+What changed:
+
+- The name-change hook now listens to **the foreground window's thread only** and moves when the
+  foreground moves (`ForegroundNameHook`, Core). A window's own retitle is raised on the thread that owns
+  it, so the watcher hears every title change it used to act on. If Windows refuses the narrow hook it
+  falls back to every thread, the old subscription, and never to the poll alone; it tries the narrow
+  hook again at the next foreground change and at every poll, and counts the refusals
+  (`WindowsForegroundWatcher.NameHookRefusals`).
+- **A classic console in front is heard over every thread** (review of #252). conhost draws a
+  `ConsoleWindowClass` window and raises its renames, but Windows names the shell running in it as the
+  window's owner, so the narrowed hook followed a thread that never renames anything: with the hook
+  narrowed, a classic console retitling itself in front was reported **0** times in 5 s on both the hosted
+  runner (41347969714) and the laptop (41347969730), and its title would have waited for the 2 s poll.
+  While such a window is in front the hook hears every thread, as it always did; that costs what the old
+  hook cost, for as long as a classic console holds the foreground. Windows Terminal draws its own window
+  and is followed on its own thread (`IdleHookTests.AConsoleInFrontRetitlingItselfIsReportedWithoutThePoll`
+  checks both against a hook of the test's own).
+- The focus hook is **in only while a session is under way or a password-field hold is kept**
+  (`FocusInterest`, Core, and `WindowsFocusWatcher.Listen`). At a session's start the guard asks what has
+  focus on the transition itself, as before, and its one-second backstop covers a focus move in the
+  moment before the hook is back. `FocusInterest` subscribes to the session before it reads it, so a
+  session starting while the service is still putting it together is not missed.
+- `EVENT_SYSTEM_FOREGROUND` still hears every thread: auto-start needs to know when a remote tool comes
+  to the front, and the foreground moving is rare.
+
+The probe that pinned it down ran on the hosted runner (temporary, deleted). Windows Terminal, which holds
+the hosted runner's foreground, raised **no** WinEvents in the system, console or object ranges even
+while printing flat out, so a busy console in front does not reach either hook. What a console printing
+flat out does do is keep a core or two busy, and on a four-core runner that multiplied this process's
+.NET pool threads' context switches about fivefold (24 a second to 127): preemptions of threads already
+running, not wakeups anything asked for. The busy-desktop test therefore paces its console at a line
+every 20 ms. A window behind renaming itself 74 times a second reached a hook over every thread every
+time and woke the narrowed foreground pump 4 times a second, its own poll included.
+
+The idle reports now name the busiest threads by their own description (`.NET TP Worker`,
+`ScreenTail foreground watcher`, never a window title) and give each watcher pump's rate. The first laptop
+run with the narrowed hooks (41347969730, before the console fix) measured the quiet idle service at
+**22.4 wakeups a second** net, the foreground watcher's pump at 0.6 and the focus watcher's at 0.0, the
+busiest threads the .NET timer (8.3), pool gate (4.5) and a pool worker (4.2); nothing near the 29.4 a
+second one thread took in the failing runs. On the busy desktop it measured 28.1 net, the pumps 2.0 and
+0.0. The run with the console fix (41349604369) measured 21.7 net at a quiet idle (pumps 0.7 and 0.0;
+busiest the timer 8.3, pool gate 5.6, a pool worker 4.2) and 25.0 on the busy desktop (pumps 2.3 and
+0.0); a classic console in front had all 5 of its announced titles reported, Windows Terminal all 4.
+Neither run can prove the laptop's busy desktop of the failing runs was back, so the evidence for the
+cause is the shape of the failure (one thread, nothing handed on) and the hosted measurements above.
 
 ## Over budget: what gives first (AC2)
 

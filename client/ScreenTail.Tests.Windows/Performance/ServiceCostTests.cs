@@ -7,6 +7,7 @@ using ScreenTail.Core.Perf;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Store;
 using ScreenTail.Shared.Schema;
+using ScreenTail.Tests.Windows.Detection;
 
 namespace ScreenTail.Tests.Windows.Performance;
 
@@ -91,7 +92,8 @@ public sealed class ServiceCostTests
             $"Service at idle, no session, {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices after {SettleFor.TotalSeconds:F0} s to settle: "
             + $"**{cpu:F3}%** of one core net of the test host, median slice against median slice ({cpu / Environment.ProcessorCount:F3}% of {Environment.ProcessorCount} logical processors; "
             + $"service {CostWindow.Spread(idle.CpuBySlice, "F3")}, host alone {CostWindow.Spread(host.CpuBySlice, "F3")}; by clock ticks, as Task Manager counts, service {CostWindow.Spread(idle.TickCpuBySlice, "F3")}), "
-            + $"**{wakeups:F1} wakeups/s** net (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}), "
+            + $"**{wakeups:F1} wakeups/s** net (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}; "
+            + $"foreground watcher {idle.RateOf(rig.ForegroundPumpThread):F1}/s, focus watcher {idle.RateOf(rig.FocusPumpThread):F1}/s), "
             + $"private memory {ProcessCost.Megabytes(idle.Last.PrivateBytes - host.Last.PrivateBytes)} over the host's {ProcessCost.Megabytes(host.Last.PrivateBytes)} "
             + $"(budget {IdleBudgetPercentOfOneCore:F0}% of one core and a ceiling of {IdleWakeupCeiling:F0} wakeups/s, both enforced: {Counts}; memory reported, not enforced)"));
 
@@ -101,6 +103,94 @@ public sealed class ServiceCostTests
         Assert.True(
             !Counts || wakeups < IdleWakeupCeiling,
             $"the idle service woke {wakeups:F1} times a second net of the host, ceiling {IdleWakeupCeiling:F0}; something is polling where it could wait");
+    }
+
+    /// <summary>
+    /// The idle service's cost does not follow what else is on the desktop (ST-031).
+    ///
+    /// The test above passed on the laptop at 17 to 20 wakeups a second and failed at 47 to 52 on the same
+    /// code minutes apart (2026-11-01), with one thread taking the difference: its figure depended on what
+    /// the laptop had open. The foreground watcher heard every window on the desktop rename itself and the
+    /// focus watcher every control take focus, and each event woke a thread to be thrown away. This puts a
+    /// busy desktop around the idle service on purpose: a console printing in front, as the runner's does,
+    /// and a window behind it renaming itself a hundred times a second.
+    ///
+    /// Two checks. The watchers' own pump threads, counted from the kernel's context-switch counts, are
+    /// the watchers' and nobody else's, so they are held everywhere, the hosted runner included; the hooks
+    /// as they were woke the foreground pump for every one of the renames. The whole service is held to the
+    /// same ceiling as at a quiet idle, net of the host measured with the same noise running, on the
+    /// laptop: a hosted runner's whole-process figure swings from 14 to 112 a second with nothing running
+    /// at all.
+    /// </summary>
+    [Fact]
+    public async Task WithNoSessionABusyDesktopDoesNotWakeTheService()
+    {
+        Hardware.RequireDesktop();
+        var ct = TestContext.Current.CancellationToken;
+
+        using var renaming = DesktopWindow.CreateOrdinary($"ScreenTail renaming {Guid.NewGuid():N}");
+        renaming.ShowBehind();
+
+        // A window of the test's own takes the foreground once, which lifts the foreground lock for the
+        // run (DesktopWindow.TakeForeground), so the console below can be brought in front of everything.
+        using (var unlock = DesktopWindow.Create("ScreenTail foreground unlock"))
+        {
+            _ = unlock.TakeForeground();
+        }
+
+        using var console = await PrintingConsole.StartAsync(ConsoleHost.Default, retitle: false, ct);
+        var consoleInFront = console.TakeForeground();
+
+        // Asserted, not hoped for: the console in front is half of what this test claims to have measured,
+        // and a measurement taken with the test's own window in front instead would say nothing about it.
+        Assert.True(consoleInFront, $"the printing console ({console.ClassName}) could not be brought to the front");
+
+        // The control: the renames reach a hook over every thread, as the foreground watcher's used to be.
+        using var witness = NameChangeWitness.Start();
+        await using var noise = Noise.Renaming(renaming);
+
+        // The noise wakes its own thread, the renaming window's and the witness's on every event, by design.
+        // Those are left out of both figures, so what is compared is the rest of the process: the pool,
+        // the timers and the watchers, where the service's own work runs.
+        long[] noiseThreads = [.. noise.Threads, witness.ThreadId];
+
+        ProcessCost.Settle();
+        var host = (await ProcessCost.MeasureAsync(Slice, 6, ct)).Excluding(noiseThreads);
+
+        await using var rig = await ServiceRig.StartAsync(scope: null, ct);
+        await Task.Delay(SettleFor, ct);
+        ProcessCost.Settle();
+        var delivered = witness.Count(renaming.Handle, NameChangeWitness.WindowObject);
+        var idle = (await ProcessCost.MeasureAsync(Slice, 6, ct)).Excluding(noiseThreads);
+        delivered = witness.Count(renaming.Handle, NameChangeWitness.WindowObject) - delivered;
+
+        Assert.Equal(SessionState.Idle, rig.Machine.State);
+        Assert.False(rig.Hooks.Installed, "the input hooks were in with no session");
+        Assert.False(rig.FocusHooked, "the focus hook was in with no session (FocusInterest keeps it out)");
+
+        var foregroundPump = idle.RateOf(rig.ForegroundPumpThread);
+        var focusPump = idle.RateOf(rig.FocusPumpThread);
+        var wakeups = idle.MedianWakeups - host.MedianWakeups;
+        var renamesPerSecond = delivered / idle.Elapsed.TotalSeconds;
+        Measurements.Record(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Service at idle on a busy desktop (a console printing every 20 ms, host {console.Host}, class {console.ClassName}, in front at the start and at the end: {console.IsForeground}; "
+            + $"a window behind renaming itself {renamesPerSecond:F0} times a second, every rename delivered to a hook over every thread), {idle.Elapsed.TotalSeconds:F0} s in {Slice.TotalSeconds:F0} s slices: "
+            + $"foreground watcher **{foregroundPump:F1}/s**, focus watcher **{focusPump:F1}/s** (ceiling {IdleHookTests.PumpCeiling:F0} each, enforced everywhere); "
+            + $"**{wakeups:F1} wakeups/s** net of the host under the same noise, the noise's own three threads left out (service {CostWindow.Spread(idle.WakeupsBySlice, "F1")}, host alone {CostWindow.Spread(host.WakeupsBySlice, "F1")}; {idle.ThreadsWoken()}; "
+            + $"ceiling {IdleWakeupCeiling:F0}, enforced: {Counts})"));
+
+        Assert.True(console.IsForeground, "the printing console lost the foreground during the measurement, so it was not the console in front that was measured");
+        Assert.True(renamesPerSecond > 10, $"only {renamesPerSecond:F1} renames a second reached the test's own hook, so the service's quiet proves nothing");
+        Assert.True(
+            foregroundPump < IdleHookTests.PumpCeiling,
+            $"the foreground watcher woke {foregroundPump:F1} times a second for renames of a window not in front; ceiling {IdleHookTests.PumpCeiling:F0}");
+        Assert.True(
+            focusPump < IdleHookTests.PumpCeiling,
+            $"the focus watcher woke {focusPump:F1} times a second with no session; ceiling {IdleHookTests.PumpCeiling:F0}");
+        Assert.True(
+            !Counts || wakeups < IdleWakeupCeiling,
+            $"on a busy desktop the idle service woke {wakeups:F1} times a second net of the host, ceiling {IdleWakeupCeiling:F0}; its cost is following what else is open");
     }
 
     [Fact]
