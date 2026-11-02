@@ -83,6 +83,11 @@ The suite's first runs found these, each now held by the test named beside it:
   reader no reason.
 - **The shortcut sheet** (new) did not fit a 768 px screen in one column.
 - **Empty text lines** were zero-sized elements Accessibility Insights fails; they now collapse.
+- **On the laptop's scaled screen** (its first run, 2026-11-02): a text box's focus in high contrast was
+  too faint (its outline thickening into a highlight close in luminance to the frame), as was a table
+  header's underline; text boxes now take the focus ring and a focused header is filled with the accent.
+  The tray items came to 25.6 px, because their padding was worked out at 96 dpi before the menu had a
+  window; they are now fitted at the menu's own DPI, and a test fits them for 150% and 200%.
 
 ### What it costs
 
@@ -91,8 +96,8 @@ The Windows assembly ran in about 109 s on the hosted runner before this suite, 
 took 28.7 s, and the 33 Accessibility Insights scans took 112.1 s, about 3.4 s each, most of the
 difference. Each screen is opened once for every rule, the second and third palettes re-walk only the
 focus visuals, and one axe-windows runner process serves the whole suite. The laptop's capabilities job
-runs the whole assembly too (it ran in about 430 s before); its first run since will show whether it
-still fits the job's 15-minute limit.
+runs the whole assembly too: 452 s with the suite (about 430 s before), and the job took 8 min 44 s of
+its 15-minute limit (run 41535721423, which passed).
 
 ### The tests have teeth
 
