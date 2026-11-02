@@ -426,7 +426,7 @@ internal static partial class Audit
 
             if (focusVisuals)
             {
-                await FocusShowsAsync(window, now, findings);
+                FocusShows(window, now, findings);
             }
         }
 
@@ -648,7 +648,7 @@ internal static partial class Audit
     /// the two must differ around it, by enough pixels to be a ring or a border and with at least 3:1
     /// contrast between before and after. Then focus is put back so Tab carries on from here.
     /// </summary>
-    private static async Task FocusShowsAsync(Window window, UIElement element, List<string> findings)
+    private static void FocusShows(Window window, UIElement element, List<string> findings)
     {
         var region = Bounds(element, window);
         region.Inflate(6, 6);
@@ -658,12 +658,14 @@ internal static partial class Audit
             return;
         }
 
+        // Layout only between the two pictures, not a turn of the dispatcher: losing focus takes the ring
+        // and the focus triggers away at once, and a turn per picture was most of the suite's time.
         var focused = Render(window, region);
         Keyboard.ClearFocus();
-        await Settle();
+        window.UpdateLayout();
         var unfocused = Render(window, region);
         _ = element.Focus();
-        await Settle();
+        window.UpdateLayout();
 
         var changed = 0;
         var different = 0;
