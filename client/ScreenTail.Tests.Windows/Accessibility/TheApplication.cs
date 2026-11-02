@@ -25,6 +25,8 @@ public sealed class TheApplication : IDisposable
     private readonly TaskCompletionSource<Dispatcher> _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Application? _app;
     private volatile string? _hung;
+    private readonly System.Diagnostics.Stopwatch _busy = new();
+    private int _bodies;
 
     public TheApplication()
     {
@@ -54,8 +56,11 @@ public sealed class TheApplication : IDisposable
             Assert.Fail($"Not run: {earlier} did not finish, and the UI thread is still busy with it.");
         }
 
+        _bodies++;
+        _busy.Start();
         var task = Dispatcher.InvokeAsync(body).Task.Unwrap();
         var finished = await Task.WhenAny(task, Task.Delay(TimeSpan.FromMinutes(2))).ConfigureAwait(false);
+        _busy.Stop();
         if (finished != task)
         {
             _hung = TestContext.Current.Test?.TestDisplayName ?? "an earlier test";
@@ -79,6 +84,8 @@ public sealed class TheApplication : IDisposable
 
     public void Dispose()
     {
+        // What the collection cost, for the job log: the laptop's job has a time limit (ST-084 review).
+        Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Accessibility suite: {_bodies} runs on the UI thread, {_busy.Elapsed.TotalSeconds:0.0} s; {AxeScan.Scans} Accessibility Insights scans, {AxeScan.Spent.TotalSeconds:0.0} s"));
         AxeScan.Stop();
         if (_app is { } app)
         {

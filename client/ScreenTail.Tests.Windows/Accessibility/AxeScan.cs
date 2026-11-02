@@ -23,9 +23,15 @@ internal static class AxeScan
     private static Process? _runner;
     private static int _stopsOnExit;
 
+    /// <summary>How many scans finished, and the time they took, for the suite's cost line.</summary>
+    public static int Scans { get; private set; }
+
+    public static TimeSpan Spent { get; private set; }
+
     public static async Task<List<string>> ErrorsAsync(IntPtr window)
     {
         await OneAtATime.WaitAsync().ConfigureAwait(false);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var runner = Runner();
@@ -55,6 +61,8 @@ internal static class AxeScan
 
                 if (line == "END")
                 {
+                    Scans++;
+                    Spent += clock.Elapsed;
                     return findings;
                 }
 
