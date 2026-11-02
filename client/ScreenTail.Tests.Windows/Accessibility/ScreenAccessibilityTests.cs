@@ -199,6 +199,39 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
     /// 28 px tall. It is a Windows menu, so the arrows, Enter and Esc work in it the way they do in every
     /// other tray menu; opening it from the keyboard (Win+B, then the menu key) is on the manual list.
     /// </summary>
+    /// <summary>
+    /// The tray items' 28 px holds at a scaled screen too (ST-084: 25.6 px on the laptop at its scale, when
+    /// the padding was worked out once at 96 dpi). The hosted runner's screen is 100%, so the menu is
+    /// fitted for 150% and 200% and each item must then be 28 px at that scale in device pixels.
+    /// </summary>
+    [Theory]
+    [InlineData(144)]
+    [InlineData(192)]
+    public async Task TrayItemsAre28PixelsAtAScaledScreen(int dpi)
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var findings = await app.RunAsync(() =>
+        {
+            var found = new List<string>();
+            using var tray = new TrayIconHost();
+            var menu = tray.Menu;
+            _ = menu.Handle;
+            tray.FitItems(menu, dpi);
+            var floor = (int)Math.Ceiling(Audit.HitTarget * dpi / 96.0);
+            foreach (var item in menu.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Where(i => i.Enabled))
+            {
+                if (item.Height < floor)
+                {
+                    found.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"\"{item.Text}\" is {item.Height} px at {dpi} dpi, under {floor}"));
+                }
+            }
+
+            return Task.FromResult(found);
+        });
+
+        Assert.True(findings.Count == 0, string.Join('\n', findings));
+    }
+
     [Fact]
     public async Task TheTrayMenuMeetsSpecSection7()
     {

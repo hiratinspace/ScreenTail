@@ -32,6 +32,7 @@ public sealed class TrayIconHost : IDisposable
     private readonly Dictionary<TrayIcon, Icon> _icons = [];
     private readonly List<IntPtr> _handles = [];
     private readonly Forms.ToolStripMenuItem _stateLine;
+    private readonly Dictionary<Forms.ToolStripMenuItem, Forms.Padding> _padding = [];
     private TrayPresence? _shown;
     private NotificationAction? _pending;
 
@@ -52,14 +53,16 @@ public sealed class TrayIconHost : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Item("Quit", () => Quit?.Invoke()));
 
-        // Spec §7's 28 px target: a Windows Forms menu item is 22 px tall at 100%, so each gets 3 px more
-        // above and below, scaled with the menu's DPI (ST-084 measured them).
-        var extra = menu.LogicalToDeviceUnits(3);
+        // Spec §7's 28 px target, at whatever scale the menu is drawn: fitted when the menu gets its window
+        // and every time it opens, since only then is its DPI known (ST-084: a fixed padding worked out at
+        // construction came to 25.6 px on the laptop's scaled screen).
         foreach (var item in menu.Items.OfType<Forms.ToolStripMenuItem>())
         {
-            item.Padding = new Forms.Padding(item.Padding.Left, item.Padding.Top + extra, item.Padding.Right, item.Padding.Bottom + extra);
+            _padding[item] = item.Padding;
         }
 
+        menu.HandleCreated += (_, _) => FitItems(menu);
+        menu.Opening += (_, _) => FitItems(menu);
         _icon.ContextMenuStrip = menu;
         _icon.DoubleClick += (_, _) => Open?.Invoke();
         _icon.BalloonTipClicked += (_, _) =>
@@ -207,6 +210,33 @@ public sealed class TrayIconHost : IDisposable
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool DestroyIcon(IntPtr handle);
+
+    /// <summary>
+    /// Pads each item to at least 28 device-independent pixels at the menu's DPI: back to its own padding,
+    /// laid out, then whatever it lacks added above and below.
+    /// </summary>
+    private void FitItems(Forms.ContextMenuStrip menu) => FitItems(menu, menu.DeviceDpi);
+
+    /// <param name="deviceDpi">The DPI the menu is drawn at; a test passes a scaled one the hosted runner's screen does not have.</param>
+    internal void FitItems(Forms.ContextMenuStrip menu, int deviceDpi)
+    {
+        ArgumentNullException.ThrowIfNull(menu);
+        var floor = (int)Math.Ceiling(28 * deviceDpi / 96.0);
+        foreach (var (item, padding) in _padding)
+        {
+            item.Padding = padding;
+        }
+
+        menu.PerformLayout();
+        foreach (var (item, padding) in _padding)
+        {
+            var lacking = Math.Max(0, floor - item.Height);
+            var above = lacking / 2;
+            item.Padding = new Forms.Padding(padding.Left, padding.Top + above, padding.Right, padding.Bottom + lacking - above);
+        }
+
+        menu.PerformLayout();
+    }
 
     private static Forms.ToolStripMenuItem Item(string text, Action invoke)
     {
