@@ -55,6 +55,23 @@ public interface IReviewFrames
     /// masker, and the one implementation that has both is on the other side of the pipe.
     /// </summary>
     Task<byte[]?> BlurAsync(string frameId, MaskedRegion region, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same blur, saying whether it was written when no image comes back. Over the pipe a blur can be
+    /// written and its new image still be too large to send, and a pane that took that for "nothing
+    /// happened" would go on showing, and offering the text of, a picture the disk no longer has. A source
+    /// with nothing between it and the store answers from <see cref="BlurAsync"/>.
+    /// </summary>
+    async Task<BlurReply> BlurWithReplyAsync(string frameId, MaskedRegion region, CancellationToken ct = default) =>
+        await BlurAsync(frameId, region, ct).ConfigureAwait(false) is { } image ? new BlurReply(true, image) : BlurReply.NotWritten;
+}
+
+/// <summary>What became of a blur.</summary>
+/// <param name="Written">Whether the blur is on disk.</param>
+/// <param name="Image">The image as it now is; null when it was not written, or was and could not be sent back.</param>
+public sealed record BlurReply(bool Written, byte[]? Image)
+{
+    public static BlurReply NotWritten { get; } = new(false, null);
 }
 
 public sealed class ReviewSession(ISessionStore store, string sessionId)

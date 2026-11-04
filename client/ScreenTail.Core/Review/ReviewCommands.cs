@@ -44,6 +44,13 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
     private const string NoFrame = "There is no such frame, or it has not been redacted yet.";
 
     /// <summary>
+    /// How the one refusal that follows a write begins: the blur is on disk, and only the new image could
+    /// not be sent back. <see cref="PipeReviewFrames"/> reads it so the pane can show the disk as it is
+    /// rather than the picture from before (ST-084 follow-up review).
+    /// </summary>
+    public const string WrittenButTooLarge = "The blur was written, but the frame is now too large for the pipe";
+
+    /// <summary>
     /// The largest image that fits in one message once it is base64 in JSON, with room to spare under
     /// <see cref="IpcFraming.MaxMessageBytes"/>. Writing a bigger one closes the connection, which the UI
     /// sees as the service dying; a refusal with a reason is the honest answer.
@@ -177,7 +184,7 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
             // it had until the session is opened again; the words say the disk has moved on.
             return Fits(painted.Image) is { } image
                 ? (new FrameLoaded { RequestId = blur.RequestId, FrameId = blur.FrameId, Image = image }, null)
-                : (null, $"The blur was written, but the frame is now too large for the pipe: {painted.Image.Length} bytes against a limit of {LargestFrameBytes}. Open the session again to see it.");
+                : (null, $"{WrittenButTooLarge}: {painted.Image.Length} bytes against a limit of {LargestFrameBytes}. Open the session again to see it.");
         }
         finally
         {

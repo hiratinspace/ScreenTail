@@ -180,5 +180,16 @@ public sealed class BlurBoxTests
         Assert.Equal("Blur box: 43% from the left, 50% from the top, 22% wide, 29% tall", BlurBox.Centred.Move(3, 10).Resize(2, 9).Spoken);
     }
 
+    [Fact]
+    public void AnArrowThatChangesNothingSaysSo()
+    {
+        // At an edge, or as small or as large as it goes, the press would otherwise be silent, and a
+        // listener cannot tell a stop from a key that was missed. Still numbers only.
+        var atTheEdge = BlurBox.Of(80, 40, 20, 20);
+
+        Assert.Equal(atTheEdge, atTheEdge.Nudge(BlurBoxDirection.Right, resize: false, large: false));
+        Assert.Equal("Blur box: 80% from the left, 40% from the top, 20% wide, 20% tall, as far as it goes", atTheEdge.SpokenAtLimit);
+    }
+
     private static (int X, int Y, int Width, int Height) Parts(BlurBox box) => (box.X, box.Y, box.Width, box.Height);
 }

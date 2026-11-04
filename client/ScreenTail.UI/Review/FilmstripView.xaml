@@ -218,33 +218,34 @@
                              resizes it, Ctrl makes the steps bigger, Enter blurs what it covers and Esc puts
                              it away. Not hit-testable, so a drag that starts over it still draws. Outlined
                              in the window's own background colour under the dashes, so it shows on a light
-                             screenshot and a dark one; focused, two more rings outside it, one light and one
-                             dark, for the same reason. -->
+                             screenshot and a dark one; focused, two more rings just inside it, one light and
+                             one dark, for the same reason. Inside, so nothing drawn reaches past what is
+                             blurred: the outer edge of the box is the edge of the blur. -->
                         <review:BlurBoxControl x:Name="KeyboardBox"
                                                Visibility="Collapsed"
                                                IsHitTestVisible="False"
                                                FocusVisualStyle="{x:Null}"
                                                AutomationProperties.Name="Region to blur"
-                                               AutomationProperties.HelpText="The arrow keys move it. Shift with an arrow makes it wider, narrower, taller or shorter. Add Ctrl for bigger steps. Enter blurs what it covers, which cannot be undone. Esc puts it away.">
+                                               AutomationProperties.HelpText="The arrow keys move it. Shift with an arrow makes it wider, narrower, taller or shorter. Add Ctrl for bigger steps. Enter blurs everything inside its outer edge, which cannot be undone. Esc puts it away.">
                             <review:BlurBoxControl.Template>
                                 <ControlTemplate TargetType="review:BlurBoxControl">
                                     <Grid>
-                                        <Rectangle x:Name="FocusOuter"
-                                                   Margin="-5"
-                                                   Stroke="{DynamicResource Brush.text.primary}"
-                                                   StrokeThickness="2"
-                                                   Visibility="Hidden" />
-                                        <Rectangle x:Name="FocusInner"
-                                                   Margin="-3"
-                                                   Stroke="{DynamicResource Brush.bg.base}"
-                                                   StrokeThickness="2"
-                                                   Visibility="Hidden" />
                                         <Rectangle Fill="#60000000"
                                                    Stroke="{DynamicResource Brush.bg.base}"
                                                    StrokeThickness="3" />
                                         <Rectangle Stroke="{DynamicResource Brush.state.danger}"
                                                    StrokeThickness="2"
                                                    StrokeDashArray="4 3" />
+                                        <Rectangle x:Name="FocusOuter"
+                                                   Margin="3"
+                                                   Stroke="{DynamicResource Brush.text.primary}"
+                                                   StrokeThickness="2"
+                                                   Visibility="Hidden" />
+                                        <Rectangle x:Name="FocusInner"
+                                                   Margin="5"
+                                                   Stroke="{DynamicResource Brush.bg.base}"
+                                                   StrokeThickness="2"
+                                                   Visibility="Hidden" />
                                     </Grid>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsKeyboardFocused" Value="True">

@@ -121,6 +121,12 @@ public readonly record struct BlurBox
         CultureInfo.InvariantCulture,
         $"Blur box: {X}% from the left, {Y}% from the top, {Width}% wide, {Height}% tall");
 
+    /// <summary>
+    /// What an arrow that changed nothing says: the box is at an edge, or as small or as large as it goes.
+    /// Without it the press is silent, and a listener cannot tell a stop from a missed key.
+    /// </summary>
+    public string SpokenAtLimit => Spoken + ", as far as it goes";
+
     private static (double Start, double Length) Span(int at, int length, double drawn)
     {
         if (drawn <= 0)

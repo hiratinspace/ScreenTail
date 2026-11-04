@@ -88,14 +88,21 @@ public sealed class LiveRegionTests(TheApplication app)
     }
 
     /// <summary>What was announced, by automation name, while <paramref name="change"/> ran and the dispatcher caught up.</summary>
-    internal static async Task<IReadOnlyList<string>> HeardAsync(Action change)
+    internal static Task<IReadOnlyList<string>> HeardAsync(Action change) => HeardAsync(() =>
+    {
+        change();
+        return Task.CompletedTask;
+    });
+
+    /// <summary>What was announced while <paramref name="change"/> ran, awaits and all, and the dispatcher caught up.</summary>
+    internal static async Task<IReadOnlyList<string>> HeardAsync(Func<Task> change)
     {
         var heard = new List<string>();
         void Listen(UIElement element) => heard.Add(UIElementAutomationPeer.CreatePeerForElement(element)?.GetName() ?? string.Empty);
         LiveRegion.Announced += Listen;
         try
         {
-            change();
+            await change();
             for (var i = 0; i < 10; i++)
             {
                 await Audit.Settle();

@@ -496,19 +496,41 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     /// <summary>
     /// `B`, after dragging a rectangle over the enlarged frame or placing the blur box over it with the
     /// keys. Destructive, and the ordering that makes it safe belongs to <see cref="FrameBlur"/>, where it
-    /// is tested without WPF; this only takes what the store already holds and shows it. True when the
-    /// blur landed.
+    /// is tested without WPF; this only takes what the store already holds and shows it.
     /// </summary>
-    public async Task<bool> BlurAsync(FrameItem item, Rect drawn, Size displayed, CancellationToken ct = default)
+    public async Task<BlurOutcome> BlurAsync(FrameItem item, Rect drawn, Size displayed, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
-        if (_blur is null || await _blur.ApplyAsync(item.Cell.Frame, item.Image, drawn, displayed, ct).ConfigureAwait(true) is not { } blurred)
+        if (_blur is null)
         {
-            return false;
+            return BlurOutcome.NotBlurred;
         }
 
+        BlurredFrame? blurred;
+        try
+        {
+            blurred = await _blur.ApplyAsync(item.Cell.Frame, item.Image, drawn, displayed, ct).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Given up on before the service answered, which may still write it. What is held here may be
+            // the picture and the text from before, so neither is shown any more; enlarging the frame again
+            // asks the service for both as they now are.
+            item.Image = null;
+            item.OcrText = null;
+            ShowOcrText = false;
+            throw;
+        }
+
+        if (blurred is null)
+        {
+            return BlurOutcome.NotBlurred;
+        }
+
+        // Written but not sent back: the picture held here is the one from before the blur, so it is not
+        // shown any longer, and the strip asks for the service's small picture of what is on disk now.
         item.Image = blurred.Image;
-        item.Thumbnail = Thumbnails.Decode(blurred.Image);
+        item.Thumbnail = blurred.Image is { } image ? Thumbnails.Decode(image) : null;
         item.Refresh(item.Cell with { Frame = blurred.Frame });
         _strip.Replace(blurred.Frame);
 
@@ -518,7 +540,24 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
 
         // The text panel would otherwise stay open over the text the blur has just withdrawn.
         ShowOcrText = false;
-        return true;
+        if (blurred.Image is not null)
+        {
+            return BlurOutcome.Blurred;
+        }
+
+        if (_frames is not null)
+        {
+            try
+            {
+                await LoadThumbnailAsync(_frames, item, _thumbnailToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                // The pane went first. The cell stays empty, which is true: it no longer shows the old picture.
+            }
+        }
+
+        return BlurOutcome.BlurredNotShown;
     }
 
     private static StripItem Item(FilmstripCell cell) => cell switch

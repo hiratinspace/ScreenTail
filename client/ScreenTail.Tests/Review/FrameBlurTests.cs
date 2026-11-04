@@ -89,6 +89,32 @@ public sealed class FrameBlurTests
         Assert.Null(_frames.LastRegion);
     }
 
+    [Fact]
+    public async Task ABlurWrittenButNotSentBackIsStillABlur()
+    {
+        // ST-084 follow-up review: over the pipe a blur can be written and its new image be too large to
+        // send. Taken for "nothing happened", the pane would go on showing the picture from before, and
+        // offering its text, while the disk no longer has either.
+        var frames = new RecordingFrames { Reply = new BlurReply(true, null) };
+
+        var result = await new FrameBlur(frames).ApplyAsync(Frame() with { OcrText = "Password: hunter2" }, [0xAA], Drawn, Displayed);
+
+        Assert.NotNull(result);
+        Assert.Null(result.Image);
+        Assert.Same(frames.LastRegion, result.Region);
+        Assert.Equal([MaskKind.UserBlur], result.Frame.MaskedRegions.Select(region => region.Kind));
+        Assert.Null(result.Frame.OcrText);
+    }
+
+    [Fact]
+    public async Task ABlurNotWrittenClaimsNothing()
+    {
+        var frames = new RecordingFrames { Reply = BlurReply.NotWritten };
+
+        Assert.Null(await new FrameBlur(frames).ApplyAsync(Frame(), [0xAA], Drawn, Displayed));
+        Assert.NotNull(frames.LastRegion);
+    }
+
     private FrameBlur Blur() => new(_frames);
 
     private static Frame Frame() => new()
@@ -110,6 +136,9 @@ public sealed class FrameBlurTests
     {
         public Task? Gate { get; init; }
 
+        /// <summary>When set, the answer a pipe would give, rather than the image.</summary>
+        public BlurReply? Reply { get; init; }
+
         public MaskedRegion? LastRegion { get; private set; }
 
         public byte[]? LastImage { get; private set; }
@@ -130,6 +159,12 @@ public sealed class FrameBlurTests
             LastRegion = region;
             LastImage = [0xCC, 0xCC];
             return LastImage;
+        }
+
+        public async Task<BlurReply> BlurWithReplyAsync(string frameId, MaskedRegion region, CancellationToken ct = default)
+        {
+            var image = await BlurAsync(frameId, region, ct).ConfigureAwait(false);
+            return Reply ?? new BlurReply(true, image);
         }
     }
 }

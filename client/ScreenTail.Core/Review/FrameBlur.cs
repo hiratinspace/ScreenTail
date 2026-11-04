@@ -43,20 +43,37 @@ public sealed class FrameBlur(IReviewFrames frames)
         }
 
         var region = BlurRegion.From(drawn, displayed, new Size(frame.Width, frame.Height));
-        var flattened = await _frames.BlurAsync(frame.Id, region, ct).ConfigureAwait(false);
-        if (flattened is null)
+        var reply = await _frames.BlurWithReplyAsync(frame.Id, region, ct).ConfigureAwait(false);
+        if (!reply.Written)
         {
-            // Gone between the load and the blur. Nothing was painted and nothing is claimed.
+            // Gone between the load and the blur, refused, or no service. Nothing was painted and nothing
+            // is claimed.
             return null;
         }
 
         // The text goes with the pixels, as it does in the store: it was read from what was just destroyed.
+        // Written without an image to show is still written: the record says so, and the caller must stop
+        // showing the picture it has, which is the one from before.
         return new BlurredFrame(
             frame with { MaskedRegions = [.. frame.MaskedRegions, region], OcrText = null },
-            flattened,
+            reply.Image,
             region);
     }
 }
 
 /// <param name="Frame">The frame as it now is: the region appended to what redaction already found, and no OCR text.</param>
-public sealed record BlurredFrame(Frame Frame, byte[] Image, MaskedRegion Region);
+/// <param name="Image">The image as it now is, or null when it was written but could not be sent back.</param>
+public sealed record BlurredFrame(Frame Frame, byte[]? Image, MaskedRegion Region);
+
+/// <summary>What a blur came to, as the pane shows it.</summary>
+public enum BlurOutcome
+{
+    /// <summary>Not written: the frame is gone, the service refused or is not there. Nothing changed.</summary>
+    NotBlurred,
+
+    /// <summary>Written, and the new image is on screen.</summary>
+    Blurred,
+
+    /// <summary>Written, but the new image could not be sent back, so the old one is no longer shown.</summary>
+    BlurredNotShown,
+}
