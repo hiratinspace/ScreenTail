@@ -441,10 +441,10 @@ internal sealed class DesktopWindow : IDisposable
     /// </summary>
     private static readonly Lazy<string> OrdinaryClass = new(() => Register("ScreenTail test window", COLOR_WINDOW + 1));
 
-    /// <summary>The same class with a black background, for the dark half of <see cref="ShowContrast"/>.</summary>
     /// <summary>A class the registry's ScreenConnect pattern (<c>^ScreenConnect</c>) matches, for <see cref="CreateRemoteToolShaped"/>.</summary>
     private static readonly Lazy<string> RemoteToolClass = new(() => Register("ScreenConnect.ScreenTailTestWindow", COLOR_WINDOW + 1));
 
+    /// <summary>The same class with a black background, for the dark half of <see cref="ShowContrast"/>.</summary>
     private static readonly Lazy<string> DarkClass = new(() => Register("ScreenTail dark test window", GetStockObject(BLACK_BRUSH)));
 
     private static string Register(string name, IntPtr background)
