@@ -306,10 +306,21 @@ elevated installer, run as a user who is not the one signed in, or in session 0,
 exits with 0 and starts normally at the next sign-in (or, for the UI, from the Start menu). Each refusal
 leaves a warning in the Windows Application log, source `ScreenTail`, event 1100 to 1103 for the service
 and 1200 to 1203 for the UI, with a fixed sentence and nothing about the user. Run the service from a
-normal, not elevated, prompt on a developer's machine too, unless UAC is off. Not yet measured: how long the
-service takes to stop in the middle of a recording, with speech, OCR, the microphone and the hooks all
-busy. The idle figure is about 150 ms on CI, and the four-second limit holds whatever happens; the
-laptop is where the busy figure has to be taken.
+normal, not elevated, prompt on a developer's machine too, unless UAC is off.
+
+**The stop time in the middle of a recording is measured automatically** (ST-112). The Windows test
+`Host/StopTimeTests` runs the real capture host, composed as `Program.cs` composes it but over a
+throwaway folder and a pipe of its own, starts a session over the pipe as the UI does, keeps it busy
+(input hooks in, a synthetic window of a remote-tool class in front whose text changes, moments marked so
+OCR and redaction have frames), and then asks it to close three ways: sign-out (`WM_ENDSESSION` with
+`ENDSESSION_LOGOFF`), Restart Manager (`ENDSESSION_CLOSEAPP`) and `WM_CLOSE`. It fails unless the store
+is closed within the four-second budget and `WM_ENDSESSION` is answered only after that, no `store.db-wal`
+or `-shm` is left, and the next start of the real service recovers the session as partial. It runs on
+the hosted runner, where it measured 30 to about 100 ms, and in the laptop's capabilities job, where the
+microphone is open and the speech model loaded during the recording; each run's figures are in the job
+summary and `measurements.txt`, as numbers. A quiet room gives Whisper nothing to transcribe, so a stop
+in the middle of a transcription is not what it measures. The idle figure from the installed service is
+about 150 ms (smoke test).
 
 `3010` still means the uninstall succeeded; the files left are deleted at the next restart.
 
