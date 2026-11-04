@@ -275,5 +275,6 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
     private static TextBlock Status(Window shell) =>
         Audit.Descendants(shell).OfType<TextBlock>().Single(b => b.Name == "BlurBoxStatus");
 
-    private static bool Near(double a, double b) => Math.Abs(a - b) < 0.5;
+    /// <summary>Within a pixel: the window rounds layout to whole pixels (Window.Base), and the picture's place is rounded too.</summary>
+    private static bool Near(double a, double b) => Math.Abs(a - b) <= 1.01;
 }
