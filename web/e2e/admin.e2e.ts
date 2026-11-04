@@ -228,7 +228,7 @@ test('an owner signs up, invites a technician, sees the device, revokes it, sets
 
       await page.getByRole('button', { name: 'Sign out' }).click();
       await expect(page.getByRole('heading', { level: 1, name: 'Sign in to ScreenTail admin' })).toBeVisible();
-      expect((await context.cookies()).find((c) => c.name === sessionCookie), 'the cookie in this browser').toBeUndefined();
+      expect((await context.cookies()).some((c) => c.name === sessionCookie), 'the cookie still in this browser').toBe(false);
 
       expect((await copy.get('/v1/admin/session')).status()).toBe(401);
       expect((await copy.get('/v1/admin/technicians')).status()).toBe(401);
