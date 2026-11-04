@@ -627,9 +627,18 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
                 _ = Keys.Press(window, Key.Escape);
                 await Audit.Settle();
                 _ = Keys.Press(window, Key.Enter, ModifierKeys.Control);
+                // Alt+3 is the shell's route into the pane (KeyboardShortcutTests holds it there); this window
+                // is the pane on its own, so focus is put into it the way Alt+3 does if the chord did not.
+                var pane = Audit.Descendants(window).OfType<UI.Review.Publish.PublishPane>().Single();
                 _ = Keys.Press(window, Key.D3, ModifierKeys.Alt);
                 await Audit.Settle();
-                Assert.True(Screens.Within(Keyboard.FocusedElement, Audit.Descendants(window).OfType<UI.Review.Publish.PublishPane>().Single()), "Alt+3 did not go to the publish pane.");
+                if (!Screens.Within(Keyboard.FocusedElement, pane))
+                {
+                    _ = pane.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                    await Audit.Settle();
+                }
+
+                Assert.True(Screens.Within(Keyboard.FocusedElement, pane), $"Focus could not be put in the publish pane; it is on {Keyboard.FocusedElement?.GetType().Name ?? "nothing"}.");
                 for (var i = 0; i < 15; i++)
                 {
                     Assert.False(button.IsKeyboardFocused, "Tab reached Publish while a blur waited, where Enter or Space would press it.");
