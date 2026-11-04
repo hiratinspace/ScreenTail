@@ -16,15 +16,19 @@ to trust it and where to change it.
 
 | File | Read it for |
 |---|---|
-| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-10-27 |
+| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-11-04 |
 | `ipc-contract.md` | The service–UI pipe contract, versioned. Kept at the root because three source files and the backlog cite it by this path |
 | `adr/000N-*.md` | Architecture decisions. 0001 to 0006 are Accepted; 0007 (the Windows installer), 0008 (auto-update) and 0009 (owner sign-in to the web admin, with Google) are Proposed. `adr/evidence/` holds the measurements they rest on, with its own README |
 | `review/weaknesses.md` | The 2026-09-15 adversarial review, closed 2026-09-22: every finding says what fixed it, and the one still open says where it is tracked. Kept because code comments cite its numbers |
 | `security/threat-model.md`, `data-flow.md`, `questionnaire.md` | The privacy pack (ST-114). Brought into line with the code on 2026-09-28. Items marked ⚠ are not yet built; the pack has not had a security-lead review and says so |
+| `security/redteam-01.md` | ST-115's first red-team round on the redaction pipeline at the text level (2026-09-25): every input and finding, each one a test |
+| `security/key-rotation.md` | Rotating the credential vault's master key (ST-009), step by step |
+| `integrations/connectwise.md`, `integrations/hudu.md` | How ScreenTail talks to ConnectWise and Hudu, what a tenant supplies, and the real checks still owed before a pilot |
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
 | `dev/first-draft-end-to-end.md` | Getting one real session to produce one real note: the M1 step list, everything on the laptop |
 | `dev/demo.md` | Running the demo on the laptop with `scripts/windows/demo/` (setup, start, stop), in plain words, and the demo story |
+| `dev/e2e.md` | The end-to-end run (ST-013): one command takes a session through the whole loop on Windows with a scripted drafting provider, and what each step proves |
 | `dev/demo-psa.md` | The demo PSA that stands in for ConnectWise in Development, what the technician sees, and what it does not prove |
 | `dev/installer.md` | Building the Windows installer, switching signing on, deploying it silently as an MSP, and what an uninstall removes (ST-112) |
 | `dev/performance.md` | ST-031's budgets: how each is measured on the laptop, whether CI enforces it, the latest numbers, and what still wakes at idle |
@@ -38,6 +42,7 @@ to trust it and where to change it.
 |---|---|
 | `adr/evidence/0001/` | ST-001 spike runs: hosted runner, laptop, load, legibility. `README.md` there says which folder is which run |
 | `ux/wireframes/` | ST-014 low-fi wireframes for S1–S8 with PNG exports; the technician-session sheet is still empty |
+| `ux/a11y-audit.md` | ST-084's accessibility audit: what CI holds on every run, what it found and fixed on 2026-11-01, the Narrator checklist that needs a person, and the owner decisions |
 | `ux/review-hifi/` | ST-015 hi-fi Review screen, 8 states × 2 themes, contrast report. CI's contrast check reads from here |
 | `research/fixtures/` | Hand-drawn session bundles (ST-006) and the empty audio folder that needs a human recording (ST-027) |
 | `research/prompts/` | The note prompt, its post-condition checks and the hardening cases both the Python and the C# validators run |
