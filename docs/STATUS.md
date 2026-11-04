@@ -322,7 +322,7 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
   - the microphone picker with a real headset, plugged and unplugged, and Win+L with the card open
     turning Windows' microphone light off (ST-080 AC3, #244);
   - no longer by hand: the service's stop time in the middle of a recording is measured automatically on
-    every hardware run (`StopTimeTests`, ST-112; `docs/dev/installer.md`), 30 to about 100 ms on the hosted
+    every hardware run (`StopTimeTests`, ST-112; `docs/dev/installer.md`), 20 to about 100 ms on the hosted
     runner against the 4 s budget; read the laptop's figure in the job summary of the pull request that
     added it;
   - an elevated third-party installer closing the service with UAC on, and what Restart Manager starts

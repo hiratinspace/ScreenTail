@@ -316,7 +316,7 @@ OCR and redaction have frames), and then asks it to close three ways: sign-out (
 `ENDSESSION_LOGOFF`), Restart Manager (`ENDSESSION_CLOSEAPP`) and `WM_CLOSE`. It fails unless the store
 is closed within the four-second budget and `WM_ENDSESSION` is answered only after that, no `store.db-wal`
 or `-shm` is left, and the next start of the real service recovers the session as partial. It runs on
-the hosted runner, where it measured 30 to about 100 ms, and in the laptop's capabilities job, where the
+the hosted runner, where it measured 20 to about 100 ms, and in the laptop's capabilities job, where the
 microphone is open and the speech model loaded during the recording; each run's figures are in the job
 summary and `measurements.txt`, as numbers. A quiet room gives Whisper nothing to transcribe, so a stop
 in the middle of a transcription is not what it measures. The idle figure from the installed service is
