@@ -11,6 +11,7 @@ using ScreenTail.Shared.Schema;
 using ScreenTail.UI.Review;
 using ScreenTail.UI.Shell;
 using Frame = ScreenTail.Shared.Schema.Frame;
+using MouseButton = System.Windows.Input.MouseButton;
 using Rect = System.Windows.Rect;
 using Size = ScreenTail.Core.Review.Size;
 
@@ -374,12 +375,14 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
     }
 
     /// <summary>
-    /// The pipe has no timeout of its own (ST-084 follow-up review). A blur the service never answers is
-    /// given up on, said, and the picture and text that may be out of date are no longer shown. Esc while
-    /// it waits puts the box away at once, and what came of the blur is still said when it comes.
+    /// The pipe has no timeout of its own (ST-084 follow-up review). The pane stops waiting after
+    /// <see cref="FilmstripView.BlurWait"/> and says so, but the blur goes on and the frame stays pending
+    /// (review of #257): its picture, thumbnail and text are no longer shown, opening it again shows a
+    /// placeholder and asks the service for nothing, Publish is held back, B then Enter says it is still
+    /// waiting, and when the answer comes it is said and the frame is shown as the service has it.
     /// </summary>
     [Fact]
-    public async Task ABlurTheServiceNeverAnswersIsGivenUpOnAndEscWhileWaitingStillHearsTheAnswer()
+    public async Task ABlurTheServiceIsSlowToAnswerKeepsTheFrameHiddenAndPublishHeldUntilItDoes()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var wait = FilmstripView.BlurWait;
@@ -395,40 +398,53 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
                     var frame = strip.Enlarged!;
                     var box = await Screens.OpenBlurBoxAsync(window);
                     _ = Keys.Press(window, Key.Enter);
-                    await Screens.UntilAsync(() => Status(window).Text.StartsWith("The service did not answer", StringComparison.Ordinal));
+                    await Screens.UntilAsync(() => Status(window).Text.StartsWith("The capture service has not answered yet", StringComparison.Ordinal));
 
-                    Assert.StartsWith("The service did not answer", Status(window).Text, StringComparison.Ordinal);
+                    Assert.Equal("The capture service has not answered yet. The screenshot is hidden and Publish waits until it does.", Status(window).Text);
                     Assert.False(box.IsVisible);
+                    Assert.True(frame.BlurPending);
                     Assert.Null(frame.Image);
+                    Assert.Null(frame.Thumbnail);
                     Assert.Null(frame.OcrText);
+                    Assert.True(frame.WaitingForBlur, "The enlarged view shows nothing to say it is waiting.");
+                    Assert.Equal("A blur of frame 1 is still being applied. Publish once it has landed.", strip.PublishHeldBecause);
                     Assert.Empty(frame.Cell.Frame.MaskedRegions);
 
-                    // Opened again, it is asked for as it now is, and blurring works as before.
+                    // Closed and opened again while it waits: nothing is asked for, so nothing old is shown.
+                    var images = frames.Images;
                     _ = Keys.Press(window, Key.Escape);
                     await Audit.Settle();
-                    await EnlargeFirstAsync(window, strip);
-                    Assert.NotNull(strip.Enlarged!.Image);
-
-                    // Esc while a blur waits: the box goes at once, and the answer is said when it comes.
-                    FilmstripView.BlurWait = TimeSpan.FromSeconds(30);
-                    frames.Gate = new TaskCompletionSource<BlurReply>();
-                    box = await Screens.OpenBlurBoxAsync(window);
+                    Assert.False(strip.IsEnlarged);
+                    _ = await Screens.FocusFirstFrameAsync(window);
                     _ = Keys.Press(window, Key.Enter);
-                    await Screens.UntilAsync(() => frames.Asked == 2);
-                    Assert.True(Keys.Press(window, Key.Escape), "Esc while the blur waited was not handled.");
+                    await Screens.UntilAsync(() => strip.IsEnlarged);
                     await Audit.Settle();
-                    Assert.False(box.IsVisible, "Esc while the blur waited left the box out.");
-                    Assert.True(strip.IsEnlarged, "Esc while the blur waited closed the screenshot.");
+                    Assert.True(strip.IsEnlarged);
+                    Assert.Null(frame.Image);
+                    Assert.Equal(images, frames.Images);
+                    Assert.True(frame.WaitingForBlur);
 
-                    var said = await LiveRegionTests.HeardAsync(async () =>
+                    // B then Enter on the same frame: said, not ignored, and not asked of the service again.
+                    box = await Screens.OpenBlurBoxAsync(window);
+                    var said = await LiveRegionTests.HeardAsync(() => Assert.True(Keys.Press(window, Key.Enter)));
+                    Assert.Contains("Still waiting for the last blur.", said);
+                    Assert.Equal(1, frames.Asked);
+                    _ = Keys.Press(window, Key.Escape);
+                    await Audit.Settle();
+
+                    // The answer: said, the hold lifted, and the frame fetched again as the service has it.
+                    var answered = await LiveRegionTests.HeardAsync(async () =>
                     {
                         frames.Gate.SetResult(BlurReply.NotWritten);
-                        await Screens.UntilAsync(() => Status(window).Text == "Nothing was blurred.");
+                        await Screens.UntilAsync(() => !frame.BlurPending && frame.Image is not null && frame.Thumbnail is not null);
                     });
 
-                    Assert.Contains("Nothing was blurred.", said);
-                    Assert.False(box.IsVisible, "The box came back after it was put away.");
-                    Assert.False(Toggle(window).IsChecked == true);
+                    Assert.Contains("The last blur was not applied.", answered);
+                    Assert.Null(strip.PublishHeldBecause);
+                    Assert.NotNull(frame.Image);
+                    Assert.NotNull(frame.Thumbnail);
+                    Assert.False(frame.WaitingForBlur);
+                    Assert.Equal("Password: hunter2", frame.OcrText);
                 }
                 finally
                 {
@@ -440,6 +456,209 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
         {
             FilmstripView.BlurWait = wait;
         }
+    }
+
+    /// <summary>
+    /// Esc while a blur waits puts the box away at once (ST-084 follow-up review); B and Enter then say it is
+    /// still waiting rather than nothing (review of #257), and the answer, when it comes, is said.
+    /// </summary>
+    [Fact]
+    public async Task EscWhileABlurWaitsThenBAndEnterSayItIsStillWaiting()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var frames = new AnsweringFrames(Picture(1600, 900)) { Gate = new TaskCompletionSource<BlurReply>() };
+            var (window, strip) = await HostAsync(frames);
+            try
+            {
+                var box = await Screens.OpenBlurBoxAsync(window);
+                _ = Keys.Press(window, Key.Enter);
+                await Screens.UntilAsync(() => frames.Asked == 1);
+                Assert.True(Keys.Press(window, Key.Escape), "Esc while the blur waited was not handled.");
+                await Audit.Settle();
+                Assert.False(box.IsVisible, "Esc while the blur waited left the box out.");
+                Assert.True(strip.IsEnlarged, "Esc while the blur waited closed the screenshot.");
+
+                box = await Screens.OpenBlurBoxAsync(window);
+                var said = await LiveRegionTests.HeardAsync(() => Assert.True(Keys.Press(window, Key.Enter)));
+                Assert.Contains("Still waiting for the last blur.", said);
+                Assert.Equal(1, frames.Asked);
+
+                var answered = await LiveRegionTests.HeardAsync(async () =>
+                {
+                    frames.Gate.SetResult(new BlurReply(true, Picture(1600, 900)));
+                    await Screens.UntilAsync(() => Status(window).Text == "Region blurred");
+                });
+
+                Assert.Contains("Region blurred", answered);
+                Assert.Single(strip.Enlarged!.Cell.Frame.MaskedRegions);
+                Assert.Null(strip.PublishHeldBecause);
+            }
+            finally
+            {
+                await Screens.CloseAsync(window);
+            }
+        });
+    }
+
+    /// <summary>
+    /// The pipe dropped after the blur went out (review of #257): it may be on disk, so the pane does not say
+    /// nothing was blurred. It says it may not have been applied, and shows the frame as the service has it.
+    /// </summary>
+    [Fact]
+    public async Task ABlurWhoseAnswerWasLostSaysItMayNotHaveBeenApplied()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var frames = new AnsweringFrames(Picture(1600, 900)) { Reply = BlurReply.Unknown };
+            var (window, strip) = await HostAsync(frames);
+            try
+            {
+                var frame = strip.Enlarged!;
+                var images = frames.Images;
+                var box = await Screens.OpenBlurBoxAsync(window);
+                _ = Keys.Press(window, Key.Enter);
+                await Screens.UntilAsync(() => Status(window).Text.StartsWith("The blur may not have been applied", StringComparison.Ordinal) && !frame.BlurPending && frame.Image is not null);
+
+                Assert.Equal("The blur may not have been applied: the capture service went away. The screenshot is shown again as the service has it.", Status(window).Text);
+                Assert.DoesNotContain("Nothing was blurred", Status(window).Text, StringComparison.Ordinal);
+                Assert.False(box.IsVisible);
+                Assert.True(frames.Images > images, "The picture was not asked for again.");
+                Assert.NotNull(frame.Thumbnail);
+                Assert.Null(strip.PublishHeldBecause);
+            }
+            finally
+            {
+                await Screens.CloseAsync(window);
+            }
+        });
+    }
+
+    /// <summary>
+    /// A click on the armed picture, a drag of nothing (review of #257): no attempt. Nothing is asked of the
+    /// service, nothing is said, no keyboard box comes out for a mouse user, and blurring stays armed.
+    /// The pointer is not moved: the press and the release are raised where it already is.
+    /// </summary>
+    [Fact]
+    public async Task AClickOnTheArmedPictureIsNoAttempt()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var frames = new AnsweringFrames(Picture(1600, 900));
+            var (window, strip) = await HostAsync(frames);
+            try
+            {
+                var box = await Screens.OpenBlurBoxAsync(window);
+                var surface = Audit.Descendants(window).OfType<Canvas>().Single(c => c.Name == "BlurSurface");
+                var said = await LiveRegionTests.HeardAsync(() =>
+                {
+                    surface.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonDownEvent });
+                    surface.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                });
+
+                Assert.Equal(0, frames.Asked);
+                Assert.DoesNotContain(said, words => words.StartsWith("Nothing was blurred", StringComparison.Ordinal));
+                Assert.False(box.IsVisible, "A click brought the keyboard box back out.");
+                Assert.True(Toggle(window).IsChecked == true, "A click disarmed blurring.");
+                Assert.Empty(strip.Enlarged!.Cell.Frame.MaskedRegions);
+            }
+            finally
+            {
+                await Screens.CloseAsync(window);
+            }
+        });
+    }
+
+    /// <summary>
+    /// While a blur waits for the service, Publish is unavailable every way there is to press it (review of
+    /// #257): the button is disabled with the reason beside it and as its help text, Ctrl+Enter does nothing,
+    /// and Alt+3 then Enter or Space does nothing. Once the blur lands, Publish works again.
+    /// </summary>
+    [Fact]
+    public async Task PublishIsHeldBackEverywhereWhileABlurWaits()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var session = SessionFixture.Load();
+            var frames = new AnsweringFrames(Picture(1600, 900)) { Gate = new TaskCompletionSource<BlurReply>() };
+            var ticket = new Core.Review.Publish.TicketMatch("48213", "Printer offline", "Acme Dental");
+            var published = 0;
+            var panel = new Core.Review.Publish.PublishPanel(
+                session,
+                ["connectwise"],
+                (_, _) => Task.FromResult<IReadOnlyList<Core.Review.Publish.TicketMatch>>([ticket]),
+                (request, _) =>
+                {
+                    published++;
+                    return Task.FromResult<IReadOnlyList<Core.Review.Publish.DestinationResult>>([.. request.Destinations.Select(d => new Core.Review.Publish.DestinationResult(d, true))]);
+                });
+            panel.Suggest(ticket);
+            var review = new ReviewViewModel(session, frames, publish: panel);
+            var window = new Window
+            {
+                Content = new ReviewPane { DataContext = review },
+                Style = (Style)Application.Current.FindResource("Window.Base"),
+            };
+            _ = await Screens.ShowAsync(window, 1024, 680);
+            try
+            {
+                Assert.True(review.Publish.CanPublish, "The sample cannot publish, so this would prove nothing.");
+                await EnlargeFirstAsync(window, review.Strip);
+                _ = await Screens.OpenBlurBoxAsync(window);
+                _ = Keys.Press(window, Key.Enter);
+                await Screens.UntilAsync(() => frames.Asked == 1 && !review.Publish.CanPublish);
+
+                var reason = review.Strip.PublishHeldBecause;
+                Assert.False(string.IsNullOrEmpty(reason));
+                Assert.False(review.Publish.CanPublish);
+                Assert.Equal(reason, review.Publish.BlockedBecause);
+                Assert.Equal(Visibility.Visible, review.Publish.BlockedVisibility);
+                var button = Audit.Descendants(window).OfType<Button>().Single(b => b.Command == review.Publish.PublishCommand && b.IsVisible);
+                Assert.False(button.IsEnabled, "Publish stayed enabled while a blur waited.");
+                Assert.Equal(reason, System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(button).GetHelpText());
+
+                // Every way to press it: Ctrl+Enter (the box put away first), Alt+3 into the pane and Tab
+                // through it, where a disabled button is never reached to be pressed with Enter or Space, and
+                // the command itself, which a stale binding could still call.
+                _ = Keys.Press(window, Key.Escape);
+                await Audit.Settle();
+                _ = Keys.Press(window, Key.Enter, ModifierKeys.Control);
+                _ = Keys.Press(window, Key.D3, ModifierKeys.Alt);
+                await Audit.Settle();
+                Assert.True(Screens.Within(Keyboard.FocusedElement, Audit.Descendants(window).OfType<UI.Review.Publish.PublishPane>().Single()), "Alt+3 did not go to the publish pane.");
+                for (var i = 0; i < 15; i++)
+                {
+                    Assert.False(button.IsKeyboardFocused, "Tab reached Publish while a blur waited, where Enter or Space would press it.");
+                    _ = Keys.Press(window, Key.Tab);
+                    await Audit.Settle();
+                }
+
+                await review.Publish.PublishCommand.ExecuteAsync(null);
+                for (var i = 0; i < 10; i++)
+                {
+                    await Audit.Settle();
+                }
+
+                Assert.Equal(0, published);
+                Assert.NotEqual(Visibility.Visible, review.Publish.ResultsVisibility);
+
+                // Landed: the hold lifts, and the same chord publishes.
+                frames.Gate.SetResult(new BlurReply(true, Picture(1600, 900)));
+                await Screens.UntilAsync(() => review.Publish.CanPublish);
+                Assert.True(review.Publish.CanPublish, "Publish stayed held after the blur landed.");
+                await review.Publish.PublishCommand.ExecuteAsync(null);
+                await Screens.UntilAsync(() => published == 1);
+                Assert.Equal(1, published);
+            }
+            finally
+            {
+                await Screens.CloseAsync(window);
+            }
+        });
     }
 
     /// <summary>
@@ -651,9 +870,15 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
 
         public int Thumbnails { get; private set; }
 
+        public int Images { get; private set; }
+
         public List<MaskedRegion> Regions { get; } = [];
 
-        public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default) => Task.FromResult<byte[]?>(picture);
+        public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default)
+        {
+            Images++;
+            return Task.FromResult<byte[]?>(picture);
+        }
 
         public Task<byte[]?> ThumbnailAsync(Frame frame, CancellationToken ct = default)
         {

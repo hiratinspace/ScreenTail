@@ -68,8 +68,42 @@ public partial class FilmstripView : UserControl
             {
                 now.PropertyChanged += OnModelChanged;
             }
+
+            if (e.OldValue is FilmstripViewModel was)
+            {
+                was.BlurAnswered -= OnBlurAnswered;
+            }
+
+            if (e.NewValue is FilmstripViewModel model)
+            {
+                model.BlurAnswered += OnBlurAnswered;
+            }
         };
     }
+
+    /// <summary>
+    /// A blur the pane stopped waiting for has its answer (review of #257). The technician was last told it
+    /// was still waiting, so what it came to is said, when the enlarged view is there to say it.
+    /// </summary>
+    private void OnBlurAnswered(FrameItem item, BlurOutcome outcome)
+    {
+        if (!EnlargedView.IsVisible)
+        {
+            return;
+        }
+
+        Say(outcome switch
+        {
+            BlurOutcome.Blurred => "The last blur has now been applied.",
+            BlurOutcome.BlurredNotShown => "The last blur has now been applied. The screenshot is now too large to show here; its thumbnail shows the blur.",
+            BlurOutcome.NotBlurred => "The last blur was not applied.",
+            _ => MayNotHaveBeenApplied,
+        });
+    }
+
+    private const string MayNotHaveBeenApplied = "The blur may not have been applied: the capture service went away. The screenshot is shown again as the service has it.";
+
+    private const string StillWaiting = "Still waiting for the last blur.";
 
     /// <summary>
     /// The OCR text panel covers the picture, and the blur box with it. A box nobody can see must not be
@@ -249,7 +283,16 @@ public partial class FilmstripView : UserControl
 
         // Measured against the Image, not the Canvas: Stretch="Uniform" letterboxes, so the Canvas is
         // larger than the picture and a rectangle in its coordinates would be scaled from the wrong size.
-        await BlurAsync(Rect.Between(from.X, from.Y, to.X, to.Y));
+        var drawn = Rect.Between(from.X, from.Y, to.X, to.Y);
+
+        // A click, or a wobble: no attempt at all. Still armed for a real drag, nothing said, and no
+        // keyboard box brought out for a mouse user (review of #257).
+        if (!BlurRegion.IsMeaningful(drawn))
+        {
+            return;
+        }
+
+        await BlurAsync(drawn, fromKeyboard: false);
     }
 
     /// <summary>Enter on the box: the blur a drag over the same rectangle makes.</summary>
@@ -257,7 +300,11 @@ public partial class FilmstripView : UserControl
     {
         if (Displayed() is { } displayed)
         {
-            await BlurAsync(_box.Drawn(displayed));
+            await BlurAsync(_box.Drawn(displayed), fromKeyboard: true);
+        }
+        else if (Model?.Enlarged is { BlurPending: true })
+        {
+            Say(StillWaiting);
         }
     }
 
@@ -270,10 +317,13 @@ public partial class FilmstripView : UserControl
     /// where it was, so the technician can try again or press Esc: a failure that silently threw the box
     /// away would leave them believing the region was covered (ST-084 follow-up review).
     /// </summary>
-    private async Task BlurAsync(Rect drawn)
+    /// <param name="fromKeyboard">Enter on the box, rather than a drag: only then is a retry the box's to offer.</param>
+    private async Task BlurAsync(Rect drawn, bool fromKeyboard)
     {
-        if (_blurring)
+        // One blur at a time, and none of a frame whose last blur has no answer yet: said, not ignored.
+        if (_blurring || Model?.Enlarged is { BlurPending: true })
         {
+            Say(StillWaiting);
             return;
         }
 
@@ -292,8 +342,8 @@ public partial class FilmstripView : UserControl
         }
         catch (OperationCanceledException) when (wait.IsCancellationRequested)
         {
-            // No answer in time. The service may still write it; the view model has stopped showing the
-            // picture and its text, which may be out of date, so opening the frame again shows the disk.
+            // No answer in time. The view model goes on waiting for it, holds Publish back, and has stopped
+            // showing the picture and its text, which may be from before; BlurAnswered says the answer.
         }
         finally
         {
@@ -312,14 +362,22 @@ public partial class FilmstripView : UserControl
                 BlurMode.IsChecked = false;
                 Say("Region blurred. The screenshot is now too large to show here; its thumbnail shows the blur.");
                 break;
-            case BlurOutcome.NotBlurred:
-                // Put away with Esc while it waited, the box stays away and the words say only what happened.
+            case BlurOutcome.NotBlurred when fromKeyboard && BlurMode.IsChecked == true:
                 KeepTheBoxOut();
-                Say(BlurMode.IsChecked == true ? "Nothing was blurred. Press Enter to try again, or Esc to put the box away." : "Nothing was blurred.");
+                Say("Nothing was blurred. Press Enter to try again, or Esc to put the box away.");
+                break;
+            case BlurOutcome.NotBlurred:
+                // A drag, or a box put away with Esc while it waited: still armed for a drag where it was,
+                // and the words say only what happened.
+                Say("Nothing was blurred.");
+                break;
+            case BlurOutcome.Unknown:
+                BlurMode.IsChecked = false;
+                Say(MayNotHaveBeenApplied);
                 break;
             default:
                 BlurMode.IsChecked = false;
-                Say("The service did not answer, so the region may not be blurred. Close the screenshot and open it again to see it as it is.");
+                Say("The capture service has not answered yet. The screenshot is hidden and Publish waits until it does.");
                 break;
         }
     }
@@ -376,7 +434,11 @@ public partial class FilmstripView : UserControl
 
                 return true;
             case BlurBoxKey.Apply when KeyboardBox.IsKeyboardFocused:
-                if (!_blurring)
+                if (_blurring || Model?.Enlarged is { BlurPending: true })
+                {
+                    Say(StillWaiting);
+                }
+                else
                 {
                     BlurUnderTheBox();
                 }

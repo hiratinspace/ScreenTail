@@ -33,6 +33,7 @@ public sealed partial class FrameItem : StripItem
 
     /// <summary>The full image, held only while the frame is enlarged. Null the rest of the time.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WaitingForBlur))]
     private byte[]? _image;
 
     public override long TsMs => Cell.Frame.TsMs;
@@ -70,7 +71,11 @@ public sealed partial class FrameItem : StripItem
     /// picture of the frame from before it is shown or fetched, and Publish is held back.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WaitingForBlur))]
     private bool _blurPending;
+
+    /// <summary>Pending, with no picture to show: what the enlarged view says instead of a picture.</summary>
+    public bool WaitingForBlur => BlurPending && Image is null;
 
     internal void Refresh(FrameCell cell)
     {

@@ -197,6 +197,16 @@
                            SizeChanged="OnBlurLayoutChanged"
                            AutomationProperties.Name="{Binding Enlarged.Label}" />
 
+                    <!-- A blur of this frame with no answer yet (review of #257): no picture is shown, because
+                         the one the service has may be from before it. Said instead of a blank. -->
+                    <TextBlock Margin="24"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Body}"
+                               TextAlignment="Center"
+                               Text="Waiting for the capture service to finish the last blur. The screenshot is hidden until it has."
+                               Visibility="{Binding Enlarged.WaitingForBlur, Converter={StaticResource Visible}}" />
+
                     <!-- The blur surface. Transparent rather than absent, because a Canvas with no
                          background receives no mouse events at all and the drag would never start. -->
                     <Canvas x:Name="BlurSurface"
