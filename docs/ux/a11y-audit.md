@@ -99,7 +99,9 @@ took 28.7 s, and the 33 Accessibility Insights scans took 112.1 s, about 3.4 s e
 difference. Each screen is opened once for every rule, the second and third palettes re-walk only the
 focus visuals, and one axe-windows runner process serves the whole suite. The laptop's capabilities job
 runs the whole assembly too: 452 s with the suite (about 430 s before), and the job took 8 min 44 s of
-its 15-minute limit (run 41535721423, which passed).
+its 15-minute limit (run 41535721423, which passed). With the blur box added as a screen and its keyboard
+tests (2026-11-04, run 41901368177), the hosted suite came to 97 runs on the UI thread in 36.1 s and 34
+scans in 119.5 s, and the Windows assembly to 263 s.
 
 ### The tests have teeth
 
@@ -124,6 +126,8 @@ On 2026-11-01 each rule was broken on purpose on a throwaway branch (three round
 | The splitters reaching over the panes' edges again (run 41365067561) | `CoveredScrollBars` ("the scroll bar of NoteEditorView is covered ... by GridSplitter"), `NoSplitterLiesOverAPanesScrollBar`, and the reading order |
 | Alt+NumPad1 jumping to the note again | `AltWithTheNumberPadIsLeftForTyping` |
 | Ctrl+Z ignored over the enlarged screenshot | `CtrlZUndoesADeleteFromTheEnlargedView` |
+| The blur box's position no longer clamped to the picture (2026-11-04, run 41902899753) | Core's `BlurBoxTests` (three: moved off, grown past, any numbers) and `TheBoxStopsAtThePicturesEdgesAndCanCoverAllOfIt` ("160% from the left, -80% from the top") |
+| Enter on the blur box not routed (the same run) | `TheKeysPlaceTheBoxAndEnterBlursWhatItCoversAsADragWould` ("Enter on the blur box was not handled"), `EachKeyDoesWhatTheSheetSays(Return)` |
 
 ## Needs a person
 
