@@ -496,7 +496,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     /// <summary>
     /// `B`, after dragging a rectangle over the enlarged frame or placing the blur box over it with the
     /// keys. Destructive, and the ordering that makes it safe belongs to <see cref="FrameBlur"/>, where it
-    /// is tested without WPF — this only takes what the store already holds and shows it. True when the
+    /// is tested without WPF; this only takes what the store already holds and shows it. True when the
     /// blur landed.
     /// </summary>
     public async Task<bool> BlurAsync(FrameItem item, Rect drawn, Size displayed, CancellationToken ct = default)

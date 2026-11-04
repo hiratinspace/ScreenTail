@@ -21,7 +21,8 @@ runner and on the laptop; what is left is listening to what is read.
 Every screen a technician reaches is opened with the screenshot harness's sample data at the shell's
 minimum size (1024 x 680), shown and focused, and checked through its automation peers, WPF's own
 keyboard pipeline and the axe-windows engine. The screens: Review (ticket chosen, no PSA, published,
-partly published, waiting on a company mapping, timeline open, a screenshot enlarged), History, Settings
+partly published, waiting on a company mapping, timeline open, a screenshot enlarged, and the same with the
+blur box out over it), History, Settings
 (this device, Capture, Privacy, Integrations, Updates), the service-down banner, each of the seven
 onboarding steps, the diagnostics panel answered and unanswered, the three typed confirmations, the
 shortcut sheet, the pill in all ten states, and the tray menu.
@@ -39,6 +40,7 @@ shortcut sheet, the pill in all ten states, and the tray menu.
 | Focus is visible | `Audit.TabAsync`, in the dark, light and high-contrast palettes | A focused control that, drawn again without focus, changes in fewer pixels with 3:1 contrast than a quarter of the perimeter of the region around it ((width + height) / 2) |
 | Scroll bars can be grabbed | `Audit.CoveredScrollBars` on every screen, `NoSplitterLiesOverAPanesScrollBar` | Anything lying over a visible scroll bar's track (scroll bars are not Tab stops, so the keyboard checks never see them) |
 | Documented shortcuts | `KeyboardShortcutTests` | Ctrl+S, Ctrl+Enter, Alt+1/2/3, Alt+T, Alt+C, Alt+Down, Space, Enter, T, Esc (from the strip and from the enlarged view's own buttons), Del and Ctrl+Z not doing what Spec §5 S3 says; ? not opening the shortcut sheet outside a text box, or not typing a ? inside one |
+| Blurring from the keyboard | `KeyboardBlurTests` | B on an enlarged screenshot not bringing out the blur box with focus on it; the arrows, Shift+arrows or Ctrl not moving or resizing it as `BlurBox` says (Core's `BlurBoxTests` hold the steps, the 2% minimum and the edges); the box drawn anywhere but over the rectangle it blurs; Enter not blurring the region a drag over the same rectangle blurs, through the same call, or leaving the frame's OCR text; Esc blurring anything, or closing the screenshot before the box is put away; focus not back on the blur toggle afterwards; where the box is not announced as it moves, or announced with anything but numbers; a key the shortcut sheet lists for the box doing something else |
 | Undo and Alt codes | `KeyboardShortcutTests` | Ctrl+Z not taking a delete back from the enlarged view; Alt with the number pad moving focus instead of being left to type a character |
 | Esc closes dialogs | `KeyboardShortcutTests.EscClosesTheDialog` | A typed confirmation that opens without the caret in its box, or that Esc does not close; the shortcut sheet not closing on Esc |
 | Disabled reasons are spoken | `KeyboardShortcutTests.ADisabledPublishSaysWhyToAScreenReader` | A disabled Publish whose help text is not the reason written beside it |
@@ -137,8 +139,9 @@ Narrator said, and what it should have said.
    summary ("Draft, started ..., 1 min, screenconnect, 7 screenshots").
 3. **Live regions are heard.** While Narrator is on: stop the capture service (the banner and the badge
    should be read without moving focus), type a bad hotkey in Settings (the inline message), change step
-   in the wizard (the title), discard a frame (the undo toast), publish (the summary), and start a
-   session with the pill showing (its state, once, not every second).
+   in the wizard (the title), discard a frame (the undo toast), publish (the summary), move the blur box
+   (where it is, in percent, after each arrow, and "Region blurred" after Enter), and start a session with
+   the pill showing (its state, once, not every second).
 4. **The pill is read as its state.** With a session running, move Narrator to the pill (Caps+arrow
    keys, scan mode): "Recording, 3 minutes 12 seconds". It never takes focus, by design; its keys are the
    global hotkeys the shortcut sheet lists.
@@ -155,8 +158,12 @@ Narrator said, and what it should have said.
 9. **Accessibility Insights FastPass by hand** on two windows (Review and Settings), to confirm the
    automated scan sees what the tool sees: zero failures expected. Attach the report to the ticket.
 
-Known gaps a person should not report as new (owner decisions, below): blurring a region needs the
-mouse; scroll bars are 12 px.
+10. **The blur box.** Enlarge a screenshot, press B: Narrator reads "Region to blur, blur box" and the keys
+    in its help text, then where it is. Move and resize it, Tab off it and back, Esc, then B and Enter. A
+    sighted check at the same time: the box's outline and its focus ring show on a light screenshot and a
+    dark one, in the dark, light and a Windows contrast theme.
+
+Known gaps a person should not report as new (owner decisions, below): scroll bars are 12 px.
 
 ## Owner decisions (conservative defaults taken 2026-11-01)
 
@@ -165,8 +172,16 @@ mouse; scroll bars are 12 px.
 - **Scroll bars stay 12 px**, an exception to the 28 px target. They are not Tab stops; every scrolled
   region scrolls with the wheel, with keyboard focus moving into view, and with Page keys, which is
   WCAG 2.5.8's "equivalent" exception.
-- **Blurring a region needs the mouse** (Spec §5 S3 draws it as a drag on the enlarged screenshot). A
-  keyboard way to place and size the region is a new ticket, not part of this one.
+- **Blurring from the keyboard (2026-11-04, the keys are the owner's to confirm).** Spec §5 S3 drew the
+  blur as a drag; the first pass left it to the mouse. On an enlarged screenshot B now also brings out a
+  box, a fifth of the picture square, in its middle, with focus on it. The arrows move it 1% of the
+  picture, Shift with an arrow resizes it from its top left corner (at an edge it grows the other way),
+  and Ctrl with either takes 10% steps; it never leaves the picture and is at least 2% a side. Enter
+  blurs what it covers through the drag's own path; Esc puts it away from anywhere in the enlarged view,
+  and a second Esc closes the screenshot. Its position is announced in percent of the picture, not in
+  pixels, so each arrow is one step a listener can count, and it is numbers only (INV-10). The
+  alternatives were pixel steps (which would announce uneven numbers and change with the pane's size) and
+  a separate chord to start the box (B already means blur in the spec and the sheet).
 - **History's headers are Tab stops** so the table sorts from the keyboard (Spec §3: sortable). That adds
   five stops before the rows; the alternative is a sort chord, which the spec does not name.
 - **The gaps between Review's panes are 28 px** (were 12), because the splitter is the gap: Spec §7's
