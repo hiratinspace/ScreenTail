@@ -14,12 +14,10 @@ internal sealed class DesktopWindow : IDisposable
     private readonly Queue<Action> _posted = new();
     private volatile bool _closing;
 
-    private DesktopWindow(string title, bool ordinary)
+    // The class is resolved by the caller, on the test's thread, so a registration failure fails the test
+    // that asked for the window. Thrown on the window's own thread it would take the test host down with it.
+    private DesktopWindow(string title, string className, IntPtr instance)
     {
-        // The class is resolved here, on the test's thread, so a registration failure fails the test that
-        // asked for the window. Thrown on the window's own thread it would take the test host down with it.
-        var className = ordinary ? OrdinaryClass.Value : "STATIC";
-        var instance = ordinary ? GetModuleHandle(null) : IntPtr.Zero;
         _thread = new Thread(() => Run(title, className, instance)) { IsBackground = true, Name = "test window" };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
@@ -34,7 +32,7 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>A text box that masks what is typed into it — a real one, with ES_PASSWORD (ST-040).</summary>
     public IntPtr PasswordField { get; private set; }
 
-    public static DesktopWindow Create(string title) => new(title, ordinary: false);
+    public static DesktopWindow Create(string title) => new(title, "STATIC", IntPtr.Zero);
 
     /// <summary>
     /// A window whose class leaves everything to DefWindowProc, as an application's main window does with
@@ -43,7 +41,46 @@ internal sealed class DesktopWindow : IDisposable
     /// hook never hears of its renames. A hosted run showed a hook of the test's own receiving none of
     /// fifty.
     /// </summary>
-    public static DesktopWindow CreateOrdinary(string title) => new(title, ordinary: true);
+    public static DesktopWindow CreateOrdinary(string title) => new(title, OrdinaryClass.Value, GetModuleHandle(null));
+
+    /// <summary>
+    /// A window the shipped registry takes for a remote-support session: its class starts with
+    /// <c>ScreenConnect</c>, one of that tool's anchored class patterns. The real scope policy then captures
+    /// this window, and only this one, as a remote tool, so a test can run the real capture service
+    /// recording without "All windows" and without photographing anything else on the desktop. It shows
+    /// nothing but what the test writes into it (<see cref="ShowText"/>).
+    /// </summary>
+    public static DesktopWindow CreateRemoteToolShaped(string title) => new(title, RemoteToolClass.Value, GetModuleHandle(null));
+
+    /// <summary>
+    /// Shows large black text on white across the client area, so OCR has words to read. Calling it again
+    /// replaces the text in place, which is also what a screen changing looks like to the scene sampler.
+    /// </summary>
+    public void ShowText(string text)
+    {
+        var done = new ManualResetEventSlim();
+        Post(() =>
+        {
+            if (_text == IntPtr.Zero)
+            {
+                _ = GetClientRect(Handle, out var client);
+                _text = CreateWindowEx(0, "STATIC", text, WS_CHILD | WS_VISIBLE, 16, 16, client.Right - client.Left - 32, client.Bottom - client.Top - 32, Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                _font = CreateFont(-36, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Segoe UI");
+                _ = SendMessage(_text, WM_SETFONT, _font, new IntPtr(1));
+            }
+            else
+            {
+                _ = SetWindowText(_text, text);
+            }
+
+            _ = UpdateWindow(_text);
+            done.Set();
+        });
+        done.Wait(TimeSpan.FromSeconds(5));
+    }
+
+    private IntPtr _text;
+    private IntPtr _font;
 
     /// <summary>
     /// Adds the two edit controls the password-field tests need. They are created on the window's own
@@ -392,6 +429,10 @@ internal sealed class DesktopWindow : IDisposable
         }
 
         _ = DestroyWindow(window);
+        if (_font != IntPtr.Zero)
+        {
+            _ = DeleteObject(_font);
+        }
     }
 
     /// <summary>
@@ -401,6 +442,9 @@ internal sealed class DesktopWindow : IDisposable
     private static readonly Lazy<string> OrdinaryClass = new(() => Register("ScreenTail test window", COLOR_WINDOW + 1));
 
     /// <summary>The same class with a black background, for the dark half of <see cref="ShowContrast"/>.</summary>
+    /// <summary>A class the registry's ScreenConnect pattern (<c>^ScreenConnect</c>) matches, for <see cref="CreateRemoteToolShaped"/>.</summary>
+    private static readonly Lazy<string> RemoteToolClass = new(() => Register("ScreenConnect.ScreenTailTestWindow", COLOR_WINDOW + 1));
+
     private static readonly Lazy<string> DarkClass = new(() => Register("ScreenTail dark test window", GetStockObject(BLACK_BRUSH)));
 
     private static string Register(string name, IntPtr background)
@@ -557,6 +601,21 @@ internal sealed class DesktopWindow : IDisposable
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr GetStockObject(int index);
+
+    [DllImport("gdi32.dll", EntryPoint = "CreateFontW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateFont(int height, int width, int escapement, int orientation, int weight, uint italic, uint underline, uint strikeOut, uint charSet, uint outPrecision, uint clipPrecision, uint quality, uint pitchAndFamily, string face);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(IntPtr handle);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_SETFONT = 0x0030;
+    private const int FW_NORMAL = 400;
+    private const uint DEFAULT_CHARSET = 1;
+    private const uint CLEARTYPE_QUALITY = 5;
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
