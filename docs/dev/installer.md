@@ -317,15 +317,20 @@ moments with no pause and asks the service to close three ways: sign-out (`WM_EN
 `ENDSESSION_LOGOFF`), Restart Manager (`ENDSESSION_CLOSEAPP`) and `WM_CLOSE`.
 
 What it requires, on the hosted runner and the laptop alike:
-- at least one frame still waiting for OCR and redaction when Windows asks;
+- at least one frame still waiting for OCR and redaction when Windows asks, with the session still
+  recording;
 - the store closed within the four-second budget, and `WM_ENDSESSION` answered only after that;
 - no `store.db-wal` or `-shm` left, and the next start of the real service recovering the session as
   partial;
-- every frame kept showing the test window's words, and none taken of anything else.
+- every frame kept carrying a word from the test window in its OCR text. That shows each kept frame was
+  read off a screen showing the test's words; it does not show that nothing else was ever captured, since
+  a frame still waiting at the stop is lost unread.
 
 On the laptop, in the sign-out case only, it also requires a microphone the service can open and the
-speech model in the service's memory before the recording counts. It refuses to run while a real
-remote-support program from the registry is running on the machine. On the hosted runner, which has no
+speech model in the service's memory before the recording counts. It refuses to run while a visible
+window on its desktop looks like a real remote-support session: a remote tool's window by the registry's
+processes and classes, or a browser whose title matches a browser entry. It gives the count, never a name.
+A remote tool's background agent with no window there does not stop it. On the hosted runner, which has no
 microphone, it measured 38 to 115 ms with one frame in flight (earlier rounds without the burst, 20 to
 about 100 ms); each run's figures are in the job summary and `measurements.txt`, as numbers.
 
