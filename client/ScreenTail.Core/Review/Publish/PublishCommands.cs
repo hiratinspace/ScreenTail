@@ -20,13 +20,19 @@ namespace ScreenTail.Core.Review.Publish;
 /// Told once a publish has marked its session published, so the machine stops resting on it and the
 /// tray's count moves (second review of #243). The machine's <c>PublishedAsync</c> in the service.
 /// </param>
+/// <param name="edits">
+/// The turn <see cref="ReviewCommands"/> takes to blur a frame. The frames' bytes are read inside it, so a
+/// publish that arrives while a blur is being painted waits and sends the blurred picture, never the one
+/// from before (ST-084 follow-up review).
+/// </param>
 public sealed class PublishCommands(
     ISessionStore store,
     IPsaGateway gateway,
     IMetricsReporter? metrics = null,
     Intel.IStyleLearner? style = null,
     ILogger? log = null,
-    Func<string, CancellationToken, Task<bool>>? published = null)
+    Func<string, CancellationToken, Task<bool>>? published = null,
+    FrameEditGate? edits = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
@@ -154,14 +160,17 @@ public sealed class PublishCommands(
         }
 
         var frames = new List<PublishWireFrame>(chosen.Count);
-        foreach (var id in chosen)
+        using (edits is null ? null : await edits.EnterAsync(ct).ConfigureAwait(false))
         {
-            // The store will still not hand back a pending one, and one deleted between the technician's
-            // choice and now is simply not sent (INV-1).
-            var image = await _store.GetRedactedFrameImageAsync(id, ct).ConfigureAwait(false);
-            if (image is { Length: > 0 })
+            foreach (var id in chosen)
             {
-                frames.Add(new PublishWireFrame(id, Convert.ToBase64String(image)));
+                // The store will still not hand back a pending one, and one deleted between the technician's
+                // choice and now is simply not sent (INV-1).
+                var image = await _store.GetRedactedFrameImageAsync(id, ct).ConfigureAwait(false);
+                if (image is { Length: > 0 })
+                {
+                    frames.Add(new PublishWireFrame(id, Convert.ToBase64String(image)));
+                }
             }
         }
 

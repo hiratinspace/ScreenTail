@@ -38,6 +38,48 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task APublishWaitsForABlurBeingPaintedAndSendsWhatItWrote()
+    {
+        // ST-084 follow-up review of #257: a publish that read a frame while a blur of it was being painted
+        // would send the picture the technician had just asked to cover. The two share the service's turn.
+        _ = await CommandsAsync();
+        var gate = new Core.Review.FrameEditGate();
+        var commands = new PublishCommands(_store!, _gateway, edits: gate);
+        await SeedAsync(["f1"]);
+        byte[] painted = [0xB1, 0xB2, 0xB3];
+
+        var blurring = await gate.EnterAsync();
+        var publishing = commands.ReplyToAsync(Publish(["f1"]));
+        await Task.Delay(150);
+        Assert.False(publishing.IsCompleted, "the publish read the frames while a blur held the turn");
+        Assert.Empty(_gateway.Published);
+
+        await _store!.ApplyUserBlurAsync("f1", painted, new MaskedRegion { X = 0, Y = 0, Width = 10, Height = 10, Kind = MaskKind.UserBlur });
+        blurring.Dispose();
+        _ = Assert.IsType<SessionPublished>(await publishing);
+
+        Assert.Equal(Convert.ToBase64String(painted), Assert.Single(Assert.Single(_gateway.Published).Frames).Image);
+        Assert.False(gate.IsHeld, "the publish kept the turn");
+    }
+
+    [Fact]
+    public async Task ABlurTakesTheSameTurnAPublishTakes()
+    {
+        _ = await CommandsAsync();
+        var gate = new Core.Review.FrameEditGate();
+        var review = new Core.Review.ReviewCommands(_store!, new StubMasker(), gate);
+        await SeedAsync(["f1"]);
+
+        var publishing = await gate.EnterAsync();
+        var blur = review.ReplyToAsync(new BlurFrameCommand { RequestId = 1, FrameId = "f1", X = 0, Y = 0, Width = 10, Height = 10 });
+        await Task.Delay(150);
+        Assert.False(blur.IsCompleted, "the blur painted while a publish held the turn");
+        publishing.Dispose();
+        _ = await blur;
+        Assert.False(gate.IsHeld);
+    }
+
+    [Fact]
     public async Task ASensitiveFrameIdIsNotSentEvenWhenNamed()
     {
         // session.v1: a sensitive_context frame is never sent or attached. The UI no longer names one, and
@@ -336,6 +378,12 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         return bookkeeping is null
             ? new PublishCommands(_store, _gateway)
             : new PublishCommands(_store, _gateway, bookkeeping, bookkeeping, log);
+    }
+
+    /// <summary>Paints nothing; the blur's outcome is not what the turn test is about.</summary>
+    private sealed class StubMasker : Core.Privacy.IFrameMasker
+    {
+        public Core.Privacy.MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge) => new(image.ToArray(), 1, 1);
     }
 
     /// <summary>The metrics reporter and the style learner, remembering what they were told; optionally failing like a store that is down.</summary>
