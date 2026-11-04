@@ -40,7 +40,7 @@ shortcut sheet, the pill in all ten states, and the tray menu.
 | Focus is visible | `Audit.TabAsync`, in the dark, light and high-contrast palettes | A focused control that, drawn again without focus, changes in fewer pixels with 3:1 contrast than a quarter of the perimeter of the region around it ((width + height) / 2) |
 | Scroll bars can be grabbed | `Audit.CoveredScrollBars` on every screen, `NoSplitterLiesOverAPanesScrollBar` | Anything lying over a visible scroll bar's track (scroll bars are not Tab stops, so the keyboard checks never see them) |
 | Documented shortcuts | `KeyboardShortcutTests` | Ctrl+S, Ctrl+Enter, Alt+1/2/3, Alt+T, Alt+C, Alt+Down, Space, Enter, T, Esc (from the strip and from the enlarged view's own buttons), Del and Ctrl+Z not doing what Spec §5 S3 says; ? not opening the shortcut sheet outside a text box, or not typing a ? inside one |
-| Blurring from the keyboard | `KeyboardBlurTests` | B on an enlarged screenshot not bringing out the blur box with focus on it; the arrows, Shift+arrows or Ctrl not moving or resizing it as `BlurBox` says (Core's `BlurBoxTests` hold the steps, the 2% minimum and the edges); the box drawn anywhere but over the rectangle it blurs; Enter not blurring the region a drag over the same rectangle blurs, through the same call, or leaving the frame's OCR text; Esc blurring anything, or closing the screenshot before the box is put away; focus not back on the blur toggle afterwards; where the box is not announced as it moves (an arrow into an edge included), or announced with anything but numbers; "Region blurred" not said; a held Enter writing a second region; a blur that did not land going unsaid or throwing the box away; one written but not sent back leaving the old picture or text on screen; a blur the service never answers waiting for ever, or Esc not putting the box away while it waits; the box left out under the OCR text; Ctrl+Enter publishing past an unapplied box; the box drawn off a letterboxed picture; a key the shortcut sheet lists for the box doing something else |
+| Blurring from the keyboard | `KeyboardBlurTests` | B on an enlarged screenshot not bringing out the blur box with focus on it; the arrows, Shift+arrows or Ctrl not moving or resizing it as `BlurBox` says (Core's `BlurBoxTests` hold the steps, the 2% minimum and the edges); the box drawn anywhere but over the rectangle it blurs; Enter not blurring the region a drag over the same rectangle blurs, through the same call, or leaving the frame's OCR text; Esc blurring anything, or closing the screenshot before the box is put away; focus not back on the blur toggle afterwards; where the box is not announced as it moves (an arrow into an edge included), or announced with anything but numbers; "Region blurred" not said; a held Enter writing a second region; Publish reachable in any way while a blur waits, or a publish reading a frame mid-blur in the service; the frame's picture, thumbnail or text shown, or asked for on reopening, while its blur waits; a late answer not said; a dropped pipe said as "Nothing was blurred"; B then Enter or a drag during a wait going unsaid; a click on the armed picture taken for an attempt; a blur that did not land going unsaid or throwing the box away; one written but not sent back leaving the old picture or text on screen; a blur the service never answers waiting for ever, or Esc not putting the box away while it waits; the box left out under the OCR text; Ctrl+Enter publishing past an unapplied box; the box drawn off a letterboxed picture; a key the shortcut sheet lists for the box doing something else |
 | Undo and Alt codes | `KeyboardShortcutTests` | Ctrl+Z not taking a delete back from the enlarged view; Alt with the number pad moving focus instead of being left to type a character |
 | Esc closes dialogs | `KeyboardShortcutTests.EscClosesTheDialog` | A typed confirmation that opens without the caret in its box, or that Esc does not close; the shortcut sheet not closing on Esc |
 | Disabled reasons are spoken | `KeyboardShortcutTests.ADisabledPublishSaysWhyToAScreenReader` | A disabled Publish whose help text is not the reason written beside it |
@@ -206,6 +206,25 @@ Known gaps a person should not report as new (owner decisions, below): scroll ba
     box away at once; what came of it is still said.
   - **The box's focus rings are inside it**, so nothing drawn reaches past what is blurred: the outer edge
     is the edge of the blur, and the help text says so.
+
+  From the second review of #257:
+  - **While any blur waits for the service, Publish is unavailable** (button disabled with the reason beside
+    it and as its help text, Ctrl+Enter, Retry and the mapping retry refused), so the picture from before a
+    blur can never be sent. In the service, a publish also waits for a blur being painted
+    (`FrameEditGate`) and sends what it wrote. Otherwise Publish with the mouse is allowed as before.
+  - **A blur is never abandoned.** After 20 s the pane stops waiting and says so, but the request runs to
+    the service's answer: until then the frame's picture, thumbnail and text are not shown (the enlarged
+    view says it is waiting), and Publish stays held. A hung service therefore holds Publish in that
+    Review until it answers or the pipe drops; Publish goes over the same pipe, so it could not have gone
+    out anyway.
+  - **A late answer is said only when the enlarged view is open**: the status line lives there. Closed, the
+    strip's thumbnail still changes to what the service has.
+  - **A pipe that dropped mid-blur says "The blur may not have been applied"**, never "Nothing was blurred",
+    and the frame is shown again as the service has it.
+  - **A click or a too-small drag is no attempt**: nothing is asked, nothing said, blurring stays armed. A
+    refused drag says "Nothing was blurred." only; the retry hint and the box come back for Enter alone.
+  - **Later:** the "written but too large" case is recognised by the start of the service's refusal
+    (`ReviewCommands.WrittenButTooLarge`); a structured result code in the IPC contract would be better.
 - **History's headers are Tab stops** so the table sorts from the keyboard (Spec §3: sortable). That adds
   five stops before the rows; the alternative is a sort chord, which the spec does not name.
 - **The gaps between Review's panes are 28 px** (were 12), because the splitter is the gap: Spec §7's
