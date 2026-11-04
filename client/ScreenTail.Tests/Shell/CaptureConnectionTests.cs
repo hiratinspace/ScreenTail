@@ -1,6 +1,7 @@
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
+using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.Tests.Shell;
 
@@ -400,6 +401,25 @@ public sealed class CaptureConnectionTests
 
         Assert.Null(answer.Reply);
         Assert.Equal("The capture service disconnected.", answer.Refusal);
+        Assert.True(answer.WasLost, "a command that went out before the pipe dropped was reported as plainly refused");
+        Assert.Single(channel.Sent);
+    }
+
+    [Fact]
+    public async Task ABlurWhoseAnswerWasLostIsUnknownNotUndone()
+    {
+        // Review of #257: the blur went out and the pipe dropped. It may be on disk, so the pane must not
+        // be told nothing was blurred.
+        var shell = new ShellState();
+        var channel = new FakeChannel(Recording) { Fault = new IOException("Pipe is broken.") };
+        await using var connection = Connect(shell, () => channel);
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+        var frames = new ScreenTail.Core.Review.PipeReviewFrames(connection);
+
+        var reply = await frames.BlurWithReplyAsync("f1", new MaskedRegion { X = 0, Y = 0, Width = 4, Height = 4, Kind = MaskKind.UserBlur }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ScreenTail.Core.Review.BlurReply.Unknown, reply);
         Assert.Single(channel.Sent);
     }
 
@@ -428,6 +448,7 @@ public sealed class CaptureConnectionTests
 
         Assert.Null(answer.Reply);
         Assert.Equal("Not connected to the capture service.", answer.Refusal);
+        Assert.False(answer.WasLost, "a command that never left was reported as possibly done");
     }
 
     [Theory]

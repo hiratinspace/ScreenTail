@@ -81,6 +81,7 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
         return answer switch
         {
             { Reply: { } loaded } => new BlurReply(true, loaded.Image),
+            { WasLost: true } => BlurReply.Unknown,
             { Refusal: { } refusal } when refusal.StartsWith(ReviewCommands.WrittenButTooLarge, StringComparison.Ordinal) => new BlurReply(true, null),
             _ => BlurReply.NotWritten,
         };

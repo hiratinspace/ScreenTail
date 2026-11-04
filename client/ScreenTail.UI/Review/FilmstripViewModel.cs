@@ -65,6 +65,13 @@ public sealed partial class FrameItem : StripItem
     /// <summary>Where the cursor was, for the marker in the enlarged view. Null when it was not recorded.</summary>
     public Point? Cursor => Cell.Frame.Cursor;
 
+    /// <summary>
+    /// A blur of this frame is still waiting for the service's answer (review of #257). Until it comes, no
+    /// picture of the frame from before it is shown or fetched, and Publish is held back.
+    /// </summary>
+    [ObservableProperty]
+    private bool _blurPending;
+
     internal void Refresh(FrameCell cell)
     {
         Cell = cell;
@@ -214,8 +221,9 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
         ct.ThrowIfCancellationRequested();
 
         // A blur while this was on the pipe has already drawn the thumbnail from the blurred image, and the
-        // picture answered here is from before it.
-        if (bytes is null || !ReferenceEquals(item.Cell.Frame, asked))
+        // picture answered here is from before it. One still waiting for its answer has not, and the
+        // picture could be from before it too.
+        if (bytes is null || !ReferenceEquals(item.Cell.Frame, asked) || item.BlurPending)
         {
             return;
         }
@@ -447,6 +455,22 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     [RelayCommand]
     private async Task EnlargeAsync(FrameItem? item)
     {
+        // A blur of it still waiting for the service: the picture the service has may be the one from before
+        // it, so none is asked for, and the enlarged view says it is waiting. It is asked for once the blur
+        // has an answer (review of #257).
+        if (item is { BlurPending: true })
+        {
+            if (Enlarged is { } open && open != item)
+            {
+                Release(open);
+            }
+
+            Enlarged = item;
+            ShowOcrText = false;
+            OnPropertyChanged(nameof(IsEnlarged));
+            return;
+        }
+
         if (item is not null && item.Image is null && _frames is not null)
         {
             item.Image = await _frames.ImageAsync(item.Cell.Frame).ConfigureAwait(true);
@@ -497,7 +521,16 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     /// `B`, after dragging a rectangle over the enlarged frame or placing the blur box over it with the
     /// keys. Destructive, and the ordering that makes it safe belongs to <see cref="FrameBlur"/>, where it
     /// is tested without WPF; this only takes what the store already holds and shows it.
+    ///
+    /// The request to the service runs to its answer whatever <paramref name="ct"/> does: giving up only
+    /// stops the caller waiting (review of #257). From the moment it is asked until that answer, the frame
+    /// is <see cref="FrameItem.BlurPending"/> and Publish is held back (<see cref="PublishHeldBecause"/>),
+    /// so the picture from before the blur can never go out while the blur may still land. Given up on,
+    /// the picture, its thumbnail and its text stop being shown, because each may be the one from before;
+    /// when the answer does come, <see cref="BlurAnswered"/> says what it was, and the frame is shown as
+    /// the service now has it.
     /// </summary>
+    /// <exception cref="OperationCanceledException">The caller stopped waiting; the blur goes on.</exception>
     public async Task<BlurOutcome> BlurAsync(FrameItem item, Rect drawn, Size displayed, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -506,58 +539,148 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
             return BlurOutcome.NotBlurred;
         }
 
-        BlurredFrame? blurred;
+        var answer = AnswerAsync(item, _blur.ApplyAsync(item.Cell.Frame, item.Image, drawn, displayed, CancellationToken.None));
         try
         {
-            blurred = await _blur.ApplyAsync(item.Cell.Frame, item.Image, drawn, displayed, ct).ConfigureAwait(true);
+            return await answer.WaitAsync(ct).ConfigureAwait(true);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested && !answer.IsCompleted)
         {
-            // Given up on before the service answered, which may still write it. What is held here may be
-            // the picture and the text from before, so neither is shown any more; enlarging the frame again
-            // asks the service for both as they now are.
-            item.Image = null;
-            item.OcrText = null;
-            ShowOcrText = false;
+            Forget(item);
+            _ = TellWhenAnsweredAsync(item, answer);
             throw;
         }
+    }
 
-        if (blurred is null)
+    /// <summary>
+    /// What a blur that was given up on came to, once the service said: raised on the UI thread. The pane
+    /// says so, because the technician was last told it was still waiting.
+    /// </summary>
+    public event Action<FrameItem, BlurOutcome>? BlurAnswered;
+
+    /// <summary>
+    /// Why Publish is held back: a blur still waiting for the service's answer (review of #257). Null when
+    /// none is. Fixed words and the frame's number only (INV-10).
+    /// </summary>
+    public string? PublishHeldBecause => _pending.Count switch
+    {
+        0 => null,
+        1 => $"A blur of {_pending.First().Label} is still being applied. Publish once it has landed.",
+        var n => $"Blurs of {n} screenshots are still being applied. Publish once they have landed.",
+    };
+
+    /// <summary>Frames with a blur waiting for the service's answer.</summary>
+    private readonly HashSet<FrameItem> _pending = [];
+
+    private async Task TellWhenAnsweredAsync(FrameItem item, Task<BlurOutcome> answer)
+    {
+        var outcome = await answer.ConfigureAwait(true);
+        BlurAnswered?.Invoke(item, outcome);
+    }
+
+    /// <summary>
+    /// The one blur, from asking to answer, holding the frame pending throughout and showing it as the
+    /// service has it at the end.
+    /// </summary>
+    private async Task<BlurOutcome> AnswerAsync(FrameItem item, Task<BlurredFrame?> applying)
+    {
+        item.BlurPending = true;
+        _ = _pending.Add(item);
+        OnPropertyChanged(nameof(PublishHeldBecause));
+        var askAgain = false;
+        try
         {
-            return BlurOutcome.NotBlurred;
-        }
-
-        // Written but not sent back: the picture held here is the one from before the blur, so it is not
-        // shown any longer, and the strip asks for the service's small picture of what is on disk now.
-        item.Image = blurred.Image;
-        item.Thumbnail = blurred.Image is { } image ? Thumbnails.Decode(image) : null;
-        item.Refresh(item.Cell with { Frame = blurred.Frame });
-        _strip.Replace(blurred.Frame);
-
-        // A blur takes the frame's OCR text with it: the service cleared it in the same write. The text
-        // the enlarged view holds was fetched before the blur, so it goes too, or `T` would still show it.
-        item.OcrText = null;
-
-        // The text panel would otherwise stay open over the text the blur has just withdrawn.
-        ShowOcrText = false;
-        if (blurred.Image is not null)
-        {
-            return BlurOutcome.Blurred;
-        }
-
-        if (_frames is not null)
-        {
+            BlurredFrame? blurred;
             try
             {
-                await LoadThumbnailAsync(_frames, item, _thumbnailToken).ConfigureAwait(true);
+                blurred = await applying.ConfigureAwait(true);
             }
-            catch (OperationCanceledException)
+            catch (BlurNotConfirmedException)
             {
-                // The pane went first. The cell stays empty, which is true: it no longer shows the old picture.
+                // The service went away mid-blur. What is held may be from before it, so it goes, and the
+                // frame is asked for again below, as the service has it when it is back.
+                Forget(item);
+                askAgain = true;
+                return BlurOutcome.Unknown;
+            }
+
+            if (blurred is null)
+            {
+                return BlurOutcome.NotBlurred;
+            }
+
+            // The picture is held only while the frame is the enlarged one; a frame closed while it waited
+            // keeps none. Written but not sent back, there is no picture to hold, and the strip asks for the
+            // service's small one of what is on disk now.
+            item.Image = Enlarged == item ? blurred.Image : null;
+            item.Thumbnail = blurred.Image is { } image ? Thumbnails.Decode(image) : null;
+            item.Refresh(item.Cell with { Frame = blurred.Frame });
+            _strip.Replace(blurred.Frame);
+
+            // A blur takes the frame's OCR text with it: the service cleared it in the same write. The text
+            // the enlarged view holds was fetched before the blur, so it goes too, or `T` would still show it.
+            item.OcrText = null;
+
+            // The text panel would otherwise stay open over the text the blur has just withdrawn.
+            ShowOcrText = false;
+            askAgain = blurred.Image is null;
+            return blurred.Image is null ? BlurOutcome.BlurredNotShown : BlurOutcome.Blurred;
+        }
+        finally
+        {
+            item.BlurPending = false;
+            _ = _pending.Remove(item);
+            OnPropertyChanged(nameof(PublishHeldBecause));
+
+            // Given up on while it waited, the frame was forgotten; whatever the answer, it is shown again
+            // as the service has it.
+            if (_forgotten.Remove(item) | askAgain)
+            {
+                await ShowAsTheServiceHasItAsync(item).ConfigureAwait(true);
             }
         }
+    }
 
-        return BlurOutcome.BlurredNotShown;
+    /// <summary>Frames <see cref="Forget"/> stopped showing while their blur waited.</summary>
+    private readonly HashSet<FrameItem> _forgotten = [];
+
+    /// <summary>Stops showing a frame whose picture, thumbnail and text may all be from before a blur.</summary>
+    private void Forget(FrameItem item)
+    {
+        _ = _forgotten.Add(item);
+        item.Image = null;
+        item.Thumbnail = null;
+        item.OcrText = null;
+        if (Enlarged == item)
+        {
+            ShowOcrText = false;
+        }
+    }
+
+    /// <summary>
+    /// The frame asked for again once its blur has an answer: the thumbnail, and the picture and text if it
+    /// is the enlarged one. What does not come back stays empty, which is true: nothing old is shown.
+    /// </summary>
+    private async Task ShowAsTheServiceHasItAsync(FrameItem item)
+    {
+        if (_frames is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await LoadThumbnailAsync(_frames, item, _thumbnailToken).ConfigureAwait(true);
+            if (Enlarged == item && item.Image is null && !item.BlurPending)
+            {
+                item.Image = await _frames.ImageAsync(item.Cell.Frame, _thumbnailToken).ConfigureAwait(true);
+                item.OcrText = await _frames.OcrTextAsync(item.Cell.Frame, _thumbnailToken).ConfigureAwait(true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The pane went first.
+        }
     }
 
     private static StripItem Item(FilmstripCell cell) => cell switch

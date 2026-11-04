@@ -44,6 +44,12 @@ public sealed class FrameBlur(IReviewFrames frames)
 
         var region = BlurRegion.From(drawn, displayed, new Size(frame.Width, frame.Height));
         var reply = await _frames.BlurWithReplyAsync(frame.Id, region, ct).ConfigureAwait(false);
+        if (reply.Unconfirmed)
+        {
+            // Neither "nothing happened" nor a blur: the caller must stop showing what it holds and ask again.
+            throw new BlurNotConfirmedException();
+        }
+
         if (!reply.Written)
         {
             // Gone between the load and the blur, refused, or no service. Nothing was painted and nothing
@@ -76,4 +82,30 @@ public enum BlurOutcome
 
     /// <summary>Written, but the new image could not be sent back, so the old one is no longer shown.</summary>
     BlurredNotShown,
+
+    /// <summary>The service went away after it was asked; the blur may or may not be on disk.</summary>
+    Unknown,
+}
+
+/// <summary>
+/// A blur was asked for and the service went away before saying whether it was written (ST-084 follow-up
+/// review of #257). Thrown rather than returned as "not blurred", which would be a false statement about a
+/// frame that may now be covered, and the pane would go on showing the picture from before.
+/// </summary>
+public sealed class BlurNotConfirmedException : Exception
+{
+    public BlurNotConfirmedException()
+        : base("The capture service went away before saying whether the blur was written.")
+    {
+    }
+
+    public BlurNotConfirmedException(string message)
+        : base(message)
+    {
+    }
+
+    public BlurNotConfirmedException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
 }

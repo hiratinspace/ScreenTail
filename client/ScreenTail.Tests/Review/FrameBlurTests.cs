@@ -115,6 +115,16 @@ public sealed class FrameBlurTests
         Assert.NotNull(frames.LastRegion);
     }
 
+    [Fact]
+    public async Task ABlurTheServiceWentAwayFromIsNeitherDoneNorNotDone()
+    {
+        // Review of #257: the pipe dropped after the blur went out. "Nothing was blurred" would be a false
+        // statement about a frame that may now be covered, so it is not returned as a plain no.
+        var frames = new RecordingFrames { Reply = BlurReply.Unknown };
+
+        await Assert.ThrowsAsync<BlurNotConfirmedException>(() => new FrameBlur(frames).ApplyAsync(Frame(), [0xAA], Drawn, Displayed));
+    }
+
     private FrameBlur Blur() => new(_frames);
 
     private static Frame Frame() => new()

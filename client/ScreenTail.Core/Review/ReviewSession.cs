@@ -69,9 +69,12 @@ public interface IReviewFrames
 /// <summary>What became of a blur.</summary>
 /// <param name="Written">Whether the blur is on disk.</param>
 /// <param name="Image">The image as it now is; null when it was not written, or was and could not be sent back.</param>
-public sealed record BlurReply(bool Written, byte[]? Image)
+/// <param name="Unconfirmed">The service went away after it was asked: written or not, nobody can say.</param>
+public sealed record BlurReply(bool Written, byte[]? Image, bool Unconfirmed = false)
 {
     public static BlurReply NotWritten { get; } = new(false, null);
+
+    public static BlurReply Unknown { get; } = new(false, null, Unconfirmed: true);
 }
 
 public sealed class ReviewSession(ISessionStore store, string sessionId)

@@ -55,7 +55,8 @@ public sealed class ReviewViewModel : IAsyncDisposable
         Publish = new PublishViewModel(
             publish ?? PublishPanel.Unconnected(session),
             () => Note.CurrentNote,
-            () => Strip.IncludedFrameIds);
+            () => Strip.IncludedFrameIds,
+            () => Strip.PublishHeldBecause);
         Timeline = new TimelineViewModel(session, id => Strip.Select(id), timelineExpanded, timelineToggled);
 
         // The header changes whenever what goes out does, and the publish pane's frame ceiling (E-18)
@@ -97,7 +98,7 @@ public sealed class ReviewViewModel : IAsyncDisposable
 
     private void OnStripChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(FilmstripViewModel.Header))
+        if (e.PropertyName is nameof(FilmstripViewModel.Header) or nameof(FilmstripViewModel.PublishHeldBecause))
         {
             Publish.FramesChanged();
         }
