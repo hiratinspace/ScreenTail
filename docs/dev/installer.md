@@ -310,17 +310,29 @@ normal, not elevated, prompt on a developer's machine too, unless UAC is off.
 
 **The stop time in the middle of a recording is measured automatically** (ST-112). The Windows test
 `Host/StopTimeTests` runs the real capture host, composed as `Program.cs` composes it but over a
-throwaway folder and a pipe of its own, starts a session over the pipe as the UI does, keeps it busy
-(input hooks in, a synthetic window of a remote-tool class in front whose text changes, moments marked so
-OCR and redaction have frames), and then asks it to close three ways: sign-out (`WM_ENDSESSION` with
-`ENDSESSION_LOGOFF`), Restart Manager (`ENDSESSION_CLOSEAPP`) and `WM_CLOSE`. It fails unless the store
-is closed within the four-second budget and `WM_ENDSESSION` is answered only after that, no `store.db-wal`
-or `-shm` is left, and the next start of the real service recovers the session as partial. It runs on
-the hosted runner, where it measured 20 to about 100 ms, and in the laptop's capabilities job, where the
-microphone is open and the speech model loaded during the recording; each run's figures are in the job
-summary and `measurements.txt`, as numbers. A quiet room gives Whisper nothing to transcribe, so a stop
-in the middle of a transcription is not what it measures. The idle figure from the installed service is
-about 150 ms (smoke test).
+throwaway folder and a pipe of its own, with no backend address or device token, starts a session over
+the pipe as the UI does, and records for three seconds with the input hooks in and a synthetic window of
+a remote-tool class in front whose text changes while moments are marked. Then it marks a burst of
+moments with no pause and asks the service to close three ways: sign-out (`WM_ENDSESSION` with
+`ENDSESSION_LOGOFF`), Restart Manager (`ENDSESSION_CLOSEAPP`) and `WM_CLOSE`.
+
+What it requires, on the hosted runner and the laptop alike:
+- at least one frame still waiting for OCR and redaction when Windows asks;
+- the store closed within the four-second budget, and `WM_ENDSESSION` answered only after that;
+- no `store.db-wal` or `-shm` left, and the next start of the real service recovering the session as
+  partial;
+- every frame kept showing the test window's words, and none taken of anything else.
+
+On the laptop, in the sign-out case only, it also requires a microphone the service can open and the
+speech model in the service's memory before the recording counts. It refuses to run while a real
+remote-support program from the registry is running on the machine. On the hosted runner, which has no
+microphone, it measured 38 to 81 ms with one frame in flight (earlier rounds without the burst, 20 to
+about 100 ms); each run's figures are in the job summary and `measurements.txt`, as numbers.
+
+What it does not show: a stop while Whisper is transcribing. A quiet room gives Whisper nothing to
+transcribe, so the laptop proves the model is loaded, not that it is busy. A frame still waiting for
+redaction at the stop is lost with the process, not counted as purged (#251). The idle figure from the
+installed service is about 150 ms (smoke test).
 
 `3010` still means the uninstall succeeded; the files left are deleted at the next restart.
 

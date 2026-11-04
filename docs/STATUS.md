@@ -321,10 +321,11 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
 - [ ] **Hand checks on the laptop:**
   - the microphone picker with a real headset, plugged and unplugged, and Win+L with the card open
     turning Windows' microphone light off (ST-080 AC3, #244);
-  - no longer by hand: the service's stop time in the middle of a recording is measured automatically on
-    every hardware run (`StopTimeTests`, ST-112; `docs/dev/installer.md`), 20 to about 100 ms on the hosted
-    runner against the 4 s budget; read the laptop's figure in the job summary of the pull request that
-    added it;
+  - no longer by hand: the service's stop time in the middle of a recording, with a frame still waiting
+    for OCR and redaction, is measured automatically on every Windows run (`StopTimeTests`, ST-112;
+    `docs/dev/installer.md`), 38 to 81 ms on the hosted runner against the 4 s budget. On the laptop it also
+    requires the microphone and the speech model loaded (not transcribing: a quiet room gives Whisper
+    nothing). Read the laptop's figure in the job summary of the pull request that added it;
   - an elevated third-party installer closing the service with UAC on, and what Restart Manager starts
     again (#251; ADR-0007);
   - a narrated session with the service log in view, to see whether the processor limit trips
