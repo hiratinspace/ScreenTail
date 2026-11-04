@@ -348,7 +348,7 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         await app.RunAsync(async () =>
         {
-            var frames = new AnsweringFrames(Picture(1600, 900)) { Reply = new BlurReply(true, null) };
+            var frames = new AnsweringFrames(Picture(1600, 900)) { Reply = new BlurReply(true, null), TooLargeOnceBlurred = true };
             var (window, strip) = await HostAsync(frames);
             try
             {
@@ -872,12 +872,18 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
 
         public int Images { get; private set; }
 
+        /// <summary>
+        /// The service's answer for a frame too large for the pipe once it has been blurred: no picture,
+        /// though the thumbnail, which the service scales, still comes.
+        /// </summary>
+        public bool TooLargeOnceBlurred { get; init; }
+
         public List<MaskedRegion> Regions { get; } = [];
 
         public Task<byte[]?> ImageAsync(Frame frame, CancellationToken ct = default)
         {
             Images++;
-            return Task.FromResult<byte[]?>(picture);
+            return Task.FromResult(TooLargeOnceBlurred && Asked > 0 ? null : (byte[]?)picture);
         }
 
         public Task<byte[]?> ThumbnailAsync(Frame frame, CancellationToken ct = default)
