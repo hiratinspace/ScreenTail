@@ -107,6 +107,23 @@ public sealed class StopTimeTests : IAsyncDisposable
 
             await using var service = RunningService.Start(paths);
             await service.ConnectAsync(paths, ct);
+
+            // The service's own scope decision for the window in front, before anything is counted: a hosted
+            // run once marked six moments and kept no frame, consistent with the decision arriving late.
+            var scoping = Stopwatch.StartNew();
+            string scope;
+            while (!(scope = (await service.Pipe.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, ct)).Scope).StartsWith("Capturing", StringComparison.Ordinal)
+                && scoping.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                if (!window.IsForeground)
+                {
+                    _ = window.TakeForeground(TimeSpan.FromSeconds(1));
+                }
+
+                await Task.Delay(100, ct);
+            }
+
+            Assert.True(scope.StartsWith("Capturing", StringComparison.Ordinal), $"the service never took the test window for a remote tool in 10 s\n{service.Log}");
             service.ReportThePill();
             sessionId = await service.StartSessionAsync(ct);
 
