@@ -97,6 +97,8 @@ public sealed class StopTimeTests : IAsyncDisposable
         bool microphone;
         TimeSpan stopped;
         TimeSpan? answered = null;
+        string firstLog;
+        long framesDropped;
         using (var window = DesktopWindow.CreateRemoteToolShaped("Stop time test session"))
         {
             window.Resize(900, 480);
@@ -166,6 +168,8 @@ public sealed class StopTimeTests : IAsyncDisposable
             Assert.True(
                 stopped < CloseRequests.DefaultBudget,
                 $"the service took {stopped.TotalMilliseconds:F0} ms to stop, budget {CloseRequests.DefaultBudget.TotalMilliseconds:F0} ms\n{service.Log}");
+            firstLog = service.Log;
+            framesDropped = before.FramesDropped;
         }
 
         // Closed, not merely idle: nothing holds the database, and SQLite folded its write-ahead log in and
@@ -200,6 +204,12 @@ public sealed class StopTimeTests : IAsyncDisposable
         var session = await store.LoadSessionAsync(sessionId, ct);
         Assert.NotNull(session);
         Assert.True(session.PartialCapture, "the interrupted session was not recovered as partial");
+
+        // The capture path was really working: frames were taken of the test window and read, or were still
+        // waiting to be read when Windows asked.
+        Assert.True(
+            session.Frames.Count + session.FramesPurgedUnredacted + backlog > 0,
+            $"no frame was taken in {Recording.TotalSeconds:F0} s ({marks} moments marked, {framesDropped} dropped unread)\n{firstLog}");
 
         var held = answered is { } a ? string.Create(CultureInfo.InvariantCulture, $", WM_ENDSESSION answered at {a.TotalMilliseconds:F0} ms") : string.Empty;
         Measurements.Record(string.Create(
@@ -287,8 +297,8 @@ public sealed class StopTimeTests : IAsyncDisposable
         {
             var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
             _ = builder.Logging.ClearProviders();
-            _ = builder.Logging.SetMinimumLevel(LogLevel.Information);
-            _ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(_log, LogLevel.Information));
+            _ = builder.Logging.SetMinimumLevel(LogLevel.Debug);
+            _ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(_log, LogLevel.Debug));
             _ = builder.Services.AddHostedService(services => new CaptureHost(
                 services.GetRequiredService<ILogger<CaptureHost>>(),
                 services.GetRequiredService<IHostApplicationLifetime>(),
@@ -296,7 +306,7 @@ public sealed class StopTimeTests : IAsyncDisposable
             var host = builder.Build();
             var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
             Requests = new CloseRequests(lifetime.StopApplication, _stopped.Task);
-            _windowLog = new ScrubbingLoggerProvider(_log, LogLevel.Information);
+            _windowLog = new ScrubbingLoggerProvider(_log, LogLevel.Debug);
             Window = SessionEndWindow.Start(Requests, _windowLog.CreateLogger("ScreenTail.Service.SessionEnd"));
             Run = Task.Run(() => ServiceRun.RunAsync(host, () => lifetime.ApplicationStopping.IsCancellationRequested, _stopped));
         }
