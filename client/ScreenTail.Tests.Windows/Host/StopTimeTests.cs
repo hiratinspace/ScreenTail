@@ -74,10 +74,12 @@ public sealed class StopTimeTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// Long enough on the laptop for the speech model to load at the session's start and the scene sampler
-    /// and OCR to have frames in hand; a few seconds on a hosted runner, which has no microphone.
+    /// Long enough on the laptop for the speech model to load at the session's start (about a second from
+    /// the tests' copy) and the scene sampler and OCR to have frames in hand; a few seconds on a hosted
+    /// runner, which has no microphone. Short, because the laptop's capabilities job runs close to its
+    /// fifteen minutes and each of the three asks pays it once.
     /// </summary>
-    private static TimeSpan Recording => Hardware.PerformanceCounts ? TimeSpan.FromSeconds(8) : TimeSpan.FromSeconds(4);
+    private static TimeSpan Recording => Hardware.PerformanceCounts ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(3);
 
     [Theory]
     [InlineData(Ask.SignOut)]
@@ -321,7 +323,15 @@ public sealed class StopTimeTests : IAsyncDisposable
             }
         }
 
-        public static RunningService Start(CaptureHostPaths paths) => new(paths);
+        /// <summary>
+        /// Starts the service. The last run's token file goes first: the service writes this run's only once
+        /// it has recovered, and a client that read the old one in between would be refused (bad_token).
+        /// </summary>
+        public static RunningService Start(CaptureHostPaths paths)
+        {
+            File.Delete(paths.IpcTokenFile);
+            return new(paths);
+        }
 
         /// <summary>Connects as the UI does, once the service has written this run's token and opened its pipe.</summary>
         public async Task ConnectAsync(CaptureHostPaths paths, CancellationToken ct)
