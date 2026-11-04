@@ -6,6 +6,7 @@ using System.Runtime.Versioning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Lifecycle;
 using ScreenTail.Core.Net;
@@ -30,21 +31,23 @@ namespace ScreenTail.Tests.Windows.Host;
 /// The real <see cref="CaptureHost"/>, composed as Program.cs composes it: the generic host, the
 /// session-end window with its <see cref="CloseRequests"/>, and <see cref="ServiceRun"/>. Only its paths
 /// differ (<see cref="CaptureHostPaths"/>): a throwaway folder and a pipe of its own, never the
-/// technician's data folder or the pipe a real ScreenTail serves. A session is started over the pipe as
-/// the UI starts one, the pill reported as the UI reports it, and kept busy with what the service does
-/// while recording: the input hooks are in, a synthetic window of a remote-tool class is in front with
-/// text that changes (scene frames) and moments are marked (frames for OCR and redaction), and the
-/// microphone is open on a machine that has one, with the speech model on the laptop. Then Windows'
-/// message goes to the service's own window.
+/// technician's data folder or the pipe a real ScreenTail serves, and no backend address or device token
+/// whatever the machine's environment says. A session is started over the pipe as the UI starts one, the
+/// pill reported as the UI reports it, and kept busy: the input hooks are in, a synthetic window of a
+/// remote-tool class is in front with text that changes, and moments are marked. Just before Windows asks,
+/// a burst of moments is marked with no pause, so frames are still waiting for OCR and redaction when the
+/// message arrives; the test requires that they are. On the laptop, in the sign-out case, the microphone is
+/// required to be there and the speech model to be in memory before the recording counts.
 ///
 /// What is held, everywhere: the store is closed within <see cref="CloseRequests.DefaultBudget"/> of the
 /// message, which is the design's promise rather than a performance budget (Windows ends a program five
 /// seconds after WM_ENDSESSION), and WM_ENDSESSION is answered only once it has; no write-ahead log or
 /// shared-memory file is left; and the next start of the real service recovers the session as partial.
 ///
-/// Nothing real is recorded. The only window in scope is the test's own, with made-up words in it,
-/// everything is written into the throwaway folder and deleted with it, and what the run reports is
-/// numbers.
+/// Nothing real is recorded. The test refuses to run while a real remote-support program is running, the
+/// only window in scope is its own, with made-up words in it, and every frame kept is checked to show
+/// those words. Everything is written into the throwaway folder and deleted with it, and what the run
+/// reports is numbers.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class StopTimeTests : IAsyncDisposable
@@ -55,10 +58,25 @@ public sealed class StopTimeTests : IAsyncDisposable
     private const long ENDSESSION_CLOSEAPP = 0x1;
     private const long ENDSESSION_LOGOFF = 0x80000000;
 
+    /// <summary>This test's folders under the shared tests' temp folder, so a run can clear its own leftovers.</summary>
+    private const string FolderPrefix = "stop-time-";
+
+    /// <summary>A word on both screens, which every kept frame's text must contain.</summary>
+    private const string OwnWord = "printer";
+
     private const string ScreenOne = "Front desk printer queue\r\nStep one: clear the stuck jobs";
     private const string ScreenTwo = "Front desk printer queue\r\nStep two: restart the spooler";
 
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "screentail-tests", Guid.NewGuid().ToString("N"));
+    /// <summary>
+    /// The speech model loaded is about 150 MB of this process's private memory (SpeechUnloadTests). Less
+    /// than that, so the test is not tied to the figure, and far more than anything else a session adds.
+    /// </summary>
+    private const long ModelLoadedBytes = 80L * 1024 * 1024;
+
+    private static readonly string TestsRoot = Path.Combine(Path.GetTempPath(), "screentail-tests");
+
+    private readonly string _dir = Path.Combine(TestsRoot, FolderPrefix + Guid.NewGuid().ToString("N"));
+    private readonly Dictionary<string, string?> _environment = [];
 
     /// <summary>How Windows asks.</summary>
     public enum Ask
@@ -74,12 +92,10 @@ public sealed class StopTimeTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// Long enough on the laptop for the speech model to load at the session's start (about a second from
-    /// the tests' copy) and the scene sampler and OCR to have frames in hand; a few seconds on a hosted
-    /// runner, which has no microphone. Short, because the laptop's capabilities job runs close to its
-    /// fifteen minutes and each of the three asks pays it once.
+    /// The steady part of the recording, before the burst. Short, because the laptop's capabilities job runs
+    /// close to its fifteen minutes and each of the three asks pays it once.
     /// </summary>
-    private static TimeSpan Recording => Hardware.PerformanceCounts ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(3);
+    private static TimeSpan Recording => TimeSpan.FromSeconds(3);
 
     [Theory]
     [InlineData(Ask.SignOut)]
@@ -89,7 +105,13 @@ public sealed class StopTimeTests : IAsyncDisposable
     {
         Hardware.RequireScreenCapture();
         var ct = TestContext.Current.CancellationToken;
+        RefuseWhileARealRemoteToolRuns();
+        WithoutTheBackend();
         var paths = await PrepareAsync(ct);
+
+        // The speech path is checked once, on the machine that has a microphone: the model's load is the
+        // slow part, and the other two asks stop the same pipeline.
+        var speech = Hardware.PerformanceCounts && ask == Ask.SignOut;
 
         string sessionId;
         int marks;
@@ -98,7 +120,6 @@ public sealed class StopTimeTests : IAsyncDisposable
         TimeSpan stopped;
         TimeSpan? answered = null;
         string firstLog;
-        long framesDropped;
         using (var window = DesktopWindow.CreateRemoteToolShaped("Stop time test session"))
         {
             window.Resize(900, 480);
@@ -107,25 +128,15 @@ public sealed class StopTimeTests : IAsyncDisposable
 
             await using var service = RunningService.Start(paths);
             await service.ConnectAsync(paths, ct);
-
-            // The service's own scope decision for the window in front, before anything is counted: a hosted
-            // run once marked six moments and kept no frame, consistent with the decision arriving late.
-            var scoping = Stopwatch.StartNew();
-            string scope;
-            while (!(scope = (await service.Pipe.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, ct)).Scope).StartsWith("Capturing", StringComparison.Ordinal)
-                && scoping.Elapsed < TimeSpan.FromSeconds(10))
-            {
-                if (!window.IsForeground)
-                {
-                    _ = window.TakeForeground(TimeSpan.FromSeconds(1));
-                }
-
-                await Task.Delay(100, ct);
-            }
-
-            Assert.True(scope.StartsWith("Capturing", StringComparison.Ordinal), $"the service never took the test window for a remote tool in 10 s\n{service.Log}");
+            await WaitForTheScopeAsync(window, service, ct);
             service.ReportThePill();
+
+            var memoryBefore = PrivateBytes();
             sessionId = await service.StartSessionAsync(ct);
+            if (speech)
+            {
+                await WaitForTheSpeechModelAsync(service, memoryBefore, ct);
+            }
 
             // Busy: the screen changes twice a second, a moment is marked each time, and the window is put
             // back in front if anything took it.
@@ -148,16 +159,22 @@ public sealed class StopTimeTests : IAsyncDisposable
                 await Task.Delay(500, ct);
             }
 
-            var before = await service.Pipe.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, ct);
-            backlog = before.RedactionBacklog;
+            var before = await DiagnosticsAsync(service, ct);
             microphone = before.Microphone is not null;
             Assert.True(service.Pipe.State.State == CaptureStates.Recording, $"the session was {service.Pipe.State.State} ({service.Pipe.State.Reason}) when Windows was to ask, not recording\n{service.Log}");
             Assert.True(before.Scope.StartsWith("Capturing", StringComparison.Ordinal), $"the test window was not in scope at the ask\n{service.Log}");
             Assert.True(marks > 0, $"no moment was marked in {Recording.TotalSeconds:F0} s\n{service.Log}");
-            Assert.Contains("Input hooks installed: True", service.Log, StringComparison.Ordinal);
+            Assert.True(service.Says("Input hooks installed: True"), $"the input hooks were not in during the recording\n{service.Log}");
+            if (speech)
+            {
+                Assert.False(service.Says("could not be prepared"), $"the speech model could not be prepared\n{service.Log}");
+            }
 
-            // The pill's last report counts for six seconds (IndicatorReports.GoodFor), longer than any stop.
+            // The pill's last report counts for six seconds (IndicatorReports.GoodFor), longer than the burst
+            // and the stop together.
             await service.StopReportingAsync();
+            backlog = await MarkABurstAsync(window, service, ct);
+            Assert.True(backlog > 0, $"OCR had read every frame before Windows asked, so nothing was in flight at the stop\n{service.Log}");
 
             var handle = service.Window.Handle;
             Assert.NotEqual(IntPtr.Zero, handle);
@@ -186,7 +203,6 @@ public sealed class StopTimeTests : IAsyncDisposable
                 stopped < CloseRequests.DefaultBudget,
                 $"the service took {stopped.TotalMilliseconds:F0} ms to stop, budget {CloseRequests.DefaultBudget.TotalMilliseconds:F0} ms\n{service.Log}");
             firstLog = service.Log;
-            framesDropped = before.FramesDropped;
         }
 
         // Closed, not merely idle: nothing holds the database, and SQLite folded its write-ahead log in and
@@ -207,7 +223,7 @@ public sealed class StopTimeTests : IAsyncDisposable
             var clock = Stopwatch.StartNew();
             await next.ConnectAsync(paths, ct);
             recoveredBy = clock.Elapsed;
-            Assert.Contains("Recovered 1 session(s)", next.Log, StringComparison.Ordinal);
+            Assert.True(next.Says("Recovered 1 session(s)"), $"the next start did not recover the session\n{next.Log}");
 
             clock.Restart();
             Assert.True(PostMessage(next.Window.Handle, WM_CLOSE, IntPtr.Zero, IntPtr.Zero));
@@ -222,19 +238,19 @@ public sealed class StopTimeTests : IAsyncDisposable
         Assert.NotNull(session);
         Assert.True(session.PartialCapture, "the interrupted session was not recovered as partial");
 
-        // The capture path was really working: frames were taken of the test window and read, or were still
-        // waiting to be read when Windows asked.
-        Assert.True(
-            session.Frames.Count + session.FramesPurgedUnredacted + backlog > 0,
-            $"no frame was taken in {Recording.TotalSeconds:F0} s ({marks} moments marked, {framesDropped} dropped unread)\n{firstLog}");
+        // The capture path was really working, and on nothing but the test's own window: every frame kept
+        // was read, and shows the test's words. Counted, never quoted.
+        Assert.True(session.Frames.Count > 0, $"no frame was kept ({marks} moments marked)\n{firstLog}");
+        var foreign = session.Frames.Count(f => f.OcrText?.Contains(OwnWord, StringComparison.OrdinalIgnoreCase) != true);
+        Assert.True(foreign == 0, $"{foreign} of {session.Frames.Count} kept frame(s) do not show the test window's words");
 
         var held = answered is { } a ? string.Create(CultureInfo.InvariantCulture, $", WM_ENDSESSION answered at {a.TotalMilliseconds:F0} ms") : string.Empty;
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
             $"Stop time mid-recording, {Label(ask)}: **{stopped.TotalMilliseconds:F0} ms** to the store closed{held} "
             + $"(budget {CloseRequests.DefaultBudget.TotalMilliseconds:F0} ms, enforced everywhere); "
-            + $"recorded {Recording.TotalSeconds:F0} s with {marks} moments marked, {backlog} frame(s) waiting for redaction at the ask, "
-            + $"{session.Frames.Count} frame(s) kept and {session.FramesPurgedUnredacted} purged unredacted, microphone {(microphone ? 1 : 0)}; "
+            + $"recorded {Recording.TotalSeconds:F0} s with {marks} moments marked, then a burst, {backlog} frame(s) waiting for redaction at the ask; "
+            + $"{session.Frames.Count} frame(s) kept, microphone {(microphone ? 1 : 0)}, speech model checked in memory {(speech ? 1 : 0)}; "
             + $"the next start had recovered it as partial when its pipe opened, {recoveredBy.TotalMilliseconds:F0} ms after it began, and stopped idle in {idleStop.TotalMilliseconds:F0} ms"));
     }
 
@@ -252,12 +268,137 @@ public sealed class StopTimeTests : IAsyncDisposable
         _ => "WM_CLOSE",
     };
 
+    private static Task<DiagnosticsReported> DiagnosticsAsync(RunningService service, CancellationToken ct) =>
+        service.Pipe.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, ct);
+
+    private static long PrivateBytes()
+    {
+        using var self = Process.GetCurrentProcess();
+        return self.PrivateMemorySize64;
+    }
+
+    /// <summary>
+    /// A real remote-support program on this machine could come to the front during the recording, and the
+    /// real service would photograph it as the remote tool it is. This test does not run then; it says which
+    /// program, by the registry's display name, and what to do.
+    /// </summary>
+    private static void RefuseWhileARealRemoteToolRuns()
+    {
+        var registry = RemoteToolRegistry.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json")));
+        var running = registry.Tools.Where(tool => tool.Processes.Any(IsRunning)).Select(tool => tool.DisplayName).Distinct().ToList();
+        Assert.True(
+            running.Count == 0,
+            $"Close {string.Join(", ", running)} on this machine and run the job again. This test runs the real capture service, recording, and must not photograph a real remote-support session.");
+    }
+
+    private static bool IsRunning(string processName)
+    {
+        var found = Process.GetProcessesByName(processName);
+        try
+        {
+            return found.Length > 0;
+        }
+        finally
+        {
+            foreach (var process in found)
+            {
+                process.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The service reads its backend address and a fallback device token from the environment. A token set
+    /// for the whole account on the laptop must never send this test's host to a real backend, so both are
+    /// cleared for this process while the test runs and put back after it.
+    /// </summary>
+    private void WithoutTheBackend()
+    {
+        foreach (var name in new[] { "SCREENTAIL_BACKEND", "SCREENTAIL_DEVICE_TOKEN" })
+        {
+            _environment[name] = Environment.GetEnvironmentVariable(name);
+            Environment.SetEnvironmentVariable(name, null);
+            Assert.Null(Environment.GetEnvironmentVariable(name));
+        }
+    }
+
+    /// <summary>The service's own scope decision for the window in front, before anything is counted.</summary>
+    private static async Task WaitForTheScopeAsync(DesktopWindow window, RunningService service, CancellationToken ct)
+    {
+        var clock = Stopwatch.StartNew();
+        string scope;
+        while (!(scope = (await DiagnosticsAsync(service, ct)).Scope).StartsWith("Capturing", StringComparison.Ordinal)
+            && clock.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            if (!window.IsForeground)
+            {
+                _ = window.TakeForeground(TimeSpan.FromSeconds(1));
+            }
+
+            await Task.Delay(100, ct);
+        }
+
+        Assert.True(scope.StartsWith("Capturing", StringComparison.Ordinal), $"the service never took the test window for a remote tool in 10 s\n{service.Log}");
+    }
+
+    /// <summary>
+    /// On the laptop: the microphone is there, and the speech model, which the service loads when the first
+    /// session starts, is in memory before the recording counts. This process is the service, so its private
+    /// memory is the model's evidence.
+    /// </summary>
+    private static async Task WaitForTheSpeechModelAsync(RunningService service, long before, CancellationToken ct)
+    {
+        Assert.True((await DiagnosticsAsync(service, ct)).Microphone is not null, "the laptop has no microphone the service can open. Connect or enable one and run the job again.");
+        var clock = Stopwatch.StartNew();
+        while (PrivateBytes() - before < ModelLoadedBytes && clock.Elapsed < TimeSpan.FromSeconds(20))
+        {
+            Assert.False(service.Says("could not be prepared"), $"the speech model could not be prepared\n{service.Log}");
+            await Task.Delay(200, ct);
+        }
+
+        Assert.True(PrivateBytes() - before >= ModelLoadedBytes, $"the speech model was not in memory 20 s after the session started\n{service.Log}");
+    }
+
+    /// <summary>
+    /// Moments marked back to back, the screen changing between them, until frames are waiting for OCR:
+    /// the stop is measured with redaction in flight, not after it has caught up.
+    /// </summary>
+    private static async Task<int> MarkABurstAsync(DesktopWindow window, RunningService service, CancellationToken ct)
+    {
+        var backlog = 0;
+        for (var round = 0; round < 3 && backlog == 0; round++)
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                window.ShowText(i % 2 == 0 ? ScreenTwo : ScreenOne);
+                _ = await service.Pipe.SendAsync(id => new MarkMomentCommand { RequestId = id }, ct);
+            }
+
+            backlog = (await DiagnosticsAsync(service, ct)).RedactionBacklog;
+        }
+
+        return backlog;
+    }
+
     /// <summary>
     /// The throwaway folder, with capture settings that start nothing by themselves and name the speech
-    /// model the laptop keeps for the tests, and that model fetched before the clock starts.
+    /// model the laptop keeps for the tests, and that model fetched before the clock starts. Folders an
+    /// earlier run of this test left behind go first, and anything else in the tests' temp folder older
+    /// than an hour.
     /// </summary>
     private async Task<CaptureHostPaths> PrepareAsync(CancellationToken ct)
     {
+        if (Directory.Exists(TestsRoot))
+        {
+            foreach (var stale in new DirectoryInfo(TestsRoot).GetDirectories())
+            {
+                if (stale.Name.StartsWith(FolderPrefix, StringComparison.Ordinal) || stale.LastWriteTimeUtc < DateTime.UtcNow - TimeSpan.FromHours(1))
+                {
+                    _ = DeleteFolder(stale.FullName);
+                }
+            }
+        }
+
         _ = Directory.CreateDirectory(_dir);
         var model = SpeechModels.BaseEnglish;
         Assert.True(new CaptureSettingsStore(Path.Combine(_dir, "capture.json")).Save(new CaptureSettings { AutoStart = false, SpeechModel = model.Name }));
@@ -271,27 +412,42 @@ public sealed class StopTimeTests : IAsyncDisposable
             Assert.True(await new ModelDownload(http).EnsureAsync(model, Path.Combine(models, $"ggml-{model.Name}.bin"), ct: ct), "the speech model could not be had");
         }
 
-        return new CaptureHostPaths(
-            DataDirectory: _dir,
-            KeyFile: Path.Combine(_dir, "store.key"),
-            DeviceCredentials: Path.Combine(_dir, "device.cred"),
-            IpcTokenFile: Path.Combine(_dir, "ipc.token"),
-            PipeName: "ScreenTail.Tests.StopTime." + Guid.NewGuid().ToString("N"),
-            ModelDirectory: models);
+        return new CaptureHostPaths(_dir, "ScreenTail.Tests.StopTime." + Guid.NewGuid().ToString("N"), models);
+    }
+
+    /// <summary>Deletes a folder, trying again for a moment while a file is still held. False if it stayed.</summary>
+    private static bool DeleteFolder(string path)
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(200);
+            }
+        }
+
+        return !Directory.Exists(path);
     }
 
     public ValueTask DisposeAsync()
     {
-        try
+        foreach (var (name, value) in _environment)
         {
-            Directory.Delete(_dir, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Not made (the test skipped), or a file still held a moment after its owner closed it, which
-            // is the temp folder's to clean.
+            Environment.SetEnvironmentVariable(name, value);
         }
 
+        // A folder that could not be removed now holds an encrypted store beside its DPAPI key; the next run
+        // of this test removes it first.
+        _ = DeleteFolder(_dir);
         return ValueTask.CompletedTask;
     }
 
@@ -314,8 +470,8 @@ public sealed class StopTimeTests : IAsyncDisposable
         {
             var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
             _ = builder.Logging.ClearProviders();
-            _ = builder.Logging.SetMinimumLevel(LogLevel.Debug);
-            _ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(_log, LogLevel.Debug));
+            _ = builder.Logging.SetMinimumLevel(LogLevel.Information);
+            _ = builder.Logging.AddProvider(new ScrubbingLoggerProvider(_log, LogLevel.Information));
             _ = builder.Services.AddHostedService(services => new CaptureHost(
                 services.GetRequiredService<ILogger<CaptureHost>>(),
                 services.GetRequiredService<IHostApplicationLifetime>(),
@@ -323,7 +479,7 @@ public sealed class StopTimeTests : IAsyncDisposable
             var host = builder.Build();
             var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
             Requests = new CloseRequests(lifetime.StopApplication, _stopped.Task);
-            _windowLog = new ScrubbingLoggerProvider(_log, LogLevel.Debug);
+            _windowLog = new ScrubbingLoggerProvider(_log, LogLevel.Information);
             Window = SessionEndWindow.Start(Requests, _windowLog.CreateLogger("ScreenTail.Service.SessionEnd"));
             Run = Task.Run(() => ServiceRun.RunAsync(host, () => lifetime.ApplicationStopping.IsCancellationRequested, _stopped));
         }
@@ -338,8 +494,42 @@ public sealed class StopTimeTests : IAsyncDisposable
 
         public IpcClient Pipe => _pipe ?? throw new InvalidOperationException("Not connected.");
 
-        /// <summary>The service's log so far, scrubbed as the service scrubs it (INV-10). For failure messages.</summary>
+        /// <summary>
+        /// The service's own lines so far, for failure messages: ScreenTail's categories only, scrubbed as the
+        /// service scrubs them and at Information, so no foreground process or window class is in them
+        /// (INV-10), and none of the host's lines, which name folders.
+        /// </summary>
         public string Log
+        {
+            get
+            {
+                var kept = new List<string>();
+                var keeping = false;
+                foreach (var line in Raw.Split(Environment.NewLine))
+                {
+                    if (line.StartsWith("    ", StringComparison.Ordinal))
+                    {
+                        if (keeping)
+                        {
+                            kept.Add(line);
+                        }
+
+                        continue;
+                    }
+
+                    // "HH:mm:ss.fff LEVEL Category: message": the category starts at the 20th character.
+                    keeping = line.Length > 19 && line.AsSpan(19).StartsWith("ScreenTail.", StringComparison.Ordinal);
+                    if (keeping)
+                    {
+                        kept.Add(line);
+                    }
+                }
+
+                return string.Join(Environment.NewLine, kept);
+            }
+        }
+
+        private string Raw
         {
             get
             {
@@ -359,6 +549,9 @@ public sealed class StopTimeTests : IAsyncDisposable
             File.Delete(paths.IpcTokenFile);
             return new(paths);
         }
+
+        /// <summary>Whether the service's own lines say this.</summary>
+        public bool Says(string words) => Log.Contains(words, StringComparison.Ordinal);
 
         /// <summary>Connects as the UI does, once the service has written this run's token and opened its pipe.</summary>
         public async Task ConnectAsync(CaptureHostPaths paths, CancellationToken ct)
@@ -468,7 +661,11 @@ public sealed class StopTimeTests : IAsyncDisposable
             }
             catch (TimeoutException)
             {
-                // Reported by the test's own assertions; the process ends with the run.
+                // A service that will not stop still holds the hooks, the microphone and the screen capture,
+                // and would go on holding them for every test after this one. Nothing in this process can take
+                // them from it, so the process ends, loudly, and the job fails with it.
+                Measurements.Record("STOP-TIME-HUNG: the capture service under test did not stop within 30 s; the test process was ended so capture stops with it");
+                Environment.FailFast("StopTimeTests: the capture service under test did not stop within 30 s. Ending the test process so its hooks, microphone and capture stop.");
             }
 
             if (_pipe is not null)
