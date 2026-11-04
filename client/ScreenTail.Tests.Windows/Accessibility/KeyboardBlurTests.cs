@@ -463,9 +463,10 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
                 await Audit.Settle();
                 Assert.True(strip.ShowOcrText, "T did not show the text.");
                 Assert.False(box.IsVisible, "The blur box stayed out under the text panel.");
-                _ = Keys.Press(shell, Key.Enter);
-                await Audit.Settle();
+                Assert.False(Toggle(shell).IsChecked == true, "T left blurring armed under the text panel.");
                 Assert.Same(regions, frame.Cell.Frame.MaskedRegions);
+
+                // Focus is back on the toggle, where Enter or Space arms it again: not a blur, a box.
 
                 box = await Screens.OpenBlurBoxAsync(shell);
                 Assert.False(strip.ShowOcrText, "B left the text panel over the blur box.");
