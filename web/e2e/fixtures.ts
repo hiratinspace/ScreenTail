@@ -6,7 +6,8 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test as base, type Page } from '@playwright/test';
-import { createPrivateKey, sign } from 'node:crypto';
+import { createPrivateKey, sign, type KeyObject } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { appHeaders } from '../security-headers.ts';
 import { env } from './env.ts';
 
@@ -47,6 +48,9 @@ export interface GoogleAccount {
   name: string;
 }
 
+/** This run's private key, read once from the file the global setup wrote. */
+let signingKey: KeyObject | undefined;
+
 /** An ID token shaped like Google's, signed with this run's key, for the audience the page initialised Google with. */
 export function signIdToken(account: GoogleAccount, nonce: string, audience: string): string {
   const now = Math.floor(Date.now() / 1000);
@@ -64,7 +68,8 @@ export function signIdToken(account: GoogleAccount, nonce: string, audience: str
     nbf: now - 60,
     exp: now + 3600,
   })}`;
-  const signature = sign('sha256', Buffer.from(body), createPrivateKey(setting(env.privateKey)));
+  signingKey ??= createPrivateKey(readFileSync(setting(env.privateKeyFile)));
+  const signature = sign('sha256', Buffer.from(body), signingKey);
   return `${body}.${signature.toString('base64url')}`;
 }
 
@@ -130,6 +135,11 @@ export const test = base.extend<Fixtures>({
     await provide([]);
   },
   page: async ({ page, google, violations, outside }, provide) => {
+    // The browser is started with this worker's environment, so no key may be in it: only the key file's path.
+    expect(
+      Object.values(process.env).some((value) => value?.includes('PRIVATE KEY')),
+      'a private key in the environment the browser inherits',
+    ).toBe(false);
     await page.context().route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {

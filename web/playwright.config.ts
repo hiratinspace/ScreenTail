@@ -12,6 +12,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   timeout: 60_000,
+  // The whole run, setup included, takes well under a minute; a hang stops here rather than at the job's limit.
+  globalTimeout: 5 * 60_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI ? [['list'], ['html', { open: 'never', outputFolder: 'e2e-report' }]] : 'list',
   outputDir: 'e2e-results',

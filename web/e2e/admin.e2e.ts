@@ -36,10 +36,17 @@ test('an owner signs up, invites a technician, sees the device, revokes it, sets
     await expect(page.getByText(organisation)).toBeVisible();
     await expect(page.locator('.seats')).toHaveText(/0 of 3\s+seats in use/);
 
+    // Attributes picked out, never the whole cookie, so a failure does not print the session's value.
     const cookie = (await context.cookies()).find((c) => c.name === sessionCookie);
-    expect(cookie, 'the admin session cookie').toBeDefined();
-    expect(cookie).toMatchObject({ httpOnly: true, secure: true, sameSite: 'Strict', path: '/' });
-    expect(await page.evaluate(() => document.cookie), 'script cannot read the session').not.toContain(sessionCookie);
+    expect(cookie !== undefined, 'the admin session cookie is set').toBe(true);
+    expect({ httpOnly: cookie?.httpOnly, secure: cookie?.secure, sameSite: cookie?.sameSite, path: cookie?.path, domain: cookie?.domain }).toEqual({
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Strict',
+      path: '/',
+      domain: 'localhost',
+    });
+    expect(await page.evaluate((name) => document.cookie.includes(name), sessionCookie), 'script can read the session').toBe(false);
   });
 
   await test.step('the ID token the sign-in used cannot be used again', async () => {

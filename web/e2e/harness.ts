@@ -5,15 +5,17 @@
  *
  * Google is never called. A key pair is made here for this run; the backend is handed its public half as
  * `Testing__GoogleSigningKeys` (refused outside Development, so it can never reach a deployment), and the
- * tests sign Google-shaped ID tokens with the private half, which stays in this runner and its workers.
+ * tests sign Google-shaped ID tokens with the private half. That half is written to a file only this user can
+ * read, in a scratch folder removed at the end, and the workers are given its path: never the key itself, so
+ * no environment (the browser's included, which Playwright starts with the workers' own) carries it.
  *
  * Needs `SCREENTAIL_E2E_POSTGRES` (an Npgsql connection string; the database in it is created and
- * migrated if missing) and a Release build of the API (`dotnet build backend/ScreenTail.Backend.sln -c
- * Release`). docs/dev/web-admin.md, section 6.
+ * migrated if missing) and a Release build of the API (`dotnet build
+ * backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release`, as CI runs it). docs/dev/web-admin.md, section 6.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -81,7 +83,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const dotnet = process.env.SCREENTAIL_E2E_DOTNET ?? 'dotnet';
   const dll = process.env.SCREENTAIL_E2E_API_DLL ?? join(repo, 'backend/src/ScreenTail.Api/bin/Release/net10.0/ScreenTail.Api.dll');
   if (!existsSync(dll)) {
-    throw new Error(`No API build at ${dll}. Run: dotnet build backend/ScreenTail.Backend.sln -c Release`);
+    throw new Error(`No API build at ${dll}. Run: dotnet build backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release`);
   }
 
   const runId = randomBytes(4).toString('hex');
@@ -164,7 +166,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     process.env[env.clientId] = clientId;
     process.env[env.run] = runId;
     process.env[env.keyId] = keyId;
-    process.env[env.privateKey] = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
+    const keyFile = join(scratch, 'signing-key.pem');
+    writeFileSync(keyFile, privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600, flag: 'wx' });
+    process.env[env.privateKeyFile] = keyFile;
     process.env[env.downloadUrl] = downloadUrl;
   } catch (e) {
     await teardown();

@@ -719,6 +719,7 @@ jobs:
       # beyond localhost. The runner's own .NET SDK builds the API, as in the Backend job. The runner image
       # already has the libraries Chromium needs; --with-deps added only fonts, over a slow mirror (3 min).
       - name: Browser tests (Playwright, Chromium)
+        timeout-minutes: 8
         env:
           SCREENTAIL_E2E_POSTGRES: Host=localhost;Port=5432;Database=screentail_e2e;Username=postgres;Password=ci-only-not-a-secret
         run: |

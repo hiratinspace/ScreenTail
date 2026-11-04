@@ -6,7 +6,8 @@ export const env = {
   clientId: 'SCREENTAIL_E2E_CLIENT_ID',
   run: 'SCREENTAIL_E2E_RUN',
   keyId: 'SCREENTAIL_E2E_KEY_ID',
-  privateKey: 'SCREENTAIL_E2E_PRIVATE_KEY',
+  // A path, never the key: the browser is started with the workers' environment.
+  privateKeyFile: 'SCREENTAIL_E2E_PRIVATE_KEY_FILE',
   downloadUrl: 'SCREENTAIL_E2E_DOWNLOAD_URL',
 } as const;
 
