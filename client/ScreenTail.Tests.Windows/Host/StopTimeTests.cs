@@ -171,11 +171,14 @@ public sealed class StopTimeTests : IAsyncDisposable
                 Assert.False(service.Says("could not be prepared"), $"the speech model could not be prepared\n{service.Log}");
             }
 
-            // The pill's last report counts for six seconds (IndicatorReports.GoodFor), longer than the burst
-            // and the stop together.
-            await service.StopReportingAsync();
+            // The pill goes on being reported through the burst, and stops only just before Windows asks: its
+            // last report counts for six seconds (IndicatorReports.GoodFor), longer than the stop.
             backlog = await MarkABurstAsync(window, service, ct);
+            await service.StopReportingAsync();
             Assert.True(backlog > 0, $"OCR had read every frame before Windows asked, so nothing was in flight at the stop\n{service.Log}");
+
+            // Still recording at the ask, so the stop measured is a recording's, not an idle service's.
+            Assert.True(service.Pipe.State.State == CaptureStates.Recording, $"the session was {service.Pipe.State.State} ({service.Pipe.State.Reason}) after the burst, not recording\n{service.Log}");
 
             var handle = service.Window.Handle;
             Assert.NotEqual(IntPtr.Zero, handle);
@@ -414,14 +417,16 @@ public sealed class StopTimeTests : IAsyncDisposable
 
     /// <summary>
     /// Moments marked back to back, the screen changing between them, until frames are waiting for OCR:
-    /// the stop is measured with redaction in flight, not after it has caught up.
+    /// the stop is measured with redaction in flight, not after it has caught up. The hosted runner had one
+    /// frame of eight still waiting after the first round; twelve a round, and up to four rounds, leave room
+    /// for a laptop that reads faster.
     /// </summary>
     private static async Task<int> MarkABurstAsync(DesktopWindow window, RunningService service, CancellationToken ct)
     {
         var backlog = 0;
-        for (var round = 0; round < 3 && backlog == 0; round++)
+        for (var round = 0; round < 4 && backlog == 0; round++)
         {
-            for (var i = 0; i < 8; i++)
+            for (var i = 0; i < 12; i++)
             {
                 window.ShowText(i % 2 == 0 ? ScreenTwo : ScreenOne);
                 _ = await service.Pipe.SendAsync(id => new MarkMomentCommand { RequestId = id }, ct);
@@ -716,9 +721,15 @@ public sealed class StopTimeTests : IAsyncDisposable
             {
                 // A service that will not stop still holds the hooks, the microphone and the screen capture,
                 // and would go on holding them for every test after this one. Nothing in this process can take
-                // them from it, so the process ends, loudly, and the job fails with it.
+                // them from it, so the process ends, loudly, and the job fails with it (the run's TRX is lost).
+                //
+                // Terminated, not Environment.FailFast: FailFast raises a Windows Error Reporting fault, and a
+                // dump of this process would hold whatever it had captured in memory. TerminateProcess raises
+                // no report and writes no dump, and needs no setting changed on the machine.
                 Measurements.Record("STOP-TIME-HUNG: the capture service under test did not stop within 30 s; the test process was ended so capture stops with it");
-                Environment.FailFast("StopTimeTests: the capture service under test did not stop within 30 s. Ending the test process so its hooks, microphone and capture stop.");
+                Console.Error.WriteLine("StopTimeTests: the capture service under test did not stop within 30 s. Ending the test process so its hooks, microphone and capture stop.");
+                using var self = Process.GetCurrentProcess();
+                self.Kill();
             }
 
             if (_pipe is not null)
