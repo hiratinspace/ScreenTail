@@ -123,17 +123,47 @@ pass "migrate applies the schema once and then has nothing to do"
 compose up --detach --wait --wait-timeout 180
 pass "api and proxy are healthy"
 
-for id in $(compose ps --quiet); do
-    read -r name user readonly <<<"$(docker inspect --format '{{.Name}} {{if .Config.User}}{{.Config.User}}{{else}}-{{end}} {{.HostConfig.ReadonlyRootfs}}' "$id")"
-    case "${user%%:*}" in -|0|root) fail "$name runs as root";; esac
-    [ "$readonly" = "true" ] || fail "$name has a writable root filesystem"
-done
+# The running containers as Docker describes them, read as JSON rather than from `docker compose port`
+# or `ps` text: Compose 5 prints "invalid IP:0" and exits 0 for a port that is not published, where
+# Compose 2 printed nothing and failed.
+ids=$(compose ps --quiet)
+[ -n "$ids" ] || fail "compose ps listed no running container"
+# shellcheck disable=SC2086 # one argument per container id
+docker inspect $ids > "$scratch/containers.json"
+python3 -I - "$scratch/containers.json" <<'EOF' || fail "a running container breaks the configuration (listed above)"
+import json, sys
+containers = json.load(open(sys.argv[1]))
+bad = []
+seen = set()
+for c in containers:
+    name = c["Name"].lstrip("/")
+    service = (c["Config"].get("Labels") or {}).get("com.docker.compose.service", name)
+    seen.add(service)
+    if str(c["Config"].get("User") or "").split(":")[0] in ("", "0", "root"):
+        bad.append(f"{name} runs as root")
+    if c["HostConfig"].get("ReadonlyRootfs") is not True:
+        bad.append(f"{name} has a writable root filesystem")
+    # A binding asked for (HostConfig) and one Docker made (NetworkSettings); an exposed port that is
+    # not published is null or an empty list in both.
+    bindings = {}
+    for source in (c["HostConfig"].get("PortBindings") or {}, c["NetworkSettings"].get("Ports") or {}):
+        for port, hosts in source.items():
+            bindings.setdefault(port, []).extend(hosts or [])
+    for port, hosts in sorted(bindings.items()):
+        if not hosts:
+            continue
+        if service != "proxy":
+            bad.append(f"{service} is published on the host: {port} -> {hosts}")
+        elif any(h.get("HostIp") != "0.0.0.0" for h in hosts):
+            bad.append(f"the proxy's {port} is bound beyond IPv4: {hosts}")
+for service in ("postgres", "api", "proxy"):
+    if service not in seen:
+        bad.append(f"no running {service} container to check")
+print("\n".join(bad) if bad else "")
+sys.exit(1 if bad else 0)
+EOF
 pass "every running container is non-root with a read-only root filesystem"
-
-if compose port postgres 5432 >/dev/null 2>&1 && [ -n "$(compose port postgres 5432 2>/dev/null)" ]; then
-    fail "postgres is published on the host"
-fi
-pass "postgres has no port on the host"
+pass "postgres and the api have no port on the host; the proxy's ports are bound on IPv4 only"
 
 # Asked as a browser would, so a listener there would answer: plain HTTP, and HTTPS with the name in
 # SNI (without it Caddy picks no certificate and the handshake would fail whether or not it listens).
