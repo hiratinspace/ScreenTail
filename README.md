@@ -2,7 +2,7 @@
 
 ScreenTail turns a remote-support session into a ticket note. A Windows app records what an MSP technician does during a session (clicks, screenshots and spoken narration), removes sensitive content on the device, and drafts the note. The technician reviews and edits the draft, then publishes it to their PSA and documentation tools.
 
-**Status:** in development and not yet released. There is no installer or supported build yet, and nothing here is ready for production use or customer data.
+**Status:** in development and not yet released. There is no released installer or supported build yet, and nothing here is ready for production use or customer data.
 
 ## Repository layout
 

@@ -150,6 +150,9 @@ busiest the timer 8.3, pool gate 5.6, a pool worker 4.2) and 25.0 on the busy de
 0.0); a classic console in front had all 5 of its announced titles reported, Windows Terminal all 4.
 Neither run can prove the laptop's busy desktop of the failing runs was back, so the evidence for the
 cause is the shape of the failure (one thread, nothing handed on) and the hosted measurements above.
+The laptop's run on the pull request's final head (#252, 41363089926) measured 21.9 net at a quiet idle
+(pumps 0.7 and 0.0; busiest the timer 7.8, pool gate 6.3, a pool worker 4.1) and 23.2 on the busy
+desktop (pumps 2.4 and 0.0), both under the ceiling of 40.
 
 ## Over budget: what gives first (AC2)
 
