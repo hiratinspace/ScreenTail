@@ -326,7 +326,7 @@ What it requires, on the hosted runner and the laptop alike:
 On the laptop, in the sign-out case only, it also requires a microphone the service can open and the
 speech model in the service's memory before the recording counts. It refuses to run while a real
 remote-support program from the registry is running on the machine. On the hosted runner, which has no
-microphone, it measured 38 to 81 ms with one frame in flight (earlier rounds without the burst, 20 to
+microphone, it measured 38 to 115 ms with one frame in flight (earlier rounds without the burst, 20 to
 about 100 ms); each run's figures are in the job summary and `measurements.txt`, as numbers.
 
 What it does not show: a stop while Whisper is transcribing. A quiet room gives Whisper nothing to
