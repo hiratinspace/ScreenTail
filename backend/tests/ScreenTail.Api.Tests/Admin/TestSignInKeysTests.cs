@@ -3,9 +3,12 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using ScreenTail.Api.Auth;
+using ScreenTail.Api.Logging;
 
 namespace ScreenTail.Api.Tests.Admin;
 
@@ -51,6 +54,7 @@ public sealed class TestSignInKeysTests(ApiFixture api) : IClassFixture<ApiFixtu
         using var host = new KeySourceHost(Environments.Development, testKeys: string.Empty);
 
         Assert.IsType<GoogleSigningKeys>(host.Services.GetRequiredService<IGoogleSigningKeys>());
+        Assert.DoesNotContain(Announcement, host.Log.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -61,7 +65,18 @@ public sealed class TestSignInKeysTests(ApiFixture api) : IClassFixture<ApiFixtu
 
         var keys = Assert.IsType<TestGoogleSigningKeys>(host.Services.GetRequiredService<IGoogleSigningKeys>());
         Assert.Equal("e2e-key", Assert.Single(keys.Keys).KeyId);
+
+        // Said once, as a warning, through the service's own scrubbing log, and with nothing of the keys in it.
+        var said = Assert.Single(
+            host.Log.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line => line.Contains(Announcement, StringComparison.Ordinal));
+        Assert.Contains("WARN", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("e2e-key", said, StringComparison.Ordinal);
+        Assert.DoesNotContain(Base64UrlEncoder.Encode(rsa.ExportParameters(includePrivateParameters: false).Modulus)[..16], said, StringComparison.Ordinal);
     }
+
+    /// <summary>The start of the startup warning (<see cref="TestSignInOptions.Announce"/>).</summary>
+    private const string Announcement = "Google's signing keys are replaced by Testing:GoogleSigningKeys";
 
     [Fact]
     public async Task ATokenSignedByTheTestKeyIsCheckedLikeGooglesAndAnotherKeyIsRefused()
@@ -140,8 +155,16 @@ public sealed class TestSignInKeysTests(ApiFixture api) : IClassFixture<ApiFixtu
     /// </summary>
     private sealed class KeySourceHost(string environment, string testKeys) : WebApplicationFactory<Program>
     {
+        /// <summary>What the service logged at Warning and above, through its own scrubbing provider.</summary>
+        public StringWriter Log { get; } = new();
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            _ = builder.ConfigureServices(services =>
+            {
+                _ = services.RemoveAll<ILoggerProvider>();
+                _ = services.AddSingleton<ILoggerProvider>(new ScrubbingLoggerProvider(Log, LogLevel.Warning));
+            });
             _ = builder.UseEnvironment(environment);
             _ = builder.UseSetting("Jwt:Issuer", "screentail-tests");
             _ = builder.UseSetting("Jwt:Audience", "screentail-api");
