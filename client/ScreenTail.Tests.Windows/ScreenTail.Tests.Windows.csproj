@@ -33,6 +33,8 @@
   <ItemGroup>
     <!-- ST-031: the counting clock the Mac suite uses to say a loop does not poll, shared rather than copied. -->
     <Compile Include="..\ScreenTail.Tests\CountingTime.cs" Link="CountingTime.cs" />
+    <!-- ST-112: the rule the stop-time test refuses to run by while a real remote session is on screen; held by the Mac suite. -->
+    <Compile Include="..\ScreenTail.Tests\Detection\RealRemoteSessions.cs" Link="Host\RealRemoteSessions.cs" />
   </ItemGroup>
 
   <ItemGroup>

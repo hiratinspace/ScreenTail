@@ -6,6 +6,7 @@ using System.Runtime.Versioning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ScreenTail.Core.Detection;
 using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Lifecycle;
@@ -278,34 +279,86 @@ public sealed class StopTimeTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// A real remote-support program on this machine could come to the front during the recording, and the
-    /// real service would photograph it as the remote tool it is. This test does not run then; it says which
-    /// program, by the registry's display name, and what to do.
+    /// A real remote-support session on this desktop could come to the front during the recording, and the
+    /// real service would photograph it as the remote tool it is. So the test does not run while any visible
+    /// top-level window on this desktop looks like one (<see cref="RealRemoteSessions"/>): a remote tool's
+    /// window, or a browser whose title names one. Background agents with no window here (a tool's
+    /// service, WSL's msrdc with no app open) do not stop it. It says how many and what to do, never which.
     /// </summary>
     private static void RefuseWhileARealRemoteToolRuns()
     {
         var registry = RemoteToolRegistry.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json")));
-        var running = registry.Tools.Where(tool => tool.Processes.Any(IsRunning)).Select(tool => tool.DisplayName).Distinct().ToList();
+        var found = RealRemoteSessions.Count(registry, VisibleTopLevelWindows(), Environment.ProcessId);
         Assert.True(
-            running.Count == 0,
-            $"Close {string.Join(", ", running)} on this machine and run the job again. This test runs the real capture service, recording, and must not photograph a real remote-support session.");
+            found == 0,
+            $"{found} visible window(s) on this desktop look like a real remote-support session (a remote tool's window, or a browser tab whose title names one). Close them and run the job again: this test runs the real capture service, recording, and must not photograph a real session.");
     }
 
-    private static bool IsRunning(string processName)
+    /// <summary>The desktop's visible top-level windows, read as the foreground watcher reads one. Titles are matched, never kept or printed.</summary>
+    private static List<ForegroundWindowInfo> VisibleTopLevelWindows()
     {
-        var found = Process.GetProcessesByName(processName);
-        try
-        {
-            return found.Length > 0;
-        }
-        finally
-        {
-            foreach (var process in found)
+        var handles = new List<IntPtr>();
+        _ = EnumWindows(
+            (window, unused) =>
             {
-                process.Dispose();
+                if (IsWindowVisible(window))
+                {
+                    handles.Add(window);
+                }
+
+                return true;
+            },
+            IntPtr.Zero);
+
+        var names = new Dictionary<int, string?>();
+        var windows = new List<ForegroundWindowInfo>(handles.Count);
+        var buffer = new char[512];
+        foreach (var handle in handles)
+        {
+            _ = GetWindowThreadProcessId(handle, out var processId);
+            if (!names.TryGetValue(processId, out var name))
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(processId);
+                    name = process.ProcessName;
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+                {
+                    name = null;
+                }
+
+                names[processId] = name;
             }
+
+            var classLength = GetClassName(handle, buffer, buffer.Length);
+            var className = classLength > 0 ? new string(buffer, 0, classLength) : string.Empty;
+            var titleLength = GetWindowText(handle, buffer, buffer.Length);
+            var title = titleLength > 0 ? new string(buffer, 0, titleLength) : string.Empty;
+            windows.Add(new ForegroundWindowInfo(handle, processId, name, title, className, BrowserTabTitle: null, IsElevated: false, DateTimeOffset.UtcNow));
         }
+
+        return windows;
     }
+
+    private delegate bool EnumWindowsProc(IntPtr window, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out int processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, [Out] char[] name, int max);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr window, [Out] char[] text, int max);
 
     /// <summary>
     /// The service reads its backend address and a fallback device token from the environment. A token set
