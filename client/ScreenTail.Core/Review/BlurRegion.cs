@@ -53,8 +53,11 @@ public static class BlurRegion
         };
     }
 
+    /// <summary>The smallest rectangle, in each direction as drawn, that is taken for a blur rather than a click.</summary>
+    public const double MinimumDrawn = 4;
+
     /// <summary>Whether the drag was big enough to mean anything, or just a click that wobbled.</summary>
-    public static bool IsMeaningful(Rect drawn) => drawn.Width >= 4 && drawn.Height >= 4;
+    public static bool IsMeaningful(Rect drawn) => drawn.Width >= MinimumDrawn && drawn.Height >= MinimumDrawn;
 
     /// <summary>
     /// Whether a region is a non-empty rectangle wholly inside a frame of this size. What <see cref="From"/>
