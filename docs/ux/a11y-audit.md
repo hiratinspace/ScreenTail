@@ -128,6 +128,7 @@ On 2026-11-01 each rule was broken on purpose on a throwaway branch (three round
 | Ctrl+Z ignored over the enlarged screenshot | `CtrlZUndoesADeleteFromTheEnlargedView` |
 | The blur box's position no longer clamped to the picture (2026-11-04, run 41902899753) | Core's `BlurBoxTests` (three: moved off, grown past, any numbers) and `TheBoxStopsAtThePicturesEdgesAndCanCoverAllOfIt` ("160% from the left, -80% from the top") |
 | Enter on the blur box not routed (the same run) | `TheKeysPlaceTheBoxAndEnterBlursWhatItCoversAsADragWould` ("Enter on the blur box was not handled"), `EachKeyDoesWhatTheSheetSays(Return)` |
+| From the review of #257, all at once (run 41909379512): a held Enter repeated; a blur that did not land disarmed silently; a blur written but not sent back taken for nothing, and the old picture kept; no timeout; the OCR text leaving the box out; Ctrl+Enter not held; the letterbox offset dropped; no words at an edge | `HoldingEnterBlursOnceAndNeverASecondRegion` (6 regions, not 1), `ABlurThatDidNotLandIsSaid...` (nothing heard), `ABlurWrittenButNotSentBack...` and the pipe test, `ABlurTheServiceNeverAnswers...`, `TheTextPanelAndTheBlurBoxAreNeverOutTogether`, `CtrlEnterDoesNotPublish...` and its routing case, `OnALetterboxedPicture...` (86 against 465.4) and the placement check, `TheBoxStopsAtThePicturesEdges...` ("as far as it goes" missing) |
 
 ## Needs a person
 
