@@ -88,7 +88,7 @@ public sealed class LiveRegionTests(TheApplication app)
     }
 
     /// <summary>What was announced, by automation name, while <paramref name="change"/> ran and the dispatcher caught up.</summary>
-    private static async Task<IReadOnlyList<string>> HeardAsync(Action change)
+    internal static async Task<IReadOnlyList<string>> HeardAsync(Action change)
     {
         var heard = new List<string>();
         void Listen(UIElement element) => heard.Add(UIElementAutomationPeer.CreatePeerForElement(element)?.GetName() ?? string.Empty);

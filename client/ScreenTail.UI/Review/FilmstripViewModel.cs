@@ -494,16 +494,17 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     private void ToggleOcrText() => ShowOcrText = !ShowOcrText;
 
     /// <summary>
-    /// `B`, after dragging a rectangle over the enlarged frame. Destructive, and the ordering that makes
-    /// it safe belongs to <see cref="FrameBlur"/>, where it is tested without WPF — this only takes what
-    /// the store already holds and shows it.
+    /// `B`, after dragging a rectangle over the enlarged frame or placing the blur box over it with the
+    /// keys. Destructive, and the ordering that makes it safe belongs to <see cref="FrameBlur"/>, where it
+    /// is tested without WPF — this only takes what the store already holds and shows it. True when the
+    /// blur landed.
     /// </summary>
-    public async Task BlurAsync(FrameItem item, Rect drawn, Size displayed, CancellationToken ct = default)
+    public async Task<bool> BlurAsync(FrameItem item, Rect drawn, Size displayed, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
         if (_blur is null || await _blur.ApplyAsync(item.Cell.Frame, item.Image, drawn, displayed, ct).ConfigureAwait(true) is not { } blurred)
         {
-            return;
+            return false;
         }
 
         item.Image = blurred.Image;
@@ -517,6 +518,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
 
         // The text panel would otherwise stay open over the text the blur has just withdrawn.
         ShowOcrText = false;
+        return true;
     }
 
     private static StripItem Item(FilmstripCell cell) => cell switch

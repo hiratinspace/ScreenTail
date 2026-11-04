@@ -72,21 +72,98 @@ public partial class FilmstripView : UserControl
 
     private System.Windows.Point? _blurFrom;
 
+    /// <summary>Where the keyboard's blur box is, while it is out (ST-084 follow-up).</summary>
+    private BlurBox _box = BlurBox.Centred;
+
+    /// <summary>A blur on its way to the service. Nothing else is applied until it has landed.</summary>
+    private bool _blurring;
+
     /// <summary>
     /// `B`, and the toggle. Arming is a separate act from dragging, because the pane is full of frames a
     /// stray drag would otherwise destroy a piece of.
+    ///
+    /// Armed, the keyboard's box comes out in the middle of the picture with focus on it, so a keyboard
+    /// user can place it and a mouse user can still drag. Disarmed, it goes, and focus that was on it
+    /// goes back to the toggle rather than to nowhere.
     /// </summary>
     private void OnBlurModeChanged(object sender, System.Windows.RoutedEventArgs e)
     {
-        BlurSurface.Visibility = BlurMode.IsChecked == true
-            ? System.Windows.Visibility.Visible
-            : System.Windows.Visibility.Collapsed;
+        var armed = BlurMode.IsChecked == true;
+        var hadFocus = KeyboardBox.IsKeyboardFocusWithin;
+        var shown = armed ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        BlurSurface.Visibility = shown;
         BlurRect.Visibility = System.Windows.Visibility.Collapsed;
         _blurFrom = null;
+        _box = BlurBox.Centred;
+        KeyboardBox.Visibility = shown;
+        if (armed)
+        {
+            BlurBoxStatus.Visibility = System.Windows.Visibility.Visible;
+            ShowBox();
+
+            // After layout, so the box is visible and placed when it takes focus.
+            _ = Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Input,
+                () =>
+                {
+                    if (BlurMode.IsChecked == true && KeyboardBox.IsVisible)
+                    {
+                        _ = KeyboardBox.Focus();
+                    }
+                });
+            return;
+        }
+
+        BlurBoxStatus.Visibility = System.Windows.Visibility.Collapsed;
+        if ((hadFocus || Keyboard.FocusedElement is null or System.Windows.Window) && EnlargedView.IsVisible)
+        {
+            _ = BlurMode.Focus();
+        }
+    }
+
+    /// <summary>The picture or the surface over it changed size: the box stays over the same part of the picture.</summary>
+    private void OnBlurLayoutChanged(object sender, System.Windows.SizeChangedEventArgs e) => ShowBox();
+
+    /// <summary>The size the picture is drawn at, or null before it has been.</summary>
+    private Size? Displayed() =>
+        EnlargedImage.ActualWidth > 0 && EnlargedImage.ActualHeight > 0
+            ? new Size(EnlargedImage.ActualWidth, EnlargedImage.ActualHeight)
+            : null;
+
+    /// <summary>
+    /// Where the picture's top left corner is on the surface. Stretch="Uniform" letterboxes the picture in
+    /// the cell the surface fills, so a rectangle in the picture's coordinates is drawn this far across and
+    /// down. The drag's rectangle used to be drawn without it, off to one side of the pointer; what was
+    /// blurred was always measured against the picture and was right.
+    /// </summary>
+    private System.Windows.Point PictureOrigin() => EnlargedImage.TranslatePoint(default, BlurSurface);
+
+    /// <summary>Draws the keyboard's box where <see cref="_box"/> says, and says where that is.</summary>
+    private void ShowBox()
+    {
+        if (KeyboardBox.Visibility != System.Windows.Visibility.Visible)
+        {
+            return;
+        }
+
+        BlurBoxStatus.Text = _box.Spoken;
+        if (Displayed() is not { } displayed)
+        {
+            return;
+        }
+
+        var drawn = _box.Drawn(displayed);
+        var origin = PictureOrigin();
+        Canvas.SetLeft(KeyboardBox, origin.X + drawn.Left);
+        Canvas.SetTop(KeyboardBox, origin.Y + drawn.Top);
+        KeyboardBox.Width = drawn.Width;
+        KeyboardBox.Height = drawn.Height;
     }
 
     private void OnBlurDown(object sender, MouseButtonEventArgs e)
     {
+        // A drag replaces the box: one rectangle on screen, the one that will be blurred.
+        KeyboardBox.Visibility = System.Windows.Visibility.Collapsed;
         _blurFrom = e.GetPosition(EnlargedImage);
         BlurRect.Visibility = System.Windows.Visibility.Collapsed;
         BlurSurface.CaptureMouse();
@@ -101,9 +178,10 @@ public partial class FilmstripView : UserControl
 
         var to = e.GetPosition(EnlargedImage);
         var rect = Rect.Between(from.X, from.Y, to.X, to.Y);
+        var origin = PictureOrigin();
 
-        Canvas.SetLeft(BlurRect, rect.Left);
-        Canvas.SetTop(BlurRect, rect.Top);
+        Canvas.SetLeft(BlurRect, origin.X + rect.Left);
+        Canvas.SetTop(BlurRect, origin.Y + rect.Top);
         BlurRect.Width = rect.Width;
         BlurRect.Height = rect.Height;
         BlurRect.Visibility = System.Windows.Visibility.Visible;
@@ -113,7 +191,7 @@ public partial class FilmstripView : UserControl
     {
         BlurSurface.ReleaseMouseCapture();
         BlurRect.Visibility = System.Windows.Visibility.Collapsed;
-        if (_blurFrom is not { } from || Model is not { Enlarged: { } frame } model)
+        if (_blurFrom is not { } from)
         {
             return;
         }
@@ -123,14 +201,99 @@ public partial class FilmstripView : UserControl
 
         // Measured against the Image, not the Canvas: Stretch="Uniform" letterboxes, so the Canvas is
         // larger than the picture and a rectangle in its coordinates would be scaled from the wrong size.
-        await model.BlurAsync(
-            frame,
-            Rect.Between(from.X, from.Y, to.X, to.Y),
-            new Size(EnlargedImage.ActualWidth, EnlargedImage.ActualHeight));
+        await BlurAsync(Rect.Between(from.X, from.Y, to.X, to.Y));
+    }
 
-        // Disarmed after each one. A mode that stays on is a mode somebody forgets is on, and every
-        // subsequent drag over this pane is irreversible.
-        BlurMode.IsChecked = false;
+    /// <summary>Enter on the box: the blur a drag over the same rectangle makes.</summary>
+    private async void BlurUnderTheBox()
+    {
+        if (Displayed() is { } displayed)
+        {
+            await BlurAsync(_box.Drawn(displayed));
+        }
+    }
+
+    /// <summary>
+    /// The one way a blur is applied, from the mouse and the keyboard alike: the rectangle over the picture
+    /// as drawn, and the size it is drawn at, go to <see cref="FilmstripViewModel.BlurAsync"/>, which scales
+    /// it to the frame, has the service paint it with its margin, and drops the frame's text with it.
+    /// </summary>
+    private async Task BlurAsync(Rect drawn)
+    {
+        if (_blurring)
+        {
+            return;
+        }
+
+        if (Model is not { Enlarged: { } frame } model || Displayed() is not { } displayed)
+        {
+            BlurMode.IsChecked = false;
+            return;
+        }
+
+        _blurring = true;
+        var landed = false;
+        try
+        {
+            landed = await model.BlurAsync(frame, drawn, displayed);
+        }
+        finally
+        {
+            _blurring = false;
+
+            // Disarmed after each one. A mode that stays on is a mode somebody forgets is on, and every
+            // subsequent drag over this pane is irreversible.
+            BlurMode.IsChecked = false;
+        }
+
+        if (landed)
+        {
+            // Said once it has landed, so a screen reader hears that it happened.
+            BlurBoxStatus.Text = "Region blurred";
+            BlurBoxStatus.Visibility = System.Windows.Visibility.Visible;
+        }
+    }
+
+    /// <summary>
+    /// The keys the box answers while it is out (ST-084 follow-up). Esc puts it away from anywhere in the
+    /// enlarged view, ahead of closing the frame; the arrows and Enter only while the box has focus, so on
+    /// the buttons they still move between and press them. Returns whether the key was the box's.
+    /// </summary>
+    private bool OnBoxKey(Key key, ModifierKeys modifiers)
+    {
+        if (BlurMode.IsChecked != true)
+        {
+            return false;
+        }
+
+        var press = BlurBoxKeys.Route(key, modifiers);
+        switch (press.Kind)
+        {
+            case BlurBoxKey.Cancel:
+                if (!_blurring)
+                {
+                    BlurMode.IsChecked = false;
+                }
+
+                return true;
+            case BlurBoxKey.Move when KeyboardBox.IsKeyboardFocused:
+                if (!_blurring)
+                {
+                    _box = _box.Nudge(press.Direction, press.Resize, press.Large);
+                    ShowBox();
+                }
+
+                return true;
+            case BlurBoxKey.Apply when KeyboardBox.IsKeyboardFocused:
+                if (!_blurring)
+                {
+                    BlurUnderTheBox();
+                }
+
+                return true;
+            default:
+                return false;
+        }
     }
 
     /// <summary>
@@ -143,6 +306,11 @@ public partial class FilmstripView : UserControl
     {
         var open = e.NewValue is true;
         var covered = open ? System.Windows.Visibility.Hidden : System.Windows.Visibility.Visible;
+
+        // An armed surface must not be left waiting over the next frame, and what the box last said
+        // belongs to the frame that was open.
+        BlurMode.IsChecked = false;
+        BlurBoxStatus.Visibility = System.Windows.Visibility.Collapsed;
         Strip.Visibility = covered;
         StripHeader.Visibility = covered;
         StripFooter.Visibility = covered;
@@ -164,7 +332,10 @@ public partial class FilmstripView : UserControl
             });
     }
 
-    /// <summary>Esc, T, B and Ctrl+Z from any control of the enlarged view, not only from the strip under it (ST-084).</summary>
+    /// <summary>
+    /// Esc, T, B and Ctrl+Z from any control of the enlarged view, not only from the strip under it
+    /// (ST-084); and the blur box's keys while it is out, ahead of them.
+    /// </summary>
     private void OnEnlargedKeyDown(object sender, KeyEventArgs e)
     {
         if (Model is not { } model)
@@ -173,6 +344,12 @@ public partial class FilmstripView : UserControl
         }
 
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (OnBoxKey(key, e.KeyboardDevice.Modifiers))
+        {
+            e.Handled = true;
+            return;
+        }
+
         switch (FilmstripKeys.Route(key, e.KeyboardDevice.Modifiers, model.IsEnlarged, frameSelected: true))
         {
             case FilmstripKey.CloseEnlarged:
@@ -331,5 +508,59 @@ public static class FilmstripKeys
         }
 
         e.Handled = true;
+    }
+}
+
+/// <summary>What one keypress does to the blur box.</summary>
+public enum BlurBoxKey
+{
+    None,
+    Move,
+    Apply,
+    Cancel,
+}
+
+/// <param name="Kind">What the key does.</param>
+/// <param name="Direction">For <see cref="BlurBoxKey.Move"/>, which arrow.</param>
+/// <param name="Resize">Shift: the arrow resizes the box rather than moving it.</param>
+/// <param name="Large">Ctrl: by <see cref="BlurBox.LargeStep"/> rather than <see cref="BlurBox.Step"/>.</param>
+public readonly record struct BlurBoxPress(BlurBoxKey Kind, BlurBoxDirection Direction = BlurBoxDirection.Left, bool Resize = false, bool Large = false);
+
+/// <summary>
+/// The blur box's keys (ST-084 follow-up), as one pure routing function so they are tested without a
+/// window: the arrows move it, Shift with them resizes it, Ctrl with either takes bigger steps, Enter
+/// blurs what it covers and Esc puts it away. Alt is left alone, and so is Ctrl+Enter, which is Publish.
+/// </summary>
+public static class BlurBoxKeys
+{
+    /// <param name="key">The key, already read through <see cref="KeyEventArgs.SystemKey"/> when WPF reports <see cref="Key.System"/>.</param>
+    public static BlurBoxPress Route(Key key, ModifierKeys modifiers)
+    {
+        if (key == Key.Escape)
+        {
+            return new BlurBoxPress(BlurBoxKey.Cancel);
+        }
+
+        if (key == Key.Enter)
+        {
+            return modifiers == ModifierKeys.None ? new BlurBoxPress(BlurBoxKey.Apply) : default;
+        }
+
+        if ((modifiers & ~(ModifierKeys.Shift | ModifierKeys.Control)) != ModifierKeys.None)
+        {
+            return default;
+        }
+
+        BlurBoxDirection? direction = key switch
+        {
+            Key.Left => BlurBoxDirection.Left,
+            Key.Right => BlurBoxDirection.Right,
+            Key.Up => BlurBoxDirection.Up,
+            Key.Down => BlurBoxDirection.Down,
+            _ => null,
+        };
+        return direction is { } arrow
+            ? new BlurBoxPress(BlurBoxKey.Move, arrow, modifiers.HasFlag(ModifierKeys.Shift), modifiers.HasFlag(ModifierKeys.Control))
+            : default;
     }
 }
