@@ -306,10 +306,39 @@ elevated installer, run as a user who is not the one signed in, or in session 0,
 exits with 0 and starts normally at the next sign-in (or, for the UI, from the Start menu). Each refusal
 leaves a warning in the Windows Application log, source `ScreenTail`, event 1100 to 1103 for the service
 and 1200 to 1203 for the UI, with a fixed sentence and nothing about the user. Run the service from a
-normal, not elevated, prompt on a developer's machine too, unless UAC is off. Not yet measured: how long the
-service takes to stop in the middle of a recording, with speech, OCR, the microphone and the hooks all
-busy. The idle figure is about 150 ms on CI, and the four-second limit holds whatever happens; the
-laptop is where the busy figure has to be taken.
+normal, not elevated, prompt on a developer's machine too, unless UAC is off.
+
+**The stop time in the middle of a recording is measured automatically** (ST-112). The Windows test
+`Host/StopTimeTests` runs the real capture host, composed as `Program.cs` composes it but over a
+throwaway folder and a pipe of its own, with no backend address or device token, starts a session over
+the pipe as the UI does, and records for three seconds with the input hooks in and a synthetic window of
+a remote-tool class in front whose text changes while moments are marked. Then it marks a burst of
+moments with no pause and asks the service to close three ways: sign-out (`WM_ENDSESSION` with
+`ENDSESSION_LOGOFF`), Restart Manager (`ENDSESSION_CLOSEAPP`) and `WM_CLOSE`.
+
+What it requires, on the hosted runner and the laptop alike:
+- at least one frame still waiting for OCR and redaction when Windows asks, with the session still
+  recording;
+- the store closed within the four-second budget, and `WM_ENDSESSION` answered only after that;
+- no `store.db-wal` or `-shm` left, and the next start of the real service recovering the session as
+  partial;
+- every frame kept carrying a word from the test window in its OCR text. That shows each kept frame was
+  read off a screen showing the test's words; it does not show that nothing else was ever captured, since
+  a frame still waiting at the stop is lost unread.
+
+On the laptop, in the sign-out case only, it also requires a microphone the service can open and the
+speech model in the service's memory before the recording counts. It refuses to run while a visible
+window on its desktop looks like a real remote-support session: a remote tool's window by the registry's
+processes and classes, or a browser whose title matches a browser entry. It gives the count, never a name.
+A remote tool's background agent with no window there does not stop it. On the hosted runner, which has no
+microphone, it measured 38 to 115 ms with one frame in flight (earlier rounds without the burst, 20 to
+about 100 ms). On the laptop (run 41927796271, 2026-11-04) it measured 98 to 191 ms, the slowest being
+sign-out with the microphone open and the speech model loaded; each run's figures are in the job summary and `measurements.txt`, as numbers.
+
+What it does not show: a stop while Whisper is transcribing. A quiet room gives Whisper nothing to
+transcribe, so the laptop proves the model is loaded, not that it is busy. A frame still waiting for
+redaction at the stop is lost with the process, not counted as purged (#251). The idle figure from the
+installed service is about 150 ms (smoke test).
 
 `3010` still means the uninstall succeeded; the files left are deleted at the next restart.
 

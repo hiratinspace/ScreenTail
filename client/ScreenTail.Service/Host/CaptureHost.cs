@@ -37,10 +37,19 @@ namespace ScreenTail.Service.Host;
 /// The per-user capture service (ADR-0003): opens the encrypted store, recovers any session a crash left
 /// behind (ST-020), publishes this run's IPC token, and serves the pipe with the state machine behind it.
 /// Capture sources (hooks, screenshots, speech) and drafting arrive with their tickets.
+///
+/// Its files and its pipe are <see cref="CaptureHostPaths.Default"/>: the product's, always. The Windows
+/// tests' stop-time measurement (ST-112) runs this same host over a throwaway folder and a pipe of its own.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
-internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostApplicationLifetime lifetime) : BackgroundService
+internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostApplicationLifetime lifetime, CaptureHostPaths paths) : BackgroundService
 {
+    /// <summary>The service's own constructor, the one the host builds it with: the product's folder and pipe.</summary>
+    public CaptureHost(ILogger<CaptureHost> logger, IHostApplicationLifetime lifetime)
+        : this(logger, lifetime, CaptureHostPaths.Default())
+    {
+    }
+
     /// <summary>
     /// Set by the <c>erase_all_local_data</c> command, acted on after everything is closed (INV-12).
     ///
@@ -69,7 +78,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 // Everything above is disposed by now: the store is closed and its file can be removed.
                 // The marker was written before the UI was told yes, so a file we cannot delete here
                 // leaves the erasure owed and the next start finishes it.
-                var erased = LocalDataEraser.Erase(DataDirectory);
+                var erased = LocalDataEraser.Erase(paths.DataDirectory);
                 LogErased(logger, erased.Deleted.Count, erased.Complete);
             }
         }
@@ -82,7 +91,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // Before the store is opened, because an erasure that was promised and did not finish must not be
         // undone by something reopening what is left of it.
-        if (LocalDataEraser.EraseIfPending(DataDirectory) is { } owed)
+        if (LocalDataEraser.EraseIfPending(paths.DataDirectory) is { } owed)
         {
             LogErased(logger, owed.Deleted.Count, owed.Complete);
         }
@@ -92,7 +101,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // or the IPC token: a store opened beside the first two is one the erasure takes with it when it
         // finishes, and a surviving credential would run this as an activated device after everything was
         // to go. So the service does not run until a start manages it (INV-12).
-        if (LocalDataEraser.BlocksStart(DataDirectory))
+        if (LocalDataEraser.BlocksStart(paths.DataDirectory))
         {
             LogErasureBlocksStart(logger);
             lifetime.StopApplication();
@@ -100,8 +109,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         }
 
         await using var store = await SqliteSessionStore.OpenAsync(
-            Path.Combine(DataDirectory, "store.db"),
-            new DpapiKeyProvider(DpapiKeyProvider.DefaultKeyFilePath),
+            Path.Combine(paths.DataDirectory, "store.db"),
+            new DpapiKeyProvider(paths.KeyFile),
             ct: stoppingToken).ConfigureAwait(false);
 
         // Recover before serving, so the first UI to connect sees the outcome, not the orphan.
@@ -141,12 +150,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var retentionOptions = new RetentionOptions();
 
         // ST-081: the technician's own settings, on disk beside the store; the admin's policy sits on top.
-        var settingsStore = new ClientSettingsStore(Path.Combine(DataDirectory, "settings.json"));
+        var settingsStore = new ClientSettingsStore(Path.Combine(paths.DataDirectory, "settings.json"));
         Action<ClientSettings> applySettings = _ => { };
 
         // ST-080: the capture settings, the same way. The scene sampler and the session trigger are built
         // here so the settings can change them in place; the hotkeys are re-registered when they change.
-        var captureStore = new CaptureSettingsStore(Path.Combine(DataDirectory, "capture.json"));
+        var captureStore = new CaptureSettingsStore(Path.Combine(paths.DataDirectory, "capture.json"));
         var captureSettings = captureStore.Load();
         var sampler = new SceneSampler(options: captureSettings.ToSceneOptions());
         Func<CaptureSettings, Task> applyCapture = _ => Task.CompletedTask;
@@ -164,7 +173,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // is the fallback the M1 runbook uses until the client's onboarding exists.
         var device = new DeviceSession(
             draftHttp,
-            new DpapiDeviceCredentials(DpapiDeviceCredentials.DefaultPath),
+            new DpapiDeviceCredentials(paths.DeviceCredentials),
             () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"),
             TimeProvider.System);
         // The policy fetch waits for a token to fetch with, and the outbox waits for the policy: see
@@ -173,12 +182,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var policyFetched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = Task.Run(() => StartupOrder.RenewDeviceAsync(device, tokenReady, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "device renewal", ex.GetType().Name)), stoppingToken);
         // ST-067: what the technician keeps changing about drafts, as hints on the next one.
-        var style = new StyleStore(Path.Combine(DataDirectory, "style.json"));
+        var style = new StyleStore(Path.Combine(paths.DataDirectory, "style.json"));
         // Each of the three writes a bundle_sent row for what it sent, the host and the bytes, and logs a
         // row it could not write by the fault's type alone (ST-045, INV-10).
         var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints, logger: logger);
         var psa = new PsaGateway(draftHttp, () => device.CurrentToken, audit: store, logger: logger);
-        var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(DataDirectory, "policy.json")), TimeProvider.System);
+        var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(paths.DataDirectory, "policy.json")), TimeProvider.System);
         _policySync = policySync;
 
         // ST-098: metrics ride the same queue, so an offline afternoon queues them rather than losing
@@ -258,10 +267,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         }
 
         var token = IpcToken.Generate();
-        IpcTokenFile.Write(IpcTokenFile.DefaultPath, token);
+        IpcTokenFile.Write(paths.IpcTokenFile, token);
 
         var verifier = new WindowsClientVerifier(serviceExecutable);
-        var pipeName = WindowsPipeFactory.PipeNameForCurrentUser();
+        var pipeName = paths.PipeName;
 
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
@@ -286,7 +295,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // at all. The check runs under its own egress purpose, after this run's first policy fetch, at the
         // admin's interval; a package downloads when no session is recording and is installed only when
         // the technician presses Install, by Windows Installer, which asks for an administrator's approval.
-        var updatePreferences = new UpdatePreferences(Path.Combine(DataDirectory, "updates.json"));
+        var updatePreferences = new UpdatePreferences(Path.Combine(paths.DataDirectory, "updates.json"));
         UpdatePolicy UpdatePolicyNow() => UpdatePolicies.Resolve(policySync.Current, updatePreferences.Load());
         // One definition of a session in progress: the same states that keep Settings' meter off the microphone.
         bool SessionBusy() => MicrophoneMeter.HeldBy(machine.State);
@@ -295,7 +304,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             new HttpClient(EgressGuard.ForUpdates(egressPolicy)) { Timeout = TimeSpan.FromMinutes(30) },
             UpdateTrust.Shipped,
             ReleaseVersion.TryParse(version, out var installedVersion) ? installedVersion : new Version(0, 0, 0),
-            new WindowsUpdateFolder(Path.Combine(DataDirectory, "Updates")),
+            new WindowsUpdateFolder(Path.Combine(paths.DataDirectory, "Updates")),
             UpdatePolicyNow,
             SessionBusy,
             signedBuild: runningPublisher is not null,
@@ -348,7 +357,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 settingsStore,
                 () => policySync.Current,
                 settings => applySettings(settings),
-                new Core.Audit.AuditExporter(store.ReadAuditAsync, Path.Combine(DataDirectory, Core.Audit.AuditExporter.DirectoryName)).ExportAsync),
+                new Core.Audit.AuditExporter(store.ReadAuditAsync, Path.Combine(paths.DataDirectory, Core.Audit.AuditExporter.DirectoryName)).ExportAsync),
             new CaptureSettingsCommands(
                 captureStore,
                 () => [.. registry.Tools.Select(t => new ToolRow(t.Id, t.DisplayName)), .. registry.BrowserPatterns.Select(b => new ToolRow(b.Id, b.DisplayName))],
@@ -367,7 +376,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 // Written down before the UI is told yes. Everything after this can fail — a file held
                 // open by antivirus, or the process dying on the way out — and the next start will
                 // finish the job rather than opening what survived (INV-12).
-                LocalDataEraser.MarkPending(DataDirectory);
+                LocalDataEraser.MarkPending(paths.DataDirectory);
                 // The device's tokens go now rather than at shutdown, so a renewal still in flight cannot
                 // save the refresh token back after the sweep has removed it.
                 device.Erase();
@@ -610,7 +619,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // is written without narration. The microphone itself is built above, beside Settings' meter.
         await using var whisper = new WhisperRecogniser(
             new ModelDownload(new HttpClient(egress)),
-            SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, captureSettings.SpeechModel, StringComparison.OrdinalIgnoreCase)));
+            SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, captureSettings.SpeechModel, StringComparison.OrdinalIgnoreCase)),
+            paths.ModelDirectory);
         var narration = new NarrationRecorder(
             microphone,
             whisper,

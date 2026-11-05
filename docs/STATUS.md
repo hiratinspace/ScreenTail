@@ -119,8 +119,8 @@ ST-112 stay Partial with less owed.
   idle hooks narrowed; the golden replay, the throttle seen on the laptop, the nightly harness, memory
   with speech and live figures in "What's being captured" are owed), ST-042 (the recall gate needs
   ST-030's labelled frames), ST-112 (the installer is built and smoke-tested unsigned in CI; signing
-  needs the certificate, and the mid-recording stop time and an elevated installer closing the service
-  are to be seen on the laptop), ST-113 (auto-update is built and tested; switched off until the owner
+  needs the certificate, and an elevated installer closing the service is to be seen on the laptop; the
+  mid-recording stop time is now measured automatically), ST-113 (auto-update is built and tested; switched off until the owner
   creates the key, the hosting and the release environment), ST-114 (the security-lead review).
 - **9 are Open:** ST-017 (the usability round), ST-030 (golden sessions), ST-110, ST-111 and ST-116 (the
   pilot), and the four v1.1 and v1.2 tickets ST-120 to ST-123.
@@ -258,8 +258,6 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
 - The microphone picker and its level meter with a real headset, plugged and unplugged, and Win+L with
   the card open turning Windows' microphone light off (ST-080 AC3). The tests drive the lock, sleep and
   activation rules directly; Windows' real delivery of those events (Win+L, sleep) is checked only by hand.
-- How long the service takes to stop in the middle of a recording, with speech, OCR, the microphone and
-  the hooks all busy (ST-112, #251). The idle figure is about 150 ms on CI; the 4 s limit holds either way.
 - An elevated third-party installer closing the service on the laptop with UAC on, and the copy Restart
   Manager starts again then running at medium integrity or refused by the start guard (#251).
 - Review, History, Settings and the onboarding wizard on a real screen, in the new look, read by
@@ -323,8 +321,11 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
 - [ ] **Hand checks on the laptop:**
   - the microphone picker with a real headset, plugged and unplugged, and Win+L with the card open
     turning Windows' microphone light off (ST-080 AC3, #244);
-  - the service's stop time in the middle of a recording, with speech, OCR and the hooks busy (ST-112,
-    #251);
+  - no longer by hand: the service's stop time in the middle of a recording, with a frame still waiting
+    for OCR and redaction, is measured automatically on every Windows run (`StopTimeTests`, ST-112;
+    `docs/dev/installer.md`), 38 to 115 ms on the hosted runner against the 4 s budget. On the laptop it also
+    requires the microphone and the speech model loaded (not transcribing: a quiet room gives Whisper
+    nothing). on the laptop it measured 98 to 191 ms (run 41927796271);
   - an elevated third-party installer closing the service with UAC on, and what Restart Manager starts
     again (#251; ADR-0007);
   - a narrated session with the service log in view, to see whether the processor limit trips

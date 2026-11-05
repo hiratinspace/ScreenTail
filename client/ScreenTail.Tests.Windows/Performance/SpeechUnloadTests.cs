@@ -87,7 +87,7 @@ public sealed class SpeechUnloadTests
     /// The tests' own copy of the model, kept between runs. Seeded from the service's folder when the
     /// demo has already downloaded it there; the hash is checked either way before it is loaded.
     /// </summary>
-    private static string ModelCache()
+    internal static string ModelCache()
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var cache = Path.Combine(local, "ScreenTail.Tests", "models");
