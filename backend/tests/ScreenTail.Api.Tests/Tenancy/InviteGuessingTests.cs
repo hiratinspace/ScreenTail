@@ -79,35 +79,52 @@ public sealed partial class InviteGuessingTests(ApiFixture api) : IClassFixture<
     }
 
     [Fact]
-    public async Task AnOldTenCharacterCodeIsStillAcceptedUntilItExpires()
+    public async Task AnOldTenCharacterCodeIsRefusedLikeAnyMalformedCodeEvenWithALiveRowBehindIt()
     {
-        // Codes issued before the change were ten characters. Seeded as the old code path stored them:
-        // the hash of the normalised code. Assembled at run time, so no code-shaped literal is committed.
-        var tenantId = await TenantAsync("Legacy IT", seats: 5);
-        var live = LegacyCode();
-        var stale = LegacyCode();
+        // Codes were ten characters before 2026-11-01 and are no longer accepted (ADR-0009 decision 23).
+        // A live row is seeded as the old code path stored one, the hash of the normalised code, so the
+        // only thing refusing it is the shape check: it gets the bytes an unknown twenty-character code
+        // gets, is counted as a refusal, and claims nothing. Assembled at run time, so no code-shaped
+        // literal is committed.
+        var watch = api.Services.GetRequiredService<ActivationWatch>();
+        var tenantId = await TenantAsync("Ten Character IT", seats: 5);
+        var old = TenCharacterCode();
+        var inviteId = Guid.NewGuid();
         _ = await api.UseAsync(async db =>
         {
-            db.Invites.Add(new Invite { Id = Guid.NewGuid(), TenantId = tenantId, Email = "old@legacy.example", DisplayName = "Old", CodeHash = Invites.Hash(live), CreatedAt = DateTimeOffset.UtcNow.AddHours(-71), ExpiresAt = DateTimeOffset.UtcNow.AddHours(1) });
-            db.Invites.Add(new Invite { Id = Guid.NewGuid(), TenantId = tenantId, Email = "older@legacy.example", DisplayName = "Older", CodeHash = Invites.Hash(stale), CreatedAt = DateTimeOffset.UtcNow.AddHours(-73), ExpiresAt = DateTimeOffset.UtcNow.AddHours(-1) });
+            db.Invites.Add(new Invite { Id = inviteId, TenantId = tenantId, Email = "old@ten.example", DisplayName = "Old", CodeHash = Invites.Hash(old), CreatedAt = DateTimeOffset.UtcNow.AddHours(-1), ExpiresAt = DateTimeOffset.UtcNow.AddHours(71) });
             return await db.SaveChangesAsync();
         });
         using var client = api.CreateClient();
 
-        using var accepted = await client.PostAsJsonAsync(Activate, new ActivateDeviceRequest(live, "OLD-CODE"), TestContext.Current.CancellationToken);
-        using var expired = await client.PostAsJsonAsync(Activate, new ActivateDeviceRequest(stale, "STALE-CODE"), TestContext.Current.CancellationToken);
+        async Task<(HttpStatusCode Status, string? Type, string Body)> TryAsync(string code)
+        {
+            using var response = await client.PostAsJsonAsync(Activate, new ActivateDeviceRequest(code, "OLD-CODE"), TestContext.Current.CancellationToken);
+            return (response.StatusCode, response.Content.Headers.ContentType?.ToString(), await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
 
-        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
-        Assert.Equal("Legacy IT", (await accepted.Content.ReadFromJsonAsync<ActivatedDevice>(TestContext.Current.CancellationToken))!.TenantName);
-        Assert.Equal(HttpStatusCode.BadRequest, expired.StatusCode);
-        Assert.Contains("invite_expired", await expired.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        var unknown = await TryAsync(Invites.NewCode());
+        var before = watch.RefusedInWindow;
+        var answers = new[]
+        {
+            await TryAsync(old),
+            await TryAsync(old.ToLowerInvariant()),
+            await TryAsync(old.Replace("-", string.Empty, StringComparison.Ordinal)),
+        };
+
+        Assert.All(answers, a => Assert.Equal(unknown, a));
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.Status);
+        Assert.Contains("invite_unknown", unknown.Body, StringComparison.Ordinal);
+        Assert.Equal(before + answers.Length, watch.RefusedInWindow);
+        Assert.Null(await api.UseAsync(db => db.Invites.Where(i => i.Id == inviteId).Select(i => i.AcceptedAt).SingleAsync()));
+        Assert.False(await api.UseAsync(db => db.Devices.AnyAsync(d => d.TenantId == tenantId)));
     }
 
     [Fact]
     public async Task AnyCodeNobodyIssuedIsAnsweredWithTheSameBytesWhateverItsShape()
     {
-        // Live invites in two tenants, so a guess has something to miss. Every miss, well-formed in
-        // either length or malformed in any way, is the same 400 with the same body: nothing says which
+        // Live invites in two tenants, so a guess has something to miss. Every miss, well-formed or
+        // malformed in any way (the old ten-character length included), is the same 400 with the same body: nothing says which
         // tenants exist, whether a code was close, or that its shape was checked first. An empty code
         // and one of only dashes used to reach the hash and answer 500.
         var acme = await TenantAsync("Acme Guessing IT", seats: 5);
@@ -119,7 +136,7 @@ public sealed partial class InviteGuessingTests(ApiFixture api) : IClassFixture<
         [
             unknown,
             unknown.ToLowerInvariant(),
-            LegacyCode(),
+            TenCharacterCode(),
             unknown[..^1],
             unknown + "A",
             unknown.Replace(unknown[0], 'O'),
@@ -288,11 +305,8 @@ public sealed partial class InviteGuessingTests(ApiFixture api) : IClassFixture<
         Assert.Equal((50, TimeSpan.FromMinutes(10)), (options.WarnAt, options.Window));
     }
 
-    private static string LegacyCode()
-    {
-        var chars = RandomNumberGenerator.GetString(Invites.Alphabet, Invites.LegacyCodeLength);
-        return $"{chars[..5]}-{chars[5..]}";
-    }
+    /// <summary>A code of the shape issued before 2026-11-01: ten characters of the alphabet, in two groups of five.</summary>
+    private static string TenCharacterCode() => Invites.Format(RandomNumberGenerator.GetString(Invites.Alphabet, 10));
 
     private Task<Guid> TenantAsync(string name, int seats) => api.UseAsync(async db =>
     {

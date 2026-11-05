@@ -25,7 +25,7 @@ public sealed class InviteCodeContractTests(ApiFixture api) : IClassFixture<ApiF
         var contract = Contract();
         Assert.Equal(Invites.Alphabet, contract.GetProperty("alphabet").GetString());
         Assert.Equal(Invites.CodeLength, contract.GetProperty("length").GetInt32());
-        Assert.Equal(Invites.LegacyCodeLength, contract.GetProperty("legacyLength").GetInt32());
+        Assert.False(contract.TryGetProperty("legacyLength", out _), "one length only: the ten-character codes are no longer accepted");
         Assert.Equal(Invites.GroupLength, contract.GetProperty("groupLength").GetInt32());
     }
 
