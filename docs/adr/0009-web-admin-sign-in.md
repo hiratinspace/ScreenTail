@@ -287,7 +287,7 @@ for an attacker to turn against a real technician.
    `ActivationWatch:WarnAt` in `ActivationWatch:Window` (**50 in 10 minutes**; 1 to 1,000,000, and 1 minute
    to 24 hours in whole seconds, checked at startup). The line carries the count and the window, in
    exact seconds, and nothing else: no code, no address, no tenant (INV-10), and no claim about the
-   codes' strength, since old ten-character codes may still be live. Nobody is refused or slowed for it. The count is per instance,
+   codes' strength. Nobody is refused or slowed for it. The count is per instance,
    like the rate limit's (decision 20).
 6. **Uniform refusals: built.** A code that cannot be one we issued (the wrong length, a character outside
    the alphabet, nothing at all) is answered, without a lookup, with the same 400 and the same bytes as a
@@ -305,21 +305,21 @@ secret as a string: the database matches the hash of a 99-bit value, so even a m
 the index would say something about a hash rather than a code. There is nothing for a constant-time
 comparison to apply to (`DeviceTokens.Matches` stays for any path that compares two values).
 
-**Codes issued before the change** were ten characters and **are accepted until they expire**, 72 hours
-at most: the lookup is by hash whatever the length, and the shape check admits both lengths. A ten-character
-guess can only ever match a ten-character code, so accepting the old length makes no new code weaker;
-for those 72 hours the old codes keep their old odds. Nothing is deployed yet (ST-007), so in practice
-there are none. Dropping the old length once 72 hours have passed after the first deployment is one line
-(decision 23).
+**Codes issued before the change** were ten characters. They were accepted until they expired at first,
+and since 2026-11-04 **they are not accepted at all** (decision 23): the shape check admits twenty
+characters only, so a ten-character code is one more wrong length, refused without a lookup with the
+same 400 and bytes as any other malformed or unknown code, and counted by the warning like them. Nothing
+was deployed (ST-007), so no code anybody holds is refused by this. Rows stored under an old code's hash,
+if any existed, stay until they expire or the tenant is offboarded; nothing can claim them.
 
 **The client.** The Settings and onboarding card (`ActivationPanel`, `InviteCodes` in Core) takes a
-twenty-character code and still an old ten-character one, says how many characters it has so far, names a
+twenty-character code (a ten-character one is a wrong length like any other), says how many characters it has so far, names a
 look-alike (0, 1, I, L, O) as soon as one is typed, and sends the code grouped as the invite shows it.
 The box is wider and types in capitals. The pipe carries the code as a string, so the IPC contract is
 unchanged. A test reads the backend's alphabet and lengths so the client's copy cannot drift. The web
 admin shows the code as the backend returns it and lets it wrap on a narrow window; the operator's
 `--invite` prints it unchanged. Both sides read typed codes by the same table,
-`shared/contracts/invite-code.v1.json` (the alphabet, the lengths and eighteen typed codes with what each
+`shared/contracts/invite-code.v1.json` (the alphabet, the length and eighteen typed codes with what each
 must become), so a change to one side's reading alone, such as Unicode normalisation, fails a test.
 
 **Client and backend ship together.** A client built before this change (the #224 MSI, and the
@@ -433,9 +433,10 @@ Open for the owner (invite-code guessing, 2026-11-01; built with the conservativ
 22. **When the operator is warned: 50 refused codes in 10 minutes**, all addresses together, per
     instance (`ActivationWatch:WarnAt`, `ActivationWatch:Window`). It is a log line only: there is no
     alerting channel until hosting exists (ST-007).
-23. **Old ten-character codes accepted until they expire.** Nothing is deployed, so there should be none,
-    and the old length could be dropped from the shape check now; otherwise it can go once 72 hours have
-    passed after the first deployment. Kept for now as the choice that refuses no code anybody holds.
+23. **Old ten-character codes: dropped (owner, 2026-11-04).** They were accepted until they expired as
+    the choice that refused no code anybody held; nothing was deployed, so the owner chose to drop the
+    old length before the first deployment. Built the same day: a ten-character code is refused like
+    any malformed code, on the backend and on the client's card.
 
 Open for the owner (browser tests, 2026-11-04; built with the conservative choice):
 
@@ -488,8 +489,7 @@ Open for the owner (browser tests, 2026-11-04; built with the conservative choic
   refusals and a warning for the operator, with no lockout. A per-invite lockout and a cap across
   addresses were weighed and not built ("Guessing invite codes").
 - Follow-ups: a store shared by API instances for the rate limit and the activation warning, if there is
-  ever more than one (decision 20); dropping the old ten-character code length after the first deployment
-  (decision 23); CSP violation reporting (`report-to`) once there is somewhere to send reports.
+  ever more than one (decision 20); CSP violation reporting (`report-to`) once there is somewhere to send reports.
 - The device client turns the 429 into "Too many activation attempts from this network. Wait a minute
   and try again." on the Settings card (`DeviceSession`).
 - Exclusions, redaction patterns and telemetry are not policy fields yet (ST-047), so the editor does

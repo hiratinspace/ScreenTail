@@ -212,9 +212,9 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   on focus. A provider that asks to wait says for how long, and a Hudu company that was deleted asks
   for another (#229). None of it has met a real PSA; in Development the demo PSA can stand in (#218), and
   the tests drive the real providers against stand-in servers (#226).
-- **Device activation** takes a twenty-character invite code (an old ten-character one until it
-  expires), refuses a malformed code exactly as an unknown one, and claims the invite and the seat under
-  a lock on the tenant's row (#248).
+- **Device activation** takes a twenty-character invite code only (the old ten-character codes are
+  refused like any malformed code since 2026-11-04, decision 23), refuses a malformed code exactly as an
+  unknown one, and claims the invite and the seat under a lock on the tenant's row (#248).
 - **A recording session watches its own processor use** (ST-031 AC2, #232) and, over budget for ten
   seconds, samples the screen less, then reads one frame at a time, then stops scene sampling. Every frame
   it does take is redacted exactly as before (INV-1).
@@ -388,9 +388,9 @@ chose it says so.
   cannot be fetched; no Workspace-domain check; ten anonymous calls a minute per address; no proxy
   trusted until listed; a 10-minute sign-in nonce; inline styles in the page's CSP for Google's button.
   Decisions 17 to 20 are open: one rate budget or two for an office behind one address, how wide an
-  IPv6 caller is, binding the nonce to the browser, and counts kept per instance. Decisions 21 to 23 are
-  the invite code's length (20 characters), the warning threshold (50 refused codes in 10 minutes) and
-  when to stop accepting the old ten-character codes.
+  IPv6 caller is, binding the nonce to the browser, and counts kept per instance. Decisions 21 and 22 are
+  the invite code's length (20 characters) and the warning threshold (50 refused codes in 10 minutes);
+  decision 23 is made (the old ten-character codes are no longer accepted).
 - **The deployment** (`docs/dev/deploy.md`, section 10): the host and the name, staging or not,
   HSTS beyond one year, where backups go and who checks a restore, full IPv6, a non-superuser schema
   owner, TLS to PostgreSQL if it moves off the host, container memory and process limits, pinning the

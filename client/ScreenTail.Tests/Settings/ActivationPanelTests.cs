@@ -47,7 +47,7 @@ public sealed class ActivationPanelTests
     [InlineData("KX7PM-4R2WQ-9HTCE-B3NVA", null)]
     [InlineData("kx7pm 4r2wq 9htce b3nva", null)]
     [InlineData("KX7PM4R2WQ9HTCEB3NVA", null)]
-    [InlineData("KX7PM-4R2WQ", null)]
+    [InlineData("KX7PM-4R2WQ", "A code is twenty letters and digits in four groups, like KX7PM-4R2WQ-9HTCE-B3NVA. This has 10.")]
     public async Task TheCodeIsCheckedBeforeAnythingIsSent(string code, string? problem)
     {
         var gateway = new FakeDevice();

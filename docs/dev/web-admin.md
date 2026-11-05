@@ -79,9 +79,9 @@ Open `http://localhost:5173`, sign in with an address on the allowlist, name the
 1. **Technicians and seats → Invite a technician**: the code is shown once. Copy it. It is twenty
    letters and digits in four groups of five (`XXXXX-XXXXX-XXXXX-XXXXX`, about 99 bits, so it cannot be
    guessed from any number of addresses; ADR-0009, "Guessing invite codes"). Dashes, spaces and case do
-   not matter when it is typed. Codes issued before 2026-11-01 were ten characters and work until they
-   expire. **A client built before then refuses a twenty-character code on the card**, so run a client
-   and a backend from the same build (the demo laptop from `main`).
+   not matter when it is typed. Codes issued before 2026-11-01 were ten characters and are no longer
+   accepted (ADR-0009 decision 23). **A client built before then refuses a twenty-character code on
+   the card**, so run a client and a backend from the same build (the demo laptop from `main`).
 2. On a Windows PC with the client, **Settings → This device**, enter the code. Within fifteen seconds
    (or on **Refresh**) the device appears under Technicians and devices, and the seat count goes up.
 3. **Policy**: change retention or lock local-only and **Save policy**. Devices pick it up within the

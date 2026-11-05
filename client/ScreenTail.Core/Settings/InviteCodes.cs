@@ -5,15 +5,13 @@ namespace ScreenTail.Core.Settings;
 /// copied by hand from the backend's <c>Invites</c> the way the wire contracts are. Twenty characters
 /// from 31 with no look-alikes (no 0, 1, I, L or O), shown in four groups of five: about 99 bits, so
 /// a code cannot be guessed however many machines try. Codes issued before 2026-11-01 were ten
-/// characters and are accepted until they expire (72 hours at most), so the card takes those too.
+/// characters; the backend no longer accepts them, so the card counts one as a wrong length.
 /// </summary>
 public static class InviteCodes
 {
     public const string Alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
     public const int Length = 20;
-
-    public const int LegacyLength = 10;
 
     public const int GroupLength = 5;
 
@@ -26,7 +24,7 @@ public static class InviteCodes
 
     /// <summary>Whether a normalised code has a code's length and only the alphabet's characters.</summary>
     public static bool IsComplete(string normalised) =>
-        normalised is { Length: Length or LegacyLength } && normalised.All(c => Alphabet.Contains(c, StringComparison.Ordinal));
+        normalised is { Length: Length } && normalised.All(c => Alphabet.Contains(c, StringComparison.Ordinal));
 
     /// <summary>Whether a normalised code holds a character no code has (a 0, 1, I, L, O or anything outside the alphabet).</summary>
     public static bool HasForeignCharacter(string normalised) =>
