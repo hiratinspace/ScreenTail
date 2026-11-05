@@ -169,7 +169,7 @@ frame included.
 `npm run e2e` in `web/` drives the built web admin in Chromium against the real backend: the API runs in
 Development on a real PostgreSQL, and the page is the production build served by `vite preview` with the
 headers a deployment sends (`web/security-headers.ts`), twice: once built with a client id and once
-without. CI runs it in the Web job. It takes a few seconds once everything is built.
+without. CI runs it in the Web job, which runs for a change to `web/` or to the backend's code (`backend/src/`). It takes a few seconds once everything is built.
 
 ```bash
 docker run --rm -d -p 127.0.0.1:55499:5432 -e POSTGRES_PASSWORD=dev --name screentail-e2e-db postgres:17-alpine
