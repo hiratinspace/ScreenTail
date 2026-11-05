@@ -248,12 +248,15 @@ public partial class FilmstripView : UserControl
         }
     }
 
+    /// <summary>
+    /// The press, read where it happened, and only then the capture. The order matters: WPF reads a
+    /// position from the last pointer report, and capturing a window the pointer has not been reported over
+    /// reports the real pointer as a move. Every real press carries its own position, so the two agree; the
+    /// drag itself is <see cref="BeginDrag"/> and <see cref="EndDragAsync"/>, which take the points.
+    /// </summary>
     private void OnBlurDown(object sender, MouseButtonEventArgs e)
     {
-        // A drag replaces the box: one rectangle on screen, the one that will be blurred.
-        KeyboardBox.Visibility = System.Windows.Visibility.Collapsed;
-        _blurFrom = e.GetPosition(EnlargedImage);
-        BlurRect.Visibility = System.Windows.Visibility.Collapsed;
+        BeginDrag(e.GetPosition(EnlargedImage));
         BlurSurface.CaptureMouse();
     }
 
@@ -272,18 +275,35 @@ public partial class FilmstripView : UserControl
     private async void OnBlurUp(object sender, MouseButtonEventArgs e)
     {
         BlurSurface.ReleaseMouseCapture();
+        await EndDragAsync(e.GetPosition(EnlargedImage));
+    }
+
+    /// <summary>A drag starts at <paramref name="at"/>, in the picture's own coordinates as drawn.</summary>
+    internal void BeginDrag(System.Windows.Point at)
+    {
+        // A drag replaces the box: one rectangle on screen, the one that will be blurred.
+        KeyboardBox.Visibility = System.Windows.Visibility.Collapsed;
+        _blurFrom = at;
+        BlurRect.Visibility = System.Windows.Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// The drag ends at <paramref name="at"/>, in the picture's coordinates: the rectangle between the two
+    /// points is blurred, unless it is too small to be anything but a click.
+    /// </summary>
+    internal async Task EndDragAsync(System.Windows.Point at)
+    {
         BlurRect.Visibility = System.Windows.Visibility.Collapsed;
         if (_blurFrom is not { } from)
         {
             return;
         }
 
-        var to = e.GetPosition(EnlargedImage);
         _blurFrom = null;
 
         // Measured against the Image, not the Canvas: Stretch="Uniform" letterboxes, so the Canvas is
         // larger than the picture and a rectangle in its coordinates would be scaled from the wrong size.
-        var drawn = Rect.Between(from.X, from.Y, to.X, to.Y);
+        var drawn = Rect.Between(from.X, from.Y, at.X, at.Y);
 
         // A click, or a wobble: no attempt at all. Still armed for a real drag, nothing said, and no
         // keyboard box brought out for a mouse user (review of #257).

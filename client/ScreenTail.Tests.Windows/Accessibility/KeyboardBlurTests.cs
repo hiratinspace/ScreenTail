@@ -12,6 +12,7 @@ using ScreenTail.UI.Review;
 using ScreenTail.UI.Shell;
 using Frame = ScreenTail.Shared.Schema.Frame;
 using MouseButton = System.Windows.Input.MouseButton;
+using Point = System.Windows.Point;
 using Rect = System.Windows.Rect;
 using Size = ScreenTail.Core.Review.Size;
 
@@ -538,8 +539,16 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
 
     /// <summary>
     /// A click on the armed picture, a drag of nothing (review of #257): no attempt. Nothing is asked of the
-    /// service, nothing is said, no keyboard box comes out for a mouse user, and blurring stays armed.
-    /// The pointer is not moved: the press and the release are raised where it already is.
+    /// service, nothing is said, no keyboard box comes out for a mouse user, and blurring stays armed. At
+    /// chosen points, in the picture's coordinates, through the drag's own methods: in the middle, on the
+    /// corners and an edge, outside the picture on either side, and a wobble of three pixels. Then a real
+    /// drag that starts outside the picture, which is blurred, clamped to the picture.
+    ///
+    /// Not raised as mouse events at the real pointer, as it first was: WPF reads an event's position from
+    /// the last pointer report, and capturing the mouse on a window the pointer was never reported over
+    /// reports wherever the real pointer sits. A raised press and release then read two different points,
+    /// a drag from nowhere to the laptop's pointer, and this failed on the laptop whenever its pointer was
+    /// somewhere the hosted runner's is not (PR #262, hardware-checks run 42038458543).
     /// </summary>
     [Fact]
     public async Task AClickOnTheArmedPictureIsNoAttempt()
@@ -551,19 +560,46 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
             var (window, strip) = await HostAsync(frames);
             try
             {
+                var view = Audit.Descendants(window).OfType<FilmstripView>().Single();
+                var image = Image(window);
+                var (w, h) = (image.ActualWidth, image.ActualHeight);
                 var box = await Screens.OpenBlurBoxAsync(window);
-                var surface = Audit.Descendants(window).OfType<Canvas>().Single(c => c.Name == "BlurSurface");
-                var said = await LiveRegionTests.HeardAsync(() =>
+                var clicks = new (string Where, Point From, Point To)[]
                 {
-                    surface.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonDownEvent });
-                    surface.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
-                });
+                    ("in the middle", new(w / 2, h / 2), new(w / 2, h / 2)),
+                    ("on the top left corner", new(0, 0), new(0, 0)),
+                    ("on the bottom right corner", new(w, h), new(w, h)),
+                    ("on the right edge", new(w, h / 2), new(w, h / 2)),
+                    ("outside, above and to the left", new(-40, -40), new(-40, -40)),
+                    ("outside, to the right", new(w + 60, h / 2), new(w + 60, h / 2)),
+                    ("that wobbled three pixels", new(w / 3, h / 3), new((w / 3) + 3, (h / 3) + 3)),
+                };
 
-                Assert.Equal(0, frames.Asked);
-                Assert.DoesNotContain(said, words => words.StartsWith("Nothing was blurred", StringComparison.Ordinal));
-                Assert.False(box.IsVisible, "A click brought the keyboard box back out.");
-                Assert.True(Toggle(window).IsChecked == true, "A click disarmed blurring.");
-                Assert.Empty(strip.Enlarged!.Cell.Frame.MaskedRegions);
+                foreach (var (where, from, to) in clicks)
+                {
+                    var said = await LiveRegionTests.HeardAsync(async () =>
+                    {
+                        view.BeginDrag(from);
+                        await view.EndDragAsync(to);
+                    });
+
+                    Assert.True(frames.Asked == 0, $"A click {where} asked the service for a blur.");
+                    Assert.DoesNotContain(said, words => words.StartsWith("Nothing was blurred", StringComparison.Ordinal));
+                    Assert.False(box.IsVisible, $"A click {where} brought the keyboard box back out.");
+                    Assert.True(Toggle(window).IsChecked == true, $"A click {where} disarmed blurring.");
+                    Assert.Empty(strip.Enlarged!.Cell.Frame.MaskedRegions);
+                }
+
+                // The control: a real drag, from outside the picture into it, is a blur, clamped to the picture.
+                var frame = strip.Enlarged!;
+                var dragged = Core.Review.Rect.Between(-40, -40, w * 0.3, h * 0.3);
+                var expected = BlurRegion.From(dragged, new Size(w, h), new Size(frame.Cell.Frame.Width, frame.Cell.Frame.Height));
+                view.BeginDrag(new Point(-40, -40));
+                await view.EndDragAsync(new Point(w * 0.3, h * 0.3));
+                await Screens.UntilAsync(() => frame.Cell.Frame.MaskedRegions.Count == 1);
+                Assert.Equal(1, frames.Asked);
+                Assert.Equal(expected, Assert.Single(frame.Cell.Frame.MaskedRegions));
+                Assert.Equal((0L, 0L), (expected.X, expected.Y));
             }
             finally
             {
