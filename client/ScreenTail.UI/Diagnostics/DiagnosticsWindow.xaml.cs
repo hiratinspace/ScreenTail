@@ -31,24 +31,10 @@ public partial class DiagnosticsWindow : Window
         var reported = await connection.RequestAsync<DiagnosticsReported>(
             id => new GetDiagnosticsCommand { RequestId = id }).ConfigureAwait(true);
 
-        var window = new DiagnosticsWindow(reported is null ? CoreShell.DiagnosticsPanel.Unanswered : CoreShell.DiagnosticsPanel.From(From(reported)));
+        var window = new DiagnosticsWindow(reported is null ? CoreShell.DiagnosticsPanel.Unanswered : CoreShell.DiagnosticsPanel.From(CoreShell.Diagnostics.From(reported)));
         window.Show();
         _ = window.Activate();
     }
-
-    private static CoreShell.Diagnostics From(DiagnosticsReported reported) => new(
-        reported.Scope,
-        reported.Microphone,
-        reported.Suppression,
-        reported.RedactionBacklog,
-        reported.FramesDropped,
-        reported.KeystrokesDropped,
-        reported.EgressBlocked,
-        reported.LocalOnly,
-        reported.PolicyVersion,
-        reported.CpuPercent,
-        reported.WorkingSetBytes,
-        reported.ServiceVersion);
 
     public DiagnosticsWindow(CoreShell.Diagnostics diagnostics)
         : this(CoreShell.DiagnosticsPanel.From(diagnostics))
@@ -79,6 +65,8 @@ public partial class DiagnosticsWindow : Window
         FramesDropped: 0,
         KeystrokesDropped: 17,
         EgressBlocked: 0,
+        // Above zero so the render and the accessibility scan see the row with its explanation, the longest it gets.
+        NameHookRefusals: 1,
         LocalOnly: true,
         PolicyVersion: "policy-2026-09-13",
         CpuPercent: 3.4,

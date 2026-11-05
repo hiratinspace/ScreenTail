@@ -117,6 +117,7 @@ public sealed class TrayAndDiagnosticsTests
         Assert.Contains("redaction queue  4", text, StringComparison.Ordinal);
         Assert.Contains("keystrokes held  17", text, StringComparison.Ordinal);
         Assert.Contains("egress blocked   2", text, StringComparison.Ordinal);
+        Assert.Contains("hook fallbacks   3", text, StringComparison.Ordinal);
         Assert.Contains("local-only       yes", text, StringComparison.Ordinal);
         Assert.Contains("Not capturing: outlook", text, StringComparison.Ordinal);
 
@@ -156,6 +157,7 @@ public sealed class TrayAndDiagnosticsTests
         FramesDropped: 1,
         KeystrokesDropped: 17,
         EgressBlocked: 2,
+        NameHookRefusals: 3,
         LocalOnly: true,
         PolicyVersion: "policy-2026-09-13",
         CpuPercent: 3.4,
@@ -256,5 +258,24 @@ public sealed class TrayAndDiagnosticsTests
         Assert.Equal("yes", panel.Rows.Single(r => r.Label == "Local-only").Value);
         Assert.Equal("240 MB", panel.Rows.Single(r => r.Label == "Memory").Value);
         Assert.Equal(Sample().ToClipboardText(DateTimeOffset.UnixEpoch), panel.ToClipboardText(DateTimeOffset.UnixEpoch));
+    }
+
+    [Fact]
+    public void HookFallbacksAreACountWithWhatTheyMean()
+    {
+        // ST-031. Windows refusing the narrow title hook costs idle wakeups and nothing else, so the row
+        // says the number and, when it is not 0, that nothing was missed and what it costs, in words a
+        // technician can repeat to an admin.
+        var some = DiagnosticsPanel.From(Sample() with { NameHookRefusals = 3 }).Rows.Single(r => r.Label == DiagnosticsPanel.HookFallbacks);
+        var none = DiagnosticsPanel.From(Sample() with { NameHookRefusals = 0 }).Rows.Single(r => r.Label == DiagnosticsPanel.HookFallbacks);
+        var notKnown = DiagnosticsPanel.From(Sample() with { NameHookRefusals = null });
+
+        Assert.Equal($"3 ({DiagnosticsPanel.HookFallbacksMeaning})", some.Value);
+        Assert.Contains("nothing missed", some.Value, StringComparison.Ordinal);
+        Assert.Equal("0", none.Value);
+
+        // The service answered but could not know: unknown, never a 0 nobody measured (T-152).
+        Assert.Equal(DiagnosticsPanel.Unknown, notKnown.Rows.Single(r => r.Label == DiagnosticsPanel.HookFallbacks).Value);
+        Assert.Contains("hook fallbacks   unknown", notKnown.ToClipboardText(DateTimeOffset.UnixEpoch), StringComparison.Ordinal);
     }
 }

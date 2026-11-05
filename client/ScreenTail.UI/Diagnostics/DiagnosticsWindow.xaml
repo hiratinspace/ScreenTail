@@ -29,7 +29,7 @@
                        controls:LiveRegion.Setting="Polite" />
         </Border>
 
-        <!-- Spec §5 S1 fixes the panel at 360x420 and there are twelve rows, so it has to scroll: without
+        <!-- Spec §5 S1 fixes the panel at 360x420 and there are thirteen rows, so it has to scroll: without
              this the last two were drawn behind the Copy button and the technician simply never saw the
              client version. -->
         <Border Grid.Row="2"

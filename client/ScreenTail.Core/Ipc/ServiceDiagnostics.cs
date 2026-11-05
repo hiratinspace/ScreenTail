@@ -34,6 +34,11 @@ public static class ServiceDiagnostics
     /// service. Lost to INV-1 like a frame the worker could not read, and counted in the same field: the
     /// panel said 0 frames dropped while the queue was turning frames away.
     /// </param>
+    /// <param name="nameHookRefusals">
+    /// How many times Windows refused the foreground watcher's narrow title-change hook (ST-031), or null
+    /// when the service cannot know it yet because the watcher has not started. Passed on as it is: null
+    /// stays null, so the panel says unknown rather than 0.
+    /// </param>
     public static DiagnosticsReported Report(
         string serviceVersion,
         string? scope,
@@ -45,6 +50,7 @@ public static class ServiceDiagnostics
         long framesRefused,
         long? keystrokesDropped,
         long egressBlocked,
+        long? nameHookRefusals,
         bool localOnly,
         string policyVersion,
         long workingSetBytes)
@@ -61,6 +67,7 @@ public static class ServiceDiagnostics
             FramesAfterDiscard = redaction?.Refused ?? 0,
             KeystrokesDropped = keystrokesDropped ?? 0,
             EgressBlocked = egressBlocked,
+            NameHookRefusals = nameHookRefusals, // A count, nothing about the window (INV-10).
             LocalOnly = localOnly,
             PolicyVersion = policyVersion,
             CpuPercent = 0,

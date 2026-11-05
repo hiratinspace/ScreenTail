@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Text.Json;
 using ScreenTail.Core.Audit;
 using ScreenTail.Core.Capabilities;
+using ScreenTail.Core.Detection;
 using ScreenTail.Core.Ipc;
 using ScreenTail.Shared.Ipc;
+using CoreShell = ScreenTail.Core.Shell;
 
 namespace ScreenTail.Tests.Ipc;
 
@@ -458,9 +461,84 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 6, Token = IpcToken.Encode(_token), ClientName = "v6-ui" });
 
-        Assert.Equal(7, IpcContract.Version);
         Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
     }
+
+    [Fact]
+    public async Task AVersionSevenUiIsTurnedAwayByAVersionEightService()
+    {
+        // Contract v8 (ST-031) adds name_hook_refusals to the diagnostics reply. A v7 UI would fail reading
+        // it, so the pair is refused at the handshake rather than when the panel is opened.
+        await StartServerAsync();
+
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 7, Token = IpcToken.Encode(_token), ClientName = "v7-ui" });
+
+        Assert.Equal(8, IpcContract.Version);
+        Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+        await WaitUntilAsync(() => _audit.Types.Contains("ipc_rejected_" + RejectReasons.ContractMismatch));
+    }
+
+    [Fact]
+    public async Task TheNameHookRefusalCountTravelsFromTheWatcherToThePanel()
+    {
+        // ST-031. The count the foreground watcher keeps when Windows refuses its narrow title hook, through
+        // the service's report and a real pipe, to the row the panel shows and the clipboard text. The hook
+        // only ever knows thread ids, and the reply only the count (INV-10).
+        using var names = new ForegroundNameHook(thread => thread == ForegroundNameHook.EveryThread ? 1 : 0, _ => { });
+        _ = names.Follow(41);
+        _ = names.Follow(42);
+        Assert.Equal(2, names.Refusals);
+
+        _controller.AnswersTo = typeof(GetDiagnosticsCommand);
+        _controller.Answer = DiagnosticsWith(names.Refusals);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+
+        var reply = await ui.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, reply.NameHookRefusals);
+        Assert.Contains("\"name_hook_refusals\":2", JsonSerializer.Serialize<IpcEvent>(reply, IpcFraming.Json), StringComparison.Ordinal);
+        var panel = CoreShell.DiagnosticsPanel.From(CoreShell.Diagnostics.From(reply));
+        Assert.Equal(
+            $"2 ({CoreShell.DiagnosticsPanel.HookFallbacksMeaning})",
+            panel.Rows.Single(r => r.Label == CoreShell.DiagnosticsPanel.HookFallbacks).Value);
+        Assert.Contains("hook fallbacks   2", panel.ToClipboardText(DateTimeOffset.UnixEpoch), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARefusalCountTheServiceCannotKnowReachesThePanelAsUnknown()
+    {
+        // Before the watcher has started the service cannot know the count. It leaves the member out, and
+        // the panel says unknown rather than a 0 nobody measured (T-152).
+        _controller.AnswersTo = typeof(GetDiagnosticsCommand);
+        _controller.Answer = DiagnosticsWith(null);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+
+        var reply = await ui.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, TestContext.Current.CancellationToken);
+
+        Assert.Null(reply.NameHookRefusals);
+        Assert.DoesNotContain("name_hook_refusals", JsonSerializer.Serialize<IpcEvent>(reply, IpcFraming.Json), StringComparison.Ordinal);
+        var panel = CoreShell.DiagnosticsPanel.From(CoreShell.Diagnostics.From(reply));
+        Assert.Equal(CoreShell.DiagnosticsPanel.Unknown, panel.Rows.Single(r => r.Label == CoreShell.DiagnosticsPanel.HookFallbacks).Value);
+    }
+
+    /// <summary>The service's report, as the host builds it, with the given refusal count.</summary>
+    private static DiagnosticsReported DiagnosticsWith(long? nameHookRefusals) => ServiceDiagnostics.Report(
+        serviceVersion: "0.0.1-test",
+        scope: null,
+        microphone: null,
+        CaptureStateSnapshot.Idle,
+        isHeld: _ => false,
+        redactionBacklog: 0,
+        redaction: null,
+        framesRefused: 0,
+        keystrokesDropped: 0,
+        egressBlocked: 0,
+        nameHookRefusals: nameHookRefusals,
+        localOnly: true,
+        policyVersion: "default",
+        workingSetBytes: 0);
 
     [Fact]
     public async Task FirstMessageMustBeHello()
