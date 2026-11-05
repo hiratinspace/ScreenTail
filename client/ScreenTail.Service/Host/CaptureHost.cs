@@ -274,7 +274,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // Filled in below, once the pieces it reports on exist. The controller only ever calls it on a
         // request, by which time everything is wired.
-        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, machine, pending, null, null, null);
+        Func<DiagnosticsReported> diagnostics = () => Diagnostics(version, egress, egressPolicy, machine, pending, null, null, null, null);
         // What the UI reports about the pill being on screen, and what the indicator guard reads. A
         // connection is not a pill (2026-09-20 review).
         var indicators = new IndicatorReports();
@@ -706,6 +706,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             coordinator.CurrentScope?.Reason,
             redaction.Progress,
             capture.DroppedOutOfScope,
+            foreground.NameHookRefusals,
             narration.Microphone);
 
         // INV-12: retention runs at start and hourly. ST-047 feeds the tenant's retention days into the options.
@@ -889,6 +890,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         string? scope,
         RedactionProgress? redaction,
         long? keystrokesDropped,
+        long? nameHookRefusals,
         string? microphone = null)
     {
         using var self = System.Diagnostics.Process.GetCurrentProcess();
@@ -902,6 +904,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             redaction: redaction,
             framesRefused: pending.Dropped,
             keystrokesDropped: keystrokesDropped,
+            nameHookRefusals: nameHookRefusals,
             egressBlocked: egress.Blocked,
             localOnly: egressPolicy.Settings.LocalOnly,
             policyVersion: _policySync?.Current.Version ?? TenantPolicy.Default.Version,

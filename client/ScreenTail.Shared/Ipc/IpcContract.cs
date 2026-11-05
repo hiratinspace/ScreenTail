@@ -36,8 +36,13 @@ namespace ScreenTail.Shared.Ipc;
 /// <c>microphone_id</c>. A changed reply and a new member on a document both sides exchange, so an older
 /// reader would fail on either. The level meter's <c>get_microphone_level</c>, <c>stop_microphone_level</c>
 /// and <c>microphone_level</c> are new messages and would not have moved it on their own.
+///
+/// 8: ST-031, the <c>diagnostics</c> reply gains <c>name_hook_refusals</c>, how many times Windows refused
+/// the foreground watcher's narrow title-change hook, so the panel can say so. A count only, absent when
+/// the service cannot know it. A new member on a reply, which an older UI would fail on, so the version
+/// moves and the handshake goes on refusing a mismatched pair.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 7;
+    public const int Version = 8;
 }

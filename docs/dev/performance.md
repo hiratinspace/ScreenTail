@@ -112,7 +112,9 @@ What changed:
   it, so the watcher hears every title change it used to act on. If Windows refuses the narrow hook it
   falls back to every thread, the old subscription, and never to the poll alone; it tries the narrow
   hook again at the next foreground change and at every poll, and counts the refusals
-  (`WindowsForegroundWatcher.NameHookRefusals`).
+  (`WindowsForegroundWatcher.NameHookRefusals`). Since contract v8 the count is in the diagnostics
+  reply (`name_hook_refusals`) and the "What's being captured right now?" panel shows it as "Hook
+  fallbacks", with what it means beside a count above 0, so a refusal that costs idle wakeups says so.
 - **A classic console in front is heard over every thread** (review of #252). conhost draws a
   `ConsoleWindowClass` window and raises its renames, but Windows names the shell running in it as the
   window's owner, so the narrowed hook followed a thread that never renames anything: with the hook

@@ -32,6 +32,7 @@ public sealed class ServiceDiagnosticsTests
             framesRefused: 0,
             keystrokesDropped: 17,
             egressBlocked: 5,
+            nameHookRefusals: 3,
             localOnly: true,
             policyVersion: "v3",
             workingSetBytes: 1024);
@@ -41,6 +42,7 @@ public sealed class ServiceDiagnosticsTests
         Assert.Equal(3, reported.FramesDropped);
         Assert.Equal(17, reported.KeystrokesDropped);
         Assert.Equal(5, reported.EgressBlocked);
+        Assert.Equal(3, reported.NameHookRefusals);
         Assert.True(reported.LocalOnly);
         Assert.Equal("v3", reported.PolicyVersion);
         Assert.Equal("Capturing: ScreenConnect", reported.Scope);
@@ -105,6 +107,7 @@ public sealed class ServiceDiagnosticsTests
             framesRefused: 5,
             keystrokesDropped: null,
             egressBlocked: 0,
+            nameHookRefusals: null,
             localOnly: false,
             policyVersion: "default",
             workingSetBytes: 0);
@@ -131,6 +134,7 @@ public sealed class ServiceDiagnosticsTests
             framesRefused: 0,
             keystrokesDropped: null,
             egressBlocked: 0,
+            nameHookRefusals: null,
             localOnly: false,
             policyVersion: "default",
             workingSetBytes: 0);
@@ -155,6 +159,7 @@ public sealed class ServiceDiagnosticsTests
             framesRefused: 0,
             keystrokesDropped: null,
             egressBlocked: 0,
+            nameHookRefusals: null,
             localOnly: false,
             policyVersion: "default",
             workingSetBytes: 0);
@@ -165,5 +170,9 @@ public sealed class ServiceDiagnosticsTests
         Assert.Equal(0, reported.RedactionBacklog);
         Assert.Equal(0, reported.FramesDropped);
         Assert.Equal(0, reported.KeystrokesDropped);
+
+        // Except the name hook's refusals: before the foreground watcher has started the service cannot
+        // know them, and the panel must say unknown rather than a 0 nobody measured (ST-031, T-152).
+        Assert.Null(reported.NameHookRefusals);
     }
 }

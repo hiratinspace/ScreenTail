@@ -25,6 +25,15 @@ public sealed class DiagnosticsPanel
 
     public const string NotConnected = "Not connected to the capture service. Capture state unknown.";
 
+    /// <summary>The row for the title-change hook's fallbacks (ST-031).</summary>
+    public const string HookFallbacks = "Hook fallbacks";
+
+    /// <summary>
+    /// What a fallback means, said beside a count above zero so a technician or an admin can tell whether
+    /// it matters: nothing is missed, the idle service only does more work. At zero there is nothing to say.
+    /// </summary>
+    public const string HookFallbacksMeaning = "watched every window's title instead of only the one in front; nothing missed, a little more idle CPU";
+
     private readonly Diagnostics? _diagnostics;
 
     private DiagnosticsPanel(Diagnostics? diagnostics)
@@ -81,12 +90,21 @@ public sealed class DiagnosticsPanel
         new("Frames dropped", d.FramesDropped.ToString(CultureInfo.InvariantCulture)),
         new("Keystrokes held", d.KeystrokesDropped.ToString(CultureInfo.InvariantCulture)),
         new("Egress blocked", d.EgressBlocked.ToString(CultureInfo.InvariantCulture)),
+        new(HookFallbacks, HookFallbacksValue(d.NameHookRefusals)),
         new("Local-only", d.LocalOnly ? "yes" : "no"),
         new("Policy", d.PolicyVersion),
         new("CPU", d.CpuPercent.ToString("F1", CultureInfo.InvariantCulture) + "%"),
         new("Memory", (d.WorkingSetBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) + " MB"),
         new("Client", d.ClientVersion),
     ];
+
+    /// <summary>The count, unknown when the service could not know it, and what it means when it is not 0.</summary>
+    private static string HookFallbacksValue(long? refusals) => refusals switch
+    {
+        null => Unknown,
+        0 => "0",
+        { } count => $"{count.ToString(CultureInfo.InvariantCulture)} ({HookFallbacksMeaning})",
+    };
 
     private static IReadOnlyList<DiagnosticsLine> UnansweredRows() =>
     [
@@ -97,6 +115,7 @@ public sealed class DiagnosticsPanel
         new("Frames dropped", Unknown),
         new("Keystrokes held", Unknown),
         new("Egress blocked", Unknown),
+        new(HookFallbacks, Unknown),
         new("Local-only", Unknown),
         new("Policy", Unknown),
         new("CPU", Unknown),

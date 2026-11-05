@@ -404,8 +404,9 @@ chose it says so.
 - **The microphone meter** (#244, ST-080): it opens the microphone outside a session while the card is
   looked at, so Windows' microphone light comes on; its five-minute cap is a chosen number; there is no
   meter during a paused session; a device change can take effect within a session.
-- **The idle hooks** (#252, ST-031): the name hook's refusal count is kept but shown nowhere (that needs
-  an IPC change); the focus hook comes back with the session rather than staying in all day; while a
+- **The idle hooks** (#252, ST-031): the name hook's refusal count is now shown in "What's being
+  captured right now?" as "Hook fallbacks" (contract v8; confirm the wording and that a count with no
+  alert is enough); the focus hook comes back with the session rather than staying in all day; while a
   classic console is in front the name hook hears every thread, at the old idle cost.
 - **Pause wording** (#211): the pill and tray read "Paused: ..." with a colon, where the spec has a dash.
   Confirm, or give the wording.

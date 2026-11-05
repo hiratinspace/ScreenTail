@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using ScreenTail.Shared.Ipc;
 
 namespace ScreenTail.Core.Shell;
 
@@ -28,6 +29,11 @@ namespace ScreenTail.Core.Shell;
 /// </param>
 /// <param name="KeystrokesDropped">Keyboard events dropped for being out of scope (INV-6).</param>
 /// <param name="EgressBlocked">Requests the egress guard refused (INV-8).</param>
+/// <param name="NameHookRefusals">
+/// How many times Windows refused to narrow the title-change hook to the window in front, so that the
+/// service listened to every window instead (ST-031). Nothing is missed, but the idle service costs more.
+/// Null when the service cannot know it, which the panel shows as unknown rather than 0.
+/// </param>
 public sealed record Diagnostics(
     string Scope,
     string? Microphone,
@@ -36,12 +42,37 @@ public sealed record Diagnostics(
     long FramesDropped,
     long KeystrokesDropped,
     long EgressBlocked,
+    long? NameHookRefusals,
     bool LocalOnly,
     string PolicyVersion,
     double CpuPercent,
     long WorkingSetBytes,
     string ClientVersion)
 {
+    /// <summary>
+    /// What the service answered, field for field. Here rather than in the window so the Mac suite holds
+    /// the whole path from the service's count to the panel's row. Every field is a state, a count or a
+    /// name; the reply has nothing else to give.
+    /// </summary>
+    public static Diagnostics From(DiagnosticsReported reported)
+    {
+        ArgumentNullException.ThrowIfNull(reported);
+        return new Diagnostics(
+            reported.Scope,
+            reported.Microphone,
+            reported.Suppression,
+            reported.RedactionBacklog,
+            reported.FramesDropped,
+            reported.KeystrokesDropped,
+            reported.EgressBlocked,
+            reported.NameHookRefusals,
+            reported.LocalOnly,
+            reported.PolicyVersion,
+            reported.CpuPercent,
+            reported.WorkingSetBytes,
+            reported.ServiceVersion);
+    }
+
     /// <summary>
     /// The clipboard text. Built from this record alone, so there is no path from a frame, a transcript or
     /// a window title into it — the same argument as <c>AuditExport</c>, and for the same reason.
@@ -60,6 +91,7 @@ public sealed record Diagnostics(
             .Append("frames dropped   ").AppendLine(FramesDropped.ToString(CultureInfo.InvariantCulture))
             .Append("keystrokes held  ").AppendLine(KeystrokesDropped.ToString(CultureInfo.InvariantCulture))
             .Append("egress blocked   ").AppendLine(EgressBlocked.ToString(CultureInfo.InvariantCulture))
+            .Append("hook fallbacks   ").AppendLine(NameHookRefusals?.ToString(CultureInfo.InvariantCulture) ?? DiagnosticsPanel.Unknown)
             .Append("cpu              ").AppendLine(CpuPercent.ToString("F1", CultureInfo.InvariantCulture) + "%")
             .Append("memory           ").AppendLine((WorkingSetBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) + " MB");
 

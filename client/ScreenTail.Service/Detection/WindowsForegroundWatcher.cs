@@ -30,6 +30,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private readonly TimeSpan? _pollInterval;
     private readonly CancellationTokenSource _stopping = new();
     private readonly WinEventProc _callback;
+    private readonly Func<uint, bool>? _refuseNameHookFor;
     private Thread? _pump;
     private uint _pumpThreadId;
     private ForegroundNameHook? _names;
@@ -39,7 +40,18 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private ForegroundWindowInfo _current;
 
     public WindowsForegroundWatcher(TimeProvider? time = null, TimeSpan? pollInterval = null)
+        : this(time, pollInterval, refuseNameHookFor: null)
     {
+    }
+
+    /// <param name="refuseNameHookFor">
+    /// Tests only: a thread for which the narrow name hook is answered as Windows answers a refusal, with no
+    /// hook, so the fallback and its count can be seen without waiting for Windows to refuse one. The hook
+    /// over every thread is never refused through this.
+    /// </param>
+    internal WindowsForegroundWatcher(TimeProvider? time, TimeSpan? pollInterval, Func<uint, bool>? refuseNameHookFor)
+    {
+        _refuseNameHookFor = refuseNameHookFor;
         _time = time ?? TimeProvider.System;
         _filter = new ForegroundChangeFilter(_time);
         _pollInterval = pollInterval;
@@ -69,10 +81,11 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     /// <summary>
     /// How many times Windows refused the name hook for the thread in front, so that it heard every thread
-    /// instead. A count and nothing about the window (INV-10). Read by tests today; nothing in the service
-    /// shows it yet, so a refusal costs idle wakeups without saying so until something does.
+    /// instead, or null before the watcher has started and so cannot know. A count and nothing about the
+    /// window (INV-10). The diagnostics panel shows it as "Hook fallbacks" (contract v8), so a refusal that
+    /// costs idle wakeups says so.
     /// </summary>
-    public long NameHookRefusals => _names?.Refusals ?? 0;
+    public long? NameHookRefusals => _names?.Refusals;
 
     public Task StartAsync(CancellationToken ct = default)
     {
@@ -134,7 +147,9 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             // name hook hears one thread, the foreground window's, and follows it (ST-031).
             foregroundHook = Hook(ForegroundEvents.SystemForeground, ForegroundNameHook.EveryThread);
             _names = new ForegroundNameHook(
-                thread => Hook(ForegroundEvents.ObjectNameChange, thread),
+                thread => thread != ForegroundNameHook.EveryThread && _refuseNameHookFor?.Invoke(thread) == true
+                    ? IntPtr.Zero
+                    : Hook(ForegroundEvents.ObjectNameChange, thread),
                 hook => _ = UnhookWinEvent(hook));
             var front = GetForegroundWindow();
             FollowFront(front);

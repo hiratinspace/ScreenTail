@@ -1109,6 +1109,16 @@ public sealed record DiagnosticsReported : IpcEvent
     [JsonPropertyName("egress_blocked")]
     public required long EgressBlocked { get; init; }
 
+    /// <summary>
+    /// How many times Windows refused to narrow the foreground watcher's title-change hook to the window in
+    /// front, so that it listened to every window instead (ST-031, contract v8). Nothing is missed when it
+    /// does, but the idle service wakes for every rename on the desktop. A count and nothing about any
+    /// window (INV-10). Absent when the service cannot know it: the watcher has not started.
+    /// </summary>
+    [JsonPropertyName("name_hook_refusals")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? NameHookRefusals { get; init; }
+
     [JsonPropertyName("local_only")]
     public required bool LocalOnly { get; init; }
 
