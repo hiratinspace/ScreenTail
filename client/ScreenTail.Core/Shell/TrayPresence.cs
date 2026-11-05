@@ -1,4 +1,3 @@
-using System.Globalization;
 using ScreenTail.Shared.Ipc;
 
 namespace ScreenTail.Core.Shell;
@@ -51,7 +50,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
         var drafts = capture.DraftsReady;
         var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : capture.RemoteTool;
         var elapsed = capture.ElapsedMs is { } ms
-            ? TimeSpan.FromMilliseconds(ms).ToString(@"m\:ss", CultureInfo.InvariantCulture)
+            ? ShellStatus.Clock(ms)
             : null;
 
         var (icon, label) = capture.State switch

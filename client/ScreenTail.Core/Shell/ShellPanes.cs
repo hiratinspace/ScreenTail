@@ -153,6 +153,25 @@ public sealed class ShellPanes
 /// <summary>The shell's status line (Spec §5 S1's tooltip wording), from the store's snapshot.</summary>
 public static class ShellStatus
 {
+    public const string Connecting = "Connecting to the capture service…";
+
+    public const string NotConnected = "Not connected to the capture service";
+
+    public const string Unknown = "Capture state unknown";
+
+    /// <summary>
+    /// The tray's and the status line's time: m:ss, or h:mm:ss past the hour. It was the m:ss of a
+    /// TimeSpan, whose minutes start again at each hour, so an hour and five minutes read "5:00" once the
+    /// clock could run that long on screen (ST-072).
+    /// </summary>
+    public static string Clock(long milliseconds)
+    {
+        var span = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+        return span.TotalHours >= 1
+            ? string.Create(CultureInfo.InvariantCulture, $"{(int)span.TotalHours}:{span.Minutes:00}:{span.Seconds:00}")
+            : string.Create(CultureInfo.InvariantCulture, $"{span.Minutes}:{span.Seconds:00}");
+    }
+
     /// <summary>
     /// <see cref="Describe"/> without the time: what the status line is announced on (ST-084). The time
     /// moves every second of a recording (ST-072), and a screen reader interrupted that often hears nothing.
@@ -164,12 +183,6 @@ public static class ShellStatus
             ? Describe(snapshot with { Capture = capture with { ElapsedMs = null } })
             : Describe(snapshot);
     }
-
-    public const string Connecting = "Connecting to the capture service…";
-
-    public const string NotConnected = "Not connected to the capture service";
-
-    public const string Unknown = "Capture state unknown";
 
     /// <summary>
     /// The state, the tool, and how long. A session that has been running for twelve minutes says so,
@@ -208,7 +221,7 @@ public static class ShellStatus
 
         var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : capture.RemoteTool;
         var elapsed = capture.ElapsedMs is { } ms
-            ? TimeSpan.FromMilliseconds(ms).ToString(@"m\:ss", CultureInfo.InvariantCulture)
+            ? Clock(ms)
             : null;
 
         return (tool, elapsed) switch
