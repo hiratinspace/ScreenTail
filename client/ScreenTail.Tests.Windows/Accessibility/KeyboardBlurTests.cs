@@ -562,8 +562,11 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
             {
                 var view = Audit.Descendants(window).OfType<FilmstripView>().Single();
                 var image = Image(window);
-                var (w, h) = (image.ActualWidth, image.ActualHeight);
                 var box = await Screens.OpenBlurBoxAsync(window);
+
+                // Measured once the box is out: arming shows the hint and the status line under the picture,
+                // which draws it smaller than before.
+                var (w, h) = (image.ActualWidth, image.ActualHeight);
                 var clicks = new (string Where, Point From, Point To)[]
                 {
                     ("in the middle", new(w / 2, h / 2), new(w / 2, h / 2)),
