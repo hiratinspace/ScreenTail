@@ -7,12 +7,17 @@ namespace ScreenTail.Tests;
 /// real clock, so a component that ticks would tick in real seconds, or not at all, while the test watched
 /// a fake one. Here a timer is due at a fake time and fires, on the thread that calls
 /// <see cref="Advance"/>, once for every period the move passes over. Nothing waits for real time.
+///
+/// <paramref name="jitter"/>, when given, moves each arming's due time by what it returns for that arming
+/// (counted from zero), the way Windows' timers land a step of its interrupt clock early or late.
 /// </summary>
-internal sealed class TickingTime(DateTimeOffset start) : TimeProvider
+internal sealed class TickingTime(DateTimeOffset start, Func<int, TimeSpan>? jitter = null) : TimeProvider
 {
     private readonly Lock _gate = new();
     private readonly List<ManualTimer> _timers = [];
     private long _ticks = start.UtcTicks;
+    private readonly Func<int, TimeSpan>? _jitter = jitter;
+    private int _armings;
 
     /// <summary>Timers made and not yet disposed, armed or not.</summary>
     public int Live
@@ -91,7 +96,10 @@ internal sealed class TickingTime(DateTimeOffset start) : TimeProvider
         {
             lock (owner._gate)
             {
-                Due = dueTime == Timeout.InfiniteTimeSpan ? null : owner._ticks + Math.Max(0, dueTime.Ticks);
+                var off = dueTime == Timeout.InfiniteTimeSpan || owner._jitter is null ? TimeSpan.Zero : owner._jitter(owner._armings++);
+                // At least a millisecond on, as a real timer is: a timer re-armed for "now" from its own
+                // callback would otherwise fire for ever at one instant and the move would never end.
+                Due = dueTime == Timeout.InfiniteTimeSpan ? null : owner._ticks + Math.Max(TimeSpan.TicksPerMillisecond, dueTime.Ticks + off.Ticks);
                 Period = period == Timeout.InfiniteTimeSpan || period <= TimeSpan.Zero ? null : period.Ticks;
             }
 

@@ -48,8 +48,9 @@ public sealed class LiveRegionTests(TheApplication app)
         await app.RunAsync(async () =>
         {
             var state = new ShellState();
+            using var clock = new RecordingClock(state);
             state.Connected(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", ElapsedMs = 1_000 });
-            var pill = new HudWindow { DataContext = new HudViewModel(state), WindowStartupLocation = WindowStartupLocation.Manual, Left = 0, Top = 0 };
+            var pill = new HudWindow { DataContext = new HudViewModel(state, clock), WindowStartupLocation = WindowStartupLocation.Manual, Left = 0, Top = 0 };
             pill.Show();
             try
             {

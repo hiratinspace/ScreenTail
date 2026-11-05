@@ -49,8 +49,9 @@ public sealed class RecordingClockTests
         state.Connected(Recording(5_400));
         Assert.True(clock.Running);
 
-        // The first tick waits for the next whole second (600 ms), not a full second from arrival.
-        time.Advance(TimeSpan.FromMilliseconds(599));
+        // The first tick waits for just past the next whole second (600 ms, and 50 more to be clear of
+        // it), not a full second from arrival.
+        time.Advance(TimeSpan.FromMilliseconds(649));
         Assert.Equal(0, ticks);
         time.Advance(TimeSpan.FromMilliseconds(1));
         Assert.Equal(1, ticks);
@@ -104,10 +105,10 @@ public sealed class RecordingClockTests
     }
 
     [Fact]
-    public void TheServiceGoingQuietStopsTheClockAndChangesNoState()
+    public void ADroppedPipeStopsTheClockAndChangesNoState()
     {
-        // INV-4, ADR-0003: silence from the service never means capture stopped. The pill goes to
-        // "unknown, may still be recording", as it always did, and there is no clock to keep.
+        // INV-4, ADR-0003: a lost connection never means capture stopped. The pill goes to "unknown, may
+        // still be recording", as it always did, and there is no clock to keep.
         var (state, time, clock) = Make();
         using var _ = clock;
         state.Connected(Recording(5_000));
@@ -231,6 +232,76 @@ public sealed class RecordingClockTests
 
         Assert.NotEqual(first.State.Text, later.State.Text);
         Assert.Equal(first.Announcement, later.Announcement);
+    }
+
+    [Theory]
+    [InlineData(-16, 16)]
+    [InlineData(-15, -15)]
+    [InlineData(16, 16)]
+    [InlineData(-16, 0)]
+    public void EverySecondIsShownExactlyOnceWhenTheTimerLandsEarlyOrLate(int early, int late)
+    {
+        // Windows runs these timers on its interrupt clock, about 15.6 ms a step, so a tick lands a little
+        // either side of where it was aimed. Aimed at the boundary, early shows the old second again and a
+        // fixed period drifts through it: 00:05, 00:05, 00:07 (2026-11-05 review).
+        var state = new ShellState();
+        var time = new TickingTime(Start, n => TimeSpan.FromMilliseconds(n % 2 == 0 ? early : late));
+        using var clock = new RecordingClock(state, time);
+        var seen = new List<string>();
+        clock.Ticked += () => seen.Add(Pill(state, clock));
+        state.Connected(Recording(5_000));
+
+        time.Advance(TimeSpan.FromMinutes(2));
+
+        // One tick a second, each showing the next second: no second twice, none missed. Two minutes from
+        // 00:05 is 02:05, and that tick is due just after the move ends, so 00:06 to 02:04.
+        var expected = Enumerable.Range(6, 119).Select(s => HudState.Elapsed(s * 1_000L)).ToList();
+        Assert.Equal(expected, seen);
+    }
+
+    [Fact]
+    public void AHandlerThatThrowsStopsNeitherTheOthersNorTheClock()
+    {
+        // The tick runs on a timer thread. A handler's exception there would end the UI process, and a
+        // multicast invoke would stop at it, leaving every later view's clock still.
+        var (state, time, clock) = Make();
+        using var _ = clock;
+        var later = new List<string>();
+        clock.Ticked += () => throw new InvalidOperationException("a view that broke");
+        clock.Ticked += () => later.Add(Pill(state, clock));
+        state.Connected(Recording(5_000));
+
+        time.Advance(TimeSpan.FromSeconds(3.1));
+
+        Assert.Equal(["00:06", "00:07", "00:08"], later);
+        Assert.Equal(3, clock.HandlerFailures);
+        Assert.True(clock.Running);
+    }
+
+    [Fact]
+    public void ChangesHeardOutOfOrderLeaveTheClockOnWhatTheStoreHolds()
+    {
+        // The store raises its change outside its lock, so a change can reach the clock after a later
+        // one. Here the later one (the pipe dropping) is raised from inside the earlier one's raise, so the
+        // clock hears "lost" first and then the handshake's "recording" (2026-11-05 review).
+        var state = new ShellState();
+        var time = new TickingTime(Start);
+        var dropped = false;
+        state.Changed += _ =>
+        {
+            if (!dropped)
+            {
+                dropped = true;
+                state.Lost();
+            }
+        };
+        using var clock = new RecordingClock(state, time);
+
+        state.Connected(Recording(5_000));
+
+        Assert.Equal(ServiceConnection.Unavailable, state.Snapshot.Connection);
+        Assert.False(clock.Running);
+        Assert.Equal(0, time.Armed);
     }
 
     [Fact]

@@ -25,16 +25,16 @@ public sealed partial class HudViewModel : ObservableObject
     /// <param name="shell">The store the pill reads.</param>
     /// <param name="clock">
     /// Keeps the recording clock moving between the service's snapshots, shared with the tray and the shell
-    /// so the three never disagree. One of the pill's own, on the system clock, when none is given.
+    /// so the three never disagree. Required, and owned by whoever made it: a clock the pill made for itself
+    /// would be a timer nobody disposes, ticking for as long as the store says recording. Made before the
+    /// pill listens to the store, so the clock has a new snapshot as its base by the time the pill draws it.
     /// </param>
-    public HudViewModel(ShellState shell, RecordingClock? clock = null)
+    public HudViewModel(ShellState shell, RecordingClock clock)
     {
         ArgumentNullException.ThrowIfNull(shell);
+        ArgumentNullException.ThrowIfNull(clock);
         _shell = shell;
-
-        // Made before the pill listens to the store, so the clock has the new snapshot as its base by the
-        // time the pill asks what it says.
-        _clock = clock ?? new RecordingClock(shell);
+        _clock = clock;
         _shell.Changed += _ => Refresh();
 
         // The clock's tick redraws the number, and only the number moves: the state is re-read from the

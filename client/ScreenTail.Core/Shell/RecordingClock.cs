@@ -15,14 +15,23 @@ namespace ScreenTail.Core.Shell;
 /// (ADR-0003, INV-4): a UI that decided capture had stopped because nothing arrived would be the
 /// silent-capture path the whole design forbids, so silence here only ever means the clock goes on.
 ///
-/// It ticks once a second while the service says recording, and only then. Paused, suppressed, idle and
-/// "not connected" stop the timer, so a UI with nothing to count does not wake for it (ST-031). A new
-/// snapshot is the new base, and within one session the clock never shows less than it already has.
+/// It ticks about once a second while the service says recording, and only then. Paused, suppressed,
+/// idle and "not connected" stop the timer, so a UI with nothing to count does not wake for it (ST-031).
+/// A new snapshot is the new base, and within one session the clock never shows less than it already has.
 /// </summary>
 public sealed class RecordingClock : IDisposable
 {
-    /// <summary>How often the clock is redrawn while recording. The display has one-second resolution.</summary>
+    /// <summary>The display's resolution: one second.</summary>
     public static readonly TimeSpan TickEvery = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How far past each whole second a tick is aimed. Windows runs thread-pool timers on its interrupt
+    /// clock, about 15.6 ms a step, so a timer aimed exactly at the boundary lands a few milliseconds
+    /// either side of it: early shows the old second again, and a fixed period drifting through the
+    /// boundary shows one second twice and skips the next (2026-11-05 review). Fifty milliseconds is
+    /// more than three steps clear, and too little for anyone to see.
+    /// </summary>
+    public static readonly TimeSpan PastTheSecond = TimeSpan.FromMilliseconds(50);
 
     private readonly Lock _gate = new();
     private readonly ShellState _shell;
@@ -34,6 +43,7 @@ public sealed class RecordingClock : IDisposable
     private long _shownMs;
     private bool _running;
     private bool _disposed;
+    private long _handlerFailures;
 
     /// <param name="shell">The store whose snapshots this counts from. Subscribe consumers after this.</param>
     /// <param name="time">The clock it counts with, and the one its timer runs on.</param>
@@ -45,13 +55,14 @@ public sealed class RecordingClock : IDisposable
 
         // Subscribed here, so a consumer made after this clock hears a change only once the clock has
         // taken the snapshot as its new base: the change is the arrival, and arrival is what it counts from.
-        _shell.Changed += Observe;
-        Observe(_shell.Snapshot);
+        _shell.Changed += OnChanged;
+        Observe();
     }
 
     /// <summary>
-    /// Raised once a second while recording, on a timer thread. A consumer redraws from
-    /// <see cref="Show(ShellSnapshot)"/>; it must not block, and must marshal to its own thread.
+    /// Raised about once a second while recording, on a timer thread. A consumer redraws from
+    /// <see cref="Show(ShellSnapshot)"/>; it must not block, and must marshal to its own thread. Each
+    /// handler is called on its own, so one that throws neither stops the others nor the clock.
     /// </summary>
     public event Action? Ticked;
 
@@ -66,6 +77,9 @@ public sealed class RecordingClock : IDisposable
             }
         }
     }
+
+    /// <summary>How many times a <see cref="Ticked"/> handler threw. Counts only, never the message (INV-10).</summary>
+    public long HandlerFailures => Interlocked.Read(ref _handlerFailures);
 
     /// <summary>
     /// <paramref name="capture"/> with its elapsed time as it stands now. Only the elapsed time differs:
@@ -88,19 +102,7 @@ public sealed class RecordingClock : IDisposable
                 return capture;
             }
 
-            var now = reported;
-            if (capture.State == CaptureStates.Recording)
-            {
-                now += (long)_time.GetElapsedTime(_receivedAt).TotalMilliseconds;
-            }
-
-            // Never backwards within a session. The service's number and this one can disagree by the time
-            // a message spent on the pipe, and a pill that read 00:11 and then 00:10 would look broken.
-            if (string.Equals(capture.SessionId, _session, StringComparison.Ordinal))
-            {
-                now = Math.Max(now, _shownMs);
-            }
-
+            var now = Now(capture, reported);
             _shownMs = now;
             return now == reported ? capture : capture with { ElapsedMs = now };
         }
@@ -127,17 +129,26 @@ public sealed class RecordingClock : IDisposable
             _running = false;
         }
 
-        _shell.Changed -= Observe;
+        _shell.Changed -= OnChanged;
         _timer.Dispose();
     }
 
-    private void Observe(ShellSnapshot snapshot)
+    /// <summary>
+    /// The store's change event is a nudge, not the news. <see cref="ShellState"/> raises it outside its
+    /// lock, so two changes on two threads can arrive here in the other order, and the handshake's own
+    /// change can land after a later one (2026-11-05 review). Taking the argument would then keep a
+    /// recording clock running over a store that says the service has gone. The store itself is read
+    /// instead: whatever order the nudges come in, the last one leaves the clock on what the store holds.
+    /// </summary>
+    private void OnChanged(ShellSnapshot _) => Observe();
+
+    private void Observe()
     {
         // KnownCapture: when the service stops answering, what it last said is no longer the present, and
         // there is no clock to keep. The state shown is then "unknown, may still be recording", as before.
-        var capture = snapshot.KnownCapture;
         lock (_gate)
         {
+            var capture = _shell.Snapshot.KnownCapture;
             if (_disposed || ReferenceEquals(capture, _observed))
             {
                 // The store raises on every change, a navigation as much as a new state. The same snapshot
@@ -154,21 +165,8 @@ public sealed class RecordingClock : IDisposable
                 _shownMs = 0;
             }
 
-            var recording = capture is { State: CaptureStates.Recording, ElapsedMs: not null };
-            if (recording)
-            {
-                // The first tick lands where the next whole second does, so the display turns over on the
-                // second rather than up to a second late.
-                var into = capture!.ElapsedMs!.Value % (long)TickEvery.TotalMilliseconds;
-                var due = TimeSpan.FromMilliseconds((long)TickEvery.TotalMilliseconds - Math.Max(0, into));
-                _ = _timer.Change(due, TickEvery);
-            }
-            else if (_running)
-            {
-                _ = _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-            }
-
-            _running = recording;
+            _running = capture is { State: CaptureStates.Recording, ElapsedMs: not null };
+            Arm();
         }
     }
 
@@ -183,6 +181,64 @@ public sealed class RecordingClock : IDisposable
             }
         }
 
-        Ticked?.Invoke();
+        if (Ticked is { } handlers)
+        {
+            foreach (var handler in handlers.GetInvocationList().Cast<Action>())
+            {
+                try
+                {
+                    handler();
+                }
+#pragma warning disable CA1031 // The point: a handler's fault must not take the other views, or the clock, with it.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                    _ = Interlocked.Increment(ref _handlerFailures);
+                }
+            }
+        }
+
+        lock (_gate)
+        {
+            Arm();
+        }
+    }
+
+    /// <summary>
+    /// One shot, aimed just past the next whole second of the time as it now stands, and aimed again from
+    /// there after every tick. Re-aiming each time keeps a tick in the right second however early or late
+    /// the last one came; a fixed period carries every error forward into the next. Under the gate.
+    /// </summary>
+    private void Arm()
+    {
+        if (!_running || _disposed || _observed?.ElapsedMs is not { } reported)
+        {
+            _ = _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            return;
+        }
+
+        var second = (long)TickEvery.TotalMilliseconds;
+        var now = Now(_observed, reported);
+        var due = TimeSpan.FromMilliseconds(second - (now % second)) + PastTheSecond;
+        _ = _timer.Change(due, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>The time to show for the snapshot this clock holds, never less than was shown. Under the gate.</summary>
+    private long Now(CaptureStateSnapshot capture, long reported)
+    {
+        var now = reported;
+        if (capture.State == CaptureStates.Recording)
+        {
+            now += (long)_time.GetElapsedTime(_receivedAt).TotalMilliseconds;
+        }
+
+        // Never backwards within a session. The service's number and this one can disagree by the time a
+        // message spent on the pipe, and a pill that read 00:11 and then 00:10 would look broken.
+        if (string.Equals(capture.SessionId, _session, StringComparison.Ordinal))
+        {
+            now = Math.Max(now, _shownMs);
+        }
+
+        return Math.Max(0, now);
     }
 }

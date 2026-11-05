@@ -352,6 +352,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// <summary>The tray icon, for the Windows tests.</summary>
     internal TrayIconHost Tray => _tray;
 
+    /// <summary>The shared recording clock, so a test can bind a shell window's model to it (ST-072).</summary>
+    internal RecordingClock Clock => _clock;
+
     /// <summary>
     /// Opens one connection to the service, verifying it before handing over the token (ST-012).
     ///
