@@ -683,6 +683,21 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # ST-099 follow-up. The browser tests below run the real backend, which needs a real PostgreSQL;
+    # the same throwaway one the Backend job uses.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: screentail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: web
@@ -698,6 +713,29 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+      # ST-099 follow-up: the built web admin in Chromium against the real backend (Development, this
+      # job's Postgres), with Google replaced by a key made for the run (web/e2e/harness.ts). No network
+      # beyond localhost. The runner's own .NET SDK builds the API, as in the Backend job. The runner image
+      # already has the libraries Chromium needs; --with-deps added only fonts, over a slow mirror (3 min).
+      - name: Browser tests (Playwright, Chromium)
+        timeout-minutes: 8
+        env:
+          SCREENTAIL_E2E_POSTGRES: Host=localhost;Port=5432;Database=screentail_e2e;Username=postgres;Password=ci-only-not-a-secret
+        run: |
+          dotnet build ../backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release --nologo -v quiet
+          npx playwright install --only-shell chromium
+          npm run e2e
+      - name: Upload the browser tests' traces (failures only; the pages hold made-up test data)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: web-e2e-failures
+          path: |
+            web/e2e-results/
+            web/e2e-report/
+          retention-days: 7
+          if-no-files-found: ignore
 
   research:
     name: Research

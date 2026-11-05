@@ -42,6 +42,7 @@ Backend (environment variables, or `dotnet user-secrets` in Development):
 | `ForwardedHeaders__KnownProxies__0`, `__1`, ... | empty | The reverse proxies in front of the API, as IP addresses. Only a connection from one of them has its `X-Forwarded-For` and `X-Forwarded-Proto` read. Empty: no forwarded header is read from anybody. |
 | `ForwardedHeaders__KnownNetworks__0`, ... | empty | The same, as networks in CIDR form (`10.0.0.0/24`). |
 | `ForwardedHeaders__ForwardLimit` | `1` | How many listed proxies in a row, counted back from the API (1 to 5). |
+| `Testing__GoogleSigningKeys` | empty | **Browser tests only, Development only.** A JSON Web Key Set of public RSA keys that replaces Google's published keys (section 6). Any other environment refuses to start with it set. Never set it on a deployment. |
 
 The backend's other settings (`ConnectionStrings__Postgres`, `Jwt__SigningKey`) are as in
 `backend/README.md`. `Jwt__Audience` must not be `screentail-admin`, which is the admin session's own
@@ -162,3 +163,43 @@ API). On 2026-10-31 every page scored 100 in light and dark: sign-in, Technician
 Integrations and Download client. On 2026-11-01, with the CSP on (`vite preview`) and a stand-in for the
 backend's admin routes, every page scored 100 again and Chrome reported no CSP violation, Google's button
 frame included.
+
+## 6. Browser tests (Playwright)
+
+`npm run e2e` in `web/` drives the built web admin in Chromium against the real backend: the API runs in
+Development on a real PostgreSQL, and the page is the production build served by `vite preview` with the
+headers a deployment sends (`web/security-headers.ts`), twice: once built with a client id and once
+without. CI runs it in the Web job. It takes a few seconds once everything is built.
+
+```bash
+docker run --rm -d -p 127.0.0.1:55499:5432 -e POSTGRES_PASSWORD=dev --name screentail-e2e-db postgres:17-alpine
+dotnet build backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release
+cd web
+npm ci
+npx playwright install --only-shell chromium     # the browser this Playwright version was built against
+SCREENTAIL_E2E_POSTGRES='Host=127.0.0.1;Port=55499;Database=screentail_e2e;Username=postgres;Password=dev' npm run e2e
+```
+
+`SCREENTAIL_E2E_DOTNET` names the `dotnet` to use when it is not on `PATH`, and `SCREENTAIL_E2E_API_DLL`
+an API build other than the Release one above. The database in the connection string is created and
+migrated with the API's own `--migrate`; each run uses addresses of its own, so runs never meet.
+
+**No Google, no network.** Every request for anything but this machine is refused and fails the test.
+Google's sign-in script is replaced, at its own address so the page's CSP still decides whether it may
+run, by a stand-in whose button signs a Google-shaped ID token (RS256, Google's issuer, the page's client
+id as audience, the backend's nonce) with a key pair made for the run. The backend is handed only the
+public half, as `Testing__GoogleSigningKeys`, which **the service refuses to start with outside
+Development** (`TestSignInKeysTests.OutsideDevelopmentTheSettingStopsTheServiceFromStarting`), registers
+only in Development besides, and refuses when it carries a private key. ADR-0009, "Testing in a real
+browser".
+
+**What it covers:** the sign-in page with and without a client id, a refused address, first-run signup,
+the single-use token and the CSRF header, an invite (a validation error, the code shown once, copied to
+the clipboard and gone after Done and after a reload), a device activating with that code and connecting
+ConnectWise, revoke on the second click (Cancel revokes nothing), the policy editor (a validation error, a
+save, every-window capture only once confirmed, and the backend refusing it unconfirmed, INV-5),
+Integrations showing no credential, the download link, and sign-out (the cookie gone, and a copy of it
+refused). On every page: the response headers (written out in the test as well as compared with
+`security-headers.ts`), zero CSP violations (a test proves the watch hears one), and axe-core with no
+serious or critical WCAG 2.x A/AA violation. A failure keeps a trace and screenshot in `web/e2e-results/`
+(CI uploads them, failures only; the pages hold the run's made-up data).

@@ -5,6 +5,8 @@
 web/node_modules/
 web/dist/
 web/coverage/
+web/e2e-results/
+web/e2e-report/
 web/.env*
 web/*.local
 !deploy/web/Caddyfile

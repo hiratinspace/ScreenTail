@@ -348,6 +348,30 @@ fails rather than skips on CI without it).
 **The rate limit stays**, as a bound on what each guess costs us rather than as the defence against
 guessing.
 
+### Testing in a real browser (built 2026-11-04)
+
+The web admin is also tested end to end in Chromium (Playwright, `web/e2e`, `docs/dev/web-admin.md`
+section 6): the production build served with the deployment's headers, the real backend in Development
+on a real PostgreSQL, and no request beyond this machine. Google cannot sign the tokens such a test
+needs, so the test signs them, and the backend has to be told to trust its key. That is the one thing
+this adds to the service, and it is fenced three ways:
+
+- **`Testing:GoogleSigningKeys`**, a JSON Web Key Set, takes the place of Google's published keys while
+  it is set. Everything else about a token is checked as before: RS256, the key it names, Google's issuer,
+  the client id as audience, expiry, a verified address and the single-use nonce.
+- **Development only.** A host in any other environment refuses to start with the setting
+  (`TestSignInOptions.Validate`; `TestSignInKeysTests.OutsideDevelopmentTheSettingStopsTheServiceFromStarting`
+  for Production and Staging), and the composition root registers the stand-in only in Development
+  besides. ASP.NET Core's default environment is Production, and the deployment in `deploy/` says
+  Production explicitly. The host logs a warning at startup whenever the stand-in is in use.
+- **Public keys only.** A set holding a private key, a non-RSA key or a key without an id is refused at
+  startup. The browser tests make a fresh key pair for each run in the test runner and hand the backend
+  the public half; no key is in the repository and none outlives the run.
+
+The test's own stand-in for Google's sign-in script is served at Google's address, so the page's real
+CSP decides whether it may run, and its button returns a token for the client id and nonce the page gave
+it, as Google's does.
+
 ## Decisions for the owner (fail-closed defaults, built and switchable)
 
 1. **Who may sign up: an operator-set allowlist, empty by default** (`Admin:SignupAllowlist`). Empty
@@ -412,6 +436,15 @@ Open for the owner (invite-code guessing, 2026-11-01; built with the conservativ
 23. **Old ten-character codes accepted until they expire.** Nothing is deployed, so there should be none,
     and the old length could be dropped from the shape check now; otherwise it can go once 72 hours have
     passed after the first deployment. Kept for now as the choice that refuses no code anybody holds.
+
+Open for the owner (browser tests, 2026-11-04; built with the conservative choice):
+
+24. **The test key setting is allowed in Development**, which is also what the demo laptop runs. It does
+    nothing unless somebody sets it, and only a public key can be set; refusing it unless a second,
+    test-only switch is also on would be stricter.
+25. **The browser tests run in the Web job only**, so a change to the backend alone does not run them
+    (the Backend job's own tests cover its routes). Running them on backend changes too means widening
+    the Web job's path filter or running them in both jobs.
 
 ## Owner steps
 

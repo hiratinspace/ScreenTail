@@ -96,10 +96,25 @@ var adminOptions = builder.Configuration.GetSection(AdminOptions.Section).Get<Ad
 adminOptions.Validate(jwt);
 builder.Services.AddSingleton(adminOptions);
 builder.Services.AddHttpClient(GoogleSigningKeys.HttpClientName, client => client.Timeout = GoogleSigningKeys.FetchTimeout);
-builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningKeys(
-    () => services.GetRequiredService<IHttpClientFactory>().CreateClient(GoogleSigningKeys.HttpClientName),
-    services.GetRequiredService<TimeProvider>(),
-    services.GetRequiredService<ILogger<GoogleSigningKeys>>()));
+
+// The web admin's browser tests sign their own Google ID tokens with a key pair made for the run, and
+// hand this host the public half (Testing:GoogleSigningKeys). Refused outside Development, where the
+// service does not start with it, and registered only in Development besides (ADR-0009).
+var testSignIn = builder.Configuration.GetSection(TestSignInOptions.Section).Get<TestSignInOptions>() ?? new TestSignInOptions();
+testSignIn.Validate(builder.Environment.IsDevelopment());
+var testGoogleKeys = testSignIn.Configured && builder.Environment.IsDevelopment() ? new TestGoogleSigningKeys(testSignIn.Keys()) : null;
+if (testGoogleKeys is not null)
+{
+    builder.Services.AddSingleton<IGoogleSigningKeys>(testGoogleKeys);
+}
+else
+{
+    builder.Services.AddSingleton<IGoogleSigningKeys>(services => new GoogleSigningKeys(
+        () => services.GetRequiredService<IHttpClientFactory>().CreateClient(GoogleSigningKeys.HttpClientName),
+        services.GetRequiredService<TimeProvider>(),
+        services.GetRequiredService<ILogger<GoogleSigningKeys>>()));
+}
+
 builder.Services.AddSingleton<GoogleIdTokenVerifier>();
 builder.Services.AddSingleton<SignInNonces>();
 builder.Services.AddOwnerPolicy();
@@ -250,6 +265,11 @@ builder.Services.AddRequestTimeouts(timeouts =>
 });
 
 var app = builder.Build();
+
+if (testGoogleKeys is not null)
+{
+    TestSignInOptions.Announce(app.Logger);
+}
 
 // ST-010: the operator's side of tenancy, until there is a web admin (ST-099) and a mail provider.
 // `--invite` issues a code for a tenant (or a new one) and prints it once; `--offboard-tenant` deletes
