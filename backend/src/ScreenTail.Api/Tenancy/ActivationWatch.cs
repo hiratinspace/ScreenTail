@@ -96,8 +96,8 @@ public sealed partial class ActivationWatch(ActivationWatchOptions options, Time
         }
     }
 
-    // No claim about the codes' strength: until the last ten-character code has expired, some live codes
-    // are the old, weaker kind. The window in seconds, exactly as configured (a 90-second window is 90).
+    // No claim about the codes' strength: the line reports refusals, not odds. The window in seconds,
+    // exactly as configured (a 90-second window is 90).
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Refused} device activations were refused for their invite code within {WindowSeconds} seconds, from all addresses together: invite codes may be being guessed. Nobody is refused or slowed for this.")]
     private static partial void Warn(ILogger logger, int refused, long windowSeconds);
 }

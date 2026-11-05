@@ -14,8 +14,8 @@ public sealed record IssuedInvite(Guid Id, string Code, DateTimeOffset ExpiresAt
 /// written <c>XXXXX-XXXXX-XXXXX-XXXXX</c> so it survives being read out over the phone: 20 x log2(31),
 /// about 99 bits. That is what makes guessing infeasible however many addresses guess at once, with no
 /// lockout anybody could turn against a real technician (ADR-0009, "Guessing invite codes"). Codes made
-/// before 2026-11-01 were ten characters (about 49 bits); they are still accepted until they expire,
-/// 72 hours at most, because a code is looked up by its hash whatever its length.
+/// before 2026-11-01 were ten characters (about 49 bits); they are no longer accepted (decision 23) and
+/// are refused like any other wrong length, before the database is asked.
 ///
 /// Stored as a hash, like a device token: the database never holds a code somebody could use, and at
 /// 99 bits a copy of the table cannot be searched for one either.
@@ -32,9 +32,6 @@ public static class Invites
 
     /// <summary>Characters in a code made today, without the dashes.</summary>
     public const int CodeLength = 20;
-
-    /// <summary>Characters in a code made before 2026-11-01, still accepted until it expires.</summary>
-    public const int LegacyCodeLength = 10;
 
     /// <summary>Characters between dashes, for reading out.</summary>
     public const int GroupLength = 5;
@@ -73,12 +70,12 @@ public static class Invites
         new((code ?? string.Empty).Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 
     /// <summary>
-    /// Whether a normalised code could be one we issued: today's length or the old one, and only
-    /// characters of the alphabet. Anything else is refused without asking the database, with the same
+    /// Whether a normalised code could be one we issued: exactly <see cref="CodeLength"/> characters,
+    /// all of the alphabet. Anything else is refused without asking the database, with the same
     /// answer as a code nobody issued.
     /// </summary>
     public static bool IsWellFormed(string? normalised) =>
-        normalised is { Length: CodeLength or LegacyCodeLength } && normalised.All(c => Alphabet.Contains(c, StringComparison.Ordinal));
+        normalised is { Length: CodeLength } && normalised.All(c => Alphabet.Contains(c, StringComparison.Ordinal));
 
     /// <summary>
     /// A new code, grouped. <see cref="RandomNumberGenerator.GetString"/> picks each character uniformly:
