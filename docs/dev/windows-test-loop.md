@@ -118,7 +118,7 @@ demo is.
 
 ## Performance measurements
 
-ST-031's budgets are measured in the capabilities job by `client/ScreenTail.Tests.Windows/Performance`, and the numbers go to the job summary and `measurements.txt` like the redaction figures. They take about three and a half minutes of the laptop's time. `Host/StopTimeTests` (ST-112) adds the capture service's stop time in the middle of a recording, three asks of about 4 s each on the hosted runner (3 s recorded each) and an estimated 20 s in all on the laptop, where the sign-out case also waits for the speech model to load; it runs everywhere and skips nowhere, with the 4 s budget held on both (`docs/dev/installer.md`). `docs/dev/performance.md` lists each budget, whether it is enforced, and the latest numbers; `scripts/windows/measure-idle.ps1` measures the real service and UI processes by hand.
+ST-031's budgets are measured in the capabilities job by `client/ScreenTail.Tests.Windows/Performance`, and the numbers go to the job summary and `measurements.txt` like the redaction figures. They take about three and a half minutes of the laptop's time. `Host/StopTimeTests` (ST-112) adds the capture service's stop time in the middle of a recording, three asks of about 4 s each on the hosted runner (3 s recorded each) and about 20 s in all on the laptop (98 to 191 ms per stop there, run 41927796271), where the sign-out case also waits for the speech model to load; it runs everywhere and skips nowhere, with the 4 s budget held on both (`docs/dev/installer.md`). `docs/dev/performance.md` lists each budget, whether it is enforced, and the latest numbers; `scripts/windows/measure-idle.ps1` measures the real service and UI processes by hand.
 
 ## Writing Windows tests
 

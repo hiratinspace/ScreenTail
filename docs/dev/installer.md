@@ -332,7 +332,8 @@ window on its desktop looks like a real remote-support session: a remote tool's 
 processes and classes, or a browser whose title matches a browser entry. It gives the count, never a name.
 A remote tool's background agent with no window there does not stop it. On the hosted runner, which has no
 microphone, it measured 38 to 115 ms with one frame in flight (earlier rounds without the burst, 20 to
-about 100 ms); each run's figures are in the job summary and `measurements.txt`, as numbers.
+about 100 ms). On the laptop (run 41927796271, 2026-11-04) it measured 98 to 191 ms, the slowest being
+sign-out with the microphone open and the speech model loaded; each run's figures are in the job summary and `measurements.txt`, as numbers.
 
 What it does not show: a stop while Whisper is transcribing. A quiet room gives Whisper nothing to
 transcribe, so the laptop proves the model is loaded, not that it is busy. A frame still waiting for

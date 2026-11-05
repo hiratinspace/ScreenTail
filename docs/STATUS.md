@@ -325,7 +325,7 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
     for OCR and redaction, is measured automatically on every Windows run (`StopTimeTests`, ST-112;
     `docs/dev/installer.md`), 38 to 115 ms on the hosted runner against the 4 s budget. On the laptop it also
     requires the microphone and the speech model loaded (not transcribing: a quiet room gives Whisper
-    nothing). Read the laptop's figure in the job summary of the pull request that added it;
+    nothing). on the laptop it measured 98 to 191 ms (run 41927796271);
   - an elevated third-party installer closing the service with UAC on, and what Restart Manager starts
     again (#251; ADR-0007);
   - a narrated session with the service log in view, to see whether the processor limit trips
