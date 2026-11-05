@@ -213,7 +213,7 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   for another (#229). None of it has met a real PSA; in Development the demo PSA can stand in (#218), and
   the tests drive the real providers against stand-in servers (#226).
 - **Device activation** takes a twenty-character invite code only (the old ten-character codes are
-  refused like any malformed code since 2026-11-05, decision 23), refuses a malformed code exactly as an
+  refused like any malformed code since 2026-11-04, decision 23), refuses a malformed code exactly as an
   unknown one, and claims the invite and the seat under a lock on the tenant's row (#248).
 - **A recording session watches its own processor use** (ST-031 AC2, #232) and, over budget for ten
   seconds, samples the screen less, then reads one frame at a time, then stops scene sampling. Every frame

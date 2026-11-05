@@ -306,7 +306,7 @@ the index would say something about a hash rather than a code. There is nothing 
 comparison to apply to (`DeviceTokens.Matches` stays for any path that compares two values).
 
 **Codes issued before the change** were ten characters. They were accepted until they expired at first,
-and since 2026-11-05 **they are not accepted at all** (decision 23): the shape check admits twenty
+and since 2026-11-04 **they are not accepted at all** (decision 23): the shape check admits twenty
 characters only, so a ten-character code is one more wrong length, refused without a lookup with the
 same 400 and bytes as any other malformed or unknown code, and counted by the warning like them. Nothing
 was deployed (ST-007), so no code anybody holds is refused by this. Rows stored under an old code's hash,
@@ -433,7 +433,7 @@ Open for the owner (invite-code guessing, 2026-11-01; built with the conservativ
 22. **When the operator is warned: 50 refused codes in 10 minutes**, all addresses together, per
     instance (`ActivationWatch:WarnAt`, `ActivationWatch:Window`). It is a log line only: there is no
     alerting channel until hosting exists (ST-007).
-23. **Old ten-character codes: dropped (owner, 2026-11-05).** They were accepted until they expired as
+23. **Old ten-character codes: dropped (owner, 2026-11-04).** They were accepted until they expired as
     the choice that refused no code anybody held; nothing was deployed, so the owner chose to drop the
     old length before the first deployment. Built the same day: a ten-character code is refused like
     any malformed code, on the backend and on the client's card.
