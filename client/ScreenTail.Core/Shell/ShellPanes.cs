@@ -153,6 +153,18 @@ public sealed class ShellPanes
 /// <summary>The shell's status line (Spec §5 S1's tooltip wording), from the store's snapshot.</summary>
 public static class ShellStatus
 {
+    /// <summary>
+    /// <see cref="Describe"/> without the time: what the status line is announced on (ST-084). The time
+    /// moves every second of a recording (ST-072), and a screen reader interrupted that often hears nothing.
+    /// </summary>
+    public static string Announcement(ShellSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return snapshot.Capture is { ElapsedMs: not null } capture
+            ? Describe(snapshot with { Capture = capture with { ElapsedMs = null } })
+            : Describe(snapshot);
+    }
+
     public const string Connecting = "Connecting to the capture service…";
 
     public const string NotConnected = "Not connected to the capture service";
