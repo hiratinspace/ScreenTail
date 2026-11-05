@@ -50,6 +50,12 @@ namespace ScreenTail.UI.Shell;
 public sealed class LiveShell : IAsyncDisposable
 {
     private readonly ShellState _state = new();
+
+    /// <summary>
+    /// The recording clock the tray, the pill and the shell's status line all read, so the three never
+    /// disagree by a second (ST-072). Made in the constructor before anything else listens to the store.
+    /// </summary>
+    private readonly RecordingClock _clock;
     private readonly TrayIconHost _tray = new();
     private readonly CaptureConnection _connection;
     private readonly ShellPreferencesStore _preferences;
@@ -101,13 +107,19 @@ public sealed class LiveShell : IAsyncDisposable
 
     /// <param name="open">Opens one connection to the service. The verified pipe outside tests.</param>
     /// <param name="preferences">The shell's preferences file.</param>
-    internal LiveShell(Func<string, CancellationToken, Task<ICaptureChannel>> open, ShellPreferencesStore preferences)
+    /// <param name="time">What the recording clock counts with: the system's, outside tests (ST-072).</param>
+    internal LiveShell(Func<string, CancellationToken, Task<ICaptureChannel>> open, ShellPreferencesStore preferences, TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(open);
         _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         _connection = new CaptureConnection(_state, ct => open(version, ct));
         _discards = new SessionDiscard(_state, _connection);
+
+        // Before the shell's own listener below, so a new snapshot is the clock's base by the time anything
+        // draws it.
+        _clock = new RecordingClock(_state, time);
+        _clock.Ticked += RedrawTheClock;
 
         _state.Changed += snapshot =>
         {
@@ -118,7 +130,7 @@ public sealed class LiveShell : IAsyncDisposable
                 return;
             }
 
-            _tray.Update(snapshot);
+            _tray.Update(_clock.Show(snapshot));
             ShowOrHideHud(snapshot);
             Announce(snapshot);
         };
@@ -279,7 +291,8 @@ public sealed class LiveShell : IAsyncDisposable
                             responsive: ct => _dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Background, ct).Task)),
                     new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
                     new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection))),
-                    new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))));
+                    new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))),
+                _clock);
 
             // Once, when the window is made. A closed window's Review pane may still be writing its last,
             // and Quit waits for it even after the window has gone (T-169).
@@ -313,6 +326,7 @@ public sealed class LiveShell : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
+        _clock.Dispose();
         NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
         try
         {
@@ -337,6 +351,9 @@ public sealed class LiveShell : IAsyncDisposable
 
     /// <summary>The tray icon, for the Windows tests.</summary>
     internal TrayIconHost Tray => _tray;
+
+    /// <summary>The shared recording clock, so a test can bind a shell window's model to it (ST-072).</summary>
+    internal RecordingClock Clock => _clock;
 
     /// <summary>
     /// Opens one connection to the service, verifying it before handing over the token (ST-012).
@@ -596,6 +613,28 @@ public sealed class LiveShell : IAsyncDisposable
     }
 
     /// <summary>
+    /// The clock's once-a-second tick while recording: the tray's tooltip and state line redrawn with the
+    /// time as it stands (ST-072). The pill and the shell's status line listen to the clock themselves.
+    ///
+    /// The store is read on the UI thread, not on the timer's: a snapshot read here and queued could land
+    /// after a pause the pipe delivered meanwhile, and the tray would say "recording" with no tick left to
+    /// put it right. Read where it is drawn, it is always the latest. Nothing here changes the state shown.
+    /// </summary>
+    private void RedrawTheClock()
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(RedrawTheClock);
+            return;
+        }
+
+        if (!_disposed)
+        {
+            _tray.Update(_clock.Show(_state.Snapshot));
+        }
+    }
+
+    /// <summary>
     /// Shows the pill whenever the state is anything but known-idle, and hides it only when the
     /// technician has asked and capture is known to be off.
     ///
@@ -619,7 +658,7 @@ public sealed class LiveShell : IAsyncDisposable
         {
             // The pill's own gestures reach the shell: double-click opens Review, right-click is the same
             // wish as the tray's item. Until they were wired only Mark moment did anything (T-372).
-            _hud = new HudWindowHolder(_state, _connection, _preferences);
+            _hud = new HudWindowHolder(_state, _clock, _connection, _preferences);
             _hud.ReviewRequested += OpenTheCurrentSession;
             _hud.HideRequested += HidePillForThisSession;
             _hud.SetOnline(NetworkInterface.GetIsNetworkAvailable());

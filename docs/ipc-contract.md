@@ -75,7 +75,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `hello_ack` | `contract_version`, `service_version`, `state` | Handshake succeeded |
 | `rejected` | `reason` (`unverified_client`, `bad_token`, `contract_mismatch`, `protocol`) | Handshake failed; the pipe closes after |
 | `result` | `request_id`, `ok`, `error?` | Reply to a command |
-| `state_changed` | `state` | Capture state changed; sent to every connected client |
+| `state_changed` | `state` | Capture state changed, or a count it carries (`drafts_ready`, `pending_redactions`) moved; sent to every connected client. Not sent for the clock: `elapsed_ms` is as of the snapshot, and the UI counts on from it locally while recording (ST-072) |
 | `capabilities` | `checked_at`, `can_capture`, `checks[]` | Answers `get_capabilities`; also sent when a check changes |
 | `diagnostics` | see below | Answers `get_diagnostics` |
 | `sessions` | `sessions[]` | Answers `list_sessions` |
@@ -398,3 +398,4 @@ indicator unreachable rather than by touching capture.
 | 2026-10-31 | `session_ids` on `request_confirmation`, the `discard_sessions` action and command: Review's Discard and History's bulk discard by name, the token bound to exactly the ids (ST-074, ST-079). A new field on a command both sides exchange, so the version moves; the handshake still requires an exact match. Also in v6: `frames_after_discard` on `diagnostics` | **6** |
 | 2026-10-31 | `microphones[]` as rows (`id`, `name`, `is_default`) on `capture_settings` and `microphone_id` in the capture settings document: the microphone is chosen in Settings, Capture (ST-080 AC3). A changed reply and a new member on a document both sides exchange, so the version moves. Also in v7: `get_microphone_level` / `microphone_level` and `stop_microphone_level`, the level meter, a lease the service ends by itself | **7** |
 | 2026-11-04 | `name_hook_refusals` on `diagnostics`: how often Windows refused the foreground watcher's narrow title-change hook, absent when the service cannot know it (ST-031). A new member on a reply, which an older UI would fail on, so the version moves | **8** |
+| 2026-11-05 | `state_changed` is also volunteered when the redaction backlog (`pending_redactions`) moves and the state does not, as it already was when `drafts_ready` moved, so the pill's count follows the worker (ST-072). The same message and shape; told under the machine's transition lock, so it is never overtaken by a transition, and coalesced while a transition holds it. In practice at most about once a second, because the redaction worker reports its backlog on a timer (`RedactionWorker`'s `ReportEvery`, 1 s). An older client draws it as it draws any snapshot, so the version is not bumped | 8 |

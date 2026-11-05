@@ -697,6 +697,39 @@ public sealed class NarrationRecorderTests
     }
 
     [Fact]
+    public async Task ASegmentStillWithAModelThatNeverAnswersIsDroppedAtStopNotWaitedFor()
+    {
+        // ST-112, owner's decision 2026-11-05. A sign-out has five seconds and whisper.cpp can take ten,
+        // between its own abort checks. The recorder's stop waited for the drain and the drain for the
+        // model, so the service's stop waited as long as the model did. Now the stop drops the segment.
+        var backlog = new NarrationBacklog();
+        var recogniser = new FakeRecogniser("the admin password is") { Blocked = new TaskCompletionSource(), IgnoresCancellation = true };
+        var kept = new List<TranscriptSegment>();
+        var recorder = new NarrationRecorder(
+            new LiveMicrophone(Silence(20), Speech(40), Silence(40)),
+            recogniser,
+            (_, segment, _) => Task.FromResult(Add(kept, segment)),
+            () => new NarrationSession("session-a", 0),
+            backlog: backlog,
+            hearing: () => true);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => recogniser.Asked == 1);
+        await stop.CancelAsync();
+
+        await running.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        Assert.Equal(1, recorder.AbandonedAtStop);
+        Assert.Equal(0, backlog.DepthFor("session-a"));
+
+        // The model answering afterwards changes nothing: the segment was dropped, not half-kept.
+        recogniser.Blocked.SetResult();
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Empty(kept);
+        Assert.Equal(0, recorder.Kept);
+    }
+
+    [Fact]
     public async Task WhatIsStillWithTheModelIsOwedToItsSession()
     {
         // The recorder's half of finalize's wait: a segment is owed to its session from the moment it is
@@ -1272,6 +1305,12 @@ public sealed class NarrationRecorderTests
 
         public int Asked { get; private set; }
 
+        /// <summary>
+        /// A model deaf to its token, like a native call between its own abort checks: <see cref="Blocked"/>
+        /// holds it whatever the caller cancels (ST-112).
+        /// </summary>
+        public bool IgnoresCancellation { get; init; }
+
         public List<(SpeechSegment Segment, int Samples)> Handed { get; } = [];
 
         public async Task<Transcribed?> TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct = default)
@@ -1280,7 +1319,7 @@ public sealed class NarrationRecorderTests
             Handed.Add((segment, audio.Length));
             if (Blocked is { } held)
             {
-                await held.Task.WaitAsync(ct).ConfigureAwait(false);
+                await (IgnoresCancellation ? held.Task : held.Task.WaitAsync(ct)).ConfigureAwait(false);
             }
 
             return new Transcribed(segment, text, 0.9);

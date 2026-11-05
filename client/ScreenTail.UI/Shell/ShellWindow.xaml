@@ -134,9 +134,11 @@
                                 Margin="0,0,0,8"
                                 VerticalAlignment="Center"
                                 Style="{StaticResource Badge.Status}">
+                    <!-- Announced on the state without the clock, so a recording is not read out every second. -->
                     <TextBlock Text="{Binding Status}"
                                AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
-                               controls:LiveRegion.Setting="Polite" />
+                               controls:LiveRegion.Setting="Polite"
+                               controls:LiveRegion.Key="{Binding StatusAnnouncement}" />
                 </ContentControl>
             </Grid>
         </Border>

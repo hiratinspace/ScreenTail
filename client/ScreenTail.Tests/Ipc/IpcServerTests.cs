@@ -276,6 +276,42 @@ public sealed class IpcServerTests : IAsyncDisposable
         Assert.True((await hud.SendAsync(id => new GetStateCommand { RequestId = id }, ct).WaitAsync(Soon, ct)).Ok);
     }
 
+    [Fact]
+    public async Task TheServiceStopsWithoutWaitingForAClientThatStoppedReading()
+    {
+        // ST-112, ST-072: the service's stop never depends on a UI reading the pipe, so a hung UI cannot
+        // slow a sign-out. Here the machine's snapshots are wired to the server as the host wires them, a
+        // client stops reading with a write to it stuck, the redaction backlog keeps moving, and the server
+        // and the machine are disposed as the host disposes them on its way out.
+        await StartServerAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await using var harness = await Sessions.MachineHarness.StartAsync();
+        var machine = harness.Machine;
+        StateBroadcast.Wire(machine, ipcEvent => _server!.BroadcastAsync(ipcEvent, ct));
+        Assert.True(await machine.StartAsync(new Shared.Schema.RemoteTool { Kind = Shared.Schema.RemoteToolKind.Other }, ct: ct));
+
+        await using var deaf = await DeafPeerAsync(ct);
+        await WaitUntilAsync(() => _server!.ConnectedClients == 1);
+
+        // Far more than any pipe or socket buffers, so the deaf peer's write is stuck, holding its lock.
+        var stuck = _server!.BroadcastAsync(new StateChanged { State = Recording(new string('s', 768 * 1024)) }, ct);
+        for (var count = 1; count <= 20; count++)
+        {
+            machine.ReportPendingRedactions(count);
+        }
+
+        await machine.CountsTelling.WaitAsync(Soon, ct);
+        Assert.False(stuck.IsCompleted, "the deaf peer did not block its write, so this run proves nothing about waiting");
+
+        var stopping = Stopwatch.GetTimestamp();
+        await _server.DisposeAsync().AsTask().WaitAsync(Soon, ct);
+        _server = null;
+        await machine.DisposeAsync().AsTask().WaitAsync(Soon, ct);
+        var stopped = Stopwatch.GetElapsedTime(stopping);
+
+        Assert.True(stopped < TimeSpan.FromSeconds(1), $"the stop took {stopped.TotalMilliseconds:F0} ms with a client not reading");
+    }
+
     /// <summary>A peer that completes the handshake and then stops reading.</summary>
     private async Task<NamedPipeClientStream> DeafPeerAsync(CancellationToken ct)
     {

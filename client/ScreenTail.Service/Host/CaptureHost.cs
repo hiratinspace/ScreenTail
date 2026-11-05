@@ -396,7 +396,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             version);
         Array.Clear(token);
 
-        machine.StateChanged += snapshot => _ = server.BroadcastAsync(new StateChanged { State = snapshot }, stoppingToken);
+        // Every transition, and every count that moved without one, to every connected UI (ST-072).
+        StateBroadcast.Wire(machine, ipcEvent => server.BroadcastAsync(ipcEvent, stoppingToken));
 
         // INV-10: capability messages describe Windows settings, never anything captured.
         var capabilities = new WindowsCapabilityProbe().Probe();
@@ -620,7 +621,10 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         await using var whisper = new WhisperRecogniser(
             new ModelDownload(new HttpClient(egress)),
             SpeechModels.All.FirstOrDefault(m => string.Equals(m.Name, captureSettings.SpeechModel, StringComparison.OrdinalIgnoreCase)),
-            paths.ModelDirectory);
+            paths.ModelDirectory,
+
+            // ST-112: the stop does not wait on a native call past StopBound.Default. Said, content-free.
+            abandoned: () => LogSpeechLeftRunning(logger));
         var narration = new NarrationRecorder(
             microphone,
             whisper,
@@ -757,8 +761,20 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         }
 
         await Task.WhenAll(coordinating, capturing, throttling, sampling, redacting, showing, guarding, watchingFields, listening, preparing, draining, updating).ConfigureAwait(false);
+        // ST-112: a segment still with the model when the stop came is dropped, not waited for. A count.
+        if (narration.AbandonedAtStop > 0)
+        {
+            LogNarrationAbandoned(logger, narration.AbandonedAtStop);
+        }
+
         LogStopping(logger);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Stopping with {Count} narration segment(s) still being transcribed; dropped, not waited for")]
+    private static partial void LogNarrationAbandoned(ILogger logger, long count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "The speech model was still busy at stop; it is freed when its call returns or the process exits")]
+    private static partial void LogSpeechLeftRunning(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Retention removed raw data from {Count} session(s)")]
     private static partial void LogRetention(ILogger logger, int count);

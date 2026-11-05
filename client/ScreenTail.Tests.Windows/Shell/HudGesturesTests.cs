@@ -22,8 +22,9 @@ public sealed class HudGesturesTests
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var state = new ShellState();
+        using var clock = new RecordingClock(state);
         state.Connected(new CaptureStateSnapshot { State = CaptureStates.DraftReady, SessionId = "s1" });
-        var model = new HudViewModel(state);
+        var model = new HudViewModel(state, clock);
         var shellShows = true;
         var gestures = new HudGestures(model, () => shellShows);
         var reviews = 0;
@@ -56,8 +57,9 @@ public sealed class HudGesturesTests
         // INV-4: the pill stays up while there is something to indicate, so there is nothing to ask for.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var state = new ShellState();
+        using var clock = new RecordingClock(state);
         state.Connected(new CaptureStateSnapshot { State = running, SessionId = "s1" });
-        var model = new HudViewModel(state);
+        var model = new HudViewModel(state, clock);
         var gestures = new HudGestures(model, () => true);
         var hides = 0;
         gestures.HideRequested += () => hides++;
@@ -74,8 +76,9 @@ public sealed class HudGesturesTests
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var state = new ShellState();
+        using var clock = new RecordingClock(state);
         state.Connected(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1" });
-        var model = new HudViewModel(state);
+        var model = new HudViewModel(state, clock);
         Assert.False(model.ShowMic);
         Assert.False(model.ShowCloud);
 
