@@ -222,6 +222,13 @@ public sealed class NarrationRecorder : IDisposable
     /// <summary>How many times listening ended in an exception. A number the diagnostics panel can show.</summary>
     public long Failures { get; private set; }
 
+    /// <summary>
+    /// Segments that were still with the model when the service stopped, and were dropped rather than
+    /// waited for (ST-112, owner's decision 2026-11-05). Counts only. A segment cut off this way is never
+    /// written: nothing of it reaches the session, the store or the backend.
+    /// </summary>
+    public long AbandonedAtStop { get; private set; }
+
     /// <summary>Told when listening failed, so the host can log it. The type only, never the message.</summary>
     public event Action<Exception>? Failed;
 
@@ -668,6 +675,14 @@ public sealed class NarrationRecorder : IDisposable
                     await TranscribeAsync(session, segment, audio, ct).ConfigureAwait(false);
                 }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // The service is stopping with this segment still with the model. It is dropped, not
+                // waited for: a sign-out has five seconds, and the model can take ten (ST-112, owner's
+                // decision 2026-11-05). Counted; nothing of it is kept.
+                AbandonedAtStop++;
+                throw;
+            }
 #pragma warning disable CA1031 // One segment must not end narration; RunAsync's catch is the same rule.
             catch (Exception failure) when (failure is not OperationCanceledException)
 #pragma warning restore CA1031
@@ -684,7 +699,12 @@ public sealed class NarrationRecorder : IDisposable
 
     private async Task TranscribeAsync(string session, SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct)
     {
-        var heard = await _recogniser.TranscribeAsync(segment, audio, ct).ConfigureAwait(false);
+        // Waited for only until the service stops. A recogniser that does not answer its token (a native
+        // call between its own checks) would otherwise hold the drain, and the drain holds the service's
+        // stop (ST-112). What it says after that is not heard; a fault it ends in is observed, not thrown.
+        var transcribing = _recogniser.TranscribeAsync(segment, audio, ct);
+        _ = transcribing.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        var heard = await transcribing.WaitAsync(ct).ConfigureAwait(false);
         if (heard is null)
         {
             return;

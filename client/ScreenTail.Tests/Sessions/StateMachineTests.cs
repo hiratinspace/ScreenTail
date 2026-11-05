@@ -1467,6 +1467,50 @@ public sealed class StateMachineTests : IAsyncDisposable
         Assert.Equal(1, recorder.Kept);
     }
 
+    [Fact]
+    public async Task AServiceStopWithAModelThatNeverAnswersIsBoundedAndTheSessionIsRecoveredAsPartial()
+    {
+        // ST-112, owner's decision 2026-11-05. The host's stop in miniature, mid-sentence, with a model
+        // that answers neither its result nor its token: the narration loop and the recogniser's release
+        // both end inside the stop's bound, the segment is dropped, and the next start recovers the
+        // session as partial, as a sign-out's must be.
+        var machine = await MachineAsync();
+        Assert.True(await machine.StartAsync(ScreenConnect));
+        var id = machine.SessionId!;
+        var recogniser = new NarrationRecorderTests.FakeRecogniser("the admin password is") { Blocked = new TaskCompletionSource(), IgnoresCancellation = true };
+        var recorder = new NarrationRecorder(
+            new NarrationRecorderTests.LiveMicrophone(NarrationRecorderTests.Silence(20), NarrationRecorderTests.Speech(40), NarrationRecorderTests.Silence(40)),
+            recogniser,
+            (heardIn, segment, ct) => machine.TryAppendTranscriptAsync(heardIn, segment, ct),
+            () => machine.Hearing,
+            hearing: () => true,
+            backlog: machine.Narration);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var listening = recorder.RunAsync(stopping.Token);
+        await NarrationRecorderTests.UntilAsync(() => recogniser.Asked == 1);
+
+        var clock = Stopwatch.StartNew();
+        await stopping.CancelAsync();
+        await listening.WaitAsync(TimeSpan.FromSeconds(4), TestContext.Current.CancellationToken);
+
+        // The recogniser's release is the model never answering too: the stop waits for it only so long.
+        var release = recogniser.Blocked.Task;
+        Assert.False(await StopBound.WithinAsync(release, StopBound.Default));
+        await _machine!.DisposeAsync();
+        var stopped = clock.Elapsed;
+
+        Assert.True(stopped < TimeSpan.FromSeconds(2), $"the stop took {stopped.TotalMilliseconds:F0} ms with the model still busy");
+        Assert.Equal(1, recorder.AbandonedAtStop);
+
+        var restarted = await MachineAsync();
+        Assert.Equal(1, await restarted.RecoverAsync());
+        var stored = (await _store!.LoadSessionAsync(id))!;
+        Assert.True(stored.PartialCapture);
+        Assert.Empty(stored.Transcript);
+
+        recogniser.Blocked.SetResult();
+    }
+
     [Theory]
     [InlineData(CaptureStateReason.PasswordField)]
     [InlineData(CaptureStateReason.SensitiveContext)]

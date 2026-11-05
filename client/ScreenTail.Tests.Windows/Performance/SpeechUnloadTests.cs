@@ -84,6 +84,71 @@ public sealed class SpeechUnloadTests
     }
 
     /// <summary>
+    /// ST-112, owner's decision 2026-11-05: the service's stop never waits on a transcription in flight.
+    /// Whisper.net will not free a model while whisper.cpp is still working on it, so a sign-out while the
+    /// technician was talking spent the whole four-second budget in the recogniser's disposal (laptop runs
+    /// 42031407710 and 42051212812). Here a minute of audio, seconds of work for the model, is in flight
+    /// when the recogniser is disposed as the stop disposes it, and the disposal returns inside its bound.
+    /// The real microphone cannot be made to speak on cue, so StopTimeTests cannot put a segment in flight
+    /// at the ask; this is the same disposal, with one certainly in flight.
+    /// </summary>
+    [Fact]
+    public async Task AStopDoesNotWaitForATranscriptionInFlight()
+    {
+        if (!Hardware.PerformanceCounts)
+        {
+            Measurements.Record($"Stop mid-transcription: not measured on a hosted runner, which would download {Model.Name} ({Model.Bytes / (1024 * 1024)} MB) on every run; the laptop measures it");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var abandoned = 0;
+        var whisper = new WhisperRecogniser(
+            new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(null))))),
+            Model,
+            ModelCache(),
+            abandoned: () => abandoned++);
+        Assert.True(await whisper.PrepareAsync(ct), $"the model could not be had: {whisper.Unavailable}");
+
+        // A minute of quiet noise: two of whisper.cpp's thirty-second windows, seconds of work on two threads.
+        var random = new Random(37);
+        var audio = new short[16_000 * 60];
+        for (var i = 0; i < audio.Length; i++)
+        {
+            audio[i] = (short)random.Next(-200, 200);
+        }
+
+        var transcribing = whisper.TranscribeAsync(new SpeechSegment(0, 60_000, Truncated: false), audio, CancellationToken.None);
+        await Task.Delay(500, ct);
+        Assert.False(transcribing.IsCompleted, "the minute of audio was transcribed in half a second, so nothing was in flight at the stop");
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await whisper.DisposeAsync();
+        var disposed = clock.Elapsed;
+
+        // Dropped, not half-kept: the call ends cancelled or with nothing, never with words.
+        Transcribed? heard = null;
+        try
+        {
+            heard = await transcribing.WaitAsync(TimeSpan.FromSeconds(60), ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        var ended = clock.Elapsed;
+        Assert.Null(heard);
+        Assert.True(
+            disposed < StopBound.Default + TimeSpan.FromMilliseconds(500),
+            string.Create(CultureInfo.InvariantCulture, $"disposal with a transcription in flight took {disposed.TotalMilliseconds:F0} ms, bound {StopBound.Default.TotalMilliseconds:F0} ms"));
+        Measurements.Record(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Stop mid-transcription ({Model.Name}, a minute of audio in flight): the recogniser's disposal returned in **{disposed.TotalMilliseconds:F0} ms** "
+            + $"(bound {StopBound.Default.TotalMilliseconds:F0} ms, enforced); the native call ended {ended.TotalMilliseconds:F0} ms after the stop; "
+            + $"left to finish by itself: {(abandoned > 0 ? "yes" : "no, it answered the abort")}"));
+    }
+
+    /// <summary>
     /// The tests' own copy of the model, kept between runs. Seeded from the service's folder when the
     /// demo has already downloaded it there; the hash is checked either way before it is loaded.
     /// </summary>
