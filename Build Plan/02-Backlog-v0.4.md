@@ -1331,7 +1331,7 @@ Implements Spec §5 S1 exactly: five icon states, menu order and chords, diagnos
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done 2026-09-15 (#46, #48). Shown only by the screenshot harness until ST-085.
+- **Status:** Done 2026-09-15 (#46, #48). Shown only by the screenshot harness until ST-085. **2026-11-05, from the owner's real run:** the pill's timer (and the tray's and the shell's) never moved during a session, because the service sends a snapshot only when its state changes; the UI now counts on locally while recording (fix-recording-clock), and the redaction count is sent when it moves. Still open: the expanded pill's last three events are never filled (no message carries them), and the no-mic segment is asked once per session.
 
 **Description:**
 Implements Spec §5 S2: pill with timer, mic meter, redaction count, pause/stop; all state variants; expand/double-click/right-click behaviors; capture-excluded; non-focus-stealing.
