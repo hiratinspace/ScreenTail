@@ -442,7 +442,7 @@ Open for the owner (browser tests, 2026-11-04; built with the conservative choic
 24. **The test key setting is allowed in Development**, which is also what the demo laptop runs. It does
     nothing unless somebody sets it, and only a public key can be set; refusing it unless a second,
     test-only switch is also on would be stricter.
-25. **The browser tests run on backend changes too** (decided by the owner, 2026-11-05). The Web job's
+25. **The browser tests run on backend changes too** (decided by the owner, 2026-11-04). The Web job's
     path filter also takes `backend/src/` and the backend's `Directory.Build.props` and
     `Directory.Packages.props`, so a change to the API's code runs them as well as the Backend job's
     own tests. A change to the backend's tests alone does not.
