@@ -57,7 +57,11 @@ public partial class ShortcutSheet : Window
             new("Del", "Delete it (undo for 5 seconds)"),
             new("Ctrl+Z", "Undo the delete"),
             new("T", "Show the text read off an enlarged screenshot"),
-            new("B", "Blur a region of an enlarged screenshot"),
+            new("B", "Blur a region of an enlarged screenshot: drag, or place the box"),
+            new("Arrows", "Move the blur box"),
+            new("Shift+arrows", "Resize the blur box"),
+            new("Ctrl+arrows", "Bigger steps, with or without Shift"),
+            new("Enter, Esc", "Blur what the box covers, or put it away"),
         ]),
     ];
 

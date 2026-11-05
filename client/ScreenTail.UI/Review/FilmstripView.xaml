@@ -169,7 +169,8 @@
 
         <!-- Enlarged frame. Spans the pane, over everything, closed with Esc. While it is open the strip it
              covers is out of the Tab order and focus is on Close; Esc, T and B work from any of its
-             controls, not only from the strip (ST-084). -->
+             controls, not only from the strip (ST-084). With the blur box out, Esc puts the box away
+             first, and a second Esc closes the frame. -->
         <Border x:Name="EnlargedView"
                 Grid.Row="0"
                 Grid.RowSpan="3"
@@ -182,6 +183,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0"
@@ -189,13 +191,28 @@
                            Text="{Binding Enlarged.Label}" />
 
                 <Grid Grid.Row="1" Margin="0,10,0,0">
-                    <Image x:Name="EnlargedImage" Source="{Binding Enlarged.Image}" Stretch="Uniform" AutomationProperties.Name="{Binding Enlarged.Label}" />
+                    <Image x:Name="EnlargedImage"
+                           Source="{Binding Enlarged.Image}"
+                           Stretch="Uniform"
+                           SizeChanged="OnBlurLayoutChanged"
+                           AutomationProperties.Name="{Binding Enlarged.Label}" />
+
+                    <!-- A blur of this frame with no answer yet (review of #257): no picture is shown, because
+                         the one the service has may be from before it. Said instead of a blank. -->
+                    <TextBlock Margin="24"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Body}"
+                               TextAlignment="Center"
+                               Text="Waiting for the capture service to finish the last blur. The screenshot is hidden until it has."
+                               Visibility="{Binding Enlarged.WaitingForBlur, Converter={StaticResource Visible}}" />
 
                     <!-- The blur surface. Transparent rather than absent, because a Canvas with no
                          background receives no mouse events at all and the drag would never start. -->
                     <Canvas x:Name="BlurSurface"
                             Background="Transparent"
                             Visibility="Collapsed"
+                            SizeChanged="OnBlurLayoutChanged"
                             MouseLeftButtonDown="OnBlurDown"
                             MouseMove="OnBlurMove"
                             MouseLeftButtonUp="OnBlurUp">
@@ -205,6 +222,50 @@
                                    Stroke="{DynamicResource Brush.state.danger}"
                                    StrokeThickness="2"
                                    StrokeDashArray="4 3" />
+
+                        <!-- The keyboard's way to the same blur (ST-084 follow-up): B puts this box in the
+                             middle of the picture with focus on it, the arrows move it, Shift with them
+                             resizes it, Ctrl makes the steps bigger, Enter blurs what it covers and Esc puts
+                             it away. Not hit-testable, so a drag that starts over it still draws. Outlined
+                             in the window's own background colour under the dashes, so it shows on a light
+                             screenshot and a dark one; focused, two more rings just inside it, one light and
+                             one dark, for the same reason. Inside, so nothing drawn reaches past what is
+                             blurred: the outer edge of the box is the edge of the blur. -->
+                        <review:BlurBoxControl x:Name="KeyboardBox"
+                                               Visibility="Collapsed"
+                                               IsHitTestVisible="False"
+                                               FocusVisualStyle="{x:Null}"
+                                               AutomationProperties.Name="Region to blur"
+                                               AutomationProperties.HelpText="The arrow keys move it. Shift with an arrow makes it wider, narrower, taller or shorter. Add Ctrl for bigger steps. Enter blurs everything inside its outer edge, which cannot be undone. Esc puts it away.">
+                            <review:BlurBoxControl.Template>
+                                <ControlTemplate TargetType="review:BlurBoxControl">
+                                    <Grid>
+                                        <Rectangle Fill="#60000000"
+                                                   Stroke="{DynamicResource Brush.bg.base}"
+                                                   StrokeThickness="3" />
+                                        <Rectangle Stroke="{DynamicResource Brush.state.danger}"
+                                                   StrokeThickness="2"
+                                                   StrokeDashArray="4 3" />
+                                        <Rectangle x:Name="FocusOuter"
+                                                   Margin="3"
+                                                   Stroke="{DynamicResource Brush.text.primary}"
+                                                   StrokeThickness="2"
+                                                   Visibility="Hidden" />
+                                        <Rectangle x:Name="FocusInner"
+                                                   Margin="5"
+                                                   Stroke="{DynamicResource Brush.bg.base}"
+                                                   StrokeThickness="2"
+                                                   Visibility="Hidden" />
+                                    </Grid>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsKeyboardFocused" Value="True">
+                                            <Setter TargetName="FocusOuter" Property="Visibility" Value="Visible" />
+                                            <Setter TargetName="FocusInner" Property="Visibility" Value="Visible" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </review:BlurBoxControl.Template>
+                        </review:BlurBoxControl>
                     </Canvas>
 
                     <!-- What the redaction engine read off this frame. The point is verification: a
@@ -255,9 +316,18 @@
                     <TextBlock Margin="12,0,0,0"
                                VerticalAlignment="Center"
                                Style="{StaticResource Text.Muted}"
-                               Text="Drag over what should be covered. This cannot be undone."
+                               Text="Drag over what should be covered, or move the box with the arrow keys (Shift resizes) and press Enter. This cannot be undone."
                                Visibility="{Binding IsChecked, ElementName=BlurMode, Converter={StaticResource Visible}}" />
                 </WrapPanel>
+
+                <!-- Where the box is, in percent of the picture, said as it moves; then that the blur
+                     landed. Numbers only: never what is under the box (INV-10). Set by the view. -->
+                <TextBlock x:Name="BlurBoxStatus"
+                           Grid.Row="3"
+                           Margin="0,0,0,12"
+                           Style="{StaticResource Text.Muted}"
+                           Visibility="Collapsed"
+                           controls:LiveRegion.Setting="Polite" />
             </Grid>
         </Border>
     </Grid>

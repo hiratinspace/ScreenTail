@@ -60,6 +60,34 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ABlurWrittenButTooLargeToSendBackSaysItWasWritten()
+    {
+        // ST-084 follow-up review. The service paints and writes, then cannot send the new image back; the
+        // refusal's words are the only sign the disk has moved on, and the pane must hear it as a blur.
+        var frames = await FramesAsync(new byte[ReviewCommands.LargestFrameBytes + 1]);
+        var region = new MaskedRegion { X = 5, Y = 6, Width = 70, Height = 8, Kind = MaskKind.UserBlur };
+
+        var reply = await frames.BlurWithReplyAsync("f1", region);
+
+        Assert.True(reply.Written, "a blur that is on disk came back as not written");
+        Assert.Null(reply.Image);
+        Assert.Equal(ReviewCommands.LargestFrameBytes + 1, (await _store!.GetRedactedFrameImageAsync("f1"))!.Length);
+
+        // And a refusal that wrote nothing is not mistaken for one.
+        Assert.Equal(BlurReply.NotWritten, await frames.BlurWithReplyAsync("nope", region));
+    }
+
+    [Fact]
+    public async Task ABlurThatFitsComesBackWithItsImageWhenAskedForTheReply()
+    {
+        var frames = await FramesAsync();
+        var reply = await frames.BlurWithReplyAsync("f1", new MaskedRegion { X = 5, Y = 6, Width = 70, Height = 8, Kind = MaskKind.UserBlur });
+
+        Assert.True(reply.Written);
+        Assert.Equal(PaintedBytes, reply.Image);
+    }
+
+    [Fact]
     public async Task AThumbnailCrossesInsteadOfTheFullImageAndTheFullImageIsStillThere()
     {
         // E-30. The strip asks for the small picture; Enlarge still gets the whole one.
@@ -169,7 +197,7 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
     private static readonly byte[] RedactedBytes = [9, 8, 7, 6];
     private static readonly byte[] PaintedBytes = [0xCC, 0xCC];
 
-    private async Task<PipeReviewFrames> FramesAsync()
+    private async Task<PipeReviewFrames> FramesAsync(byte[]? painted = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
         await _store.CreateSessionAsync(new NewSession("s1", DateTimeOffset.UnixEpoch, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
@@ -177,7 +205,7 @@ public sealed class PipeReviewFramesTests : IAsyncDisposable
         await _store.SaveDraftAsync("s1", Draft());
         await _store.FinalizeSessionAsync("s1", new FinalizeInfo(10_000, false));
 
-        var handler = new ReviewOnlyController(new ReviewCommands(_store, new PaintingMasker(PaintedBytes)));
+        var handler = new ReviewOnlyController(new ReviewCommands(_store, new PaintingMasker(painted ?? PaintedBytes)));
         _server = new IpcServer(IpcServer.DefaultPipeFactory(_pipeName), _token, new AcceptAll(), handler, _store, "0.0.1-test");
         _server.Start();
 

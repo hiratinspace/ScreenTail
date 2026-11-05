@@ -19,9 +19,12 @@ namespace ScreenTail.Core.Review;
 /// Both return null for a command that is not theirs, so the controller can chain this ahead of its own
 /// switch without a "not mine" ever reading as "refused".
 /// </summary>
-#pragma warning disable CA1001 // _blurring never hands out its wait handle, so there is nothing for a Dispose to release.
-public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
-#pragma warning restore CA1001
+/// <param name="edits">
+/// The turn a blur shares with publishing, so a publish never reads a frame halfway through being
+/// blurred (ST-084 follow-up review). The service passes the one <see cref="Publish.PublishCommands"/>
+/// has; on its own this keeps blurs to one at a time.
+/// </param>
+public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker, FrameEditGate? edits = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IFrameMasker _masker = masker ?? throw new ArgumentNullException(nameof(masker));
@@ -31,7 +34,7 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
     /// from the same picture, and the later write would put back pixels the earlier one destroyed while
     /// masked_regions kept both. Blurs are a keypress each, so waiting costs nothing anyone can see.
     /// </summary>
-    private readonly SemaphoreSlim _blurring = new(1, 1);
+    private readonly FrameEditGate _blurring = edits ?? new FrameEditGate();
 
     /// <summary>
     /// Why a blur had no answer, kept against the command itself until <see cref="HandleAsync"/> is asked
@@ -42,6 +45,13 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
     private readonly ConditionalWeakTable<BlurFrameCommand, string> _refusals = [];
 
     private const string NoFrame = "There is no such frame, or it has not been redacted yet.";
+
+    /// <summary>
+    /// How the one refusal that follows a write begins: the blur is on disk, and only the new image could
+    /// not be sent back. <see cref="PipeReviewFrames"/> reads it so the pane can show the disk as it is
+    /// rather than the picture from before (ST-084 follow-up review).
+    /// </summary>
+    public const string WrittenButTooLarge = "The blur was written, but the frame is now too large for the pipe";
 
     /// <summary>
     /// The largest image that fits in one message once it is base64 in JSON, with room to spare under
@@ -133,8 +143,7 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
 
     private async Task<(FrameLoaded? Reply, string? Refusal)> PaintAsync(BlurFrameCommand blur, CancellationToken ct)
     {
-        await _blurring.WaitAsync(ct).ConfigureAwait(false);
-        try
+        using (await _blurring.EnterAsync(ct).ConfigureAwait(false))
         {
             var frame = await _store.GetRedactedFrameForBlurAsync(blur.FrameId, ct).ConfigureAwait(false);
             var region = Region(blur);
@@ -177,11 +186,7 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker)
             // it had until the session is opened again; the words say the disk has moved on.
             return Fits(painted.Image) is { } image
                 ? (new FrameLoaded { RequestId = blur.RequestId, FrameId = blur.FrameId, Image = image }, null)
-                : (null, $"The blur was written, but the frame is now too large for the pipe: {painted.Image.Length} bytes against a limit of {LargestFrameBytes}. Open the session again to see it.");
-        }
-        finally
-        {
-            _blurring.Release();
+                : (null, $"{WrittenButTooLarge}: {painted.Image.Length} bytes against a limit of {LargestFrameBytes}. Open the session again to see it.");
         }
     }
 

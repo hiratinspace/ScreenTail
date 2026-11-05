@@ -88,6 +88,55 @@ internal static class Keys
     }
 
     /// <summary>
+    /// A key held down (ST-084 follow-up review): the first WM_KEYDOWN, or with <paramref name="repeat"/>
+    /// one of the auto-repeat WM_KEYDOWNs Windows sends while it stays down, with the previous-state bit
+    /// set and no WM_KEYUP between, which WPF reports as <see cref="KeyEventArgs.IsRepeat"/>. End with
+    /// <see cref="Up"/>. Returns whether WPF handled the press.
+    /// </summary>
+    public static bool Down(Window window, Key key, bool repeat = false) => Send(window, key, down: true, repeat);
+
+    /// <summary>Lets go of a key held with <see cref="Down"/>.</summary>
+    public static void Up(Window window, Key key) => _ = Send(window, key, down: false, repeat: false);
+
+    private static bool Send(Window window, Key key, bool down, bool repeat)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        var source = PresentationSource.FromVisual(window) as HwndSource
+            ?? throw new InvalidOperationException("The window has no HwndSource: it has not been shown.");
+        var saved = new byte[256];
+        _ = GetKeyboardState(saved);
+        var virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        var held = new byte[256];
+        if (down)
+        {
+            held[virtualKey] = 0x80;
+        }
+
+        if (!SetKeyboardState(held))
+        {
+            throw new InvalidOperationException($"SetKeyboardState failed ({Marshal.GetLastPInvokeError()}).");
+        }
+
+        try
+        {
+            var scan = (long)MapVirtualKey((uint)virtualKey, 0);
+            var previous = down && !repeat ? 0 : 1L << 30;
+            var message = new MSG
+            {
+                hwnd = source.Handle,
+                message = down ? WM_KEYDOWN : WM_KEYUP,
+                wParam = virtualKey,
+                lParam = new IntPtr(1 | (scan << 16) | previous | (down ? 0 : 1L << 31)),
+            };
+            return ((IKeyboardInputSink)source).TranslateAccelerator(ref message, ModifierKeys.None);
+        }
+        finally
+        {
+            _ = SetKeyboardState(saved);
+        }
+    }
+
+    /// <summary>
     /// Types <paramref name="text"/> at the focused element as WPF's text composition does for WM_CHAR:
     /// PreviewTextInput, then TextInput. How a layout-dependent key like ? reaches the window.
     /// </summary>

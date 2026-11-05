@@ -13,7 +13,7 @@ namespace ScreenTail.Tests.Windows.Accessibility;
 /// <summary>
 /// Every screen a technician reaches (Spec §5 S1 to S8), opened with the screenshot harness's sample data
 /// so the suite sees what the gallery job renders: Review in each publish state and with the timeline
-/// open or a frame enlarged, History, Settings with its sections, the service-down banner, each of the
+/// open, a frame enlarged, or the blur box out over it, History, Settings with its sections, the service-down banner, each of the
 /// seven onboarding steps, the diagnostics panel answered and unanswered, the typed confirmations and the
 /// shortcut sheet. The pill and the tray menu have their own tests: neither takes keyboard focus.
 ///
@@ -25,7 +25,7 @@ internal static class Screens
     public static readonly string[] All =
     [
         "review", "review-no-psa", "review-published", "review-partial", "review-needs-mapping", "review-timeline", "review-enlarged",
-        "history", "settings", "service-down",
+        "review-blur-box", "history", "settings", "service-down",
         "onboarding-welcome", "onboarding-activate", "onboarding-permissions", "onboarding-tools", "onboarding-connect", "onboarding-tryit", "onboarding-done",
         "diagnostics", "diagnostics-unanswered",
         "confirm-discard", "confirm-bulk-discard", "confirm-erase", "shortcut-sheet",
@@ -38,11 +38,17 @@ internal static class Screens
         switch (screen)
         {
             case var review when review.StartsWith("review", StringComparison.Ordinal):
-                window = await ShellAsync(state => state.OpenSession(review == "review-enlarged" ? "preview" : review.Replace("review", "preview", StringComparison.Ordinal)));
+                var enlarged = review is "review-enlarged" or "review-blur-box";
+                window = await ShellAsync(state => state.OpenSession(enlarged ? "preview" : review.Replace("review", "preview", StringComparison.Ordinal)));
                 await PaneAsync<ReviewPane>(window);
-                if (review == "review-enlarged")
+                if (enlarged)
                 {
                     await EnlargeFirstFrameAsync(window);
+                }
+
+                if (review == "review-blur-box")
+                {
+                    _ = await OpenBlurBoxAsync(window);
                 }
 
                 break;
@@ -224,6 +230,18 @@ internal static class Screens
         await UntilAsync(() => Review(shell).Strip.IsEnlarged);
         await DrawnAsync(shell);
         Assert.True(Review(shell).Strip.IsEnlarged, "Enter on a screenshot did not enlarge it.");
+    }
+
+    /// <summary>`B` on the enlarged screenshot: the blur box out, in the middle of the picture, with focus on it.</summary>
+    public static async Task<BlurBoxControl> OpenBlurBoxAsync(Window shell)
+    {
+        var box = Audit.Descendants(shell).OfType<BlurBoxControl>().Single();
+        _ = Keys.Press(shell, Key.B);
+        await UntilAsync(() => box.IsVisible && box.IsKeyboardFocused);
+        await DrawnAsync(shell);
+        Assert.True(box.IsVisible, "B on the enlarged screenshot did not bring out the blur box.");
+        Assert.True(box.IsKeyboardFocused, $"B brought out the blur box with focus on {Keyboard.FocusedElement?.GetType().Name ?? "nothing"}, not on the box.");
+        return box;
     }
 
     /// <summary>The element of type <typeparamref name="T"/> whose automation name is <paramref name="name"/>.</summary>

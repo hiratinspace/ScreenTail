@@ -39,13 +39,21 @@ public sealed partial class PublishViewModel : ObservableObject
 
     /// <param name="note">The note as it is now, edited; asked for at the moment of publishing.</param>
     /// <param name="frames">The included frames, in strip order, at the moment of publishing.</param>
-    public PublishViewModel(PublishPanel panel, Func<DraftNote> note, Func<IReadOnlyList<string>> frames)
+    /// <param name="heldBack">
+    /// Why Publish must wait for something elsewhere in Review, or null: a blur still being applied, whose
+    /// frame would otherwise go out as it was before (review of #257). Asked whenever the block is worked
+    /// out; <see cref="FramesChanged"/> is called when it changes.
+    /// </param>
+    public PublishViewModel(PublishPanel panel, Func<DraftNote> note, Func<IReadOnlyList<string>> frames, Func<string?>? heldBack = null)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
         _note = note ?? throw new ArgumentNullException(nameof(note));
         _frames = frames ?? throw new ArgumentNullException(nameof(frames));
+        _heldBack = heldBack ?? (() => null);
         Refresh();
     }
+
+    private readonly Func<string?> _heldBack;
 
     /// <summary>The backend's PSA is its Development demo (ST-090): said above the form, never a real product's name.</summary>
     public string DemoNotice => _panel.DemoNotice ?? string.Empty;
@@ -406,7 +414,8 @@ public sealed partial class PublishViewModel : ObservableObject
     private void RefreshBlock()
     {
         var here = BlockedHere();
-        BlockedBecause = _panel.HasIntegrations ? _panel.BlockedBecause ?? here ?? string.Empty : string.Empty;
+        var held = _heldBack();
+        BlockedBecause = _panel.HasIntegrations ? held ?? _panel.BlockedBecause ?? here ?? string.Empty : string.Empty;
         BlockedVisibility = BlockedBecause.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         CanPublish = _panel.CanPublish && here is null;
     }
@@ -418,6 +427,12 @@ public sealed partial class PublishViewModel : ObservableObject
     /// </summary>
     private string? BlockedHere(bool minutesMatter = true)
     {
+        // First, and whatever else is true: the frames themselves are not settled.
+        if (_heldBack() is { } held)
+        {
+            return held;
+        }
+
         var frames = _frames().Count;
         if (frames > PublishCommands.MaxFrames)
         {

@@ -66,4 +66,24 @@ public sealed class PipeReviewFrames(CaptureConnection connection) : IReviewFram
             ct).ConfigureAwait(false);
         return reply?.Image;
     }
+
+    /// <summary>
+    /// The blur, asked once, with the service's refusal kept: one that says the blur was written but its
+    /// image is too large for the pipe is a blur that landed (ST-084 follow-up review). Asked once because
+    /// asking again to learn why would paint it again.
+    /// </summary>
+    public async Task<BlurReply> BlurWithReplyAsync(string frameId, MaskedRegion region, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        var answer = await _connection.AskAsync<FrameLoaded>(
+            id => new BlurFrameCommand { RequestId = id, FrameId = frameId, X = region.X, Y = region.Y, Width = region.Width, Height = region.Height },
+            ct).ConfigureAwait(false);
+        return answer switch
+        {
+            { Reply: { } loaded } => new BlurReply(true, loaded.Image),
+            { WasLost: true } => BlurReply.Unknown,
+            { Refusal: { } refusal } when refusal.StartsWith(ReviewCommands.WrittenButTooLarge, StringComparison.Ordinal) => new BlurReply(true, null),
+            _ => BlurReply.NotWritten,
+        };
+    }
 }

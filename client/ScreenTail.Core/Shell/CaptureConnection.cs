@@ -187,7 +187,9 @@ public sealed class CaptureConnection : IAsyncDisposable
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or IpcProtocolException)
         {
-            return ServiceAnswer<TReply>.Refused("The capture service disconnected.");
+            // Sent, and then the pipe went: the service may have acted on it or not. Said apart from a
+            // refusal, so a caller whose command destroys something does not report it as not done.
+            return ServiceAnswer<TReply>.Lost("The capture service disconnected.");
         }
 
         return reply switch
@@ -359,10 +361,11 @@ public sealed class CaptureConnection : IAsyncDisposable
 public sealed class ServiceAnswer<TReply>
     where TReply : IpcEvent
 {
-    private ServiceAnswer(TReply? reply, string? refusal)
+    private ServiceAnswer(TReply? reply, string? refusal, bool lost = false)
     {
         Reply = reply;
         Refusal = refusal;
+        WasLost = lost;
     }
 
     public TReply? Reply { get; }
@@ -373,4 +376,12 @@ public sealed class ServiceAnswer<TReply>
     internal static ServiceAnswer<TReply> Of(TReply reply) => new(reply, null);
 
     internal static ServiceAnswer<TReply> Refused(string refusal) => new(null, refusal);
+
+    internal static ServiceAnswer<TReply> Lost(string refusal) => new(null, refusal, lost: true);
+
+    /// <summary>
+    /// The command went out and the connection dropped before the answer came: whether the service acted
+    /// on it is not known. False for a refusal, and for a command that never left (not connected).
+    /// </summary>
+    public bool WasLost { get; }
 }

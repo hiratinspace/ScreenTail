@@ -21,7 +21,8 @@ runner and on the laptop; what is left is listening to what is read.
 Every screen a technician reaches is opened with the screenshot harness's sample data at the shell's
 minimum size (1024 x 680), shown and focused, and checked through its automation peers, WPF's own
 keyboard pipeline and the axe-windows engine. The screens: Review (ticket chosen, no PSA, published,
-partly published, waiting on a company mapping, timeline open, a screenshot enlarged), History, Settings
+partly published, waiting on a company mapping, timeline open, a screenshot enlarged, and the same with the
+blur box out over it), History, Settings
 (this device, Capture, Privacy, Integrations, Updates), the service-down banner, each of the seven
 onboarding steps, the diagnostics panel answered and unanswered, the three typed confirmations, the
 shortcut sheet, the pill in all ten states, and the tray menu.
@@ -39,6 +40,7 @@ shortcut sheet, the pill in all ten states, and the tray menu.
 | Focus is visible | `Audit.TabAsync`, in the dark, light and high-contrast palettes | A focused control that, drawn again without focus, changes in fewer pixels with 3:1 contrast than a quarter of the perimeter of the region around it ((width + height) / 2) |
 | Scroll bars can be grabbed | `Audit.CoveredScrollBars` on every screen, `NoSplitterLiesOverAPanesScrollBar` | Anything lying over a visible scroll bar's track (scroll bars are not Tab stops, so the keyboard checks never see them) |
 | Documented shortcuts | `KeyboardShortcutTests` | Ctrl+S, Ctrl+Enter, Alt+1/2/3, Alt+T, Alt+C, Alt+Down, Space, Enter, T, Esc (from the strip and from the enlarged view's own buttons), Del and Ctrl+Z not doing what Spec §5 S3 says; ? not opening the shortcut sheet outside a text box, or not typing a ? inside one |
+| Blurring from the keyboard | `KeyboardBlurTests` | B on an enlarged screenshot not bringing out the blur box with focus on it; the arrows, Shift+arrows or Ctrl not moving or resizing it as `BlurBox` says (Core's `BlurBoxTests` hold the steps, the 2% minimum and the edges); the box drawn anywhere but over the rectangle it blurs; Enter not blurring the region a drag over the same rectangle blurs, through the same call, or leaving the frame's OCR text; Esc blurring anything, or closing the screenshot before the box is put away; focus not back on the blur toggle afterwards; where the box is not announced as it moves (an arrow into an edge included), or announced with anything but numbers; "Region blurred" not said; a held Enter writing a second region; Publish reachable in any way while a blur waits, or a publish reading a frame mid-blur in the service; the frame's picture, thumbnail or text shown, or asked for on reopening, while its blur waits; a late answer not said; a dropped pipe said as "Nothing was blurred"; B then Enter or a drag during a wait going unsaid; a click on the armed picture taken for an attempt; a blur that did not land going unsaid or throwing the box away; one written but not sent back leaving the old picture or text on screen; a blur the service never answers waiting for ever, or Esc not putting the box away while it waits; the box left out under the OCR text; Ctrl+Enter publishing past an unapplied box; the box drawn off a letterboxed picture; a key the shortcut sheet lists for the box doing something else |
 | Undo and Alt codes | `KeyboardShortcutTests` | Ctrl+Z not taking a delete back from the enlarged view; Alt with the number pad moving focus instead of being left to type a character |
 | Esc closes dialogs | `KeyboardShortcutTests.EscClosesTheDialog` | A typed confirmation that opens without the caret in its box, or that Esc does not close; the shortcut sheet not closing on Esc |
 | Disabled reasons are spoken | `KeyboardShortcutTests.ADisabledPublishSaysWhyToAScreenReader` | A disabled Publish whose help text is not the reason written beside it |
@@ -97,7 +99,9 @@ took 28.7 s, and the 33 Accessibility Insights scans took 112.1 s, about 3.4 s e
 difference. Each screen is opened once for every rule, the second and third palettes re-walk only the
 focus visuals, and one axe-windows runner process serves the whole suite. The laptop's capabilities job
 runs the whole assembly too: 452 s with the suite (about 430 s before), and the job took 8 min 44 s of
-its 15-minute limit (run 41535721423, which passed).
+its 15-minute limit (run 41535721423, which passed). With the blur box added as a screen and its keyboard
+tests (2026-11-04, run 41901368177), the hosted suite came to 97 runs on the UI thread in 36.1 s and 34
+scans in 119.5 s, and the Windows assembly to 263 s.
 
 ### The tests have teeth
 
@@ -122,6 +126,10 @@ On 2026-11-01 each rule was broken on purpose on a throwaway branch (three round
 | The splitters reaching over the panes' edges again (run 41365067561) | `CoveredScrollBars` ("the scroll bar of NoteEditorView is covered ... by GridSplitter"), `NoSplitterLiesOverAPanesScrollBar`, and the reading order |
 | Alt+NumPad1 jumping to the note again | `AltWithTheNumberPadIsLeftForTyping` |
 | Ctrl+Z ignored over the enlarged screenshot | `CtrlZUndoesADeleteFromTheEnlargedView` |
+| The blur box's position no longer clamped to the picture (2026-11-04, run 41902899753) | Core's `BlurBoxTests` (three: moved off, grown past, any numbers) and `TheBoxStopsAtThePicturesEdgesAndCanCoverAllOfIt` ("160% from the left, -80% from the top") |
+| Enter on the blur box not routed (the same run) | `TheKeysPlaceTheBoxAndEnterBlursWhatItCoversAsADragWould` ("Enter on the blur box was not handled"), `EachKeyDoesWhatTheSheetSays(Return)` |
+| From the review of #257, all at once (run 41909379512): a held Enter repeated; a blur that did not land disarmed silently; a blur written but not sent back taken for nothing, and the old picture kept; no timeout; the OCR text leaving the box out; Ctrl+Enter not held; the letterbox offset dropped; no words at an edge | `HoldingEnterBlursOnceAndNeverASecondRegion` (6 regions, not 1), `ABlurThatDidNotLandIsSaid...` (nothing heard), `ABlurWrittenButNotSentBack...` and the pipe test, `ABlurTheServiceNeverAnswers...`, `TheTextPanelAndTheBlurBoxAreNeverOutTogether`, `CtrlEnterDoesNotPublish...` and its routing case, `OnALetterboxedPicture...` (86 against 465.4) and the placement check, `TheBoxStopsAtThePicturesEdges...` ("as far as it goes" missing) |
+| From the second review of #257, all at once (run 41927341614): Publish not held while a blur waits; the service's publish not waiting for a blur; the thumbnail kept when a blur is given up on, and a pending frame's picture fetched on reopening; B then Enter during a wait silent; a lost answer said as "Nothing was blurred"; a click on the armed picture taken for an attempt; a lost pipe not read as lost | `PublishIsHeldBackEverywhereWhileABlurWaits`, `APublishWaitsForABlurBeingPaintedAndSendsWhatItWrote`, `ABlurTheServiceIsSlowToAnswer...` (the thumbnail still shown; the reopening check sits behind it and was not reached), `EscWhileABlurWaitsThenBAndEnterSayItIsStillWaiting` (nothing heard), `ABlurWhoseAnswerWasLostSaysItMayNotHaveBeenApplied`, `AClickOnTheArmedPictureIsNoAttempt` ("Nothing was blurred." heard), `ABlurWhoseAnswerWasLostIsUnknownNotUndone` |
 
 ## Needs a person
 
@@ -137,8 +145,9 @@ Narrator said, and what it should have said.
    summary ("Draft, started ..., 1 min, screenconnect, 7 screenshots").
 3. **Live regions are heard.** While Narrator is on: stop the capture service (the banner and the badge
    should be read without moving focus), type a bad hotkey in Settings (the inline message), change step
-   in the wizard (the title), discard a frame (the undo toast), publish (the summary), and start a
-   session with the pill showing (its state, once, not every second).
+   in the wizard (the title), discard a frame (the undo toast), publish (the summary), move the blur box
+   (where it is, in percent, after each arrow, and "Region blurred" after Enter), and start a session with
+   the pill showing (its state, once, not every second).
 4. **The pill is read as its state.** With a session running, move Narrator to the pill (Caps+arrow
    keys, scan mode): "Recording, 3 minutes 12 seconds". It never takes focus, by design; its keys are the
    global hotkeys the shortcut sheet lists.
@@ -155,8 +164,12 @@ Narrator said, and what it should have said.
 9. **Accessibility Insights FastPass by hand** on two windows (Review and Settings), to confirm the
    automated scan sees what the tool sees: zero failures expected. Attach the report to the ticket.
 
-Known gaps a person should not report as new (owner decisions, below): blurring a region needs the
-mouse; scroll bars are 12 px.
+10. **The blur box.** Enlarge a screenshot, press B: Narrator reads "Region to blur, blur box" and the keys
+    in its help text, then where it is. Move and resize it, Tab off it and back, Esc, then B and Enter. A
+    sighted check at the same time: the box's outline and its focus ring show on a light screenshot and a
+    dark one, in the dark, light and a Windows contrast theme.
+
+Known gaps a person should not report as new (owner decisions, below): scroll bars are 12 px.
 
 ## Owner decisions (conservative defaults taken 2026-11-01)
 
@@ -165,8 +178,54 @@ mouse; scroll bars are 12 px.
 - **Scroll bars stay 12 px**, an exception to the 28 px target. They are not Tab stops; every scrolled
   region scrolls with the wheel, with keyboard focus moving into view, and with Page keys, which is
   WCAG 2.5.8's "equivalent" exception.
-- **Blurring a region needs the mouse** (Spec §5 S3 draws it as a drag on the enlarged screenshot). A
-  keyboard way to place and size the region is a new ticket, not part of this one.
+- **Blurring from the keyboard (2026-11-04, the keys are the owner's to confirm).** Spec §5 S3 drew the
+  blur as a drag; the first pass left it to the mouse. On an enlarged screenshot B now also brings out a
+  box, a fifth of the picture square, in its middle, with focus on it. The arrows move it 1% of the
+  picture, Shift with an arrow resizes it from its top left corner (at an edge it grows the other way),
+  and Ctrl with either takes 10% steps; it never leaves the picture and is at least 2% a side. Enter
+  blurs what it covers through the drag's own path; Esc puts it away from anywhere in the enlarged view,
+  and a second Esc closes the screenshot. Its position is announced in percent of the picture, not in
+  pixels, so each arrow is one step a listener can count, and it is numbers only (INV-10). The
+  alternatives were pixel steps (which would announce uneven numbers and change with the pane's size) and
+  a separate chord to start the box (B already means blur in the spec and the sheet). Taken with it, from
+  the review of #257, each also the owner's to confirm:
+  - **Focus after a blur goes to the blur toggle**, so B or Space blurs another region. A held Enter or
+    B is not repeated in the enlarged view (only the first press counts), which is what stops a held
+    Enter from bringing the box back through the toggle and blurring a second region nobody placed.
+    The alternative was Close, which makes a second blur two keys further away.
+  - **Ctrl+Enter (Publish) is held back while a box is out and not applied**, with the reason said;
+    publishing then would send the picture the technician was about to cover. Publish's button still
+    works with the mouse, which is a deliberate act.
+  - **An arrow that changes nothing says so** ("..., as far as it goes"), each time, so a listener can
+    tell an edge from a missed key.
+  - **Resize is from the top left corner only**, growing the other way at the right or bottom edge. Moving
+    then resizing reaches any rectangle; a second corner would need a second set of chords.
+  - **A blur that did not land is said and the box stays where it was**, armed, for another try. One the
+    service wrote but could not send back is said as blurred, and the pane stops showing the old picture
+    and its text. One the service does not answer in 20 s is said as unknown, and the picture and text,
+    which may be stale, are dropped until the screenshot is opened again. Esc while a blur waits puts the
+    box away at once; what came of it is still said.
+  - **The box's focus rings are inside it**, so nothing drawn reaches past what is blurred: the outer edge
+    is the edge of the blur, and the help text says so.
+
+  From the second review of #257:
+  - **While any blur waits for the service, Publish is unavailable** (button disabled with the reason beside
+    it and as its help text, Ctrl+Enter, Retry and the mapping retry refused), so the picture from before a
+    blur can never be sent. In the service, a publish also waits for a blur being painted
+    (`FrameEditGate`) and sends what it wrote. Otherwise Publish with the mouse is allowed as before.
+  - **A blur is never abandoned.** After 20 s the pane stops waiting and says so, but the request runs to
+    the service's answer: until then the frame's picture, thumbnail and text are not shown (the enlarged
+    view says it is waiting), and Publish stays held. A hung service therefore holds Publish in that
+    Review until it answers or the pipe drops; Publish goes over the same pipe, so it could not have gone
+    out anyway.
+  - **A late answer is said only when the enlarged view is open**: the status line lives there. Closed, the
+    strip's thumbnail still changes to what the service has.
+  - **A pipe that dropped mid-blur says "The blur may not have been applied"**, never "Nothing was blurred",
+    and the frame is shown again as the service has it.
+  - **A click or a too-small drag is no attempt**: nothing is asked, nothing said, blurring stays armed. A
+    refused drag says "Nothing was blurred." only; the retry hint and the box come back for Enter alone.
+  - **Later:** the "written but too large" case is recognised by the start of the service's refusal
+    (`ReviewCommands.WrittenButTooLarge`); a structured result code in the IPC contract would be better.
 - **History's headers are Tab stops** so the table sorts from the keyboard (Spec §3: sortable). That adds
   five stops before the rows; the alternative is a sort chord, which the spec does not name.
 - **The gaps between Review's panes are 28 px** (were 12), because the splitter is the gap: Spec §7's
