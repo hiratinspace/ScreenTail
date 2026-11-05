@@ -1,3 +1,4 @@
+using ScreenTail.Core.Ipc;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Schema;
@@ -71,5 +72,71 @@ public sealed class CountsChangedTests
         Assert.True(SpinWait.SpinUntil(() => log.Count == 2, TimeSpan.FromSeconds(5)), string.Join("; ", log));
 
         Assert.Equal(["state paused", "counts paused 4"], log);
+    }
+
+    [Fact]
+    public async Task SeveralMovesDuringATransitionAreToldOnceAfterIt()
+    {
+        // While a transition holds the lock the backlog can move many times. They are said once, when it
+        // lets go, with the count as it then stands.
+        await using var harness = await MachineHarness.StartAsync();
+        var machine = harness.Machine;
+        Assert.True(await machine.StartAsync(Other, ct: TestContext.Current.CancellationToken));
+        var told = new List<CaptureStateSnapshot>();
+        var moved = false;
+        machine.StateChanged += _ =>
+        {
+            if (!moved)
+            {
+                moved = true;
+                machine.ReportPendingRedactions(1);
+                machine.ReportPendingRedactions(2);
+                machine.ReportPendingRedactions(3);
+            }
+        };
+        machine.CountsChanged += told.Add;
+
+        Assert.True(await machine.PauseAsync(TestContext.Current.CancellationToken));
+        await machine.CountsTelling.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var once = Assert.Single(told);
+        Assert.Equal(3, once.PendingRedactions);
+        Assert.Equal(CaptureStates.Paused, once.State);
+    }
+
+    [Fact]
+    public async Task ATellingThatOutlivesTheMachineDoesNotFault()
+    {
+        // The telling is fire and forget. The machine disposed while it held the lock must not leave it to
+        // throw on the way out, where nothing would ever observe it.
+        var harness = await MachineHarness.StartAsync();
+        var machine = harness.Machine;
+        machine.CountsChanged += _ => machine.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+        machine.ReportPendingRedactions(5);
+
+        await machine.CountsTelling.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(machine.CountsTelling.IsCompletedSuccessfully);
+        await harness.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task EveryTransitionAndEveryMovedCountReachesTheBroadcast()
+    {
+        // The host's wiring, which the counts' half of had no test of: taking it out failed nothing.
+        await using var harness = await MachineHarness.StartAsync();
+        var machine = harness.Machine;
+        var sent = new List<CaptureStateSnapshot>();
+        StateBroadcast.Wire(machine, ipcEvent =>
+        {
+            sent.Add(Assert.IsType<StateChanged>(ipcEvent).State);
+            return Task.CompletedTask;
+        });
+
+        Assert.True(await machine.StartAsync(Other, ct: TestContext.Current.CancellationToken));
+        machine.ReportPendingRedactions(2);
+        await machine.CountsTelling.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal([(CaptureStates.Recording, 0), (CaptureStates.Recording, 2)], sent.Select(s => (s.State, s.PendingRedactions)));
     }
 }

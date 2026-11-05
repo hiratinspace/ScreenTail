@@ -185,9 +185,12 @@ public sealed class SessionMachine : IAsyncDisposable
         // said once, afterwards, with the count as it then stands.
         if (Interlocked.Exchange(ref _countsQueued, 1) == 0)
         {
-            _ = TellCountsAsync();
+            CountsTelling = TellCountsAsync();
         }
     }
+
+    /// <summary>The last telling of the counts, for tests to wait on and to see it never faults.</summary>
+    internal Task CountsTelling { get; private set; } = Task.CompletedTask;
 
     /// <summary>
     /// Raised when a count the snapshot carries moved and the state did not: the redaction backlog. The
@@ -231,7 +234,15 @@ public sealed class SessionMachine : IAsyncDisposable
         }
         finally
         {
-            _ = _transitions.Release();
+            try
+            {
+                _ = _transitions.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Disposed while this telling held the lock. Nothing is left to release it to, and this
+                // runs unobserved, so throwing here would only be an unobserved task exception.
+            }
         }
     }
 

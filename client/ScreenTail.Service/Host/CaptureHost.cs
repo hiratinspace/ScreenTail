@@ -396,12 +396,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             version);
         Array.Clear(token);
 
-        machine.StateChanged += snapshot => _ = server.BroadcastAsync(new StateChanged { State = snapshot }, stoppingToken);
-
-        // The redaction backlog moving is said as well, as the drafts count already is, so the pill's
-        // "redacting" count follows the worker rather than standing at its value from the last state
-        // change (owner's report, 2026-11-05). The same message and shape: no contract change.
-        machine.CountsChanged += snapshot => _ = server.BroadcastAsync(new StateChanged { State = snapshot }, stoppingToken);
+        // Every transition, and every count that moved without one, to every connected UI (ST-072).
+        StateBroadcast.Wire(machine, ipcEvent => server.BroadcastAsync(ipcEvent, stoppingToken));
 
         // INV-10: capability messages describe Windows settings, never anything captured.
         var capabilities = new WindowsCapabilityProbe().Probe();
