@@ -52,7 +52,11 @@ public sealed class PublishCommands(
     public const string AlreadyPublished = "This session is already published, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 
     /// <summary>The refusal while another publish of the same session has not answered yet, whatever the flag says.</summary>
-    public const string Unconfirmed = "stub-unconfirmed";
+    /// <summary>
+    /// The refusal for a session whose last publish may have landed (O2), sent without <c>publish_again</c>.
+    /// Remembered in the store, so it holds across a reopened Review, a second window and a service restart.
+    /// </summary>
+    public const string Unconfirmed = "An earlier publish of this session was not confirmed, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 
     public const string StillPublishing = "This session is still being published, so it may already be on the ticket. Wait a moment, check the ticket, then confirm before publishing again.";
 
@@ -189,6 +193,14 @@ public sealed class PublishCommands(
             return Refuse(caller, publish, AlreadyPublished);
         }
 
+        // O2: the same for a session whose last publish may have landed, which is not a session state
+        // (History, discard and retention do not change for it) but a mark in the store.
+        var before = (await _store.GetPublishRecordAsync(publish.SessionId, ct).ConfigureAwait(false))?.Outcomes ?? new Dictionary<string, string>();
+        if (before.Values.Contains(PublishRecord.Unknown, StringComparer.Ordinal) && !publish.PublishAgain)
+        {
+            return Refuse(caller, publish, Unconfirmed);
+        }
+
         // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
         // drafting bundle's own rule may go (redacted, not sensitive, not excluded, not taken while capture
         // was off). Anything else named is dropped, and so is a second mention of the same frame.
@@ -225,6 +237,11 @@ public sealed class PublishCommands(
             }
         }
 
+        // Written ahead: from here the request may leave, so until the backend's answer says otherwise every
+        // destination sent is unknown. A fault, a cancelled connection or a service that dies mid-publish
+        // leaves it so, and the next publish is refused until the technician has looked (O2).
+        await _store.SavePublishRecordAsync(publish.SessionId, Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown))), ct).ConfigureAwait(false);
+
         var answer = await _gateway.PublishAsync(
             new PublishWire
             {
@@ -245,8 +262,36 @@ public sealed class PublishCommands(
 
         if (!answer.Ok)
         {
+            // A plain refusal: nothing was sent, so the record goes back to how it was.
+            await KeepingTheResultAsync("outcomes", () => _store.SavePublishRecordAsync(publish.SessionId, before, ct)).ConfigureAwait(false);
             return Refuse(caller, publish, answer.Refusal!);
         }
+
+        // What the backend says about each destination replaces the write-ahead. One it did not mention
+        // stays unknown.
+        var written = Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown)));
+        foreach (var row in answer.Value!)
+        {
+            if (row.Ok)
+            {
+                written[row.Destination] = PublishRecord.Landed;
+            }
+            else if (row.Kind is DestinationResult.Unknown or DestinationResult.TimedOut)
+            {
+                written[row.Destination] = Settled(before, row.Destination) ?? PublishRecord.Unknown;
+            }
+            else if (Settled(before, row.Destination) is null)
+            {
+                // A plain failure, sent after the technician checked: nothing of it is on the ticket.
+                _ = written.Remove(row.Destination);
+            }
+            else
+            {
+                written[row.Destination] = PublishRecord.Landed;
+            }
+        }
+
+        await KeepingTheResultAsync("outcomes", () => _store.SavePublishRecordAsync(publish.SessionId, written, ct)).ConfigureAwait(false);
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
         // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
@@ -279,6 +324,22 @@ public sealed class PublishCommands(
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
     }
+
+    /// <summary>The earlier outcomes with these laid over them, except that a destination that landed stays landed: that is a fact.</summary>
+    private static Dictionary<string, string> Merge(IReadOnlyDictionary<string, string> before, IEnumerable<(string Destination, string Outcome)> now)
+    {
+        var merged = new Dictionary<string, string>(before, StringComparer.Ordinal);
+        foreach (var (destination, outcome) in now)
+        {
+            merged[destination] = Settled(before, destination) ?? outcome;
+        }
+
+        return merged;
+    }
+
+    /// <summary><see cref="PublishRecord.Landed"/> when an earlier publish put this destination on the ticket, otherwise null.</summary>
+    private static string? Settled(IReadOnlyDictionary<string, string> before, string destination) =>
+        before.TryGetValue(destination, out var was) && string.Equals(was, PublishRecord.Landed, StringComparison.Ordinal) ? was : null;
 
     /// <summary>Runs one piece of post-publish bookkeeping; a fault is kept and logged as its kind alone (INV-10).</summary>
     private async Task KeepingTheResultAsync(string what, Func<Task> bookkeeping)

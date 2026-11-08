@@ -354,8 +354,9 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         await Assert.ThrowsAsync<HttpRequestException>(() => commands.ReplyToAsync(Publish(["f1"])));
         _gateway.Throws = null;
 
-        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
-        Assert.Single(_gateway.Published);
+        // It may have left, so a plain resend is refused as unconfirmed (O2), never as still publishing,
+        // and a confirmed one goes.
+        await AssertUnconfirmedNotStillPublishingAsync(commands);
     }
 
     [Fact]
@@ -373,8 +374,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
         _gateway.Hold = null;
 
-        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
-        Assert.Single(_gateway.Published);
+        await AssertUnconfirmedNotStillPublishingAsync(commands);
     }
 
     [Fact]
@@ -595,6 +595,16 @@ public sealed class PublishCommandsTests : IAsyncDisposable
 
         Assert.Null(await commands.ReplyToAsync(new StartCommand { RequestId = 1 }));
         Assert.Null(await commands.HandleAsync(new StartCommand { RequestId = 1 }));
+    }
+
+    private async Task AssertUnconfirmedNotStillPublishingAsync(PublishCommands commands)
+    {
+        var plain = Publish(["f1"]) with { RequestId = 8 };
+        Assert.Null(await commands.ReplyToAsync(plain));
+        Assert.Equal(PublishCommands.Unconfirmed, (await commands.HandleAsync(plain))!.Error);
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 9, PublishAgain = true }));
+        Assert.Single(_gateway.Published);
     }
 
     private static PublishSessionCommand Publish(string[] frameIds) => new()
