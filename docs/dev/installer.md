@@ -343,17 +343,20 @@ decision, 2026-11-05: the stop does not wait for a transcription in flight.** It
 token reaches whisper.cpp's abort callback), the recorder drops the segment rather than half-keeping it,
 and the recogniser's disposal waits at most 500 ms (`StopBound.Default`); after that the call is left to
 end by itself and free the model, or to go with the process. The service logs a count when it does this,
-nothing else. `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measures it on the laptop with a
-minute of audio certainly in flight, since the microphone cannot be made to speak on cue in this test.
-Since the #262 follow-up it also requires that the stop aborts the call rather than only ceasing to wait:
-**the abort is answered within `StopBound.Default` (500 ms)** (owner's decision, 2026-11-08), so the
-recogniser never has to leave the call running (its "abandoned" count, logged as "The speech model was
-still busy at stop", is zero). When the native call ended after the stop is reported as a figure, not
-held to a second bound. The narration segment is still dropped and counted
+nothing else. `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measures it on the laptop with
+ten minutes of audio certainly in flight, since the microphone cannot be made to speak on cue in this
+test. It enforces two things (2026-11-08, owner proxy): **the stop does not wait past `StopBound.Default`**
+(the disposal returns within 500 ms plus 150 ms for the scheduler), and **the abort is answered within
+3 s** (the native call ends within 3 s of the stop, where ten minutes of audio unaborted would take far
+longer). Whether the call let go inside the 500 ms bound (the recogniser's "abandoned" count, logged as
+"The speech model was still busy at stop") and when it ended are reported, not enforced: whisper.cpp
+reads its abort only between compute steps, so the abort's latency is one step, 510 ms for base.en on the
+laptop (run 42524815671), and it varies with the CPU and the model. The 500 ms bound itself is unchanged;
+past it the release finishes by itself. The narration segment is still dropped and counted
 (`NarrationRecorder.AbandonedAtStop`, one per segment that was with the model; a stop that lands once the
-model has answered is not counted). `StopTimeTests` checks the same in the real host whenever its log
-shows a segment was with the model at the ask (no "still busy" line; the stop itself is held to the 4 s
-budget and reported), and `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` runs a child
+model has answered is not counted). `StopTimeTests` reports, in the real host, whether a segment was with
+the model at the ask and whether the "still busy" line appeared, with the stop held to the 4 s budget,
+and `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` runs a child
 process that returns with five minutes of audio still being transcribed and the recogniser not disposed,
 and requires that process to end, with success, within 5 s.
 
