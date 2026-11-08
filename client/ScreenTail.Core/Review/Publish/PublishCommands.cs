@@ -46,18 +46,22 @@ public sealed class PublishCommands(
     public const int MaxFrames = 25;
 
     /// <summary>
-    /// The refusal for a session already marked published, sent without <c>publish_again</c>. Its note is
-    /// on a ticket, so a plain resend (a dropped pipe, a restarted UI, a second window) would add it twice.
+    /// The refusal for a destination the store holds as landed, sent without <c>publish_again</c>: a plain
+    /// resend (a dropped pipe, a restarted UI, a second window that never saw the landing) would add it
+    /// twice. Also every destination of a session published before the store kept outcomes.
     /// </summary>
     public const string AlreadyPublished = "This session is already published, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 
-    /// <summary>The refusal while another publish of the same session has not answered yet, whatever the flag says.</summary>
     /// <summary>
-    /// The refusal for a session whose last publish may have landed (O2), sent without <c>publish_again</c>.
-    /// Remembered in the store, so it holds across a reopened Review, a second window and a service restart.
+    /// The refusal for a destination the store holds as unknown (O2), one whose last publish may have
+    /// landed, sent without <c>publish_again</c>. Kept in the store and checked for each destination sent,
+    /// so it holds across a reopened Review and a service restart, and against a second window that knows
+    /// of a different destination's outcome: that window's flag is only sent once its technician has
+    /// ticked the check, or for a Retry beside a landing it saw itself.
     /// </summary>
     public const string Unconfirmed = "An earlier publish of this session was not confirmed, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 
+    /// <summary>The refusal while another publish of the same session has not answered yet, whatever the flag says.</summary>
     public const string StillPublishing = "This session is still being published, so it may already be on the ticket. Wait a moment, check the ticket, then confirm before publishing again.";
 
     /// <summary>The refusal for a destination name this version does not know, said before anything is written ahead (m-b).</summary>
@@ -188,20 +192,22 @@ public sealed class PublishCommands(
             return Refuse(caller, publish, "The session was discarded, so there is nothing to publish.");
         }
 
-        // Something of it is on a ticket already. Only the pane can know a resend is meant (a Retry of what
-        // failed, or the technician's "I checked the ticket"), and it says so with publish_again. The
-        // backend keeps nothing to catch a duplicate with (INV-7), so this is where it is caught.
-        if (string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal) && !publish.PublishAgain)
+        // m-b: the record is keyed by destination, and a name nothing answers for would be written ahead
+        // as unknown and stay so for good.
+        if (publish.Destinations.Any(d => !KnownDestinations.Contains(d)))
         {
-            return Refuse(caller, publish, AlreadyPublished);
+            return Refuse(caller, publish, UnknownDestination);
         }
 
-        // O2: the same for a session whose last publish may have landed, which is not a session state
-        // (History, discard and retention do not change for it) but a mark in the store.
+        // Something of it may be on a ticket already. The backend keeps nothing to catch a duplicate with
+        // (INV-7), so this is where it is caught, for each destination sent, against what the store holds
+        // for it: landed, or unknown (O2), whichever window, pane or service run left it (MJ1). Only the
+        // technician's "I checked the ticket", or a Retry of what failed beside a landing in the same
+        // pane, says a resend is meant, and the pane says so with publish_again.
         var before = (await _store.GetPublishRecordAsync(publish.SessionId, ct).ConfigureAwait(false))?.Outcomes ?? new Dictionary<string, string>();
-        if (before.Values.Contains(PublishRecord.Unknown, StringComparer.Ordinal) && !publish.PublishAgain)
+        if (!publish.PublishAgain && Refusal(publish.Destinations, before, state) is { } refusal)
         {
-            return Refuse(caller, publish, Unconfirmed);
+            return Refuse(caller, publish, refusal);
         }
 
         // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
@@ -326,6 +332,29 @@ public sealed class PublishCommands(
         }
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
+    }
+
+    private static readonly HashSet<string> KnownDestinations = new(["ticket_note", "time_entry", "kb_article"], StringComparer.Ordinal);
+
+    /// <summary>
+    /// Why a plain send of these destinations is refused, or null. <see cref="AlreadyPublished"/> when any of
+    /// them landed, <see cref="Unconfirmed"/> when any may have. A session published before the record
+    /// existed (migration 0013) has the state and no outcomes, so every destination may have landed.
+    /// </summary>
+    private static string? Refusal(IReadOnlyList<string> destinations, IReadOnlyDictionary<string, string> before, string? state)
+    {
+        if (before.Count == 0)
+        {
+            return string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal) ? AlreadyPublished : null;
+        }
+
+        var held = destinations.Select(d => before.TryGetValue(d, out var outcome) ? outcome : null).ToList();
+        if (held.Contains(PublishRecord.Landed, StringComparer.Ordinal))
+        {
+            return AlreadyPublished;
+        }
+
+        return held.Contains(PublishRecord.Unknown, StringComparer.Ordinal) ? Unconfirmed : null;
     }
 
     /// <summary>The earlier outcomes with these laid over them, except that a destination that landed stays landed: that is a fact.</summary>

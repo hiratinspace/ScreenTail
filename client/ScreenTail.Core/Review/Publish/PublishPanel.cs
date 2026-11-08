@@ -311,18 +311,19 @@ public sealed class PublishPanel
                 return check;
             }
 
-            // O3: choosing again on reopen. A destination that landed, or may have, is sent again only
-            // once the technician has looked; one that plainly failed goes without it (ST-094 AC3).
-            if (_results.Count == 0 && ChosenMayDuplicate && !TicketChecked)
-            {
-                return CheckTheTicketFirst;
-            }
-
             // Then, and whatever the toggles say now (T-129): once anything has landed, Publish would
             // send it again, and Ctrl+Enter reaches here even while the result list hides the button.
             if (_results.Values.Any(r => r.Ok))
             {
                 return Published ? AlreadyPublished : PartlyPublished;
+            }
+
+            // O3: choosing again. A destination that landed, or may have, in an earlier publish or in this
+            // pane, is sent again only once the technician has looked; one that plainly failed goes
+            // without it (ST-094 AC3). Whether or not this pane has results of its own (m-d).
+            if (ChosenMayDuplicate && !TicketChecked)
+            {
+                return CheckTheTicketFirst;
             }
 
             if (!HasIntegrations)
@@ -506,13 +507,13 @@ public sealed class PublishPanel
             throw new InvalidOperationException("A publish is already in flight.");
         }
 
-        // The pane means it when it holds an earlier publish's results and something landed (Retry sends
-        // only the rest), or when the technician confirmed they checked. Otherwise the service's refusal
-        // of an already-published session stands.
-        // An earlier publish known to the pane counts too: the service holds the session as published or
-        // unconfirmed, and what is chosen has passed the check above (O3).
-        var again = TicketChecked || _results.Values.Any(r => r.Ok) || _earlier.Count > 0;
+        // The pane means it when the technician confirmed they checked, or when this pane saw something
+        // land and Retry sends only the rest (ST-094 AC3). Not because it knows of some earlier publish:
+        // the service checks each destination sent against what it holds, and a pane that does not know
+        // of a destination's unknown must not vouch for it (MJ1, re-review of #265).
+        var again = TicketChecked || _results.Values.Any(r => r.Ok);
         TicketChecked = false;
+        EarlierRefusal = null;
         IsPublishing = true;
         try
         {
@@ -525,12 +526,18 @@ public sealed class PublishPanel
 
             // The service knew of an earlier publish this pane did not: ask it what is on the ticket and
             // offer the choice, rather than a result list that only says no (O3).
+            // One that comes back with nothing (a dropped pipe, a session gone) leaves the refusal rows,
+            // which count as may-have-landed, so the box to tick shows and Publish never loops silently (m-a).
             if (_reloadEarlier is not null && results.Count > 0 && results.All(r => r.RefusedForAnEarlierPublish))
             {
                 var earlier = await _reloadEarlier(ct).ConfigureAwait(false);
-                _results.Clear();
-                _earlier.Clear();
-                OfferEarlier(earlier);
+                if (earlier is { Count: > 0 })
+                {
+                    _results.Clear();
+                    _earlier.Clear();
+                    OfferEarlier(earlier);
+                    EarlierRefusal = results[0].Error;
+                }
             }
 
             return Results;
@@ -566,7 +573,9 @@ public sealed class PublishPanel
     /// <summary>The same rule as the service's record: landed stays landed, may-have-landed is unknown, a plain failure after a check drops out.</summary>
     private void Remember(DestinationResult result)
     {
-        if (result.RefusedForAnEarlierPublish)
+        // Neither refusal says anything new about the ticket: one for an earlier publish is about what the
+        // service holds, and one for the whole request (m-c) is about the request.
+        if (result.RefusedForAnEarlierPublish || result is { Ok: false, Kind: DestinationResult.Refused })
         {
             return;
         }

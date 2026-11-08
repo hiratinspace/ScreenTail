@@ -82,7 +82,7 @@ public sealed class PipePublisher(CaptureConnection connection)
                 PublishCommands.AlreadyPublished => DestinationResult.AlreadyPublished,
                 PublishCommands.Unconfirmed => DestinationResult.SessionUnconfirmed,
                 PublishCommands.StillPublishing => DestinationResult.Unknown,
-                _ => null,
+                _ => DestinationResult.Refused,
             };
             return [.. destinations.Select(d => new DestinationResult(d, false, null, answer.Refusal, kind))];
         }
