@@ -40,14 +40,15 @@ public partial class ShellWindow : Window
         ShellState state,
         Func<string, CancellationToken, Task<object?>> loadReview,
         Func<object> history,
-        Func<object> settings)
+        Func<object> settings,
+        RecordingClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(loadReview);
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(settings);
         InitializeComponent();
-        _model = new ShellViewModel(state, loadReview, history, settings);
+        _model = new ShellViewModel(state, loadReview, history, settings, clock);
         DataContext = _model;
     }
 

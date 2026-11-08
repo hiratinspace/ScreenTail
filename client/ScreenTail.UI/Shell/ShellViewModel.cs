@@ -31,6 +31,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private const string Loading = "Asking the capture service for the session…";
 
     private readonly ShellState _state;
+    private readonly RecordingClock _clock;
+    private readonly bool _ownsClock;
     private readonly Func<string, CancellationToken, Task<object?>>? _loadReview;
     private readonly Func<object>? _history;
     private readonly Func<object>? _settings;
@@ -54,24 +56,41 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// </param>
     /// <param name="history">Builds the History pane, once.</param>
     /// <param name="settings">Builds the Settings pane, once (ST-082).</param>
+    /// <param name="clock">
+    /// The shell's recording clock, shared with the tray and the pill so the status line says the same
+    /// time they do (ST-072). One of this window's own when none is given, let go of with the window.
+    /// </param>
     public ShellViewModel(
         ShellState state,
         Func<string, CancellationToken, Task<object?>>? loadReview = null,
         Func<object>? history = null,
-        Func<object>? settings = null)
+        Func<object>? settings = null,
+        RecordingClock? clock = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _loadReview = loadReview;
         _history = history;
         _settings = settings;
         _closing = _lifetime.Token;
+
+        // The clock first, so it has taken a new snapshot as its base before this model draws it.
+        _ownsClock = clock is null;
+        _clock = clock ?? new RecordingClock(state);
         _state.Changed += OnStateChanged;
+        _clock.Ticked += OnClockTicked;
 
         Apply(_state.Snapshot);
     }
 
     [ObservableProperty]
     public partial string Status { get; set; } = "Connecting to the capture service…";
+
+    /// <summary>
+    /// <see cref="Status"/> without the clock: what the status line's live region is announced on, so a
+    /// screen reader hears the state change and not every second of a recording (ST-084, ST-072).
+    /// </summary>
+    [ObservableProperty]
+    public partial string StatusAnnouncement { get; set; } = "Connecting to the capture service…";
 
     [ObservableProperty]
     public partial string Banner { get; set; } = string.Empty;
@@ -134,6 +153,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         _disposed = true;
         _state.Changed -= OnStateChanged;
+        _clock.Ticked -= OnClockTicked;
+        if (_ownsClock)
+        {
+            _clock.Dispose();
+        }
+
         _lifetime.Cancel();
         _lifetime.Dispose();
         Released = _review.ReleaseAsync();
@@ -163,9 +188,35 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         Banner = snapshot.Banner ?? string.Empty;
         BannerVisibility = snapshot.Banner is null ? Visibility.Collapsed : Visibility.Visible;
-        Status = ShellStatus.Describe(snapshot);
+        ShowStatus(snapshot);
         View = snapshot.View;
         Show(snapshot);
+    }
+
+    /// <summary>
+    /// The clock's tick while recording: the status line again, and nothing else. The panes are the
+    /// store's business and a tick is not a change to it. The store is read here, on the dispatcher, so a
+    /// tick queued before a pause cannot draw the state from before it.
+    /// </summary>
+    private void OnClockTicked()
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(OnClockTicked);
+            return;
+        }
+
+        if (!_disposed)
+        {
+            ShowStatus(_state.Snapshot);
+        }
+    }
+
+    /// <summary>The words first and the announcement's key after, so the region is announced with the new words.</summary>
+    private void ShowStatus(ShellSnapshot snapshot)
+    {
+        Status = ShellStatus.Describe(_clock.Show(snapshot));
+        StatusAnnouncement = ShellStatus.Announcement(snapshot);
     }
 
     /// <summary>

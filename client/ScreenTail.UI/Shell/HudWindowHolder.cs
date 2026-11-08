@@ -39,11 +39,12 @@ internal sealed class HudWindowHolder
     private HudSnapshot _hud = HudState.For(null);
     private bool _shown;
 
-    public HudWindowHolder(ShellState state, CaptureConnection connection, ShellPreferencesStore preferences)
+    /// <param name="clock">The shell's recording clock, shared with the tray so the two say the same time.</param>
+    public HudWindowHolder(ShellState state, RecordingClock clock, CaptureConnection connection, ShellPreferencesStore preferences)
     {
         _connection = connection;
         _window = new HudWindow(preferences);
-        _model = new HudViewModel(state);
+        _model = new HudViewModel(state, clock);
         _model.MarkRequested += () => _ = connection.SendAsync(id => new MarkMomentCommand { RequestId = id });
         var gestures = new HudGestures(_model, () => _hud.Visible);
         gestures.ReviewRequested += () => ReviewRequested?.Invoke();

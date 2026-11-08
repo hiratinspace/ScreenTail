@@ -58,6 +58,24 @@ public sealed class TrayAndDiagnosticsTests
         Assert.Equal("ScreenTail · Recording: screenconnect (12:41)", Presence("recording").Tooltip);
     }
 
+    [Theory]
+    [InlineData(0, "0:00")]
+    [InlineData(59_999, "0:59")]
+    [InlineData(761_000, "12:41")]
+    [InlineData(3_599_000, "59:59")]
+    [InlineData(3_600_000, "1:00:00")]
+    [InlineData(3_900_000, "1:05:00")]
+    [InlineData(-5_000, "0:00")]
+    public void TheTrayAndTheStatusLineKeepTheHour(long elapsed, string expected)
+    {
+        // The clock moves now (ST-072), so a long session reaches the hour on screen. A TimeSpan's m:ss
+        // starts its minutes again there, and an hour and five minutes read "5:00".
+        var snapshot = new ShellSnapshot(ServiceConnection.Connected, new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", ElapsedMs = elapsed }, ShellView.Review, null);
+
+        Assert.Equal($"ScreenTail · Recording ({expected})", TrayPresence.From(snapshot).Tooltip);
+        Assert.Equal($"Recording ({expected})", ShellStatus.Describe(snapshot));
+    }
+
     [Fact]
     public void LosingTheServiceIsItsOwnIconAndNotIdle()
     {

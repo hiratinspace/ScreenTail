@@ -67,20 +67,38 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// </summary>
     private readonly SemaphoreSlim _one = new(1, 1);
 
+    /// <summary>
+    /// Cancelled when the service stops, so a transcription in flight is told to give up. Whisper.net 1.9.1
+    /// hands the token given to <c>ProcessAsync</c> to whisper.cpp as its abort and encoder-begin callbacks
+    /// (<c>OnWhisperAbortStatic</c> reads <c>IsCancellationRequested</c>), so the native call stops at its
+    /// next check rather than finishing the segment (ST-112).
+    /// </summary>
+    private readonly CancellationTokenSource _stopping = new();
+    private readonly TimeSpan _stopWait;
+    private readonly TimeProvider _time;
+    private readonly Action? _abandoned;
+
     private WhisperFactory? _factory;
     private WhisperProcessor? _processor;
     private volatile bool _loadable;
     private volatile bool _disposed;
 
     /// <param name="unloadAfter">How long with nothing to transcribe before the model is released. <see cref="DefaultUnloadAfter"/> when null.</param>
-    /// <param name="time">The clock the idle period is measured on. The system's when null.</param>
+    /// <param name="time">The clock the idle period and the stop's wait are measured on. The system's when null.</param>
+    /// <param name="stopWait">How long disposal waits for the model to let go. <see cref="StopBound.Default"/> when null.</param>
+    /// <param name="abandoned">Told, once, when disposal stopped waiting for a native call still running. Content-free.</param>
     public WhisperRecogniser(
         ModelDownload download,
         SpeechModel? model = null,
         string? directory = null,
         TimeSpan? unloadAfter = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        TimeSpan? stopWait = null,
+        Action? abandoned = null)
     {
+        _time = time ?? TimeProvider.System;
+        _stopWait = stopWait ?? StopBound.Default;
+        _abandoned = abandoned;
         _download = download ?? throw new ArgumentNullException(nameof(download));
         _model = model ?? SpeechModels.For(Environment.ProcessorCount);
         _path = Path.Combine(
@@ -199,6 +217,20 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
             samples[i] = source[i] / 32768f;
         }
 
+        // The caller's token, and the service stopping: either one aborts the native call (ST-112).
+        CancellationTokenSource linked;
+        try
+        {
+            linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopping.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Disposed and finished with; nothing more is transcribed.
+            return null;
+        }
+
+        using var aborting = linked;
+        ct = aborting.Token;
         await _one.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -326,11 +358,38 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         }
     }
 
+    /// <summary>
+    /// Lets go of the model, without ever holding the service's stop on a native call (ST-112).
+    ///
+    /// A transcription in flight is told to abort first. The release then waits for it, so the native
+    /// context is never freed under a segment or an idle release, but the stop waits for the release only
+    /// for <see cref="StopBound.Default"/>. If the native call is still running after that, the release
+    /// carries on by itself and frees the context and the model when the call returns, or the process
+    /// exiting frees them; either way they are freed once, and only after nothing is using them. The
+    /// segment is dropped by the recorder, not half-kept (owner's decision, 2026-11-05).
+    ///
+    /// Idle, the release finishes at once and frees everything here, as it always did.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
         _idle.Dispose();
+        await _stopping.CancelAsync().ConfigureAwait(false);
 
+        if (!await StopBound.WithinAsync(ReleaseAsync(), _stopWait, _time).ConfigureAwait(false))
+        {
+            _abandoned?.Invoke();
+        }
+    }
+
+    /// <summary>The whole release, under the lock, run to the end whether or not the stop waits for it.</summary>
+    private async Task ReleaseAsync()
+    {
         // Waits for a segment or an idle release in flight, so the native context is never freed under
         // either of them.
         await _one.WaitAsync().ConfigureAwait(false);
@@ -341,8 +400,8 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         finally
         {
             _one.Release();
+            _one.Dispose();
+            _stopping.Dispose();
         }
-
-        _one.Dispose();
     }
 }

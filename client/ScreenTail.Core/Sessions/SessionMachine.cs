@@ -162,12 +162,87 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
-    /// <summary>The redaction worker (ST-041) reports its backlog; shown in the HUD and diagnostics.</summary>
+    /// <summary>
+    /// The redaction worker (ST-041) reports its backlog; shown in the HUD and diagnostics.
+    ///
+    /// A count that moved is told through <see cref="CountsChanged"/>. It used to be kept and said with
+    /// the next state change only, so the pill's "redacting" count stood at whatever it was when the
+    /// session last changed state, through the whole of a recording (owner's report, 2026-11-05).
+    /// </summary>
     public void ReportPendingRedactions(int count)
     {
         lock (_stateLock)
         {
+            if (_pendingRedactions == count)
+            {
+                return;
+            }
+
             _pendingRedactions = count;
+        }
+
+        // One telling at a time: a backlog that moves ten times while a transition holds the lock is
+        // said once, afterwards, with the count as it then stands.
+        if (Interlocked.Exchange(ref _countsQueued, 1) == 0)
+        {
+            CountsTelling = TellCountsAsync();
+        }
+    }
+
+    /// <summary>The last telling of the counts, for tests to wait on and to see it never faults.</summary>
+    internal Task CountsTelling { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// Raised when a count the snapshot carries moved and the state did not: the redaction backlog. The
+    /// snapshot is whole, state and all, so a window that draws it is never told less than it knew.
+    ///
+    /// Not <see cref="StateChanged"/>, whose listeners (the guards, the hooks, the session loop) act on a
+    /// transition and have no business waking for a count. Raised under the transition lock, as every
+    /// state change is told, so a count's snapshot can never be overtaken by a transition and arrive
+    /// after it: a "paused" snapshot told after the "recording" that followed it would leave the pill
+    /// saying paused through a recording (INV-4). Handlers must not block.
+    /// </summary>
+    public event Action<CaptureStateSnapshot>? CountsChanged;
+
+    // 1 while a telling is queued and has not yet read the counts.
+    private int _countsQueued;
+
+    private async Task TellCountsAsync()
+    {
+        try
+        {
+            await _transitions.WaitAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The machine is going away; nobody is listening.
+            return;
+        }
+
+        try
+        {
+            // Cleared before the counts are read, so a change after this point queues a telling of its own.
+            _ = Interlocked.Exchange(ref _countsQueued, 0);
+            var snapshot = Snapshot;
+            CountsChanged?.Invoke(snapshot);
+        }
+#pragma warning disable CA1031 // A listener's fault is counted, as StateChanged's are; the backlog is still kept.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            _ = Interlocked.Increment(ref _listenerFailures);
+        }
+        finally
+        {
+            try
+            {
+                _ = _transitions.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Disposed while this telling held the lock. Nothing is left to release it to, and this
+                // runs unobserved, so throwing here would only be an unobserved task exception.
+            }
         }
     }
 

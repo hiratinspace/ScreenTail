@@ -79,6 +79,12 @@ public sealed class TrayIconHost : IDisposable
     /// <summary>The quick menu (Spec §5 S1), for the accessibility suite's checks of its names and sizes (ST-084).</summary>
     internal Forms.ContextMenuStrip Menu => _icon.ContextMenuStrip!;
 
+    /// <summary>The icon's tooltip as Windows holds it, for the tests that watch the clock move (ST-072).</summary>
+    internal string Tooltip => _icon.Text;
+
+    /// <summary>The menu's first row as drawn, for the same tests.</summary>
+    internal string StateLine => _stateLine.Text ?? string.Empty;
+
     public event Action? Pause;
 
     public event Action? Stop;

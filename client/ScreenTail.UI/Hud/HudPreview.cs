@@ -123,7 +123,9 @@ internal static class HudPreview
             });
         }
 
-        return new HudViewModel(shell)
+        // A clock that stands still, so each screenshot says the time it was given rather than however long
+        // the render took after it (the pill's clock moves on its own since the owner's 2026-11-05 report).
+        return new HudViewModel(shell, new RecordingClock(shell, StillTime.Instance))
         {
             Online = online,
             Capabilities = new CapabilityReport(
@@ -138,5 +140,28 @@ internal static class HudPreview
                     CapabilityCopy.Ok(Capability.ElevatedWindows, "ok"),
                 ]),
         };
+    }
+
+    /// <summary>A clock that never moves and whose timers never fire: a screenshot of one instant.</summary>
+    private sealed class StillTime : TimeProvider
+    {
+        public static readonly StillTime Instance = new();
+
+        public override long GetTimestamp() => 0;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => Never.Instance;
+
+        private sealed class Never : ITimer
+        {
+            public static readonly Never Instance = new();
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+            public void Dispose()
+            {
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 }

@@ -335,8 +335,18 @@ microphone, it measured 38 to 115 ms with one frame in flight (earlier rounds wi
 about 100 ms). On the laptop (run 41927796271, 2026-11-04) it measured 98 to 191 ms, the slowest being
 sign-out with the microphone open and the speech model loaded; each run's figures are in the job summary and `measurements.txt`, as numbers.
 
-What it does not show: a stop while Whisper is transcribing. A quiet room gives Whisper nothing to
-transcribe, so the laptop proves the model is loaded, not that it is busy. A frame still waiting for
+A stop while Whisper is transcribing was not measured here at first, and it was the slow case: with
+sound at the laptop's microphone the sign-out ran past the budget twice (runs 42031407710 and
+42051212812, 2026-11-05), about 3.95 s spent after "Capture service stopping" in the speech model's
+disposal, because Whisper.net will not free a model while a native call is running on it. **Owner's
+decision, 2026-11-05: the stop does not wait for a transcription in flight.** It is told to abort (the
+token reaches whisper.cpp's abort callback), the recorder drops the segment rather than half-keeping it,
+and the recogniser's disposal waits at most 500 ms (`StopBound.Default`); after that the call is left to
+end by itself and free the model, or to go with the process. The service logs a count when it does this,
+nothing else. `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measures it on the laptop with a
+minute of audio certainly in flight, since the microphone cannot be made to speak on cue in this test.
+
+What it does not show: a frame still waiting for
 redaction at the stop is lost with the process, not counted as purged (#251). The idle figure from the
 installed service is about 150 ms (smoke test).
 

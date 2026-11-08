@@ -18,13 +18,28 @@ namespace ScreenTail.UI.Hud;
 public sealed partial class HudViewModel : ObservableObject
 {
     private readonly ShellState _shell;
+    private readonly RecordingClock _clock;
+    private readonly Lock _refreshing = new();
     private bool _hiddenForThisSession;
 
-    public HudViewModel(ShellState shell)
+    /// <param name="shell">The store the pill reads.</param>
+    /// <param name="clock">
+    /// Keeps the recording clock moving between the service's snapshots, shared with the tray and the shell
+    /// so the three never disagree. Required, and owned by whoever made it: a clock the pill made for itself
+    /// would be a timer nobody disposes, ticking for as long as the store says recording. Made before the
+    /// pill listens to the store, so the clock has a new snapshot as its base by the time the pill draws it.
+    /// </param>
+    public HudViewModel(ShellState shell, RecordingClock clock)
     {
         ArgumentNullException.ThrowIfNull(shell);
+        ArgumentNullException.ThrowIfNull(clock);
         _shell = shell;
+        _clock = clock;
         _shell.Changed += _ => Refresh();
+
+        // The clock's tick redraws the number, and only the number moves: the state is re-read from the
+        // store each time, never inferred from the tick (ADR-0003, INV-4).
+        _clock.Ticked += Refresh;
         Refresh();
     }
 
@@ -113,9 +128,23 @@ public sealed partial class HudViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>
+    /// Under a lock because the store's changes and the clock's ticks arrive on different threads. Each
+    /// refresh reads the store afresh, so whichever finishes last shows the latest state; without the lock
+    /// a tick that read the store just before a pause could finish after the pause's refresh and leave the
+    /// pill saying "recording" with no timer left to correct it.
+    /// </summary>
     private void Refresh()
     {
-        Snapshot = HudState.For(_shell.Snapshot.KnownCapture, Capabilities, Online, _hiddenForThisSession);
+        lock (_refreshing)
+        {
+            Snapshot = HudState.For(_clock.Show(_shell.Snapshot.KnownCapture), Capabilities, Online, _hiddenForThisSession);
+            Notify();
+        }
+    }
+
+    private void Notify()
+    {
         OnPropertyChanged(nameof(StateText));
         OnPropertyChanged(nameof(StateGlyph));
         OnPropertyChanged(nameof(StateTooltip));
