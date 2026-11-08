@@ -232,6 +232,7 @@
                                    controls:LiveRegion.Setting="Polite" />
                         <CheckBox Margin="0,10,0,0"
                                   IsChecked="{Binding TicketChecked}"
+                                  IsEnabled="{Binding CanCheckTicket}"
                                   AutomationProperties.Name="{Binding CheckTicketLabel}">
                             <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding CheckTicketLabel}" />
                         </CheckBox>

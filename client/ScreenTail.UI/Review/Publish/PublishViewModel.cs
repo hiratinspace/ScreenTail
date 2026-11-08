@@ -185,6 +185,10 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial bool TicketChecked { get; set; }
 
+    /// <summary>The checkbox is off while a send is on its way: a tick then would be about the answer before it.</summary>
+    [ObservableProperty]
+    public partial bool CanCheckTicket { get; set; } = true;
+
     /// <summary>`Ctrl+Enter`, and the button. Refused by the panel when blocked, whatever pressed it.</summary>
     [RelayCommand]
     private async Task PublishAsync()
@@ -194,6 +198,7 @@ public sealed partial class PublishViewModel : ObservableObject
             return;
         }
 
+        CanCheckTicket = false;
         try
         {
             await _panel.PublishAsync(_note(), _frames()).ConfigureAwait(true);
@@ -225,8 +230,15 @@ public sealed partial class PublishViewModel : ObservableObject
             return;
         }
 
-        await _panel.RetryAsync(_note(), _frames()).ConfigureAwait(true);
-        Refresh();
+        CanCheckTicket = false;
+        try
+        {
+            await _panel.RetryAsync(_note(), _frames()).ConfigureAwait(true);
+        }
+        finally
+        {
+            Refresh();
+        }
     }
 
     /// <summary>
@@ -252,6 +264,7 @@ public sealed partial class PublishViewModel : ObservableObject
         }
 
         CanMap = false;
+        CanCheckTicket = false;
         MappingError = string.Empty;
         MappingErrorVisibility = Visibility.Collapsed;
         var mapped = await _panel.MapAndRetryAsync(choice.Id, _note(), _frames()).ConfigureAwait(true);
@@ -423,6 +436,7 @@ public sealed partial class PublishViewModel : ObservableObject
 
         // The send resets the panel's confirmation, so the box follows it rather than the other way round.
         TicketChecked = _panel.TicketChecked;
+        CanCheckTicket = !_panel.IsPublishing;
         CheckTicketVisibility = mayHaveLanded ? Visibility.Visible : Visibility.Collapsed;
         CheckTicketPrompt = _panel.RetryBlockedBecause ?? string.Empty;
         CheckTicketLabel = _panel.Ticket is { } ticket ? $"I checked ticket #{ticket.Id} and want to publish again" : "I checked the ticket and want to publish again";

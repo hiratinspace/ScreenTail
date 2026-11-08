@@ -132,6 +132,7 @@ public sealed class PublishViewModelTests
         Assert.All(pane.Results, row => Assert.Equal("?", row.Mark));
         Assert.False(pane.CanPublish);
         Assert.False(pane.CanRetry);
+        Assert.True(pane.CanCheckTicket);
         await pane.PublishCommand.ExecuteAsync(null);
         await pane.RetryCommand.ExecuteAsync(null);
         Assert.Single(sent);

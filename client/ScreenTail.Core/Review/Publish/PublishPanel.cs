@@ -462,6 +462,10 @@ public sealed class PublishPanel
         finally
         {
             IsPublishing = false;
+
+            // Cleared again: a tick given while this send was on its way was about the answer before it,
+            // and must not let the send after it through unseen (review of #265).
+            TicketChecked = false;
         }
     }
 

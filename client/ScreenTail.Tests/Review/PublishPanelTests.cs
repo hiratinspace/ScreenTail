@@ -486,6 +486,52 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public async Task ATickGivenWhileASendIsOnItsWayDoesNotOutliveIt()
+    {
+        // Review of #265 (m1). The technician ticks, publishes, and ticks again while that send is still
+        // out. Its answer is lost too: the second tick was about the first answer, not this one, so the
+        // next send waits for a fresh tick and cannot carry publish_again without it.
+        var sent = new List<PublishRequest>();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            async (r, _) =>
+            {
+                sent.Add(r);
+                if (sent.Count == 2)
+                {
+                    await gate.Task;
+                }
+
+                return sent.Count <= 2
+                    ? [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown))]
+                    : [.. r.Destinations.Select(d => new DestinationResult(d, true))];
+            });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        panel.TicketChecked = true;
+
+        var second = panel.PublishAsync(Draft(), []);
+        panel.TicketChecked = true;
+        gate.SetResult();
+        await second;
+
+        Assert.True(sent[1].PublishAgain);
+        Assert.False(panel.TicketChecked);
+        Assert.False(panel.CanPublish);
+        Assert.False(panel.CanRetry);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), []));
+        Assert.Equal(2, sent.Count);
+
+        panel.TicketChecked = true;
+        await panel.RetryAsync(Draft(), []);
+        Assert.True(sent[2].PublishAgain);
+    }
+
+    [Fact]
     public async Task APartialPublishWithADestinationThatMayHaveLandedHoldsRetryUntilChecked()
     {
         // The note landed and the time entry's answer was lost. Retry sends only the time entry, and that
