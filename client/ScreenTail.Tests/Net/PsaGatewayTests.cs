@@ -204,6 +204,136 @@ public sealed class PsaGatewayTests
         Assert.Equal("The backend did not answer.", answer.Refusal);
     }
 
+    // O4 (owner, review of #265): a publish that failed after the request may have left is "unknown" for
+    // every destination, so the pane asks the technician to check the ticket; one that failed before
+    // anything was sent stays a plain refusal. When in doubt, unknown.
+
+    [Theory]
+    [InlineData(HttpRequestError.NameResolutionError)]
+    [InlineData(HttpRequestError.ConnectionError)]
+    [InlineData(HttpRequestError.SecureConnectionError)]
+    public async Task APublishThatNeverConnectedIsAPlainRefusal(HttpRequestError error)
+    {
+        using var handler = new ThrowingHandler(new HttpRequestException(error, "could not connect"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal("The backend did not answer.", answer.Refusal);
+    }
+
+    [Theory]
+    [InlineData(HttpRequestError.Unknown)]
+    [InlineData(HttpRequestError.ResponseEnded)]
+    [InlineData(HttpRequestError.InvalidResponse)]
+    [InlineData(HttpRequestError.HttpProtocolError)]
+    [InlineData(HttpRequestError.ProxyTunnelError)]
+    public async Task APublishThatFailedAfterItMayHaveLeftIsUnknownForEveryDestination(HttpRequestError error)
+    {
+        using var handler = new ThrowingHandler(new HttpRequestException(error, "the connection was reset"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+    }
+
+    [Fact]
+    public async Task APublishTheHttpClientTimedOutIsUnknown()
+    {
+        using var handler = new ThrowingHandler(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    [InlineData(HttpStatusCode.NotImplemented)]
+    public async Task APublishAnsweredWithAServerErrorIsUnknown(HttpStatusCode status)
+    {
+        // A proxy's 501 included: only the backend's own no_psa answer (below) says nothing was done.
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+        Assert.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), answer.Value![0].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APublishAcceptedWithAnAnswerThatCannotBeReadIsUnknown()
+    {
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>proxy</html>") });
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.RequestEntityTooLarge)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task APublishTheBackendRejectedBeforeActingIsAPlainRefusal(HttpStatusCode status)
+    {
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.NotNull(answer.Refusal);
+    }
+
+    [Fact]
+    public async Task APublishTheEgressGuardBlockedIsAPlainRefusal()
+    {
+        using var handler = new ThrowingHandler(new EgressBlockedException(EgressPurpose.Publish, "api.screentail.example", "not on the allowed list"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Contains("Blocked", answer.Refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnUnenrolledDeviceIsAPlainRefusalAndSendsNothing()
+    {
+        using var handler = new RecordingHandler(Json(new { }));
+        var gateway = new PsaGateway(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => null);
+
+        var answer = await gateway.PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task OnlyAPublishTurnsAFailureIntoUnknownRows()
+    {
+        // A search that died mid-answer wrote nothing anywhere: it stays a plain refusal.
+        using var handler = new ThrowingHandler(new HttpRequestException(HttpRequestError.ResponseEnded, "ended"));
+
+        var answer = await Gateway(handler).SearchTicketsAsync("printer", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal("The backend did not answer.", answer.Refusal);
+    }
+
+    private static void AssertMayHaveLanded(GatewayAnswer<IReadOnlyList<ScreenTail.Shared.Ipc.PublishOutcomeRow>> answer)
+    {
+        Assert.True(answer.Ok, answer.Refusal);
+        var rows = answer.Value!;
+        Assert.Equal(["ticket_note", "time_entry"], rows.Select(r => r.Destination));
+        Assert.All(rows, r => Assert.Equal((false, "unknown", false), (r.Ok, r.Kind, r.Retryable)));
+        Assert.Contains("may already be on the ticket", rows[0].Error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task WithoutABackendOrATokenNothingIsSent()
     {
@@ -373,10 +503,10 @@ public sealed class PsaGatewayTests
         }
     }
 
-    private sealed class ThrowingHandler : HttpMessageHandler
+    private sealed class ThrowingHandler(Exception? thrown = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            throw new HttpRequestException("no route to host");
+            throw thrown ?? new HttpRequestException("no route to host");
     }
 
     /// <summary>Keeps every row it is asked to write.</summary>
