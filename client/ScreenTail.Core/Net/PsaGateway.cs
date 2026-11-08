@@ -175,6 +175,26 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
     /// the remote endpoint", and <c>SecureConnectionError</c> "An error occurred during the TLS handshake".
     /// Every other value, <c>Unknown</c> ("A generic or unknown error occurred") and <c>ResponseEnded</c>
     /// ("The response ended prematurely") included, may come after the body went, so it is not one of these.
+    /// <para>
+    /// Checked against the .NET 10 source (dotnet/runtime, branch release/10.0, under
+    /// src/libraries/System.Net.Http/src/System/Net/Http/SocketsHttpHandler/), owner decisions 5 and 6 on #265:
+    /// </para>
+    /// <para>
+    /// ConnectionError is raised in one place, ConnectHelper.cs:162 (CreateWrappedException's DeduceError),
+    /// reached from the TCP connect in ConnectionPool/HttpConnectionPool.cs:706 (ConnectToTcpHostAsync), the
+    /// QUIC connect at ConnectHelper.cs:135, and ConnectionPool/HttpConnectionPool.Http3.cs:273 (no HTTP/3
+    /// by ALPN). All of them come before a connection exists to write a request on, so it never follows a
+    /// written body. An IOException on an open connection maps to the error its HttpIOException carries, or
+    /// Unknown (HttpConnection.cs:934), never ConnectionError.
+    /// </para>
+    /// <para>
+    /// The pool retries only a failure marked RetryOnConnectionFailure (ConnectionPool/HttpConnectionPool.cs:498).
+    /// On HTTP/1.1 that mark comes from HttpConnection.cs:935 when _canRetry is set, which is cleared as a
+    /// request starts (HttpConnection.cs:546) and set at HttpConnection.cs:657 only when the server closed
+    /// the connection without a byte of answer and the request has no body, or an Expect: 100-continue body
+    /// not yet released; HttpConnection.cs:853 clears it again if that body was released. A publish is a POST
+    /// with a body and no Expect header on HTTP/1.1 (HttpClient's default version), so it is never retried.
+    /// </para>
     /// </summary>
     private static bool NeverSent(HttpRequestException error) =>
         error.HttpRequestError is HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError;
@@ -260,7 +280,11 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
                 }
                 catch (Exception ex) when (mayHaveLeft is not null && ex is HttpRequestException or IOException)
                 {
-                    // The body broke off: the backend had accepted the request and was answering it.
+                    // The body broke off: the backend had accepted the request and was answering it. Not
+                    // reached while HttpClient reads the whole body before SendAsync returns (its default,
+                    // ResponseContentRead): the break then comes out of SendAsync as an HttpRequestException
+                    // and is unknown there (APublishWhoseAnswerBrokeOffIsUnknown). Kept for a caller that
+                    // asks for headers first.
                     return mayHaveLeft("The backend's answer broke off");
                 }
             },
@@ -279,7 +303,8 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
     /// <param name="sentFor">
     /// The session whose bytes this request carries, for its <c>bundle_sent</c> row; null for a call that
     /// carries none. The row is written once the answer has been read, whatever the answer was: a refused
-    /// publish left the machine as surely as an accepted one.
+    /// publish left the machine as surely as an accepted one. Also when no answer came and the request may
+    /// have left all the same (a reset, a timeout); not when the connection never opened.
     /// </param>
     /// <param name="mayHaveLeft">See <see cref="AskAsync{TAnswer, TOut}"/>. When in doubt, it is used: a needless check of the ticket is cheap, a second note on it is not.</param>
     private async Task<GatewayAnswer<TOut>> SendAsync<TOut>(Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<GatewayAnswer<TOut>?>> read, CancellationToken ct, string? sentFor = null, Func<string, GatewayAnswer<TOut>>? mayHaveLeft = null)
@@ -304,11 +329,15 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
         }
         catch (HttpRequestException ex) when (mayHaveLeft is not null && !NeverSent(ex))
         {
+            // The bytes may have left, so they are recorded as sent (m-h): the same row an answered
+            // publish writes, a session id, a byte count and a host, no content (INV-10).
+            await RecordSentAsync(sentFor, bytes, request).ConfigureAwait(false);
             return mayHaveLeft("The backend did not answer");
         }
         catch (TaskCanceledException) when (mayHaveLeft is not null && !ct.IsCancellationRequested)
         {
             // HttpClient.Timeout: the request was on its way, and may have been acted on, when it fired.
+            await RecordSentAsync(sentFor, bytes, request).ConfigureAwait(false);
             return mayHaveLeft("The backend did not answer in time");
         }
         catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
@@ -350,6 +379,10 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             }
         }
     }
+
+    /// <summary>The <c>bundle_sent</c> row for a request with no answer that may have left all the same.</summary>
+    private Task RecordSentAsync(string? sentFor, long? bytes, HttpRequestMessage request) =>
+        sentFor is null ? Task.CompletedTask : SentAudit.RecordAsync(audit, sentFor, bytes, request.RequestUri, http.BaseAddress, logger);
 
     /// <summary>
     /// The backend's own 501 for a tenant with nothing connected (<c>no_psa</c>, <c>no_docs</c>,
