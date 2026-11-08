@@ -12,6 +12,11 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
+    <!-- The SQLite driver under the tests, pinned past the one EF brings. Up to 10.0.12 its connection
+         pool could lend one native handle to two open connections at once (dotnet/efcore#39008, fixed in
+         10.0.13): CostCapTests' fifty requests at once failed CI with "unable to delete/modify collation
+         sequence due to active statements" (2026-11-05). Test-only; production runs on Npgsql. -->
+    <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <!-- ST-063. The official Anthropic SDK, for drafting on Claude when Summarization:Provider is claude. -->

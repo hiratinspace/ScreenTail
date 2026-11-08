@@ -34,7 +34,8 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     // send requests at once (CostCapTests sends fifty) corrupted its bookkeeping, and closing it then
     // threw from SqliteConnection.Close, reported as a class cleanup failure about one full run in
     // forty. WAL lets readers run beside the one writer, and a writer waits for the lock as Postgres
-    // would make it wait for a row.
+    // would make it wait for a row. Pooling needs Microsoft.Data.Sqlite 10.0.13 or later: before that the
+    // pool could lend one handle to two of those fifty at once (SqliteDriverTests).
     private readonly string _database = Path.Combine(Path.GetTempPath(), "screentail-api-tests", $"{Guid.NewGuid():N}.db");
 
     private string ConnectionString => new SqliteConnectionStringBuilder { DataSource = _database, Pooling = true }.ToString();
