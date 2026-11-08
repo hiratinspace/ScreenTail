@@ -471,7 +471,7 @@ public sealed partial class PublishViewModel : ObservableObject
 
         // While the article waits on a mapping, the prompt is the retry: Retry alone would fail the same way.
         var needsMapping = _panel.NeedsMapping;
-        var mayHaveLanded = _panel.MayHaveLanded;
+        var mayHaveLanded = _panel.NeedsTicketCheck;
         RetryVisibility = (_panel.PartiallyPublished || mayHaveLanded) && !needsMapping ? Visibility.Visible : Visibility.Collapsed;
         CanRetry = _panel.CanRetry;
 

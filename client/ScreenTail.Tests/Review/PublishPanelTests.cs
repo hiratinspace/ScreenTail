@@ -576,10 +576,12 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
-    public async Task ARetryAfterAPartialPublishTellsTheServiceItIsPublishingAgain()
+    public async Task ARetryAfterAPartialPublishGoesWithoutTheFlag()
     {
-        // The service refuses a session already marked published unless the pane says it means it. Retry
-        // after a landing is that: the pane holds the results and sends only what failed.
+        // The service checks each destination sent, and one that plainly failed is not held, so Retry of
+        // it beside a landing needs nobody's word. The flag is the technician's tick alone: a pane that saw
+        // the note land must not vouch for a time entry another window has since left unknown (re-review
+        // of #265 at bde6a99, which withdrew the earlier silent flag on Retry).
         var sent = new List<PublishRequest>();
         var panel = Panel(publish: r =>
         {
@@ -590,8 +592,8 @@ public sealed class PublishPanelTests
         await panel.PublishAsync(Draft(), []);
         await panel.RetryAsync(Draft(), []);
 
-        Assert.False(sent[0].PublishAgain);
-        Assert.True(sent[1].PublishAgain);
+        Assert.Equal([Destination.TimeEntry], sent[1].Destinations);
+        Assert.All(sent, r => Assert.False(r.PublishAgain));
     }
 
     [Fact]

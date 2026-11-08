@@ -202,10 +202,25 @@ public sealed class PublishCommands(
         // Something of it may be on a ticket already. The backend keeps nothing to catch a duplicate with
         // (INV-7), so this is where it is caught, for each destination sent, against what the store holds
         // for it: landed, or unknown (O2), whichever window, pane or service run left it (MJ1). Only the
-        // technician's "I checked the ticket", or a Retry of what failed beside a landing in the same
-        // pane, says a resend is meant, and the pane says so with publish_again.
-        var before = (await _store.GetPublishRecordAsync(publish.SessionId, ct).ConfigureAwait(false))?.Outcomes ?? new Dictionary<string, string>();
-        if (!publish.PublishAgain && Refusal(publish.Destinations, before, state) is { } refusal)
+        // technician's "I checked the ticket" says a resend is meant, and the pane says so with
+        // publish_again (a Retry of what plainly failed needs no flag: nothing of it is held).
+        var stored = (await _store.GetPublishRecordAsync(publish.SessionId, ct).ConfigureAwait(false))?.Outcomes ?? new Dictionary<string, string>();
+        var isPublished = string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal);
+
+        // minor-2: a service that died between saving the outcomes and marking the session published left
+        // a landed session as a draft, which the tray and History keep offering. Mended here, whatever this
+        // publish then does. Not swept at service start: this is the first moment anything acts on it.
+        if (!isPublished && stored.Values.Contains(PublishRecord.Landed, StringComparer.Ordinal))
+        {
+            await KeepingTheResultAsync("state", () => MarkPublishedAsync(publish.SessionId, ct)).ConfigureAwait(false);
+            isPublished = true;
+        }
+
+        // minor-1: a session published before the record existed (0013) says nothing about which
+        // destination landed, so every one starts as unknown. Written ahead with the rest below, so one new
+        // publish of the article does not leave the note and the time entry looking never sent.
+        var before = stored.Count == 0 && isPublished ? AllUnknown() : stored;
+        if (!publish.PublishAgain && Refusal(publish.Destinations, stored, state) is { } refusal)
         {
             return Refuse(caller, publish, refusal);
         }
@@ -317,13 +332,7 @@ public sealed class PublishCommands(
             // now (owner decision, fail closed). The write refuses a row discarded while the backend was
             // answering, so a late landing does not bring a discarded session back. Bookkeeping as well, so
             // a store fault here cannot hide the results either.
-            await KeepingTheResultAsync("state", async () =>
-            {
-                if (await _store.MarkPublishedAsync(publish.SessionId, ct).ConfigureAwait(false) && published is not null)
-                {
-                    _ = await published(publish.SessionId, ct).ConfigureAwait(false);
-                }
-            }).ConfigureAwait(false);
+            await KeepingTheResultAsync("state", () => MarkPublishedAsync(publish.SessionId, ct)).ConfigureAwait(false);
 
             if (metrics is not null)
             {
@@ -338,6 +347,19 @@ public sealed class PublishCommands(
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
     }
+
+    /// <summary>Marks the session published and, when the write took, tells the machine so the tray's count moves.</summary>
+    private async Task MarkPublishedAsync(string sessionId, CancellationToken ct)
+    {
+        if (await _store.MarkPublishedAsync(sessionId, ct).ConfigureAwait(false) && published is not null)
+        {
+            _ = await published(sessionId, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Every destination as unknown, for a session published before the record existed.</summary>
+    private static Dictionary<string, string> AllUnknown() =>
+        KnownDestinations.ToDictionary(d => d, _ => PublishRecord.Unknown, StringComparer.Ordinal);
 
     private static readonly HashSet<string> KnownDestinations = new(["ticket_note", "time_entry", "kb_article"], StringComparer.Ordinal);
 

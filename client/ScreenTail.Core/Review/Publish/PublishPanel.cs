@@ -276,8 +276,15 @@ public sealed class PublishPanel
     /// </summary>
     public bool TicketChecked { get; set; }
 
+    /// <summary>
+    /// Something Retry would send may be on the ticket: a row that may have landed, or a failed destination
+    /// an earlier publish left landed or unknown, which a whole-request refusal since says nothing about
+    /// (re-review of #265 at bde6a99).
+    /// </summary>
+    public bool NeedsTicketCheck => MayHaveLanded || Failed.Any(_earlier.ContainsKey);
+
     /// <summary>Why Retry is held, or null. Only the unconfirmed check: Retry sends what failed and nothing that landed.</summary>
-    public string? RetryBlockedBecause => MayHaveLanded && !TicketChecked ? CheckTheTicketFirst : null;
+    public string? RetryBlockedBecause => NeedsTicketCheck && !TicketChecked ? CheckTheTicketFirst : null;
 
     public bool CanRetry => Failed.Count > 0 && RetryBlockedBecause is null && !IsPublishing;
 
@@ -507,11 +514,12 @@ public sealed class PublishPanel
             throw new InvalidOperationException("A publish is already in flight.");
         }
 
-        // The pane means it when the technician confirmed they checked, or when this pane saw something
-        // land and Retry sends only the rest (ST-094 AC3). Not because it knows of some earlier publish:
-        // the service checks each destination sent against what it holds, and a pane that does not know
-        // of a destination's unknown must not vouch for it (MJ1, re-review of #265).
-        var again = TicketChecked || _results.Values.Any(r => r.Ok);
+        // Only the technician's "I checked the ticket" says a resend is meant. The service checks each
+        // destination sent against what it holds, so a Retry of what plainly failed beside a landing goes
+        // without the flag (ST-094 AC3), and a pane that saw something land does not vouch for a
+        // destination another window has since left unknown (re-review of #265 at bde6a99; the owner's
+        // earlier silent flag on Retry is withdrawn).
+        var again = TicketChecked;
         TicketChecked = false;
         EarlierRefusal = null;
         IsPublishing = true;
