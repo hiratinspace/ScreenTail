@@ -32,8 +32,8 @@ again only when none of it left or ConnectWise answered 429: after a timeout or 
 saved, so it comes back `unknown` and the technician is asked to check the ticket first. The client
 holds Publish, `Ctrl+Enter` and Retry on such a row until the technician ticks "I checked ticket #..."
 (the same for a `timed_out` row and for a connection to the capture service that dropped mid-publish),
-and the capture service refuses to publish a session it already marked published unless the client says
-the resend is meant (`publish_again`, `docs/ipc-contract.md`).
+and the capture service refuses to send a destination it holds as landed or unknown unless the client
+says the technician checked (`publish_again`, `docs/ipc-contract.md`).
 Every refusal reaches the technician as a kind and two sentences, with ConnectWise's own words about what
 it refused and nothing else from the response (`backend/src/ScreenTail.Api/Providers/README.md`).
 
