@@ -80,7 +80,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `diagnostics` | see below | Answers `get_diagnostics` |
 | `sessions` | `sessions[]` | Answers `list_sessions` |
 | `confirmation` | `token`, `phrase` | Answers `request_confirmation` |
-| `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft and without any frame's `ocr_text`, and `draft_pending` (bool, v5): the session's draft is queued for the backend and has not come back, so Review says it is being drafted rather than failed. Refused with its size when it would not fit in one message |
+| `session` | `session` | Answers `get_session`: a `session.v1` document, redacted frames only, with its draft and without any frame's `ocr_text`, and `draft_pending` (bool, v5): the session's draft is queued for the backend and has not come back, so Review says it is being drafted rather than failed. `publish_outcomes` (object, v9, absent when nothing was published): destination (`ticket_note`, `time_entry`, `kb_article`) to `landed` or `unknown`, what earlier publishes left on the ticket, for the publish pane to open on; every destination `unknown` for a session published before outcomes were kept. Refused with its size when it would not fit in one message |
 | `frame` | `frame_id`, `image` | Answers `get_frame`, `get_frame_thumbnail` and `blur_frame`: one image, base64 |
 | `frame_text` | `frame_id`, `ocr_text?` | Answers `get_frame_text`. `ocr_text` is absent when the frame had none |
 | `integrations` | `integrations[]` (`provider`, `site_url`, `secret` as last four) | Answers `get_integrations` |
@@ -319,6 +319,30 @@ again"); Publish, `Ctrl+Enter`, Retry and the mapping prompt's retry all wait fo
 spent on one send, including a tick given while that send was on its way (the box is disabled meanwhile).
 The warning stays up once the box is ticked; only the buttons change.
 
+**What the service remembers** (owner decisions O2, O3, O4 on #265). A sixth refusal joins the two
+below: a session whose last publish may have landed is refused with "An earlier publish of this session
+was not confirmed, so it may already be on the ticket. Check the ticket, then confirm before publishing
+again, so nothing is added twice." unless `publish_again` is true. The mark is kept in the store, not as
+a session state (History's filters, discard and retention do not change, and discard is not blocked by
+it), so it survives a reopened Review, a second window and a service restart. The service writes each
+destination it sends as `unknown` before asking the backend, so a fault, a cancelled connection or a
+service that dies mid-publish leaves the mark, then replaces it with the answer: a destination that landed
+stays `landed`, an `unknown` or `timed_out` row stays `unknown`, a plain failure drops out, and a plain
+refusal puts the record back as it was. The mark is cleared once no destination is `unknown`.
+
+On opening Review, and again after the service refuses a session already published or unconfirmed (the
+pane asks `get_session` for `publish_outcomes`), the pane offers each destination as the record left it:
+`landed` unticked and marked "already on the ticket", `unknown` unticked and marked `?` (read as "not
+confirmed"), the rest ticked. Sending a `landed` or `unknown` one needs the box; sending only the others
+does not, and goes with `publish_again: true`, as a Retry after a landing does.
+
+The service's gateway reads a failed publish the same way, when in doubt `unknown`: once the request may
+have left (the HttpClient timeout, any `HttpRequestException` other than `NameResolutionError`,
+`ConnectionError` or `SecureConnectionError`, any 5xx other than the backend's own `no_psa` 501, a 2xx
+other than 200, or a 200 whose answer cannot be read or breaks off) every destination comes back
+`kind: unknown`, not retryable, with check-first wording. Not enrolled, no backend, the egress guard and
+any 4xx stay plain refusals, because nothing was sent or the backend refused before acting.
+
 The backend keeps nothing to recognise a second copy by (INV-7), so the service is the second guard. A
 session it has marked published (any destination landed) is refused with "This session is already
 published, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so
@@ -423,4 +447,4 @@ indicator unreachable rather than by touching capture.
 | 2026-10-31 | `microphones[]` as rows (`id`, `name`, `is_default`) on `capture_settings` and `microphone_id` in the capture settings document: the microphone is chosen in Settings, Capture (ST-080 AC3). A changed reply and a new member on a document both sides exchange, so the version moves. Also in v7: `get_microphone_level` / `microphone_level` and `stop_microphone_level`, the level meter, a lease the service ends by itself | **7** |
 | 2026-11-04 | `name_hook_refusals` on `diagnostics`: how often Windows refused the foreground watcher's narrow title-change hook, absent when the service cannot know it (ST-031). A new member on a reply, which an older UI would fail on, so the version moves | **8** |
 | 2026-11-05 | `state_changed` is also volunteered when the redaction backlog (`pending_redactions`) moves and the state does not, as it already was when `drafts_ready` moved, so the pill's count follows the worker (ST-072). The same message and shape; told under the machine's transition lock, so it is never overtaken by a transition, and coalesced while a transition holds it. In practice at most about once a second, because the redaction worker reports its backlog on a timer (`RedactionWorker`'s `ReportEvery`, 1 s). An older client draws it as it draws any snapshot, so the version is not bumped | 8 |
-| 2026-11-08 | `publish_again` on `publish_session`, optional, false when absent: the service refuses a session already marked published without it, and refuses a second publish of a session while the first has not answered. A lost answer to a publish is read by the UI as `kind: unknown` per destination and held until the technician confirms they checked the ticket (ST-093). A new field on a command both sides exchange, which an older service would refuse as an unknown member, so the version moves | **9** |
+| 2026-11-08 | `publish_again` on `publish_session`, optional, false when absent: the service refuses a session already marked published without it, and refuses a second publish of a session while the first has not answered. A lost answer to a publish is read by the UI as `kind: unknown` per destination and held until the technician confirms they checked the ticket (ST-093). Also in v9, before release: `publish_outcomes` on the `session` reply, what earlier publishes left per destination, and the service's refusal of a session whose last publish may have landed (O2, O3). A new field on a command both sides exchange, which an older service would refuse as an unknown member, so the version moves | **9** |

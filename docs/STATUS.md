@@ -421,8 +421,9 @@ chose it says so.
   and can be retried by hand, rather than waiting quietly. Confirm, or choose waiting.
 - **A publish that may have landed** (ST-090, ST-093): since 2026-11-08 an `unknown` or `timed_out` row, and
   a connection to the service that dropped mid-publish, is "not confirmed" and Retry is held behind an "I
-  checked the ticket" checkbox (the "confirmed" choice, taken by the builder: confirm it, or choose hidden
-  or relabelled). Still open: a time budget for the whole publish.
+  checked the ticket" checkbox (the owner accepted the "confirmed" choice on #265, with O2 to O4: the
+  service remembers it across restarts and a reopened Review offers each destination as the last publish
+  left it). Still open: a time budget for the whole publish.
 - **The local text model** (ST-065): llama.cpp and a model download on the technician's machine.
 - **The processor limit** (#232, `docs/dev/performance.md`): how the budget reads on a machine without
   four cores (15% of a smaller machine, 60% of one core on a bigger one); that the deepest level stops
