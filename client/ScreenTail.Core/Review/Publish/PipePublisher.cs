@@ -103,6 +103,8 @@ public sealed class PipePublisher(CaptureConnection connection)
         _ => "The connection to the capture service dropped before it answered, so the article may already be written. Check the knowledge base before you publish the article again.",
     };
 
+    public static IReadOnlyDictionary<Destination, EarlierOutcome> Earlier(IReadOnlyDictionary<string, string>? outcomes) => outcomes is null ? new Dictionary<Destination, EarlierOutcome>() : [];
+
     private static string Wire(Destination destination) => destination switch
     {
         Destination.TicketNote => "ticket_note",

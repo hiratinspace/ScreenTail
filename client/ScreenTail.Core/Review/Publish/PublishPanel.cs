@@ -68,11 +68,20 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
     /// </summary>
     public const string AlreadyPublished = "already_published";
 
+    public const string SessionUnconfirmed = "session_unconfirmed";
+
     /// <summary>
     /// Failed, but it may be on the ticket all the same. Sending it again without looking is how a ticket
     /// gets the note twice, so the pane holds every way of sending until the technician says they checked.
     /// </summary>
     public bool MayHaveLanded => !Ok && Kind is Unknown or TimedOut or AlreadyPublished;
+}
+
+/// <summary>What an earlier publish of the session left on the ticket for one destination (O3).</summary>
+public enum EarlierOutcome
+{
+    Landed,
+    Unknown,
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
@@ -140,8 +149,12 @@ public sealed class PublishPanel
         TimeEntryOptions? rounding = null,
         bool offline = false,
         CompanyMapping? mapping = null,
-        bool draftPending = false)
+        bool draftPending = false,
+        IReadOnlyDictionary<Destination, EarlierOutcome>? earlierOutcomes = null,
+        Func<CancellationToken, Task<IReadOnlyDictionary<Destination, EarlierOutcome>>>? reloadEarlier = null)
     {
+        _ = earlierOutcomes;
+        _ = reloadEarlier;
         _session = session ?? throw new ArgumentNullException(nameof(session));
         ArgumentNullException.ThrowIfNull(integrations);
         _search = search ?? throw new ArgumentNullException(nameof(search));
@@ -213,6 +226,8 @@ public sealed class PublishPanel
     public bool KbArticle { get; set; }
 
     public string? KbReason { get; }
+
+    public EarlierOutcome? EarlierFor(Destination destination) => _results.Count < 0 ? (EarlierOutcome)destination : null;
 
     public bool IsPublishing { get; private set; }
 

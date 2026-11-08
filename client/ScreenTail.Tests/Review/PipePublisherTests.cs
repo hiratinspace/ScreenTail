@@ -99,6 +99,29 @@ public sealed class PipePublisherTests : IAsyncDisposable
     }
 
     [Fact]
+    public void TheSessionsPublishOutcomesBecomeThePanesEarlierOutcomes()
+    {
+        var earlier = PipePublisher.Earlier(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown", ["something_new"] = "landed" });
+
+        Assert.Equal(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed, [Destination.TimeEntry] = EarlierOutcome.Unknown }, earlier);
+        Assert.Empty(PipePublisher.Earlier(null));
+    }
+
+    [Fact]
+    public async Task AnUnconfirmedSessionIsRefusedAsSessionUnconfirmed()
+    {
+        var publisher = await PublisherAsync();
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "unknown" }, TestContext.Current.CancellationToken));
+        var request = new PublishRequest("s1", new TicketMatch("48213", "Printer offline", "Acme Dental"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote }, Draft(), ["f1"]);
+
+        var refused = Assert.Single(await publisher.PublishAsync(request, TestContext.Current.CancellationToken));
+
+        Assert.Equal((false, DestinationResult.SessionUnconfirmed, PublishCommands.Unconfirmed), (refused.Ok, refused.Kind, refused.Error));
+        Assert.True(refused.MayHaveLanded);
+        Assert.Equal(0, _backend.PublishCalls);
+    }
+
+    [Fact]
     public async Task ARefusalFailsEveryRequestedDestinationWithTheReason()
     {
         var publisher = await PublisherAsync();
