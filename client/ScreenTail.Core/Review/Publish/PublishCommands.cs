@@ -57,7 +57,7 @@ public sealed class PublishCommands(
     /// landed, sent without <c>publish_again</c>. Kept in the store and checked for each destination sent,
     /// so it holds across a reopened Review and a service restart, and against a second window that knows
     /// of a different destination's outcome: that window's flag is only sent once its technician has
-    /// ticked the check, or for a Retry beside a landing it saw itself.
+    /// ticked the check.
     /// </summary>
     public const string Unconfirmed = "An earlier publish of this session was not confirmed, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 

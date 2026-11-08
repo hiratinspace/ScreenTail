@@ -180,11 +180,11 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
     /// src/libraries/System.Net.Http/src/System/Net/Http/SocketsHttpHandler/), owner decisions 5 and 6 on #265:
     /// </para>
     /// <para>
-    /// ConnectionError is raised in one place, ConnectHelper.cs:162 (CreateWrappedException's DeduceError),
-    /// reached from the TCP connect in ConnectionPool/HttpConnectionPool.cs:706 (ConnectToTcpHostAsync), the
-    /// QUIC connect at ConnectHelper.cs:135, and ConnectionPool/HttpConnectionPool.Http3.cs:273 (no HTTP/3
-    /// by ALPN). All of them come before a connection exists to write a request on, so it never follows a
-    /// written body. An IOException on an open connection maps to the error its HttpIOException carries, or
+    /// ConnectionError is raised in two places. ConnectHelper.cs:162 (CreateWrappedException's DeduceError)
+    /// is reached from the TCP connect in ConnectionPool/HttpConnectionPool.cs:706 (ConnectToTcpHostAsync)
+    /// and the QUIC connect at ConnectHelper.cs:135; ConnectionPool/HttpConnectionPool.Http3.cs:273 throws it
+    /// when a QUIC connection came up without HTTP/3 by ALPN. Both come before a connection exists to write a
+    /// request on, so it never follows a written body. An IOException on an open connection maps to the error its HttpIOException carries, or
     /// Unknown (HttpConnection.cs:934), never ConnectionError.
     /// </para>
     /// <para>
