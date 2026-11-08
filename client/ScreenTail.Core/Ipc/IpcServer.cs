@@ -108,7 +108,8 @@ public sealed class IpcServer : IAsyncDisposable
 
     /// <summary>
     /// Sends an event to every authenticated client. A client that cannot be told it within
-    /// <see cref="BroadcastTimeout"/>, or whose pipe fails, has its connection closed.
+    /// <see cref="BroadcastTimeout"/>, or whose pipe fails, has its connection closed. One the broadcast
+    /// was cancelled for by <paramref name="ct"/>, the service's own token, keeps its connection.
     /// </summary>
     public async Task BroadcastAsync(IpcEvent ipcEvent, CancellationToken ct = default)
     {
@@ -128,9 +129,15 @@ public sealed class IpcServer : IAsyncDisposable
         {
             await client.SendAsync(ipcEvent, telling.Token).ConfigureAwait(false);
         }
+        catch (Exception ex) when ((ex is IOException or ObjectDisposedException or OperationCanceledException) && ct.IsCancellationRequested)
+        {
+            // The service's own token ended the broadcast: it is stopping, and closes every connection
+            // itself, in order. The client did nothing to be dropped for, so this one is left as it is
+            // (owner's decision 2026-11-08).
+        }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {
-            // Broken, gone, or not reading. A state change nobody could receive is not a reason to hold
+            // Broken, gone, or not reading (the deadline passed). A state change nobody could receive is not a reason to hold
             // up the ones who could, and it is not dropped quietly either: the only events broadcast are
             // state_changed, and a client that missed one (a "paused", a "finalizing") went on showing
             // Recording with its clock ticking while the service had moved on (#262 review, finding 8).

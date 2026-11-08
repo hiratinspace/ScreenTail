@@ -352,6 +352,29 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ABroadcastCancelledByTheServiceItselfLeavesTheConnectionOpen()
+    {
+        // Owner's decision 2026-11-08. A connection is closed when its write failed or missed its
+        // deadline, not when the service's own token ended the broadcast: that is the service stopping
+        // (it closes every connection itself, in order), and the client did nothing to be dropped for.
+        _controller.State = Recording("s1");
+        await StartServerAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await using var ui = await ConnectAsync();
+        await WaitUntilAsync(() => _server!.ConnectedClients == 1);
+
+        using var stopping = new CancellationTokenSource();
+        await stopping.CancelAsync();
+        await _server!.BroadcastAsync(new StateChanged { State = Recording("s1") }, stopping.Token).WaitAsync(Soon, ct);
+
+        // Long enough for a closed pipe to have reached both ends.
+        await Task.Delay(300, ct);
+        Assert.True(ui.IsConnected, "the client's connection was closed for a broadcast the service itself cancelled");
+        Assert.Equal(1, _server.ConnectedClients);
+        Assert.True((await ui.SendAsync(id => new GetStateCommand { RequestId = id }, ct).WaitAsync(Soon, ct)).Ok);
+    }
+
+    [Fact]
     public async Task AUiThatMissedAStateChangeReconnectsAndIsToldTheCurrentState()
     {
         // The whole round, with the UI's own reconnecting connection over the real client. The UI stops
