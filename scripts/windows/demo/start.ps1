@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Run setup.ps1 once first. Then, every time:
-      1. checks what setup saved, the certificate, port 5001 and PostgreSQL, and says exactly what is
-         wrong if any of them is not right;
+      1. checks that this window does not run as administrator (the capture service refuses to run
+         elevated), then what setup saved, the certificate, port 5001 and PostgreSQL, and says exactly
+         what is wrong if any of them is not right;
       2. builds the backend if it changed, applies any new database migration, and starts the backend in
          its own window as https://localhost:5001 in the Development environment (which is what makes it
          read the user secrets), drafting with the provider setup saved (Claude or Gemini), or with the
@@ -77,6 +78,9 @@ Write-Host 'Starting the ScreenTail demo.'
 
 Write-Step 'Checks'
 Assert-Windows
+# First, before anything is built or started: from an elevated window the capture service refuses to run
+# and the UI never opens.
+Assert-NotElevated
 $sdk = Assert-DotNetSdk
 Write-Ok ".NET SDK $sdk"
 

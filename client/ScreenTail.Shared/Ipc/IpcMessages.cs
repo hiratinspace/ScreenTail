@@ -264,6 +264,9 @@ public sealed record SessionLoaded : IpcEvent
     /// </summary>
     [JsonPropertyName("draft_pending")]
     public bool DraftPending { get; init; }
+
+    [JsonPropertyName("publish_outcomes")]
+    public IReadOnlyDictionary<string, string>? PublishOutcomes { get; init; }
 }
 
 /// <summary>Asks for one redacted frame's image. Answered by a <see cref="FrameLoaded"/>.</summary>
@@ -450,6 +453,14 @@ public sealed record PublishSessionCommand : IpcCommand
     /// <summary>The included frames, in strip order. Only redacted frames have bytes to send (INV-1).</summary>
     [JsonPropertyName("frame_ids")]
     public required IReadOnlyList<string> FrameIds { get; init; }
+
+    /// <summary>
+    /// The UI knows this session may already be on the ticket and means to send it anyway: a Retry of what
+    /// failed after a landing, or a publish the technician confirmed after checking the ticket. Without it
+    /// the service refuses a session already marked published (contract v9). Absent means false.
+    /// </summary>
+    [JsonPropertyName("publish_again")]
+    public bool PublishAgain { get; init; }
 }
 
 public sealed record PublishOutcomeRow(

@@ -111,7 +111,7 @@ internal sealed class CaptureController(
             // Review's questions: the session, a frame, a blur (ST-085 remainder); and publishing's
             // (ST-093): what is connected, a ticket search, the publish itself.
             _ => await review.ReplyToAsync(command, ct).ConfigureAwait(false)
-                ?? await publishing.ReplyToAsync(command, ct).ConfigureAwait(false)
+                ?? await publishing.ReplyToAsync(command, caller, ct).ConfigureAwait(false)
                 ?? await devices.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await settings.ReplyToAsync(command, ct).ConfigureAwait(false)
                 ?? await captureSettings.ReplyToAsync(command, ct).ConfigureAwait(false)
@@ -130,7 +130,7 @@ internal sealed class CaptureController(
             return reviewed;
         }
 
-        if (await publishing.HandleAsync(command, ct).ConfigureAwait(false) is { } refused)
+        if (await publishing.HandleAsync(command, caller, ct).ConfigureAwait(false) is { } refused)
         {
             return refused;
         }

@@ -419,6 +419,393 @@ public sealed class PublishPanelTests
         Assert.False(panel.CanPublish);
     }
 
+    [Theory]
+    [InlineData(DestinationResult.Unknown)]
+    [InlineData(DestinationResult.TimedOut)]
+    public async Task AnAnswerThatMayHaveLandedBlocksPublishingAgainUntilTheTicketIsChecked(string kind)
+    {
+        // The pipe dropped after publish_session went out (a lost answer is "unknown"), or the backend ran
+        // out of time with the call on its way: the note may be on the ticket. Nothing came back Ok, so
+        // the T-129 guard alone let Ctrl+Enter post it a second time.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return sent.Count == 1
+                ? [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", kind))]
+                : [.. r.Destinations.Select(d => new DestinationResult(d, true))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.True(panel.MayHaveLanded);
+        Assert.All(panel.Results, r => Assert.True(r.MayHaveLanded));
+        Assert.Equal("Note not confirmed: It may already be on the ticket.", panel.Summary);
+        Assert.False(panel.CanPublish);
+        Assert.False(panel.CanRetry);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.RetryBlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), []));
+        Assert.Single(sent);
+        Assert.False(sent[0].PublishAgain);
+
+        // The technician says they looked; the next send says so to the service, and the confirmation
+        // is spent on it.
+        panel.TicketChecked = true;
+
+        Assert.True(panel.CanPublish);
+        Assert.True(panel.CanRetry);
+        await panel.RetryAsync(Draft(), []);
+        Assert.Equal(2, sent.Count);
+        Assert.True(sent[1].PublishAgain);
+        Assert.False(panel.TicketChecked);
+        Assert.True(panel.Published);
+    }
+
+    [Fact]
+    public async Task AConfirmationIsSpentOnTheOneSendItWasGivenFor()
+    {
+        // A second uncertain answer needs a second look: the first "I checked" was about the first one.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        panel.TicketChecked = true;
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(panel.TicketChecked);
+        Assert.False(panel.CanPublish);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        Assert.Equal(2, sent.Count);
+    }
+
+    [Fact]
+    public async Task ATickGivenWhileASendIsOnItsWayDoesNotOutliveIt()
+    {
+        // Review of #265 (m1). The technician ticks, publishes, and ticks again while that send is still
+        // out. Its answer is lost too: the second tick was about the first answer, not this one, so the
+        // next send waits for a fresh tick and cannot carry publish_again without it.
+        var sent = new List<PublishRequest>();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            async (r, _) =>
+            {
+                sent.Add(r);
+                if (sent.Count == 2)
+                {
+                    await gate.Task;
+                }
+
+                return sent.Count <= 2
+                    ? [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown))]
+                    : [.. r.Destinations.Select(d => new DestinationResult(d, true))];
+            });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        panel.TicketChecked = true;
+
+        var second = panel.PublishAsync(Draft(), []);
+        panel.TicketChecked = true;
+        gate.SetResult();
+        await second;
+
+        Assert.True(sent[1].PublishAgain);
+        Assert.False(panel.TicketChecked);
+        Assert.False(panel.CanPublish);
+        Assert.False(panel.CanRetry);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), []));
+        Assert.Equal(2, sent.Count);
+
+        panel.TicketChecked = true;
+        await panel.RetryAsync(Draft(), []);
+        Assert.True(sent[2].PublishAgain);
+    }
+
+    [Fact]
+    public async Task ASessionTheServiceSaysIsAlreadyPublishedIsSaidAsThatAndHeldTheSameWay()
+    {
+        // Review of #265 (m5). Part of it is on the ticket, so "not confirmed" would undersell it.
+        var panel = Panel(publish: r => [.. r.Destinations.Select(d => new DestinationResult(d, false, null, PublishCommands.AlreadyPublished, DestinationResult.AlreadyPublished))]);
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Equal("Already published: check the ticket before publishing again", panel.Summary);
+        Assert.True(panel.MayHaveLanded);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+    }
+
+    [Fact]
+    public async Task APartialPublishWithADestinationThatMayHaveLandedHoldsRetryUntilChecked()
+    {
+        // The note landed and the time entry's answer was lost. Retry sends only the time entry, and that
+        // is the one that may already be on the ticket.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return [.. r.Destinations.Select(d => d == Destination.TimeEntry && sent.Count == 1
+                ? new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown)
+                : new DestinationResult(d, true))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.True(panel.PartiallyPublished);
+        Assert.False(panel.CanRetry);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), []));
+
+        panel.TicketChecked = true;
+        await panel.RetryAsync(Draft(), []);
+
+        Assert.Equal([Destination.TimeEntry], sent[1].Destinations);
+        Assert.True(panel.Published);
+
+        // Checked or not, Publish stays refused once something landed (T-129).
+        panel.TicketChecked = true;
+        Assert.Equal(PublishPanel.AlreadyPublished, panel.BlockedBecause);
+    }
+
+    [Fact]
+    public async Task ARetryAfterAPartialPublishGoesWithoutTheFlag()
+    {
+        // The service checks each destination sent, and one that plainly failed is not held, so Retry of
+        // it beside a landing needs nobody's word. The flag is the technician's tick alone: a pane that saw
+        // the note land must not vouch for a time entry another window has since left unknown (re-review
+        // of #265 at bde6a99, which withdrew the earlier silent flag on Retry).
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return [.. r.Destinations.Select(d => new DestinationResult(d, d != Destination.TimeEntry || sent.Count > 1))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        await panel.RetryAsync(Draft(), []);
+
+        Assert.Equal([Destination.TimeEntry], sent[1].Destinations);
+        Assert.All(sent, r => Assert.False(r.PublishAgain));
+    }
+
+    [Fact]
+    public async Task APlainFailureNeedsNoConfirmation()
+    {
+        // A refusal that never reached the PSA duplicates nothing: no box to tick, no flag on the wire.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r => { sent.Add(r); return [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "Connect a PSA to publish."))]; });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(panel.MayHaveLanded);
+        Assert.True(panel.CanPublish);
+        await panel.PublishAsync(Draft(), []);
+        Assert.All(sent, r => Assert.False(r.PublishAgain));
+    }
+
+    // O3 (owner, review of #265): a reopened Review, or the pane after the service refused a session
+    // already published or unconfirmed, offers each destination as the last publish left it. Landed and
+    // unknown ones start unticked, and sending either needs the check; a plainly failed one is ticked and
+    // goes without it (ST-094 AC3).
+
+    [Fact]
+    public async Task AReopenedPanelAfterAllUnknownRowsHoldsThemBehindTheCheck()
+    {
+        var sent = new List<PublishRequest>();
+        var panel = Reopened(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Unknown, [Destination.TimeEntry] = EarlierOutcome.Unknown }, sent);
+
+        Assert.False(panel.TicketNote);
+        Assert.False(panel.TimeEntry);
+        Assert.Equal(EarlierOutcome.Unknown, panel.EarlierFor(Destination.TicketNote));
+        Assert.Equal("Choose at least one destination", panel.BlockedBecause);
+
+        panel.TicketNote = true;
+
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+
+        panel.TicketChecked = true;
+        await panel.PublishAsync(Draft(), []);
+
+        var request = Assert.Single(sent);
+        Assert.Equal([Destination.TicketNote], request.Destinations);
+        Assert.True(request.PublishAgain);
+        Assert.Equal(EarlierOutcome.Landed, panel.EarlierFor(Destination.TicketNote));
+    }
+
+    [Fact]
+    public async Task SendingOnlyWhatPlainlyFailedNeedsNoCheck()
+    {
+        // The note landed last time and the time entry plainly failed: the time entry is ticked, the
+        // note is not, and Publish sends the time entry with no box to tick. Not with publish_again:
+        // nobody looked, and the service checks each destination sent against what it holds (MJ1).
+        var sent = new List<PublishRequest>();
+        var panel = Reopened(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed }, sent);
+
+        Assert.False(panel.TicketNote);
+        Assert.True(panel.TimeEntry);
+        Assert.Null(panel.BlockedBecause);
+
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Equal([Destination.TimeEntry], Assert.Single(sent).Destinations);
+        Assert.False(sent[0].PublishAgain);
+    }
+
+    [Fact]
+    public async Task ALandedDestinationTickedAgainNeedsTheCheck()
+    {
+        var panel = Reopened(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed }, []);
+
+        panel.TicketNote = true;
+
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+    }
+
+    [Theory]
+    [InlineData(DestinationResult.AlreadyPublished)]
+    [InlineData(DestinationResult.SessionUnconfirmed)]
+    public async Task ARefusalForAnEarlierPublishReloadsItsOutcomesAndOffersTheChoice(string kind)
+    {
+        // The pane did not know (another window published, or the service remembered an unconfirmed
+        // attempt): the service refuses, the pane asks what is on the ticket and opens the choice.
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, false, null, "refused", kind))]),
+            reloadEarlier: _ => Task.FromResult<IReadOnlyDictionary<Destination, EarlierOutcome>>(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed, [Destination.TimeEntry] = EarlierOutcome.Unknown }));
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Empty(panel.Results);
+        Assert.False(panel.TicketNote);
+        Assert.False(panel.TimeEntry);
+        Assert.Equal(EarlierOutcome.Landed, panel.EarlierFor(Destination.TicketNote));
+        Assert.Equal(EarlierOutcome.Unknown, panel.EarlierFor(Destination.TimeEntry));
+        Assert.Null(panel.EarlierFor(Destination.KbArticle));
+    }
+
+    [Fact]
+    public async Task AfterTheReloadTheRefusalIsSaid()
+    {
+        // m-g: the result list is cleared for the choice, so the reason has to be said somewhere the
+        // screen reader hears it.
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, false, null, PublishCommands.AlreadyPublished, DestinationResult.AlreadyPublished))]),
+            reloadEarlier: _ => Task.FromResult<IReadOnlyDictionary<Destination, EarlierOutcome>>(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed }));
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        Assert.Null(panel.EarlierRefusal);
+
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Equal(PublishCommands.AlreadyPublished, panel.EarlierRefusal);
+    }
+
+    [Fact]
+    public async Task AReloadThatFindsNothingKeepsTheRefusalAndItsCheck()
+    {
+        // m-a: the service said "may already be there" and the reload came back empty (a dropped pipe, a
+        // session gone). The rows stay, so the box to tick shows and Publish never loops silently.
+        var sent = new List<PublishRequest>();
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) =>
+            {
+                sent.Add(r);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, false, null, PublishCommands.Unconfirmed, DestinationResult.SessionUnconfirmed))]);
+            },
+            reloadEarlier: _ => Task.FromResult<IReadOnlyDictionary<Destination, EarlierOutcome>>(new Dictionary<Destination, EarlierOutcome>()));
+        panel.KbArticle = false;
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Equal(2, panel.Results.Count);
+        Assert.True(panel.MayHaveLanded);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+
+        panel.TicketChecked = true;
+        await panel.RetryAsync(Draft(), []);
+        Assert.True(sent[1].PublishAgain);
+    }
+
+    [Fact]
+    public async Task AWholeRequestRefusalDoesNotForgetAnEarlierUnknown()
+    {
+        // m-c: "the backend did not answer" for the whole request says nothing about the ticket. The note
+        // that may have landed before still may have, and stays behind the check.
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, false, null, "The backend did not answer.", DestinationResult.Refused))]),
+            earlierOutcomes: new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Unknown });
+        panel.KbArticle = false;
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        panel.TicketNote = true;
+        panel.TicketChecked = true;
+
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Equal(EarlierOutcome.Unknown, panel.EarlierFor(Destination.TicketNote));
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+    }
+
+    [Fact]
+    public async Task AnEarlierOutcomeStillNeedsTheCheckOnceThereAreResults()
+    {
+        // m-d: the time entry plainly failed in this pane, so there are results and nothing landed.
+        // Ticking the note, which landed last time, still needs the check.
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, false, null, "ConnectWise refused the member", "forbidden"))]),
+            earlierOutcomes: new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed });
+        panel.KbArticle = false;
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        Assert.NotEmpty(panel.Results);
+
+        panel.TicketNote = true;
+
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+    }
+
+    private static PublishPanel Reopened(IReadOnlyDictionary<Destination, EarlierOutcome> earlier, List<PublishRequest> sent)
+    {
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) =>
+            {
+                sent.Add(r);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, true))]);
+            },
+            earlierOutcomes: earlier);
+        panel.KbArticle = false;
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        return panel;
+    }
+
     private static PublishPanel Panel(
         Session? session = null,
         IReadOnlyList<string>? integrations = null,

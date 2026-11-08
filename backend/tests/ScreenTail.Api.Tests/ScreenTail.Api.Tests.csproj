@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Pinned on its own for the pool fix; see Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 

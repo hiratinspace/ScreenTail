@@ -207,6 +207,19 @@ Write-Host 'ScreenTail demo setup. Safe to run again: it keeps whatever is alrea
 
 Write-Step 'This machine'
 Assert-Windows
+# Setup only warns. Everything it does lands where an elevated window of the same user writes too: the
+# user-secrets file in this profile, the current user's certificate store, the per-user dotnet tools and
+# the clone's build output, and it starts no ScreenTail process. Only start cannot work from an elevated
+# window (the capture service refuses to run), so start refuses, and setup says so before its last line
+# points there.
+$elevation = Get-TokenElevationType
+switch (Get-ElevationVerdict $elevation) {
+    'refuse' {
+        Write-Caution 'This PowerShell window runs as administrator (''Administrator:'' in its title). Setup works from here, but start.cmd will refuse to: the capture service does not run elevated.'
+        Write-Note 'When setup is done, close this window and open PowerShell from the Start menu with plain Enter (not "Run as administrator") to run start.cmd.'
+    }
+    'warn' { Write-Note 'Could not tell whether this window runs as administrator. Setup works either way; run start.cmd from a window that is not elevated.' }
+}
 $sdk = Assert-DotNetSdk
 Write-Ok ".NET SDK $sdk"
 Write-Ok "Repository at $script:DemoRepo"
@@ -578,3 +591,6 @@ Write-Note 'Saved in user secrets (values not shown):'
 Write-Note "  $script:KeyDrafting, $script:KeyProvider, $script:KeySigning, $script:KeyDatabase"
 Write-Host ''
 Write-Host 'Next: scripts\windows\demo\start.cmd' -ForegroundColor Green
+if ((Get-ElevationVerdict $elevation) -eq 'refuse') {
+    Write-Caution 'Run it from a new PowerShell window that is not "Run as administrator": from this one, start refuses.'
+}

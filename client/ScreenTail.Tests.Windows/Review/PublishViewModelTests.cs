@@ -103,6 +103,117 @@ public sealed class PublishViewModelTests
     }
 
     [Fact]
+    public async Task AnAnswerThatMayHaveLandedHoldsCtrlEnterAndRetryUntilTheBoxIsTicked()
+    {
+        // The pipe dropped after publish_session went out. The warning and its checkbox show, the row is
+        // marked apart from a failure, and neither the shortcut nor Retry sends until the box is ticked.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var sent = new List<PublishRequest>();
+        var session = Session(Frames(1));
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) =>
+            {
+                sent.Add(request);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>(sent.Count == 1
+                    ? [.. request.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown))]
+                    : [.. request.Destinations.Select(d => new DestinationResult(d, true))]);
+            });
+        var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+        pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+        await pane.PublishCommand.ExecuteAsync(null);
+
+        Assert.Equal(System.Windows.Visibility.Visible, pane.CheckTicketVisibility);
+        Assert.Equal(System.Windows.Visibility.Visible, pane.RetryVisibility);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.CheckTicketPrompt);
+        Assert.Equal("I checked ticket #48213 and want to publish again", pane.CheckTicketLabel);
+        Assert.All(pane.Results, row => Assert.Equal(("?", "Not confirmed"), (row.Mark, row.MarkName)));
+        Assert.False(pane.CanPublish);
+        Assert.False(pane.CanRetry);
+        Assert.True(pane.CanCheckTicket);
+        await pane.PublishCommand.ExecuteAsync(null);
+        await pane.RetryCommand.ExecuteAsync(null);
+        Assert.Single(sent);
+
+        pane.TicketChecked = true;
+
+        Assert.True(pane.CanRetry);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.CheckTicketPrompt);
+        await pane.RetryCommand.ExecuteAsync(null);
+        Assert.Equal(2, sent.Count);
+        Assert.True(sent[1].PublishAgain);
+        Assert.False(pane.TicketChecked);
+        Assert.Equal(System.Windows.Visibility.Collapsed, pane.CheckTicketVisibility);
+    }
+
+    [Fact]
+    public async Task AReopenedPaneMarksEachDestinationAndHoldsTheOnesThatMayDuplicate()
+    {
+        // O3: the note may have landed and the time entry plainly failed. The note starts unticked and
+        // marked, read as "not confirmed"; the time entry goes alone without the box; the note needs it.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var sent = new List<PublishRequest>();
+        var session = Session(Frames(1));
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) =>
+            {
+                sent.Add(request);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, true))]);
+            },
+            earlierOutcomes: new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Unknown });
+        var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+        pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+
+        Assert.False(pane.TicketNote);
+        Assert.Equal("? Ticket note  (not confirmed)", pane.TicketNoteLabel);
+        Assert.Equal("Ticket note, not confirmed", pane.TicketNoteName);
+        Assert.Equal(System.Windows.Visibility.Visible, pane.EarlierVisibility);
+        Assert.True(pane.CanPublish);
+
+        pane.TicketNote = true;
+        Assert.False(pane.CanPublish);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.BlockedBecause);
+
+        pane.TicketChecked = true;
+        Assert.True(pane.CanPublish);
+        await pane.PublishCommand.ExecuteAsync(null);
+        Assert.True(Assert.Single(sent).PublishAgain);
+    }
+
+    [Fact]
+    public async Task ARefusalForAnEarlierPublishReopensTheChoiceAndSaysWhy()
+    {
+        // O3 and m-g: the service refused a publish another window made. The pane reloads what is on the
+        // ticket, opens the form on it, and the live region says the refusal, since the result list that
+        // would have said it is gone. m-f: an article is in the knowledge base, not on the ticket.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var session = Session(Frames(1));
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, false, null, PublishCommands.AlreadyPublished, DestinationResult.AlreadyPublished))]),
+            reloadEarlier: _ => Task.FromResult<IReadOnlyDictionary<Destination, EarlierOutcome>>(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed, [Destination.KbArticle] = EarlierOutcome.Landed }));
+        var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+        pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+
+        await pane.PublishCommand.ExecuteAsync(null);
+
+        Assert.Equal(System.Windows.Visibility.Visible, pane.FormVisibility);
+        Assert.Equal(System.Windows.Visibility.Visible, pane.EarlierVisibility);
+        Assert.StartsWith(PublishCommands.AlreadyPublished, pane.EarlierPrompt, StringComparison.Ordinal);
+        Assert.False(pane.TicketNote);
+        Assert.Equal("Ticket note  (already on the ticket)", pane.TicketNoteLabel);
+        Assert.EndsWith("(already in the knowledge base)", pane.KbLabel, StringComparison.Ordinal);
+        Assert.EndsWith(", already in the knowledge base", pane.KbName, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TheDiscussionHintIsBoundAndSaysNoProductDuringTheDemo()
     {
         // Review 2026-10-27: the XAML line was fixed text naming ConnectWise, shown during the demo.

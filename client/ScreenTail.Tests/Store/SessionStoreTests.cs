@@ -478,7 +478,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
         }
 
         var upgraded = await OpenAsync();
@@ -509,7 +509,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
         }
 
         var upgraded = await OpenAsync();
@@ -520,6 +520,35 @@ public sealed class SessionStoreTests : IAsyncDisposable
         await using var index = check.CreateCommand();
         index.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'sessions_by_started'";
         Assert.Contains("started_at", (string)(await index.ExecuteScalarAsync(TestContext.Current.CancellationToken))!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AStoreFromBeforeThePublishRecordUpgradesWithNoOutcomesAndNoMark()
+    {
+        // Migration 0013 adds two nullable columns. A session from before it, published or not, reads as
+        // having no outcomes and no unconfirmed mark: the service then falls back on the session state.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("old"));
+        await store.CreateSessionAsync(Session("published"));
+        Assert.True(await store.MarkPublishedAsync("published", TestContext.Current.CancellationToken));
+        await store.DisposeAsync();
+        _stores.Remove(store);
+
+        await using (var raw = await OpenRawAsync())
+        {
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DELETE FROM schema_migrations WHERE version >= 13;");
+        }
+
+        var upgraded = await OpenAsync();
+
+        Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await upgraded.GetSchemaVersionAsync());
+        foreach (var id in new[] { "old", "published" })
+        {
+            var record = await upgraded.GetPublishRecordAsync(id, TestContext.Current.CancellationToken);
+            Assert.True(record is null || (record.UnconfirmedAt is null && record.Outcomes.Count == 0), id);
+        }
+
+        Assert.Equal(Core.Sessions.SessionStateNames.Published, (await upgraded.GetSessionSummaryAsync("published", TestContext.Current.CancellationToken))!.State);
     }
 
     /// <summary>The store's own file opened directly, for putting it back to an older schema.</summary>

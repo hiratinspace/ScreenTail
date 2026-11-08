@@ -264,8 +264,26 @@ public sealed class ReviewCommands(ISessionStore store, IFrameMasker masker, Fra
             RequestId = get.RequestId,
             Session = session with { Frames = [.. session.Frames.Select(frame => frame.OcrText is null ? frame : frame with { OcrText = null })] },
             DraftPending = pending.Contains(get.SessionId, StringComparer.Ordinal),
+            PublishOutcomes = await PublishOutcomesAsync(get.SessionId, ct).ConfigureAwait(false),
         };
         return (reply, IpcFraming.MeasureBytes<IpcEvent>(reply));
+    }
+
+    /// <summary>
+    /// What the last publish left on the ticket, per destination, for the pane to open on (O3); null when
+    /// nothing was ever published. A session published before outcomes were kept says unknown for every
+    /// destination: the pane cannot tell which of them landed, and when in doubt the technician looks.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> PublishOutcomesAsync(string sessionId, CancellationToken ct)
+    {
+        if ((await _store.GetPublishRecordAsync(sessionId, ct).ConfigureAwait(false))?.Outcomes is { Count: > 0 } outcomes)
+        {
+            return outcomes;
+        }
+
+        return string.Equals((await _store.GetSessionSummaryAsync(sessionId, ct).ConfigureAwait(false))?.State, Sessions.SessionStateNames.Published, StringComparison.Ordinal)
+            ? new Dictionary<string, string>(StringComparer.Ordinal) { ["ticket_note"] = PublishRecord.Unknown, ["time_entry"] = PublishRecord.Unknown, ["kb_article"] = PublishRecord.Unknown }
+            : null;
     }
 
     /// <summary>One redacted frame's OCR text and its size on the wire; null for a pending or missing frame (INV-1).</summary>

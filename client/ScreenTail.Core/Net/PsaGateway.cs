@@ -146,8 +146,58 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             },
             answer => [.. answer.Results.Select(r => new PublishOutcomeRow(r.Destination, r.Ok, r.Id, r.Link, r.Error, r.Kind, r.Retryable))],
             ct,
-            sentFor: bundle.SessionId);
+            sentFor: bundle.SessionId,
+            mayHaveLeft: cause => GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d => MayHaveLanded(d, cause))]));
     }
+
+    /// <summary>
+    /// O4 (owner, review of #265): a publish that failed once the request may have left the machine. The
+    /// backend may have posted it, so each destination is <c>unknown</c>, not retryable, and says to check
+    /// first, in the backend's own words for its <c>unknown</c> rows.
+    /// </summary>
+    private static PublishOutcomeRow MayHaveLanded(string destination, string cause) => new(
+        destination,
+        false,
+        Error: destination switch
+        {
+            "ticket_note" => $"{cause}, so the note may already be on the ticket. Check the ticket before you publish the note again.",
+            "time_entry" => $"{cause}, so the time entry may already be on the ticket. Check the ticket before you publish the time entry again.",
+            _ => $"{cause}, so the article may already be written. Check the knowledge base before you publish the article again.",
+        },
+        Kind: "unknown",
+        Retryable: false);
+
+    /// <summary>
+    /// Whether an <see cref="HttpRequestException"/> means the request never reached the backend. Only
+    /// three of .NET 10's <see cref="HttpRequestError"/> values say so, in the reference documentation
+    /// (System.Net.Http.xml, Microsoft.NETCore.App.Ref 10.0): <c>NameResolutionError</c> "The DNS name
+    /// resolution failed", <c>ConnectionError</c> "A transport-level failure occurred while connecting to
+    /// the remote endpoint", and <c>SecureConnectionError</c> "An error occurred during the TLS handshake".
+    /// Every other value, <c>Unknown</c> ("A generic or unknown error occurred") and <c>ResponseEnded</c>
+    /// ("The response ended prematurely") included, may come after the body went, so it is not one of these.
+    /// <para>
+    /// Checked against the .NET 10 source (dotnet/runtime, branch release/10.0, under
+    /// src/libraries/System.Net.Http/src/System/Net/Http/SocketsHttpHandler/), owner decisions 5 and 6 on #265:
+    /// </para>
+    /// <para>
+    /// ConnectionError is raised in two places. ConnectHelper.cs:162 (CreateWrappedException's DeduceError)
+    /// is reached from the TCP connect in ConnectionPool/HttpConnectionPool.cs:706 (ConnectToTcpHostAsync)
+    /// and the QUIC connect at ConnectHelper.cs:135; ConnectionPool/HttpConnectionPool.Http3.cs:273 throws it
+    /// when a QUIC connection came up without HTTP/3 by ALPN. Both come before a connection exists to write a
+    /// request on, so it never follows a written body. An IOException on an open connection maps to the error its HttpIOException carries, or
+    /// Unknown (HttpConnection.cs:934), never ConnectionError.
+    /// </para>
+    /// <para>
+    /// The pool retries only a failure marked RetryOnConnectionFailure (ConnectionPool/HttpConnectionPool.cs:498).
+    /// On HTTP/1.1 that mark comes from HttpConnection.cs:935 when _canRetry is set, which is cleared as a
+    /// request starts (HttpConnection.cs:546) and set at HttpConnection.cs:657 only when the server closed
+    /// the connection without a byte of answer and the request has no body, or an Expect: 100-continue body
+    /// not yet released; HttpConnection.cs:853 clears it again if that body was released. A publish is a POST
+    /// with a body and no Expect header on HTTP/1.1 (HttpClient's default version), so it is never retried.
+    /// </para>
+    /// </summary>
+    private static bool NeverSent(HttpRequestException error) =>
+        error.HttpRequestError is HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError;
 
     public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
         AskAsync<MappingsAnswer, CompanyMappingsAnswer>(
@@ -203,7 +253,11 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
             ct);
 
-    private Task<GatewayAnswer<TOut>> AskAsync<TAnswer, TOut>(Func<HttpRequestMessage> build, Func<TAnswer, TOut> map, CancellationToken ct, string? sentFor = null) =>
+    /// <param name="mayHaveLeft">
+    /// For a call that acts (a publish): the answer to give when it failed after the request may have left,
+    /// from a sentence saying why. Null keeps every failure a plain refusal, which is right for a question.
+    /// </param>
+    private Task<GatewayAnswer<TOut>> AskAsync<TAnswer, TOut>(Func<HttpRequestMessage> build, Func<TAnswer, TOut> map, CancellationToken ct, string? sentFor = null, Func<string, GatewayAnswer<TOut>>? mayHaveLeft = null) =>
         SendAsync(
             build,
             async (response, token) =>
@@ -217,16 +271,30 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
                 {
                     var answer = await response.Content.ReadFromJsonAsync<TAnswer>(Json, token).ConfigureAwait(false);
                     return answer is null
-                        ? GatewayAnswer.Refused<TOut>("The backend answered with nothing.")
+                        ? Unread(mayHaveLeft, "The backend answered with nothing.")
                         : GatewayAnswer.Of<TOut>(map(answer));
                 }
                 catch (Exception ex) when (ex is JsonException or NotSupportedException)
                 {
-                    return GatewayAnswer.Refused<TOut>("The backend answered something this version does not understand.");
+                    return Unread(mayHaveLeft, "The backend answered something this version does not understand.");
+                }
+                catch (Exception ex) when (mayHaveLeft is not null && ex is HttpRequestException or IOException)
+                {
+                    // The body broke off: the backend had accepted the request and was answering it. Not
+                    // reached while HttpClient reads the whole body before SendAsync returns (its default,
+                    // ResponseContentRead): the break then comes out of SendAsync as an HttpRequestException
+                    // and is unknown there (APublishWhoseAnswerBrokeOffIsUnknown). Kept for a caller that
+                    // asks for headers first.
+                    return mayHaveLeft("The backend's answer broke off");
                 }
             },
             ct,
-            sentFor);
+            sentFor,
+            mayHaveLeft);
+
+    /// <summary>An accepted request whose answer could not be read: a refusal for a question, unknown for a publish.</summary>
+    private static GatewayAnswer<TOut> Unread<TOut>(Func<string, GatewayAnswer<TOut>>? mayHaveLeft, string refusal) =>
+        mayHaveLeft is null ? GatewayAnswer.Refused<TOut>(refusal) : mayHaveLeft("The backend's answer could not be read");
 
     /// <summary>
     /// The guarded send every call shares. <paramref name="read"/> turns a response it accepts into the
@@ -235,9 +303,11 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
     /// <param name="sentFor">
     /// The session whose bytes this request carries, for its <c>bundle_sent</c> row; null for a call that
     /// carries none. The row is written once the answer has been read, whatever the answer was: a refused
-    /// publish left the machine as surely as an accepted one.
+    /// publish left the machine as surely as an accepted one. Also when no answer came and the request may
+    /// have left all the same (a reset, a timeout); not when the connection never opened.
     /// </param>
-    private async Task<GatewayAnswer<TOut>> SendAsync<TOut>(Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<GatewayAnswer<TOut>?>> read, CancellationToken ct, string? sentFor = null)
+    /// <param name="mayHaveLeft">See <see cref="AskAsync{TAnswer, TOut}"/>. When in doubt, it is used: a needless check of the ticket is cheap, a second note on it is not.</param>
+    private async Task<GatewayAnswer<TOut>> SendAsync<TOut>(Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<GatewayAnswer<TOut>?>> read, CancellationToken ct, string? sentFor = null, Func<string, GatewayAnswer<TOut>>? mayHaveLeft = null)
     {
         if (http.BaseAddress is null)
         {
@@ -257,6 +327,19 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
         {
             response = await http.SendAsync(request, ct).ConfigureAwait(false);
         }
+        catch (HttpRequestException ex) when (mayHaveLeft is not null && !NeverSent(ex))
+        {
+            // The bytes may have left, so they are recorded as sent (m-h): the same row an answered
+            // publish writes, a session id, a byte count and a host, no content (INV-10).
+            await RecordSentAsync(sentFor, bytes, request).ConfigureAwait(false);
+            return mayHaveLeft("The backend did not answer");
+        }
+        catch (TaskCanceledException) when (mayHaveLeft is not null && !ct.IsCancellationRequested)
+        {
+            // HttpClient.Timeout: the request was on its way, and may have been acted on, when it fired.
+            await RecordSentAsync(sentFor, bytes, request).ConfigureAwait(false);
+            return mayHaveLeft("The backend did not answer in time");
+        }
         catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
             return GatewayAnswer.Refused<TOut>("The backend did not answer.");
@@ -272,8 +355,20 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             {
                 // The answer first: it is what the technician is waiting for, and an audit row that cannot
                 // be written must not cost it.
+                if (mayHaveLeft is not null && (int)response.StatusCode >= 500)
+                {
+                    // A 5xx may come from the backend partway through, or from a proxy after it: either way
+                    // the request reached something that may have passed it on. A 4xx is the backend's
+                    // refusal before it acted, and stays a plain one below.
+                    return await NothingConnectedAsync(response, ct).ConfigureAwait(false) is { } nothing
+                        ? GatewayAnswer.Refused<TOut>(nothing)
+                        : mayHaveLeft($"The backend answered {(int)response.StatusCode}");
+                }
+
                 return await read(response, ct).ConfigureAwait(false)
-                    ?? GatewayAnswer.Refused<TOut>(await RefusalAsync(response, ct).ConfigureAwait(false));
+                    ?? (mayHaveLeft is not null && response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.OK
+                        ? mayHaveLeft($"The backend answered {(int)response.StatusCode}")
+                        : GatewayAnswer.Refused<TOut>(await RefusalAsync(response, ct).ConfigureAwait(false)));
             }
             finally
             {
@@ -282,6 +377,35 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
                     await SentAudit.RecordAsync(audit, sentFor, bytes, response.RequestMessage?.RequestUri ?? request.RequestUri, http.BaseAddress, logger).ConfigureAwait(false);
                 }
             }
+        }
+    }
+
+    /// <summary>The <c>bundle_sent</c> row for a request with no answer that may have left all the same.</summary>
+    private Task RecordSentAsync(string? sentFor, long? bytes, HttpRequestMessage request) =>
+        sentFor is null ? Task.CompletedTask : SentAudit.RecordAsync(audit, sentFor, bytes, request.RequestUri, http.BaseAddress, logger);
+
+    /// <summary>
+    /// The backend's own 501 for a tenant with nothing connected (<c>no_psa</c>, <c>no_docs</c>,
+    /// <c>not_configured</c>), which it answers before doing anything: its sentence, or null for any other
+    /// 5xx, a proxy's 501 included. Read once, so nothing reads the body after it.
+    /// </summary>
+    private static async Task<string?> NothingConnectedAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.StatusCode != HttpStatusCode.NotImplemented)
+        {
+            return null;
+        }
+
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<Problem>(Json, ct).ConfigureAwait(false);
+            return problem is { Error: "no_psa" or "no_docs" or "not_configured" }
+                ? problem.Message is { Length: > 0 } message ? message : "Connect a PSA to publish."
+                : null;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or HttpRequestException or IOException)
+        {
+            return null;
         }
     }
 

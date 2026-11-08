@@ -87,10 +87,11 @@
                     </StackPanel>
 
                     <TextBlock Style="{StaticResource Publish.Field}" Text="Destinations" />
-                    <CheckBox Content="Ticket note" IsChecked="{Binding TicketNote}" />
-                    <CheckBox Margin="0,2,0,0" Content="Time entry" IsChecked="{Binding TimeEntry}" />
+                    <!-- O3: each label says what an earlier publish left; the name says it in words. -->
+                    <CheckBox Content="{Binding TicketNoteLabel}" IsChecked="{Binding TicketNote}" AutomationProperties.Name="{Binding TicketNoteName}" />
+                    <CheckBox Margin="0,2,0,0" Content="{Binding TimeEntryLabel}" IsChecked="{Binding TimeEntry}" AutomationProperties.Name="{Binding TimeEntryName}" />
                     <!-- The KB label carries its reason, so it wraps under the box rather than off the pane. -->
-                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbLabel}">
+                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}">
                         <TextBlock Margin="0,4" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding KbLabel}" />
                     </CheckBox>
                 </StackPanel>
@@ -101,6 +102,25 @@
                     BorderBrush="{DynamicResource Brush.border.subtle}"
                     BorderThickness="0,1,0,0">
                 <StackPanel>
+                    <!-- O3: an earlier publish reached the ticket, or may have. The same box as the result
+                         list's, in the tab order before Publish, and spent on one send. -->
+                    <Border Style="{StaticResource Banner.Warning}"
+                            Margin="0,0,0,12"
+                            Visibility="{Binding EarlierVisibility}"
+                            AutomationProperties.Name="Check the ticket first">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Body}"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding EarlierPrompt}"
+                                       controls:LiveRegion.Setting="Polite" />
+                            <CheckBox Margin="0,10,0,0"
+                                      IsChecked="{Binding TicketChecked}"
+                                      IsEnabled="{Binding CanCheckTicket}"
+                                      AutomationProperties.Name="{Binding CheckTicketLabel}">
+                                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding CheckTicketLabel}" />
+                            </CheckBox>
+                        </StackPanel>
+                    </Border>
                     <Button Style="{StaticResource Button.Primary}"
                             MinHeight="36"
                             HorizontalAlignment="Stretch"
@@ -164,7 +184,7 @@
                                         <ColumnDefinition Width="22" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" />
+                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" AutomationProperties.Name="{Binding MarkName}" />
                                     <StackPanel Grid.Column="1">
                                         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Label}" />
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Error}" Visibility="{Binding ErrorVisibility}" />
@@ -219,11 +239,32 @@
                                 IsEnabled="{Binding CanMap}" />
                     </StackPanel>
                 </Border>
+                <!-- Something may already be on the ticket. Publish, Ctrl+Enter and Retry wait until the
+                     technician ticks the box, which is in the tab order and spent on the next send. -->
+                <Border Style="{StaticResource Banner.Warning}"
+                        Margin="0,4,0,12"
+                        Visibility="{Binding CheckTicketVisibility}"
+                        AutomationProperties.Name="Check the ticket first">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Text.Body}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding CheckTicketPrompt}"
+                                   controls:LiveRegion.Setting="Polite" />
+                        <CheckBox Margin="0,10,0,0"
+                                  IsChecked="{Binding TicketChecked}"
+                                  IsEnabled="{Binding CanCheckTicket}"
+                                  AutomationProperties.Name="{Binding CheckTicketLabel}">
+                            <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding CheckTicketLabel}" />
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
                 <Button Style="{StaticResource Button.Primary}"
                         HorizontalAlignment="Left"
                         Content="Retry"
                         Command="{Binding RetryCommand}"
-                        Visibility="{Binding RetryVisibility}" />
+                        IsEnabled="{Binding CanRetry}"
+                        Visibility="{Binding RetryVisibility}"
+                        AutomationProperties.HelpText="{Binding CheckTicketPrompt}" />
             </StackPanel>
         </ScrollViewer>
     </Grid>

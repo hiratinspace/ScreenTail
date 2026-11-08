@@ -27,6 +27,11 @@ public enum Destination
 }
 
 /// <summary>Everything the publisher needs, in one object, so a retry can send exactly the part that failed.</summary>
+/// <param name="PublishAgain">
+/// The pane knows this session may already be on the ticket and means to send it anyway: a Retry after a
+/// landing, which sends only what failed, or a publish after the technician confirmed they checked the
+/// ticket. The service refuses a session already marked published without it.
+/// </param>
 public sealed record PublishRequest(
     string SessionId,
     TicketMatch Ticket,
@@ -34,7 +39,8 @@ public sealed record PublishRequest(
     int Minutes,
     IReadOnlySet<Destination> Destinations,
     DraftNote Note,
-    IReadOnlyList<string> FrameIds);
+    IReadOnlyList<string> FrameIds,
+    bool PublishAgain = false);
 
 /// <param name="Link">Where it landed, for "Open in ConnectWise". Null when it did not.</param>
 /// <param name="Error">The provider's own words, for the partial-publish line, or for <see cref="Partial"/> what did not attach. Never content of the note.</param>
@@ -45,6 +51,50 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
 
     /// <summary>It landed and something with it did not, usually a screenshot. <see cref="Ok"/> is true, so Retry leaves it alone; <see cref="Error"/> says what is missing.</summary>
     public const string Partial = "partial";
+
+    /// <summary>
+    /// It was sent and nobody can say whether it landed: the provider's answer could not be read, or the
+    /// pipe to the service dropped before the service answered (<see cref="PipePublisher"/>), or the
+    /// service refused a session it has already published.
+    /// </summary>
+    public const string Unknown = "unknown";
+
+    /// <summary>The backend's publish deadline passed with this destination on its way to the provider.</summary>
+    public const string TimedOut = "timed_out";
+
+    /// <summary>
+    /// The service refused a session it has already marked published (<see cref="PublishCommands.AlreadyPublished"/>).
+    /// The pane's own name, never on the wire: something of it is on the ticket, so it is not "not confirmed".
+    /// </summary>
+    public const string AlreadyPublished = "already_published";
+
+    /// <summary>
+    /// The service refused a session whose last publish may have landed (<see cref="PublishCommands.Unconfirmed"/>,
+    /// O2). The pane's own name, never on the wire.
+    /// </summary>
+    public const string SessionUnconfirmed = "session_unconfirmed";
+
+    /// <summary>
+    /// The service, or the pipe to it, refused the whole request with words of its own. The pane's own name,
+    /// never on the wire: it says nothing about any destination, so an earlier outcome stands (m-c).
+    /// </summary>
+    public const string Refused = "refused";
+
+    /// <summary>
+    /// Failed, but it may be on the ticket all the same. Sending it again without looking is how a ticket
+    /// gets the note twice, so the pane holds every way of sending until the technician says they checked.
+    /// </summary>
+    public bool MayHaveLanded => !Ok && Kind is Unknown or TimedOut or AlreadyPublished or SessionUnconfirmed;
+
+    /// <summary>The service refused because of an earlier publish, which the pane then reloads and offers per destination (O3).</summary>
+    public bool RefusedForAnEarlierPublish => !Ok && Kind is AlreadyPublished or SessionUnconfirmed;
+}
+
+/// <summary>What an earlier publish of the session left on the ticket for one destination (O3).</summary>
+public enum EarlierOutcome
+{
+    Landed,
+    Unknown,
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
@@ -85,6 +135,9 @@ public sealed class PublishPanel
     /// <summary>Some of it landed. Publishing again would post that part a second time; Retry sends the rest.</summary>
     public const string PartlyPublished = "Already partly published. Retry sends only what failed";
 
+    /// <summary>Something may already be on the ticket. Publish, Ctrl+Enter and Retry wait until the technician says they looked.</summary>
+    public const string CheckTheTicketFirst = "This may already be on the ticket. Check the ticket, then confirm below before publishing again, so nothing is added twice";
+
     private readonly Session _session;
     private readonly Func<string, CancellationToken, Task<IReadOnlyList<TicketMatch>>> _search;
     private readonly Func<PublishRequest, CancellationToken, Task<IReadOnlyList<DestinationResult>>> _publish;
@@ -96,11 +149,17 @@ public sealed class PublishPanel
     private readonly CompanyMapping? _mapping;
     private readonly Dictionary<Destination, DestinationResult> _results = [];
 
+    /// <summary>What earlier publishes left on the ticket, per destination (O3). Absent means never sent, or plainly failed.</summary>
+    private readonly Dictionary<Destination, EarlierOutcome> _earlier = [];
+    private readonly Func<CancellationToken, Task<IReadOnlyDictionary<Destination, EarlierOutcome>>>? _reloadEarlier;
+
     /// <param name="integrations">The tenant's connected providers, by name. Empty means nothing can be published.</param>
     /// <param name="search">The PSA's ticket search (ST-092). Asked for nothing, it answers the recent tickets.</param>
     /// <param name="publish">Sends the chosen destinations and says how each one went (ST-093, ST-094, ST-096).</param>
     /// <param name="rounding">The tenant's billing rounding; the draft reports unrounded minutes and this side rounds (STATUS §4).</param>
     /// <param name="mapping">The company-mapping prompt's calls (ST-097). Without them a <c>needs_mapping</c> failure is shown as the words it came with.</param>
+    /// <param name="earlierOutcomes">What the service remembers an earlier publish left on the ticket (O3): those destinations start unticked.</param>
+    /// <param name="reloadEarlier">Asks the service for those again, after it refused a send because of an earlier publish this pane did not know about.</param>
     public PublishPanel(
         Session session,
         IReadOnlyList<string> integrations,
@@ -109,8 +168,11 @@ public sealed class PublishPanel
         TimeEntryOptions? rounding = null,
         bool offline = false,
         CompanyMapping? mapping = null,
-        bool draftPending = false)
+        bool draftPending = false,
+        IReadOnlyDictionary<Destination, EarlierOutcome>? earlierOutcomes = null,
+        Func<CancellationToken, Task<IReadOnlyDictionary<Destination, EarlierOutcome>>>? reloadEarlier = null)
     {
+        _reloadEarlier = reloadEarlier;
         _session = session ?? throw new ArgumentNullException(nameof(session));
         ArgumentNullException.ThrowIfNull(integrations);
         _search = search ?? throw new ArgumentNullException(nameof(search));
@@ -125,6 +187,7 @@ public sealed class PublishPanel
         Minutes = draft is null ? 0 : TimeEntryCalculator.SuggestMinutes(TimeSpan.FromMinutes(draft.SuggestedTimeMinutes), _rounding);
         KbArticle = draft?.KbCandidate ?? false;
         KbReason = draft?.KbReason;
+        OfferEarlier(earlierOutcomes);
     }
 
     /// <summary>
@@ -183,6 +246,15 @@ public sealed class PublishPanel
 
     public string? KbReason { get; }
 
+    /// <summary>What an earlier publish left on the ticket for this destination, or null for nothing (never sent, or plainly failed).</summary>
+    public EarlierOutcome? EarlierFor(Destination destination) => _earlier.TryGetValue(destination, out var outcome) ? outcome : null;
+
+    /// <summary>An earlier publish of this session left something on the ticket, or may have.</summary>
+    public bool HasEarlier => _earlier.Count > 0;
+
+    /// <summary>A chosen destination landed or may have landed before: sending it needs the check.</summary>
+    public bool ChosenMayDuplicate => ChosenDestinations().Any(_earlier.ContainsKey);
+
     public bool IsPublishing { get; private set; }
 
     public IReadOnlyList<DestinationResult> Results => [.. _results.Values.OrderBy(r => r.Destination)];
@@ -194,6 +266,27 @@ public sealed class PublishPanel
     public bool PartiallyPublished => _results.Values.Any(r => r.Ok) && _results.Values.Any(r => !r.Ok);
 
     public IReadOnlyList<Destination> Failed => [.. _results.Values.Where(r => !r.Ok).Select(r => r.Destination).Order()];
+
+    /// <summary>A destination failed in a way that may still have put it on the ticket (<see cref="DestinationResult.MayHaveLanded"/>).</summary>
+    public bool MayHaveLanded => _results.Values.Any(r => r.MayHaveLanded);
+
+    /// <summary>
+    /// The technician's "I checked the ticket", which lets the next send go while <see cref="MayHaveLanded"/>.
+    /// Spent on that one send: an answer lost a second time needs a second look.
+    /// </summary>
+    public bool TicketChecked { get; set; }
+
+    /// <summary>
+    /// Something Retry would send may be on the ticket: a row that may have landed, or a failed destination
+    /// an earlier publish left landed or unknown, which a whole-request refusal since says nothing about
+    /// (re-review of #265 at bde6a99).
+    /// </summary>
+    public bool NeedsTicketCheck => MayHaveLanded || Failed.Any(_earlier.ContainsKey);
+
+    /// <summary>Why Retry is held, or null. Only the unconfirmed check: Retry sends what failed and nothing that landed.</summary>
+    public string? RetryBlockedBecause => NeedsTicketCheck && !TicketChecked ? CheckTheTicketFirst : null;
+
+    public bool CanRetry => Failed.Count > 0 && RetryBlockedBecause is null && !IsPublishing;
 
     /// <summary>
     /// The article did not go because the backend has no mapping for the ticket's company, and this pane
@@ -218,11 +311,26 @@ public sealed class PublishPanel
     {
         get
         {
-            // First, and whatever the toggles say now (T-129): once anything has landed, Publish would
+            // First of all: something may be on the ticket already, and nobody has looked. Said before the
+            // landed reasons below because it is the one the technician has to act on.
+            if (RetryBlockedBecause is { } check)
+            {
+                return check;
+            }
+
+            // Then, and whatever the toggles say now (T-129): once anything has landed, Publish would
             // send it again, and Ctrl+Enter reaches here even while the result list hides the button.
             if (_results.Values.Any(r => r.Ok))
             {
                 return Published ? AlreadyPublished : PartlyPublished;
+            }
+
+            // O3: choosing again. A destination that landed, or may have, in an earlier publish or in this
+            // pane, is sent again only once the technician has looked; one that plainly failed goes
+            // without it (ST-094 AC3). Whether or not this pane has results of its own (m-d).
+            if (ChosenMayDuplicate && !TicketChecked)
+            {
+                return CheckTheTicketFirst;
             }
 
             if (!HasIntegrations)
@@ -240,6 +348,9 @@ public sealed class PublishPanel
     }
 
     public bool CanPublish => BlockedBecause is null && !IsPublishing;
+
+    /// <summary>The service's refusal that sent the pane back to the choice, said once the choice is open (m-g). Null otherwise.</summary>
+    public string? EarlierRefusal { get; private set; }
 
     /// <summary>Spec §6's toast line for what happened, or null before anything has.</summary>
     public string? Summary
@@ -268,7 +379,15 @@ public sealed class PublishPanel
             var landed = _results.Values.Where(r => r.Ok).Select(r => Name(r.Destination)).ToList();
             var first = failed[0];
             var prefix = landed.Count > 0 ? $"{Capitalise(landed[0])} published. " : string.Empty;
-            var line = $"{prefix}{Capitalise(Name(first.Destination))} failed: {first.Error ?? "no reason given"}";
+            // One that may have landed is not called failed: "failed" reads as "publish again". One the
+            // service refused as already published is said as that, since part of it is on the ticket.
+            var outcome = first.MayHaveLanded ? "not confirmed" : "failed";
+            var line = first.Kind switch
+            {
+                DestinationResult.AlreadyPublished => $"{prefix}Already published: check the ticket before publishing again",
+                DestinationResult.SessionUnconfirmed => $"{prefix}An earlier publish was not confirmed: check the ticket before publishing again",
+                _ => $"{prefix}{Capitalise(Name(first.Destination))} {outcome}: {first.Error ?? "no reason given"}",
+            };
             return missing.Length > 0 ? $"{line} {missing}" : line;
         }
     }
@@ -334,9 +453,17 @@ public sealed class PublishPanel
         return SendAsync(ChosenDestinations(), note, frameIds, ct);
     }
 
-    /// <summary>Sends only what failed. The note that landed is not sent again (ST-094 AC3).</summary>
+    /// <summary>
+    /// Sends only what failed. The note that landed is not sent again (ST-094 AC3). Refused while
+    /// something may already be on the ticket and the technician has not said they checked.
+    /// </summary>
     public Task<IReadOnlyList<DestinationResult>> RetryAsync(DraftNote note, IReadOnlyList<string> frameIds, CancellationToken ct = default)
     {
+        if (RetryBlockedBecause is { } reason)
+        {
+            throw new InvalidOperationException(reason);
+        }
+
         var failed = Failed.ToHashSet();
         if (failed.Count == 0)
         {
@@ -363,6 +490,12 @@ public sealed class PublishPanel
             return false;
         }
 
+        // The retry below would send whatever failed, including one that may already be on the ticket.
+        if (RetryBlockedBecause is { } reason)
+        {
+            throw new InvalidOperationException(reason);
+        }
+
         if (!await _mapping.Map(company, docCompanyId, ct).ConfigureAwait(false))
         {
             return false;
@@ -381,13 +514,38 @@ public sealed class PublishPanel
             throw new InvalidOperationException("A publish is already in flight.");
         }
 
+        // Only the technician's "I checked the ticket" says a resend is meant. The service checks each
+        // destination sent against what it holds, so a Retry of what plainly failed beside a landing goes
+        // without the flag (ST-094 AC3), and a pane that saw something land does not vouch for a
+        // destination another window has since left unknown (re-review of #265 at bde6a99; the owner's
+        // earlier silent flag on Retry is withdrawn).
+        var again = TicketChecked;
+        TicketChecked = false;
+        EarlierRefusal = null;
         IsPublishing = true;
         try
         {
-            var results = await _publish(new PublishRequest(_session.SessionId, Ticket!, NoteType, Minutes, destinations, note, frameIds), ct).ConfigureAwait(false);
+            var results = await _publish(new PublishRequest(_session.SessionId, Ticket!, NoteType, Minutes, destinations, note, frameIds, again), ct).ConfigureAwait(false);
             foreach (var result in results)
             {
                 _results[result.Destination] = result;
+                Remember(result);
+            }
+
+            // The service knew of an earlier publish this pane did not: ask it what is on the ticket and
+            // offer the choice, rather than a result list that only says no (O3).
+            // One that comes back with nothing (a dropped pipe, a session gone) leaves the refusal rows,
+            // which count as may-have-landed, so the box to tick shows and Publish never loops silently (m-a).
+            if (_reloadEarlier is not null && results.Count > 0 && results.All(r => r.RefusedForAnEarlierPublish))
+            {
+                var earlier = await _reloadEarlier(ct).ConfigureAwait(false);
+                if (earlier is { Count: > 0 })
+                {
+                    _results.Clear();
+                    _earlier.Clear();
+                    OfferEarlier(earlier);
+                    EarlierRefusal = results[0].Error;
+                }
             }
 
             return Results;
@@ -395,6 +553,56 @@ public sealed class PublishPanel
         finally
         {
             IsPublishing = false;
+
+            // Cleared again: a tick given while this send was on its way was about the answer before it,
+            // and must not let the send after it through unseen (review of #265).
+            TicketChecked = false;
+        }
+    }
+
+    /// <summary>Starts the pane on what earlier publishes left: those destinations unticked, the rest as they are.</summary>
+    private void OfferEarlier(IReadOnlyDictionary<Destination, EarlierOutcome>? earlier)
+    {
+        if (earlier is null || earlier.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (destination, outcome) in earlier)
+        {
+            _earlier[destination] = outcome;
+        }
+
+        TicketNote &= !_earlier.ContainsKey(Destination.TicketNote);
+        TimeEntry &= !_earlier.ContainsKey(Destination.TimeEntry);
+        KbArticle &= !_earlier.ContainsKey(Destination.KbArticle);
+    }
+
+    /// <summary>The same rule as the service's record: landed stays landed, may-have-landed is unknown, a plain failure after a check drops out.</summary>
+    private void Remember(DestinationResult result)
+    {
+        // Neither refusal says anything new about the ticket: one for an earlier publish is about what the
+        // service holds, and one for the whole request (m-c) is about the request.
+        if (result.RefusedForAnEarlierPublish || result is { Ok: false, Kind: DestinationResult.Refused })
+        {
+            return;
+        }
+
+        if (result.Ok)
+        {
+            _earlier[result.Destination] = EarlierOutcome.Landed;
+        }
+        else if (EarlierFor(result.Destination) == EarlierOutcome.Landed)
+        {
+            return;
+        }
+        else if (result.MayHaveLanded)
+        {
+            _earlier[result.Destination] = EarlierOutcome.Unknown;
+        }
+        else
+        {
+            _ = _earlier.Remove(result.Destination);
         }
     }
 
