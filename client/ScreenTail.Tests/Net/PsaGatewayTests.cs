@@ -204,6 +204,164 @@ public sealed class PsaGatewayTests
         Assert.Equal("The backend did not answer.", answer.Refusal);
     }
 
+    // O4 (owner, review of #265): a publish that failed after the request may have left is "unknown" for
+    // every destination, so the pane asks the technician to check the ticket; one that failed before
+    // anything was sent stays a plain refusal. When in doubt, unknown.
+
+    [Theory]
+    [InlineData(HttpRequestError.NameResolutionError)]
+    [InlineData(HttpRequestError.ConnectionError)]
+    [InlineData(HttpRequestError.SecureConnectionError)]
+    public async Task APublishThatNeverConnectedIsAPlainRefusal(HttpRequestError error)
+    {
+        using var handler = new ThrowingHandler(new HttpRequestException(error, "could not connect"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal("The backend did not answer.", answer.Refusal);
+    }
+
+    [Theory]
+    [InlineData(HttpRequestError.Unknown)]
+    [InlineData(HttpRequestError.ResponseEnded)]
+    [InlineData(HttpRequestError.InvalidResponse)]
+    [InlineData(HttpRequestError.HttpProtocolError)]
+    [InlineData(HttpRequestError.ProxyTunnelError)]
+    public async Task APublishThatFailedAfterItMayHaveLeftIsUnknownForEveryDestination(HttpRequestError error)
+    {
+        using var handler = new ThrowingHandler(new HttpRequestException(error, "the connection was reset"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+    }
+
+    [Fact]
+    public async Task APublishTheHttpClientTimedOutIsUnknown()
+    {
+        using var handler = new ThrowingHandler(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    [InlineData(HttpStatusCode.NotImplemented)]
+    public async Task APublishAnsweredWithAServerErrorIsUnknown(HttpStatusCode status)
+    {
+        // A proxy's 501 included: only the backend's own no_psa answer (below) says nothing was done.
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+        Assert.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), answer.Value![0].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APublishAcceptedWithAnAnswerThatCannotBeReadIsUnknown()
+    {
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>proxy</html>") });
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Accepted)]
+    [InlineData(HttpStatusCode.NoContent)]
+    public async Task APublishAcceptedWithoutItsAnswerIsUnknown(HttpStatusCode status)
+    {
+        // m-e: a 2xx that is not the backend's 200 says the request was taken and not what became of it.
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+        Assert.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), answer.Value![0].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APublishWhoseAnswerBrokeOffIsUnknown()
+    {
+        // m-e: the backend answered 200 and its body broke off. HttpClient reads the whole body before
+        // SendAsync returns (HttpCompletionOption.ResponseContentRead, its default), so the break surfaces
+        // there, as an HttpRequestException, not from the read after it.
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.OK) { Content = new BrokenContent() });
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+        Assert.StartsWith("The backend did not answer,", answer.Value![0].Error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.RequestEntityTooLarge)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task APublishTheBackendRejectedBeforeActingIsAPlainRefusal(HttpStatusCode status)
+    {
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.NotNull(answer.Refusal);
+    }
+
+    [Fact]
+    public async Task APublishTheEgressGuardBlockedIsAPlainRefusal()
+    {
+        using var handler = new ThrowingHandler(new EgressBlockedException(EgressPurpose.Publish, "api.screentail.example", "not on the allowed list"));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Contains("Blocked", answer.Refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnUnenrolledDeviceIsAPlainRefusalAndSendsNothing()
+    {
+        using var handler = new RecordingHandler(Json(new { }));
+        var gateway = new PsaGateway(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentail.example/") }, () => null);
+
+        var answer = await gateway.PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task OnlyAPublishTurnsAFailureIntoUnknownRows()
+    {
+        // A search that died mid-answer wrote nothing anywhere: it stays a plain refusal.
+        using var handler = new ThrowingHandler(new HttpRequestException(HttpRequestError.ResponseEnded, "ended"));
+
+        var answer = await Gateway(handler).SearchTicketsAsync("printer", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal("The backend did not answer.", answer.Refusal);
+    }
+
+    private static void AssertMayHaveLanded(GatewayAnswer<IReadOnlyList<ScreenTail.Shared.Ipc.PublishOutcomeRow>> answer)
+    {
+        Assert.True(answer.Ok, answer.Refusal);
+        var rows = answer.Value!;
+        Assert.Equal(["ticket_note", "time_entry"], rows.Select(r => r.Destination));
+        Assert.All(rows, r => Assert.Equal((false, "unknown", false), (r.Ok, r.Kind, r.Retryable)));
+        Assert.Contains("may already be on the ticket", rows[0].Error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task WithoutABackendOrATokenNothingIsSent()
     {
@@ -254,16 +412,37 @@ public sealed class PsaGatewayTests
     [Fact]
     public async Task NothingIsRecordedAsSentWhenNothingWasSentOrNoSessionWent()
     {
-        // No answer means whether the bytes left is unknown, and the audit log does not guess. A search or
-        // the integrations list carries no session, so it is not a bundle.
+        // A connection that never opened sent nothing. A search or the integrations list carries no
+        // session, so it is not a bundle.
         var audit = new RecordingAudit();
-        using var unreachable = new ThrowingHandler();
+        using var unreachable = new ThrowingHandler(new HttpRequestException(HttpRequestError.ConnectionError, "no route to host"));
         using var answering = new RecordingHandler(Json(new { tickets = Array.Empty<object>(), integrations = Array.Empty<object>() }));
 
         _ = await Gateway(unreachable, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
         _ = await Gateway(answering, audit).SearchTicketsAsync("printer", TestContext.Current.CancellationToken);
 
         Assert.Empty(audit.Rows);
+    }
+
+    [Fact]
+    public async Task APublishThatMayHaveLeftWithoutAnAnswerIsRecordedAsSent()
+    {
+        // m-h: a reset after the body went, or HttpClient's timeout, may have carried the note and its
+        // screenshots to the backend. The row says what may have left and to which host, nothing more
+        // (INV-10): the same row an answered publish writes.
+        var audit = new RecordingAudit();
+        using var reset = new ThrowingHandler(new HttpRequestException(HttpRequestError.Unknown, "the connection was reset"));
+        using var late = new ThrowingHandler(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+
+        _ = await Gateway(reset, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+        _ = await Gateway(late, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, audit.Rows.Count);
+        Assert.All(audit.Rows, row =>
+        {
+            Assert.Equal((AuditTypes.BundleSent, "s-0001", "api.screentail.example"), (row.Type, row.SessionId, row.Detail));
+            Assert.True(row.Count > 0);
+        });
     }
 
     [Fact]
@@ -373,10 +552,26 @@ public sealed class PsaGatewayTests
         }
     }
 
-    private sealed class ThrowingHandler : HttpMessageHandler
+    private sealed class ThrowingHandler(Exception? thrown = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            throw new HttpRequestException("no route to host");
+            throw thrown ?? new HttpRequestException("no route to host");
+    }
+
+    /// <summary>A body that breaks off partway, as a connection reset mid-answer does.</summary>
+    private sealed class BrokenContent : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+        {
+            await stream.WriteAsync(Encoding.UTF8.GetBytes("{\"results\":["));
+            throw new IOException("the connection was reset");
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     /// <summary>Keeps every row it is asked to write.</summary>

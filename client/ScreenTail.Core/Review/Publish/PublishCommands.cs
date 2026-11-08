@@ -13,8 +13,9 @@ namespace ScreenTail.Core.Review.Publish;
 /// per-destination answer is passed back as it is.
 ///
 /// Same two entry points as <see cref="ReviewCommands"/>: a question answered with its event, and the
-/// reason when there was no answer. The refusal is kept by request id between the two calls, because
-/// the server asks them in that order on the same connection.
+/// reason when there was no answer. The refusal is kept by connection and request id between the two
+/// calls, because the server asks them in that order on the same connection, and every client numbers
+/// its requests from 1 (review of #265).
 /// </summary>
 /// <param name="published">
 /// Told once a publish has marked its session published, so the machine stops resting on it and the
@@ -36,15 +37,44 @@ public sealed class PublishCommands(
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-    private readonly ConcurrentDictionary<int, string> _refusals = new();
+    private readonly ConcurrentDictionary<(Guid Caller, int RequestId), string> _refusals = new();
+
+    /// <summary>Sessions with a publish on its way to the backend. A second one waits for none: it is refused.</summary>
+    private readonly ConcurrentDictionary<string, byte> _publishing = new(StringComparer.Ordinal);
 
     /// <summary>The backend's ceiling on frames per publish (PublishLimits.MaxFrames, which is BundleOptions.MaxFrames).</summary>
     public const int MaxFrames = 25;
 
+    /// <summary>
+    /// The refusal for a destination the store holds as landed, sent without <c>publish_again</c>: a plain
+    /// resend (a dropped pipe, a restarted UI, a second window that never saw the landing) would add it
+    /// twice. Also every destination of a session published before the store kept outcomes.
+    /// </summary>
+    public const string AlreadyPublished = "This session is already published, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
+
+    /// <summary>
+    /// The refusal for a destination the store holds as unknown (O2), one whose last publish may have
+    /// landed, sent without <c>publish_again</c>. Kept in the store and checked for each destination sent,
+    /// so it holds across a reopened Review and a service restart, and against a second window that knows
+    /// of a different destination's outcome: that window's flag is only sent once its technician has
+    /// ticked the check.
+    /// </summary>
+    public const string Unconfirmed = "An earlier publish of this session was not confirmed, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
+
+    /// <summary>The refusal while another publish of the same session has not answered yet, whatever the flag says.</summary>
+    public const string StillPublishing = "This session is still being published, so it may already be on the ticket. Wait a moment, check the ticket, then confirm before publishing again.";
+
+    /// <summary>The refusal for a destination name this version does not know, said before anything is written ahead (m-b).</summary>
+    public const string UnknownDestination = "The publish named a destination this version of ScreenTail does not know, so nothing was sent.";
+
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
     public string? LastBookkeepingError { get; private set; }
 
-    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+    /// <summary>For one caller only, as the tests that ask on no connection do.</summary>
+    public Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default) => ReplyToAsync(command, Guid.Empty, ct);
+
+    /// <param name="caller">The connection asking, which keys the refusal its <see cref="HandleAsync(IpcCommand, Guid, CancellationToken)"/> reads.</param>
+    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         switch (command)
@@ -54,7 +84,7 @@ public sealed class PublishCommands(
                     var answer = await _gateway.IntegrationsAsync(ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new IntegrationsListed { RequestId = command.RequestId, Integrations = answer.Value! }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case SearchTicketsCommand search:
@@ -62,18 +92,18 @@ public sealed class PublishCommands(
                     var answer = await _gateway.SearchTicketsAsync(search.Query, ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new TicketsFound { RequestId = command.RequestId, Tickets = answer.Value! }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case PublishSessionCommand publish:
-                return await PublishAsync(publish, ct).ConfigureAwait(false);
+                return await PublishAsync(publish, caller, ct).ConfigureAwait(false);
 
             case GetCompanyMappingsCommand:
                 {
                     var answer = await _gateway.CompanyMappingsAsync(ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new CompanyMappingsListed { RequestId = command.RequestId, Companies = answer.Value!.Companies, Mappings = answer.Value.Mappings }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case ListIntegrationsCommand:
@@ -81,7 +111,7 @@ public sealed class PublishCommands(
                     var answer = await _gateway.IntegrationDetailsAsync(ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new IntegrationDetailsListed { RequestId = command.RequestId, Integrations = answer.Value! }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case CheckIntegrationCommand check:
@@ -89,7 +119,7 @@ public sealed class PublishCommands(
                     var answer = await _gateway.CheckIntegrationAsync(check.Provider, ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new IntegrationChecked { RequestId = command.RequestId, Ok = answer.Value!.Ok, Message = answer.Value.Message }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             default:
@@ -97,7 +127,11 @@ public sealed class PublishCommands(
         }
     }
 
-    public async Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
+    /// <summary>For one caller only, as the tests that ask on no connection do.</summary>
+    public Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default) => HandleAsync(command, Guid.Empty, ct);
+
+    /// <param name="caller">The connection asking: the same one whose question was refused.</param>
+    public async Task<CommandResult?> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         // The actions, whose result is the answer (the questions above are answered with their event).
@@ -119,23 +153,76 @@ public sealed class PublishCommands(
             return null;
         }
 
-        var reason = _refusals.TryRemove(command.RequestId, out var kept) ? kept : "The backend refused.";
+        var reason = _refusals.TryRemove((caller, command.RequestId), out var kept) ? kept : "The backend refused.";
         return new CommandResult { RequestId = command.RequestId, Ok = false, Error = reason };
     }
 
-    private async Task<IpcEvent?> PublishAsync(PublishSessionCommand publish, CancellationToken ct)
+    private async Task<IpcEvent?> PublishAsync(PublishSessionCommand publish, Guid caller, CancellationToken ct)
+    {
+        // A pipe that dropped mid-publish leaves the first one running here. A technician who looks at
+        // the ticket before it lands sees nothing and confirms; refused even then, until it has answered.
+        if (!_publishing.TryAdd(publish.SessionId, 0))
+        {
+            return Refuse(caller, publish, StillPublishing);
+        }
+
+        try
+        {
+            return await PublishOnceAsync(publish, caller, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _publishing.TryRemove(publish.SessionId, out _);
+        }
+    }
+
+    private async Task<IpcEvent?> PublishOnceAsync(PublishSessionCommand publish, Guid caller, CancellationToken ct)
     {
         var session = await _store.LoadSessionAsync(publish.SessionId, ct).ConfigureAwait(false);
         if (session is null)
         {
-            return Refuse(publish, "The session is gone, so there is nothing to publish.");
+            return Refuse(caller, publish, "The session is gone, so there is nothing to publish.");
         }
 
         // The note comes from the pane, not the store, so a session the technician threw away could still
         // go out with whatever the window held. A discard is the last word on it (INV-12).
-        if (string.Equals((await _store.GetSessionSummaryAsync(publish.SessionId, ct).ConfigureAwait(false))?.State, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
+        var state = (await _store.GetSessionSummaryAsync(publish.SessionId, ct).ConfigureAwait(false))?.State;
+        if (string.Equals(state, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
         {
-            return Refuse(publish, "The session was discarded, so there is nothing to publish.");
+            return Refuse(caller, publish, "The session was discarded, so there is nothing to publish.");
+        }
+
+        // m-b: the record is keyed by destination, and a name nothing answers for would be written ahead
+        // as unknown and stay so for good.
+        if (publish.Destinations.Any(d => !KnownDestinations.Contains(d)))
+        {
+            return Refuse(caller, publish, UnknownDestination);
+        }
+
+        // Something of it may be on a ticket already. The backend keeps nothing to catch a duplicate with
+        // (INV-7), so this is where it is caught, for each destination sent, against what the store holds
+        // for it: landed, or unknown (O2), whichever window, pane or service run left it (MJ1). Only the
+        // technician's "I checked the ticket" says a resend is meant, and the pane says so with
+        // publish_again (a Retry of what plainly failed needs no flag: nothing of it is held).
+        var stored = (await _store.GetPublishRecordAsync(publish.SessionId, ct).ConfigureAwait(false))?.Outcomes ?? new Dictionary<string, string>();
+        var isPublished = string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal);
+
+        // minor-2: a service that died between saving the outcomes and marking the session published left
+        // a landed session as a draft, which the tray and History keep offering. Mended here, whatever this
+        // publish then does. Not swept at service start: this is the first moment anything acts on it.
+        if (!isPublished && stored.Values.Contains(PublishRecord.Landed, StringComparer.Ordinal))
+        {
+            await KeepingTheResultAsync("state", () => MarkPublishedAsync(publish.SessionId, ct)).ConfigureAwait(false);
+            isPublished = true;
+        }
+
+        // minor-1: a session published before the record existed (0013) says nothing about which
+        // destination landed, so every one starts as unknown. Written ahead with the rest below, so one new
+        // publish of the article does not leave the note and the time entry looking never sent.
+        var before = stored.Count == 0 && isPublished ? AllUnknown() : stored;
+        if (!publish.PublishAgain && Refusal(publish.Destinations, stored, state) is { } refusal)
+        {
+            return Refuse(caller, publish, refusal);
         }
 
         // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
@@ -156,7 +243,7 @@ public sealed class PublishCommands(
         // than encoding and uploading megabytes for a certain refusal.
         if (chosen.Count > MaxFrames)
         {
-            return Refuse(publish, $"A publish can carry at most {MaxFrames} frames, and {chosen.Count} are included. Exclude {chosen.Count - MaxFrames} in the filmstrip and publish again.");
+            return Refuse(caller, publish, $"A publish can carry at most {MaxFrames} frames, and {chosen.Count} are included. Exclude {chosen.Count - MaxFrames} in the filmstrip and publish again.");
         }
 
         var frames = new List<PublishWireFrame>(chosen.Count);
@@ -173,6 +260,16 @@ public sealed class PublishCommands(
                 }
             }
         }
+
+        // Written ahead: from here the request may leave, so until the backend's answer says otherwise every
+        // destination sent is unknown. A fault, a cancelled connection or a service that dies mid-publish
+        // leaves it so, and the next publish is refused until the technician has looked (O2).
+        // One window stays, accepted by the owner (decision 4 on #265): the store runs WAL with
+        // synchronous = NORMAL (SqliteSessionStore.OpenAsync), so a commit is durable against a crashed
+        // process but not against power loss before the next checkpoint. A machine that loses power
+        // mid-publish can come back without this row, and the next plain publish is then not refused.
+        // synchronous stays NORMAL: FULL would cost every capture write a sync for this one case.
+        await _store.SavePublishRecordAsync(publish.SessionId, Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown))), ct).ConfigureAwait(false);
 
         var answer = await _gateway.PublishAsync(
             new PublishWire
@@ -194,8 +291,36 @@ public sealed class PublishCommands(
 
         if (!answer.Ok)
         {
-            return Refuse(publish, answer.Refusal!);
+            // A plain refusal: nothing was sent, so the record goes back to how it was.
+            await KeepingTheResultAsync("outcomes", () => _store.SavePublishRecordAsync(publish.SessionId, before, ct)).ConfigureAwait(false);
+            return Refuse(caller, publish, answer.Refusal!);
         }
+
+        // What the backend says about each destination replaces the write-ahead. One it did not mention
+        // stays unknown.
+        var written = Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown)));
+        foreach (var row in answer.Value!)
+        {
+            if (row.Ok)
+            {
+                written[row.Destination] = PublishRecord.Landed;
+            }
+            else if (row.Kind is DestinationResult.Unknown or DestinationResult.TimedOut)
+            {
+                written[row.Destination] = Settled(before, row.Destination) ?? PublishRecord.Unknown;
+            }
+            else if (Settled(before, row.Destination) is null)
+            {
+                // A plain failure, sent after the technician checked: nothing of it is on the ticket.
+                _ = written.Remove(row.Destination);
+            }
+            else
+            {
+                written[row.Destination] = PublishRecord.Landed;
+            }
+        }
+
+        await KeepingTheResultAsync("outcomes", () => _store.SavePublishRecordAsync(publish.SessionId, written, ct)).ConfigureAwait(false);
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
         // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
@@ -207,13 +332,7 @@ public sealed class PublishCommands(
             // now (owner decision, fail closed). The write refuses a row discarded while the backend was
             // answering, so a late landing does not bring a discarded session back. Bookkeeping as well, so
             // a store fault here cannot hide the results either.
-            await KeepingTheResultAsync("state", async () =>
-            {
-                if (await _store.MarkPublishedAsync(publish.SessionId, ct).ConfigureAwait(false) && published is not null)
-                {
-                    _ = await published(publish.SessionId, ct).ConfigureAwait(false);
-                }
-            }).ConfigureAwait(false);
+            await KeepingTheResultAsync("state", () => MarkPublishedAsync(publish.SessionId, ct)).ConfigureAwait(false);
 
             if (metrics is not null)
             {
@@ -228,6 +347,58 @@ public sealed class PublishCommands(
 
         return new SessionPublished { RequestId = publish.RequestId, Results = answer.Value! };
     }
+
+    /// <summary>Marks the session published and, when the write took, tells the machine so the tray's count moves.</summary>
+    private async Task MarkPublishedAsync(string sessionId, CancellationToken ct)
+    {
+        if (await _store.MarkPublishedAsync(sessionId, ct).ConfigureAwait(false) && published is not null)
+        {
+            _ = await published(sessionId, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Every destination as unknown, for a session published before the record existed.</summary>
+    private static Dictionary<string, string> AllUnknown() =>
+        KnownDestinations.ToDictionary(d => d, _ => PublishRecord.Unknown, StringComparer.Ordinal);
+
+    private static readonly HashSet<string> KnownDestinations = new(["ticket_note", "time_entry", "kb_article"], StringComparer.Ordinal);
+
+    /// <summary>
+    /// Why a plain send of these destinations is refused, or null. <see cref="AlreadyPublished"/> when any of
+    /// them landed, <see cref="Unconfirmed"/> when any may have. A session published before the record
+    /// existed (migration 0013) has the state and no outcomes, so every destination may have landed.
+    /// </summary>
+    private static string? Refusal(IReadOnlyList<string> destinations, IReadOnlyDictionary<string, string> before, string? state)
+    {
+        if (before.Count == 0)
+        {
+            return string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal) ? AlreadyPublished : null;
+        }
+
+        var held = destinations.Select(d => before.TryGetValue(d, out var outcome) ? outcome : null).ToList();
+        if (held.Contains(PublishRecord.Landed, StringComparer.Ordinal))
+        {
+            return AlreadyPublished;
+        }
+
+        return held.Contains(PublishRecord.Unknown, StringComparer.Ordinal) ? Unconfirmed : null;
+    }
+
+    /// <summary>The earlier outcomes with these laid over them, except that a destination that landed stays landed: that is a fact.</summary>
+    private static Dictionary<string, string> Merge(IReadOnlyDictionary<string, string> before, IEnumerable<(string Destination, string Outcome)> now)
+    {
+        var merged = new Dictionary<string, string>(before, StringComparer.Ordinal);
+        foreach (var (destination, outcome) in now)
+        {
+            merged[destination] = Settled(before, destination) ?? outcome;
+        }
+
+        return merged;
+    }
+
+    /// <summary><see cref="PublishRecord.Landed"/> when an earlier publish put this destination on the ticket, otherwise null.</summary>
+    private static string? Settled(IReadOnlyDictionary<string, string> before, string destination) =>
+        before.TryGetValue(destination, out var was) && string.Equals(was, PublishRecord.Landed, StringComparison.Ordinal) ? was : null;
 
     /// <summary>Runs one piece of post-publish bookkeeping; a fault is kept and logged as its kind alone (INV-10).</summary>
     private async Task KeepingTheResultAsync(string what, Func<Task> bookkeeping)
@@ -253,9 +424,9 @@ public sealed class PublishCommands(
         new EventId(1, nameof(BookkeepingFailed)),
         "A publish landed, but its {Bookkeeping} bookkeeping failed with {Fault}; the results went back as they came");
 
-    private IpcEvent? Refuse(IpcCommand command, string reason)
+    private IpcEvent? Refuse(Guid caller, IpcCommand command, string reason)
     {
-        _refusals[command.RequestId] = reason;
+        _refusals[(caller, command.RequestId)] = reason;
         return null;
     }
 }

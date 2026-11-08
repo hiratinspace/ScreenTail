@@ -204,6 +204,16 @@ public interface ISessionStore : IAsyncDisposable
     /// </summary>
     Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default);
 
+    /// <summary>What the last publish left on the ticket, per destination, and whether any of it is in doubt (O2). Null for no such session.</summary>
+    Task<PublishRecord?> GetPublishRecordAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the session's publish outcomes (destination to <see cref="PublishRecord.Landed"/> or
+    /// <see cref="PublishRecord.Unknown"/>). The unconfirmed mark is set while any is unknown, keeping when
+    /// it was first set, and cleared when none is. False for no such session.
+    /// </summary>
+    Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default);
+
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
     /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>
     Task<double> FreeSpaceFractionAsync(CancellationToken ct = default);
@@ -334,6 +344,16 @@ public sealed record SessionSummary(
     int Frames,
     bool RawPurged,
     string? Title);
+
+/// <summary>What the last publish of a session left on the ticket (O2): destination names and outcomes, never content.</summary>
+/// <param name="UnconfirmedAt">When a destination first became unknown; null when none is.</param>
+/// <param name="Outcomes">Destination wire name to <see cref="Landed"/> or <see cref="Unknown"/>. A destination that plainly failed, or was never sent, is absent.</param>
+public sealed record PublishRecord(DateTimeOffset? UnconfirmedAt, IReadOnlyDictionary<string, string> Outcomes)
+{
+    public const string Landed = "landed";
+
+    public const string Unknown = "unknown";
+}
 
 /// <param name="SessionId">The draft_pending session created last.</param>
 /// <param name="DraftLive">Whether its draft has outbox work that is still pending or uncertain, so something will settle it.</param>

@@ -419,9 +419,13 @@ chose it says so.
   fetch with a device token has landed. Confirm.
 - **An outbox with no backend** (#215): with no backend configured, a queued item is failed after a day
   and can be retried by hand, rather than waiting quietly. Confirm, or choose waiting.
-- **A publish that may have landed** (ST-090): whether Retry on an `unknown` row is hidden, relabelled or
-  confirmed (today it is offered under a message that says to check first), and a time budget for the
-  whole publish.
+- **A publish that may have landed** (ST-090, ST-093): since 2026-11-08 an `unknown` or `timed_out` row, and
+  a connection to the service that dropped mid-publish, is "not confirmed" and Retry is held behind an "I
+  checked the ticket" checkbox (the owner accepted the "confirmed" choice on #265, with O2 to O4: the
+  service remembers it across restarts, checks each destination sent against what it holds, and a
+  reopened Review offers each destination as the last publish left it). Still open: a time budget for the
+  whole publish, and an "it's there, mark it published" action, without which an unconfirmed destination
+  stays held until the technician ticks the box and publishes it again.
 - **The local text model** (ST-065): llama.cpp and a model download on the technician's machine.
 - **The processor limit** (#232, `docs/dev/performance.md`): how the budget reads on a machine without
   four cores (15% of a smaller machine, 60% of one core on a bigger one); that the deepest level stops

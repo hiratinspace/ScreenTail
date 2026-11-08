@@ -817,6 +817,36 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@id", sessionId),
             ("@discarded", Sessions.SessionStateNames.Discarded)).ConfigureAwait(false) > 0;
 
+    public Task<PublishRecord?> GetPublishRecordAsync(string sessionId, CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT publish_unconfirmed_at, publish_outcomes FROM sessions WHERE id = @id",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false)
+                ? new PublishRecord(
+                    reader.IsDBNull(0) ? null : DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                    reader.IsDBNull(1) ? new Dictionary<string, string>() : JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(1)) ?? [])
+                : null,
+            ct,
+            ("@id", sessionId));
+
+    public async Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(outcomes);
+        var unconfirmed = outcomes.Values.Any(v => string.Equals(v, PublishRecord.Unknown, StringComparison.Ordinal));
+        return await RunAsync(
+            """
+            UPDATE sessions
+            SET publish_outcomes = @outcomes,
+                publish_unconfirmed_at = CASE WHEN @unconfirmed = 1 THEN COALESCE(publish_unconfirmed_at, @now) ELSE NULL END,
+                updated_at = @now
+            WHERE id = @id
+            """,
+            ct,
+            ("@outcomes", outcomes.Count == 0 ? null : JsonSerializer.Serialize(outcomes.OrderBy(o => o.Key, StringComparer.Ordinal).ToDictionary(o => o.Key, o => o.Value, StringComparer.Ordinal))),
+            ("@unconfirmed", unconfirmed ? 1 : 0),
+            ("@now", Iso(_time.GetUtcNow())),
+            ("@id", sessionId)).ConfigureAwait(false) > 0;
+    }
+
     /// <summary>
     /// Marks one session discarded, inside the caller's transaction and under its gate. Its note goes, with
     /// the ticket number read off the customer's window at start (ST-077), and so does its queued work: left,

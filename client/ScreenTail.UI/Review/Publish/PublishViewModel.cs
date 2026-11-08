@@ -9,10 +9,14 @@ using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.UI.Review.Publish;
 
-/// <summary>One line of the result list: what landed, where, or why not.</summary>
-public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error)
+/// <summary>One line of the result list: what landed, where, or why not. <paramref name="MayHaveLanded"/> is marked apart from a failure.</summary>
+/// <param name="Status">What the mark is read as, when the row has a name of its own ("Already published").</param>
+public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error, bool MayHaveLanded = false, string? Status = null)
 {
-    public string Mark => Ok ? "✓" : "✗";
+    public string Mark => Ok ? "✓" : MayHaveLanded ? "?" : "✗";
+
+    /// <summary>The mark in words for a screen reader, which would otherwise say "question mark".</summary>
+    public string MarkName => Status ?? (Ok ? "Published" : MayHaveLanded ? "Not confirmed" : "Failed");
 
     public Visibility LinkVisibility => Link is null ? Visibility.Collapsed : Visibility.Visible;
 
@@ -125,6 +129,30 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial string KbLabel { get; set; } = "KB article";
 
+    /// <summary>"Ticket note", or with what an earlier publish left (O3): "? Ticket note (not confirmed)".</summary>
+    [ObservableProperty]
+    public partial string TicketNoteLabel { get; set; } = "Ticket note";
+
+    [ObservableProperty]
+    public partial string TimeEntryLabel { get; set; } = "Time entry";
+
+    /// <summary>The labels in words for a screen reader, which would read the "?" as "question mark".</summary>
+    [ObservableProperty]
+    public partial string TicketNoteName { get; set; } = "Ticket note";
+
+    [ObservableProperty]
+    public partial string TimeEntryName { get; set; } = "Time entry";
+
+    [ObservableProperty]
+    public partial string KbName { get; set; } = "KB article";
+
+    /// <summary>An earlier publish left something on the ticket, or may have: the form shows the check (O3).</summary>
+    [ObservableProperty]
+    public partial Visibility EarlierVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial string EarlierPrompt { get; set; } = string.Empty;
+
     [ObservableProperty]
     public partial string BlockedBecause { get; set; } = string.Empty;
 
@@ -164,6 +192,31 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility RetryVisibility { get; set; } = Visibility.Collapsed;
 
+    [ObservableProperty]
+    public partial bool CanRetry { get; set; }
+
+    /// <summary>
+    /// Something may already be on the ticket (a lost answer, a deadline, a session already published):
+    /// the warning with its checkbox shows, and Publish, Ctrl+Enter and Retry wait for the box.
+    /// </summary>
+    [ObservableProperty]
+    public partial Visibility CheckTicketVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>The panel's <see cref="PublishPanel.CheckTheTicketFirst"/> while something may have landed, ticked or not.</summary>
+    [ObservableProperty]
+    public partial string CheckTicketPrompt { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string CheckTicketLabel { get; set; } = string.Empty;
+
+    /// <summary>The technician's "I checked the ticket". Spent on the next send, so it clears itself after.</summary>
+    [ObservableProperty]
+    public partial bool TicketChecked { get; set; }
+
+    /// <summary>The checkbox is off while a send is on its way: a tick then would be about the answer before it.</summary>
+    [ObservableProperty]
+    public partial bool CanCheckTicket { get; set; } = true;
+
     /// <summary>`Ctrl+Enter`, and the button. Refused by the panel when blocked, whatever pressed it.</summary>
     [RelayCommand]
     private async Task PublishAsync()
@@ -173,6 +226,7 @@ public sealed partial class PublishViewModel : ObservableObject
             return;
         }
 
+        CanCheckTicket = false;
         try
         {
             await _panel.PublishAsync(_note(), _frames()).ConfigureAwait(true);
@@ -190,6 +244,13 @@ public sealed partial class PublishViewModel : ObservableObject
     [RelayCommand]
     private async Task RetryAsync()
     {
+        // Something may already be on the ticket and the box is not ticked: the warning above says so.
+        if (_panel.RetryBlockedBecause is { } check)
+        {
+            CheckTicketPrompt = check;
+            return;
+        }
+
         // Retry sends only what failed, so the minutes matter only when the time entry is among it.
         if (BlockedHere(minutesMatter: _panel.Failed.Contains(Destination.TimeEntry)) is { } reason)
         {
@@ -197,8 +258,15 @@ public sealed partial class PublishViewModel : ObservableObject
             return;
         }
 
-        await _panel.RetryAsync(_note(), _frames()).ConfigureAwait(true);
-        Refresh();
+        CanCheckTicket = false;
+        try
+        {
+            await _panel.RetryAsync(_note(), _frames()).ConfigureAwait(true);
+        }
+        finally
+        {
+            Refresh();
+        }
     }
 
     /// <summary>
@@ -214,8 +282,9 @@ public sealed partial class PublishViewModel : ObservableObject
             return;
         }
 
-        // The article carries the frames too, so the ceiling holds here; it carries no minutes.
-        if (BlockedHere(minutesMatter: false) is { } reason)
+        // The article carries the frames too, so the ceiling holds here; it carries no minutes. And the
+        // retry behind the mapping sends whatever failed, including one that may already be on the ticket.
+        if ((_panel.RetryBlockedBecause ?? BlockedHere(minutesMatter: false)) is { } reason)
         {
             MappingError = reason;
             MappingErrorVisibility = Visibility.Visible;
@@ -223,6 +292,7 @@ public sealed partial class PublishViewModel : ObservableObject
         }
 
         CanMap = false;
+        CanCheckTicket = false;
         MappingError = string.Empty;
         MappingErrorVisibility = Visibility.Collapsed;
         var mapped = await _panel.MapAndRetryAsync(choice.Id, _note(), _frames()).ConfigureAwait(true);
@@ -316,6 +386,12 @@ public sealed partial class PublishViewModel : ObservableObject
     /// <summary>The strip changed what goes out, so the frame ceiling may have been crossed either way (E-18).</summary>
     public void FramesChanged() => RefreshBlock();
 
+    partial void OnTicketCheckedChanged(bool value)
+    {
+        _panel.TicketChecked = value;
+        Refresh();
+    }
+
     partial void OnTicketNoteChanged(bool value)
     {
         _panel.TicketNote = value;
@@ -370,7 +446,20 @@ public sealed partial class PublishViewModel : ObservableObject
         TicketNote = _panel.TicketNote;
         TimeEntry = _panel.TimeEntry;
         KbArticle = _panel.KbArticle;
-        KbLabel = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
+        var kb = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
+        (TicketNoteLabel, TicketNoteName) = Earlier(Destination.TicketNote, "Ticket note");
+        (TimeEntryLabel, TimeEntryName) = Earlier(Destination.TimeEntry, "Time entry");
+        (KbLabel, KbName) = Earlier(Destination.KbArticle, kb);
+
+        // O3: the check in the form, for a destination an earlier publish landed or may have landed. The
+        // sentence stays while it shows; what is ticked only decides whether Publish waits for the box.
+        EarlierVisibility = _panel.HasEarlier && _panel.Results.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // m-g: after the service's refusal sent the pane back here, its words lead, in the live region,
+        // since the result list that would have said them is gone.
+        const string Choice = "An earlier publish reached the ticket, or may have. Destinations marked already on the ticket, already in the knowledge base or not confirmed start unticked; sending one of them again needs the check below. The others go without it.";
+        EarlierPrompt = !_panel.HasEarlier
+            ? string.Empty
+            : _panel.EarlierRefusal is { Length: > 0 } refusal ? $"{refusal} {Choice}" : Choice;
         RefreshBlock();
         PublishVisibility = _panel.HasIntegrations ? Visibility.Visible : Visibility.Collapsed;
         ConnectVisibility = _panel.HasIntegrations ? Visibility.Collapsed : Visibility.Visible;
@@ -382,7 +471,18 @@ public sealed partial class PublishViewModel : ObservableObject
 
         // While the article waits on a mapping, the prompt is the retry: Retry alone would fail the same way.
         var needsMapping = _panel.NeedsMapping;
-        RetryVisibility = _panel.PartiallyPublished && !needsMapping ? Visibility.Visible : Visibility.Collapsed;
+        var mayHaveLanded = _panel.NeedsTicketCheck;
+        RetryVisibility = (_panel.PartiallyPublished || mayHaveLanded) && !needsMapping ? Visibility.Visible : Visibility.Collapsed;
+        CanRetry = _panel.CanRetry;
+
+        // The send resets the panel's confirmation, so the box follows it rather than the other way round.
+        TicketChecked = _panel.TicketChecked;
+        CanCheckTicket = !_panel.IsPublishing;
+        CheckTicketVisibility = mayHaveLanded && _panel.Results.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Kept up once the box is ticked: only the buttons change, so the live region never announces an
+        // empty line and Retry's help text never goes blank.
+        CheckTicketPrompt = mayHaveLanded ? PublishPanel.CheckTheTicketFirst : string.Empty;
+        CheckTicketLabel = _panel.Ticket is { } ticket ? $"I checked ticket #{ticket.Id} and want to publish again" : "I checked the ticket and want to publish again";
         MappingVisibility = needsMapping ? Visibility.Visible : Visibility.Collapsed;
         MappingPrompt = needsMapping
             ? $"\u201c{_panel.CompanyToMap}\u201d is not mapped to a company in the documentation platform yet. Choose the one it is and the article goes there. The choice is remembered."
@@ -406,7 +506,13 @@ public sealed partial class PublishViewModel : ObservableObject
         Results.Clear();
         foreach (var result in _panel.Results)
         {
-            Results.Add(new ResultRow(Label(result.Destination), result.Ok, result.Link, result.Error));
+            Results.Add(new ResultRow(
+                Label(result.Destination),
+                result.Ok,
+                result.Link,
+                result.Error,
+                result.MayHaveLanded,
+                result.Kind == DestinationResult.AlreadyPublished ? "Already published" : null));
         }
     }
 
@@ -459,6 +565,15 @@ public sealed partial class PublishViewModel : ObservableObject
             MappingErrorVisibility = Visibility.Visible;
         }
     }
+
+    /// <summary>A destination's label and its name for a screen reader, with what an earlier publish left (O3).</summary>
+    private (string Label, string Name) Earlier(Destination destination, string label) => _panel.EarlierFor(destination) switch
+    {
+        EarlierOutcome.Landed when destination == Destination.KbArticle => ($"{label}  (already in the knowledge base)", $"{label}, already in the knowledge base"),
+        EarlierOutcome.Landed => ($"{label}  (already on the ticket)", $"{label}, already on the ticket"),
+        EarlierOutcome.Unknown => ($"? {label}  (not confirmed)", $"{label}, not confirmed"),
+        _ => (label, label),
+    };
 
     private static string Label(Destination destination) => destination switch
     {

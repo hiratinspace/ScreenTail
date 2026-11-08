@@ -416,7 +416,9 @@ public sealed class LiveShell : IAsyncDisposable
             publisher.SearchAsync,
             publisher.PublishAsync,
             mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync),
-            draftPending: draftPending);
+            draftPending: draftPending,
+            earlierOutcomes: PipePublisher.Earlier(loaded.PublishOutcomes),
+            reloadEarlier: c => publisher.EarlierAsync(sessionId, c));
 
         // ST-077: the ticket number the coordinator read off the window when the session started. The
         // PSA is asked for it by id so the pane can show its summary and company beside the Suggested
