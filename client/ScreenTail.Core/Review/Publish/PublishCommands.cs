@@ -249,6 +249,11 @@ public sealed class PublishCommands(
         // Written ahead: from here the request may leave, so until the backend's answer says otherwise every
         // destination sent is unknown. A fault, a cancelled connection or a service that dies mid-publish
         // leaves it so, and the next publish is refused until the technician has looked (O2).
+        // One window stays, accepted by the owner (decision 4 on #265): the store runs WAL with
+        // synchronous = NORMAL (SqliteSessionStore.OpenAsync), so a commit is durable against a crashed
+        // process but not against power loss before the next checkpoint. A machine that loses power
+        // mid-publish can come back without this row, and the next plain publish is then not refused.
+        // synchronous stays NORMAL: FULL would cost every capture write a sync for this one case.
         await _store.SavePublishRecordAsync(publish.SessionId, Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown))), ct).ConfigureAwait(false);
 
         var answer = await _gateway.PublishAsync(
