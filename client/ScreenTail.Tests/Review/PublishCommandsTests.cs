@@ -573,6 +573,46 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ALegacyPublishedSessionKeepsItsDoubtAfterOneNewPublish()
+    {
+        // minor-1 (re-review at bde6a99): the fallback for a session published before 0013 lived only
+        // while the record was empty. One confirmed publish of the article wrote a record without the note
+        // or the time entry, and a plain send of the note then went. Every destination starts as unknown.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        Assert.True(await _store!.MarkPublishedAsync("s1"));
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { Destinations = ["kb_article"], PublishAgain = true }));
+        var record = await _store.GetPublishRecordAsync("s1");
+        Assert.Equal(new Dictionary<string, string> { ["kb_article"] = "landed", ["ticket_note"] = "unknown", ["time_entry"] = "unknown" }, record!.Outcomes);
+
+        var note = Publish(["f1"]) with { RequestId = 8, Destinations = ["ticket_note"] };
+        Assert.Null(await commands.ReplyToAsync(note));
+        Assert.False((await commands.HandleAsync(note))!.Ok);
+        Assert.Single(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task ACrashBeforeThePublishedMarkIsMendedAtTheNextPublish()
+    {
+        // minor-2: the outcomes say something landed and the session is still draft_ready, so the tray
+        // and History keep offering it as a draft. The next publish of it marks it published, refused or not.
+        var told = new List<string>();
+        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(_key));
+        var commands = new PublishCommands(_store, _gateway, published: (id, _) => { told.Add(id); return Task.FromResult(true); });
+        await SeedAsync(["f1"]);
+        Assert.True(await _store.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "landed" }));
+
+        var plain = Publish(["f1"]) with { RequestId = 8 };
+        Assert.Null(await commands.ReplyToAsync(plain));
+        Assert.Equal(PublishCommands.AlreadyPublished, (await commands.HandleAsync(plain))!.Error);
+
+        Assert.Equal(Core.Sessions.SessionStateNames.Published, (await _store.GetSessionSummaryAsync("s1"))!.State);
+        Assert.Equal(["s1"], told);
+        Assert.Empty(_gateway.Published);
+    }
+
+    [Fact]
     public async Task ADestinationItDoesNotKnowIsRefusedBeforeAnythingIsWritten()
     {
         // m-b: a name outside the three would be written ahead as unknown and then stay so for good.

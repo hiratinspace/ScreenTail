@@ -99,6 +99,68 @@ public sealed class PipePublisherTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ARetryBesideALandingDoesNotVouchForWhatAnotherWindowLeftUnknown()
+    {
+        // MAJOR-1 (re-review of #265 at bde6a99): window A saw the note land and the time entry plainly
+        // fail. Window B then sent the time entry, and it came back unknown. A's Retry was unheld and
+        // went with publish_again, so the time entry could land twice.
+        var publisher = await PublisherAsync();
+        _backend.FailTime = true;
+        var panel = Panel(publisher);
+        await panel.PublishAsync(Draft(), ["f1"], TestContext.Current.CancellationToken);
+        Assert.True(panel.PartiallyPublished);
+        Assert.Equal(1, _backend.PublishCalls);
+
+        // Window B's attempt, as the store keeps it.
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown" }, TestContext.Current.CancellationToken));
+        _backend.FailTime = false;
+
+        Assert.True(panel.CanRetry);
+        var results = await panel.RetryAsync(Draft(), ["f1"], TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, _backend.PublishCalls);
+        Assert.Equal(DestinationResult.SessionUnconfirmed, results.Single(r => r.Destination == Destination.TimeEntry).Kind);
+    }
+
+    [Fact]
+    public async Task AWholeRequestRefusalAfterAnUnknownKeepsRetryHeld()
+    {
+        // MAJOR-1, the same window: the note landed and the time entry may have. The technician ticked
+        // the box and Retry was refused for the whole request, which says nothing about the ticket. The
+        // time entry is still in doubt, so the next Retry waits for the box again.
+        var publisher = await PublisherAsync();
+        _backend.TimeKind = "unknown";
+        var panel = Panel(publisher);
+        await panel.PublishAsync(Draft(), ["f1"], TestContext.Current.CancellationToken);
+        Assert.Equal(1, _backend.PublishCalls);
+
+        panel.TicketChecked = true;
+        _backend.RefuseOnce = "The backend did not answer.";
+        _backend.TimeKind = null;
+        var refused = await panel.RetryAsync(Draft(), ["f1"], TestContext.Current.CancellationToken);
+        Assert.Equal(DestinationResult.Refused, refused.Single(r => r.Destination == Destination.TimeEntry).Kind);
+        Assert.Equal(2, _backend.PublishCalls);
+
+        Assert.False(panel.CanRetry);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.RetryBlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), ["f1"], TestContext.Current.CancellationToken));
+        Assert.Equal(2, _backend.PublishCalls);
+    }
+
+    /// <summary>A real pane over the pipe, on the seeded session, with the note and the time entry chosen.</summary>
+    private static PublishPanel Panel(PipePublisher publisher)
+    {
+        var panel = new PublishPanel(
+            Session(draft: Draft()) with { SessionId = "s1" },
+            ["connectwise"],
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            publisher.PublishAsync);
+        panel.KbArticle = false;
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        return panel;
+    }
+
+    [Fact]
     public void TheSessionsPublishOutcomesBecomeThePanesEarlierOutcomes()
     {
         var earlier = PipePublisher.Earlier(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown", ["something_new"] = "landed" });
@@ -460,6 +522,9 @@ public sealed class PipePublisherTests : IAsyncDisposable
 
         public bool FailTime { get; set; }
 
+        /// <summary>When set, the time entry comes back failed with this kind (unknown, timed_out), ahead of <see cref="FailTime"/>.</summary>
+        public string? TimeKind { get; set; }
+
         public IReadOnlyList<TicketRow> Tickets { get; set; } = [];
 
         public IReadOnlyList<IntegrationInfo> Integrations { get; set; } = [];
@@ -552,8 +617,9 @@ public sealed class PipePublisherTests : IAsyncDisposable
             }
 
             Received = bundle;
-            return GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d => d == "time_entry" && FailTime
-                ? new PublishOutcomeRow(d, false, Error: "ConnectWise says no.", Kind: "forbidden")
+            return GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d =>
+                d == "time_entry" && TimeKind is { } kind ? new PublishOutcomeRow(d, false, Error: "ConnectWise may have saved it.", Kind: kind)
+                : d == "time_entry" && FailTime ? new PublishOutcomeRow(d, false, Error: "ConnectWise says no.", Kind: "forbidden")
                 : new PublishOutcomeRow(d, true, "1", Link))]);
         }
     }
