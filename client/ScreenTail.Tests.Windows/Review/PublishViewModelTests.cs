@@ -149,6 +149,43 @@ public sealed class PublishViewModelTests
     }
 
     [Fact]
+    public async Task AReopenedPaneMarksEachDestinationAndHoldsTheOnesThatMayDuplicate()
+    {
+        // O3: the note may have landed and the time entry plainly failed. The note starts unticked and
+        // marked, read as "not confirmed"; the time entry goes alone without the box; the note needs it.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var sent = new List<PublishRequest>();
+        var session = Session(Frames(1));
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) =>
+            {
+                sent.Add(request);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, true))]);
+            },
+            earlierOutcomes: new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Unknown });
+        var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+        pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+
+        Assert.False(pane.TicketNote);
+        Assert.Equal("? Ticket note  (not confirmed)", pane.TicketNoteLabel);
+        Assert.Equal("Ticket note, not confirmed", pane.TicketNoteName);
+        Assert.Equal(System.Windows.Visibility.Visible, pane.EarlierVisibility);
+        Assert.True(pane.CanPublish);
+
+        pane.TicketNote = true;
+        Assert.False(pane.CanPublish);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.BlockedBecause);
+
+        pane.TicketChecked = true;
+        Assert.True(pane.CanPublish);
+        await pane.PublishCommand.ExecuteAsync(null);
+        Assert.True(Assert.Single(sent).PublishAgain);
+    }
+
+    [Fact]
     public void TheDiscussionHintIsBoundAndSaysNoProductDuringTheDemo()
     {
         // Review 2026-10-27: the XAML line was fixed text naming ConnectWise, shown during the demo.

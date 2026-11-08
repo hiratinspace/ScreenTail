@@ -80,6 +80,7 @@ public sealed class PipePublisher(CaptureConnection connection)
             var kind = answer.Refusal switch
             {
                 PublishCommands.AlreadyPublished => DestinationResult.AlreadyPublished,
+                PublishCommands.Unconfirmed => DestinationResult.SessionUnconfirmed,
                 PublishCommands.StillPublishing => DestinationResult.Unknown,
                 _ => null,
             };
@@ -103,7 +104,43 @@ public sealed class PipePublisher(CaptureConnection connection)
         _ => "The connection to the capture service dropped before it answered, so the article may already be written. Check the knowledge base before you publish the article again.",
     };
 
-    public static IReadOnlyDictionary<Destination, EarlierOutcome> Earlier(IReadOnlyDictionary<string, string>? outcomes) => outcomes is null ? new Dictionary<Destination, EarlierOutcome>() : [];
+    /// <summary>
+    /// The session reply's <c>publish_outcomes</c> as the pane's (O3). A destination or an outcome this
+    /// version does not know is left out rather than guessed at.
+    /// </summary>
+    public static IReadOnlyDictionary<Destination, EarlierOutcome> Earlier(IReadOnlyDictionary<string, string>? outcomes)
+    {
+        var earlier = new Dictionary<Destination, EarlierOutcome>();
+        foreach (var (wire, outcome) in outcomes ?? new Dictionary<string, string>())
+        {
+            Destination? destination = wire switch
+            {
+                "ticket_note" => Destination.TicketNote,
+                "time_entry" => Destination.TimeEntry,
+                "kb_article" => Destination.KbArticle,
+                _ => null,
+            };
+            EarlierOutcome? known = outcome switch
+            {
+                "landed" => EarlierOutcome.Landed,
+                "unknown" => EarlierOutcome.Unknown,
+                _ => null,
+            };
+            if (destination is { } d && known is { } o)
+            {
+                earlier[d] = o;
+            }
+        }
+
+        return earlier;
+    }
+
+    /// <summary>What the service remembers the session's earlier publishes left, asked again after a refusal (O3). Empty when it will not say.</summary>
+    public async Task<IReadOnlyDictionary<Destination, EarlierOutcome>> EarlierAsync(string sessionId, CancellationToken ct = default)
+    {
+        var loaded = await _connection.RequestAsync<SessionLoaded>(id => new GetSessionCommand { RequestId = id, SessionId = sessionId }, ct).ConfigureAwait(false);
+        return Earlier(loaded?.PublishOutcomes);
+    }
 
     private static string Wire(Destination destination) => destination switch
     {

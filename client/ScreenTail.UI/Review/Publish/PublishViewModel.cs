@@ -129,6 +129,30 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial string KbLabel { get; set; } = "KB article";
 
+    /// <summary>"Ticket note", or with what an earlier publish left (O3): "? Ticket note (not confirmed)".</summary>
+    [ObservableProperty]
+    public partial string TicketNoteLabel { get; set; } = "Ticket note";
+
+    [ObservableProperty]
+    public partial string TimeEntryLabel { get; set; } = "Time entry";
+
+    /// <summary>The labels in words for a screen reader, which would read the "?" as "question mark".</summary>
+    [ObservableProperty]
+    public partial string TicketNoteName { get; set; } = "Ticket note";
+
+    [ObservableProperty]
+    public partial string TimeEntryName { get; set; } = "Time entry";
+
+    [ObservableProperty]
+    public partial string KbName { get; set; } = "KB article";
+
+    /// <summary>An earlier publish left something on the ticket, or may have: the form shows the check (O3).</summary>
+    [ObservableProperty]
+    public partial Visibility EarlierVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial string EarlierPrompt { get; set; } = string.Empty;
+
     [ObservableProperty]
     public partial string BlockedBecause { get; set; } = string.Empty;
 
@@ -422,7 +446,17 @@ public sealed partial class PublishViewModel : ObservableObject
         TicketNote = _panel.TicketNote;
         TimeEntry = _panel.TimeEntry;
         KbArticle = _panel.KbArticle;
-        KbLabel = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
+        var kb = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
+        (TicketNoteLabel, TicketNoteName) = Earlier(Destination.TicketNote, "Ticket note");
+        (TimeEntryLabel, TimeEntryName) = Earlier(Destination.TimeEntry, "Time entry");
+        (KbLabel, KbName) = Earlier(Destination.KbArticle, kb);
+
+        // O3: the check in the form, for a destination an earlier publish landed or may have landed. The
+        // sentence stays while it shows; what is ticked only decides whether Publish waits for the box.
+        EarlierVisibility = _panel.HasEarlier && _panel.Results.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EarlierPrompt = _panel.HasEarlier
+            ? "An earlier publish reached the ticket, or may have. Destinations marked already on the ticket or not confirmed start unticked; sending one of them again needs the check below. The others go without it."
+            : string.Empty;
         RefreshBlock();
         PublishVisibility = _panel.HasIntegrations ? Visibility.Visible : Visibility.Collapsed;
         ConnectVisibility = _panel.HasIntegrations ? Visibility.Collapsed : Visibility.Visible;
@@ -441,7 +475,7 @@ public sealed partial class PublishViewModel : ObservableObject
         // The send resets the panel's confirmation, so the box follows it rather than the other way round.
         TicketChecked = _panel.TicketChecked;
         CanCheckTicket = !_panel.IsPublishing;
-        CheckTicketVisibility = mayHaveLanded ? Visibility.Visible : Visibility.Collapsed;
+        CheckTicketVisibility = mayHaveLanded && _panel.Results.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         // Kept up once the box is ticked: only the buttons change, so the live region never announces an
         // empty line and Retry's help text never goes blank.
         CheckTicketPrompt = mayHaveLanded ? PublishPanel.CheckTheTicketFirst : string.Empty;
@@ -528,6 +562,14 @@ public sealed partial class PublishViewModel : ObservableObject
             MappingErrorVisibility = Visibility.Visible;
         }
     }
+
+    /// <summary>A destination's label and its name for a screen reader, with what an earlier publish left (O3).</summary>
+    private (string Label, string Name) Earlier(Destination destination, string label) => _panel.EarlierFor(destination) switch
+    {
+        EarlierOutcome.Landed => ($"{label}  (already on the ticket)", $"{label}, already on the ticket"),
+        EarlierOutcome.Unknown => ($"? {label}  (not confirmed)", $"{label}, not confirmed"),
+        _ => (label, label),
+    };
 
     private static string Label(Destination destination) => destination switch
     {
