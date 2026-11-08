@@ -77,7 +77,12 @@ public sealed class PipePublisher(CaptureConnection connection)
         // published, and one whose earlier publish is still on its way. The same outcome as a lost answer.
         if (answer.Reply is not { } published)
         {
-            var kind = answer.Refusal is PublishCommands.AlreadyPublished or PublishCommands.StillPublishing ? DestinationResult.Unknown : null;
+            var kind = answer.Refusal switch
+            {
+                PublishCommands.AlreadyPublished => DestinationResult.AlreadyPublished,
+                PublishCommands.StillPublishing => DestinationResult.Unknown,
+                _ => null,
+            };
             return [.. destinations.Select(d => new DestinationResult(d, false, null, answer.Refusal, kind))];
         }
 

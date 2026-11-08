@@ -316,7 +316,8 @@ into a `kind: unknown` row for every destination, with the backend's own "Check 
 publish ... again" wording), and the service's two refusals below. The pane shows those rows as not
 confirmed, never as failed, with a warning and a checkbox ("I checked ticket #48213 and want to publish
 again"); Publish, `Ctrl+Enter`, Retry and the mapping prompt's retry all wait for the box, and the tick is
-spent on one send.
+spent on one send, including a tick given while that send was on its way (the box is disabled meanwhile).
+The warning stays up once the box is ticked; only the buttons change.
 
 The backend keeps nothing to recognise a second copy by (INV-7), so the service is the second guard. A
 session it has marked published (any destination landed) is refused with "This session is already
@@ -326,7 +327,10 @@ results: a Retry after a landing, which sends only what failed, or a send after 
 box. A second `publish_session` for a session whose first has not answered yet is refused with "This
 session is still being published, ..." whatever `publish_again` says, because the ticket the technician
 just looked at may not show the first one yet. The pane reads both refusals as the may-have-landed outcome,
-so the technician is asked rather than told. `publish_again` is optional and false when absent; it is a
+so the technician is asked rather than told; the first is said as "Already published: check the ticket
+before publishing again" rather than "not confirmed", because part of it is on the ticket. The service
+keeps a refusal's words for its `result` by connection and request id, since each client numbers its
+requests from 1. `publish_again` is optional and false when absent; it is a
 new field on a command both sides exchange, so the version moved to 9.
 
 ```json

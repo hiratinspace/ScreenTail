@@ -63,10 +63,16 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
     public const string TimedOut = "timed_out";
 
     /// <summary>
+    /// The service refused a session it has already marked published (<see cref="PublishCommands.AlreadyPublished"/>).
+    /// The pane's own name, never on the wire: something of it is on the ticket, so it is not "not confirmed".
+    /// </summary>
+    public const string AlreadyPublished = "already_published";
+
+    /// <summary>
     /// Failed, but it may be on the ticket all the same. Sending it again without looking is how a ticket
     /// gets the note twice, so the pane holds every way of sending until the technician says they checked.
     /// </summary>
-    public bool MayHaveLanded => !Ok && Kind is Unknown or TimedOut;
+    public bool MayHaveLanded => !Ok && Kind is Unknown or TimedOut or AlreadyPublished;
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
@@ -314,9 +320,12 @@ public sealed class PublishPanel
             var landed = _results.Values.Where(r => r.Ok).Select(r => Name(r.Destination)).ToList();
             var first = failed[0];
             var prefix = landed.Count > 0 ? $"{Capitalise(landed[0])} published. " : string.Empty;
-            // One that may have landed is not called failed: "failed" reads as "publish again".
+            // One that may have landed is not called failed: "failed" reads as "publish again". One the
+            // service refused as already published is said as that, since part of it is on the ticket.
             var outcome = first.MayHaveLanded ? "not confirmed" : "failed";
-            var line = $"{prefix}{Capitalise(Name(first.Destination))} {outcome}: {first.Error ?? "no reason given"}";
+            var line = first.Kind == DestinationResult.AlreadyPublished
+                ? $"{prefix}Already published: check the ticket before publishing again"
+                : $"{prefix}{Capitalise(Name(first.Destination))} {outcome}: {first.Error ?? "no reason given"}";
             return missing.Length > 0 ? $"{line} {missing}" : line;
         }
     }

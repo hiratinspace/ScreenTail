@@ -532,6 +532,19 @@ public sealed class PublishPanelTests
     }
 
     [Fact]
+    public async Task ASessionTheServiceSaysIsAlreadyPublishedIsSaidAsThatAndHeldTheSameWay()
+    {
+        // Review of #265 (m5). Part of it is on the ticket, so "not confirmed" would undersell it.
+        var panel = Panel(publish: r => [.. r.Destinations.Select(d => new DestinationResult(d, false, null, PublishCommands.AlreadyPublished, DestinationResult.AlreadyPublished))]);
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.Equal("Already published: check the ticket before publishing again", panel.Summary);
+        Assert.True(panel.MayHaveLanded);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+    }
+
+    [Fact]
     public async Task APartialPublishWithADestinationThatMayHaveLandedHoldsRetryUntilChecked()
     {
         // The note landed and the time entry's answer was lost. Retry sends only the time entry, and that

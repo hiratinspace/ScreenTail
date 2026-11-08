@@ -10,9 +10,13 @@ using ScreenTail.Shared.Schema;
 namespace ScreenTail.UI.Review.Publish;
 
 /// <summary>One line of the result list: what landed, where, or why not. <paramref name="MayHaveLanded"/> is marked apart from a failure.</summary>
-public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error, bool MayHaveLanded = false)
+/// <param name="Status">What the mark is read as, when the row has a name of its own ("Already published").</param>
+public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error, bool MayHaveLanded = false, string? Status = null)
 {
     public string Mark => Ok ? "✓" : MayHaveLanded ? "?" : "✗";
+
+    /// <summary>The mark in words for a screen reader, which would otherwise say "question mark".</summary>
+    public string MarkName => Status ?? (Ok ? "Published" : MayHaveLanded ? "Not confirmed" : "Failed");
 
     public Visibility LinkVisibility => Link is null ? Visibility.Collapsed : Visibility.Visible;
 
@@ -174,7 +178,7 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility CheckTicketVisibility { get; set; } = Visibility.Collapsed;
 
-    /// <summary>The panel's <see cref="PublishPanel.CheckTheTicketFirst"/> while the box is clear, and empty once it is ticked.</summary>
+    /// <summary>The panel's <see cref="PublishPanel.CheckTheTicketFirst"/> while something may have landed, ticked or not.</summary>
     [ObservableProperty]
     public partial string CheckTicketPrompt { get; set; } = string.Empty;
 
@@ -438,7 +442,9 @@ public sealed partial class PublishViewModel : ObservableObject
         TicketChecked = _panel.TicketChecked;
         CanCheckTicket = !_panel.IsPublishing;
         CheckTicketVisibility = mayHaveLanded ? Visibility.Visible : Visibility.Collapsed;
-        CheckTicketPrompt = _panel.RetryBlockedBecause ?? string.Empty;
+        // Kept up once the box is ticked: only the buttons change, so the live region never announces an
+        // empty line and Retry's help text never goes blank.
+        CheckTicketPrompt = mayHaveLanded ? PublishPanel.CheckTheTicketFirst : string.Empty;
         CheckTicketLabel = _panel.Ticket is { } ticket ? $"I checked ticket #{ticket.Id} and want to publish again" : "I checked the ticket and want to publish again";
         MappingVisibility = needsMapping ? Visibility.Visible : Visibility.Collapsed;
         MappingPrompt = needsMapping
@@ -463,7 +469,13 @@ public sealed partial class PublishViewModel : ObservableObject
         Results.Clear();
         foreach (var result in _panel.Results)
         {
-            Results.Add(new ResultRow(Label(result.Destination), result.Ok, result.Link, result.Error, result.MayHaveLanded));
+            Results.Add(new ResultRow(
+                Label(result.Destination),
+                result.Ok,
+                result.Link,
+                result.Error,
+                result.MayHaveLanded,
+                result.Kind == DestinationResult.AlreadyPublished ? "Already published" : null));
         }
     }
 

@@ -211,7 +211,7 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 - Destinations: checkboxes; KB toggle default follows `kb_candidate` with reason text.
 - Primary **Publish** button; disabled state tooltip explains why ("Choose a ticket first").
 - After publish: pane switches to a result list with green checks, links, and "Retry" on any failed destination; the title bar gains a `Published` badge.
-- A destination that may have landed (the PSA did not confirm, the publish ran out of time, or the connection to the capture service dropped before it answered) is marked `?` and called "not confirmed", never "failed". A warning above Retry says "This may already be on the ticket. Check the ticket, then confirm below before publishing again, so nothing is added twice", with a checkbox "I checked ticket #48213 and want to publish again". Publish, `Ctrl+Enter` and Retry stay disabled until it is ticked; it is in the tab order, the warning is a polite live region, and the tick is spent on one send. *(v0.5.2)*
+- A destination that may have landed (the PSA did not confirm, the publish ran out of time, or the connection to the capture service dropped before it answered) is marked `?` (read by a screen reader as "Not confirmed") and called "not confirmed", never "failed"; one the service refused because the session is already published says "Already published: check the ticket before publishing again". A warning above Retry says "This may already be on the ticket. Check the ticket, then confirm below before publishing again, so nothing is added twice", with a checkbox "I checked ticket #48213 and want to publish again". Publish, `Ctrl+Enter` and Retry stay disabled until it is ticked; it is in the tab order, the warning is a polite live region that stays up once the box is ticked, the box is disabled while a send is on its way, and the tick is spent on one send. *(v0.5.2)*
 
 **Bottom panel — Timeline & transcript**
 - Collapsed by default to a 40 px scrubber; `Alt+T` toggles. Expanded: 220 px with monospace transcript lines `[14:02:10] clearing the queue now`; clicking a line highlights its frame; markers for clicks (dots), frames (squares), suppression (striped), scope (violet band), "mark moment" (flag).
@@ -272,6 +272,7 @@ Appears only when end-user audio is enabled. Modal before recording end-user aud
 | Published | "Published to ticket #48213 · 0:30 logged" | Open in ConnectWise |
 | Partial publish | "Note published. Time entry failed: <reason>." | Retry |
 | Not confirmed | "Note not confirmed: <reason>." (the reason says to check the ticket first) | Retry, once the check is confirmed |
+| Already published | "Already published: check the ticket before publishing again" | Retry, once the check is confirmed |
 | Capability | "Microphone is blocked by Windows privacy settings." | Fix |
 
 Copy rules: sentence case; no exclamation marks; name the object (ticket, note, session); always offer the next step.

@@ -129,7 +129,7 @@ public sealed class PublishViewModelTests
         Assert.Equal(System.Windows.Visibility.Visible, pane.RetryVisibility);
         Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.CheckTicketPrompt);
         Assert.Equal("I checked ticket #48213 and want to publish again", pane.CheckTicketLabel);
-        Assert.All(pane.Results, row => Assert.Equal("?", row.Mark));
+        Assert.All(pane.Results, row => Assert.Equal(("?", "Not confirmed"), (row.Mark, row.MarkName)));
         Assert.False(pane.CanPublish);
         Assert.False(pane.CanRetry);
         Assert.True(pane.CanCheckTicket);
@@ -140,7 +140,7 @@ public sealed class PublishViewModelTests
         pane.TicketChecked = true;
 
         Assert.True(pane.CanRetry);
-        Assert.Equal(string.Empty, pane.CheckTicketPrompt);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.CheckTicketPrompt);
         await pane.RetryCommand.ExecuteAsync(null);
         Assert.Equal(2, sent.Count);
         Assert.True(sent[1].PublishAgain);

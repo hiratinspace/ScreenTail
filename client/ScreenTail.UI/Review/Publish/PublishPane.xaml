@@ -164,7 +164,7 @@
                                         <ColumnDefinition Width="22" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" />
+                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" AutomationProperties.Name="{Binding MarkName}" />
                                     <StackPanel Grid.Column="1">
                                         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Label}" />
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Error}" Visibility="{Binding ErrorVisibility}" />

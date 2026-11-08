@@ -89,6 +89,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         Assert.False(refused.Ok);
         Assert.True(refused.MayHaveLanded);
         Assert.Equal(PublishCommands.AlreadyPublished, refused.Error);
+        Assert.Equal(DestinationResult.AlreadyPublished, refused.Kind);
         Assert.Equal(1, _backend.PublishCalls);
 
         var again = Assert.Single(await publisher.PublishAsync(request with { PublishAgain = true }, TestContext.Current.CancellationToken));
