@@ -127,7 +127,12 @@ public sealed class WhisperRecogniserTests : IDisposable
                 new ModelDownload(new HttpClient(new StubServer(HttpStatusCode.ServiceUnavailable, []))),
                 Elsewhere,
                 _dir,
-                abandoned: () => Interlocked.Increment(ref abandoned));
+                abandoned: () => Interlocked.Increment(ref abandoned))
+            {
+                // So the call after disposal goes past its first line, to the token's link (whose source
+                // the disposal let go of) and the lock, rather than returning for want of a model.
+                LoadableForTests = true,
+            };
             using var go = new ManualResetEventSlim(false);
             var disposals = Enumerable.Range(0, 8)
                 .Select(_ => Task.Run(
@@ -144,6 +149,7 @@ public sealed class WhisperRecogniserTests : IDisposable
             await recogniser.DisposeAsync();
             Assert.Equal(0, abandoned);
             Assert.Null(await recogniser.TranscribeAsync(new SpeechSegment(0, 1_000, Truncated: false), new short[16_000], ct));
+            Assert.False(recogniser.Loaded, "a segment after the stop loaded a model nobody frees");
         }
     }
 
