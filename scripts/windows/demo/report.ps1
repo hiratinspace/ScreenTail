@@ -470,6 +470,16 @@ function Get-CheckedLogFilter([string]$Source, [string]$Hash) {
     return $block
 }
 
+# The token elevation type in words, for the report's "This machine" section. Full is the one start refuses.
+function Get-ElevationFact([string]$Type) {
+    switch ($Type) {
+        'Full' { return 'Full (Run as administrator: the capture service refuses to run from a window like this)' }
+        'Limited' { return 'Limited (an administrator''s ordinary window: the demo runs from one like it)' }
+        'Default' { return 'Default (a standard user, or UAC off: the demo runs from one like it)' }
+    }
+    return 'unreadable'
+}
+
 # Said after "The log filter could not be checked": when PowerShell is not in FullLanguage mode (an
 # Application Control or AppLocker policy puts it in ConstrainedLanguage), the check cannot run at all, and
 # that is the likely reason. Nothing otherwise.
@@ -1084,6 +1094,11 @@ Invoke-Section 'This machine' {
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     Add-Fact 'This report ran as administrator' (Get-YesNo $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
+    $elevation = Get-TokenElevationType
+    Add-Fact 'This report''s token elevation type' (Get-ElevationFact $elevation)
+    if ((Get-ElevationVerdict $elevation) -eq 'refuse') {
+        Add-Problem 15 'This report ran from a PowerShell window that runs as administrator. ScreenTail''s capture service refuses to run elevated, so start.cmd from a window like this cannot start the demo.' 'Close it, open PowerShell from the Start menu with plain Enter (not Run as administrator), cd to the repository and run start.cmd.'
+    }
 
     $smart = 'not present on this Windows'
     $ci = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue
