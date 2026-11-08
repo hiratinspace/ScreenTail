@@ -342,6 +342,41 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task APublishWhoseGatewayThrewDoesNotHoldTheNextOneAsStillPublishing()
+    {
+        // Review of #265 (m3). The in-flight mark is taken before the backend is asked; a gateway that
+        // throws must not leave it behind, or every later publish of the session is refused for good.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Throws = new HttpRequestException("the backend went away");
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => commands.ReplyToAsync(Publish(["f1"])));
+        _gateway.Throws = null;
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
+        Assert.Single(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task ACancelledPublishDoesNotHoldTheNextOneAsStillPublishing()
+    {
+        // The same for a publish whose connection was closed while the backend was being asked.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Hold = Task.Delay(Timeout.Infinite, TestContext.Current.CancellationToken);
+        using var cancel = new CancellationTokenSource();
+
+        var first = commands.ReplyToAsync(Publish(["f1"]), cancel.Token);
+        await _gateway.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        _gateway.Hold = null;
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
+        Assert.Single(_gateway.Published);
+    }
+
+    [Fact]
     public async Task ABackendRefusalIsAFailedResultWithItsWords()
     {
         var commands = await CommandsAsync();
@@ -541,7 +576,10 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         public Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
             Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
 
-        /// <summary>When set, a publish waits for it before answering, so a test can act while one is on its way.</summary>
+        /// <summary>When set, a publish throws it, as a gateway with a fault of its own would.</summary>
+        public Exception? Throws { get; set; }
+
+        /// <summary>When set, a publish waits for it (or for its token) before answering, so a test can act while one is on its way.</summary>
         public Task? Hold { get; set; }
 
         /// <summary>Set once a publish reaches the backend.</summary>
@@ -554,10 +592,15 @@ public sealed class PublishCommandsTests : IAsyncDisposable
                 return GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(r);
             }
 
+            if (Throws is { } thrown)
+            {
+                throw thrown;
+            }
+
             Reached.TrySetResult();
             if (Hold is { } hold)
             {
-                await hold.ConfigureAwait(false);
+                await hold.WaitAsync(ct).ConfigureAwait(false);
             }
 
             Published.Add(bundle);
