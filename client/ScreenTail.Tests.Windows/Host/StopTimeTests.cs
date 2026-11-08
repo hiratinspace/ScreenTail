@@ -210,18 +210,13 @@ public sealed class StopTimeTests : IAsyncDisposable
                 $"the service took {stopped.TotalMilliseconds:F0} ms to stop, budget {CloseRequests.DefaultBudget.TotalMilliseconds:F0} ms\n{service.Log}");
 
             // #262 follow-up. The real microphone cannot be made to speak on cue, so whether a segment was
-            // with the model at the ask is read from the service's own lines afterwards. When one was, the
-            // stop aborted it rather than leaving it running (the recogniser's "still busy" line is the
-            // abandoned case), and the whole stop stayed well inside the budget. SpeechUnloadTests and
+            // with the model at the ask is read from the service's own lines afterwards (reported below).
+            // Whenever one was, the abort must have been answered within StopBound.Default (500 ms, owner's
+            // decision 2026-11-08): the recogniser's "still busy" line is the case where it was not. The
+            // stop's own time is held to the budget above and reported. SpeechUnloadTests and
             // TheProcessEndsWithATranscriptionStillInFlight put one in flight for certain.
             narrationInFlight = service.Says(NarrationDroppedLine);
-            Assert.False(service.Says(SpeechLeftRunningLine), $"the speech model was left running at the stop: its transcription did not answer the abort\n{service.Log}");
-            if (narrationInFlight)
-            {
-                Assert.True(
-                    stopped < SpeechUnloadTests.AbortedWithin,
-                    $"the service took {stopped.TotalMilliseconds:F0} ms to stop with a transcription in flight, bound {SpeechUnloadTests.AbortedWithin.TotalMilliseconds:F0} ms\n{service.Log}");
-            }
+            Assert.False(service.Says(SpeechLeftRunningLine), $"the abort was not answered within StopBound.Default ({StopBound.Default.TotalMilliseconds:F0} ms): the speech model was left running at the stop\n{service.Log}");
 
             firstLog = service.Log;
         }

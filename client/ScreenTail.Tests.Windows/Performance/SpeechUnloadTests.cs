@@ -140,27 +140,23 @@ public sealed class SpeechUnloadTests
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
             $"Stop mid-transcription ({Model.Name}, a minute of audio in flight): the recogniser's disposal returned in **{disposed.TotalMilliseconds:F0} ms** "
-            + $"(bound {StopBound.Default.TotalMilliseconds:F0} ms, enforced); the native call ended {ended.TotalMilliseconds:F0} ms after the stop "
-            + $"(enforced under {AbortedWithin.TotalMilliseconds:F0} ms); left to finish by itself: {(abandoned > 0 ? "yes" : "no, it answered the abort")} (enforced: no)"));
+            + $"(bound {StopBound.Default.TotalMilliseconds:F0} ms, enforced); the native call ended {ended.TotalMilliseconds:F0} ms after the stop (reported); "
+            + $"abort answered within {StopBound.Default.TotalMilliseconds:F0} ms: {(abandoned > 0 ? "no, left to finish by itself" : "yes")} (enforced)"));
         Assert.Null(heard);
         Assert.True(
             disposed < StopBound.Default + TimeSpan.FromMilliseconds(500),
             string.Create(CultureInfo.InvariantCulture, $"disposal with a transcription in flight took {disposed.TotalMilliseconds:F0} ms, bound {StopBound.Default.TotalMilliseconds:F0} ms"));
 
-        // #262 follow-up: the stop does not merely stop waiting, it aborts the call. whisper.cpp reads the
-        // token at its abort and encoder-begin checks, so the native call itself ends soon after the stop,
-        // and disposal never had to leave it running (the recogniser's "abandoned", which the service logs
-        // as "The speech model was still busy at stop", is zero). The narration segment it was working on
-        // is still dropped, by the owner's decision: that is NarrationRecorder.AbandonedAtStop, a
-        // different count, and it is one per segment in flight, not zero.
-        Assert.True(
-            ended < AbortedWithin,
-            string.Create(CultureInfo.InvariantCulture, $"the native call ended {ended.TotalMilliseconds:F0} ms after the stop, so the stop did not abort it"));
-        Assert.True(abandoned == 0, "the recogniser's disposal stopped waiting with the native call still running: the abort was not answered inside the bound");
+        // #262 follow-up, owner's decision 2026-11-08: the stop does not merely stop waiting, it aborts the
+        // call, and the abort is answered within StopBound.Default (500 ms). whisper.cpp reads the token at
+        // its abort and encoder-begin checks. The disposal's release waits for the call to let go of the
+        // lock for exactly that bound, so "answered within it" is the recogniser's "abandoned" being zero
+        // (the service logs the other case as "The speech model was still busy at stop"). When the end of
+        // the call is reported above it is a figure, not a second bound. The narration segment it was
+        // working on is still dropped, by the owner's decision of 2026-11-05: that is
+        // NarrationRecorder.AbandonedAtStop, a different count, one per segment in flight, not zero.
+        Assert.True(abandoned == 0, string.Create(CultureInfo.InvariantCulture, $"the abort was not answered within StopBound.Default ({StopBound.Default.TotalMilliseconds:F0} ms): the recogniser's disposal stopped waiting with the native call still running"));
     }
-
-    /// <summary>How soon after the stop a transcription in flight must have ended, aborted (#262 follow-up).</summary>
-    internal static TimeSpan AbortedWithin { get; } = TimeSpan.FromMilliseconds(1_500);
 
     /// <summary>
     /// The tests' own copy of the model, kept between runs. Seeded from the service's folder when the

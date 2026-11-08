@@ -346,12 +346,14 @@ end by itself and free the model, or to go with the process. The service logs a 
 nothing else. `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measures it on the laptop with a
 minute of audio certainly in flight, since the microphone cannot be made to speak on cue in this test.
 Since the #262 follow-up it also requires that the stop aborts the call rather than only ceasing to wait:
-the native call ends within 1.5 s of the stop, and the recogniser never had to leave it running (its
-"abandoned" count, logged as "The speech model was still busy at stop", is zero). The narration segment
-is still dropped and counted (`NarrationRecorder.AbandonedAtStop`, one per segment that was with the
-model; a stop that lands once the model has answered is not counted). `StopTimeTests` checks the same in
-the real host whenever its log shows a segment was with the model at the ask (the stop then under 1.5 s,
-and no "still busy" line), and `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` runs a child
+**the abort is answered within `StopBound.Default` (500 ms)** (owner's decision, 2026-11-08), so the
+recogniser never has to leave the call running (its "abandoned" count, logged as "The speech model was
+still busy at stop", is zero). When the native call ended after the stop is reported as a figure, not
+held to a second bound. The narration segment is still dropped and counted
+(`NarrationRecorder.AbandonedAtStop`, one per segment that was with the model; a stop that lands once the
+model has answered is not counted). `StopTimeTests` checks the same in the real host whenever its log
+shows a segment was with the model at the ask (no "still busy" line; the stop itself is held to the 4 s
+budget and reported), and `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` runs a child
 process that returns with five minutes of audio still being transcribed and the recogniser not disposed,
 and requires that process to end, with success, within 5 s.
 
