@@ -29,7 +29,11 @@ at most, waiting at least as long as a Retry-After of up to five seconds; a long
 once, saying how long ConnectWise asked to wait. A wrong key is not retried,
 because that is how an integration becomes an account lockout. A note, time entry or document is sent
 again only when none of it left or ConnectWise answered 429: after a timeout or a server error it may be
-saved, so it comes back `unknown` and the technician is asked to check the ticket first.
+saved, so it comes back `unknown` and the technician is asked to check the ticket first. The client
+holds Publish, `Ctrl+Enter` and Retry on such a row until the technician ticks "I checked ticket #..."
+(the same for a `timed_out` row and for a connection to the capture service that dropped mid-publish),
+and the capture service refuses to publish a session it already marked published unless the client says
+the resend is meant (`publish_again`, `docs/ipc-contract.md`).
 Every refusal reaches the technician as a kind and two sentences, with ConnectWise's own words about what
 it refused and nothing else from the response (`backend/src/ScreenTail.Api/Providers/README.md`).
 
