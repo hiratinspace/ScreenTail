@@ -7,25 +7,31 @@ namespace ScreenTail.Tests.Privacy;
 /// A token on screen that the OCR engine read as more than one word (loop-13 frame-text, 2026-11-08).
 ///
 /// The end-to-end loop shows "pass: Tangerine4821Wobble", one token with no space in it. Windows OCR
-/// sometimes returns it as "Tangerine4821" and "Wobble", boxes touching. The password rule ends a value
-/// at the first plain word, so "Wobble" stayed in the stored OCR text and outside the painted mask:
-/// three hosted runs in about twenty failed on exactly that, a six-letter part of the secret stored.
-/// What separates the two pieces from two words is on the screen, not in the text: there is no space
-/// between them. These are shaped like the engine's own result for the loop's 24 pt label.
+/// sometimes returns it as "Tangerine4821" and "Wobble". The password rule ends a value at the first
+/// plain word, so "Wobble" stayed in the stored OCR text and outside the painted mask: four hosted runs
+/// in 72 failed on exactly that, a six-letter part of the secret stored. What separates the two pieces
+/// from two words is on the screen, not in the text: the gap between their boxes is narrower than a
+/// space. These are shaped like the engine's own result for the loop's 24 pt label.
 /// </summary>
 public sealed class OcrSplitTokenTests
 {
     private static readonly RedactionEngine Engine = new();
 
-    /// <summary>The label's line height in pixels, and the gap a space leaves between two words' boxes.</summary>
-    private const int Height = 32;
+    /// <summary>
+    /// The word boxes' height for the loop's 24 pt label, and the gaps the engine left between them
+    /// (ScreenTail.Tests.Windows OcrSplitSecretTests): a space was never narrower than 0.39 of the height
+    /// at that size, and the pieces of a split token were never further apart than 0.33 of it. Both are
+    /// taken at their edge here, so a rule that drifts either way fails.
+    /// </summary>
+    private const int Height = 24;
     private const int Space = 9;
+    private const int Split = 8;
 
     [Fact]
     public void ATokenReadAsTwoWordsIsMaskedWhole()
     {
         // The shape the loop failed on: split where the digits meet the second word.
-        var words = Line(("pass:", Space), ("Tangerine4821", 1), ("Wobble", 0));
+        var words = Line(("pass:", Space), ("Tangerine4821", Split), ("Wobble", 0));
 
         var redaction = Engine.RedactFrame(words);
 
@@ -38,7 +44,7 @@ public sealed class OcrSplitTokenTests
     [Fact]
     public void ATokenReadAsThreeWordsIsMaskedWhole()
     {
-        var words = Line(("pass:", Space), ("Tangerine", 0), ("4821", 1), ("Wobble", 0));
+        var words = Line(("pass:", Space), ("Tangerine", 0), ("4821", Split), ("Wobble", 0));
 
         var redaction = Engine.RedactFrame(words);
 
@@ -51,7 +57,7 @@ public sealed class OcrSplitTokenTests
     {
         // No colon, so nothing asserts a value and the plain first piece is read as prose: the rule
         // masked "4821Wobble" and kept "Tangerine", nine letters of the secret.
-        var words = Line(("password", Space), ("Tangerine", 1), ("4821Wobble", 0));
+        var words = Line(("password", Space), ("Tangerine", Split), ("4821Wobble", 0));
 
         var redaction = Engine.RedactFrame(words);
 
@@ -65,7 +71,7 @@ public sealed class OcrSplitTokenTests
     {
         // The control, as PatternLibraryGapTests.TheWordsAroundASecretAreLeftAlone is for one row of
         // words: a space on screen still ends the token, so the technician's own words stay readable.
-        var words = Line(("pass:", Space), ("Tangerine4821", 1), ("Wobble", Space), ("for", Space), ("reception", 0));
+        var words = Line(("pass:", Space), ("Tangerine4821", Split), ("Wobble", Space), ("for", Space), ("reception", 0));
 
         var redaction = Engine.RedactFrame(words);
 
@@ -81,7 +87,7 @@ public sealed class OcrSplitTokenTests
         [
             new("pass:", 24, 100, 60, Height),
             new("Tangerine4821", 93, 100, 190, Height),
-            new("Wobble", 284, 100, 96, Height),
+            new("Wobble", 291, 100, 96, Height),
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
         ];
@@ -98,7 +104,7 @@ public sealed class OcrSplitTokenTests
         var x = 24;
         for (var i = 0; i < words.Length; i++)
         {
-            var width = words[i].Text.Length * 15;
+            var width = words[i].Text.Length * 12;
             line[i] = new OcrWord(words[i].Text, x, 100, width, Height);
             x += width + words[i].GapAfter;
         }

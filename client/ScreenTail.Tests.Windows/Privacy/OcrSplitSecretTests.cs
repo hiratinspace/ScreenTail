@@ -16,7 +16,8 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// back as two or three OCR words ("Tangerine4821" and "Wobble"), and the password rule, which ends a
 /// value at the first plain word, masked the first and left the second in the stored text and unpainted
 /// in the frame. Which renderings split depends on the glyphs either side of the digits, which is why the
-/// loop, drawing a new secret each run, failed about one run in seven.
+/// loop, drawing a new secret each run, failed now and then (four hosted runs in 72, 2026-11-04 to 08).
+/// Before the fix this measured, at 24 pt, 30 splits in 500 renderings and 14 secrets left showing.
 ///
 /// This draws every secret the loop can draw a word pair of, the way the test window draws it, and says
 /// how many the engine split and how many the redaction left any of showing. It prints counts and box
@@ -43,7 +44,9 @@ public sealed class OcrSplitSecretTests
 
     [Theory]
     [InlineData(24f)] // the test window's label
+    [InlineData(14f)]
     [InlineData(11f)] // an ordinary dialog's body text
+    [InlineData(9f)] // the smallest text a technician reads
     public async Task TheLoopsSecretIsMaskedWholeHoweverTheEngineSplitsIt(float points)
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
@@ -51,7 +54,7 @@ public sealed class OcrSplitSecretTests
         Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
         var engine = new RedactionEngine();
 
-        int renders = 0, cueUnread = 0, split = 0, leakedText = 0, leakedPixels = 0;
+        int renders = 0, cueUnread = 0, split = 0, leakedText = 0, leakedPixels = 0, splitApart = 0;
         var splitGaps = new List<double>();
         var spaceGaps = new List<double>();
         var heights = new List<int>();
@@ -99,6 +102,7 @@ public sealed class OcrSplitSecretTests
                         for (var i = 1; i < pieces.Count; i++)
                         {
                             splitGaps.Add(Gap(pieces[i - 1], pieces[i]));
+                            splitApart += Gap(pieces[i - 1], pieces[i]) > RedactionEngine.TokenGap ? 1 : 0;
                         }
                     }
 
@@ -121,6 +125,8 @@ public sealed class OcrSplitSecretTests
             $"OCR of the loop's secret at {points:0}pt: {renders} renderings, the engine split the secret in **{split}**, "
             + $"the pass cue unread in {cueUnread}; left showing in the stored text **{leakedText}**, unpainted in the frame **{leakedPixels}**. "
             + $"Gaps as a share of word height: inside a split token {Describe(splitGaps)}, at a real space {Describe(spaceGaps)}; "
+            + $"wider than the token rule's {RedactionEngine.TokenGap:0.00}: {splitApart} split gap(s); "
+            + $"real spaces it would take for none (over-masking): {spaceGaps.Count(g => g <= RedactionEngine.TokenGap)} of {spaceGaps.Count}; "
             + $"word height median {Median(heights.Select(h => (double)h).ToList()):0} px.");
         Measurements.Record(summary);
 

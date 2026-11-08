@@ -113,12 +113,30 @@ public sealed class RedactionEngine
         foreach (var match in matches)
         {
             // Every word the match touches is masked whole: a partly painted number is still readable.
-            var touched = spans.Where(s => s.Start < match.End && match.Start < s.End).ToList();
-            if (touched.Count == 0)
+            var first = spans.FindIndex(s => s.Start < match.End && match.Start < s.End);
+            if (first < 0)
             {
                 continue;
             }
 
+            var last = spans.FindLastIndex(s => s.Start < match.End && match.Start < s.End);
+
+            // And so is every token it touches. The engine can read one token on screen as several
+            // words: "pass: Tangerine4821Wobble" came back as "Tangerine4821" and "Wobble", and the
+            // password rule, which ends a value at the first plain word, masked the first and left the
+            // second in the stored text and unpainted in the frame (loop-13, 2026-11-08). The words of
+            // one token have no space between them on the screen, whatever the text says.
+            while (first > 0 && SameToken(spans[first - 1].Word, spans[first].Word))
+            {
+                first--;
+            }
+
+            while (last < spans.Count - 1 && SameToken(spans[last].Word, spans[last + 1].Word))
+            {
+                last++;
+            }
+
+            var touched = spans.GetRange(first, last - first + 1);
             regions.Add(Cover([.. touched.Select(s => s.Word)], match.Kind));
 
             // And the stored text loses the same words the picture did.
@@ -200,6 +218,40 @@ public sealed class RedactionEngine
         }
 
         return (resolved, complete);
+    }
+
+    /// <summary>
+    /// The widest gap, as a share of the shorter word's height, that two OCR words can have between their
+    /// boxes and still be one token on the screen.
+    ///
+    /// Measured on Windows OCR (ScreenTail.Tests.Windows OcrSplitSecretTests, hosted runner, 2026-11-08):
+    /// inside a token the engine split, 0.04 to 0.33 at 24 pt and 0.09 to 0.27 at 11 pt; at a real
+    /// space, never under 0.36 in 15,000. The line sits just under the narrowest space, on the side that
+    /// masks more: a token left half masked is a secret stored, a space taken for none is one more word
+    /// under the marker. Text smaller than about 10 pt, where a space is three pixels, is joined more
+    /// often than it should be, which costs readability there and never a secret.
+    /// </summary>
+    internal const double TokenGap = 0.35;
+
+    /// <summary>
+    /// Whether <paramref name="next"/> carries on the token <paramref name="word"/> is part of: on the
+    /// same row, to its right, with less between their boxes than a space leaves.
+    /// </summary>
+    private static bool SameToken(OcrWord word, OcrWord next)
+    {
+        var height = Math.Min(word.Height, next.Height);
+        if (height <= 0 || next.X < word.X)
+        {
+            return false;
+        }
+
+        var middle = next.Y + (next.Height / 2.0);
+        if (middle < word.Y || middle > word.Y + word.Height)
+        {
+            return false;
+        }
+
+        return next.X - (word.X + word.Width) <= height * TokenGap;
     }
 
     private static MaskedRegion Cover(IReadOnlyList<OcrWord> words, MaskKind kind)
