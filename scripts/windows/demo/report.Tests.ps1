@@ -391,6 +391,45 @@ try {
     Check 'a restricted language mode is named' (Has (Get-LanguageModeNote 'ConstrainedLanguage') 'ConstrainedLanguage language mode') (Get-LanguageModeNote 'ConstrainedLanguage')
     Check 'this test runs in FullLanguage, so the sentences here have no note' ((Get-LanguageModeNote) -ceq '') (Get-LanguageModeNote)
 
+    # --- An elevated window: start refuses Full only, as StartGuard does (common.ps1) -------------------
+    $verdicts = @{ 'Full' = 'refuse'; 'Default' = 'ok'; 'Limited' = 'ok'; 'Unknown' = 'warn'; '' = 'warn'; 'Elevated' = 'warn' }
+    foreach ($type in @($verdicts.Keys)) {
+        $got = Get-ElevationVerdict $type
+        Check "elevation type '$type' is '$($verdicts[$type])' for start" ($got -ceq $verdicts[$type]) $got
+    }
+    $readType = Get-TokenElevationType
+    Check 'this window''s elevation type is read (FullLanguage, so Add-Type works)' (@('Default', 'Full', 'Limited') -contains $readType) $readType
+    Check 'reading the elevation type twice in one window still works' ((Get-TokenElevationType) -ceq $readType) $readType
+    Check 'the report names Full as the one the capture service refuses' (Has (Get-ElevationFact 'Full') 'refuses') (Get-ElevationFact 'Full')
+    Check 'the report says unreadable for an elevation type it could not read' ((Get-ElevationFact 'Unknown') -ceq 'unreadable') (Get-ElevationFact 'Unknown')
+
+    # Assert-NotElevated in a child window, because a refusal ends the script it runs in.
+    $commonScript = Join-Path $PSScriptRoot 'common.ps1'
+    $assertCases = @(
+        @{ Type = 'Full'; Exit = 1; MustSay = @('runs as administrator (''Administrator:'' in its title)', 'refuses to run elevated, so the demo cannot start from here', 'Close this window.', 'not Ctrl+Shift+Enter', 'Run this profile as Administrator', 'start.cmd') },
+        @{ Type = 'Limited'; Exit = 0; MustSay = @('Not elevated') },
+        @{ Type = 'Default'; Exit = 0; MustSay = @('Not elevated') },
+        @{ Type = 'Unknown'; Exit = 0; MustSay = @('warning: Could not tell whether this window runs as administrator') })
+    foreach ($case in $assertCases) {
+        $child = ". $(ConvertTo-Quoted $commonScript); Assert-NotElevated -Type '$($case.Type)'; exit 0"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+        $said = (& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1 | Out-String)
+        $childExit = $LASTEXITCODE
+        $ok = ($childExit -eq $case.Exit)
+        foreach ($part in $case.MustSay) { if (-not (Has $said $part)) { $ok = $false } }
+        if ($case.Exit -eq 0) { $ok = $ok -and (HasNot $said 'PROBLEM:') }
+        Check "start's elevation check for '$($case.Type)' exits $($case.Exit) with the right words" $ok "exit $childExit`n$said"
+    }
+
+    # start checks first, before the SDK, the saved state or any build; setup only warns.
+    $startText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'start.ps1'))
+    $assertAt = $startText.IndexOf("`nAssert-NotElevated", [StringComparison]::Ordinal)
+    $sdkAt = $startText.IndexOf("`n`$sdk = Assert-DotNetSdk", [StringComparison]::Ordinal)
+    $stateAt = $startText.IndexOf('Get-DemoState', [StringComparison]::Ordinal)
+    Check 'start checks elevation before the SDK and before anything else it does' (($assertAt -gt 0) -and ($sdkAt -gt $assertAt) -and ($stateAt -gt $assertAt)) "elevation $assertAt, sdk $sdkAt, state $stateAt"
+    $setupText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'setup.ps1'))
+    Check 'setup warns about an elevated window and does not refuse it' ((HasNot $setupText 'Assert-NotElevated') -and (Has $setupText 'Get-ElevationVerdict $elevation')) 'setup.ps1'
+
     # --- Why a demo window's program stopped (backend.exited, service.exited) -----------------------
     $exited = Join-Path $root 'exited'
     New-Item -ItemType Directory -Force -Path $exited | Out-Null

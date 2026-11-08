@@ -147,6 +147,7 @@ If something is wrong, start stops with **PROBLEM:** and a **What to do** list. 
 | It says | What it means |
 |---|---|
 | Setup has not been run, or did not finish | Run `setup.cmd` |
+| This PowerShell window runs as administrator ('Administrator:' in its title) | The capture service refuses to run elevated, so start stops before building anything. Close the window, open PowerShell from the Start menu with plain Enter (not Run as administrator, not Ctrl+Shift+Enter; in Windows Terminal turn off "Run this profile as Administrator"), `cd` to the repository and run `start.cmd` again. Setup works from an elevated window and only warns |
 | The development certificate is missing, expired or not trusted | Run `setup.cmd` again and answer Yes to Windows |
 | Port 5001 is already in use by ... | Something else, often an earlier backend, holds the port. The message names it and how to close it |
 | PostgreSQL is installed but its Windows service is Stopped | Start it from the Services app, as it says |
@@ -214,6 +215,9 @@ PowerShell **as administrator** and add a printer that will play the part:
 ```powershell
 Add-Printer -Name 'Front Desk Printer' -DriverName 'Microsoft Print To PDF' -PortName 'PORTPROMPT:'
 ```
+
+Close that administrator window when the printer is added. `start.cmd` refuses to run from it (the
+capture service does not run elevated), so start the demo from a plain PowerShell window.
 
 Then: Settings > Bluetooth & devices > Printers & scanners > **Front Desk Printer** > **Open print
 queue**. In the queue window's **Printer** menu, tick **Use Printer Offline**. Back on the printer's

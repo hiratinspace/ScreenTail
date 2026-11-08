@@ -466,6 +466,84 @@ function Assert-Windows {
     }
 }
 
+# --- Elevation: the capture service's StartGuard rule, checked before anything is built ---------------
+
+# GetTokenInformation(TokenElevationType), as the service's StartFactsReader reads it. TokenElevationType
+# is information class 18; the answer is a 4-byte TOKEN_ELEVATION_TYPE: 1 Default, 2 Full, 3 Limited.
+$script:TokenElevationSource = @'
+using System;
+using System.Runtime.InteropServices;
+public static class ScreenTailDemoTokenElevation {
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr token, int informationClass, out int information, int length, out int returnLength);
+    public static int Read(IntPtr token) {
+        int value;
+        int returned;
+        return GetTokenInformation(token, 18, out value, 4, out returned) ? value : 0;
+    }
+}
+'@
+
+# This process's token elevation type: 'Default' (a standard user, or UAC off), 'Full' (the elevated half
+# of an administrator's split token: "Run as administrator"), 'Limited' (the ordinary half, a normal
+# window) or 'Unknown' when it cannot be read (Add-Type is refused in a restricted language mode, or the
+# call failed). Never throws.
+function Get-TokenElevationType {
+    try {
+        if (-not ('ScreenTailDemoTokenElevation' -as [type])) {
+            Add-Type -TypeDefinition $script:TokenElevationSource -Language CSharp -ErrorAction Stop
+        }
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        try { $value = [ScreenTailDemoTokenElevation]::Read($identity.Token) } finally { $identity.Dispose() }
+        switch ([int]$value) {
+            1 { return 'Default' }
+            2 { return 'Full' }
+            3 { return 'Limited' }
+        }
+    }
+    catch { }
+    return 'Unknown'
+}
+
+# What start does about an elevation type: 'refuse', 'warn' or 'ok'. Mirrors StartGuard.Decide
+# (client/ScreenTail.Core/Lifecycle/StartGuard.cs) in what it refuses: Full only. Default is fine, because the
+# service runs there too (a standard user, or UAC off, where every window runs at one level).
+#
+# Unknown is where this differs on purpose: StartGuard refuses a token it cannot read, this only warns.
+# The service reads its own token with compiled code; this script needs Add-Type, which a restricted
+# language mode (Application Control, AppLocker) refuses on a laptop where the service itself runs fine.
+# Refusing here would block a demo that works, and the service still makes its own decision either way.
+function Get-ElevationVerdict([string]$Type) {
+    switch ($Type) {
+        'Full' { return 'refuse' }
+        'Default' { return 'ok' }
+        'Limited' { return 'ok' }
+    }
+    return 'warn'
+}
+
+# The words start (and setup's warning) use for a window that runs as administrator.
+$script:ElevatedProblem = 'This PowerShell window runs as administrator (''Administrator:'' in its title). ScreenTail''s capture service refuses to run elevated, so the demo cannot start from here.'
+$script:ElevatedFix = @(
+    'Close this window.',
+    'Open PowerShell from the Start menu with plain Enter: not "Run as administrator", not Ctrl+Shift+Enter.',
+    'In Windows Terminal, also turn off "Run this profile as Administrator" (Settings > the PowerShell profile).',
+    'Then cd to the repository (for example  cd C:\src\ScreenTail ) and run  scripts\windows\demo\start.cmd')
+
+# Ends the script when this window runs as administrator, before anything is built or started: the
+# capture service would refuse to run (StartGuard), and the UI would never open. -Type is for the tests.
+function Assert-NotElevated {
+    param([string]$Type = (Get-TokenElevationType))
+
+    switch (Get-ElevationVerdict $Type) {
+        'refuse' { Stop-Demo -Problem $script:ElevatedProblem -Fix $script:ElevatedFix }
+        'warn' {
+            Write-Caution 'Could not tell whether this window runs as administrator. If its title starts with "Administrator:", close it and open PowerShell from the Start menu with plain Enter: the capture service refuses to run elevated.'
+        }
+        default { Write-Ok "Not elevated: the capture service can run from this window (token elevation type $Type)." }
+    }
+}
+
 # The .NET 10 SDK, found and accepted by the repository's global.json. Returns the version.
 function Assert-DotNetSdk {
     $install = 'winget install --id Microsoft.DotNet.SDK.10 -e --source winget'
