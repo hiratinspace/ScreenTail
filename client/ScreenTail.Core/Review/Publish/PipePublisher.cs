@@ -61,12 +61,24 @@ public sealed class PipePublisher(CaptureConnection connection)
                 Destinations = [.. destinations.Select(Wire)],
                 Note = request.Note,
                 FrameIds = request.FrameIds,
+                PublishAgain = request.PublishAgain,
             },
             ct).ConfigureAwait(false);
 
+        // Sent, and the pipe went before the service answered: the backend may have posted it all. Said as
+        // that, per destination, so the pane holds every way of sending it again until the technician has
+        // looked, rather than offering a plain failure to publish over (compare BlurWithReplyAsync).
+        if (answer.WasLost)
+        {
+            return [.. destinations.Select(d => new DestinationResult(d, false, null, Lost(d), DestinationResult.Unknown))];
+        }
+
+        // The service's own two refusals that mean "it may be there already": a session it has marked
+        // published, and one whose earlier publish is still on its way. The same outcome as a lost answer.
         if (answer.Reply is not { } published)
         {
-            return [.. destinations.Select(d => new DestinationResult(d, false, null, answer.Refusal))];
+            var kind = answer.Refusal is PublishCommands.AlreadyPublished or PublishCommands.StillPublishing ? DestinationResult.Unknown : null;
+            return [.. destinations.Select(d => new DestinationResult(d, false, null, answer.Refusal, kind))];
         }
 
         return [.. published.Results
@@ -77,6 +89,14 @@ public sealed class PipePublisher(CaptureConnection connection)
                 r.Error,
                 r.Kind))];
     }
+
+    /// <summary>The backend's own wording for a destination that may have landed, with the cause said first.</summary>
+    private static string Lost(Destination destination) => destination switch
+    {
+        Destination.TicketNote => "The connection to the capture service dropped before it answered, so the note may already be on the ticket. Check the ticket before you publish the note again.",
+        Destination.TimeEntry => "The connection to the capture service dropped before it answered, so the time entry may already be on the ticket. Check the ticket before you publish the time entry again.",
+        _ => "The connection to the capture service dropped before it answered, so the article may already be written. Check the knowledge base before you publish the article again.",
+    };
 
     private static string Wire(Destination destination) => destination switch
     {

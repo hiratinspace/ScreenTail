@@ -219,11 +219,31 @@
                                 IsEnabled="{Binding CanMap}" />
                     </StackPanel>
                 </Border>
+                <!-- Something may already be on the ticket. Publish, Ctrl+Enter and Retry wait until the
+                     technician ticks the box, which is in the tab order and spent on the next send. -->
+                <Border Style="{StaticResource Banner.Warning}"
+                        Margin="0,4,0,12"
+                        Visibility="{Binding CheckTicketVisibility}"
+                        AutomationProperties.Name="Check the ticket first">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Text.Body}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding CheckTicketPrompt}"
+                                   controls:LiveRegion.Setting="Polite" />
+                        <CheckBox Margin="0,10,0,0"
+                                  IsChecked="{Binding TicketChecked}"
+                                  AutomationProperties.Name="{Binding CheckTicketLabel}">
+                            <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding CheckTicketLabel}" />
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
                 <Button Style="{StaticResource Button.Primary}"
                         HorizontalAlignment="Left"
                         Content="Retry"
                         Command="{Binding RetryCommand}"
-                        Visibility="{Binding RetryVisibility}" />
+                        IsEnabled="{Binding CanRetry}"
+                        Visibility="{Binding RetryVisibility}"
+                        AutomationProperties.HelpText="{Binding CheckTicketPrompt}" />
             </StackPanel>
         </ScrollViewer>
     </Grid>

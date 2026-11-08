@@ -103,6 +103,51 @@ public sealed class PublishViewModelTests
     }
 
     [Fact]
+    public async Task AnAnswerThatMayHaveLandedHoldsCtrlEnterAndRetryUntilTheBoxIsTicked()
+    {
+        // The pipe dropped after publish_session went out. The warning and its checkbox show, the row is
+        // marked apart from a failure, and neither the shortcut nor Retry sends until the box is ticked.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var sent = new List<PublishRequest>();
+        var session = Session(Frames(1));
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) =>
+            {
+                sent.Add(request);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>(sent.Count == 1
+                    ? [.. request.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown))]
+                    : [.. request.Destinations.Select(d => new DestinationResult(d, true))]);
+            });
+        var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+        pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+        await pane.PublishCommand.ExecuteAsync(null);
+
+        Assert.Equal(System.Windows.Visibility.Visible, pane.CheckTicketVisibility);
+        Assert.Equal(System.Windows.Visibility.Visible, pane.RetryVisibility);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, pane.CheckTicketPrompt);
+        Assert.Equal("I checked ticket #48213 and want to publish again", pane.CheckTicketLabel);
+        Assert.All(pane.Results, row => Assert.Equal("?", row.Mark));
+        Assert.False(pane.CanPublish);
+        Assert.False(pane.CanRetry);
+        await pane.PublishCommand.ExecuteAsync(null);
+        await pane.RetryCommand.ExecuteAsync(null);
+        Assert.Single(sent);
+
+        pane.TicketChecked = true;
+
+        Assert.True(pane.CanRetry);
+        Assert.Equal(string.Empty, pane.CheckTicketPrompt);
+        await pane.RetryCommand.ExecuteAsync(null);
+        Assert.Equal(2, sent.Count);
+        Assert.True(sent[1].PublishAgain);
+        Assert.False(pane.TicketChecked);
+        Assert.Equal(System.Windows.Visibility.Collapsed, pane.CheckTicketVisibility);
+    }
+
+    [Fact]
     public void TheDiscussionHintIsBoundAndSaysNoProductDuringTheDemo()
     {
         // Review 2026-10-27: the XAML line was fixed text naming ConnectWise, shown during the demo.

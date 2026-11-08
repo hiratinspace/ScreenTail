@@ -41,8 +41,13 @@ namespace ScreenTail.Shared.Ipc;
 /// the foreground watcher's narrow title-change hook, so the panel can say so. A count only, absent when
 /// the service cannot know it. A new member on a reply, which an older UI would fail on, so the version
 /// moves and the handshake goes on refusing a mismatched pair.
+///
+/// 9: ST-093, <c>publish_session</c> gains <c>publish_again</c>, optional and false when absent. The service
+/// refuses a session already marked published without it, so a lost answer or a restarted UI cannot add
+/// the note to the ticket twice. A new field on a command both sides exchange, which an older service
+/// would refuse as an unknown member, so the version moves.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 8;
+    public const int Version = 9;
 }

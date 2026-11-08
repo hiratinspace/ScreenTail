@@ -451,6 +451,11 @@ public sealed record PublishSessionCommand : IpcCommand
     [JsonPropertyName("frame_ids")]
     public required IReadOnlyList<string> FrameIds { get; init; }
 
+    /// <summary>
+    /// The UI knows this session may already be on the ticket and means to send it anyway: a Retry of what
+    /// failed after a landing, or a publish the technician confirmed after checking the ticket. Without it
+    /// the service refuses a session already marked published (contract v9). Absent means false.
+    /// </summary>
     [JsonPropertyName("publish_again")]
     public bool PublishAgain { get; init; }
 }

@@ -9,10 +9,10 @@ using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.UI.Review.Publish;
 
-/// <summary>One line of the result list: what landed, where, or why not.</summary>
-public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error)
+/// <summary>One line of the result list: what landed, where, or why not. <paramref name="MayHaveLanded"/> is marked apart from a failure.</summary>
+public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error, bool MayHaveLanded = false)
 {
-    public string Mark => Ok ? "✓" : "✗";
+    public string Mark => Ok ? "✓" : MayHaveLanded ? "?" : "✗";
 
     public Visibility LinkVisibility => Link is null ? Visibility.Collapsed : Visibility.Visible;
 
@@ -164,6 +164,27 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility RetryVisibility { get; set; } = Visibility.Collapsed;
 
+    [ObservableProperty]
+    public partial bool CanRetry { get; set; }
+
+    /// <summary>
+    /// Something may already be on the ticket (a lost answer, a deadline, a session already published):
+    /// the warning with its checkbox shows, and Publish, Ctrl+Enter and Retry wait for the box.
+    /// </summary>
+    [ObservableProperty]
+    public partial Visibility CheckTicketVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>The panel's <see cref="PublishPanel.CheckTheTicketFirst"/> while the box is clear, and empty once it is ticked.</summary>
+    [ObservableProperty]
+    public partial string CheckTicketPrompt { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string CheckTicketLabel { get; set; } = string.Empty;
+
+    /// <summary>The technician's "I checked the ticket". Spent on the next send, so it clears itself after.</summary>
+    [ObservableProperty]
+    public partial bool TicketChecked { get; set; }
+
     /// <summary>`Ctrl+Enter`, and the button. Refused by the panel when blocked, whatever pressed it.</summary>
     [RelayCommand]
     private async Task PublishAsync()
@@ -190,6 +211,13 @@ public sealed partial class PublishViewModel : ObservableObject
     [RelayCommand]
     private async Task RetryAsync()
     {
+        // Something may already be on the ticket and the box is not ticked: the warning above says so.
+        if (_panel.RetryBlockedBecause is { } check)
+        {
+            CheckTicketPrompt = check;
+            return;
+        }
+
         // Retry sends only what failed, so the minutes matter only when the time entry is among it.
         if (BlockedHere(minutesMatter: _panel.Failed.Contains(Destination.TimeEntry)) is { } reason)
         {
@@ -214,8 +242,9 @@ public sealed partial class PublishViewModel : ObservableObject
             return;
         }
 
-        // The article carries the frames too, so the ceiling holds here; it carries no minutes.
-        if (BlockedHere(minutesMatter: false) is { } reason)
+        // The article carries the frames too, so the ceiling holds here; it carries no minutes. And the
+        // retry behind the mapping sends whatever failed, including one that may already be on the ticket.
+        if ((_panel.RetryBlockedBecause ?? BlockedHere(minutesMatter: false)) is { } reason)
         {
             MappingError = reason;
             MappingErrorVisibility = Visibility.Visible;
@@ -316,6 +345,12 @@ public sealed partial class PublishViewModel : ObservableObject
     /// <summary>The strip changed what goes out, so the frame ceiling may have been crossed either way (E-18).</summary>
     public void FramesChanged() => RefreshBlock();
 
+    partial void OnTicketCheckedChanged(bool value)
+    {
+        _panel.TicketChecked = value;
+        Refresh();
+    }
+
     partial void OnTicketNoteChanged(bool value)
     {
         _panel.TicketNote = value;
@@ -382,7 +417,15 @@ public sealed partial class PublishViewModel : ObservableObject
 
         // While the article waits on a mapping, the prompt is the retry: Retry alone would fail the same way.
         var needsMapping = _panel.NeedsMapping;
-        RetryVisibility = _panel.PartiallyPublished && !needsMapping ? Visibility.Visible : Visibility.Collapsed;
+        var mayHaveLanded = _panel.MayHaveLanded;
+        RetryVisibility = (_panel.PartiallyPublished || mayHaveLanded) && !needsMapping ? Visibility.Visible : Visibility.Collapsed;
+        CanRetry = _panel.CanRetry;
+
+        // The send resets the panel's confirmation, so the box follows it rather than the other way round.
+        TicketChecked = _panel.TicketChecked;
+        CheckTicketVisibility = mayHaveLanded ? Visibility.Visible : Visibility.Collapsed;
+        CheckTicketPrompt = _panel.RetryBlockedBecause ?? string.Empty;
+        CheckTicketLabel = _panel.Ticket is { } ticket ? $"I checked ticket #{ticket.Id} and want to publish again" : "I checked the ticket and want to publish again";
         MappingVisibility = needsMapping ? Visibility.Visible : Visibility.Collapsed;
         MappingPrompt = needsMapping
             ? $"\u201c{_panel.CompanyToMap}\u201d is not mapped to a company in the documentation platform yet. Choose the one it is and the article goes there. The choice is remembered."
@@ -406,7 +449,7 @@ public sealed partial class PublishViewModel : ObservableObject
         Results.Clear();
         foreach (var result in _panel.Results)
         {
-            Results.Add(new ResultRow(Label(result.Destination), result.Ok, result.Link, result.Error));
+            Results.Add(new ResultRow(Label(result.Destination), result.Ok, result.Link, result.Error, result.MayHaveLanded));
         }
     }
 

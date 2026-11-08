@@ -440,6 +440,7 @@ public sealed class PublishPanelTests
 
         Assert.True(panel.MayHaveLanded);
         Assert.All(panel.Results, r => Assert.True(r.MayHaveLanded));
+        Assert.Equal("Note not confirmed: It may already be on the ticket.", panel.Summary);
         Assert.False(panel.CanPublish);
         Assert.False(panel.CanRetry);
         Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);

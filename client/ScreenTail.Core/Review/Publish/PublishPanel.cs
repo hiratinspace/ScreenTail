@@ -27,6 +27,11 @@ public enum Destination
 }
 
 /// <summary>Everything the publisher needs, in one object, so a retry can send exactly the part that failed.</summary>
+/// <param name="PublishAgain">
+/// The pane knows this session may already be on the ticket and means to send it anyway: a Retry after a
+/// landing, which sends only what failed, or a publish after the technician confirmed they checked the
+/// ticket. The service refuses a session already marked published without it.
+/// </param>
 public sealed record PublishRequest(
     string SessionId,
     TicketMatch Ticket,
@@ -47,11 +52,21 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
     /// <summary>It landed and something with it did not, usually a screenshot. <see cref="Ok"/> is true, so Retry leaves it alone; <see cref="Error"/> says what is missing.</summary>
     public const string Partial = "partial";
 
+    /// <summary>
+    /// It was sent and nobody can say whether it landed: the provider's answer could not be read, or the
+    /// pipe to the service dropped before the service answered (<see cref="PipePublisher"/>), or the
+    /// service refused a session it has already published.
+    /// </summary>
     public const string Unknown = "unknown";
 
+    /// <summary>The backend's publish deadline passed with this destination on its way to the provider.</summary>
     public const string TimedOut = "timed_out";
 
-    public bool MayHaveLanded => Ok && !Ok;
+    /// <summary>
+    /// Failed, but it may be on the ticket all the same. Sending it again without looking is how a ticket
+    /// gets the note twice, so the pane holds every way of sending until the technician says they checked.
+    /// </summary>
+    public bool MayHaveLanded => !Ok && Kind is Unknown or TimedOut;
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
@@ -92,15 +107,8 @@ public sealed class PublishPanel
     /// <summary>Some of it landed. Publishing again would post that part a second time; Retry sends the rest.</summary>
     public const string PartlyPublished = "Already partly published. Retry sends only what failed";
 
-    public const string CheckTheTicketFirst = "stub";
-
-    public bool MayHaveLanded => _results.Count < 0;
-
-    public bool TicketChecked { get; set; }
-
-    public string? RetryBlockedBecause => _results.Count < 0 ? "x" : null;
-
-    public bool CanRetry => _results.Count >= 0;
+    /// <summary>Something may already be on the ticket. Publish, Ctrl+Enter and Retry wait until the technician says they looked.</summary>
+    public const string CheckTheTicketFirst = "This may already be on the ticket. Check the ticket, then confirm below before publishing again, so nothing is added twice";
 
     private readonly Session _session;
     private readonly Func<string, CancellationToken, Task<IReadOnlyList<TicketMatch>>> _search;
@@ -212,6 +220,20 @@ public sealed class PublishPanel
 
     public IReadOnlyList<Destination> Failed => [.. _results.Values.Where(r => !r.Ok).Select(r => r.Destination).Order()];
 
+    /// <summary>A destination failed in a way that may still have put it on the ticket (<see cref="DestinationResult.MayHaveLanded"/>).</summary>
+    public bool MayHaveLanded => _results.Values.Any(r => r.MayHaveLanded);
+
+    /// <summary>
+    /// The technician's "I checked the ticket", which lets the next send go while <see cref="MayHaveLanded"/>.
+    /// Spent on that one send: an answer lost a second time needs a second look.
+    /// </summary>
+    public bool TicketChecked { get; set; }
+
+    /// <summary>Why Retry is held, or null. Only the unconfirmed check: Retry sends what failed and nothing that landed.</summary>
+    public string? RetryBlockedBecause => MayHaveLanded && !TicketChecked ? CheckTheTicketFirst : null;
+
+    public bool CanRetry => Failed.Count > 0 && RetryBlockedBecause is null && !IsPublishing;
+
     /// <summary>
     /// The article did not go because the backend has no mapping for the ticket's company, and this pane
     /// can offer one (ST-097 AC2: unmatched → prompt once at publish). A ticket with no company at all is
@@ -235,7 +257,14 @@ public sealed class PublishPanel
     {
         get
         {
-            // First, and whatever the toggles say now (T-129): once anything has landed, Publish would
+            // First of all: something may be on the ticket already, and nobody has looked. Said before the
+            // landed reasons below because it is the one the technician has to act on.
+            if (RetryBlockedBecause is { } check)
+            {
+                return check;
+            }
+
+            // Then, and whatever the toggles say now (T-129): once anything has landed, Publish would
             // send it again, and Ctrl+Enter reaches here even while the result list hides the button.
             if (_results.Values.Any(r => r.Ok))
             {
@@ -285,7 +314,9 @@ public sealed class PublishPanel
             var landed = _results.Values.Where(r => r.Ok).Select(r => Name(r.Destination)).ToList();
             var first = failed[0];
             var prefix = landed.Count > 0 ? $"{Capitalise(landed[0])} published. " : string.Empty;
-            var line = $"{prefix}{Capitalise(Name(first.Destination))} failed: {first.Error ?? "no reason given"}";
+            // One that may have landed is not called failed: "failed" reads as "publish again".
+            var outcome = first.MayHaveLanded ? "not confirmed" : "failed";
+            var line = $"{prefix}{Capitalise(Name(first.Destination))} {outcome}: {first.Error ?? "no reason given"}";
             return missing.Length > 0 ? $"{line} {missing}" : line;
         }
     }
@@ -351,9 +382,17 @@ public sealed class PublishPanel
         return SendAsync(ChosenDestinations(), note, frameIds, ct);
     }
 
-    /// <summary>Sends only what failed. The note that landed is not sent again (ST-094 AC3).</summary>
+    /// <summary>
+    /// Sends only what failed. The note that landed is not sent again (ST-094 AC3). Refused while
+    /// something may already be on the ticket and the technician has not said they checked.
+    /// </summary>
     public Task<IReadOnlyList<DestinationResult>> RetryAsync(DraftNote note, IReadOnlyList<string> frameIds, CancellationToken ct = default)
     {
+        if (RetryBlockedBecause is { } reason)
+        {
+            throw new InvalidOperationException(reason);
+        }
+
         var failed = Failed.ToHashSet();
         if (failed.Count == 0)
         {
@@ -380,6 +419,12 @@ public sealed class PublishPanel
             return false;
         }
 
+        // The retry below would send whatever failed, including one that may already be on the ticket.
+        if (RetryBlockedBecause is { } reason)
+        {
+            throw new InvalidOperationException(reason);
+        }
+
         if (!await _mapping.Map(company, docCompanyId, ct).ConfigureAwait(false))
         {
             return false;
@@ -398,10 +443,15 @@ public sealed class PublishPanel
             throw new InvalidOperationException("A publish is already in flight.");
         }
 
+        // The pane means it when it holds an earlier publish's results and something landed (Retry sends
+        // only the rest), or when the technician confirmed they checked. Otherwise the service's refusal
+        // of an already-published session stands.
+        var again = TicketChecked || _results.Values.Any(r => r.Ok);
+        TicketChecked = false;
         IsPublishing = true;
         try
         {
-            var results = await _publish(new PublishRequest(_session.SessionId, Ticket!, NoteType, Minutes, destinations, note, frameIds), ct).ConfigureAwait(false);
+            var results = await _publish(new PublishRequest(_session.SessionId, Ticket!, NoteType, Minutes, destinations, note, frameIds, again), ct).ConfigureAwait(false);
             foreach (var result in results)
             {
                 _results[result.Destination] = result;

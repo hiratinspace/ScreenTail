@@ -38,12 +38,20 @@ public sealed class PublishCommands(
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
     private readonly ConcurrentDictionary<int, string> _refusals = new();
 
+    /// <summary>Sessions with a publish on its way to the backend. A second one waits for none: it is refused.</summary>
+    private readonly ConcurrentDictionary<string, byte> _publishing = new(StringComparer.Ordinal);
+
     /// <summary>The backend's ceiling on frames per publish (PublishLimits.MaxFrames, which is BundleOptions.MaxFrames).</summary>
     public const int MaxFrames = 25;
 
-    public const string AlreadyPublished = "stub1";
+    /// <summary>
+    /// The refusal for a session already marked published, sent without <c>publish_again</c>. Its note is
+    /// on a ticket, so a plain resend (a dropped pipe, a restarted UI, a second window) would add it twice.
+    /// </summary>
+    public const string AlreadyPublished = "This session is already published, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 
-    public const string StillPublishing = "stub2";
+    /// <summary>The refusal while another publish of the same session has not answered yet, whatever the flag says.</summary>
+    public const string StillPublishing = "This session is still being published, so it may already be on the ticket. Wait a moment, check the ticket, then confirm before publishing again.";
 
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
     public string? LastBookkeepingError { get; private set; }
@@ -129,6 +137,25 @@ public sealed class PublishCommands(
 
     private async Task<IpcEvent?> PublishAsync(PublishSessionCommand publish, CancellationToken ct)
     {
+        // A pipe that dropped mid-publish leaves the first one running here. A technician who looks at
+        // the ticket before it lands sees nothing and confirms; refused even then, until it has answered.
+        if (!_publishing.TryAdd(publish.SessionId, 0))
+        {
+            return Refuse(publish, StillPublishing);
+        }
+
+        try
+        {
+            return await PublishOnceAsync(publish, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _publishing.TryRemove(publish.SessionId, out _);
+        }
+    }
+
+    private async Task<IpcEvent?> PublishOnceAsync(PublishSessionCommand publish, CancellationToken ct)
+    {
         var session = await _store.LoadSessionAsync(publish.SessionId, ct).ConfigureAwait(false);
         if (session is null)
         {
@@ -137,9 +164,18 @@ public sealed class PublishCommands(
 
         // The note comes from the pane, not the store, so a session the technician threw away could still
         // go out with whatever the window held. A discard is the last word on it (INV-12).
-        if (string.Equals((await _store.GetSessionSummaryAsync(publish.SessionId, ct).ConfigureAwait(false))?.State, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
+        var state = (await _store.GetSessionSummaryAsync(publish.SessionId, ct).ConfigureAwait(false))?.State;
+        if (string.Equals(state, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
         {
             return Refuse(publish, "The session was discarded, so there is nothing to publish.");
+        }
+
+        // Something of it is on a ticket already. Only the pane can know a resend is meant (a Retry of what
+        // failed, or the technician's "I checked the ticket"), and it says so with publish_again. The
+        // backend keeps nothing to catch a duplicate with (INV-7), so this is where it is caught.
+        if (string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal) && !publish.PublishAgain)
+        {
+            return Refuse(publish, AlreadyPublished);
         }
 
         // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
