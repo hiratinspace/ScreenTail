@@ -16,6 +16,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
     private readonly FakeGateway _gateway = new();
+    private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
     private SqliteSessionStore? _store;
 
     [Fact]
@@ -401,6 +402,117 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         Assert.Equal("Connect a PSA to publish.", toSecond!.Error);
     }
 
+    // O2 (owner, review of #265): "may have landed" is remembered by the service, in the store, so a
+    // reopened Review, a second window or a restarted service cannot publish over it without the pane
+    // saying the resend is meant. Not a session state: History, discard and retention do not see it.
+
+    [Fact]
+    public async Task APublishThatMayHaveLandedIsRememberedAndRefusesAPlainResend()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "may have been saved", Kind: "unknown"))];
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+
+        var record = await _store!.GetPublishRecordAsync("s1");
+        Assert.NotNull(record!.UnconfirmedAt);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "unknown", ["time_entry"] = "unknown" }, record.Outcomes);
+        Assert.NotEqual(Core.Sessions.SessionStateNames.Published, (await _store.GetSessionSummaryAsync("s1"))!.State);
+
+        var again = Publish(["f1"]) with { RequestId = 8 };
+        Assert.Null(await commands.ReplyToAsync(again));
+        Assert.Equal(PublishCommands.Unconfirmed, (await commands.HandleAsync(again))!.Error);
+        Assert.Single(_gateway.Published);
+
+        _gateway.Outcomes = null;
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 9, PublishAgain = true }));
+        Assert.Equal(2, _gateway.Published.Count);
+    }
+
+    [Fact]
+    public async Task TheMarkSurvivesAServiceRestart()
+    {
+        // The attempt, then the service restarts (a new store on the same file), then Review reopens.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, d == "ticket_note", Error: d == "ticket_note" ? null : "timed out", Kind: d == "ticket_note" ? null : "timed_out"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        await _store!.DisposeAsync();
+        _gateway.Outcomes = null;
+
+        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(_key));
+        var restarted = new PublishCommands(_store, _gateway);
+
+        var record = await _store.GetPublishRecordAsync("s1");
+        Assert.NotNull(record!.UnconfirmedAt);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown" }, record.Outcomes);
+        var again = Publish(["f1"]) with { RequestId = 8 };
+        Assert.Null(await restarted.ReplyToAsync(again));
+        Assert.False((await restarted.HandleAsync(again))!.Ok);
+        Assert.Single(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task APublishThatEndsCleanClearsTheMark()
+    {
+        // Landed, or plainly failed after the technician checked: either way nothing is in doubt now.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "may have been saved", Kind: "unknown"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => d == "ticket_note" ? new PublishOutcomeRow(d, true, "1") : new PublishOutcomeRow(d, false, Error: "ConnectWise refused the member", Kind: "forbidden"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8, PublishAgain = true }));
+
+        var record = await _store!.GetPublishRecordAsync("s1");
+        Assert.Null(record!.UnconfirmedAt);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed" }, record.Outcomes);
+    }
+
+    [Fact]
+    public async Task APublishThatThrowsAfterItWentOutLeavesTheSessionUnconfirmed()
+    {
+        // Written before the backend is asked, so a fault, a cancelled connection or a service that died
+        // mid-publish leaves "may have landed" behind rather than nothing.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Throws = new InvalidOperationException("the gateway broke");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => commands.ReplyToAsync(Publish(["f1"])));
+
+        var record = await _store!.GetPublishRecordAsync("s1");
+        Assert.NotNull(record!.UnconfirmedAt);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "unknown", ["time_entry"] = "unknown" }, record.Outcomes);
+    }
+
+    [Fact]
+    public async Task APlainRefusalLeavesNoMark()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Refusal = "This device is not enrolled yet, so nothing can be published.";
+
+        Assert.Null(await commands.ReplyToAsync(Publish(["f1"])));
+
+        var record = await _store!.GetPublishRecordAsync("s1");
+        Assert.True(record is null || (record.UnconfirmedAt is null && record.Outcomes.Count == 0));
+        _gateway.Refusal = null;
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
+    }
+
+    [Fact]
+    public async Task AnUnconfirmedSessionCanStillBeDiscarded()
+    {
+        // INV-12: discard is the technician's last word, and a note on the ticket is out of our hands.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "may have been saved", Kind: "unknown"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+
+        Assert.Equal(1, await _store!.DiscardSessionsAsync(["s1"]));
+    }
+
     [Fact]
     public async Task ABackendRefusalIsAFailedResultWithItsWords()
     {
@@ -500,7 +612,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
 
     private async Task<PublishCommands> CommandsAsync(RecordingBookkeeping? bookkeeping = null, Microsoft.Extensions.Logging.ILogger? log = null)
     {
-        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
+        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(_key));
         return bookkeeping is null
             ? new PublishCommands(_store, _gateway)
             : new PublishCommands(_store, _gateway, bookkeeping, bookkeeping, log);

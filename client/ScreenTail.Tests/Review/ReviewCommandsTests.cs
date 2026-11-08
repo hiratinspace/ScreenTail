@@ -55,6 +55,28 @@ public sealed class ReviewCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheSessionSaysWhatAnEarlierPublishLeftOnTheTicket()
+    {
+        // O3 (owner, review of #265): the pane opens with each destination as the last publish left it.
+        // Nothing published, nothing said; a session published before outcomes were kept says unknown for
+        // every destination, because the pane cannot tell which of them landed.
+        var commands = await CommandsAsync();
+        await SeedAsync(redacted: ["f1"], pending: []);
+
+        var fresh = Assert.IsType<SessionLoaded>(await commands.ReplyToAsync(new GetSessionCommand { RequestId = 1, SessionId = "s1" }));
+        Assert.Null(fresh.PublishOutcomes);
+
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown" }));
+        var remembered = Assert.IsType<SessionLoaded>(await commands.ReplyToAsync(new GetSessionCommand { RequestId = 2, SessionId = "s1" }));
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown" }, remembered.PublishOutcomes);
+
+        Assert.True(await _store.SavePublishRecordAsync("s1", new Dictionary<string, string>()));
+        Assert.True(await _store.MarkPublishedAsync("s1"));
+        var older = Assert.IsType<SessionLoaded>(await commands.ReplyToAsync(new GetSessionCommand { RequestId = 3, SessionId = "s1" }));
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "unknown", ["time_entry"] = "unknown", ["kb_article"] = "unknown" }, older.PublishOutcomes);
+    }
+
+    [Fact]
     public async Task ASessionThatDoesNotExistIsRefusedNotInvented()
     {
         var commands = await CommandsAsync();

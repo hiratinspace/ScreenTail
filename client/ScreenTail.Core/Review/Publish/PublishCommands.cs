@@ -52,6 +52,8 @@ public sealed class PublishCommands(
     public const string AlreadyPublished = "This session is already published, so it may already be on the ticket. Check the ticket, then confirm before publishing again, so nothing is added twice.";
 
     /// <summary>The refusal while another publish of the same session has not answered yet, whatever the flag says.</summary>
+    public const string Unconfirmed = "stub-unconfirmed";
+
     public const string StillPublishing = "This session is still being published, so it may already be on the ticket. Wait a moment, check the ticket, then confirm before publishing again.";
 
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>

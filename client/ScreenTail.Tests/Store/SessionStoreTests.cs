@@ -478,7 +478,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
         }
 
         var upgraded = await OpenAsync();
@@ -509,7 +509,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
         }
 
         var upgraded = await OpenAsync();

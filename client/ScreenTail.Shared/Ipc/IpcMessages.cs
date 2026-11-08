@@ -264,6 +264,9 @@ public sealed record SessionLoaded : IpcEvent
     /// </summary>
     [JsonPropertyName("draft_pending")]
     public bool DraftPending { get; init; }
+
+    [JsonPropertyName("publish_outcomes")]
+    public IReadOnlyDictionary<string, string>? PublishOutcomes { get; init; }
 }
 
 /// <summary>Asks for one redacted frame's image. Answered by a <see cref="FrameLoaded"/>.</summary>
