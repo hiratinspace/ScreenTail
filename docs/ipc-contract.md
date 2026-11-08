@@ -319,7 +319,7 @@ again"); Publish, `Ctrl+Enter`, Retry and the mapping prompt's retry all wait fo
 spent on one send, including a tick given while that send was on its way (the box is disabled meanwhile).
 The warning stays up once the box is ticked; only the buttons change.
 
-**What the service remembers** (owner decisions O2, O3, O4 on #265). A sixth refusal joins the two
+**What the service remembers** (owner decisions O2, O3, O4 on #265). A third refusal joins the two
 below: a session whose last publish may have landed is refused with "An earlier publish of this session
 was not confirmed, so it may already be on the ticket. Check the ticket, then confirm before publishing
 again, so nothing is added twice." unless `publish_again` is true. The mark is kept in the store, not as
