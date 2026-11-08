@@ -501,6 +501,124 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
     }
 
+    // MJ1 (re-review of #265): the check is per chosen destination, against what the store holds for
+    // it, because publish_again only says the technician looked at what the pane knew of.
+
+    [Fact]
+    public async Task ACrashBetweenTheOutcomesAndThePublishedMarkStillRefusesAPlainResend()
+    {
+        // The outcomes were saved and the service died before it marked the session published: the store
+        // says the note landed, the session state does not.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "landed" }));
+        Assert.NotEqual(Core.Sessions.SessionStateNames.Published, (await _store.GetSessionSummaryAsync("s1"))!.State);
+
+        var plain = Publish(["f1"]) with { RequestId = 8 };
+        Assert.Null(await commands.ReplyToAsync(plain));
+        Assert.Equal(PublishCommands.AlreadyPublished, (await commands.HandleAsync(plain))!.Error);
+        Assert.Empty(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task AStoredUnknownRefusesAPlainSendOfThatDestinationEvenWhenAnotherLanded()
+    {
+        // The note landed and the time entry may have. A pane that only knew of the note sends the time
+        // entry plainly; the session is published, but what is in doubt is the time entry.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => d == "ticket_note" ? new PublishOutcomeRow(d, true, "1") : new PublishOutcomeRow(d, false, Error: "timed out", Kind: "timed_out"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        _gateway.Outcomes = null;
+
+        var timeEntry = Publish(["f1"]) with { RequestId = 8, Destinations = ["time_entry"] };
+        Assert.Null(await commands.ReplyToAsync(timeEntry));
+        Assert.Equal(PublishCommands.Unconfirmed, (await commands.HandleAsync(timeEntry))!.Error);
+        Assert.Single(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task ADestinationThatPlainlyFailedGoesWithoutTheFlagWhenAnotherLanded()
+    {
+        // ST-094 AC3 on reopen: the note landed, the time entry plainly failed. Sending the time entry
+        // alone duplicates nothing, so it needs nobody's word.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => d == "ticket_note" ? new PublishOutcomeRow(d, true, "1") : new PublishOutcomeRow(d, false, Error: "ConnectWise refused the member", Kind: "forbidden"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        _gateway.Outcomes = null;
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8, Destinations = ["time_entry"] }));
+        Assert.Equal(2, _gateway.Published.Count);
+
+        var note = Publish(["f1"]) with { RequestId = 9, Destinations = ["ticket_note"] };
+        Assert.Null(await commands.ReplyToAsync(note));
+        Assert.Equal(PublishCommands.AlreadyPublished, (await commands.HandleAsync(note))!.Error);
+        Assert.Equal(2, _gateway.Published.Count);
+    }
+
+    [Fact]
+    public async Task ASessionPublishedBeforeTheRecordExistedIsRefusedForEveryDestination()
+    {
+        // A session published before 0013 has the state and no outcomes: nothing says which destination
+        // landed, so all of them may have.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        Assert.True(await _store!.MarkPublishedAsync("s1"));
+
+        var plain = Publish(["f1"]) with { RequestId = 8, Destinations = ["kb_article"] };
+        Assert.Null(await commands.ReplyToAsync(plain));
+        Assert.Equal(PublishCommands.AlreadyPublished, (await commands.HandleAsync(plain))!.Error);
+        Assert.Empty(_gateway.Published);
+    }
+
+    [Fact]
+    public async Task ADestinationItDoesNotKnowIsRefusedBeforeAnythingIsWritten()
+    {
+        // m-b: a name outside the three would be written ahead as unknown and then stay so for good.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+
+        var odd = Publish(["f1"]) with { Destinations = ["ticket_note", "fax"] };
+        Assert.Null(await commands.ReplyToAsync(odd));
+        Assert.Equal(PublishCommands.UnknownDestination, (await commands.HandleAsync(odd))!.Error);
+
+        Assert.Empty(_gateway.Published);
+        var record = await _store!.GetPublishRecordAsync("s1");
+        Assert.True(record is null || record.Outcomes.Count == 0);
+    }
+
+    [Fact]
+    public async Task APlainRefusalAfterAnEarlierUnknownKeepsIt()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "unknown", ["time_entry"] = "unknown" }));
+        _gateway.Refusal = "This device is not enrolled yet, so nothing can be published.";
+
+        Assert.Null(await commands.ReplyToAsync(Publish(["f1"]) with { PublishAgain = true }));
+
+        var record = await _store.GetPublishRecordAsync("s1");
+        Assert.NotNull(record!.UnconfirmedAt);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "unknown", ["time_entry"] = "unknown" }, record.Outcomes);
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("timed_out")]
+    public async Task LandedStaysLandedWhenALaterSendOfItIsInDoubt(string kind)
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "landed" }));
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "may have been saved", Kind: kind))];
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { PublishAgain = true }));
+
+        var record = await _store.GetPublishRecordAsync("s1");
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown" }, record!.Outcomes);
+    }
+
     [Fact]
     public async Task AnUnconfirmedSessionCanStillBeDiscarded()
     {

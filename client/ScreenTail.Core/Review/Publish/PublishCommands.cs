@@ -60,6 +60,9 @@ public sealed class PublishCommands(
 
     public const string StillPublishing = "This session is still being published, so it may already be on the ticket. Wait a moment, check the ticket, then confirm before publishing again.";
 
+    /// <summary>The refusal for a destination name this version does not know, said before anything is written ahead (m-b).</summary>
+    public const string UnknownDestination = "The publish named a destination this version of ScreenTail does not know, so nothing was sent.";
+
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
     public string? LastBookkeepingError { get; private set; }
 

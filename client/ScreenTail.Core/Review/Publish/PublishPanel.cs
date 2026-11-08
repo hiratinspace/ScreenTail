@@ -75,6 +75,12 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
     public const string SessionUnconfirmed = "session_unconfirmed";
 
     /// <summary>
+    /// The service, or the pipe to it, refused the whole request with words of its own. The pane's own name,
+    /// never on the wire: it says nothing about any destination, so an earlier outcome stands (m-c).
+    /// </summary>
+    public const string Refused = "refused";
+
+    /// <summary>
     /// Failed, but it may be on the ticket all the same. Sending it again without looking is how a ticket
     /// gets the note twice, so the pane holds every way of sending until the technician says they checked.
     /// </summary>
@@ -334,6 +340,9 @@ public sealed class PublishPanel
     }
 
     public bool CanPublish => BlockedBecause is null && !IsPublishing;
+
+    /// <summary>The service's refusal that sent the pane back to the choice, said once the choice is open (m-g). Null otherwise.</summary>
+    public string? EarlierRefusal { get; private set; }
 
     /// <summary>Spec §6's toast line for what happened, or null before anything has.</summary>
     public string? Summary

@@ -133,6 +133,37 @@ public sealed class PipePublisherTests : IAsyncDisposable
         var only = Assert.Single(results);
         Assert.False(only.Ok);
         Assert.Equal("Connect a PSA to publish.", only.Error);
+
+        // Said of the whole request, not of the destination, so the pane does not read it as "nothing of
+        // this is on the ticket" and forget an earlier unknown (m-c).
+        Assert.Equal(DestinationResult.Refused, only.Kind);
+        Assert.False(only.MayHaveLanded);
+    }
+
+    [Fact]
+    public async Task APaneThatKnowsOnlyAnotherEarlierOutcomeCannotSendOverAStoredUnknown()
+    {
+        // MJ1 (re-review of #265): the pane opened knowing the note landed, and the store also holds the
+        // time entry as unknown (another window's attempt). The pane offers the time entry with nothing
+        // to tick, as a plain failure would be, and the service refuses it for what it holds.
+        var publisher = await PublisherAsync();
+        Assert.True(await _store!.SavePublishRecordAsync("s1", new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "unknown" }, TestContext.Current.CancellationToken));
+        var panel = new PublishPanel(
+            Session(draft: Draft()) with { SessionId = "s1" },
+            ["connectwise"],
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            publisher.PublishAsync,
+            earlierOutcomes: new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed });
+        panel.KbArticle = false;
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        Assert.True(panel.TimeEntry);
+        Assert.Null(panel.BlockedBecause);
+
+        var results = await panel.PublishAsync(Draft(), ["f1"], TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, _backend.PublishCalls);
+        var refused = Assert.Single(results);
+        Assert.Equal((Destination.TimeEntry, DestinationResult.SessionUnconfirmed), (refused.Destination, refused.Kind));
     }
 
     [Fact]
