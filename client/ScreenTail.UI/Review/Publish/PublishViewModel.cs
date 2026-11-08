@@ -454,9 +454,12 @@ public sealed partial class PublishViewModel : ObservableObject
         // O3: the check in the form, for a destination an earlier publish landed or may have landed. The
         // sentence stays while it shows; what is ticked only decides whether Publish waits for the box.
         EarlierVisibility = _panel.HasEarlier && _panel.Results.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EarlierPrompt = _panel.HasEarlier
-            ? "An earlier publish reached the ticket, or may have. Destinations marked already on the ticket or not confirmed start unticked; sending one of them again needs the check below. The others go without it."
-            : string.Empty;
+        // m-g: after the service's refusal sent the pane back here, its words lead, in the live region,
+        // since the result list that would have said them is gone.
+        const string Choice = "An earlier publish reached the ticket, or may have. Destinations marked already on the ticket, already in the knowledge base or not confirmed start unticked; sending one of them again needs the check below. The others go without it.";
+        EarlierPrompt = !_panel.HasEarlier
+            ? string.Empty
+            : _panel.EarlierRefusal is { Length: > 0 } refusal ? $"{refusal} {Choice}" : Choice;
         RefreshBlock();
         PublishVisibility = _panel.HasIntegrations ? Visibility.Visible : Visibility.Collapsed;
         ConnectVisibility = _panel.HasIntegrations ? Visibility.Collapsed : Visibility.Visible;
@@ -566,6 +569,7 @@ public sealed partial class PublishViewModel : ObservableObject
     /// <summary>A destination's label and its name for a screen reader, with what an earlier publish left (O3).</summary>
     private (string Label, string Name) Earlier(Destination destination, string label) => _panel.EarlierFor(destination) switch
     {
+        EarlierOutcome.Landed when destination == Destination.KbArticle => ($"{label}  (already in the knowledge base)", $"{label}, already in the knowledge base"),
         EarlierOutcome.Landed => ($"{label}  (already on the ticket)", $"{label}, already on the ticket"),
         EarlierOutcome.Unknown => ($"? {label}  (not confirmed)", $"{label}, not confirmed"),
         _ => (label, label),

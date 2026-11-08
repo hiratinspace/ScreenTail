@@ -186,6 +186,34 @@ public sealed class PublishViewModelTests
     }
 
     [Fact]
+    public async Task ARefusalForAnEarlierPublishReopensTheChoiceAndSaysWhy()
+    {
+        // O3 and m-g: the service refused a publish another window made. The pane reloads what is on the
+        // ticket, opens the form on it, and the live region says the refusal, since the result list that
+        // would have said it is gone. m-f: an article is in the knowledge base, not on the ticket.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var session = Session(Frames(1));
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, false, null, PublishCommands.AlreadyPublished, DestinationResult.AlreadyPublished))]),
+            reloadEarlier: _ => Task.FromResult<IReadOnlyDictionary<Destination, EarlierOutcome>>(new Dictionary<Destination, EarlierOutcome> { [Destination.TicketNote] = EarlierOutcome.Landed, [Destination.KbArticle] = EarlierOutcome.Landed }));
+        var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+        pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+
+        await pane.PublishCommand.ExecuteAsync(null);
+
+        Assert.Equal(System.Windows.Visibility.Visible, pane.FormVisibility);
+        Assert.Equal(System.Windows.Visibility.Visible, pane.EarlierVisibility);
+        Assert.StartsWith(PublishCommands.AlreadyPublished, pane.EarlierPrompt, StringComparison.Ordinal);
+        Assert.False(pane.TicketNote);
+        Assert.Equal("Ticket note  (already on the ticket)", pane.TicketNoteLabel);
+        Assert.EndsWith("(already in the knowledge base)", pane.KbLabel, StringComparison.Ordinal);
+        Assert.EndsWith(", already in the knowledge base", pane.KbName, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TheDiscussionHintIsBoundAndSaysNoProductDuringTheDemo()
     {
         // Review 2026-10-27: the XAML line was fixed text naming ConnectWise, shown during the demo.
