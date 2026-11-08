@@ -106,7 +106,10 @@ public sealed class IpcServer : IAsyncDisposable
         _acceptLoop = Task.Run(AcceptLoopAsync);
     }
 
-    /// <summary>Sends an event to every authenticated client. A client that fails to receive it is dropped by its own loop.</summary>
+    /// <summary>
+    /// Sends an event to every authenticated client. A client that cannot be told it within
+    /// <see cref="BroadcastTimeout"/>, or whose pipe fails, has its connection closed.
+    /// </summary>
     public async Task BroadcastAsync(IpcEvent ipcEvent, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(ipcEvent);
@@ -117,7 +120,7 @@ public sealed class IpcServer : IAsyncDisposable
         await Task.WhenAll(_clients.Values.Select(client => TellAsync(client, ipcEvent, ct))).ConfigureAwait(false);
     }
 
-    private static async Task TellAsync(Connection client, IpcEvent ipcEvent, CancellationToken ct)
+    private async Task TellAsync(Connection client, IpcEvent ipcEvent, CancellationToken ct)
     {
         using var telling = CancellationTokenSource.CreateLinkedTokenSource(ct);
         telling.CancelAfter(BroadcastTimeout);
@@ -127,8 +130,17 @@ public sealed class IpcServer : IAsyncDisposable
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {
-            // Broken, gone, or not reading. Its own loop notices and removes it; a state change nobody
-            // could receive is not a reason to hold up the ones who could.
+            // Broken, gone, or not reading. A state change nobody could receive is not a reason to hold
+            // up the ones who could, and it is not dropped quietly either: the only events broadcast are
+            // state_changed, and a client that missed one (a "paused", a "finalizing") went on showing
+            // Recording with its clock ticking while the service had moved on (#262 review, finding 8).
+            // So its connection is closed. Its read loop ends and removes it, the UI sees the pipe drop and
+            // says "unknown, may still be recording" (never idle), and its reconnect's handshake carries
+            // the current state. A write cut off part way through has left the pipe out of step anyway.
+            //
+            // Closing is a handle closed, not a wait: nothing here, or in the stop, waits for the client to
+            // read (ST-112).
+            client.Close();
         }
     }
 
@@ -248,8 +260,14 @@ public sealed class IpcServer : IAsyncDisposable
     /// </summary>
     private static readonly TimeSpan RejectionTimeout = TimeSpan.FromSeconds(2);
 
-    /// <summary>How long one client may take to accept a state change before it is left behind.</summary>
-    private static readonly TimeSpan BroadcastTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>How long one client may take to accept a state change before its connection is closed.</summary>
+    internal static readonly TimeSpan DefaultBroadcastTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The broadcast deadline this server applies. Settable only by a test, which needs it short to watch
+    /// a client miss a state change without waiting five seconds. The service never changes it.
+    /// </summary>
+    internal TimeSpan BroadcastTimeout { get; init; } = DefaultBroadcastTimeout;
 
     private async Task HandleConnectionAsync(NamedPipeServerStream pipe, long id, Handshake handshake)
     {

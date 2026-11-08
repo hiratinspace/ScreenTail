@@ -312,6 +312,117 @@ public sealed class IpcServerTests : IAsyncDisposable
         Assert.True(stopped < TimeSpan.FromSeconds(1), $"the stop took {stopped.TotalMilliseconds:F0} ms with a client not reading");
     }
 
+    [Fact]
+    public async Task AStateChangeAClientCouldNotReceiveClosesItsConnection()
+    {
+        // #262 review finding 8. A state_changed that could not be written in time was dropped and the
+        // connection kept, so a UI that missed "paused" or "finalizing" went on saying Recording, with a
+        // ticking clock. Now the connection is closed: the UI sees the pipe drop, says "unknown", and its
+        // reconnect is answered with the current state.
+        await StartServerAsync(broadcastTimeout: TimeSpan.FromMilliseconds(300));
+        var ct = TestContext.Current.CancellationToken;
+        await using var deaf = await DeafPeerAsync(ct);
+        await WaitUntilAsync(() => _server!.ConnectedClients == 1);
+
+        // Far more than any pipe or socket buffers, so the write is stuck past its deadline.
+        var started = Stopwatch.GetTimestamp();
+        await _server!.BroadcastAsync(new StateChanged { State = Recording(new string('s', 768 * 1024)) }, ct).WaitAsync(Soon, ct);
+        var told = Stopwatch.GetElapsedTime(started);
+
+        await WaitUntilAsync(() => _server!.ConnectedClients == 0);
+        Assert.True(told < TimeSpan.FromSeconds(2), $"the broadcast took {told.TotalMilliseconds:F0} ms against a 300 ms deadline");
+
+        // The peer's end has closed too: what it reads ends, rather than waiting for more.
+        var buffer = new byte[64 * 1024];
+        var reading = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    while (await deaf.ReadAsync(buffer, ct) > 0)
+                    {
+                    }
+                }
+                catch (IOException)
+                {
+                }
+            },
+            ct);
+        await reading.WaitAsync(Soon, ct);
+    }
+
+    [Fact]
+    public async Task AUiThatMissedAStateChangeReconnectsAndIsToldTheCurrentState()
+    {
+        // The whole round, with the UI's own reconnecting connection over the real client. The UI stops
+        // reading for a moment (a window's handler stuck on the state it was just told) while a large
+        // answer to it holds the connection's write lock. "Paused" then waits on that lock past its
+        // deadline. The service closes the connection rather than leave the UI on "recording"; once the UI
+        // reads again it sees the drop, reconnects by itself, and the handshake tells it "paused".
+        _controller.State = Recording("s1");
+        _controller.Answer = new SessionsListed
+        {
+            Sessions = [.. Enumerable.Range(0, 5_000).Select(i => new SessionRow
+            {
+                Id = $"session-{i:D8}-{new string('x', 40)}",
+                StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero),
+                DurationMs = 61_000,
+                Status = "draft",
+                Frames = 7,
+                FramesPurged = 0,
+            })],
+        };
+        await StartServerAsync(broadcastTimeout: TimeSpan.FromMilliseconds(300));
+        var ct = TestContext.Current.CancellationToken;
+
+        using var stuck = new ManualResetEventSlim(false);
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        IpcClient? first = null;
+        var opened = 0;
+        var shell = new CoreShell.ShellState();
+        await using var connection = new CoreShell.CaptureConnection(
+            shell,
+            async openCt =>
+            {
+                var client = await IpcClient.ConnectAsync(_pipeName, _token, "test-ui", serverVerifier: null, "0.0.1", ct: openCt);
+                if (Interlocked.Increment(ref opened) == 1)
+                {
+                    // The first connection's reader stops on the marked snapshot until the test lets go.
+                    client.StateChanged += snapshot =>
+                    {
+                        if (snapshot.ElapsedMs == 42)
+                        {
+                            reached.TrySetResult();
+                            stuck.Wait(Soon * 2);
+                        }
+                    };
+                    first = client;
+                }
+
+                return client;
+            },
+            _ => TimeSpan.FromMilliseconds(50));
+        await connection.StartAsync(ct);
+        await WaitUntilAsync(() => shell.Snapshot is { Connection: CoreShell.ServiceConnection.Connected, Capture.State: CaptureStates.Recording });
+
+        await _server!.BroadcastAsync(new StateChanged { State = Recording("s1") with { ElapsedMs = 42 } }, ct);
+        await reached.Task.WaitAsync(Soon, ct);
+
+        // A large answer, written to a reader that is not reading: it holds the write lock.
+        var asking = first!.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct);
+        _ = asking.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        await WaitUntilAsync(() => _controller.Received.OfType<ListSessionsCommand>().Any());
+        await Task.Delay(100, ct);
+
+        _controller.State = new CaptureStateSnapshot { State = CaptureStates.Paused, SessionId = "s1", ElapsedMs = 62_000 };
+        await _server.BroadcastAsync(new StateChanged { State = _controller.State }, ct).WaitAsync(Soon, ct);
+
+        stuck.Set();
+        await WaitUntilAsync(() => Volatile.Read(ref opened) >= 2
+            && shell.Snapshot is { Connection: CoreShell.ServiceConnection.Connected, Capture.State: CaptureStates.Paused });
+        Assert.Equal("s1", shell.Snapshot.Capture!.SessionId);
+    }
+
     /// <summary>A peer that completes the handshake and then stops reading.</summary>
     private async Task<NamedPipeClientStream> DeafPeerAsync(CancellationToken ct)
     {
@@ -1094,11 +1205,13 @@ public sealed class IpcServerTests : IAsyncDisposable
     private async Task StartServerAsync(
         IClientVerifier? verifier = null,
         Func<NamedPipeServerStream>? pipeFactory = null,
-        TimeSpan? handshakeTimeout = null)
+        TimeSpan? handshakeTimeout = null,
+        TimeSpan? broadcastTimeout = null)
     {
         _server = new IpcServer(pipeFactory ?? IpcServer.DefaultPipeFactory(_pipeName), _token, verifier ?? new FakeVerifier(null), _controller, _audit, "0.0.1-test")
         {
             HandshakeTimeout = handshakeTimeout ?? IpcServer.DefaultHandshakeTimeout,
+            BroadcastTimeout = broadcastTimeout ?? IpcServer.DefaultBroadcastTimeout,
         };
         _server.Start();
         await Task.Yield();
