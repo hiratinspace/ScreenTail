@@ -275,6 +275,34 @@ public sealed class PsaGatewayTests
     }
 
     [Theory]
+    [InlineData(HttpStatusCode.Accepted)]
+    [InlineData(HttpStatusCode.NoContent)]
+    public async Task APublishAcceptedWithoutItsAnswerIsUnknown(HttpStatusCode status)
+    {
+        // m-e: a 2xx that is not the backend's 200 says the request was taken and not what became of it.
+        using var handler = new RecordingHandler(new HttpResponseMessage(status));
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+        Assert.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), answer.Value![0].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APublishWhoseAnswerBrokeOffIsUnknown()
+    {
+        // m-e: the backend answered 200 and its body broke off. HttpClient reads the whole body before
+        // SendAsync returns (HttpCompletionOption.ResponseContentRead, its default), so the break surfaces
+        // there, as an HttpRequestException, not from the read after it.
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.OK) { Content = new BrokenContent() });
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        AssertMayHaveLanded(answer);
+        Assert.StartsWith("The backend did not answer,", answer.Value![0].Error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(HttpStatusCode.BadRequest)]
     [InlineData(HttpStatusCode.Unauthorized)]
     [InlineData(HttpStatusCode.Forbidden)]
@@ -384,16 +412,37 @@ public sealed class PsaGatewayTests
     [Fact]
     public async Task NothingIsRecordedAsSentWhenNothingWasSentOrNoSessionWent()
     {
-        // No answer means whether the bytes left is unknown, and the audit log does not guess. A search or
-        // the integrations list carries no session, so it is not a bundle.
+        // A connection that never opened sent nothing. A search or the integrations list carries no
+        // session, so it is not a bundle.
         var audit = new RecordingAudit();
-        using var unreachable = new ThrowingHandler();
+        using var unreachable = new ThrowingHandler(new HttpRequestException(HttpRequestError.ConnectionError, "no route to host"));
         using var answering = new RecordingHandler(Json(new { tickets = Array.Empty<object>(), integrations = Array.Empty<object>() }));
 
         _ = await Gateway(unreachable, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
         _ = await Gateway(answering, audit).SearchTicketsAsync("printer", TestContext.Current.CancellationToken);
 
         Assert.Empty(audit.Rows);
+    }
+
+    [Fact]
+    public async Task APublishThatMayHaveLeftWithoutAnAnswerIsRecordedAsSent()
+    {
+        // m-h: a reset after the body went, or HttpClient's timeout, may have carried the note and its
+        // screenshots to the backend. The row says what may have left and to which host, nothing more
+        // (INV-10): the same row an answered publish writes.
+        var audit = new RecordingAudit();
+        using var reset = new ThrowingHandler(new HttpRequestException(HttpRequestError.Unknown, "the connection was reset"));
+        using var late = new ThrowingHandler(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+
+        _ = await Gateway(reset, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+        _ = await Gateway(late, audit).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, audit.Rows.Count);
+        Assert.All(audit.Rows, row =>
+        {
+            Assert.Equal((AuditTypes.BundleSent, "s-0001", "api.screentail.example"), (row.Type, row.SessionId, row.Detail));
+            Assert.True(row.Count > 0);
+        });
     }
 
     [Fact]
@@ -507,6 +556,22 @@ public sealed class PsaGatewayTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
             throw thrown ?? new HttpRequestException("no route to host");
+    }
+
+    /// <summary>A body that breaks off partway, as a connection reset mid-answer does.</summary>
+    private sealed class BrokenContent : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+        {
+            await stream.WriteAsync(Encoding.UTF8.GetBytes("{\"results\":["));
+            throw new IOException("the connection was reset");
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     /// <summary>Keeps every row it is asked to write.</summary>
