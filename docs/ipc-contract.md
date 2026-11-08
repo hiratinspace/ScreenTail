@@ -309,7 +309,7 @@ is. A refusal — no PSA connected, a revoked device, a backend that did not ans
 reason off that one reply. It never sends `publish_session` again to learn it, because a second send is a
 second publish; `activate_device` and `check_integration` are read the same way (2026-10-14, S-36).
 
-**A publish that may have landed** (2026-11-08, ST-093). Four answers mean "sent, and nobody can say
+**A publish that may have landed** (2026-11-08, ST-093). Five answers mean "sent, and nobody can say
 whether it is on the ticket": a `kind: unknown` or `kind: timed_out` row from the backend, a pipe that
 dropped after `publish_session` went out (the UI's `AskAsync` answers lost, and `PipePublisher` turns it
 into a `kind: unknown` row for every destination, with the backend's own "Check the ticket before you
