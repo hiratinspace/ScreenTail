@@ -81,20 +81,80 @@ public sealed class OcrSplitTokenTests
     [Fact]
     public void TheNextLineIsNotPartOfTheToken()
     {
-        // The pass line's last piece ends near the right edge and the next line starts at the left, below:
-        // touching in the reading order, not on the screen.
+        // The next line's first word sits just right of the pass line's last piece and just below it,
+        // closer than a space sideways: only the rows tell them apart. Without the vertical check
+        // "Queue" would be taken into the token.
         OcrWord[] words =
         [
             new("pass:", 24, 100, 60, Height),
             new("Tangerine4821", 93, 100, 190, Height),
             new("Wobble", 291, 100, 96, Height),
-            new("Queue", 24, 140, 80, Height),
-            new("cleared", 113, 140, 100, Height),
+            new("Queue", 389, 126, 80, Height),
+            new("cleared", 478, 126, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);
 
         Assert.Equal("pass: [REDACTED] Queue cleared", redaction.Text);
+    }
+
+    [Theory]
+    [InlineData("ocean")]
+    [InlineData("snow")]
+    public void AShortLowercasePieceIsMaskedToo(string piece)
+    {
+        // A piece with no capital, ascender or digit has a box only as tall as the x-height, about 0.7 of
+        // its neighbours'. Measured against its own height the gap looked a third wider than it is, and a
+        // split of 0.29 of the row's height read as 0.41 and was left showing (review of #268).
+        OcrWord[] words =
+        [
+            new("pass:", 24, 100, 60, Height),
+            new("Tangerine4821", 93, 100, 190, Height),
+            new(piece, 290, 105, piece.Length * 12, 17),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.True(Covered(redaction, words[2]), "the short piece is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void APieceTheEngineListedOnAnotherLineIsMaskedToo()
+    {
+        // Windows can put a piece in an OcrLine of its own, so in the reading order it comes after the
+        // next line's words. On the screen it still touches the rest of the token.
+        OcrWord[] words =
+        [
+            new("pass:", 24, 100, 60, Height),
+            new("Tangerine4821", 93, 100, 190, Height),
+            new("Queue", 24, 140, 80, Height),
+            new("cleared", 113, 140, 100, Height),
+            new("Wobble", 291, 100, 96, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("Wobble", redaction.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Queue cleared", redaction.Text, StringComparison.Ordinal);
+        Assert.True(Covered(redaction, words[4]), "the piece on its own line is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void APieceToTheLeftIsMaskedToo()
+    {
+        // Right to left: the reading order runs against the boxes, so the next piece is to the left.
+        OcrWord[] words =
+        [
+            new("pass:", 500, 100, 60, Height),
+            new("Tangerine4821", 301, 100, 190, Height),
+            new("Wobble", 197, 100, 96, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.True(Covered(redaction, words[2]), "the piece to the left is left unpainted in the frame");
     }
 
     /// <summary>One row of words, each followed by the given gap in pixels before the next.</summary>
