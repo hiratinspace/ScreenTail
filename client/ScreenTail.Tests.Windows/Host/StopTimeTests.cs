@@ -381,23 +381,30 @@ public sealed class StopTimeTests : IAsyncDisposable
     private const string SpeechLeftRunningLine = "The speech model was still busy at stop";
 
     /// <summary>
-    /// This suite again, as a process of its own, running only the test that asked. The way CI runs the
-    /// suite (<c>dotnet ScreenTail.Tests.Windows.dll</c>), or its own executable when that is how this one
-    /// was started. No measurements file: what the child would record is the parent's to say.
+    /// This suite again, as a process of its own, running only the test that asked. Its own executable
+    /// when that is what this process is; otherwise always <c>dotnet ScreenTail.Tests.Windows.dll</c>, the
+    /// way CI runs it, whatever host this one is in (a VSTest testhost under <c>dotnet test</c> takes other
+    /// arguments, and handing it these failed the test as "never had a transcription in flight"). No
+    /// measurements file: what the child would record is the parent's to say.
     /// </summary>
     private static ProcessStartInfo ChildStart(string signal)
     {
-        var host = Environment.ProcessPath ?? throw new InvalidOperationException("This process has no path.");
-        var start = new ProcessStartInfo(host)
+        var suite = typeof(StopTimeTests).Assembly;
+        var current = Environment.ProcessPath;
+        var asItself = current is not null && string.Equals(
+            Path.GetFileNameWithoutExtension(current),
+            suite.GetName().Name,
+            StringComparison.OrdinalIgnoreCase);
+        var start = new ProcessStartInfo(asItself ? current! : DotnetHost(current))
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        if (string.Equals(Path.GetFileNameWithoutExtension(host), "dotnet", StringComparison.OrdinalIgnoreCase))
+        if (!asItself)
         {
-            start.ArgumentList.Add(typeof(StopTimeTests).Assembly.Location);
+            start.ArgumentList.Add(suite.Location);
         }
 
         start.ArgumentList.Add("-method");
@@ -407,6 +414,33 @@ public sealed class StopTimeTests : IAsyncDisposable
         start.Environment[ChildSignalVariable] = signal;
         _ = start.Environment.Remove("SCREENTAIL_MEASUREMENTS");
         return start;
+    }
+
+    /// <summary>
+    /// The <c>dotnet</c> muxer: this process when it is one; else the one the SDK names for its children
+    /// (<c>DOTNET_HOST_PATH</c>, set under <c>dotnet test</c>); else the one beside the runtime this
+    /// process runs on (<c>dotnet\shared\Microsoft.NETCore.App\&lt;version&gt;\</c>); else whatever
+    /// <c>dotnet</c> is on the path.
+    /// </summary>
+    private static string DotnetHost(string? current)
+    {
+        if (current is not null && string.Equals(Path.GetFileNameWithoutExtension(current), "dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            return current;
+        }
+
+        if (Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } named && File.Exists(named))
+        {
+            return named;
+        }
+
+        var runtime = new DirectoryInfo(RuntimeEnvironment.GetRuntimeDirectory());
+        if (runtime.Parent?.Parent?.Parent is { } root && Path.Combine(root.FullName, "dotnet.exe") is var beside && File.Exists(beside))
+        {
+            return beside;
+        }
+
+        return "dotnet";
     }
 
     /// <summary>
