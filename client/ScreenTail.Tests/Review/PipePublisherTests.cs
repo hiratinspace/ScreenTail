@@ -362,12 +362,12 @@ public sealed class PipePublisherTests : IAsyncDisposable
         public CapabilitiesReported CurrentCapabilities => throw new NotSupportedException();
 
         public async Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default) =>
-            await publishing.HandleAsync(command, ct)
+            await publishing.HandleAsync(command, caller, ct)
             ?? (device is null ? null : await device.HandleAsync(command, ct))
             ?? new CommandResult { RequestId = command.RequestId, Ok = false, Error = "Not a publish command." };
 
         public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default) =>
-            await publishing.ReplyToAsync(command, ct)
+            await publishing.ReplyToAsync(command, caller, ct)
             ?? (device is null ? null : await device.ReplyToAsync(command, ct));
     }
 

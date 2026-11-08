@@ -377,6 +377,31 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TwoConnectionsUsingTheSameRequestIdEachGetTheirOwnRefusal()
+    {
+        // Review of #265 (m6). Every client numbers its requests from 1, so a second window, or the UI
+        // reconnected after a drop, reuses ids the first one is still using. Keyed by id alone, the
+        // second refusal overwrote the first and each connection was told the other's reason.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var gone = Publish(["f1"]) with { SessionId = "nope" };
+        var refused = Publish(["f1"]);
+        Assert.Equal(gone.RequestId, refused.RequestId);
+
+        Assert.Null(await commands.ReplyToAsync(gone, first));
+        _gateway.Refusal = "Connect a PSA to publish.";
+        Assert.Null(await commands.ReplyToAsync(refused, second));
+
+        var toFirst = await commands.HandleAsync(gone, first);
+        var toSecond = await commands.HandleAsync(refused, second);
+
+        Assert.Equal("The session is gone, so there is nothing to publish.", toFirst!.Error);
+        Assert.Equal("Connect a PSA to publish.", toSecond!.Error);
+    }
+
+    [Fact]
     public async Task ABackendRefusalIsAFailedResultWithItsWords()
     {
         var commands = await CommandsAsync();

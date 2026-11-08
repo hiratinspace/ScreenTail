@@ -13,8 +13,9 @@ namespace ScreenTail.Core.Review.Publish;
 /// per-destination answer is passed back as it is.
 ///
 /// Same two entry points as <see cref="ReviewCommands"/>: a question answered with its event, and the
-/// reason when there was no answer. The refusal is kept by request id between the two calls, because
-/// the server asks them in that order on the same connection.
+/// reason when there was no answer. The refusal is kept by connection and request id between the two
+/// calls, because the server asks them in that order on the same connection, and every client numbers
+/// its requests from 1 (review of #265).
 /// </summary>
 /// <param name="published">
 /// Told once a publish has marked its session published, so the machine stops resting on it and the
@@ -36,7 +37,7 @@ public sealed class PublishCommands(
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-    private readonly ConcurrentDictionary<int, string> _refusals = new();
+    private readonly ConcurrentDictionary<(Guid Caller, int RequestId), string> _refusals = new();
 
     /// <summary>Sessions with a publish on its way to the backend. A second one waits for none: it is refused.</summary>
     private readonly ConcurrentDictionary<string, byte> _publishing = new(StringComparer.Ordinal);
@@ -56,7 +57,11 @@ public sealed class PublishCommands(
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
     public string? LastBookkeepingError { get; private set; }
 
-    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default)
+    /// <summary>For one caller only, as the tests that ask on no connection do.</summary>
+    public Task<IpcEvent?> ReplyToAsync(IpcCommand command, CancellationToken ct = default) => ReplyToAsync(command, Guid.Empty, ct);
+
+    /// <param name="caller">The connection asking, which keys the refusal its <see cref="HandleAsync(IpcCommand, Guid, CancellationToken)"/> reads.</param>
+    public async Task<IpcEvent?> ReplyToAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         switch (command)
@@ -66,7 +71,7 @@ public sealed class PublishCommands(
                     var answer = await _gateway.IntegrationsAsync(ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new IntegrationsListed { RequestId = command.RequestId, Integrations = answer.Value! }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case SearchTicketsCommand search:
@@ -74,18 +79,18 @@ public sealed class PublishCommands(
                     var answer = await _gateway.SearchTicketsAsync(search.Query, ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new TicketsFound { RequestId = command.RequestId, Tickets = answer.Value! }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case PublishSessionCommand publish:
-                return await PublishAsync(publish, ct).ConfigureAwait(false);
+                return await PublishAsync(publish, caller, ct).ConfigureAwait(false);
 
             case GetCompanyMappingsCommand:
                 {
                     var answer = await _gateway.CompanyMappingsAsync(ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new CompanyMappingsListed { RequestId = command.RequestId, Companies = answer.Value!.Companies, Mappings = answer.Value.Mappings }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case ListIntegrationsCommand:
@@ -93,7 +98,7 @@ public sealed class PublishCommands(
                     var answer = await _gateway.IntegrationDetailsAsync(ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new IntegrationDetailsListed { RequestId = command.RequestId, Integrations = answer.Value! }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             case CheckIntegrationCommand check:
@@ -101,7 +106,7 @@ public sealed class PublishCommands(
                     var answer = await _gateway.CheckIntegrationAsync(check.Provider, ct).ConfigureAwait(false);
                     return answer.Ok
                         ? new IntegrationChecked { RequestId = command.RequestId, Ok = answer.Value!.Ok, Message = answer.Value.Message }
-                        : Refuse(command, answer.Refusal!);
+                        : Refuse(caller, command, answer.Refusal!);
                 }
 
             default:
@@ -109,7 +114,11 @@ public sealed class PublishCommands(
         }
     }
 
-    public async Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default)
+    /// <summary>For one caller only, as the tests that ask on no connection do.</summary>
+    public Task<CommandResult?> HandleAsync(IpcCommand command, CancellationToken ct = default) => HandleAsync(command, Guid.Empty, ct);
+
+    /// <param name="caller">The connection asking: the same one whose question was refused.</param>
+    public async Task<CommandResult?> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         // The actions, whose result is the answer (the questions above are answered with their event).
@@ -131,22 +140,22 @@ public sealed class PublishCommands(
             return null;
         }
 
-        var reason = _refusals.TryRemove(command.RequestId, out var kept) ? kept : "The backend refused.";
+        var reason = _refusals.TryRemove((caller, command.RequestId), out var kept) ? kept : "The backend refused.";
         return new CommandResult { RequestId = command.RequestId, Ok = false, Error = reason };
     }
 
-    private async Task<IpcEvent?> PublishAsync(PublishSessionCommand publish, CancellationToken ct)
+    private async Task<IpcEvent?> PublishAsync(PublishSessionCommand publish, Guid caller, CancellationToken ct)
     {
         // A pipe that dropped mid-publish leaves the first one running here. A technician who looks at
         // the ticket before it lands sees nothing and confirms; refused even then, until it has answered.
         if (!_publishing.TryAdd(publish.SessionId, 0))
         {
-            return Refuse(publish, StillPublishing);
+            return Refuse(caller, publish, StillPublishing);
         }
 
         try
         {
-            return await PublishOnceAsync(publish, ct).ConfigureAwait(false);
+            return await PublishOnceAsync(publish, caller, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -154,12 +163,12 @@ public sealed class PublishCommands(
         }
     }
 
-    private async Task<IpcEvent?> PublishOnceAsync(PublishSessionCommand publish, CancellationToken ct)
+    private async Task<IpcEvent?> PublishOnceAsync(PublishSessionCommand publish, Guid caller, CancellationToken ct)
     {
         var session = await _store.LoadSessionAsync(publish.SessionId, ct).ConfigureAwait(false);
         if (session is null)
         {
-            return Refuse(publish, "The session is gone, so there is nothing to publish.");
+            return Refuse(caller, publish, "The session is gone, so there is nothing to publish.");
         }
 
         // The note comes from the pane, not the store, so a session the technician threw away could still
@@ -167,7 +176,7 @@ public sealed class PublishCommands(
         var state = (await _store.GetSessionSummaryAsync(publish.SessionId, ct).ConfigureAwait(false))?.State;
         if (string.Equals(state, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
         {
-            return Refuse(publish, "The session was discarded, so there is nothing to publish.");
+            return Refuse(caller, publish, "The session was discarded, so there is nothing to publish.");
         }
 
         // Something of it is on a ticket already. Only the pane can know a resend is meant (a Retry of what
@@ -175,7 +184,7 @@ public sealed class PublishCommands(
         // backend keeps nothing to catch a duplicate with (INV-7), so this is where it is caught.
         if (string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal) && !publish.PublishAgain)
         {
-            return Refuse(publish, AlreadyPublished);
+            return Refuse(caller, publish, AlreadyPublished);
         }
 
         // The UI's list is a choice among frames, not a licence: only this session's frames that pass the
@@ -196,7 +205,7 @@ public sealed class PublishCommands(
         // than encoding and uploading megabytes for a certain refusal.
         if (chosen.Count > MaxFrames)
         {
-            return Refuse(publish, $"A publish can carry at most {MaxFrames} frames, and {chosen.Count} are included. Exclude {chosen.Count - MaxFrames} in the filmstrip and publish again.");
+            return Refuse(caller, publish, $"A publish can carry at most {MaxFrames} frames, and {chosen.Count} are included. Exclude {chosen.Count - MaxFrames} in the filmstrip and publish again.");
         }
 
         var frames = new List<PublishWireFrame>(chosen.Count);
@@ -234,7 +243,7 @@ public sealed class PublishCommands(
 
         if (!answer.Ok)
         {
-            return Refuse(publish, answer.Refusal!);
+            return Refuse(caller, publish, answer.Refusal!);
         }
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
@@ -293,9 +302,9 @@ public sealed class PublishCommands(
         new EventId(1, nameof(BookkeepingFailed)),
         "A publish landed, but its {Bookkeeping} bookkeeping failed with {Fault}; the results went back as they came");
 
-    private IpcEvent? Refuse(IpcCommand command, string reason)
+    private IpcEvent? Refuse(Guid caller, IpcCommand command, string reason)
     {
-        _refusals[command.RequestId] = reason;
+        _refusals[(caller, command.RequestId)] = reason;
         return null;
     }
 }
