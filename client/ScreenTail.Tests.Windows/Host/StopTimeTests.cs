@@ -16,6 +16,7 @@ using ScreenTail.Core.Settings;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
 using ScreenTail.Service.Host;
+using ScreenTail.Service.Speech;
 using ScreenTail.Service.Store;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.Shared.Logging;
@@ -120,6 +121,7 @@ public sealed class StopTimeTests : IAsyncDisposable
         bool microphone;
         TimeSpan stopped;
         TimeSpan? answered = null;
+        var narrationInFlight = false;
         string firstLog;
         using (var window = DesktopWindow.CreateRemoteToolShaped("Stop time test session"))
         {
@@ -206,6 +208,21 @@ public sealed class StopTimeTests : IAsyncDisposable
             Assert.True(
                 stopped < CloseRequests.DefaultBudget,
                 $"the service took {stopped.TotalMilliseconds:F0} ms to stop, budget {CloseRequests.DefaultBudget.TotalMilliseconds:F0} ms\n{service.Log}");
+
+            // #262 follow-up. The real microphone cannot be made to speak on cue, so whether a segment was
+            // with the model at the ask is read from the service's own lines afterwards. When one was, the
+            // stop aborted it rather than leaving it running (the recogniser's "still busy" line is the
+            // abandoned case), and the whole stop stayed well inside the budget. SpeechUnloadTests and
+            // TheProcessEndsWithATranscriptionStillInFlight put one in flight for certain.
+            narrationInFlight = service.Says(NarrationDroppedLine);
+            Assert.False(service.Says(SpeechLeftRunningLine), $"the speech model was left running at the stop: its transcription did not answer the abort\n{service.Log}");
+            if (narrationInFlight)
+            {
+                Assert.True(
+                    stopped < SpeechUnloadTests.AbortedWithin,
+                    $"the service took {stopped.TotalMilliseconds:F0} ms to stop with a transcription in flight, bound {SpeechUnloadTests.AbortedWithin.TotalMilliseconds:F0} ms\n{service.Log}");
+            }
+
             firstLog = service.Log;
         }
 
@@ -254,8 +271,173 @@ public sealed class StopTimeTests : IAsyncDisposable
             $"Stop time mid-recording, {Label(ask)}: **{stopped.TotalMilliseconds:F0} ms** to the store closed{held} "
             + $"(budget {CloseRequests.DefaultBudget.TotalMilliseconds:F0} ms, enforced everywhere); "
             + $"recorded {Recording.TotalSeconds:F0} s with {marks} moments marked, then a burst, {backlog} frame(s) waiting for redaction at the ask; "
-            + $"{session.Frames.Count} frame(s) kept, microphone {(microphone ? 1 : 0)}, speech model checked in memory {(speech ? 1 : 0)}; "
+            + $"{session.Frames.Count} frame(s) kept, microphone {(microphone ? 1 : 0)}, speech model checked in memory {(speech ? 1 : 0)}, narration with the model at the ask {(narrationInFlight ? 1 : 0)}; "
             + $"the next start had recovered it as partial when its pipe opened, {recoveredBy.TotalMilliseconds:F0} ms after it began, and stopped idle in {idleStop.TotalMilliseconds:F0} ms"));
+    }
+
+    /// <summary>
+    /// The capture service's process ends while a transcription is still running in it (#262 follow-up,
+    /// ST-112).
+    ///
+    /// When the model does not answer its abort inside <see cref="StopBound.Default"/>, the service's stop
+    /// leaves the native call running and says the process exiting frees it. That holds only if nothing
+    /// in whisper.cpp or Whisper.net keeps a process alive, or crashes it on the way out, with a call in
+    /// flight: a foreground thread, a finalizer, a native teardown. A test cannot see that from inside its
+    /// own process, so this one runs a second copy of this suite as a child process, filtered to this
+    /// test, which puts five minutes of audio with the real model (a great deal more work than the few
+    /// seconds allowed here), says so, and returns without disposing the recogniser, so the call is
+    /// certainly running when the child's runner exits. The parent requires the child to have exited, with
+    /// success, within <see cref="ChildExitsWithin"/> of saying so.
+    ///
+    /// On the laptop only, as its neighbours in SpeechUnloadTests are: a hosted runner would download the
+    /// model on every run. There it records "not measured", so the skip counts are unchanged.
+    /// </summary>
+    [Fact]
+    public async Task TheProcessEndsWithATranscriptionStillInFlight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        if (Environment.GetEnvironmentVariable(ChildRoleVariable) == ChildRole)
+        {
+            await TranscribeAtExitAsChildAsync(ct);
+            return;
+        }
+
+        if (!Hardware.PerformanceCounts)
+        {
+            Measurements.Record($"Process exit mid-transcription: not measured on a hosted runner, which would download {SpeechModels.BaseEnglish.Name} on every run; the laptop measures it");
+            return;
+        }
+
+        _ = Directory.CreateDirectory(_dir);
+        var signal = Path.Combine(_dir, "in-flight.signal");
+        using var child = Process.Start(ChildStart(signal)) ?? throw new InvalidOperationException("The child test process did not start.");
+        var output = new System.Text.StringBuilder();
+        child.OutputDataReceived += (_, line) => { lock (output) { _ = output.AppendLine(line.Data); } };
+        child.ErrorDataReceived += (_, line) => { lock (output) { _ = output.AppendLine(line.Data); } };
+        child.BeginOutputReadLine();
+        child.BeginErrorReadLine();
+        string Said()
+        {
+            lock (output)
+            {
+                return output.ToString();
+            }
+        }
+
+        try
+        {
+            // The model loads first, which can take a while on a cold disk.
+            var loading = Stopwatch.StartNew();
+            while (!File.Exists(signal) && !child.HasExited && loading.Elapsed < TimeSpan.FromSeconds(120))
+            {
+                await Task.Delay(50, ct);
+            }
+
+            Assert.True(File.Exists(signal), $"the child never had a transcription in flight (exited: {child.HasExited})\n{Said()}");
+            var clock = Stopwatch.StartNew();
+            using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            waiting.CancelAfter(ChildExitsWithin + TimeSpan.FromSeconds(10));
+            try
+            {
+                await child.WaitForExitAsync(waiting.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+            }
+
+            var exited = clock.Elapsed;
+            Assert.True(child.HasExited, $"the child process was still running {exited.TotalSeconds:F0} s after its test returned with a transcription in flight\n{Said()}");
+            Measurements.Record(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Process exit mid-transcription ({SpeechModels.BaseEnglish.Name}, five minutes of audio in flight, recogniser not disposed): the process ended **{exited.TotalMilliseconds:F0} ms** "
+                + $"after its test returned (enforced under {ChildExitsWithin.TotalMilliseconds:F0} ms), exit code {child.ExitCode}"));
+            Assert.True(child.ExitCode == 0, $"the child process ended with exit code {child.ExitCode} with a transcription in flight\n{Said()}");
+            Assert.True(exited < ChildExitsWithin, $"the child process took {exited.TotalMilliseconds:F0} ms to end with a transcription in flight\n{Said()}");
+        }
+        finally
+        {
+            if (!child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    /// <summary>The environment variable that makes this suite's process the child of <see cref="TheProcessEndsWithATranscriptionStillInFlight"/>.</summary>
+    private const string ChildRoleVariable = "SCREENTAIL_TESTS_CHILD";
+
+    private const string ChildRole = "transcribing-at-exit";
+
+    /// <summary>Where the child says its transcription is in flight.</summary>
+    private const string ChildSignalVariable = "SCREENTAIL_TESTS_CHILD_SIGNAL";
+
+    /// <summary>From the child's test returning to its process having ended. Its runner reports one test first.</summary>
+    private static TimeSpan ChildExitsWithin => TimeSpan.FromSeconds(5);
+
+    /// <summary>What the service logs when it dropped narration still with the model at the stop (CaptureHost).</summary>
+    private const string NarrationDroppedLine = "narration segment(s) still being transcribed";
+
+    /// <summary>What the service logs when the recogniser's disposal left the native call running (CaptureHost).</summary>
+    private const string SpeechLeftRunningLine = "The speech model was still busy at stop";
+
+    /// <summary>
+    /// This suite again, as a process of its own, running only the test that asked. The way CI runs the
+    /// suite (<c>dotnet ScreenTail.Tests.Windows.dll</c>), or its own executable when that is how this one
+    /// was started. No measurements file: what the child would record is the parent's to say.
+    /// </summary>
+    private static ProcessStartInfo ChildStart(string signal)
+    {
+        var host = Environment.ProcessPath ?? throw new InvalidOperationException("This process has no path.");
+        var start = new ProcessStartInfo(host)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        if (string.Equals(Path.GetFileNameWithoutExtension(host), "dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            start.ArgumentList.Add(typeof(StopTimeTests).Assembly.Location);
+        }
+
+        start.ArgumentList.Add("-method");
+        start.ArgumentList.Add($"{typeof(StopTimeTests).FullName}.{nameof(TheProcessEndsWithATranscriptionStillInFlight)}");
+        start.ArgumentList.Add("-nologo");
+        start.Environment[ChildRoleVariable] = ChildRole;
+        start.Environment[ChildSignalVariable] = signal;
+        _ = start.Environment.Remove("SCREENTAIL_MEASUREMENTS");
+        return start;
+    }
+
+    /// <summary>
+    /// The child's half: the real model, five minutes of quiet noise in flight, the signal written, and
+    /// back to the runner with the recogniser still working, never disposed.
+    /// </summary>
+    private static async Task TranscribeAtExitAsChildAsync(CancellationToken ct)
+    {
+        var signal = Environment.GetEnvironmentVariable(ChildSignalVariable) ?? throw new InvalidOperationException("No signal file was named.");
+        var whisper = new WhisperRecogniser(
+            new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(null))))),
+            SpeechModels.BaseEnglish,
+            SpeechUnloadTests.ModelCache());
+        Assert.True(await whisper.PrepareAsync(ct), $"the model could not be had: {whisper.Unavailable}");
+
+        var random = new Random(41);
+        var audio = new short[16_000 * 300];
+        for (var i = 0; i < audio.Length; i++)
+        {
+            audio[i] = (short)random.Next(-200, 200);
+        }
+
+        var transcribing = whisper.TranscribeAsync(new SpeechSegment(0, 300_000, Truncated: false), audio, CancellationToken.None);
+        _ = transcribing.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        await Task.Delay(500, ct);
+        Assert.False(transcribing.IsCompleted, "five minutes of audio were transcribed in half a second, so nothing would be in flight at exit");
+        await File.WriteAllTextAsync(signal, "in flight", ct);
+
+        // Returned with the call running. The recogniser is deliberately not disposed: the process ending
+        // is what is under test.
+        GC.KeepAlive(whisper);
     }
 
     private static CloseKind Expected(Ask ask) => ask switch

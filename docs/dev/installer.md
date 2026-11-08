@@ -345,6 +345,15 @@ and the recogniser's disposal waits at most 500 ms (`StopBound.Default`); after 
 end by itself and free the model, or to go with the process. The service logs a count when it does this,
 nothing else. `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measures it on the laptop with a
 minute of audio certainly in flight, since the microphone cannot be made to speak on cue in this test.
+Since the #262 follow-up it also requires that the stop aborts the call rather than only ceasing to wait:
+the native call ends within 1.5 s of the stop, and the recogniser never had to leave it running (its
+"abandoned" count, logged as "The speech model was still busy at stop", is zero). The narration segment
+is still dropped and counted (`NarrationRecorder.AbandonedAtStop`, one per segment that was with the
+model; a stop that lands once the model has answered is not counted). `StopTimeTests` checks the same in
+the real host whenever its log shows a segment was with the model at the ask (the stop then under 1.5 s,
+and no "still busy" line), and `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` runs a child
+process that returns with five minutes of audio still being transcribed and the recogniser not disposed,
+and requires that process to end, with success, within 5 s.
 
 What it does not show: a frame still waiting for
 redaction at the stop is lost with the process, not counted as purged (#251). The idle figure from the
