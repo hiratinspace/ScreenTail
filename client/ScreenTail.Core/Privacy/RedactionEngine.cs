@@ -110,6 +110,7 @@ public sealed class RedactionEngine
         var (matches, complete) = Resolve(text);
         var regions = new List<MaskedRegion>();
         var widened = new List<PatternMatch>(matches.Count);
+        var rows = new Dictionary<int, double>();
         foreach (var match in matches)
         {
             // Every word the match touches is masked whole: a partly painted number is still readable.
@@ -125,28 +126,34 @@ public sealed class RedactionEngine
             // words: "pass: Tangerine4821Wobble" came back as "Tangerine4821" and "Wobble", and the
             // password rule, which ends a value at the first plain word, masked the first and left the
             // second in the stored text and unpainted in the frame (loop-13, 2026-11-08). The words of
-            // one token have no space between them on the screen, whatever the text says.
-            while (first > 0 && SameToken(spans[first - 1].Word, spans[first].Word))
-            {
-                first--;
-            }
-
-            while (last < spans.Count - 1 && SameToken(spans[last].Word, spans[last + 1].Word))
-            {
-                last++;
-            }
-
-            var touched = spans.GetRange(first, last - first + 1);
-            regions.Add(Cover([.. touched.Select(s => s.Word)], match.Kind));
+            // one token have no space between them on the screen, whatever the text says, so the token
+            // is found on the screen: a piece Windows listed in an OcrLine of its own, or to the left in
+            // a right-to-left line, is as much a part of it as the next word in the list.
+            var token = Token(words, first, last, rows);
+            regions.Add(Cover([.. token.Select(i => words[i])], match.Kind));
 
             // And the stored text loses the same words the picture did.
             //
             // It used to lose only the matched span, so a value the pattern stopped short of kept its
             // tail: "P@ss.word1!" is one OCR word, the password rule's value ends at the full stop, and
             // ".word1!" stayed in ocr_text — painted out of the frame and sent to the model in writing
-            // (2026-09-19 review). Picture and text are two views of one decision and must agree.
-            widened.Add(match with { Start = touched[0].Start, Length = touched[^1].End - touched[0].Start });
+            // (2026-09-19 review). Picture and text are two views of one decision and must agree. A
+            // token listed in two places in the text is replaced in both.
+            var run = 0;
+            for (var i = 1; i <= token.Count; i++)
+            {
+                if (i < token.Count && token[i] == token[i - 1] + 1)
+                {
+                    continue;
+                }
+
+                var start = spans[token[run]].Start;
+                widened.Add(match with { Start = start, Length = spans[token[i - 1]].End - start });
+                run = i;
+            }
         }
+
+        widened.Sort((a, b) => a.Start.CompareTo(b.Start));
 
         // The same matches that placed the boxes write the stored text. Resolving twice gave two answers
         // that were identical by construction and cost the pattern library a second full pass over every
@@ -221,37 +228,85 @@ public sealed class RedactionEngine
     }
 
     /// <summary>
-    /// The widest gap, as a share of the shorter word's height, that two OCR words can have between their
-    /// boxes and still be one token on the screen.
+    /// The widest gap, as a share of the row's height, that two OCR words can have between their boxes
+    /// and still be one token on the screen. See <see cref="GapShare"/> for what the height is.
     ///
-    /// Measured on Windows OCR (ScreenTail.Tests.Windows OcrSplitSecretTests, hosted runner, 2026-11-08):
-    /// inside a token the engine split, 0.04 to 0.33 at 24 pt and 0.09 to 0.27 at 11 pt; at a real
-    /// space, never under 0.36 in 15,000. The line sits just under the narrowest space, on the side that
-    /// masks more: a token left half masked is a secret stored, a space taken for none is one more word
-    /// under the marker. Text smaller than about 10 pt, where a space is three pixels, is joined more
-    /// often than it should be, which costs readability there and never a secret.
+    /// MEASUREMENTS: set from the Windows probe once it has run with the row's height.
     /// </summary>
     internal const double TokenGap = 0.35;
 
     /// <summary>
-    /// Whether <paramref name="next"/> carries on the token <paramref name="word"/> is part of: on the
-    /// same row, to its right, with less between their boxes than a space leaves.
+    /// The words of the token, or tokens, that words <paramref name="first"/> to <paramref name="last"/>
+    /// are part of, in reading order: every word reached from them through a neighbour on the same row
+    /// closer than <see cref="TokenGap"/>, whichever side it is on and wherever the engine listed it.
     /// </summary>
-    private static bool SameToken(OcrWord word, OcrWord next)
+    private static List<int> Token(IReadOnlyList<OcrWord> words, int first, int last, Dictionary<int, double> rows)
     {
-        var height = Math.Min(word.Height, next.Height);
-        if (height <= 0 || next.X < word.X)
+        var token = new HashSet<int>();
+        var waiting = new Queue<int>();
+        for (var i = first; i <= last; i++)
         {
-            return false;
+            _ = token.Add(i);
+            waiting.Enqueue(i);
         }
 
-        var middle = next.Y + (next.Height / 2.0);
-        if (middle < word.Y || middle > word.Y + word.Height)
+        while (waiting.TryDequeue(out var i))
         {
-            return false;
+            if (!rows.TryGetValue(i, out var row))
+            {
+                row = RowHeight(words, words[i]);
+                rows[i] = row;
+            }
+
+            for (var j = 0; j < words.Count; j++)
+            {
+                if (!token.Contains(j) && GapShare(words[i], words[j], row) is <= TokenGap)
+                {
+                    _ = token.Add(j);
+                    waiting.Enqueue(j);
+                }
+            }
         }
 
-        return next.X - (word.X + word.Width) <= height * TokenGap;
+        return [.. token.Order()];
+    }
+
+    /// <summary>
+    /// Whether two words share a row: the middle of either lies within the other's height. Either,
+    /// because a lowercase word's box is only as tall as the x-height and sits inside its neighbours'.
+    /// </summary>
+    internal static bool SameRow(OcrWord a, OcrWord b)
+    {
+        var middleA = a.Y + (a.Height / 2.0);
+        var middleB = b.Y + (b.Height / 2.0);
+        return (middleB >= a.Y && middleB <= a.Y + a.Height) || (middleA >= b.Y && middleA <= b.Y + b.Height);
+    }
+
+    /// <summary>The median height of the words on <paramref name="word"/>'s row, itself included.</summary>
+    internal static double RowHeight(IReadOnlyList<OcrWord> words, OcrWord word)
+    {
+        var heights = words.Where(w => SameRow(word, w)).Select(w => w.Height).Order().ToList();
+        return heights.Count == 0 ? word.Height : heights[heights.Count / 2];
+    }
+
+    /// <summary>
+    /// The space between two words' boxes as a share of the height a space is measured against, or
+    /// null when they are not on one row. The space is the horizontal distance in either direction,
+    /// so a right-to-left line reads the same. The height is the largest of the two words' and their
+    /// row's median: a piece with no capital, ascender or digit is only x-height tall, about 0.7 of
+    /// its neighbours, and measured against itself a split looked a third wider than it is (review of
+    /// #268). Each of those only makes the share smaller, so each only masks more.
+    /// </summary>
+    internal static double? GapShare(OcrWord a, OcrWord b, double rowHeight)
+    {
+        var height = Math.Max(rowHeight, Math.Max(a.Height, b.Height));
+        if (height <= 0 || !SameRow(a, b))
+        {
+            return null;
+        }
+
+        var gap = Math.Max(b.X - (a.X + a.Width), a.X - (b.X + b.Width));
+        return gap / height;
     }
 
     private static MaskedRegion Cover(IReadOnlyList<OcrWord> words, MaskKind kind)

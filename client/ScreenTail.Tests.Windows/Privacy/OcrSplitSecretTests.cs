@@ -19,15 +19,22 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// loop, drawing a new secret each run, failed now and then (four hosted runs in 72, 2026-11-04 to 08).
 /// Before the fix this measured, at 24 pt, 30 splits in 500 renderings and 14 secrets left showing.
 ///
-/// This draws every secret the loop can draw a word pair of, the way the test window draws it, and says
-/// how many the engine split and how many the redaction left any of showing. It prints counts and box
-/// geometry only, never the text (INV-10).
+/// This draws every secret the loop can draw a word pair of, and the same with a lowercase second word
+/// that has no capital, ascender or digit (the shortest box a piece can have), the way the test window
+/// draws it. It says how many the engine split, how many the redaction left any of showing, and how the
+/// gaps sit against <see cref="RedactionEngine.TokenGap"/>, measured by the engine's own rule. It is also
+/// the canary for that number: if Windows OCR starts splitting tokens wider apart, this fails and says
+/// so. It prints counts and box geometry only, never the text, failing or not (INV-10).
 /// </summary>
 public sealed class OcrSplitSecretTests
 {
     // scripts/windows/demo/common.ps1, $E2eSecretFirstWords and $E2eSecretSecondWords.
     private static readonly string[] FirstWords = ["Tangerine", "Marigold", "Juniper", "Lavender", "Saffron"];
     private static readonly string[] SecondWords = ["Wobble", "Quiver", "Ramble", "Tumble", "Glimmer"];
+
+    // Not the loop's: x-height letters only, so the piece's box is as short as a word's can be. Five or
+    // more letters, so the loop's own leak test (a run of five) can see them.
+    private static readonly string[] LowercaseSecondWords = ["ocean", "sauce", "canvas", "woven", "summer"];
 
     private static readonly ImageCodecInfo JpegCodec =
         ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
@@ -54,19 +61,23 @@ public sealed class OcrSplitSecretTests
         Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
         var engine = new RedactionEngine();
 
-        int renders = 0, cueUnread = 0, split = 0, leakedText = 0, leakedPixels = 0, splitApart = 0;
-        var splitGaps = new List<double>();
-        var spaceGaps = new List<double>();
+        var expected = FirstWords.Length * (SecondWords.Length + LowercaseSecondWords.Length) * DigitGroups().Count();
+        int renders = 0, cueUnread = 0, split = 0, leakedText = 0, leakedPixels = 0, splitApart = 0, spacesJoined = 0;
+        var splitShares = new List<double>();
+        var spaceShares = new List<double>();
+        var splitMargins = new List<double>(); // pixels a split gap sits under the cutoff
+        var spaceMargins = new List<double>(); // pixels a real space sits over it
+        var rowShortest = new List<int>();
+        var rowTallest = new List<int>();
         var heights = new List<int>();
         foreach (var first in FirstWords)
         {
-            foreach (var second in SecondWords)
+            foreach (var second in SecondWords.Concat(LowercaseSecondWords))
             {
                 foreach (var digits in DigitGroups())
                 {
                     var secret = first + digits + second;
-                    var image = Render(secret, points);
-                    var words = (await recogniser.ReadAsync(image, TestContext.Current.CancellationToken)).Words;
+                    var words = (await recogniser.ReadAsync(Render(secret, points), TestContext.Current.CancellationToken)).Words;
                     renders++;
                     heights.AddRange(words.Select(w => w.Height));
 
@@ -80,29 +91,54 @@ public sealed class OcrSplitSecretTests
                         }
                     }
 
-                    // Every real space on the page, the pass line's included, for the geometry.
-                    for (var i = 1; i < words.Count; i++)
-                    {
-                        if (SameLine(words[i - 1], words[i]) && (cue < 0 || i <= cue + 1 || !SameLine(words[cue], words[i])))
-                        {
-                            spaceGaps.Add(Gap(words[i - 1], words[i]));
-                        }
-                    }
-
                     if (cue < 0)
                     {
                         cueUnread++;
                         continue;
                     }
 
-                    var pieces = words.Skip(cue + 1).TakeWhile(w => SameLine(words[cue], w)).ToList();
+                    // The secret's pieces: whatever is on the cue's row after it, found on the screen
+                    // rather than by where the engine listed it.
+                    var pieces = Enumerable.Range(0, words.Count)
+                        .Where(i => i != cue && RedactionEngine.SameRow(words[cue], words[i]) && words[i].X > words[cue].X)
+                        .OrderBy(i => words[i].X)
+                        .ToList();
+                    var row = pieces.Select(i => words[i].Height).Append(words[cue].Height).ToList();
+                    rowShortest.Add(row.Min());
+                    rowTallest.Add(row.Max());
+
                     if (pieces.Count > 1)
                     {
                         split++;
                         for (var i = 1; i < pieces.Count; i++)
                         {
-                            splitGaps.Add(Gap(pieces[i - 1], pieces[i]));
-                            splitApart += Gap(pieces[i - 1], pieces[i]) > RedactionEngine.TokenGap ? 1 : 0;
+                            var (share, margin) = Measure(words, pieces[i - 1], pieces[i]);
+                            splitShares.Add(share);
+                            splitMargins.Add(-margin);
+                            splitApart += share > RedactionEngine.TokenGap ? 1 : 0;
+                        }
+                    }
+
+                    // Every real space on the page: each word and its nearest neighbour to the right on its
+                    // row, the pairs inside the secret aside.
+                    for (var i = 0; i < words.Count; i++)
+                    {
+                        if (pieces.Contains(i))
+                        {
+                            continue;
+                        }
+
+                        var right = Enumerable.Range(0, words.Count)
+                            .Where(j => j != i && RedactionEngine.SameRow(words[i], words[j]) && words[j].X > words[i].X)
+                            .OrderBy(j => words[j].X)
+                            .Cast<int?>()
+                            .FirstOrDefault();
+                        if (right is { } j)
+                        {
+                            var (share, margin) = Measure(words, i, j);
+                            spaceShares.Add(share);
+                            spaceMargins.Add(margin);
+                            spacesJoined += share <= RedactionEngine.TokenGap ? 1 : 0;
                         }
                     }
 
@@ -112,7 +148,7 @@ public sealed class OcrSplitSecretTests
                         leakedText++;
                     }
 
-                    if (pieces.Any(p => !redaction.Regions.Any(r => Covers(r, p))))
+                    if (pieces.Any(p => !redaction.Regions.Any(r => Covers(r, words[p]))))
                     {
                         leakedPixels++;
                     }
@@ -122,25 +158,32 @@ public sealed class OcrSplitSecretTests
 
         var summary = string.Create(
             CultureInfo.InvariantCulture,
-            $"OCR of the loop's secret at {points:0}pt: {renders} renderings, the engine split the secret in **{split}**, "
-            + $"the pass cue unread in {cueUnread}; left showing in the stored text **{leakedText}**, unpainted in the frame **{leakedPixels}**. "
-            + $"Gaps as a share of word height: inside a split token {Describe(splitGaps)}, at a real space {Describe(spaceGaps)}; "
-            + $"wider than the token rule's {RedactionEngine.TokenGap:0.00}: {splitApart} split gap(s); "
-            + $"real spaces it would take for none (over-masking): {spaceGaps.Count(g => g <= RedactionEngine.TokenGap)} of {spaceGaps.Count}; "
-            + $"word height median {Median(heights.Select(h => (double)h).ToList()):0} px.");
+            $"OCR of the loop's secret at {points:0}pt: {renders} of {expected} renderings, the pass cue unread in {cueUnread}, "
+            + $"the engine split the secret in **{split}**; left showing in the stored text **{leakedText}**, unpainted in the frame **{leakedPixels}**. "
+            + $"Gaps as a share of the row's height: inside a split token {Describe(splitShares)}, at a real space {Describe(spaceShares)}; "
+            + $"split gaps wider than the token rule's {RedactionEngine.TokenGap:0.00}: {splitApart}; "
+            + $"real spaces it takes for none (over-masking): **{spacesJoined}** of {spaceShares.Count}. "
+            + $"Margin to the cutoff in pixels: splits at least {MinOrNone(splitMargins)} under, spaces at least {MinOrNone(spaceMargins)} over. "
+            + $"Pass row box heights: shortest {Range(rowShortest)} px, tallest {Range(rowTallest)} px; word height median {Median(heights.Select(h => (double)h).ToList()):0} px.");
         Measurements.Record(summary);
 
-        Assert.True(leakedText == 0 && leakedPixels == 0, summary);
+        // A probe that read nothing proves nothing: every rendering, the cue in each, and at least one
+        // split, or the numbers above vouch for no threshold at all.
+        Assert.True(renders == expected, $"Rendered {renders} of {expected}. {summary}");
+        Assert.True(cueUnread == 0, $"The engine did not read the pass cue in every rendering, so those were never checked. {summary}");
+        Assert.True(split > 0, $"The engine split no secret, so this measured no split gap. {summary}");
+        Assert.True(splitApart == 0, $"Windows OCR changed: re-measure TokenGap. A split token's pieces sat further apart than the rule joins. {summary}");
+        Assert.True(leakedText == 0 && leakedPixels == 0, $"The secret was left showing. {summary}");
     }
 
-    private static bool SameLine(OcrWord a, OcrWord b)
+    /// <summary>The engine's own share for the pair, and how many pixels the gap sits over the cutoff (negative under).</summary>
+    private static (double Share, double Margin) Measure(IReadOnlyList<OcrWord> words, int a, int b)
     {
-        var middle = b.Y + (b.Height / 2.0);
-        return middle >= a.Y && middle <= a.Y + a.Height && b.X >= a.X;
+        var row = RedactionEngine.RowHeight(words, words[a]);
+        var share = RedactionEngine.GapShare(words[a], words[b], row) ?? double.NaN;
+        var height = Math.Max(row, Math.Max(words[a].Height, words[b].Height));
+        return (share, (share - RedactionEngine.TokenGap) * height);
     }
-
-    private static double Gap(OcrWord a, OcrWord b) =>
-        (b.X - (a.X + a.Width)) / (double)Math.Max(1, Math.Min(a.Height, b.Height));
 
     private static bool Covers(MaskedRegion region, OcrWord word) =>
         region.X <= word.X && region.Y <= word.Y
@@ -156,6 +199,12 @@ public sealed class OcrSplitSecretTests
         values.Count == 0
             ? "none"
             : string.Create(CultureInfo.InvariantCulture, $"{values.Min():0.00} to {values.Max():0.00} (median {Median(values):0.00}, {values.Count})");
+
+    private static string MinOrNone(List<double> values) =>
+        values.Count == 0 ? "n/a" : values.Min().ToString("0.0", CultureInfo.InvariantCulture);
+
+    private static string Range(List<int> values) =>
+        values.Count == 0 ? "n/a" : string.Create(CultureInfo.InvariantCulture, $"{values.Min()} to {values.Max()}");
 
     private static double Median(List<double> values)
     {
