@@ -41,6 +41,10 @@ public sealed class PublishCommands(
     /// <summary>The backend's ceiling on frames per publish (PublishLimits.MaxFrames, which is BundleOptions.MaxFrames).</summary>
     public const int MaxFrames = 25;
 
+    public const string AlreadyPublished = "stub1";
+
+    public const string StillPublishing = "stub2";
+
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
     public string? LastBookkeepingError { get; private set; }
 

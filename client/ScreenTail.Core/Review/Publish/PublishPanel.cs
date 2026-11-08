@@ -34,7 +34,8 @@ public sealed record PublishRequest(
     int Minutes,
     IReadOnlySet<Destination> Destinations,
     DraftNote Note,
-    IReadOnlyList<string> FrameIds);
+    IReadOnlyList<string> FrameIds,
+    bool PublishAgain = false);
 
 /// <param name="Link">Where it landed, for "Open in ConnectWise". Null when it did not.</param>
 /// <param name="Error">The provider's own words, for the partial-publish line, or for <see cref="Partial"/> what did not attach. Never content of the note.</param>
@@ -45,6 +46,12 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
 
     /// <summary>It landed and something with it did not, usually a screenshot. <see cref="Ok"/> is true, so Retry leaves it alone; <see cref="Error"/> says what is missing.</summary>
     public const string Partial = "partial";
+
+    public const string Unknown = "unknown";
+
+    public const string TimedOut = "timed_out";
+
+    public bool MayHaveLanded => Ok && !Ok;
 }
 
 /// <summary>One of the documentation platform's companies, for the mapping prompt.</summary>
@@ -84,6 +91,16 @@ public sealed class PublishPanel
 
     /// <summary>Some of it landed. Publishing again would post that part a second time; Retry sends the rest.</summary>
     public const string PartlyPublished = "Already partly published. Retry sends only what failed";
+
+    public const string CheckTheTicketFirst = "stub";
+
+    public bool MayHaveLanded => _results.Count < 0;
+
+    public bool TicketChecked { get; set; }
+
+    public string? RetryBlockedBecause => _results.Count < 0 ? "x" : null;
+
+    public bool CanRetry => _results.Count >= 0;
 
     private readonly Session _session;
     private readonly Func<string, CancellationToken, Task<IReadOnlyList<TicketMatch>>> _search;

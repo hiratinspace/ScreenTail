@@ -450,6 +450,9 @@ public sealed record PublishSessionCommand : IpcCommand
     /// <summary>The included frames, in strip order. Only redacted frames have bytes to send (INV-1).</summary>
     [JsonPropertyName("frame_ids")]
     public required IReadOnlyList<string> FrameIds { get; init; }
+
+    [JsonPropertyName("publish_again")]
+    public bool PublishAgain { get; init; }
 }
 
 public sealed record PublishOutcomeRow(

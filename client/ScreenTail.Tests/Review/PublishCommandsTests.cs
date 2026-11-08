@@ -276,6 +276,72 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ASessionAlreadyPublishedIsRefusedUnlessThePaneSaysItIsPublishingAgain()
+    {
+        // The pane's own guard lives in one window. A pipe that dropped after the first publish landed, a
+        // restarted UI, or a second Review window all arrive here with a session already marked
+        // published, and a second note on the customer's ticket at the end of a plain resend.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        Assert.Single(_gateway.Published);
+
+        var again = Publish(["f1"]) with { RequestId = 8 };
+        Assert.Null(await commands.ReplyToAsync(again));
+        var refused = await commands.HandleAsync(again);
+
+        Assert.False(refused!.Ok);
+        Assert.Equal(PublishCommands.AlreadyPublished, refused.Error);
+        Assert.Single(_gateway.Published);
+
+        var confirmed = Publish(["f1"]) with { RequestId = 9, PublishAgain = true };
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(confirmed));
+        Assert.Equal(2, _gateway.Published.Count);
+    }
+
+    [Fact]
+    public async Task ASessionWhosePublishFailedEverywhereIsStillPublishedWithoutTheFlag()
+    {
+        // Nothing landed, so the session was not marked published and a plain resend duplicates nothing.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "PSA down"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        _gateway.Outcomes = null;
+
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 }));
+        Assert.Equal(2, _gateway.Published.Count);
+    }
+
+    [Fact]
+    public async Task ASecondPublishWhileTheFirstIsStillOnItsWayIsRefusedEvenWhenConfirmed()
+    {
+        // The pipe dropped mid-publish and the technician, reconnected, looked at the ticket before the
+        // first call had landed: nothing there yet, so they confirm. The first is still in flight here.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _gateway.Hold = hold.Task;
+
+        var first = commands.ReplyToAsync(Publish(["f1"]));
+        await _gateway.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        var second = Publish(["f1"]) with { RequestId = 8, PublishAgain = true };
+        // Bounded, so a second publish that waits behind the first fails the test instead of hanging it.
+        var secondReply = commands.ReplyToAsync(second);
+        var finished = await Task.WhenAny(secondReply, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        hold.SetResult();
+        Assert.Same(secondReply, finished);
+        Assert.Null(await secondReply);
+        var refused = await commands.HandleAsync(second);
+
+        Assert.IsType<SessionPublished>(await first);
+        Assert.False(refused!.Ok);
+        Assert.Equal(PublishCommands.StillPublishing, refused.Error);
+        Assert.Single(_gateway.Published);
+    }
+
+    [Fact]
     public async Task ABackendRefusalIsAFailedResultWithItsWords()
     {
         var commands = await CommandsAsync();
@@ -475,16 +541,28 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         public Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
             Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
 
-        public Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
+        /// <summary>When set, a publish waits for it before answering, so a test can act while one is on its way.</summary>
+        public Task? Hold { get; set; }
+
+        /// <summary>Set once a publish reaches the backend.</summary>
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
         {
             if (Refusal is { } r)
             {
-                return Task.FromResult(GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(r));
+                return GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(r);
+            }
+
+            Reached.TrySetResult();
+            if (Hold is { } hold)
+            {
+                await hold.ConfigureAwait(false);
             }
 
             Published.Add(bundle);
-            return Task.FromResult(GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>(
-                Outcomes?.Invoke(bundle.Destinations) ?? [.. bundle.Destinations.Select(d => new PublishOutcomeRow(d, true, "1"))]));
+            return GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>(
+                Outcomes?.Invoke(bundle.Destinations) ?? [.. bundle.Destinations.Select(d => new PublishOutcomeRow(d, true, "1"))]);
         }
     }
 

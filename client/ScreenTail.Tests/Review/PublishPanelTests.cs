@@ -419,6 +419,136 @@ public sealed class PublishPanelTests
         Assert.False(panel.CanPublish);
     }
 
+    [Theory]
+    [InlineData(DestinationResult.Unknown)]
+    [InlineData(DestinationResult.TimedOut)]
+    public async Task AnAnswerThatMayHaveLandedBlocksPublishingAgainUntilTheTicketIsChecked(string kind)
+    {
+        // The pipe dropped after publish_session went out (a lost answer is "unknown"), or the backend ran
+        // out of time with the call on its way: the note may be on the ticket. Nothing came back Ok, so
+        // the T-129 guard alone let Ctrl+Enter post it a second time.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return sent.Count == 1
+                ? [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", kind))]
+                : [.. r.Destinations.Select(d => new DestinationResult(d, true))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.True(panel.MayHaveLanded);
+        Assert.All(panel.Results, r => Assert.True(r.MayHaveLanded));
+        Assert.False(panel.CanPublish);
+        Assert.False(panel.CanRetry);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.RetryBlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), []));
+        Assert.Single(sent);
+        Assert.False(sent[0].PublishAgain);
+
+        // The technician says they looked; the next send says so to the service, and the confirmation
+        // is spent on it.
+        panel.TicketChecked = true;
+
+        Assert.True(panel.CanPublish);
+        Assert.True(panel.CanRetry);
+        await panel.RetryAsync(Draft(), []);
+        Assert.Equal(2, sent.Count);
+        Assert.True(sent[1].PublishAgain);
+        Assert.False(panel.TicketChecked);
+        Assert.True(panel.Published);
+    }
+
+    [Fact]
+    public async Task AConfirmationIsSpentOnTheOneSendItWasGivenFor()
+    {
+        // A second uncertain answer needs a second look: the first "I checked" was about the first one.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        panel.TicketChecked = true;
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(panel.TicketChecked);
+        Assert.False(panel.CanPublish);
+        Assert.Equal(PublishPanel.CheckTheTicketFirst, panel.BlockedBecause);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.PublishAsync(Draft(), []));
+        Assert.Equal(2, sent.Count);
+    }
+
+    [Fact]
+    public async Task APartialPublishWithADestinationThatMayHaveLandedHoldsRetryUntilChecked()
+    {
+        // The note landed and the time entry's answer was lost. Retry sends only the time entry, and that
+        // is the one that may already be on the ticket.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return [.. r.Destinations.Select(d => d == Destination.TimeEntry && sent.Count == 1
+                ? new DestinationResult(d, false, null, "It may already be on the ticket.", DestinationResult.Unknown)
+                : new DestinationResult(d, true))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.True(panel.PartiallyPublished);
+        Assert.False(panel.CanRetry);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => panel.RetryAsync(Draft(), []));
+
+        panel.TicketChecked = true;
+        await panel.RetryAsync(Draft(), []);
+
+        Assert.Equal([Destination.TimeEntry], sent[1].Destinations);
+        Assert.True(panel.Published);
+
+        // Checked or not, Publish stays refused once something landed (T-129).
+        panel.TicketChecked = true;
+        Assert.Equal(PublishPanel.AlreadyPublished, panel.BlockedBecause);
+    }
+
+    [Fact]
+    public async Task ARetryAfterAPartialPublishTellsTheServiceItIsPublishingAgain()
+    {
+        // The service refuses a session already marked published unless the pane says it means it. Retry
+        // after a landing is that: the pane holds the results and sends only what failed.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r =>
+        {
+            sent.Add(r);
+            return [.. r.Destinations.Select(d => new DestinationResult(d, d != Destination.TimeEntry || sent.Count > 1))];
+        });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+        await panel.RetryAsync(Draft(), []);
+
+        Assert.False(sent[0].PublishAgain);
+        Assert.True(sent[1].PublishAgain);
+    }
+
+    [Fact]
+    public async Task APlainFailureNeedsNoConfirmation()
+    {
+        // A refusal that never reached the PSA duplicates nothing: no box to tick, no flag on the wire.
+        var sent = new List<PublishRequest>();
+        var panel = Panel(publish: r => { sent.Add(r); return [.. r.Destinations.Select(d => new DestinationResult(d, false, null, "Connect a PSA to publish."))]; });
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(panel.MayHaveLanded);
+        Assert.True(panel.CanPublish);
+        await panel.PublishAsync(Draft(), []);
+        Assert.All(sent, r => Assert.False(r.PublishAgain));
+    }
+
     private static PublishPanel Panel(
         Session? session = null,
         IReadOnlyList<string>? integrations = null,

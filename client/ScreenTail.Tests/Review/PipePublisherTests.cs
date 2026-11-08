@@ -51,6 +51,53 @@ public sealed class PipePublisherTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task APipeThatDropsAfterThePublishWentOutMayHaveReachedTheTicket()
+    {
+        // The command left and the service went before it answered: the backend may have posted the note.
+        // Reported as a plain failure, the pane let the technician publish it a second time.
+        var publisher = await PublisherAsync();
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _backend.Hold = hold.Task;
+        var request = new PublishRequest("s1", new TicketMatch("48213", "Printer offline", "Acme Dental"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote, Destination.TimeEntry, Destination.KbArticle }, Draft(), ["f1"]);
+
+        var publishing = publisher.PublishAsync(request, TestContext.Current.CancellationToken);
+        await _backend.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var stopping = _server!.DisposeAsync().AsTask();
+        var results = await publishing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        hold.SetResult();
+        await stopping;
+        _server = null;
+
+        Assert.Equal(3, results.Count);
+        Assert.All(results, r => Assert.True(r.MayHaveLanded, r.Error));
+        Assert.All(results, r => Assert.Equal(DestinationResult.Unknown, r.Kind));
+        Assert.Contains("may already be on the ticket", results.Single(r => r.Destination == Destination.TicketNote).Error, StringComparison.Ordinal);
+        Assert.Contains("Check the ticket", results.Single(r => r.Destination == Destination.TimeEntry).Error, StringComparison.Ordinal);
+        Assert.Contains("Check the knowledge base", results.Single(r => r.Destination == Destination.KbArticle).Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APublishedSessionIsRefusedAsMayHaveLandedUntilThePaneSaysItIsPublishingAgain()
+    {
+        var publisher = await PublisherAsync();
+        var request = new PublishRequest("s1", new TicketMatch("48213", "Printer offline", "Acme Dental"), NoteType.Internal, 30, new HashSet<Destination> { Destination.TicketNote }, Draft(), ["f1"]);
+        Assert.True(Assert.Single(await publisher.PublishAsync(request, TestContext.Current.CancellationToken)).Ok);
+
+        var refused = Assert.Single(await publisher.PublishAsync(request, TestContext.Current.CancellationToken));
+
+        // The pane reads it as the same "check first" outcome, so the technician is asked, not just told.
+        Assert.False(refused.Ok);
+        Assert.True(refused.MayHaveLanded);
+        Assert.Equal(PublishCommands.AlreadyPublished, refused.Error);
+        Assert.Equal(1, _backend.PublishCalls);
+
+        var again = Assert.Single(await publisher.PublishAsync(request with { PublishAgain = true }, TestContext.Current.CancellationToken));
+
+        Assert.True(again.Ok);
+        Assert.Equal(2, _backend.PublishCalls);
+    }
+
+    [Fact]
     public async Task ARefusalFailsEveryRequestedDestinationWithTheReason()
     {
         var publisher = await PublisherAsync();
@@ -423,24 +470,36 @@ public sealed class PipePublisherTests : IAsyncDisposable
         public Task<GatewayAnswer<IReadOnlyList<TicketRow>>> SearchTicketsAsync(string query, CancellationToken ct = default) =>
             Task.FromResult(GatewayAnswer.Of<IReadOnlyList<TicketRow>>(Tickets));
 
-        public Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
+        /// <summary>When set, a publish waits for it before answering, so a test can drop the pipe meanwhile.</summary>
+        public Task? Hold { get; set; }
+
+        /// <summary>Set once a publish reaches the backend.</summary>
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
         {
             PublishCalls++;
+            Reached.TrySetResult();
+            if (Hold is { } hold)
+            {
+                await hold.ConfigureAwait(false);
+            }
+
             if (RefuseOnce is { } once)
             {
                 RefuseOnce = null;
-                return Task.FromResult(GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(once));
+                return GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(once);
             }
 
             if (Refusal is { } r)
             {
-                return Task.FromResult(GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(r));
+                return GatewayAnswer.Refused<IReadOnlyList<PublishOutcomeRow>>(r);
             }
 
             Received = bundle;
-            return Task.FromResult(GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d => d == "time_entry" && FailTime
+            return GatewayAnswer.Of<IReadOnlyList<PublishOutcomeRow>>([.. bundle.Destinations.Select(d => d == "time_entry" && FailTime
                 ? new PublishOutcomeRow(d, false, Error: "ConnectWise says no.", Kind: "forbidden")
-                : new PublishOutcomeRow(d, true, "1", Link))]));
+                : new PublishOutcomeRow(d, true, "1", Link))]);
         }
     }
 
