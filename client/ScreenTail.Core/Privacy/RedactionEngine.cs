@@ -231,7 +231,14 @@ public sealed class RedactionEngine
     /// The widest gap, as a share of the row's height, that two OCR words can have between their boxes
     /// and still be one token on the screen. See <see cref="GapShare"/> for what the height is.
     ///
-    /// MEASUREMENTS: set from the Windows probe once it has run with the row's height.
+    /// Measured on Windows OCR (ScreenTail.Tests.Windows OcrSplitSecretTests, hosted runner, 2026-11-08,
+    /// 1,000 renderings and 15,000 real spaces at each of 24, 14, 11 and 9 pt): inside a token the engine
+    /// split, 0.03 to 0.29 at 24, 14 and 11 pt and up to 0.33 at 9 pt, never closer to this line than
+    /// 0.9 px above 9 pt and 0.2 px at 9 pt. At a real space, 0.28 to 0.56, so the two overlap and no
+    /// line parts them. It sits above every split on the side that masks more: a token left half masked
+    /// is a secret stored, a space taken for none is one more word under the marker. The cost, at that
+    /// probe's sizes: about one space in six joined at 24 pt, one in four to three at 14 and 11 pt, and
+    /// two in three at 9 pt, where a space is three pixels and the engine rounds boxes to the pixel.
     /// </summary>
     internal const double TokenGap = 0.35;
 

@@ -18,10 +18,9 @@ public sealed class OcrSplitTokenTests
     private static readonly RedactionEngine Engine = new();
 
     /// <summary>
-    /// The word boxes' height for the loop's 24 pt label, and the gaps the engine left between them
-    /// (ScreenTail.Tests.Windows OcrSplitSecretTests): a space was never narrower than 0.39 of the height
-    /// at that size, and the pieces of a split token were never further apart than 0.33 of it. Both are
-    /// taken at their edge here, so a rule that drifts either way fails.
+    /// The word boxes' height for the loop's 24 pt label, and gaps either side of the token rule's
+    /// line (0.35 of the row's height): the widest split the engine left at 9 pt was 0.33, and 9 px is
+    /// 0.375. Both sit next to the line, so a rule that drifts either way fails.
     /// </summary>
     private const int Height = 24;
     private const int Space = 9;
