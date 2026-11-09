@@ -148,6 +148,32 @@ public sealed class OcrTokenRuleTests
         Assert.True(Covered(redaction, words[1]), "the key's tail is left unpainted in the frame");
     }
 
+    /// <summary>
+    /// A small piece between two pieces of a key: a baseline underscore, a full stop, a zero-height box.
+    /// Each shares the key's row but the key's middle is not within its height, so a test that asked
+    /// both ways dropped it and the tail after it (security review of #268).
+    /// </summary>
+    [Theory]
+    [InlineData("_", 120, 3)]
+    [InlineData(".", 118, 4)]
+    [InlineData("-", 118, 0)]
+    public void ASmallPieceInsideAKeyCarriesItOn(string piece, int top, int height)
+    {
+        OcrWord[] words =
+        [
+            new("deploy", 24, 100, 70, Height),
+            new(Key, 104, 100, 400, Height),
+            new(piece, 506, top, 10, height),
+            new("Wobble7", 518, 100, 80, Height),
+            new("done", 610, 100, 50, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("deploy [SECRET] done", redaction.Text);
+        Assert.True(Covered(redaction, words[3]), "the key's tail is left unpainted in the frame");
+    }
+
     [Fact]
     public void ATallBoxDoesNotCarryAnEmailAcrossTheLines()
     {

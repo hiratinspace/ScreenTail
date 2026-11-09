@@ -317,13 +317,11 @@ public sealed class RedactionEngine
             var row = page.RowAt(page.RowOf(i));
 
             // No neighbour sits further away than the cutoff at the tallest height a pair is measured
-            // against (TokenHeight). On its own line only: a row can take in several lines where one
-            // tall box spans them, and a token that followed it flooded the page (review of #268 at
-            // a3cd033: one email took 7,999 words, and 100 cues 30 s).
+            // against (TokenHeight), and only one that shares its row (Neighbours).
             var reach = TokenGap * Math.Max(row.Height, Math.Min(row.MaxHeight, 2.0 * row.Height));
             foreach (var j in page.Near(i, reach))
             {
-                if (!token.Contains(j) && SameLine(words[i], words[j]) && GapShare(words[i], words[j], row.Height) <= TokenGap)
+                if (!token.Contains(j) && Neighbours(words[i], words[j], row.Height) && GapShare(words[i], words[j], row.Height) <= TokenGap)
                 {
                     _ = token.Add(j);
                     waiting.Enqueue(j);
@@ -428,11 +426,30 @@ public sealed class RedactionEngine
     }
 
     /// <summary>
-    /// Whether two words are on one line of text: the middle of each lies within the other's height.
-    /// Stricter than <see cref="SameRow"/>, which a box as tall as the page shares with every word.
+    /// Whether the token search may step between two words of one row: they share a row
+    /// (<see cref="SameRow"/>), and where either is taller than <see cref="TokenHeight"/> lets a word
+    /// count, each one's middle lies within the other's height.
     /// </summary>
-    internal static bool SameLine(OcrWord a, OcrWord b)
+    /// <remarks>
+    /// A row can take in several lines where one box spans them, and a box as tall as the page shares a
+    /// row with every word on it: a token that stepped through it flooded the page (review of #268 at
+    /// a3cd033: one email took 7,999 words, and 100 cues 30 s). Asking both ways of every pair stopped
+    /// that and dropped a baseline underscore, a full stop or a zero-height box from the middle of a key,
+    /// with the key's tail after it (security review, same day). So only a box too tall to be a piece of
+    /// text is held to both ways.
+    /// </remarks>
+    internal static bool Neighbours(OcrWord a, OcrWord b, double rowHeight)
     {
+        if (!SameRow(a, b))
+        {
+            return false;
+        }
+
+        if (Math.Max(a.Height, b.Height) <= 2.0 * rowHeight)
+        {
+            return true;
+        }
+
         var middleA = a.Y + (a.Height / 2.0);
         var middleB = b.Y + (b.Height / 2.0);
         return middleB >= a.Y && middleB <= a.Y + a.Height && middleA >= b.Y && middleA <= b.Y + b.Height;
