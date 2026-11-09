@@ -111,7 +111,8 @@ that touches it with no space between them goes too, so a value the engine read 
 whole. A password goes further: its cue's row and every row the match touches on the screen are
 masked, the cue included, in the stored text and in the picture alike. The one exception is on the
 cue's own row: the words wholly left of the cue stay readable, so the line still says what it was
-(ScreenTail's cues are Latin, read left to right). A row with any right-to-left letter on it, Hebrew or
+(ScreenTail's cues are Latin, read left to right), unless any of what was masked on that row starts
+left of the cue's end, and then the row is masked whole. A row with any right-to-left letter on it, Hebrew or
 Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen by where it is on the
 screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
 (PR #268): more of a technician's line is masked than strictly needed, because a split the engine makes through a remote viewer's

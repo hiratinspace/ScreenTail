@@ -281,19 +281,39 @@ public sealed class OcrSplitTokenTests
     public void ALatinRowReadsLeftToRightWhereverItsWordsSit()
     {
         // The rule infers no direction (owner proxy 2026-11-09): ScreenTail's cues are Latin, so on the
-        // cue's row only what lies wholly left of the cue stays. This row was read right to left before.
+        // cue's row only what lies wholly left of the cue stays, wherever the engine listed it. Listed
+        // first, "ticket" was taken for the start of a row read right to left before.
         OcrWord[] words =
         [
             new("ticket", 640, 100, 80, Height),
-            new("pass:", 560, 100, 60, Height),
-            new("Tangerine4821", 330, 100, 190, Height),
-            new("reception", 200, 100, 110, Height),
+            new("pass:", 300, 100, 60, Height),
+            new("Tangerine4821", 369, 100, 190, Height),
+            new("reception", 24, 100, 110, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);
 
         Assert.Equal("[REDACTED] reception", redaction.Text);
         Assert.True(Covered(redaction, words[0]), "the word right of the cue is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ASecretLeftOfItsCueTakesTheWholeRow()
+    {
+        // Security review of #268: the secret the engine placed is left of the cue, so the row may not
+        // read the way the cue does, and "note", between the secret and the cue, was kept for being left
+        // of the cue.
+        OcrWord[] words =
+        [
+            new("pass:", 400, 100, 60, Height),
+            new("Tangerine4821", 24, 100, 190, Height),
+            new("note", 230, 100, 50, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.True(CoveredByAny(redaction, words[2]), "a word on the secret's side of the cue is left unpainted in the frame");
     }
 
     [Fact]
@@ -350,10 +370,11 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
-    public void AWordLeftOfTheCueStaysAndTheWordRightOfItGoes()
+    public void ASecretLeftOfTheCueTakesTheWordsLeftOfItToo()
     {
         // Review of #268, leak 2's variant: "Ticket", left of the cue, was masked and "sunshine", right of
-        // it, was kept.
+        // it, was kept. The secret the pattern took, "A12", is left of the cue too, so after the security
+        // review nothing on the row is kept: what is left of the cue is no safer than what is right of it.
         OcrWord[] words =
         [
             new("Password:", 400, 100, 110, Height),
@@ -364,9 +385,8 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.DoesNotContain("sunshine", redaction.Text, StringComparison.Ordinal);
-        Assert.EndsWith(" Ticket", redaction.Text, StringComparison.Ordinal);
-        Assert.False(CoveredByAny(redaction, words[3]), "the word left of the cue is painted over");
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.All(words, w => Assert.True(CoveredByAny(redaction, w), "a word on the row is left unpainted in the frame"));
     }
 
     [Fact]

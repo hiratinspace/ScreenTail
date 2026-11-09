@@ -17,23 +17,7 @@ internal sealed class OcrPage
         Words = words;
         _rowOf = new int[words.Count];
 
-        // Down the page by vertical middle; a word starts a new row when it does not share one with the
-        // row's first word (RedactionEngine.SameRow).
-        var order = Enumerable.Range(0, words.Count).OrderBy(i => words[i].Y + (words[i].Height / 2.0)).ThenBy(i => words[i].X).ToList();
-        var groups = new List<List<int>>();
-        var seed = -1;
-        foreach (var i in order)
-        {
-            if (seed < 0 || !RedactionEngine.SameRow(words[seed], words[i]))
-            {
-                groups.Add([]);
-                seed = i;
-            }
-
-            groups[^1].Add(i);
-        }
-
-        foreach (var group in groups)
+        foreach (var group in Rows(words))
         {
             var members = group.OrderBy(i => words[i].X).ThenBy(i => i).ToArray();
             var heights = members.Select(i => words[i].Height).Order().ToArray();
@@ -53,6 +37,125 @@ internal sealed class OcrPage
 
         var all = words.Select(w => w.Height).Order().ToArray();
         MedianHeight = all.Length == 0 ? 0 : all[all.Length / 2];
+    }
+
+    /// <summary>
+    /// The page's rows: every word joined to every word it shares a row with (RedactionEngine.SameRow),
+    /// and so on through them, so no chain of words that each share a row is ever cut in two.
+    /// </summary>
+    /// <remarks>
+    /// Comparing each word with its row's first word only was not enough (security review of #268): a
+    /// small box set high in the row was the first, a piece of a secret set a little lower did not share
+    /// a row with it, and the piece became a row of its own that neither the token rule nor the
+    /// password's rows ever looked at. Joined through every member, a row may take in more than one line
+    /// of text where one tall box spans them, which only masks more.
+    ///
+    /// Two words share a row when the middle of one lies within the other's height, so any word whose
+    /// middle lies between theirs lies within the taller one's height too. Down the page by middle, then,
+    /// a row is an unbroken run, and a word joins the earliest row before it that it shares a row with,
+    /// together with every row since: the one whose last middle is at or below its top, or whose lowest
+    /// bottom is at or below its middle.
+    /// </remarks>
+    private static List<List<int>> Rows(IReadOnlyList<OcrWord> words)
+    {
+        var order = Enumerable.Range(0, words.Count).OrderBy(i => Middle(words[i])).ThenBy(i => words[i].X).ToArray();
+        var middles = order.Select(i => Middle(words[i])).ToArray();
+        var groups = new List<List<int>>();
+        var firsts = new List<int>(); // where each group starts in the order
+        var lowest = new List<double>(); // the lowest bottom of any group up to and including this one
+        for (var place = 0; place < order.Length; place++)
+        {
+            var word = words[order[place]];
+            var middle = middles[place];
+
+            // The earliest group with a member whose middle is within this word's height...
+            var byMiddle = groups.Count;
+            var earliest = LowerBound(middles, place, word.Y);
+            if (earliest < place)
+            {
+                byMiddle = GroupAt(firsts, earliest);
+            }
+
+            // ...or with a member whose height takes in this word's middle.
+            int low = 0, high = groups.Count;
+            while (low < high)
+            {
+                var mid = (low + high) / 2;
+                if (lowest[mid] >= middle)
+                {
+                    high = mid;
+                }
+                else
+                {
+                    low = mid + 1;
+                }
+            }
+
+            var join = Math.Min(byMiddle, low);
+            if (join == groups.Count)
+            {
+                groups.Add([]);
+                firsts.Add(place);
+                lowest.Add(join == 0 ? double.MinValue : lowest[^1]);
+            }
+
+            // Everything from that group on is one row now.
+            while (groups.Count - 1 > join)
+            {
+                groups[^2].AddRange(groups[^1]);
+                lowest[^2] = lowest[^1];
+                groups.RemoveAt(groups.Count - 1);
+                firsts.RemoveAt(firsts.Count - 1);
+                lowest.RemoveAt(lowest.Count - 1);
+            }
+
+            groups[^1].Add(order[place]);
+            lowest[^1] = Math.Max(lowest[^1], word.Y + word.Height);
+        }
+
+        return groups;
+    }
+
+    private static double Middle(OcrWord word) => word.Y + (word.Height / 2.0);
+
+    /// <summary>The first place before <paramref name="end"/> whose middle is at least <paramref name="value"/>.</summary>
+    private static int LowerBound(double[] sorted, int end, double value)
+    {
+        int low = 0, high = end;
+        while (low < high)
+        {
+            var mid = (low + high) / 2;
+            if (sorted[mid] < value)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    /// <summary>The group a place in the order belongs to, from where each group starts.</summary>
+    private static int GroupAt(List<int> firsts, int place)
+    {
+        int low = 0, high = firsts.Count - 1;
+        while (low < high)
+        {
+            var mid = (low + high + 1) / 2;
+            if (firsts[mid] <= place)
+            {
+                low = mid;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        return low;
     }
 
     /// <param name="Members">The row's words, left to right by their left edge.</param>

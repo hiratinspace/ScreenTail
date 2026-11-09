@@ -337,8 +337,9 @@ public sealed class RedactionEngine
     /// It infers nothing. Reading which way a row runs, or which word was the secret, from the engine's
     /// list order left a password's row readable in four ways the security reviews found, because list
     /// order is not reading order. ScreenTail's cues are Latin, so the one exception is on the cue's own
-    /// row: a word wholly left of the cue stays, so the line still says what it was. A row with any
-    /// right-to-left letter on it may run the other way, and is masked whole.
+    /// row: a word wholly left of the cue stays, so the line still says what it was, unless the match or
+    /// its tokens took anything on that row that starts before the cue ends. A row with any right-to-left
+    /// letter on it may run the other way, and is masked whole.
     ///
     /// Why at all: the token rule was measured on one font at 96 DPI, while the frames that matter come
     /// through a remote viewer's scaling and compression (INV-5), where a split can sit wider than any
@@ -361,9 +362,9 @@ public sealed class RedactionEngine
             _ = rows.Add(page.RowOf(i));
         }
 
-        // Per cue row, the left edge of its leftmost cue: only what ends at or left of it is kept.
+        // Per cue row, its leftmost cue: only what ends at or left of it is kept.
         var cues = new HashSet<int>();
-        var keepLeftOf = new Dictionary<int, int>();
+        var leftmost = new Dictionary<int, int>();
         foreach (var start in cueStarts)
         {
             var cue = WordAt(starts, ends, start);
@@ -375,7 +376,23 @@ public sealed class RedactionEngine
             _ = cues.Add(cue);
             var row = page.RowOf(cue);
             _ = rows.Add(row);
-            keepLeftOf[row] = Math.Min(keepLeftOf.GetValueOrDefault(row, int.MaxValue), words[cue].X);
+            if (!leftmost.TryGetValue(row, out var other) || words[cue].X < words[other].X)
+            {
+                leftmost[row] = cue;
+            }
+        }
+
+        // And only when nothing the match or its tokens took on that row starts before the cue ends: a
+        // secret the engine placed left of its cue says the row does not read the way the cue does, and
+        // what is left of the cue is then no safer than what is right of it (security review of #268).
+        var keepLeftOf = new Dictionary<int, int>();
+        foreach (var (row, cue) in leftmost)
+        {
+            var cueRight = words[cue].X + words[cue].Width;
+            if (masked.All(w => cues.Contains(w) || page.RowOf(w) != row || words[w].X >= cueRight))
+            {
+                keepLeftOf[row] = words[cue].X;
+            }
         }
 
         foreach (var row in rows)

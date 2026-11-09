@@ -59,6 +59,63 @@ public sealed class OcrTokenRuleTests
     }
 
     [Fact]
+    public void APieceSetLowerThanASmallHighBoxIsStillOnTheKeysRow()
+    {
+        // Security review of #268: rows were grouped by their first word only. The dash is a small box
+        // set high, the key shares its row, and the key's tail, set a little lower, shares a row with the
+        // key but not with the dash, so it became a row of its own the token rule never looked at.
+        OcrWord[] words =
+        [
+            new("-", 24, 100, 10, 6),
+            new(Key, 104, 98, 400, Height),
+            new("Wobble7", 507, 106, 80, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("Wobble7", redaction.Text, StringComparison.Ordinal);
+        Assert.True(Covered(redaction, words[2]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ARowIsEveryWordReachedThroughWordsThatShareOne()
+    {
+        // Against the plain definition, pairwise and joined through, on pages of boxes of every height
+        // scattered over a few lines' worth of space.
+        var random = new Random(268);
+        for (var page = 0; page < 300; page++)
+        {
+            var words = Enumerable.Range(0, 40)
+                .Select(i => new OcrWord("w", random.Next(0, 800), random.Next(0, 160), 20, random.Next(0, 4) == 0 ? random.Next(0, 60) : random.Next(4, 30)))
+                .ToList();
+            var rows = new OcrPage(words);
+
+            var group = Enumerable.Range(0, words.Count).ToArray();
+            int Find(int i) => group[i] == i ? i : group[i] = Find(group[i]);
+            for (var a = 0; a < words.Count; a++)
+            {
+                for (var b = a + 1; b < words.Count; b++)
+                {
+                    if (RedactionEngine.SameRow(words[a], words[b]))
+                    {
+                        group[Find(a)] = Find(b);
+                    }
+                }
+            }
+
+            for (var a = 0; a < words.Count; a++)
+            {
+                for (var b = a + 1; b < words.Count; b++)
+                {
+                    Assert.True(
+                        (Find(a) == Find(b)) == (rows.RowOf(a) == rows.RowOf(b)),
+                        $"page {page}: words {a} and {b} are {(Find(a) == Find(b) ? "joined" : "apart")} by SameRow but not by the row index");
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void AnEmailsPieceToTheLeftIsMaskedToo()
     {
         // "jane.doe@example.com" read as "jane." and "doe@example.com"; the rule matches the second, the
