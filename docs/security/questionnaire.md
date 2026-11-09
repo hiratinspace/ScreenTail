@@ -86,6 +86,9 @@ did. An unreadable frame retained is an unredacted frame.
 **2.5 What is redacted?**
 Card numbers (Luhn-checked), national ID numbers, API keys and tokens, private key blocks, password
 fields, and tenant-defined patterns. Masking happens on the device before any frame becomes readable.
+On a screenshot, a password masks its cue's row and every row it touches, the cue included; only the
+words wholly left of the cue stay, and only when the secret is right of it. Every other match takes the whole of each on-screen token it
+touches, however the OCR engine split it.
 
 **2.6 Does redaction run locally or in the cloud?**
 Locally, always. OCR uses the Windows on-device engine.

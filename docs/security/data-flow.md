@@ -106,6 +106,19 @@ Redaction runs on the device. It reads the text on each screenshot with the loca
 what matches — card numbers, national insurance and social security numbers, API keys and tokens,
 password fields — and then, and only then, the frame becomes readable to the rest of the product.
 
+A match is masked by what is on the screen, not by how the OCR engine split it into words: every word
+that touches it with no space between them goes too, so a value the engine read as two words is masked
+whole. A password goes further: its cue's row and every row the match touches on the screen are
+masked, the cue included, in the stored text and in the picture alike. The one exception is on the
+cue's own row: the words wholly left of the cue stay readable, so the line still says what it was
+(ScreenTail's cues are Latin, read left to right), unless any of what was masked on that row starts
+left of the cue's end, and then the row is masked whole. A row with any right-to-left letter on it, Hebrew or
+Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen by where it is on the
+screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
+(PR #268): more of a technician's line is masked than strictly needed, because a split the engine makes through a remote viewer's
+scaling cannot be measured in advance, and a piece of a password left showing is a stored password.
+A value that wraps onto the next row is not covered yet. Transcripts are scrubbed by the words alone.
+
 **Raw data has a deadline.** Screenshots, transcript and timeline are deleted after a retention period
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).
 "Delete everything" exists as a command the service accepts only with a typed confirmation it issued

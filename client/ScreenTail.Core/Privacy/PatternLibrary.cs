@@ -9,6 +9,13 @@ namespace ScreenTail.Core.Privacy;
 public sealed record PatternMatch(MaskKind Kind, int Start, int Length, string Replacement)
 {
     public int End => Start + Length;
+
+    /// <summary>
+    /// Where each password cue this match came from starts in the text; empty for any other rule. A
+    /// frame's row rule masks the cue's row and every row the match touches. A merge keeps every one,
+    /// so a password another rule also claimed keeps its row.
+    /// </summary>
+    public IReadOnlyList<int> CueStarts { get; init; } = [];
 }
 
 /// <summary>
@@ -105,7 +112,9 @@ internal static partial class PatternLibrary
     /// More than one because a spoken password is often more than one word — "Winter 2026" was masked as
     /// "Winter", which leaves the year in the transcript and the audit log claiming otherwise. Bounded,
     /// because the rest of the sentence is a technician's own account of what they did and masking it
-    /// teaches them to turn the rule off.
+    /// teaches them to turn the rule off. This is the value in the text, which is all a transcript gets.
+    /// On a frame, <see cref="RedactionEngine.RedactFrame"/> masks from it to the end of its row on the
+    /// screen (owner decision 2026-11-09, #268).
     /// </summary>
     private const int MaxSecretWords = 4;
 
@@ -440,7 +449,7 @@ internal static partial class PatternLibrary
                 // Keep the cue ("the password is") and mask what follows it, so Review still reads sensibly.
                 if (SecretAfter(text, m.Index + m.Length) is { Length: > 0 } secret)
                 {
-                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]");
+                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]") { CueStarts = [m.Index] };
                 }
             }
         }
