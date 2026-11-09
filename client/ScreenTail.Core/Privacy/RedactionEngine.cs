@@ -135,8 +135,8 @@ public sealed class RedactionEngine
             // rule was measured on one font at 96 DPI; the frames that matter come through a remote
             // viewer's scaling and compression (INV-5), where a split can sit wider than any measured,
             // and the token rule already masks the next word in 16 to 29% of cases, so the row costs
-            // little more to read. The cue and the words before it stay, so the line still says what
-            // it was. Other kinds keep the token rule alone. Keyed on the cues the match carries, not
+            // little more to read. The cue and the words before it on screen stay, so the line still
+            // says what it was. Other kinds keep the token rule alone. Keyed on the cues the match carries, not
             // its kind, because a password another rule also claimed is merged under that rule's kind.
             foreach (var password in match.Passwords)
             {
@@ -299,10 +299,12 @@ public sealed class RedactionEngine
     /// merged with, and read from the cue's box to the secret's: from the secret to the row's end the
     /// way the line reads, wherever the engine listed the words (security review of #268).
     ///
-    /// It fails closed wherever that reading is in doubt: the cue or the secret not found, the cue not
-    /// before the secret, the cue inside the match, the match on more than one row, or the cue on
-    /// another row or level with the secret. Then every row the secret and the match touch is masked,
-    /// all but the words listed before the cue.
+    /// Only the cue and the words before it on screen stay readable, chosen by their boxes against the
+    /// cue's, never by list order. It fails closed wherever the reading is in doubt: the cue or the
+    /// secret not found, the cue not ahead of the secret in the text, the cue inside the match, the
+    /// match on more than one row, or the cue on another row or level with the secret. Then every word
+    /// on every row the secret and the match touch is masked, and the cue with them. The checks on the
+    /// text's order only ever send it to that fallback; none of them keeps a word readable.
     /// </summary>
     private static IEnumerable<int> PasswordRow(
         IReadOnlyList<OcrWord> words,
@@ -326,10 +328,13 @@ public sealed class RedactionEngine
             && SameRow(words[cue], secret) && words[cue].X != secret.X;
         if (clear)
         {
-            var backwards = words[cue].X > secret.X;
+            // Kept: the cue and what lies before it on screen, by position and the way the line reads.
+            var cueBox = words[cue];
+            var backwards = cueBox.X > secret.X;
             for (var j = 0; j < words.Count; j++)
             {
-                if (j != cue && SameRow(secret, words[j]) && (backwards ? words[j].X <= secret.X : words[j].X >= secret.X))
+                var before = backwards ? words[j].X > cueBox.X : words[j].X < cueBox.X;
+                if (j != cue && SameRow(secret, words[j]) && !before)
                 {
                     yield return j;
                 }
@@ -338,6 +343,8 @@ public sealed class RedactionEngine
             yield break;
         }
 
+        // In doubt: every word on every row the secret or the match touches, and the cue. Nothing is
+        // kept by where the engine listed it, because that is not where it is (owner proxy 2026-11-09).
         var rows = new List<OcrWord> { secret };
         for (var i = first; i <= last; i++)
         {
@@ -346,7 +353,7 @@ public sealed class RedactionEngine
 
         for (var j = 0; j < words.Count; j++)
         {
-            if ((cue < 0 || j >= cue) && rows.Exists(r => SameRow(r, words[j])))
+            if (j == cue || rows.Exists(r => SameRow(r, words[j])))
             {
                 yield return j;
             }
