@@ -114,6 +114,47 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
+    public void AStrayWordOutOfOrderDoesNotTurnTheRowAround()
+    {
+        // Security review of #268. The engine listed "is" between the cue and the secret, but on the
+        // screen it sits right of the secret. Read from that one neighbour, the row seemed to run right
+        // to left, so the rule masked the cue's side and left the end of the row readable. The way the
+        // row runs is the cue's to the secret's.
+        OcrWord[] words =
+        [
+            new("pass:", 24, 100, 60, Height),
+            new("is", 300, 100, 24, Height),
+            new("Tangerine4821", 93, 100, 190, Height),
+            new("reception", 340, 100, 110, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.StartsWith("pass:", redaction.Text, StringComparison.Ordinal);
+        Assert.True(Covered(redaction, words[3]), "the end of the row is left unpainted in the frame");
+        Assert.True(Covered(redaction, words[1]), "the stray word on the secret's side is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ARowWhoseCueIsOnAnotherRowIsMaskedWhole()
+    {
+        // Fails closed: the cue ends the row above, so nothing on the secret's row says which way it
+        // runs, and all of it is masked.
+        OcrWord[] words =
+        [
+            new("pass:", 600, 100, 60, Height),
+            new("Tangerine4821", 200, 140, 190, Height),
+            new("reception", 400, 140, 110, Height),
+            new("ticket", 24, 140, 80, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("pass: [REDACTED]", redaction.Text);
+    }
+
+    [Fact]
     public void ThePasswordsRowRunsTheWayTheLineReads()
     {
         // Right to left: the row's end is to the left of the secret, and the words to the right of the
