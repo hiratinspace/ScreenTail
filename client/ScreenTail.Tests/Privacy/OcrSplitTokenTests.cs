@@ -139,12 +139,13 @@ public sealed class OcrSplitTokenTests
     public void APasswordAnotherRuleAlsoClaimsStillTakesItsRow()
     {
         // A card number used as a password: the card rule claims the same span first, and the merged
-        // match carries the card's kind. It still came from a password cue, so the row goes with it.
+        // match carries the card's kind. It still came from a password cue, so the row goes with it,
+        // under the card's marker.
         var words = Line(("pass:", Space), ("4111111111111111", Space), ("for", Space), ("reception", 0));
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.Equal("[CARD]", redaction.Text);
     }
 
     [Fact]

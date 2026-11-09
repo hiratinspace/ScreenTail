@@ -93,57 +93,58 @@ public sealed class RedactionEngine
 
         // Rebuild the page text and remember where each word sits in it, so a match maps back to boxes.
         var builder = new StringBuilder();
-        var spans = new List<(int Start, int End, OcrWord Word)>(words.Count);
-        foreach (var word in words)
+        var starts = new int[words.Count];
+        var ends = new int[words.Count];
+        for (var i = 0; i < words.Count; i++)
         {
             if (builder.Length > 0)
             {
                 builder.Append(' ');
             }
 
-            var start = builder.Length;
-            builder.Append(word.Text);
-            spans.Add((start, builder.Length, word));
+            starts[i] = builder.Length;
+            builder.Append(words[i].Text);
+            ends[i] = builder.Length;
         }
 
         var text = builder.ToString();
         var (matches, complete) = Resolve(text);
+        if (matches.Count == 0)
+        {
+            return new FrameRedaction(text, [], Count(matches), complete);
+        }
+
+        var page = new OcrPage(words);
         var regions = new List<MaskedRegion>();
         var widened = new List<PatternMatch>(matches.Count);
-        var rows = new Dictionary<int, double>();
         foreach (var match in matches)
         {
             // Every word the match touches is masked whole: a partly painted number is still readable.
-            var first = spans.FindIndex(s => s.Start < match.End && match.Start < s.End);
-            if (first < 0)
+            if (Touching(starts, ends, match) is not var (first, last))
             {
                 continue;
             }
-
-            var last = spans.FindLastIndex(s => s.Start < match.End && match.Start < s.End);
 
             // And so is every token it touches. The engine can read one token on screen as several
             // words: "pass: Tangerine4821Wobble" came back as "Tangerine4821" and "Wobble", and the
             // password rule, which ends a value at the first plain word, masked the first and left the
             // second in the stored text and unpainted in the frame (loop-13, 2026-11-08). The words of
             // one token have no space between them on the screen, whatever the text says, so the token
-            // is found on the screen: a piece Windows listed in an OcrLine of its own, or to the left in
-            // a right-to-left line, is as much a part of it as the next word in the list.
-            var token = Token(words, first, last, rows);
+            // is found on the screen: a piece Windows listed in an OcrLine of its own, or to the left of
+            // the match, is as much a part of it as the next word in the list.
+            var masked = Token(page, first, last);
 
-            // A password takes the rest of its row as well (owner decision 2026-11-09, #268). The token
-            // rule was measured on one font at 96 DPI; the frames that matter come through a remote
-            // viewer's scaling and compression (INV-5), where a split can sit wider than any measured,
-            // and the token rule already masks the next word in 16 to 29% of cases, so the row costs
-            // little more to read. The cue and the words before it on screen stay, so the line still
-            // says what it was. Other kinds keep the token rule alone. Keyed on the cues the match carries, not
-            // its kind, because a password another rule also claimed is merged under that rule's kind.
-            foreach (var password in match.Passwords)
+            // A password takes its rows as well (owner decision 2026-11-09, #268); see PasswordRows.
+            // Keyed on the cues the match carries, not its kind, because a password another rule also
+            // claimed is merged under that rule's kind.
+            if (match.CueStarts.Count > 0)
             {
-                token = [.. token.Union(PasswordRow(words, spans, first, last, password)).Order()];
+                PasswordRows(page, starts, ends, first, last, match.CueStarts, masked);
             }
 
-            regions.Add(Cover([.. token.Select(i => words[i])], match.Kind));
+            // One box per run of masked words on a row, so the picture loses what the text loses and no
+            // more: a box around the whole match painted over words the text kept.
+            regions.AddRange(Paint(page, masked, match.Kind));
 
             // And the stored text loses the same words the picture did.
             //
@@ -152,26 +153,64 @@ public sealed class RedactionEngine
             // ".word1!" stayed in ocr_text — painted out of the frame and sent to the model in writing
             // (2026-09-19 review). Picture and text are two views of one decision and must agree. A
             // token listed in two places in the text is replaced in both.
+            var ordered = masked.Order().ToArray();
             var run = 0;
-            for (var i = 1; i <= token.Count; i++)
+            for (var i = 1; i <= ordered.Length; i++)
             {
-                if (i < token.Count && token[i] == token[i - 1] + 1)
+                if (i < ordered.Length && ordered[i] == ordered[i - 1] + 1)
                 {
                     continue;
                 }
 
-                var start = spans[token[run]].Start;
-                widened.Add(match with { Start = start, Length = spans[token[i - 1]].End - start });
+                widened.Add(match with { Start = starts[ordered[run]], Length = ends[ordered[i - 1]] - starts[ordered[run]] });
                 run = i;
             }
         }
 
+        // A match's runs can sit either side of another match's in the text; Merge and Replace walk it
+        // once, forward.
         widened.Sort((a, b) => a.Start.CompareTo(b.Start));
 
         // The same matches that placed the boxes write the stored text. Resolving twice gave two answers
         // that were identical by construction and cost the pattern library a second full pass over every
         // frame — on the path ADR-0001 measured worst at 2012 ms against a 700 ms budget.
         return new FrameRedaction(Replace(text, Merge(widened)), regions, Count(matches), complete);
+    }
+
+    /// <summary>The first and last word a match touches in the text, by binary search, or null for none.</summary>
+    private static (int First, int Last)? Touching(int[] starts, int[] ends, PatternMatch match)
+    {
+        // The first word ending after the match starts, and the last starting before it ends.
+        var first = LowerBound(ends, match.Start + 1);
+        var last = LowerBound(starts, match.End) - 1;
+        return first <= last ? (first, last) : null;
+    }
+
+    /// <summary>The word whose text holds the character at <paramref name="offset"/>, or -1.</summary>
+    private static int WordAt(int[] starts, int[] ends, int offset)
+    {
+        var word = LowerBound(starts, offset + 1) - 1;
+        return word >= 0 && offset < ends[word] ? word : -1;
+    }
+
+    /// <summary>The first index whose value is at least <paramref name="value"/>, in an ascending array.</summary>
+    private static int LowerBound(int[] sorted, int value)
+    {
+        int low = 0, high = sorted.Length;
+        while (low < high)
+        {
+            var middle = (low + high) / 2;
+            if (sorted[middle] < value)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
     }
 
     /// <summary>
@@ -235,7 +274,7 @@ public sealed class RedactionEngine
             resolved[^1] = previous with
             {
                 Length = Math.Max(previous.End, match.End) - previous.Start,
-                Passwords = [.. previous.Passwords, .. match.Passwords],
+                CueStarts = [.. previous.CueStarts, .. match.CueStarts],
             };
         }
 
@@ -259,11 +298,12 @@ public sealed class RedactionEngine
 
     /// <summary>
     /// The words of the token, or tokens, that words <paramref name="first"/> to <paramref name="last"/>
-    /// are part of, in reading order: every word reached from them through a neighbour on the same row
-    /// closer than <see cref="TokenGap"/>, whichever side it is on and wherever the engine listed it.
+    /// are part of: every word reached from them through a neighbour on the same row closer than
+    /// <see cref="TokenGap"/>, whichever side it is on and wherever the engine listed it.
     /// </summary>
-    private static List<int> Token(IReadOnlyList<OcrWord> words, int first, int last, Dictionary<int, double> rows)
+    private static HashSet<int> Token(OcrPage page, int first, int last)
     {
+        var words = page.Words;
         var token = new HashSet<int>();
         var waiting = new Queue<int>();
         for (var i = first; i <= last; i++)
@@ -274,15 +314,12 @@ public sealed class RedactionEngine
 
         while (waiting.TryDequeue(out var i))
         {
-            if (!rows.TryGetValue(i, out var row))
-            {
-                row = RowHeight(words, words[i]);
-                rows[i] = row;
-            }
+            var row = page.RowAt(page.RowOf(i));
 
-            for (var j = 0; j < words.Count; j++)
+            // No neighbour sits further away than the cutoff measured against the row's tallest box.
+            foreach (var j in page.Near(i, TokenGap * Math.Max(row.Median, row.MaxHeight)))
             {
-                if (!token.Contains(j) && GapShare(words[i], words[j], row) is <= TokenGap)
+                if (!token.Contains(j) && GapShare(words[i], words[j], row.Median) <= TokenGap)
                 {
                     _ = token.Add(j);
                     waiting.Enqueue(j);
@@ -290,80 +327,78 @@ public sealed class RedactionEngine
             }
         }
 
-        return [.. token.Order()];
+        return token;
     }
 
     /// <summary>
-    /// The words a password's row rule masks, for a match covering words <paramref name="first"/> to
-    /// <paramref name="last"/>. Anchored on the word the secret starts in, whatever else the match was
-    /// merged with, and read from the cue's box to the secret's: from the secret to the row's end the
-    /// way the line reads, wherever the engine listed the words (security review of #268).
+    /// A password's rows (owner decision 2026-11-09, #268): the cue's row and every row the match
+    /// touches, found on the screen, all masked, the cue included.
     ///
-    /// Only the cue and the words before it on screen stay readable, chosen by their boxes against the
-    /// cue's, never by list order. It fails closed wherever the reading is in doubt: the cue or the
-    /// secret not found, the cue not ahead of the secret in the text, the cue inside the match, the
-    /// match on more than one row, or the cue on another row or level with the secret. Then every word
-    /// on every row the secret and the match touch is masked, and the cue with them. The checks on the
-    /// text's order only ever send it to that fallback; none of them keeps a word readable.
+    /// It infers nothing. Reading which way a row runs, or which word was the secret, from the engine's
+    /// list order left a password's row readable in four ways the security reviews found, because list
+    /// order is not reading order. ScreenTail's cues are Latin, so the one exception is on the cue's own
+    /// row: a word wholly left of the cue stays, so the line still says what it was. A row with any
+    /// right-to-left letter on it may run the other way, and is masked whole.
+    ///
+    /// Why at all: the token rule was measured on one font at 96 DPI, while the frames that matter come
+    /// through a remote viewer's scaling and compression (INV-5), where a split can sit wider than any
+    /// measured, and the token rule already masks the next word in 16 to 29% of cases, so the row costs
+    /// little more to read.
     /// </summary>
-    private static IEnumerable<int> PasswordRow(
-        IReadOnlyList<OcrWord> words,
-        List<(int Start, int End, OcrWord Word)> spans,
+    private static void PasswordRows(
+        OcrPage page,
+        int[] starts,
+        int[] ends,
         int first,
         int last,
-        PasswordAt password)
+        IReadOnlyList<int> cueStarts,
+        HashSet<int> masked)
     {
-        var anchor = spans.FindIndex(s => s.Start <= password.SecretStart && password.SecretStart < s.End);
-        var cue = spans.FindIndex(s => s.Start <= password.CueStart && password.CueStart < s.End);
-        var secret = words[anchor >= 0 ? anchor : first];
-        var oneRow = true;
+        var words = page.Words;
+        var rows = new HashSet<int>();
         for (var i = first; i <= last; i++)
         {
-            oneRow &= SameRow(secret, words[i]);
+            _ = rows.Add(page.RowOf(i));
         }
 
-        var clear = anchor >= first && anchor <= last
-            && cue >= 0 && cue < anchor && (cue < first || cue > last)
-            && oneRow
-            && SameRow(words[cue], secret) && words[cue].X != secret.X;
-        if (clear)
+        // Per cue row, the left edge of its leftmost cue: only what ends at or left of it is kept.
+        var cues = new HashSet<int>();
+        var keepLeftOf = new Dictionary<int, int>();
+        foreach (var start in cueStarts)
         {
-            // Kept: the cue and what lies before it on screen, by position and the way the line reads.
-            var cueBox = words[cue];
-            var backwards = cueBox.X > secret.X;
-            for (var j = 0; j < words.Count; j++)
+            var cue = WordAt(starts, ends, start);
+            if (cue < 0)
             {
-                var before = backwards ? words[j].X > cueBox.X : words[j].X < cueBox.X;
-                if (j != cue && SameRow(secret, words[j]) && !before)
-                {
-                    yield return j;
-                }
+                continue;
             }
 
-            yield break;
+            _ = cues.Add(cue);
+            var row = page.RowOf(cue);
+            _ = rows.Add(row);
+            keepLeftOf[row] = Math.Min(keepLeftOf.GetValueOrDefault(row, int.MaxValue), words[cue].X);
         }
 
-        // In doubt: every word on every row the secret or the match touches, and the cue. Nothing is
-        // kept by where the engine listed it, because that is not where it is (owner proxy 2026-11-09).
-        var rows = new List<OcrWord> { secret };
-        for (var i = first; i <= last; i++)
+        foreach (var row in rows)
         {
-            rows.Add(words[i]);
-        }
-
-        for (var j = 0; j < words.Count; j++)
-        {
-            if (j == cue || rows.Exists(r => SameRow(r, words[j])))
+            var members = page.RowAt(row);
+            int? keep = !members.RightToLeft && keepLeftOf.TryGetValue(row, out var left) ? left : null;
+            foreach (var word in members.Members)
             {
-                yield return j;
+                if (keep is { } edge && !cues.Contains(word) && words[word].X + words[word].Width <= edge)
+                {
+                    continue;
+                }
+
+                _ = masked.Add(word);
             }
         }
     }
 
-    /// <summary>
-    /// Whether two words share a row: the middle of either lies within the other's height. Either,
-    /// because a lowercase word's box is only as tall as the x-height and sits inside its neighbours'.
-    /// </summary>
+    /// <summary>Whether two words share a row: the middle of either lies within the other's height.</summary>
+    /// <remarks>
+    /// Either, because a lowercase word's box is only as tall as the x-height and sits inside its
+    /// neighbours'.
+    /// </remarks>
     internal static bool SameRow(OcrWord a, OcrWord b)
     {
         var middleA = a.Y + (a.Height / 2.0);
@@ -371,39 +406,63 @@ public sealed class RedactionEngine
         return (middleB >= a.Y && middleB <= a.Y + a.Height) || (middleA >= b.Y && middleA <= b.Y + b.Height);
     }
 
-    /// <summary>The median height of the words on <paramref name="word"/>'s row, itself included.</summary>
-    internal static double RowHeight(IReadOnlyList<OcrWord> words, OcrWord word)
-    {
-        var heights = words.Where(w => SameRow(word, w)).Select(w => w.Height).Order().ToList();
-        return heights.Count == 0 ? word.Height : heights[heights.Count / 2];
-    }
-
     /// <summary>
-    /// The space between two words' boxes as a share of the height a space is measured against, or
-    /// null when they are not on one row. The space is the horizontal distance in either direction,
-    /// so a right-to-left line reads the same. The height is the largest of the two words' and their
-    /// row's median: a piece with no capital, ascender or digit is only x-height tall, about 0.7 of
-    /// its neighbours, and measured against itself a split looked a third wider than it is (review of
-    /// #268). Each of those only makes the share smaller, so each only masks more.
+    /// The space between two words' boxes on a row as a share of the height a space is measured
+    /// against. The space is the horizontal distance in either direction. The height is the largest of
+    /// the two words' and their row's median: a piece with no capital, ascender or digit is only
+    /// x-height tall, about 0.7 of its neighbours, and measured against itself a split looked a third
+    /// wider than it is (review of #268). Each of those only makes the share smaller, so each only
+    /// masks more.
     /// </summary>
-    internal static double? GapShare(OcrWord a, OcrWord b, double rowHeight)
+    internal static double GapShare(OcrWord a, OcrWord b, double rowHeight)
     {
         var height = Math.Max(rowHeight, Math.Max(a.Height, b.Height));
-        if (height <= 0 || !SameRow(a, b))
-        {
-            return null;
-        }
-
         var gap = Math.Max(b.X - (a.X + a.Width), a.X - (b.X + b.Width));
         return gap / height;
     }
 
-    private static MaskedRegion Cover(IReadOnlyList<OcrWord> words, MaskKind kind)
+    /// <summary>
+    /// One box per run of masked words side by side on a row, each at least the row's median height,
+    /// so a zero-height box still paints over what it read.
+    /// </summary>
+    private static IEnumerable<MaskedRegion> Paint(OcrPage page, HashSet<int> masked, MaskKind kind)
+    {
+        var words = page.Words;
+        foreach (var row in masked.Select(page.RowOf).Distinct().Order())
+        {
+            var members = page.RowAt(row);
+            var floor = members.Median > 0 ? members.Median : Math.Max(page.MedianHeight, 1);
+            var run = new List<OcrWord>();
+            foreach (var word in members.Members.Append(-1))
+            {
+                if (word >= 0 && masked.Contains(word))
+                {
+                    run.Add(words[word]);
+                    continue;
+                }
+
+                if (run.Count > 0)
+                {
+                    yield return Cover(run, kind, floor);
+                    run.Clear();
+                }
+            }
+        }
+    }
+
+    private static MaskedRegion Cover(List<OcrWord> words, MaskKind kind, int floor)
     {
         var left = words.Min(w => w.X);
         var top = words.Min(w => w.Y);
         var right = words.Max(w => w.X + w.Width);
         var bottom = words.Max(w => w.Y + w.Height);
+        if (bottom - top < floor)
+        {
+            var middle = (top + bottom) / 2.0;
+            top = (int)Math.Floor(middle - (floor / 2.0));
+            bottom = top + floor;
+        }
+
         return new MaskedRegion { X = left, Y = top, Width = right - left, Height = bottom - top, Kind = kind };
     }
 

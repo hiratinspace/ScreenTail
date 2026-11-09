@@ -11,16 +11,12 @@ public sealed record PatternMatch(MaskKind Kind, int Start, int Length, string R
     public int End => Start + Length;
 
     /// <summary>
-    /// The password cues this match came from, each with where its secret starts in the text; empty for
-    /// any other rule. A frame's row rule anchors on each secret and reads the row's direction from its
-    /// cue's box to the secret's. A merge keeps every one, so a password another rule also claimed keeps
-    /// its row.
+    /// Where each password cue this match came from starts in the text; empty for any other rule. A
+    /// frame's row rule masks the cue's row and every row the match touches. A merge keeps every one,
+    /// so a password another rule also claimed keeps its row.
     /// </summary>
-    public IReadOnlyList<PasswordAt> Passwords { get; init; } = [];
+    public IReadOnlyList<int> CueStarts { get; init; } = [];
 }
-
-/// <summary>Where a password cue and the secret it led to start in the text.</summary>
-public readonly record struct PasswordAt(int CueStart, int SecretStart);
 
 /// <summary>
 /// The built-in pattern library (ST-042). Each detector reports spans; <see cref="RedactionEngine"/> decides
@@ -453,10 +449,7 @@ internal static partial class PatternLibrary
                 // Keep the cue ("the password is") and mask what follows it, so Review still reads sensibly.
                 if (SecretAfter(text, m.Index + m.Length) is { Length: > 0 } secret)
                 {
-                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]")
-                    {
-                        Passwords = [new PasswordAt(m.Index, secret.Start)],
-                    };
+                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]") { CueStarts = [m.Index] };
                 }
             }
         }
