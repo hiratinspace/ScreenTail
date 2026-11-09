@@ -231,7 +231,51 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        // The cue goes too: in doubt, nothing on the rows involved is kept, the cue included.
+        Assert.Equal("[REDACTED]", redaction.Text);
+    }
+
+    [Fact]
+    public void ThePasswordsRowIsTheSameHoweverTheEngineListsIt()
+    {
+        // Security review of #268: list order is not reading order, so nothing in the row rule may be
+        // kept or masked by where the engine listed a word. The same screen, listed two ways, masks the
+        // same words. The cue stays just before its secret in both, as the text has to have it.
+        OcrWord ticket = new("ticket", 24, 100, 80, Height);
+        OcrWord cue = new("pass:", 113, 100, 60, Height);
+        OcrWord secret = new("Tangerine4821", 182, 100, 190, Height);
+        OcrWord tail = new("for", 381, 100, 40, Height);
+        OcrWord end = new("reception", 430, 100, 110, Height);
+        OcrWord next = new("Queue", 24, 140, 80, Height);
+        OcrWord nextEnd = new("cleared", 113, 140, 100, Height);
+
+        OcrWord[] listed = [ticket, cue, secret, tail, end, next, nextEnd];
+        OcrWord[] reshuffled = [next, tail, cue, secret, nextEnd, end, ticket];
+        var inOrder = Masked(Engine.RedactFrame(listed), listed);
+        var shuffled = Masked(Engine.RedactFrame(reshuffled), reshuffled);
+
+        Assert.Equal(inOrder, shuffled);
+        Assert.Equal(["Tangerine4821", "for", "reception"], inOrder);
+    }
+
+    [Fact]
+    public void ARowInDoubtIsTheSameHoweverTheEngineListsIt()
+    {
+        // The fallback, cue on the row above: every word on the secret's row is masked, and the cue,
+        // wherever each was listed. "note" listed before the cue was kept readable by its index.
+        OcrWord cue = new("pass:", 600, 100, 60, Height);
+        OcrWord above = new("ticket", 24, 100, 80, Height);
+        OcrWord note = new("note", 24, 140, 60, Height);
+        OcrWord secret = new("Tangerine4821", 200, 140, 190, Height);
+        OcrWord end = new("reception", 400, 140, 110, Height);
+
+        OcrWord[] listed = [above, cue, secret, end, note];
+        OcrWord[] reshuffled = [note, above, cue, secret, end];
+        var inOrder = Masked(Engine.RedactFrame(listed), listed);
+        var shuffled = Masked(Engine.RedactFrame(reshuffled), reshuffled);
+
+        Assert.Equal(inOrder, shuffled);
+        Assert.Equal(["Tangerine4821", "note", "pass:", "reception"], inOrder);
     }
 
     [Fact]
@@ -345,6 +389,19 @@ public sealed class OcrSplitTokenTests
         }
 
         return line;
+    }
+
+    /// <summary>
+    /// The words a redaction took both out of the stored text and under a painted box, sorted. Each test
+    /// word's text is unique, so a word is gone from the text when its text is.
+    /// </summary>
+    private static List<string> Masked(FrameRedaction redaction, OcrWord[] words)
+    {
+        var kept = redaction.Text.Split(' ');
+        return [.. words
+            .Where(w => !kept.Contains(w.Text, StringComparer.Ordinal) && CoveredByAny(redaction, w))
+            .Select(w => w.Text)
+            .Order(StringComparer.Ordinal)];
     }
 
     private static bool CoveredByAny(FrameRedaction redaction, OcrWord word) =>
