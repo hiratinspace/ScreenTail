@@ -9,6 +9,12 @@ namespace ScreenTail.Core.Privacy;
 public sealed record PatternMatch(MaskKind Kind, int Start, int Length, string Replacement)
 {
     public int End => Start + Length;
+
+    /// <summary>
+    /// Where the password cue that led to this match starts in the text, or -1 for any other rule. A
+    /// frame's row rule reads the row's direction from the cue's box to the secret's.
+    /// </summary>
+    public int CueStart { get; init; } = -1;
 }
 
 /// <summary>
@@ -442,7 +448,7 @@ internal static partial class PatternLibrary
                 // Keep the cue ("the password is") and mask what follows it, so Review still reads sensibly.
                 if (SecretAfter(text, m.Index + m.Length) is { Length: > 0 } secret)
                 {
-                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]");
+                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]") { CueStart = m.Index };
                 }
             }
         }

@@ -137,6 +137,19 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
+    public void APasswordAnotherRuleAlsoClaimsStillTakesItsRow()
+    {
+        // A card number used as a password: the card rule claims the same span first, and the merged
+        // match carries the card's kind. It still came from a password cue, so the row goes with it.
+        var words = Line(("pass:", Space), ("4111111111111111", Space), ("for", Space), ("reception", 0));
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.StartsWith("pass: ", redaction.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ARowWhoseCueIsOnAnotherRowIsMaskedWhole()
     {
         // Fails closed: the cue ends the row above, so nothing on the secret's row says which way it

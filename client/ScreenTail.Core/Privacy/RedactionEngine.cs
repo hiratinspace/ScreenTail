@@ -136,10 +136,12 @@ public sealed class RedactionEngine
             // viewer's scaling and compression (INV-5), where a split can sit wider than any measured,
             // and the token rule already masks the next word in 16 to 29% of cases, so the row costs
             // little more to read. The cue and the words before it stay, so the line still says what
-            // it was. Other kinds keep the token rule alone.
-            if (match.Kind == MaskKind.Password)
+            // it was. Other kinds keep the token rule alone. Keyed on the cue, not the kind, because a
+            // password another rule also claimed is merged under that rule's kind.
+            if (match.CueStart >= 0)
             {
-                token = [.. token.Union(RowAfter(words, first)).Order()];
+                var cue = match.CueStart < 0 ? -1 : spans.FindIndex(s => s.Start <= match.CueStart && match.CueStart < s.End);
+                token = [.. token.Union(RowAfter(words, first, cue)).Order()];
             }
 
             regions.Add(Cover([.. token.Select(i => words[i])], match.Kind));
@@ -228,12 +230,14 @@ public sealed class RedactionEngine
                 continue;
             }
 
-            // Overlapping. Grow the one already kept to cover both, unless it already does.
+            // Overlapping. Grow the one already kept to cover both, unless it already does, and keep a
+            // password cue either brought: a password another rule also claimed still takes its row.
             var previous = resolved[^1];
-            if (match.End > previous.End)
+            resolved[^1] = previous with
             {
-                resolved[^1] = previous with { Length = match.End - previous.Start };
-            }
+                Length = Math.Max(previous.End, match.End) - previous.Start,
+                CueStart = previous.CueStart >= 0 ? previous.CueStart : match.CueStart,
+            };
         }
 
         return (resolved, complete);
@@ -291,18 +295,26 @@ public sealed class RedactionEngine
     }
 
     /// <summary>
-    /// The words on word <paramref name="first"/>'s row on the screen that come after it in the way the
-    /// line reads, wherever the engine listed them. The line reads right to left when the word before
-    /// it in the reading order (the cue, or the words joining the cue to the secret) is on the same row
-    /// and to its right; otherwise left to right.
+    /// The words on word <paramref name="first"/>'s row on the screen from it to the row's end, the way
+    /// the line reads, wherever the engine listed them. The way it reads is from the box of the cue,
+    /// word <paramref name="cue"/>, to the secret's: a single neighbour in the engine's list could be
+    /// listed out of order and turn the row around (security review of #268). Where that cannot be
+    /// told, because the cue is on another row or in the secret's own word, it fails closed and takes
+    /// the whole row.
     /// </summary>
-    private static IEnumerable<int> RowAfter(IReadOnlyList<OcrWord> words, int first)
+    private static IEnumerable<int> RowAfter(IReadOnlyList<OcrWord> words, int first, int cue)
     {
         var anchor = words[first];
-        var backwards = first > 0 && SameRow(words[first - 1], anchor) && words[first - 1].X > anchor.X;
+        var known = cue >= 0 && cue != first && SameRow(words[cue], anchor);
+        var backwards = known && words[cue].X > anchor.X;
         for (var j = 0; j < words.Count; j++)
         {
-            if (j != first && SameRow(anchor, words[j]) && (backwards ? words[j].X < anchor.X : words[j].X > anchor.X))
+            if (j == first || j == cue || !SameRow(anchor, words[j]))
+            {
+                continue;
+            }
+
+            if (!known || (backwards ? words[j].X <= anchor.X : words[j].X >= anchor.X))
             {
                 yield return j;
             }
