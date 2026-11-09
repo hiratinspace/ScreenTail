@@ -117,7 +117,10 @@ Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen 
 screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
 (PR #268): more of a technician's line is masked than strictly needed, because a split the engine makes through a remote viewer's
 scaling cannot be measured in advance, and a piece of a password left showing is a stored password.
-A value that wraps onto the next row is not covered yet. Transcripts are scrubbed by the words alone.
+A value that wraps onto the next row is not covered yet. Nor is a mirrored layout with a Latin label
+and no right-to-left letter, such as "hunter2 Password:", where the pattern takes a word on the next
+line as the value: the value left of the cue is kept, because the row rule assumes a Latin cue reads
+left to right. Transcripts are scrubbed by the words alone.
 
 **Raw data has a deadline.** Screenshots, transcript and timeline are deleted after a retention period
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).

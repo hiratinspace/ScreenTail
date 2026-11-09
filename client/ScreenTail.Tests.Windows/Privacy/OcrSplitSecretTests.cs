@@ -240,7 +240,8 @@ public sealed class OcrSplitSecretTests
             var row = page.RowHeight(i);
             foreach (var j in pieces)
             {
-                if (!reached.Contains(j) && page.RowOf(i) == page.RowOf(j) && RedactionEngine.GapShare(words[i], words[j], row) <= RedactionEngine.TokenGap)
+                if (!reached.Contains(j) && page.RowOf(i) == page.RowOf(j) && RedactionEngine.SameLine(words[i], words[j])
+                    && RedactionEngine.GapShare(words[i], words[j], row) <= RedactionEngine.TokenGap)
                 {
                     _ = reached.Add(j);
                     waiting.Enqueue(j);
@@ -257,7 +258,7 @@ public sealed class OcrSplitSecretTests
         var words = page.Words;
         var row = page.RowHeight(a);
         var share = RedactionEngine.GapShare(words[a], words[b], row);
-        var height = Math.Max(row, Math.Max(words[a].Height, words[b].Height));
+        var height = RedactionEngine.TokenHeight(words[a], words[b], row);
         return (share, (share - RedactionEngine.TokenGap) * height);
     }
 

@@ -316,10 +316,14 @@ public sealed class RedactionEngine
         {
             var row = page.RowAt(page.RowOf(i));
 
-            // No neighbour sits further away than the cutoff measured against the row's tallest box.
-            foreach (var j in page.Near(i, TokenGap * Math.Max(row.Median, row.MaxHeight)))
+            // No neighbour sits further away than the cutoff at the tallest height a pair is measured
+            // against (TokenHeight). On its own line only: a row can take in several lines where one
+            // tall box spans them, and a token that followed it flooded the page (review of #268 at
+            // a3cd033: one email took 7,999 words, and 100 cues 30 s).
+            var reach = TokenGap * Math.Max(row.Height, Math.Min(row.MaxHeight, 2.0 * row.Height));
+            foreach (var j in page.Near(i, reach))
             {
-                if (!token.Contains(j) && GapShare(words[i], words[j], row.Median) <= TokenGap)
+                if (!token.Contains(j) && SameLine(words[i], words[j]) && GapShare(words[i], words[j], row.Height) <= TokenGap)
                 {
                     _ = token.Add(j);
                     waiting.Enqueue(j);
@@ -424,18 +428,38 @@ public sealed class RedactionEngine
     }
 
     /// <summary>
-    /// The space between two words' boxes on a row as a share of the height a space is measured
-    /// against. The space is the horizontal distance in either direction. The height is the largest of
-    /// the two words' and their row's median: a piece with no capital, ascender or digit is only
-    /// x-height tall, about 0.7 of its neighbours, and measured against itself a split looked a third
-    /// wider than it is (review of #268). Each of those only makes the share smaller, so each only
-    /// masks more.
+    /// Whether two words are on one line of text: the middle of each lies within the other's height.
+    /// Stricter than <see cref="SameRow"/>, which a box as tall as the page shares with every word.
+    /// </summary>
+    internal static bool SameLine(OcrWord a, OcrWord b)
+    {
+        var middleA = a.Y + (a.Height / 2.0);
+        var middleB = b.Y + (b.Height / 2.0);
+        return middleB >= a.Y && middleB <= a.Y + a.Height && middleA >= b.Y && middleA <= b.Y + b.Height;
+    }
+
+    /// <summary>
+    /// The space between two words' boxes on a row as a share of <see cref="TokenHeight"/>. The space
+    /// is the horizontal distance in either direction.
     /// </summary>
     internal static double GapShare(OcrWord a, OcrWord b, double rowHeight)
     {
-        var height = Math.Max(rowHeight, Math.Max(a.Height, b.Height));
         var gap = Math.Max(b.X - (a.X + a.Width), a.X - (b.X + b.Width));
-        return gap / height;
+        return gap / TokenHeight(a, b, rowHeight);
+    }
+
+    /// <summary>
+    /// The height a space between two words is measured against: the largest of the two words' and
+    /// their row's (<see cref="OcrPage.Row.Height"/>). A piece with no capital, ascender or digit is
+    /// only x-height tall, about 0.7 of its neighbours, and measured against itself a split looked a
+    /// third wider than it is (review of #268); each of those only makes the share smaller, so each
+    /// only masks more. A word counts at most twice the row's height, so a box as tall as the page
+    /// does not reach across it, and the height is never under a pixel.
+    /// </summary>
+    internal static double TokenHeight(OcrWord a, OcrWord b, double rowHeight)
+    {
+        var tallest = 2.0 * rowHeight;
+        return Math.Max(1, Math.Max(rowHeight, Math.Max(Math.Min(a.Height, tallest), Math.Min(b.Height, tallest))));
     }
 
     /// <summary>
@@ -448,7 +472,7 @@ public sealed class RedactionEngine
         foreach (var row in masked.Select(page.RowOf).Distinct().Order())
         {
             var members = page.RowAt(row);
-            var floor = members.Median > 0 ? members.Median : Math.Max(page.MedianHeight, 1);
+            var floor = members.Height;
             var run = new List<OcrWord>();
             foreach (var word in members.Members.Append(-1))
             {
