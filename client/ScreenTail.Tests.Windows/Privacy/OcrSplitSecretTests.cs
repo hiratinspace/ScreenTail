@@ -24,7 +24,9 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// draws it. It says how many the engine split, how many the redaction left any of showing, and how the
 /// gaps sit against <see cref="RedactionEngine.TokenGap"/>, measured by the engine's own rule. It is also
 /// the canary for that number: if Windows OCR starts splitting tokens wider apart, this fails and says
-/// so. It prints counts and box geometry only, never the text, failing or not (INV-10).
+/// so. Since the owner's decision of 2026-11-09 a password also masks the rest of its row, so it says
+/// too how many renderings that rule alone saved where the token rule would not have. It prints counts
+/// and box geometry only, never the text, failing or not (INV-10).
 /// </summary>
 public sealed class OcrSplitSecretTests
 {
@@ -63,6 +65,7 @@ public sealed class OcrSplitSecretTests
 
         var expected = FirstWords.Length * (SecondWords.Length + LowercaseSecondWords.Length) * DigitGroups().Count();
         int renders = 0, cueUnread = 0, split = 0, leakedText = 0, leakedPixels = 0, splitApart = 0, spacesJoined = 0;
+        int matchMissed = 0, tokenAloneCovers = 0, rowAloneCovers = 0;
         var splitShares = new List<double>();
         var spaceShares = new List<double>();
         var splitMargins = new List<double>(); // pixels a split gap sits under the cutoff
@@ -142,6 +145,15 @@ public sealed class OcrSplitSecretTests
                         }
                     }
 
+                    // What each rule would do alone, where the password match by itself stopped short.
+                    if (Missed(words, pieces) is { Missed.Count: > 0 } missed)
+                    {
+                        matchMissed++;
+                        tokenAloneCovers += TokenAloneCovers(words, pieces, missed.Matched, missed.Missed) ? 1 : 0;
+                        rowAloneCovers += missed.Matched.Count > 0 && missed.Missed.All(m =>
+                            RedactionEngine.SameRow(words[missed.Matched[0]], words[m]) && words[m].X > words[missed.Matched[0]].X) ? 1 : 0;
+                    }
+
                     var redaction = engine.RedactFrame(words);
                     if (Leaks(secret, redaction.Text))
                     {
@@ -163,6 +175,8 @@ public sealed class OcrSplitSecretTests
             + $"Gaps as a share of the row's height: inside a split token {Describe(splitShares)}, at a real space {Describe(spaceShares)}; "
             + $"split gaps wider than the token rule's {RedactionEngine.TokenGap:0.00}: {splitApart}; "
             + $"real spaces it takes for none (over-masking): **{spacesJoined}** of {spaceShares.Count}. "
+            + $"The password match alone missed a piece in **{matchMissed}**; the token rule alone covers {tokenAloneCovers} of them, the row rule alone {rowAloneCovers}, "
+            + $"so the row rule alone saved **{matchMissed - tokenAloneCovers}** the token rule would not. "
             + $"Margin to the cutoff in pixels: splits at least {MinOrNone(splitMargins)} under, spaces at least {MinOrNone(spaceMargins)} over. "
             + $"Pass row box heights: shortest {Range(rowShortest)} px, tallest {Range(rowTallest)} px; word height median {Median(heights.Select(h => (double)h).ToList()):0} px.");
         Measurements.Record(summary);
@@ -174,6 +188,54 @@ public sealed class OcrSplitSecretTests
         Assert.True(split > 0, $"The engine split no secret, so this measured no split gap. {summary}");
         Assert.True(splitApart == 0, $"Windows OCR changed: re-measure TokenGap. A split token's pieces sat further apart than the rule joins. {summary}");
         Assert.True(leakedText == 0 && leakedPixels == 0, $"The secret was left showing. {summary}");
+    }
+
+    /// <summary>
+    /// The secret's pieces the password match itself touches, and those it does not, found by running the
+    /// pattern library over the page text the way the engine builds it.
+    /// </summary>
+    private static (List<int> Matched, List<int> Missed) Missed(IReadOnlyList<OcrWord> words, List<int> pieces)
+    {
+        var spans = new List<(int Start, int End)>(words.Count);
+        var text = new System.Text.StringBuilder();
+        foreach (var word in words)
+        {
+            if (text.Length > 0)
+            {
+                _ = text.Append(' ');
+            }
+
+            var start = text.Length;
+            _ = text.Append(word.Text);
+            spans.Add((start, text.Length));
+        }
+
+        var matches = PatternLibrary.Find(text.ToString(), RedactionPolicy.Default, () => { })
+            .Where(m => m.Kind == MaskKind.Password)
+            .ToList();
+        var matched = pieces.Where(p => matches.Any(m => m.Start < spans[p].End && spans[p].Start < m.End)).ToList();
+        return (matched, [.. pieces.Except(matched)]);
+    }
+
+    /// <summary>Whether every missed piece is reached from a matched one through gaps the token rule joins.</summary>
+    private static bool TokenAloneCovers(IReadOnlyList<OcrWord> words, List<int> pieces, List<int> matched, List<int> missed)
+    {
+        var reached = new HashSet<int>(matched);
+        var waiting = new Queue<int>(matched);
+        while (waiting.TryDequeue(out var i))
+        {
+            var row = RedactionEngine.RowHeight(words, words[i]);
+            foreach (var j in pieces)
+            {
+                if (!reached.Contains(j) && RedactionEngine.GapShare(words[i], words[j], row) is <= RedactionEngine.TokenGap)
+                {
+                    _ = reached.Add(j);
+                    waiting.Enqueue(j);
+                }
+            }
+        }
+
+        return missed.All(reached.Contains);
     }
 
     /// <summary>The engine's own share for the pair, and how many pixels the gap sits over the cutoff (negative under).</summary>

@@ -105,7 +105,9 @@ internal static partial class PatternLibrary
     /// More than one because a spoken password is often more than one word — "Winter 2026" was masked as
     /// "Winter", which leaves the year in the transcript and the audit log claiming otherwise. Bounded,
     /// because the rest of the sentence is a technician's own account of what they did and masking it
-    /// teaches them to turn the rule off.
+    /// teaches them to turn the rule off. This is the value in the text, which is all a transcript gets.
+    /// On a frame, <see cref="RedactionEngine.RedactFrame"/> masks from it to the end of its row on the
+    /// screen (owner decision 2026-11-09, #268).
     /// </summary>
     private const int MaxSecretWords = 4;
 
