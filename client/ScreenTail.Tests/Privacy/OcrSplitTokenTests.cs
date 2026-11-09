@@ -150,6 +150,73 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
+    public void ACueInsideTheMatchedSpanFailsClosed()
+    {
+        // Security review of #268. A tenant pattern claims "ticket pass: Tang", so the merged match starts
+        // at "ticket" and the cue is inside it. Measured from the cue to the span's start, the row seemed
+        // to run right to left and its end, "reception", stayed readable.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["ticket pass: Tang"] });
+        OcrWord[] words =
+        [
+            new("ticket", 24, 100, 80, Height),
+            new("pass:", 113, 100, 60, Height),
+            new("Tangerine4821", 182, 100, 190, Height),
+            new("reception", 381, 100, 110, Height),
+        ];
+
+        var redaction = engine.RedactFrame(words);
+
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[3]), "the end of the row is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void APasswordMergedWithAnEarlierEmailIsAnchoredOnItsSecret()
+    {
+        // Security review of #268. An email match before the secret overlaps it, and the merged match
+        // starts at the email: anchored there, the row's direction came out backwards.
+        var engine = new RedactionEngine(RedactionPolicy.Default, (text, policy, incomplete) =>
+        {
+            var found = PatternLibrary.Find(text, policy, incomplete).ToList();
+            found.Add(new PatternMatch(MaskKind.Email, 0, text.IndexOf("Tang", StringComparison.Ordinal) + 4, "[EMAIL]"));
+            return found;
+        });
+        OcrWord[] words =
+        [
+            new("bob@example.com", 24, 100, 180, Height),
+            new("pass:", 213, 100, 60, Height),
+            new("Tangerine4821", 282, 100, 190, Height),
+            new("reception", 481, 100, 110, Height),
+        ];
+
+        var redaction = engine.RedactFrame(words);
+
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[3]), "the end of the row is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void AMergedSpanAcrossTwoRowsMasksBothRows()
+    {
+        // Security review of #268. A tenant pattern runs from "is" at the end of the cue's row to the
+        // secret at the start of the next. Anchored on "is", the rule masked the rest of the first row and
+        // left the secret's own row, "reception" on it, readable.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["is Tang"] });
+        OcrWord[] words =
+        [
+            new("pass:", 24, 100, 60, Height),
+            new("is", 93, 100, 24, Height),
+            new("Tangerine4821", 24, 140, 190, Height),
+            new("reception", 223, 140, 110, Height),
+        ];
+
+        var redaction = engine.RedactFrame(words);
+
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[3]), "the secret's row is left unpainted in the frame");
+    }
+
+    [Fact]
     public void ARowWhoseCueIsOnAnotherRowIsMaskedWhole()
     {
         // Fails closed: the cue ends the row above, so nothing on the secret's row says which way it
@@ -279,6 +346,12 @@ public sealed class OcrSplitTokenTests
 
         return line;
     }
+
+    private static bool CoveredByAny(FrameRedaction redaction, OcrWord word) =>
+        redaction.Regions.Any(r =>
+            r.X <= word.X && r.Y <= word.Y
+            && r.X + r.Width >= word.X + word.Width
+            && r.Y + r.Height >= word.Y + word.Height);
 
     private static bool Covered(FrameRedaction redaction, OcrWord word) =>
         redaction.Regions.Any(r =>
