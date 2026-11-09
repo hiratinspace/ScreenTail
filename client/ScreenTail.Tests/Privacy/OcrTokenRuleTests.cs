@@ -116,6 +116,54 @@ public sealed class OcrTokenRuleTests
     }
 
     [Fact]
+    public void AKeysTailAThirdOfAHeightAwayIsMaskedToo()
+    {
+        // 8 px on a 24 px row, 0.33 of the height: the widest split measured sits about there.
+        OcrWord[] words =
+        [
+            new("deploy", 24, 100, 70, Height),
+            new(Key, 104, 100, 400, Height),
+            new("Wobble7", 512, 100, 80, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("deploy [SECRET]", redaction.Text);
+    }
+
+    [Fact]
+    public void AKeysTailOnARowOfZeroHeightBoxesIsMaskedToo()
+    {
+        // Review of #268 at a3cd033: no box on the page has a height, so the gap was measured against
+        // nothing and nothing joined. The height is estimated from the glyphs' widths instead.
+        OcrWord[] words =
+        [
+            new(Key, 0, 100, 400, 0),
+            new("Wobble7", 402, 100, 80, 0),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[SECRET]", redaction.Text);
+        Assert.True(Covered(redaction, words[1]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ATallBoxDoesNotCarryAnEmailAcrossTheLines()
+    {
+        // Review of #268 at a3cd033: one box as tall as the page shares a row with every word on it, and
+        // an email took all 7,999 of them. A token stays on its own line.
+        var words = Grid(8000, (row, col) => row == 100 && col == 5 ? "jane@example.com" : $"w{row}x{col}");
+        words.Add(new("|", 46, 0, 4, 6000));
+
+        var redaction = WithEmails.RedactFrame(words);
+
+        Assert.Contains("[EMAIL]", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("w99x10", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("w150x30", redaction.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AnEmailsPieceToTheLeftIsMaskedToo()
     {
         // "jane.doe@example.com" read as "jane." and "doe@example.com"; the rule matches the second, the
@@ -222,12 +270,18 @@ public sealed class OcrTokenRuleTests
     [InlineData("8,000 words, a password on every row")]
     [InlineData("2,500 password cues in 5,000 words")]
     [InlineData("a private key with no end, 5,000 words")]
+    [InlineData("8,000 words, a box as tall as the page and 100 cues")]
     public void ABigFrameRedactsWithinBudget(string frame)
     {
         var words = frame switch
         {
             "8,000 words, a password on every row" => Grid(8000, (row, col) => col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"word{col}"),
             "2,500 password cues in 5,000 words" => Grid(5000, (row, col) => col % 2 == 0 ? "pwd:" : $"Ab{(row * 40) + col}"),
+            "8,000 words, a box as tall as the page and 100 cues" =>
+            [
+                .. Grid(8000, (row, col) => row % 2 == 1 ? $"w{row}x{col}" : col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"w{row}x{col}"),
+                new("|", 46, 0, 4, 6000),
+            ],
             _ => [new("-----BEGIN", 0, 0, 100, Height), new("PRIVATE", 110, 0, 80, Height), new("KEY-----", 200, 0, 80, Height), .. Grid(5000, (row, col) => $"w{row}x{col}", top: 30)],
         };
 

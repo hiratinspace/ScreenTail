@@ -317,6 +317,62 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
+    public void TwoCuesOfOneMatchKeepOnlyWhatIsLeftOfTheLeftmost()
+    {
+        // A tenant pattern joins two passwords into one match. What is kept is what lies left of the
+        // leftmost cue on screen, so "note", between the two cues, goes.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["Ab12cd34 pass: Tangerine4821"] });
+        OcrWord[] words =
+        [
+            new("pwd:", 300, 100, 51, Height),
+            new("Ab12cd34", 360, 100, 100, Height),
+            new("pass:", 24, 100, 60, Height),
+            new("Tangerine4821", 500, 100, 190, Height),
+            new("note", 93, 100, 50, Height),
+        ];
+
+        var redaction = engine.RedactFrame(words);
+
+        Assert.DoesNotContain("note", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[4]), "a word between the cues is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void AWordOverlappingTheCueIsNotKept()
+    {
+        // Only a word whose right edge is at or left of the cue's left edge is kept.
+        OcrWord[] words =
+        [
+            new("ticket", 24, 100, 100, Height),
+            new("pass:", 120, 100, 60, Height),
+            new("Tangerine4821", 189, 100, 190, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.True(CoveredByAny(redaction, words[0]), "the word overlapping the cue is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ASecretStartingInsideTheCuesBoxTakesTheWholeRow()
+    {
+        // The secret starts before the cue ends, so it is not wholly right of the cue, and the row may
+        // not read the way the cue does.
+        OcrWord[] words =
+        [
+            new("note", 24, 100, 50, Height),
+            new("pass:", 100, 100, 60, Height),
+            new("Tangerine4821", 150, 100, 190, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.True(CoveredByAny(redaction, words[0]), "a word left of the cue is left unpainted in the frame");
+    }
+
+    [Fact]
     public void ARowWithRightToLeftScriptIsMaskedWhole()
     {
         // A Hebrew or Arabic word on a row means it may read right to left, and nothing on it is kept.
