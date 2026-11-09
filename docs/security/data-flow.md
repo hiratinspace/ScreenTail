@@ -108,13 +108,13 @@ password fields — and then, and only then, the frame becomes readable to the r
 
 A match is masked by what is on the screen, not by how the OCR engine split it into words: every word
 that touches it with no space between them goes too, so a value the engine read as two words is masked
-whole. A password goes further: everything after its cue to the end of its row on the screen, in the
-stored text and in the picture alike. The password cue and the words before it stay readable, so the line still
-says what it was. Where the screen leaves any doubt which way the row runs (the cue on another row,
-or another match overlapping the password), every word on every row involved is masked, the cue
-included. What stays readable is chosen by where it is on the screen, never by the order the OCR
-engine listed it. That is the owner's decision of 2026-11-09 (PR #268): a little more of a technician's
-line is masked than strictly needed, because a split the engine makes through a remote viewer's
+whole. A password goes further: its cue's row and every row the match touches on the screen are
+masked, the cue included, in the stored text and in the picture alike. The one exception is on the
+cue's own row: the words wholly left of the cue stay readable, so the line still says what it was
+(ScreenTail's cues are Latin, read left to right). A row with any right-to-left letter on it, Hebrew or
+Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen by where it is on the
+screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
+(PR #268): more of a technician's line is masked than strictly needed, because a split the engine makes through a remote viewer's
 scaling cannot be measured in advance, and a piece of a password left showing is a stored password.
 A value that wraps onto the next row is not covered yet. Transcripts are scrubbed by the words alone.
 
