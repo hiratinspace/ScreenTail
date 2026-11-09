@@ -730,6 +730,61 @@ public sealed class NarrationRecorderTests
     }
 
     [Fact]
+    public async Task ASegmentTheModelHadAnsweredIsNotCountedAsAbandonedWhenTheStopLandsInItsWrite()
+    {
+        // #262 follow-up. AbandonedAtStop counts segments the stop took from the model. The model here
+        // has answered, and the stop lands while the words are being written: the write is cancelled with
+        // the service, but nothing was taken from the model, so the count stays at zero. It used to count
+        // any cancellation inside the drain, the write's included.
+        var recogniser = new FakeRecogniser("restarting the spooler");
+        var writing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recorder = new NarrationRecorder(
+            new LiveMicrophone(Silence(20), Speech(40), Silence(40)),
+            recogniser,
+            async (_, _, ct) =>
+            {
+                writing.TrySetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+                return true;
+            },
+            () => new NarrationSession("session-a", 0),
+            hearing: () => true);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await writing.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await stop.CancelAsync();
+        await running.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, recogniser.Asked);
+        Assert.Equal(0, recorder.AbandonedAtStop);
+        Assert.Equal(0, recorder.Kept);
+    }
+
+    [Fact]
+    public async Task ASegmentAModelAbortsAtStopIsCountedAsAbandoned()
+    {
+        // The other half: a model that answers its token (whisper.cpp's abort callback) ends the call
+        // cancelled. The segment was taken from the model by the stop, so it is counted, once.
+        var recogniser = new FakeRecogniser("the admin password is") { Blocked = new TaskCompletionSource() };
+        var recorder = new NarrationRecorder(
+            new LiveMicrophone(Silence(20), Speech(40), Silence(40)),
+            recogniser,
+            (_, _, _) => Task.FromResult(true),
+            () => new NarrationSession("session-a", 0),
+            hearing: () => true);
+        using var stop = new CancellationTokenSource();
+
+        var running = recorder.RunAsync(stop.Token);
+        await UntilAsync(() => recogniser.Asked == 1);
+        await stop.CancelAsync();
+        await running.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, recorder.AbandonedAtStop);
+        Assert.Equal(0, recorder.Kept);
+    }
+
+    [Fact]
     public async Task WhatIsStillWithTheModelIsOwedToItsSession()
     {
         // The recorder's half of finalize's wait: a segment is owed to its session from the moment it is

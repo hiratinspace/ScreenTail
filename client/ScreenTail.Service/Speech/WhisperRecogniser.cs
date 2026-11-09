@@ -81,7 +81,17 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     private WhisperFactory? _factory;
     private WhisperProcessor? _processor;
     private volatile bool _loadable;
-    private volatile bool _disposed;
+
+    /// <summary>
+    /// 0 until the first <see cref="DisposeAsync"/>, then 1, set with <see cref="Interlocked.Exchange(ref int, int)"/>
+    /// so exactly one caller runs the release however many arrive at once.
+    /// </summary>
+    private int _disposing;
+
+    /// <summary>Done when the first disposal has finished (or stopped waiting at its bound); later callers wait for it.</summary>
+    private readonly TaskCompletionSource _disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private bool Disposed => Volatile.Read(ref _disposing) != 0;
 
     /// <param name="unloadAfter">How long with nothing to transcribe before the model is released. <see cref="DefaultUnloadAfter"/> when null.</param>
     /// <param name="time">The clock the idle period and the stop's wait are measured on. The system's when null.</param>
@@ -116,6 +126,21 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// recorder may keep queueing, and the next segment brings the model back.
     /// </summary>
     public bool Ready => _loadable;
+
+    /// <summary>
+    /// For a test only: says the model loaded without loading one, so a test on a machine with no model
+    /// file can reach the lock in <see cref="TranscribeAsync"/>. The service never sets it.
+    /// </summary>
+    internal bool LoadableForTests
+    {
+        init => _loadable = value;
+    }
+
+    /// <summary>
+    /// For a test only: runs in <see cref="TranscribeAsync"/> after its token is linked and just before the
+    /// lock is asked for, so a test can put a stop's release exactly there. The service never sets it.
+    /// </summary>
+    internal Action? BeforeTheLock { get; init; }
 
     /// <summary>Whether whisper.cpp's context is in memory right now. A fact about this machine, for the diagnostics panel.</summary>
     public bool Loaded => _processor is not null;
@@ -231,10 +256,23 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
         using var aborting = linked;
         ct = aborting.Token;
-        await _one.WaitAsync(ct).ConfigureAwait(false);
+        BeforeTheLock?.Invoke();
         try
         {
-            if (_disposed)
+            await _one.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The stop's release finished, and disposed the lock, between the token being linked above and
+            // the lock being asked for. That is the service stopping, not a fault: nothing more is
+            // transcribed, as when the token could not be linked, and the recorder is not told a failure
+            // (#262 follow-up).
+            return null;
+        }
+
+        try
+        {
+            if (Disposed)
             {
                 // Disposal released the model while this call waited for the lock. Loading it again
                 // here would leave a native context nobody frees.
@@ -322,7 +360,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// </summary>
     private async Task UnloadIfIdleAsync(long usesWhenFired)
     {
-        if (_disposed)
+        if (Disposed)
         {
             return;
         }
@@ -339,7 +377,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
         try
         {
-            if (!_disposed && usesWhenFired == _idle.Uses)
+            if (!Disposed && usesWhenFired == _idle.Uses)
             {
                 await UnloadAsync().ConfigureAwait(false);
             }
@@ -369,21 +407,34 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// segment is dropped by the recorder, not half-kept (owner's decision, 2026-11-05).
     ///
     /// Idle, the release finishes at once and frees everything here, as it always did.
+    ///
+    /// Safe to call more than once and from several threads at once (#262 follow-up). Exactly one caller
+    /// runs the release; the others wait for that caller's disposal, which is bounded the same way, and
+    /// never cancel, release or dispose anything a second time. The check used to be a flag read and then
+    /// set, so two callers arriving together could both pass it: the second then cancelled a token source
+    /// the first had disposed, or waited on a lock the first had disposed, and threw.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposing, 1) != 0)
         {
+            await _disposal.Task.ConfigureAwait(false);
             return;
         }
 
-        _disposed = true;
-        _idle.Dispose();
-        await _stopping.CancelAsync().ConfigureAwait(false);
-
-        if (!await StopBound.WithinAsync(ReleaseAsync(), _stopWait, _time).ConfigureAwait(false))
+        try
         {
-            _abandoned?.Invoke();
+            _idle.Dispose();
+            await _stopping.CancelAsync().ConfigureAwait(false);
+
+            if (!await StopBound.WithinAsync(ReleaseAsync(), _stopWait, _time).ConfigureAwait(false))
+            {
+                _abandoned?.Invoke();
+            }
+        }
+        finally
+        {
+            _ = _disposal.TrySetResult();
         }
     }
 

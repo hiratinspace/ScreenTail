@@ -225,7 +225,9 @@ public sealed class NarrationRecorder : IDisposable
     /// <summary>
     /// Segments that were still with the model when the service stopped, and were dropped rather than
     /// waited for (ST-112, owner's decision 2026-11-05). Counts only. A segment cut off this way is never
-    /// written: nothing of it reaches the session, the store or the backend.
+    /// written: nothing of it reaches the session, the store or the backend. Counted only when the wait
+    /// for the model's answer ended in the stop; a stop that lands once the model has answered (while its
+    /// words are being written) is not one.
     /// </summary>
     public long AbandonedAtStop { get; private set; }
 
@@ -675,14 +677,8 @@ public sealed class NarrationRecorder : IDisposable
                     await TranscribeAsync(session, segment, audio, ct).ConfigureAwait(false);
                 }
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                // The service is stopping with this segment still with the model. It is dropped, not
-                // waited for: a sign-out has five seconds, and the model can take ten (ST-112, owner's
-                // decision 2026-11-05). Counted; nothing of it is kept.
-                AbandonedAtStop++;
-                throw;
-            }
+            // A cancellation is the service stopping and ends the drain. A segment still with the model is
+            // counted where the wait for it ended (TranscribeAsync); nothing of it is kept either way.
 #pragma warning disable CA1031 // One segment must not end narration; RunAsync's catch is the same rule.
             catch (Exception failure) when (failure is not OperationCanceledException)
 #pragma warning restore CA1031
@@ -704,7 +700,22 @@ public sealed class NarrationRecorder : IDisposable
         // stop (ST-112). What it says after that is not heard; a fault it ends in is observed, not thrown.
         var transcribing = _recogniser.TranscribeAsync(segment, audio, ct);
         _ = transcribing.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        var heard = await transcribing.WaitAsync(ct).ConfigureAwait(false);
+        Transcribed? heard;
+        try
+        {
+            heard = await transcribing.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The service is stopping with this segment still with the model: the wait was cut short, or
+            // the model gave up when told to. It is dropped, not waited for: a sign-out has five seconds,
+            // and the model can take ten (ST-112, owner's decision 2026-11-05). Counted here and only
+            // here, so a stop that lands after the model answered, in the write below, is not counted as
+            // a segment taken from the model.
+            AbandonedAtStop++;
+            throw;
+        }
+
         if (heard is null)
         {
             return;

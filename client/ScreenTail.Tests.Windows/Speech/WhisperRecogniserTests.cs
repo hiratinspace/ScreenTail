@@ -112,6 +112,81 @@ public sealed class WhisperRecogniserTests : IDisposable
         Assert.Equal(2, server.Requests);
     }
 
+    [Fact]
+    public async Task DisposalIsSafeFromManyThreadsAtOnceAndRunsOnce()
+    {
+        // #262 follow-up. The stop and a second owner (a test's await using, a host torn down twice) can
+        // both dispose. The check was a flag read and then set, so two callers together could both pass
+        // it, and the second cancelled a disposed token source or waited on a disposed lock and threw.
+        // Now one caller runs the release, the rest wait for it, and none of them throws.
+        var ct = TestContext.Current.CancellationToken;
+        for (var round = 0; round < 50; round++)
+        {
+            var abandoned = 0;
+            var recogniser = new WhisperRecogniser(
+                new ModelDownload(new HttpClient(new StubServer(HttpStatusCode.ServiceUnavailable, []))),
+                Elsewhere,
+                _dir,
+                abandoned: () => Interlocked.Increment(ref abandoned))
+            {
+                // So the call after disposal goes past its first line, to the token's link (whose source
+                // the disposal let go of) and the lock, rather than returning for want of a model.
+                LoadableForTests = true,
+            };
+            using var go = new ManualResetEventSlim(false);
+            var disposals = Enumerable.Range(0, 8)
+                .Select(_ => Task.Run(
+                    async () =>
+                    {
+                        go.Wait(ct);
+                        await recogniser.DisposeAsync();
+                    },
+                    ct))
+                .ToArray();
+            go.Set();
+
+            await Task.WhenAll(disposals).WaitAsync(TimeSpan.FromSeconds(10), ct);
+            await recogniser.DisposeAsync();
+            Assert.Equal(0, abandoned);
+            Assert.Null(await recogniser.TranscribeAsync(new SpeechSegment(0, 1_000, Truncated: false), new short[16_000], ct));
+            Assert.False(recogniser.Loaded, "a segment after the stop loaded a model nobody frees");
+        }
+    }
+
+    [Fact]
+    public async Task ATranscriptionThatMeetsTheStopAtTheLockEndsWithNothingNotAFault()
+    {
+        // #262 follow-up. The stop's release disposes the lock. A segment whose token was linked just
+        // before that, and which asks for the lock just after, found it disposed and threw
+        // ObjectDisposedException, which the recorder counts and logs as a failure of narration. It is the
+        // service stopping: the call ends with nothing, as one that arrives after the stop does.
+        var ct = TestContext.Current.CancellationToken;
+        WhisperRecogniser? recogniser = null;
+        var stopped = 0;
+        recogniser = new WhisperRecogniser(
+            new ModelDownload(new HttpClient(new StubServer(HttpStatusCode.ServiceUnavailable, []))),
+            Elsewhere,
+            _dir)
+        {
+            LoadableForTests = true,
+
+            // The stop, run to its end exactly between the token being linked and the lock being asked for.
+            BeforeTheLock = () =>
+            {
+                if (Interlocked.Exchange(ref stopped, 1) == 0)
+                {
+                    recogniser!.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            },
+        };
+
+        var heard = await recogniser.TranscribeAsync(new SpeechSegment(0, 1_000, Truncated: false), new short[16_000], ct);
+
+        Assert.Equal(1, stopped);
+        Assert.Null(heard);
+        Assert.False(recogniser.Loaded, "a segment after the stop loaded a model nobody frees");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

@@ -87,8 +87,9 @@ public sealed class SpeechUnloadTests
     /// ST-112, owner's decision 2026-11-05: the service's stop never waits on a transcription in flight.
     /// Whisper.net will not free a model while whisper.cpp is still working on it, so a sign-out while the
     /// technician was talking spent the whole four-second budget in the recogniser's disposal (laptop runs
-    /// 42031407710 and 42051212812). Here a minute of audio, seconds of work for the model, is in flight
-    /// when the recogniser is disposed as the stop disposes it, and the disposal returns inside its bound.
+    /// 42031407710 and 42051212812). Here ten minutes of audio, far more work than the test allows, is in
+    /// flight when the recogniser is disposed as the stop disposes it. The disposal returns inside its
+    /// bound, and the native call answers the abort within <see cref="AbortAnsweredWithin"/>.
     /// The real microphone cannot be made to speak on cue, so StopTimeTests cannot put a segment in flight
     /// at the ask; this is the same disposal, with one certainly in flight.
     /// </summary>
@@ -110,43 +111,74 @@ public sealed class SpeechUnloadTests
             abandoned: () => abandoned++);
         Assert.True(await whisper.PrepareAsync(ct), $"the model could not be had: {whisper.Unavailable}");
 
-        // A minute of quiet noise: two of whisper.cpp's thirty-second windows, seconds of work on two threads.
+        // Ten minutes of quiet noise: twenty of whisper.cpp's thirty-second windows, each needing its own
+        // encoder pass (about half a second each for base.en on the laptop, run 42524815671), so a call
+        // that ignored the abort would run for well over AbortAnsweredWithin after the stop. A minute (two
+        // windows) could finish inside it unaborted and prove nothing.
         var random = new Random(37);
-        var audio = new short[16_000 * 60];
+        var audio = new short[16_000 * 600];
         for (var i = 0; i < audio.Length; i++)
         {
             audio[i] = (short)random.Next(-200, 200);
         }
 
-        var transcribing = whisper.TranscribeAsync(new SpeechSegment(0, 60_000, Truncated: false), audio, CancellationToken.None);
+        var transcribing = whisper.TranscribeAsync(new SpeechSegment(0, 600_000, Truncated: false), audio, CancellationToken.None);
+        _ = transcribing.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
         await Task.Delay(500, ct);
-        Assert.False(transcribing.IsCompleted, "the minute of audio was transcribed in half a second, so nothing was in flight at the stop");
+        Assert.False(transcribing.IsCompleted, "ten minutes of audio were transcribed in half a second, so nothing was in flight at the stop");
 
         var clock = System.Diagnostics.Stopwatch.StartNew();
         await whisper.DisposeAsync();
         var disposed = clock.Elapsed;
 
-        // Dropped, not half-kept: the call ends cancelled or with nothing, never with words.
+        // Dropped, not half-kept: the call ends cancelled or with nothing, never with words. Waited for
+        // only until the abort's deadline, so a call that ignores the abort fails here rather than after
+        // it has run through its ten minutes.
+        var remaining = AbortAnsweredWithin - clock.Elapsed;
+        _ = await Task.WhenAny(transcribing, Task.Delay(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, ct));
+        var ended = clock.Elapsed;
+        var answered = transcribing.IsCompleted;
         Transcribed? heard = null;
-        try
+        if (transcribing.IsCompletedSuccessfully)
         {
-            heard = await transcribing.WaitAsync(TimeSpan.FromSeconds(60), ct);
-        }
-        catch (OperationCanceledException)
-        {
+            heard = await transcribing;
         }
 
-        var ended = clock.Elapsed;
-        Assert.Null(heard);
-        Assert.True(
-            disposed < StopBound.Default + TimeSpan.FromMilliseconds(500),
-            string.Create(CultureInfo.InvariantCulture, $"disposal with a transcription in flight took {disposed.TotalMilliseconds:F0} ms, bound {StopBound.Default.TotalMilliseconds:F0} ms"));
         Measurements.Record(string.Create(
             CultureInfo.InvariantCulture,
-            $"Stop mid-transcription ({Model.Name}, a minute of audio in flight): the recogniser's disposal returned in **{disposed.TotalMilliseconds:F0} ms** "
-            + $"(bound {StopBound.Default.TotalMilliseconds:F0} ms, enforced); the native call ended {ended.TotalMilliseconds:F0} ms after the stop; "
-            + $"left to finish by itself: {(abandoned > 0 ? "yes" : "no, it answered the abort")}"));
+            $"Stop mid-transcription ({Model.Name}, ten minutes of audio in flight): the recogniser's disposal returned in **{disposed.TotalMilliseconds:F0} ms** "
+            + $"(enforced under {StopBound.Default.TotalMilliseconds:F0} ms + {SchedulingMargin.TotalMilliseconds:F0} ms); "
+            + $"the native call {(answered ? "ended" : "had not ended")} {ended.TotalMilliseconds:F0} ms after the stop (enforced under {AbortAnsweredWithin.TotalMilliseconds:F0} ms); "
+            + $"left running past the stop's bound: {(abandoned > 0 ? "yes" : "no")} (reported)"));
+
+        // 2026-11-08, owner proxy. The stop's bound stays StopBound.Default (500 ms), and what is enforced
+        // is that the stop never waits past it, plus a little for the scheduler. Whether the native call
+        // let go inside that bound (the recogniser's "abandoned", logged as "The speech model was still
+        // busy at stop") is reported, not enforced: whisper.cpp reads its abort only between compute
+        // steps, so the abort's latency is one step, 510 ms for base.en on the laptop (run 42524815671),
+        // and it varies with the CPU and the model. When it is past the bound the release finishes by
+        // itself and frees the model once nothing uses it. The abort itself is enforced: the call ends
+        // within AbortAnsweredWithin of the stop, which a call running on through its ten minutes would
+        // not. The narration segment it was working on is still dropped, by the owner's decision of
+        // 2026-11-05: NarrationRecorder.AbandonedAtStop, a different count, one per segment in flight.
+        Assert.True(
+            disposed < StopBound.Default + SchedulingMargin,
+            string.Create(CultureInfo.InvariantCulture, $"the stop waited on the native call: disposal with a transcription in flight took {disposed.TotalMilliseconds:F0} ms, bound {StopBound.Default.TotalMilliseconds:F0} ms + {SchedulingMargin.TotalMilliseconds:F0} ms"));
+        Assert.True(
+            answered,
+            string.Create(CultureInfo.InvariantCulture, $"the abort was not answered: the native call was still running {ended.TotalMilliseconds:F0} ms after the stop, bound {AbortAnsweredWithin.TotalMilliseconds:F0} ms"));
+        Assert.Null(heard);
     }
+
+    /// <summary>What the stop's disposal may take beyond <see cref="StopBound.Default"/>: the scheduler, not the model.</summary>
+    private static TimeSpan SchedulingMargin { get; } = TimeSpan.FromMilliseconds(150);
+
+    /// <summary>
+    /// How soon after the stop a transcription in flight must have ended, aborted. Several of whisper.cpp's
+    /// compute steps (510 ms for base.en on the laptop, run 42524815671), and far short of the work in
+    /// flight, so it tells an answered abort from a call that ran on.
+    /// </summary>
+    private static TimeSpan AbortAnsweredWithin { get; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// The tests' own copy of the model, kept between runs. Seeded from the service's folder when the
