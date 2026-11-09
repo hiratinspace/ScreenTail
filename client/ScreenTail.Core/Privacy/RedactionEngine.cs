@@ -130,6 +130,18 @@ public sealed class RedactionEngine
             // is found on the screen: a piece Windows listed in an OcrLine of its own, or to the left in
             // a right-to-left line, is as much a part of it as the next word in the list.
             var token = Token(words, first, last, rows);
+
+            // A password takes the rest of its row as well (owner decision 2026-11-09, #268). The token
+            // rule was measured on one font at 96 DPI; the frames that matter come through a remote
+            // viewer's scaling and compression (INV-5), where a split can sit wider than any measured,
+            // and the token rule already masks the next word in 16 to 29% of cases, so the row costs
+            // little more to read. The cue and the words before it stay, so the line still says what
+            // it was. Other kinds keep the token rule alone.
+            if (match.Kind == MaskKind.Password)
+            {
+                token = [.. token.Union(RowAfter(words, first)).Order()];
+            }
+
             regions.Add(Cover([.. token.Select(i => words[i])], match.Kind));
 
             // And the stored text loses the same words the picture did.
@@ -276,6 +288,25 @@ public sealed class RedactionEngine
         }
 
         return [.. token.Order()];
+    }
+
+    /// <summary>
+    /// The words on word <paramref name="first"/>'s row on the screen that come after it in the way the
+    /// line reads, wherever the engine listed them. The line reads right to left when the word before
+    /// it in the reading order (the cue, or the words joining the cue to the secret) is on the same row
+    /// and to its right; otherwise left to right.
+    /// </summary>
+    private static IEnumerable<int> RowAfter(IReadOnlyList<OcrWord> words, int first)
+    {
+        var anchor = words[first];
+        var backwards = first > 0 && SameRow(words[first - 1], anchor) && words[first - 1].X > anchor.X;
+        for (var j = 0; j < words.Count; j++)
+        {
+            if (j != first && SameRow(anchor, words[j]) && (backwards ? words[j].X < anchor.X : words[j].X > anchor.X))
+            {
+                yield return j;
+            }
+        }
     }
 
     /// <summary>
