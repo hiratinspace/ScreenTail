@@ -36,7 +36,7 @@ public sealed class OcrSplitTokenTests
 
         Assert.DoesNotContain("Wobble", redaction.Text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Tangerine", redaction.Text, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.Equal("[REDACTED]", redaction.Text);
         Assert.True(Covered(redaction, words[2]), "the second piece is left unpainted in the frame");
     }
 
@@ -47,7 +47,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.Equal("[REDACTED]", redaction.Text);
         Assert.True(Covered(redaction, words[3]), "the last piece is left unpainted in the frame");
     }
 
@@ -87,7 +87,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.Equal("[REDACTED]", redaction.Text);
         Assert.True(Covered(redaction, words[2]), "the far piece is left unpainted in the frame");
     }
 
@@ -109,7 +109,7 @@ public sealed class OcrSplitTokenTests
 
         Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
         Assert.Contains("Queue cleared", redaction.Text, StringComparison.Ordinal);
-        Assert.StartsWith("pass: [REDACTED]", redaction.Text, StringComparison.Ordinal);
+        Assert.StartsWith("[REDACTED]", redaction.Text, StringComparison.Ordinal);
         Assert.True(Covered(redaction, words[4]), "the end of the pass row is left unpainted in the frame");
     }
 
@@ -130,8 +130,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
-        Assert.StartsWith("pass:", redaction.Text, StringComparison.Ordinal);
+        Assert.Equal("[REDACTED]", redaction.Text);
         Assert.True(Covered(redaction, words[3]), "the end of the row is left unpainted in the frame");
         Assert.True(Covered(redaction, words[1]), "the stray word on the secret's side is left unpainted in the frame");
     }
@@ -145,8 +144,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
-        Assert.StartsWith("pass: ", redaction.Text, StringComparison.Ordinal);
+        Assert.Equal("[REDACTED]", redaction.Text);
     }
 
     [Fact]
@@ -255,7 +253,7 @@ public sealed class OcrSplitTokenTests
         var shuffled = Masked(Engine.RedactFrame(reshuffled), reshuffled);
 
         Assert.Equal(inOrder, shuffled);
-        Assert.Equal(["Tangerine4821", "for", "reception"], inOrder);
+        Assert.Equal(["Tangerine4821", "for", "pass:", "reception"], inOrder);
     }
 
     [Fact]
@@ -279,10 +277,10 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
-    public void ThePasswordsRowRunsTheWayTheLineReads()
+    public void ALatinRowReadsLeftToRightWhereverItsWordsSit()
     {
-        // Right to left: the row's end is to the left of the secret, and the words to the right of the
-        // cue, before it in the reading order, stay readable.
+        // The rule infers no direction (owner proxy 2026-11-09): ScreenTail's cues are Latin, so on the
+        // cue's row only what lies wholly left of the cue stays. This row was read right to left before.
         OcrWord[] words =
         [
             new("ticket", 640, 100, 80, Height),
@@ -293,8 +291,81 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("ticket pass: [REDACTED]", redaction.Text);
-        Assert.True(Covered(redaction, words[3]), "the end of the row is left unpainted in the frame");
+        Assert.Equal("[REDACTED] reception", redaction.Text);
+        Assert.True(Covered(redaction, words[0]), "the word right of the cue is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ARowWithRightToLeftScriptIsMaskedWhole()
+    {
+        // A Hebrew or Arabic word on a row means it may read right to left, and nothing on it is kept.
+        OcrWord[] words =
+        [
+            new("\u05E9\u05DC\u05D5\u05DD", 24, 100, 70, Height),
+            new("pass:", 110, 100, 60, Height),
+            new("Tangerine4821", 179, 100, 190, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.True(CoveredByAny(redaction, words[0]), "the right-to-left word is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void TheCuesOwnRowIsMaskedWhenTheSecretIsOnTheNext()
+    {
+        // Review of #268, leak 1: the secret the rule took ("Note7") is on the next row, and the cue's
+        // own row, "sunshine" on it, was never masked.
+        OcrWord[] words =
+        [
+            new("Password:", 24, 140, 110, Height),
+            new("Note7", 24, 180, 70, Height),
+            new("sunshine", 300, 140, 100, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("sunshine", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[2]), "the cue's row is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void TheWordAfterTheCueOnScreenIsMaskedWhateverTheListSays()
+    {
+        // Review of #268, leak 2: the word listed after the cue sits left of it, so the row's direction,
+        // read from it, came out backwards and the word right of the cue stayed.
+        OcrWord[] words =
+        [
+            new("Password:", 400, 100, 110, Height),
+            new("Ref7", 24, 100, 50, Height),
+            new("sunshine", 530, 100, 100, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("sunshine", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[2]), "the word right of the cue is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void AWordLeftOfTheCueStaysAndTheWordRightOfItGoes()
+    {
+        // Review of #268, leak 2's variant: "Ticket", left of the cue, was masked and "sunshine", right of
+        // it, was kept.
+        OcrWord[] words =
+        [
+            new("Password:", 400, 100, 110, Height),
+            new("A12", 104, 100, 40, Height),
+            new("sunshine", 530, 100, 100, Height),
+            new("Ticket", 24, 100, 70, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("sunshine", redaction.Text, StringComparison.Ordinal);
+        Assert.EndsWith(" Ticket", redaction.Text, StringComparison.Ordinal);
+        Assert.False(CoveredByAny(redaction, words[3]), "the word left of the cue is painted over");
     }
 
     [Fact]
@@ -314,7 +385,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED] Queue cleared", redaction.Text);
+        Assert.Equal("[REDACTED] Queue cleared", redaction.Text);
     }
 
     [Theory]
@@ -334,7 +405,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.Equal("[REDACTED]", redaction.Text);
         Assert.True(Covered(redaction, words[2]), "the short piece is left unpainted in the frame");
     }
 
@@ -372,7 +443,7 @@ public sealed class OcrSplitTokenTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.Equal("[REDACTED]", redaction.Text);
         Assert.True(Covered(redaction, words[2]), "the piece to the left is left unpainted in the frame");
     }
 
