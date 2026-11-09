@@ -240,7 +240,7 @@ public sealed class OcrSplitSecretTests
             var row = page.RowHeight(i);
             foreach (var j in pieces)
             {
-                if (!reached.Contains(j) && page.RowOf(i) == page.RowOf(j) && RedactionEngine.SameLine(words[i], words[j])
+                if (!reached.Contains(j) && page.RowOf(i) == page.RowOf(j) && RedactionEngine.Neighbours(words[i], words[j], row)
                     && RedactionEngine.GapShare(words[i], words[j], row) <= RedactionEngine.TokenGap)
                 {
                     _ = reached.Add(j);
