@@ -220,14 +220,21 @@ public sealed class PatternLibraryGapTests
     }
 
     [Fact]
-    public void TheWordsAroundASecretAreLeftAlone()
+    public void TheWordsBeforeAPasswordStayAndTheRowAfterItIsMasked()
     {
-        // The control. Widening to whole words must not swallow the sentence: a note that says
-        // "[REDACTED]" where the technician wrote three useful words is a note nobody can read.
+        // This was the control "the words around a secret are left alone": widening must not swallow the
+        // sentence, and "on the reception workstation" stayed readable. Owner decision 2026-11-09
+        // supersedes it for frames (#268): after a password, the rest of its row on the screen is masked.
+        // The token rule was measured on one font at 96 DPI, while the frames that matter come through a
+        // remote viewer's scaling and compression (INV-5), and it already masks the next word in 16 to
+        // 29% of cases, so the row costs little more to read and leaves no split piece behind. The words
+        // before the password, and its cue, still say what the line was.
         var redaction = Engine.RedactFrame(Words("the", "password", "is", "P@ss.word1!", "on", "the", "reception", "workstation"));
 
-        Assert.Contains("reception workstation", redaction.Text, StringComparison.Ordinal);
         Assert.Contains("the password is", redaction.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("workstation", redaction.Text, StringComparison.Ordinal);
+        Assert.Equal("the password is [REDACTED]", redaction.Text);
     }
 
     [Fact]

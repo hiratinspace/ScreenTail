@@ -66,15 +66,70 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
-    public void WordsASpaceApartAreStillLeftAlone()
+    public void AnEmailKeepsTheWordsASpaceAfterIt()
     {
-        // The control, as PatternLibraryGapTests.TheWordsAroundASecretAreLeftAlone is for one row of
-        // words: a space on screen still ends the token, so the technician's own words stay readable.
-        var words = Line(("pass:", Space), ("Tangerine4821", Split), ("Wobble", Space), ("for", Space), ("reception", 0));
+        // The token rule's control: a space on screen still ends the token. The row rule is the password
+        // rule's alone (owner decision 2026-11-09), so the words after any other match stay readable.
+        var engine = new RedactionEngine(new RedactionPolicy { Emails = true });
+        var words = Line(("mail", Space), ("bob@example.com", Space), ("for", Space), ("reception", 0));
+
+        var redaction = engine.RedactFrame(words);
+
+        Assert.Equal("mail [EMAIL] for reception", redaction.Text);
+    }
+
+    [Fact]
+    public void APasswordSplitWiderThanATokenIsMaskedByItsRow()
+    {
+        // 0.6 of the height between the pieces: wider than any split the probe measured, so the token
+        // rule leaves it, and a remote viewer's scaling can make one. The row rule takes it anyway.
+        var words = Line(("pass:", Space), ("Tangerine4821", 14), ("Wobble", 0));
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("pass: [REDACTED] for reception", redaction.Text);
+        Assert.Equal("pass: [REDACTED]", redaction.Text);
+        Assert.True(Covered(redaction, words[2]), "the far piece is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ThePasswordsRowIsMaskedAndTheNextRowIsNot()
+    {
+        // The row is found on the screen: the next row's words are listed before the end of the pass
+        // row, and the pass row's last word is listed last.
+        OcrWord[] words =
+        [
+            new("pass:", 24, 100, 60, Height),
+            new("Tangerine4821", 93, 100, 190, Height),
+            new("Queue", 24, 140, 80, Height),
+            new("cleared", 113, 140, 100, Height),
+            new("reception", 340, 100, 110, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.DoesNotContain("reception", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("Queue cleared", redaction.Text, StringComparison.Ordinal);
+        Assert.StartsWith("pass: [REDACTED]", redaction.Text, StringComparison.Ordinal);
+        Assert.True(Covered(redaction, words[4]), "the end of the pass row is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ThePasswordsRowRunsTheWayTheLineReads()
+    {
+        // Right to left: the row's end is to the left of the secret, and the words to the right of the
+        // cue, before it in the reading order, stay readable.
+        OcrWord[] words =
+        [
+            new("ticket", 640, 100, 80, Height),
+            new("pass:", 560, 100, 60, Height),
+            new("Tangerine4821", 330, 100, 190, Height),
+            new("reception", 200, 100, 110, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("ticket pass: [REDACTED]", redaction.Text);
+        Assert.True(Covered(redaction, words[3]), "the end of the row is left unpainted in the frame");
     }
 
     [Fact]
