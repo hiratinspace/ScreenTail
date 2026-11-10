@@ -192,6 +192,66 @@ public sealed class NotConfirmedTests
         Assert.Equal(1, harness.Machine.Snapshot.PublishesUnconfirmed);
     }
 
+    [Fact]
+    public async Task DiscardingAnOlderSessionInDoubtFromHistoryMovesTheTraysCounts()
+    {
+        // Review of #274: a discard by id of a session the machine is not resting on never read the
+        // counts again, so the tray went on saying "1 publish not confirmed" (and "1 draft ready") about
+        // a session the technician had thrown away, until something else moved them.
+        await using var harness = await MachineHarness.StartAsync();
+        var machine = harness.Machine;
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Store.CreateSessionAsync(new NewSession("older", DateTimeOffset.UnixEpoch, Rdp, false, null), ct);
+        await harness.Store.FinalizeSessionAsync("older", new FinalizeInfo(10_000, false), ct);
+        Assert.True(await harness.Store.SetSessionStateUnlessSettledAsync("older", CaptureStates.DraftReady, null, ct));
+        Assert.True(await harness.Store.SavePublishRecordAsync("older", new Dictionary<string, string> { ["ticket_note"] = PublishRecord.Unknown }, ct));
+        _ = await machine.RecoverAsync(ct);
+        Assert.Equal(1, machine.Snapshot.PublishesUnconfirmed);
+        Assert.Equal(1, machine.Snapshot.DraftsReady);
+        Assert.Null(machine.SessionId);
+        var told = new List<CaptureStateSnapshot>();
+        machine.CountsChanged += told.Add;
+
+        var outcome = await machine.DiscardSessionsAsync(["older"], ct);
+        await machine.CountsTelling.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        Assert.True(outcome.Done);
+        Assert.Equal(0, machine.Snapshot.PublishesUnconfirmed);
+        Assert.Equal(0, machine.Snapshot.DraftsReady);
+        var last = Assert.Single(told);
+        Assert.Equal(0, last.PublishesUnconfirmed);
+        Assert.Equal(0, last.DraftsReady);
+    }
+
+    [Fact]
+    public async Task TellingsThatOverlapLeaveTheCountTheStoreHolds()
+    {
+        // Review of #274: the count was read outside any lock and then assigned, so of two overlapping
+        // tellings the older read could be the one kept. Read and assign are one step now. A stress test,
+        // not a proof: it interleaves writes and tellings and checks the count that is left.
+        await using var harness = await MachineHarness.StartAsync();
+        var machine = harness.Machine;
+        var ct = TestContext.Current.CancellationToken;
+        for (var i = 0; i < 6; i++)
+        {
+            await harness.Store.CreateSessionAsync(new NewSession($"s{i}", DateTimeOffset.UnixEpoch.AddMinutes(i), Rdp, false, null), ct);
+        }
+
+        for (var round = 0; round < 20; round++)
+        {
+            var outcome = round % 2 == 0 ? PublishRecord.Unknown : PublishRecord.Landed;
+            await Task.WhenAll(Enumerable.Range(0, 6).Select(i => Task.Run(
+                async () =>
+                {
+                    _ = await harness.Store.SavePublishRecordAsync($"s{i}", new Dictionary<string, string> { ["ticket_note"] = outcome }, ct);
+                    await machine.PublishOutcomesChangedAsync(ct);
+                },
+                ct)));
+
+            Assert.Equal(await harness.Store.CountUnconfirmedPublishesAsync(ct), machine.Snapshot.PublishesUnconfirmed);
+        }
+    }
+
     private static TrayPresence Presence(CaptureStateSnapshot capture) =>
         TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, capture, ShellView.Review, null));
 

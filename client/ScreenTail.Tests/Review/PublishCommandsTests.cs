@@ -891,6 +891,121 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AMarkCutOffBetweenItsTwoWritesIsFinishedAndReportedByTheRetry()
+    {
+        // Review of #274: the service died after marking the session published and before settling the
+        // record. The retry found it published already and skipped the report for good, so a session that
+        // reached the PSA was never counted. What says "counted" is a landing in the record, not the state.
+        var metrics = new RecordingBookkeeping();
+        var commands = await CommandsAsync(metrics);
+        await SeedAsync(["f1"]);
+        await PublishInDoubtAsync(commands);
+        Assert.True(await _store!.MarkPublishedAsync("s1"));
+        await _store.DisposeAsync();
+
+        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(_key));
+        var restarted = new PublishCommands(_store, _gateway, metrics, metrics);
+        Assert.True((await _store.GetSessionSummaryAsync("s1"))!.PublishUnconfirmed);
+
+        Assert.True((await restarted.HandleAsync(Mark()))!.Ok);
+
+        Assert.Null((await _store.GetPublishRecordAsync("s1"))!.UnconfirmedAt);
+        Assert.Equal([("s1", true)], metrics.Reported);
+        Assert.Equal(["s1"], metrics.Learned);
+
+        // And only once: there is nothing left to mark.
+        Assert.Equal(PublishCommands.NothingToConfirm, (await restarted.HandleAsync(Mark() with { RequestId = 12 }))!.Error);
+        Assert.Equal([("s1", true)], metrics.Reported);
+        Assert.Equal(["s1"], metrics.Learned);
+    }
+
+    [Fact]
+    public async Task ADestinationThatPlainlyFailedBesideOneInDoubtIsNotMarked()
+    {
+        // The note may be there; the time entry was plainly refused, so it is not held and is not claimed.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = sent => [.. sent.Select(d => d == "ticket_note"
+            ? new PublishOutcomeRow(d, false, Error: "may have been saved", Kind: "unknown")
+            : new PublishOutcomeRow(d, false, Error: "ConnectWise says this API member may not do that.", Kind: "forbidden"))];
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "unknown" }, (await _store!.GetPublishRecordAsync("s1"))!.Outcomes);
+
+        Assert.True((await commands.HandleAsync(Mark()))!.Ok);
+
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed" }, (await _store.GetPublishRecordAsync("s1"))!.Outcomes);
+
+        // The time entry is still unsent, so it goes without the flag; the note does not.
+        _gateway.Outcomes = null;
+        Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8, Destinations = ["time_entry"] }));
+        var note = Publish(["f1"]) with { RequestId = 9, Destinations = ["ticket_note"] };
+        Assert.Null(await commands.ReplyToAsync(note));
+        Assert.Equal(PublishCommands.AlreadyPublished, (await commands.HandleAsync(note))!.Error);
+    }
+
+    [Fact]
+    public async Task TwoMarksAtOnceSettleItOnce()
+    {
+        // Two windows, or a double click that got through: one does it, the other is told why not, and
+        // the session is counted as published once.
+        var metrics = new RecordingBookkeeping();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(_key));
+        var commands = new PublishCommands(_store, _gateway, metrics, metrics, published: async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return true;
+        });
+        await SeedAsync(["f1"]);
+        await PublishInDoubtAsync(commands);
+
+        var first = commands.HandleAsync(Mark());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var second = await commands.HandleAsync(Mark() with { RequestId = 12 });
+        release.SetResult();
+
+        Assert.True((await first)!.Ok);
+        Assert.False(second!.Ok);
+        Assert.Equal(PublishCommands.StillPublishingCannotBeMarked, second.Error);
+        Assert.Equal([("s1", true)], metrics.Reported);
+        Assert.Equal(["s1"], metrics.Learned);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "landed" }, (await _store.GetPublishRecordAsync("s1"))!.Outcomes);
+    }
+
+    [Fact]
+    public async Task AConfirmedPublishThatArrivesDuringAMarkIsRefusedAndSendsNothing()
+    {
+        // The other window ticked "I checked" while this one was saying the note is there. The publish
+        // waits for nothing: it is refused, whatever its flag, and nothing goes to the ticket a second time.
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(_key));
+        var commands = new PublishCommands(_store, _gateway, published: async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return true;
+        });
+        await SeedAsync(["f1"]);
+        await PublishInDoubtAsync(commands);
+
+        var marking = commands.HandleAsync(Mark());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var again = Publish(["f1"]) with { RequestId = 8, PublishAgain = true };
+        var reply = await commands.ReplyToAsync(again);
+        var refused = await commands.HandleAsync(again);
+        release.SetResult();
+
+        Assert.Null(reply);
+        Assert.Equal(PublishCommands.StillPublishing, refused!.Error);
+        Assert.True((await marking)!.Ok);
+        Assert.Single(_gateway.Published);
+        Assert.Equal(new Dictionary<string, string> { ["ticket_note"] = "landed", ["time_entry"] = "landed" }, (await _store.GetPublishRecordAsync("s1"))!.Outcomes);
+    }
+
+    [Fact]
     public void AMarkIsRefusedInFixedWordsThatSayNothingOfTheSession()
     {
         // INV-10: every refusal is a fixed sentence. None quotes a ticket, a note or an id.

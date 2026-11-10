@@ -33,6 +33,9 @@ public sealed class MarkAsPublished(
         + "ScreenTail will record that what the earlier publish sent is on the ticket, and will not send it again. "
         + "A published session is kept and can no longer be discarded.";
 
+    /// <summary>The dialog's words for one session, named as its History row shows it.</summary>
+    public static string QuestionFor(string session) => Question;
+
     public const string WhileCapturing = "A session is being captured. Stop it first, then mark this one as published.";
 
     /// <summary>Said beside the button once the service has done it.</summary>

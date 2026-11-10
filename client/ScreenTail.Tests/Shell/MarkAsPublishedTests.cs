@@ -111,6 +111,60 @@ public sealed class MarkAsPublishedTests
         Assert.Equal(ConfirmedAction.RefusedWithoutReason, result.Error);
     }
 
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Finalizing)]
+    public async Task ACaptureThatStartedWhileTheDialogWasUpMeansNothingIsSent(string state)
+    {
+        // Review of #274: the service starts sessions by itself, and the capture check ran only before
+        // the dialog. An answer given over a session that began meanwhile is not acted on; the reason is
+        // said beside the button, and the technician can ask again once it has stopped.
+        _state.Connected(CaptureStateSnapshot.Idle);
+
+        var result = await Flow().RunAsync(
+            "s1",
+            () =>
+            {
+                _state.Observe(new CaptureStateSnapshot { State = state, SessionId = "live" });
+                return Task.FromResult(true);
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(ConfirmedOutcome.Refused, result.Outcome);
+        Assert.Equal(MarkAsPublished.WhileCapturing, result.Error);
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task AServiceLostWhileTheDialogWasUpMeansNothingIsSent()
+    {
+        _state.Connected(CaptureStateSnapshot.Idle);
+
+        var result = await Flow().RunAsync(
+            "s1",
+            () =>
+            {
+                _state.Lost();
+                return Task.FromResult(true);
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(ConfirmedOutcome.NotAvailable, result.Outcome);
+        Assert.Equal(ConfirmedAction.NotConnected, result.Error);
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public void TheQuestionNamesTheSessionAsHistoryShowsIt()
+    {
+        // Which row is being vouched for, in the words on the row: when it started, how long, the tool.
+        var question = MarkAsPublished.QuestionFor("Tue 10 Nov 14:02, 9:00, screenconnect");
+
+        Assert.StartsWith("Mark the session started Tue 10 Nov 14:02, 9:00, screenconnect as published?", question, StringComparison.Ordinal);
+        Assert.EndsWith(MarkAsPublished.Question, question, StringComparison.Ordinal);
+        Assert.DoesNotContain('—', question);
+    }
+
     [Fact]
     public void TheWordsArePlainAndSayWhatIsBeingClaimed()
     {

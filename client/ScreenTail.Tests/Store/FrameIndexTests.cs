@@ -67,6 +67,19 @@ public sealed class FrameIndexTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheTraysCountOfUnconfirmedPublishesIsReadFromAnIndex()
+    {
+        // Review of #274. The machine counts the sessions carrying the unconfirmed mark at start and
+        // whenever a publish record is written or a session is discarded. Session rows outlive retention,
+        // so a scan of the table for a count that is nearly always zero only grew. The partial index holds
+        // the marked rows alone. The statement is the store's own (CountUnconfirmedPublishesAsync).
+        var plan = await PlanAsync("SELECT COUNT(*) FROM sessions WHERE publish_unconfirmed_at IS NOT NULL AND state IS NOT 'discarded'");
+
+        Assert.Contains("sessions_publish_unconfirmed", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("SCAN sessions\n", plan + "\n", StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task OneSessionsAuditRowsAreFoundThroughTheIndex()
     {
         // The audit log is the one table nothing ever prunes, so a full scan of it is the one that gets
