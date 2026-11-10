@@ -70,7 +70,7 @@ public sealed class OcrWrapTests
         var redaction = Engine.RedactFrame(words);
 
         Assert.Equal("auth [SECRET] ok", redaction.Text);
-        Assert.All(new[] { 1, 2, 3 }, i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
+        Assert.All(Enumerable.Range(1, 3), i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class OcrWrapTests
         var redaction = Engine.RedactFrame(words);
 
         Assert.Equal("deploy --key [SECRET] --region eu", redaction.Text);
-        Assert.All(new[] { 2, 3, 4 }, i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
+        Assert.All(Enumerable.Range(2, 3), i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
     }
 
     [Fact]
