@@ -900,7 +900,7 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         Assert.All(sentences, sentence =>
         {
             Assert.False(string.IsNullOrWhiteSpace(sentence));
-            Assert.DoesNotContain('—', sentence);
+            Assert.DoesNotContain('\u2014', sentence);
             Assert.DoesNotContain('{', sentence);
         });
     }

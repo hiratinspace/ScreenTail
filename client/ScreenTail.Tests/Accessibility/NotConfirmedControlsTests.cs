@@ -90,7 +90,7 @@ public sealed class NotConfirmedControlsTests
     {
         var history = Load("History", "HistoryPane.xaml");
 
-        Assert.DoesNotContain(history.DescendantsAndSelf().Attributes(), a => a.Value.Contains('—', StringComparison.Ordinal));
+        Assert.DoesNotContain(history.DescendantsAndSelf().Attributes(), a => a.Value.Contains('\u2014', StringComparison.Ordinal));
         Assert.DoesNotContain(history.Descendants().Attributes(), a => a.Value.StartsWith('#'));
     }
 

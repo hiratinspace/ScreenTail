@@ -423,9 +423,12 @@ chose it says so.
   a connection to the service that dropped mid-publish, is "not confirmed" and Retry is held behind an "I
   checked the ticket" checkbox (the owner accepted the "confirmed" choice on #265, with O2 to O4: the
   service remembers it across restarts, checks each destination sent against what it holds, and a
-  reopened Review offers each destination as the last publish left it). Still open: a time budget for the
-  whole publish, and an "it's there, mark it published" action, without which an unconfirmed destination
-  stays held until the technician ticks the box and publishes it again.
+  reopened Review offers each destination as the last publish left it). Since 2026-11-10 (contract v10) History
+  says "Not confirmed" beside such a session's status, the tray says how many there are between sessions,
+  and History's "Mark as published" settles one on the technician's word without sending anything again.
+  To confirm: it is offered in History only, not in Review's publish pane; a session published before
+  migration 0013 with no record cannot be marked; and the mark writes no audit row. Still open: a time
+  budget for the whole publish.
 - **The local text model** (ST-065): llama.cpp and a model download on the technician's machine.
 - **The processor limit** (#232, `docs/dev/performance.md`): how the budget reads on a machine without
   four cores (15% of a smaller machine, 60% of one core on a bigger one); that the deepest level stops

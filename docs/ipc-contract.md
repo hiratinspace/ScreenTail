@@ -1,8 +1,8 @@
-# Service–UI IPC contract (v9)
+# Service–UI IPC contract (v10)
 
 The capture service and the UI talk over a named pipe (`ScreenTail.<user-sid>`; on macOS/Linux dev boxes a Unix socket of the same name). Design and security rationale: [ADR-0003](adr/0003-process-hosting-and-ipc.md). Types: `client/ScreenTail.Shared/Ipc/`. Transport: `client/ScreenTail.Core/Ipc/`.
 
-**Last brought into line with the code: 2026-11-08.** `IpcContract.Version` is **9**, since 2026-11-08 (ST-093): `publish_session` gains an optional `publish_again`, and without it the service refuses any destination it holds as landed or unknown, so a lost answer, a restarted UI or a second window cannot put the note on the ticket twice. An older service would refuse the new member. It was **8** since 2026-11-04 (ST-031): the `diagnostics` reply gains `name_hook_refusals`, how many times Windows refused the foreground watcher's narrow title-change hook, so the panel can show it. An older UI would fail on the new member. It was **7** since 2026-10-31 (ST-080 AC3): `capture_settings` lists `microphones[]` as rows with an id, a name and the default marked, where it listed names, and the capture settings document gains `microphone_id`. An older reader would fail on the changed reply and an older service would refuse the new member. The level meter's `get_microphone_level`, `stop_microphone_level` and `microphone_level` are new messages and would not have moved it on their own. It was **6** since 2026-10-31 (ST-074, ST-079): `request_confirmation` gains `session_ids`, so Review's Discard and History's bulk discard name their sessions and the token is bound to exactly those, and `discard_sessions` carries them back. An older service would refuse the new field as an unknown member. It was **5** since 2026-10-29 (ST-013): the state snapshot has a new state, `draft_pending`, and the `session` reply a `draft_pending` flag, so Review and the pill say a queued draft is on its way instead of failed. It was **4** since 2026-10-23 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 3 (2026-10-14, ST-081) added `effective_local_only` and `effective_retention_days` to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. All of them bumped for the same reason: the framing rejects unknown members, so an older reader would fail on a changed reply rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only, and the v4 change for the `export_audit` and `audit` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
+**Last brought into line with the code: 2026-11-10.** `IpcContract.Version` is **10**, since 2026-11-10 (ST-093): a `sessions` row gains `publish_unconfirmed` and the state snapshot `publishes_unconfirmed`, so History and the tray can say a publish was not confirmed without Review being opened. An older UI would fail on either new member. `mark_published`, which settles such a session on the technician's word, is a new command and would not have moved it on its own. It was **9** since 2026-11-08 (ST-093): `publish_session` gains an optional `publish_again`, and without it the service refuses any destination it holds as landed or unknown, so a lost answer, a restarted UI or a second window cannot put the note on the ticket twice. An older service would refuse the new member. It was **8** since 2026-11-04 (ST-031): the `diagnostics` reply gains `name_hook_refusals`, how many times Windows refused the foreground watcher's narrow title-change hook, so the panel can show it. An older UI would fail on the new member. It was **7** since 2026-10-31 (ST-080 AC3): `capture_settings` lists `microphones[]` as rows with an id, a name and the default marked, where it listed names, and the capture settings document gains `microphone_id`. An older reader would fail on the changed reply and an older service would refuse the new member. The level meter's `get_microphone_level`, `stop_microphone_level` and `microphone_level` are new messages and would not have moved it on their own. It was **6** since 2026-10-31 (ST-074, ST-079): `request_confirmation` gains `session_ids`, so Review's Discard and History's bulk discard name their sessions and the token is bound to exactly those, and `discard_sessions` carries them back. An older service would refuse the new field as an unknown member. It was **5** since 2026-10-29 (ST-013): the state snapshot has a new state, `draft_pending`, and the `session` reply a `draft_pending` flag, so Review and the pill say a queued draft is on its way instead of failed. It was **4** since 2026-10-23 (2026-10-12 review, E-2): the `audit` reply carries where the export was written and its verdict instead of the whole log as one string, and an older reader would have failed on the new fields. Version 3 (2026-10-14, ST-081) added `effective_local_only` and `effective_retention_days` to `settings`, so Privacy shows a locked field as the admin set it. Version 2 (2026-09-14, ST-072, #46) added `reason` and `scope_process` to the state snapshot. All of them bumped for the same reason: the framing rejects unknown members, so an older reader would fail on a changed reply rather than ignore it. The v3 change was checked against the code for the `get_settings` and `settings` rows only, and the v4 change for the `export_audit` and `audit` rows only. Everything else since has been new commands and events an older client never sends or receives, and has not bumped it.
 
 ## Framing
 
@@ -40,6 +40,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `get_integrations` | — | What the tenant has connected, from the backend. Answered by `integrations` |
 | `search_tickets` | `query` | The ticket picker's search: three characters or a number. Empty, it asks for the recent tickets the picker shows on focus (Spec §5 S3). Answered by `tickets` |
 | `publish_session` | `session_id`, `ticket_id`, `ticket_company?`, `note_type`, `minutes`, `billable`, `destinations[]`, `note`, `frame_ids[]`, `publish_again?` | Publish (INV-3). The service reads the frames' bytes from the store and asks the backend. Only frames of that session that the drafting bundle may use are attached (redacted, not `sensitive_context`, not excluded in Review, not taken while capture was off), each once; any other id named is dropped (ST-078); the company is the PSA's name for the ticket's, for the knowledge-base mapping. Without `publish_again` (v9), refused when any destination named is held as landed or unknown by an earlier publish, or for any destination of a session published before that record existed; refused for a session whose earlier publish has not answered yet whatever it says, and for a destination name it does not know (below). Answered by `published` |
+| `mark_published` | `session_id` | History's "Mark as published" (v10): the technician checked the ticket and what an earlier publish may have left is there. Every destination the service holds as `unknown` for the session becomes `landed`, the unconfirmed mark is cleared, and the session is marked published by the write a landing makes. Nothing is sent to the backend. Refused, with a sentence, for a session with no destination held as `unknown` (never published, published cleanly, already settled, or published before outcomes were kept), for a discarded session (INV-12), while a publish of it has not answered yet, and for a session that is gone (below). Answered by a `result` |
 | `get_company_mappings` | — | The documentation platform's companies and what this tenant has mapped (ST-097). Answered by `company_mappings` |
 | `map_company` | `psa_company`, `doc_company_id` | The mapping prompt's answer: this PSA company is that platform company. The backend remembers it. Answered by a `result` |
 | `activate_device` | `code`, `device_name` | The invite's code and this machine's name (ST-010, Spec §5 S8 step 2). The service keeps the refresh token the backend hands back under DPAPI; the UI only ever sees the tenant's name. Answered by `device_activated`, or a failed `result` with the backend's sentence |
@@ -117,6 +118,7 @@ results still learns the command was accepted.
 | `reason?` | Why capture is not running when the state alone does not say: `password_field`, `excluded_app`, `elevated_window`, `sensitive_context`, `out_of_scope`, `user` (ST-072; Spec §5 S2 gives each its own words) |
 | `scope_process?` | The process in front when capture is out of scope, so the HUD can say "Not capturing: Outlook". A process name, never a window title (INV-10) |
 | `pending_redactions`, `drafts_ready` | Counts |
+| `publishes_unconfirmed` | How many sessions hold a publish that may have reached its ticket and was never confirmed (v10). Discarded sessions are not counted. Read with `drafts_ready`, and again whenever a publish record is written; a change is volunteered as a `state_changed` the way `pending_redactions` is, without a transition. The tray says it after the state, between sessions only ("Not capturing · 1 publish not confirmed"), and in its tooltip only when the whole line fits in the 63 characters Windows shows |
 | `draft_failure_reason?` | Only in `draft_failed`. Plain language, no content |
 | `draft_title?`, `draft_company?` | Only in `draft_ready`, for the notification (Spec §6). Model-written text that crosses the pipe to the same user's UI and nowhere else |
 
@@ -170,6 +172,13 @@ guard enforces with, so the panel cannot say one thing while the guard does anot
 `status` is one of `draft`, `published`, `discarded`, `partial`, `pending`, computed by the service so
 that the draft's text never crosses the pipe just to be turned back into a single word. `frames` counts
 redacted frames only: a pending frame is not one anything outside the redaction worker may count (INV-1).
+
+`publish_unconfirmed` (bool, v10, false when absent): a publish of the session may have reached the
+ticket and was never confirmed (the store's unconfirmed mark, migration 0013). It is beside `status`,
+never one of its values: the session is still a `draft` that may be discarded, or `published` in part
+and kept, and the filters and the discard rule go on reading `status` alone. History draws it as a
+second badge, "Not confirmed", and offers Mark as published for it. Never true for a `discarded`
+session, whose row may still carry the mark: discard is the last word (INV-12).
 
 ### `request_confirmation` → `confirmation`, then `discard`, `discard_sessions` or `erase_all_local_data`
 
@@ -378,6 +387,38 @@ keeps a refusal's words for its `result` by connection and request id, since eac
 requests from 1. `publish_again` is optional and false when absent; it is a
 new field on a command both sides exchange, so the version moved to 9.
 
+**Settling it without publishing again: `mark_published`** (2026-11-10, v10). The other way out of
+"not confirmed": the technician looked at the ticket, the note is there, and nothing should be sent
+again. History offers it for one selected session whose row says `publish_unconfirmed`, asks first (a
+plain confirmation, Cancel the default; it is a statement about the ticket, which ScreenTail cannot
+check, and nothing is asked while a session is being captured), and sends `mark_published` with the
+session's id. The service takes the technician's word, as it does for the "I checked" tick:
+
+- Every destination held as `unknown` becomes `landed`; one held as `landed` stays, and one never sent
+  stays absent, so it can still be published for the first time without `publish_again`. The mark is
+  cleared with the last `unknown`, and `publishes_unconfirmed` is told again.
+- The session is marked published by the same write a landing makes (`MarkPublishedAsync`), and the
+  machine is told, so it stops resting on it. That write goes first: it refuses a row discarded in the
+  meantime, and a service that dies between the two writes leaves the session published and still
+  marked, which History goes on showing and a second `mark_published` finishes.
+- A session nothing had landed for is reported to metrics and the style learner as published now, once;
+  one already published is not reported again.
+- Refused, each with its own fixed sentence and nothing changed: no destination is held as `unknown`
+  ("No publish of this session is waiting to be confirmed, so nothing was changed."), which covers a
+  draft never published, a clean publish, a session already settled, and one published before 0013
+  that has no record (nothing says which destinations it would be claiming; one new publish of it
+  writes them down and it can then be settled); the session was discarded (INV-12); a publish of it has
+  not answered yet (its answer will say what happened); the session is gone.
+- No confirmation token: nothing is deleted and nothing leaves the machine. A same-user process that
+  speaks the protocol can send it, as it can send `publish_session` with `publish_again`.
+- A published session is kept until retention and cannot be discarded, so marking a draft in doubt as
+  published also ends its discard. The dialog says so.
+
+```json
+{ "type": "mark_published", "request_id": 24, "session_id": "s1" }
+{ "type": "result", "request_id": 24, "ok": true }
+```
+
 ```json
 { "type": "publish_session", "request_id": 21, "session_id": "s1", "ticket_id": "48213", "note_type": "internal",
   "minutes": 30, "billable": true, "destinations": ["ticket_note", "time_entry"], "note": { … }, "frame_ids": ["f1", "f3"] }
@@ -472,3 +513,4 @@ indicator unreachable rather than by touching capture.
 | 2026-11-05 | `state_changed` is also volunteered when the redaction backlog (`pending_redactions`) moves and the state does not, as it already was when `drafts_ready` moved, so the pill's count follows the worker (ST-072). The same message and shape; told under the machine's transition lock, so it is never overtaken by a transition, and coalesced while a transition holds it. In practice at most about once a second, because the redaction worker reports its backlog on a timer (`RedactionWorker`'s `ReportEvery`, 1 s). An older client draws it as it draws any snapshot, so the version is not bumped | 8 |
 | 2026-11-08 | A `state_changed` the service cannot write to a client within five seconds (the client is not reading, or a large reply to it holds the connection's write lock), or whose write fails, closes that client's connection instead of being dropped with the connection kept (not when the service's own token cancelled it, as it does when stopping). The client sees the pipe end, shows the state as unknown, reconnects and is told the current state in `hello_ack`. Before this a dropped "paused" or "finalizing" left the UI showing Recording with its clock ticking (#262 review, finding 8). The service never waits for the client to read: closing is a handle closed, and its stop does not depend on it. No message changes, so it adds no bump of its own; it ships with v9 | 9 |
 | 2026-11-08 | `publish_again` on `publish_session`, optional, false when absent: without it the service refuses a destination it holds as landed (or, for a session published before 0013, any destination), and it refuses a second publish of a session while the first has not answered. A lost answer to a publish is read by the UI as `kind: unknown` per destination and held until the technician confirms they checked the ticket (ST-093). Also in v9, before release: `publish_outcomes` on the `session` reply, what earlier publishes left per destination, and the service's refusal of a session whose last publish may have landed (O2, O3), checked for each destination named (re-review of #265). A new field on a command both sides exchange, which an older service would refuse as an unknown member, so the version moves | **9** |
+| 2026-11-10 | `publish_unconfirmed` on a `sessions` row and `publishes_unconfirmed` on the state snapshot: History's "Not confirmed" badge beside the status and the tray's line between sessions, for a publish that may have reached the ticket (ST-093). New members on replies both sides exchange, which an older UI would fail on, so the version moves. Also in v10: `mark_published`, which records the destinations held as `unknown` as `landed` on the technician's word, clears the mark and marks the session published without sending anything; refused for a session with nothing held as `unknown`, a discarded one, one still being published and one that is gone. A new command, which would not have moved the version on its own | **10** |
