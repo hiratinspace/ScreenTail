@@ -89,6 +89,34 @@ public static class SessionHistory
         return session.Title is not null ? SessionStatus.Draft : SessionStatus.Pending;
     }
 
+    /// <summary>The words History and the tray use for a publish that may have reached the ticket and was never confirmed.</summary>
+    public const string NotConfirmedLabel = "Not confirmed";
+
+    /// <summary>
+    /// Whether the row says "Not confirmed" beside its status (contract v10): a publish of the session may
+    /// have reached the ticket and nobody has said whether it did.
+    ///
+    /// Beside the status, not one of them. The mark lives apart from the session's state (migration
+    /// 0013), so a session in doubt is still a draft that may be discarded, or published in part and
+    /// kept, and the filters and the discard rule go on reading the status alone. A discarded session
+    /// never says it: the technician threw it away, and nothing can be done about it from here (INV-12).
+    /// </summary>
+    public static bool PublishUnconfirmed(SessionSummary session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return session.PublishUnconfirmed && StatusOf(session) != SessionStatus.Discarded;
+    }
+
+    /// <summary>
+    /// The same over the History screen's rows: whether "Mark as published" may be offered for this one.
+    /// The service decides again when asked.
+    /// </summary>
+    public static bool MayMarkPublished(Shared.Ipc.SessionRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.PublishUnconfirmed && !string.Equals(row.Status, nameof(SessionStatus.Discarded), StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Newest first, filtered. The store already returns them in order; this preserves it.</summary>
     public static IReadOnlyList<SessionSummary> Filter(IEnumerable<SessionSummary> sessions, HistoryFilter? filter = null)
     {

@@ -11,10 +11,18 @@ namespace ScreenTail.UI.History;
 
 /// <summary>One row of the History screen, already worded (Spec §5 S4).</summary>
 /// <param name="Frames">"7", or "7 (+1 purged)" when frames were deleted unredacted, because that is a fact about coverage the technician should see before publishing.</param>
-public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames)
+/// <param name="NotConfirmed">A publish of the session may have reached the ticket and was never confirmed: said beside the status, never in place of it (contract v10).</param>
+public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames, bool NotConfirmed = false)
 {
     /// <summary>The row as a screen reader says it (Spec §7); it read the record itself until ST-084.</summary>
-    public string Spoken => $"{Status}, started {Started}, {Duration}, {Tool}, {Frames} screenshots";
+    public string Spoken => NotConfirmed
+        ? $"{Status}, publish not confirmed, started {Started}, {Duration}, {Tool}, {Frames} screenshots"
+        : $"{Status}, started {Started}, {Duration}, {Tool}, {Frames} screenshots";
+
+    /// <summary>The second badge's words, or nothing for a row that has no such badge.</summary>
+    public string NotConfirmedLabel => NotConfirmed ? SessionHistory.NotConfirmedLabel : string.Empty;
+
+    public System.Windows.Visibility NotConfirmedVisibility => NotConfirmed ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 }
 
 /// <summary>
@@ -25,6 +33,11 @@ public sealed record HistoryRow(string Id, string Started, string Duration, stri
 /// Multi-select and Bulk discard (Spec §5 S4, v0.4.1 Q6): which selected rows qualify is
 /// <see cref="SessionHistory.Discardable(IEnumerable{SessionRow})"/>'s rule, the technician types how
 /// many, and the list is read again afterwards so it says what the service now holds.
+///
+/// "Not confirmed" and Mark as published (contract v10): a row whose publish may have reached the ticket
+/// says so beside its status, and with exactly that one row selected the technician can settle it after
+/// checking the ticket. The question and the service's rule are <see cref="MarkAsPublished"/>'s and
+/// PublishCommands'; this offers the button and shows the answer.
 /// </summary>
 public sealed partial class HistoryViewModel : ObservableObject
 {
@@ -33,6 +46,7 @@ public sealed partial class HistoryViewModel : ObservableObject
     private readonly Func<TypedConfirmation, int, Task<bool>>? _confirm;
     private readonly Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? _discard;
     private readonly Func<IReadOnlyCollection<string>, string?>? _discardBlocked;
+    private readonly Func<string, CancellationToken, Task<ConfirmedResult>>? _markPublished;
     private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
     private IReadOnlyList<HistoryRow> _selected = [];
 
@@ -44,18 +58,25 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// to discard through, which disables Bulk discard.
     /// </param>
     /// <param name="discardBlocked">Why these sessions may not be asked about now (one is still being captured), or null.</param>
+    /// <param name="markPublished">
+    /// Asks the technician and then the service to mark the named session as published
+    /// (<see cref="MarkAsPublished.RunAsync"/> with the shell's dialog). Null in a screen with nothing to
+    /// ask through, which disables the button.
+    /// </param>
     public HistoryViewModel(
         ShellState state,
         Func<CancellationToken, Task<IReadOnlyList<SessionRow>?>> load,
         Func<TypedConfirmation, int, Task<bool>>? confirm = null,
         Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? discard = null,
-        Func<IReadOnlyCollection<string>, string?>? discardBlocked = null)
+        Func<IReadOnlyCollection<string>, string?>? discardBlocked = null,
+        Func<string, CancellationToken, Task<ConfirmedResult>>? markPublished = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _load = load ?? throw new ArgumentNullException(nameof(load));
         _confirm = confirm;
         _discard = discard;
         _discardBlocked = discardBlocked;
+        _markPublished = markPublished;
     }
 
     public ObservableCollection<HistoryRow> Rows { get; } = [];
@@ -63,18 +84,18 @@ public sealed partial class HistoryViewModel : ObservableObject
     [ObservableProperty]
     public partial string Status { get; set; } = "Asking the capture service…";
 
-    /// <summary>What the last discard did, for the line beside the button. Empty until there is one.</summary>
+    /// <summary>What the last discard or mark as published did, for the line beside the buttons. Empty until there is one.</summary>
     [ObservableProperty]
     public partial string Notice { get; set; } = string.Empty;
 
-    /// <summary>Why the last discard did not happen, or null. Shown beside the button, never as a dialog.</summary>
+    /// <summary>Why the last discard or mark as published did not happen, or null. Shown beside the buttons, never as a dialog.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DiscardFailed))]
     public partial string? DiscardError { get; set; }
 
     public bool DiscardFailed => DiscardError is not null;
 
-    /// <summary>Raised after a discard the service carried out, so the pane can put focus back on the list.</summary>
+    /// <summary>Raised after a discard or a mark as published the service carried out, so the pane can put focus back on the list.</summary>
     public event EventHandler? Discarded;
 
     /// <summary>The rows the technician has selected, in the order the table shows them.</summary>
@@ -138,6 +159,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         OnPropertyChanged(nameof(DiscardableCount));
         OnPropertyChanged(nameof(SelectionNote));
         BulkDiscardCommand.NotifyCanExecuteChanged();
+        MarkPublishedCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -189,6 +211,54 @@ public sealed partial class HistoryViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The technician checked the ticket and the earlier publish is there (contract v10). One session at a
+    /// time, since each is a statement about its own ticket: offered with exactly one row selected, and
+    /// that row not confirmed. They are asked first; nothing is asked while a session is being captured,
+    /// and the reason is said beside the button instead (Spec §4).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanMarkPublished))]
+    private async Task MarkPublishedAsync()
+    {
+        if (_markPublished is null || MarkableSelection() is not { } row)
+        {
+            return;
+        }
+
+        DiscardError = null;
+        var result = await _markPublished(row.Id, CancellationToken.None).ConfigureAwait(true);
+        switch (result.Outcome)
+        {
+            case ConfirmedOutcome.Declined:
+                return;
+            case ConfirmedOutcome.Done:
+                await RefreshAsync().ConfigureAwait(true);
+                Notice = MarkAsPublished.Done;
+                Discarded?.Invoke(this, EventArgs.Empty);
+                return;
+            case ConfirmedOutcome.NotAvailable:
+                DiscardError = result.Error ?? ConfirmedAction.NotConnected;
+                return;
+            default:
+                // Refused. Blocked by a session being captured leaves the list as it is; anything else
+                // may mean what the service holds moved under the selection, so the list is read again.
+                var error = result.Error ?? ConfirmedAction.RefusedWithoutReason;
+                if (!string.Equals(error, MarkAsPublished.WhileCapturing, StringComparison.Ordinal))
+                {
+                    await RefreshAsync().ConfigureAwait(true);
+                }
+
+                DiscardError = error;
+                return;
+        }
+    }
+
+    private bool CanMarkPublished() => _markPublished is not null && MarkableSelection() is not null;
+
+    /// <summary>The one selected session, when it is one whose publish is not confirmed; otherwise null.</summary>
+    private SessionRow? MarkableSelection() =>
+        _selected.Count == 1 && _sessions.GetValueOrDefault(_selected[0].Id) is { } row && SessionHistory.MayMarkPublished(row) ? row : null;
+
     private bool CanBulkDiscard() => _discard is not null && _confirm is not null && DiscardableCount > 0;
 
     private IReadOnlyList<SessionRow> Qualifying() =>
@@ -203,6 +273,7 @@ public sealed partial class HistoryViewModel : ObservableObject
             duration.TotalHours >= 1 ? duration.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture) : duration.ToString(@"m\:ss", CultureInfo.InvariantCulture),
             row.Status.Length == 0 ? row.Status : char.ToUpperInvariant(row.Status[0]) + row.Status[1..],
             string.IsNullOrEmpty(row.Tool) ? "Unknown" : row.Tool,
-            row.FramesPurged > 0 ? $"{row.Frames} (+{row.FramesPurged} purged)" : row.Frames.ToString(CultureInfo.InvariantCulture));
+            row.FramesPurged > 0 ? $"{row.Frames} (+{row.FramesPurged} purged)" : row.Frames.ToString(CultureInfo.InvariantCulture),
+            SessionHistory.MayMarkPublished(row));
     }
 }
