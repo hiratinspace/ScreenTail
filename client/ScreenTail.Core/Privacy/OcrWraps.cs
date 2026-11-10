@@ -126,11 +126,17 @@ internal sealed class OcrWraps
     /// <summary>Whether anything was joined. Where nothing was, the text holds nothing the page's own does not.</summary>
     public bool Any => _joins.Count > 0;
 
-    /// <summary>Whether a span of <see cref="Text"/> runs across a join, with a character either side of it.</summary>
-    public bool Crosses(int start, int end)
+    /// <summary>How many joins a span of <see cref="Text"/> runs across, with a character either side of each.</summary>
+    public int Joins(int start, int end)
     {
         var join = UpperBound(_joins, start);
-        return join < _joins.Count && _joins[join] < end;
+        var count = 0;
+        while (join + count < _joins.Count && _joins[join + count] < end)
+        {
+            count++;
+        }
+
+        return count;
     }
 
     /// <summary>The page's words that a span of <see cref="Text"/> touches.</summary>

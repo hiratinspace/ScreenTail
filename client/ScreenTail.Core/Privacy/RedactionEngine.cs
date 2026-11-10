@@ -148,7 +148,11 @@ public sealed class RedactionEngine
                 complete &= wrappedComplete;
                 foreach (var match in wrapped)
                 {
-                    if (!wraps.Crosses(match.Start, match.End))
+                    // A card number is nineteen digits at most: one that wrapped twice was in a box
+                    // under ten characters wide. A column of short numbers, each joined to the one
+                    // below, is not that, and one such run in ten passes the checksum by accident.
+                    var joins = wraps.Joins(match.Start, match.End);
+                    if (joins == 0 || (match.Kind == MaskKind.Card && joins > 1))
                     {
                         continue;
                     }
