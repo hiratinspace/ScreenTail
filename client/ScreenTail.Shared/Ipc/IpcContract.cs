@@ -46,8 +46,14 @@ namespace ScreenTail.Shared.Ipc;
 /// refuses a session already marked published without it, so a lost answer or a restarted UI cannot add
 /// the note to the ticket twice. A new field on a command both sides exchange, which an older service
 /// would refuse as an unknown member, so the version moves.
+///
+/// 10: ST-093, a publish that may have landed is said outside Review. A <c>sessions</c> row gains
+/// <c>publish_unconfirmed</c> and the state snapshot <c>publishes_unconfirmed</c>, so History and the
+/// tray can say "not confirmed". New members on replies both sides exchange, which an older UI would
+/// fail on, so the version moves. <c>mark_published</c> is a new command and would not have moved it
+/// on its own.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 9;
+    public const int Version = 10;
 }

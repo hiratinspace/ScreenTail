@@ -26,6 +26,10 @@ namespace ScreenTail.Core.Review.Publish;
 /// publish that arrives while a blur is being painted waits and sends the blurred picture, never the one
 /// from before (ST-084 follow-up review).
 /// </param>
+/// <param name="outcomesChanged">
+/// Told after a session's publish record is written, so the tray's count of publishes not confirmed
+/// follows it (contract v10). The machine's <c>PublishOutcomesChangedAsync</c> in the service.
+/// </param>
 public sealed class PublishCommands(
     ISessionStore store,
     IPsaGateway gateway,
@@ -33,7 +37,8 @@ public sealed class PublishCommands(
     Intel.IStyleLearner? style = null,
     ILogger? log = null,
     Func<string, CancellationToken, Task<bool>>? published = null,
-    FrameEditGate? edits = null)
+    FrameEditGate? edits = null,
+    Func<CancellationToken, Task>? outcomesChanged = null)
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IPsaGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
@@ -66,6 +71,22 @@ public sealed class PublishCommands(
 
     /// <summary>The refusal for a destination name this version does not know, said before anything is written ahead (m-b).</summary>
     public const string UnknownDestination = "The publish named a destination this version of ScreenTail does not know, so nothing was sent.";
+
+    /// <summary>
+    /// The refusal of <c>mark_published</c> for a session with no destination held as unknown: a draft
+    /// never published, a session published cleanly, one already settled, or one published before the
+    /// store kept outcomes (nothing says which destinations it would be claiming).
+    /// </summary>
+    public const string NothingToConfirm = "No publish of this session is waiting to be confirmed, so nothing was changed.";
+
+    /// <summary>The refusal of <c>mark_published</c> for a discarded session: discard is the last word (INV-12).</summary>
+    public const string DiscardedCannotBeMarked = "This session was discarded, so it cannot be marked as published.";
+
+    /// <summary>The refusal of <c>mark_published</c> while a publish of the session has not answered: its answer will say what happened.</summary>
+    public const string StillPublishingCannotBeMarked = "This session is still being published. Wait for it to finish, then check the ticket.";
+
+    /// <summary>The refusal of <c>mark_published</c> for a session the store does not hold.</summary>
+    public const string GoneCannotBeMarked = "The session is gone, so there is nothing to mark as published.";
 
     /// <summary>The kind of fault the last post-publish bookkeeping hit, or null. Never its message: a store's words may quote what it held.</summary>
     public string? LastBookkeepingError { get; private set; }
@@ -269,7 +290,7 @@ public sealed class PublishCommands(
         // process but not against power loss before the next checkpoint. A machine that loses power
         // mid-publish can come back without this row, and the next plain publish is then not refused.
         // synchronous stays NORMAL: FULL would cost every capture write a sync for this one case.
-        await _store.SavePublishRecordAsync(publish.SessionId, Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown))), ct).ConfigureAwait(false);
+        await SaveRecordAsync(publish.SessionId, Merge(before, publish.Destinations.Select(d => (d, PublishRecord.Unknown))), ct).ConfigureAwait(false);
 
         var answer = await _gateway.PublishAsync(
             new PublishWire
@@ -292,7 +313,7 @@ public sealed class PublishCommands(
         if (!answer.Ok)
         {
             // A plain refusal: nothing was sent, so the record goes back to how it was.
-            await KeepingTheResultAsync("outcomes", () => _store.SavePublishRecordAsync(publish.SessionId, before, ct)).ConfigureAwait(false);
+            await KeepingTheResultAsync("outcomes", () => SaveRecordAsync(publish.SessionId, before, ct)).ConfigureAwait(false);
             return Refuse(caller, publish, answer.Refusal!);
         }
 
@@ -320,7 +341,7 @@ public sealed class PublishCommands(
             }
         }
 
-        await KeepingTheResultAsync("outcomes", () => _store.SavePublishRecordAsync(publish.SessionId, written, ct)).ConfigureAwait(false);
+        await KeepingTheResultAsync("outcomes", () => SaveRecordAsync(publish.SessionId, written, ct)).ConfigureAwait(false);
 
         // ST-098: the session counts as published once any destination landed. Counts and times only.
         // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
@@ -349,11 +370,45 @@ public sealed class PublishCommands(
     }
 
     /// <summary>Marks the session published and, when the write took, tells the machine so the tray's count moves.</summary>
-    private async Task MarkPublishedAsync(string sessionId, CancellationToken ct)
+    /// <returns>Whether the write took. False for a discarded row, which stays discarded (INV-12).</returns>
+    private async Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct)
     {
-        if (await _store.MarkPublishedAsync(sessionId, ct).ConfigureAwait(false) && published is not null)
+        if (!await _store.MarkPublishedAsync(sessionId, ct).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        if (published is not null)
         {
             _ = await published(sessionId, ct).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Writes the session's publish record, then has the tray's count of publishes not confirmed read
+    /// again. The telling never stands in a publish's way: a fault in it is kept as its kind alone.
+    /// </summary>
+    private async Task SaveRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct)
+    {
+        _ = await _store.SavePublishRecordAsync(sessionId, outcomes, ct).ConfigureAwait(false);
+        if (outcomesChanged is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await outcomesChanged(ct).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            LastBookkeepingError = error.GetType().Name;
+            if (log is not null)
+            {
+                CountNotTold(log, LastBookkeepingError, null);
+            }
         }
     }
 
@@ -423,6 +478,11 @@ public sealed class PublishCommands(
         LogLevel.Warning,
         new EventId(1, nameof(BookkeepingFailed)),
         "A publish landed, but its {Bookkeeping} bookkeeping failed with {Fault}; the results went back as they came");
+
+    private static readonly Action<ILogger, string, Exception?> CountNotTold = LoggerMessage.Define<string>(
+        LogLevel.Warning,
+        new EventId(2, nameof(CountNotTold)),
+        "A publish record was written, but the count of publishes not confirmed could not be read again ({Fault}); the tray may be behind until the next change");
 
     private IpcEvent? Refuse(Guid caller, IpcCommand command, string reason)
     {
