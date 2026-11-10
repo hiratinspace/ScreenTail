@@ -435,7 +435,13 @@ public sealed class PublishCommands(
             // service that dies between the two writes leaves the session published and still in doubt,
             // which History goes on showing and a second mark finishes. The other order would leave a
             // settled record on a draft, with nothing saying anything was left to do.
-            var wasPublished = string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal);
+            //
+            // Whether it was counted already is read from the record, not the state (review of #274): a
+            // mark cut off between its two writes left the state published with nothing reported, and
+            // its retry, seeing "published", never reported it. A landing is what reports a session, and
+            // a landing is written down, so a record with nothing landed means nothing was reported. The
+            // metric is keyed by session in the outbox, so a retry after a report cannot count twice.
+            var wasCounted = stored.Values.Contains(PublishRecord.Landed, StringComparer.Ordinal);
             if (!await MarkPublishedAsync(sessionId, ct).ConfigureAwait(false))
             {
                 return DiscardedCannotBeMarked;
@@ -447,9 +453,9 @@ public sealed class PublishCommands(
                 StringComparer.Ordinal);
             await SaveRecordAsync(sessionId, settled, ct).ConfigureAwait(false);
 
-            // ST-098, ST-067: a session nothing had landed for counts as published from now. One that was
-            // published already was counted when it landed.
-            if (!wasPublished)
+            // ST-098, ST-067: a session nothing had landed for counts as published from now. One with a
+            // landing on record was counted when it landed.
+            if (!wasCounted)
             {
                 if (metrics is not null)
                 {
