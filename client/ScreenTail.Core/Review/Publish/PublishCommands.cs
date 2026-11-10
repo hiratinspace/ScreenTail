@@ -155,6 +155,12 @@ public sealed class PublishCommands(
     public async Task<CommandResult?> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+        if (command is MarkPublishedCommand mark)
+        {
+            var refusal = await MarkAsPublishedAsync(mark.SessionId, ct).ConfigureAwait(false);
+            return new CommandResult { RequestId = command.RequestId, Ok = refusal is null, Error = refusal };
+        }
+
         // The actions, whose result is the answer (the questions above are answered with their event).
         GatewayAnswer<bool>? acted = command switch
         {
@@ -380,10 +386,88 @@ public sealed class PublishCommands(
 
         if (published is not null)
         {
-            _ = await published(sessionId, ct).ConfigureAwait(false);
+            // The row is written. A machine that cannot be told is bookkeeping, and is kept as such.
+            await KeepingTheResultAsync("state", () => published(sessionId, ct)).ConfigureAwait(false);
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// <c>mark_published</c> (contract v10): the technician checked the ticket and what an earlier publish
+    /// may have left is there. Every destination held as unknown becomes landed, the unconfirmed mark goes
+    /// with them, and the session is marked published through the same write a landing makes. Nothing is
+    /// sent. A statement about the ticket, taken on the technician's word as the "I checked" tick is.
+    /// </summary>
+    /// <returns>Why it was refused, or null when it was done.</returns>
+    private async Task<string?> MarkAsPublishedAsync(string sessionId, CancellationToken ct)
+    {
+        // The slot a publish takes, so neither runs under the other: a publish on its way will say what
+        // happened by itself, and a publish that starts now waits to be refused by what this writes.
+        if (!_publishing.TryAdd(sessionId, 0))
+        {
+            return StillPublishingCannotBeMarked;
+        }
+
+        try
+        {
+            var state = (await _store.GetSessionSummaryAsync(sessionId, ct).ConfigureAwait(false))?.State;
+            if (state is null)
+            {
+                return GoneCannotBeMarked;
+            }
+
+            if (string.Equals(state, Sessions.SessionStateNames.Discarded, StringComparison.Ordinal))
+            {
+                return DiscardedCannotBeMarked;
+            }
+
+            // Only a doubt the store holds. A session published before the record existed has none
+            // written: nothing says which destinations were ever sent, and settling it would claim all
+            // three. One new publish of it writes them down, and then it is a doubt like any other.
+            var stored = (await _store.GetPublishRecordAsync(sessionId, ct).ConfigureAwait(false))?.Outcomes ?? new Dictionary<string, string>();
+            if (!stored.Values.Contains(PublishRecord.Unknown, StringComparer.Ordinal))
+            {
+                return NothingToConfirm;
+            }
+
+            // The state first. The write refuses a row discarded since it was read above (INV-12), and a
+            // service that dies between the two writes leaves the session published and still in doubt,
+            // which History goes on showing and a second mark finishes. The other order would leave a
+            // settled record on a draft, with nothing saying anything was left to do.
+            var wasPublished = string.Equals(state, Sessions.SessionStateNames.Published, StringComparison.Ordinal);
+            if (!await MarkPublishedAsync(sessionId, ct).ConfigureAwait(false))
+            {
+                return DiscardedCannotBeMarked;
+            }
+
+            var settled = stored.ToDictionary(
+                outcome => outcome.Key,
+                outcome => string.Equals(outcome.Value, PublishRecord.Unknown, StringComparison.Ordinal) ? PublishRecord.Landed : outcome.Value,
+                StringComparer.Ordinal);
+            await SaveRecordAsync(sessionId, settled, ct).ConfigureAwait(false);
+
+            // ST-098, ST-067: a session nothing had landed for counts as published from now. One that was
+            // published already was counted when it landed.
+            if (!wasPublished)
+            {
+                if (metrics is not null)
+                {
+                    await KeepingTheResultAsync("metrics", () => metrics.ReportAsync(sessionId, published: true, ct)).ConfigureAwait(false);
+                }
+
+                if (style is not null)
+                {
+                    await KeepingTheResultAsync("style", () => style.LearnAsync(sessionId, ct)).ConfigureAwait(false);
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            _ = _publishing.TryRemove(sessionId, out _);
+        }
     }
 
     /// <summary>
