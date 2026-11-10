@@ -201,6 +201,19 @@ public sealed class OcrWrapTests
     }
 
     [Fact]
+    public void AColumnOfShortNumbersIsNotACardNumber()
+    {
+        // Eight cells one above the other that joined pass the checksum. A card number is nineteen
+        // digits at most, so one that wrapped more than once was in a box under ten characters wide;
+        // a column of numbers is far likelier, and one run in ten of them passes by accident.
+        var words = Page([.. Enumerable.Range(0, 8).Select(line => Row(line, Left, line == 0 ? "41" : "11"))]);
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Empty(redaction.Regions);
+    }
+
+    [Fact]
     public void ARowTooFarBelowIsNotAContinuation()
     {
         // Three blank lines between them.
