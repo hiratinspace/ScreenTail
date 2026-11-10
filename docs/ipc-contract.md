@@ -40,7 +40,7 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `get_integrations` | — | What the tenant has connected, from the backend. Answered by `integrations` |
 | `search_tickets` | `query` | The ticket picker's search: three characters or a number. Empty, it asks for the recent tickets the picker shows on focus (Spec §5 S3). Answered by `tickets` |
 | `publish_session` | `session_id`, `ticket_id`, `ticket_company?`, `note_type`, `minutes`, `billable`, `destinations[]`, `note`, `frame_ids[]`, `publish_again?` | Publish (INV-3). The service reads the frames' bytes from the store and asks the backend. Only frames of that session that the drafting bundle may use are attached (redacted, not `sensitive_context`, not excluded in Review, not taken while capture was off), each once; any other id named is dropped (ST-078); the company is the PSA's name for the ticket's, for the knowledge-base mapping. Without `publish_again` (v9), refused when any destination named is held as landed or unknown by an earlier publish, or for any destination of a session published before that record existed; refused for a session whose earlier publish has not answered yet whatever it says, and for a destination name it does not know (below). Answered by `published` |
-| `mark_published` | `session_id` | History's "Mark as published" (v10): the technician checked the ticket and what an earlier publish may have left is there. Every destination the service holds as `unknown` for the session becomes `landed`, the unconfirmed mark is cleared, and the session is marked published by the write a landing makes. Nothing is sent to the backend. Refused, with a sentence, for a session with no destination held as `unknown` (never published, published cleanly, already settled, or published before outcomes were kept), for a discarded session (INV-12), while a publish of it has not answered yet, and for a session that is gone (below). Answered by a `result` |
+| `mark_published` | `session_id` | History's "Mark as published" (v10): the technician checked the ticket and what an earlier publish may have left is there. Every destination the service holds as `unknown` for the session becomes `landed`, the unconfirmed mark is cleared, and the session is marked published by the write a landing makes. Nothing is sent to the ticket or the PSA. With telemetry on, a session nothing had landed for queues its session metric (counts and times, `published: true`) through the outbox, as a landing does; with telemetry off nothing leaves the machine. Refused, with a sentence, for a session with no destination held as `unknown` (never published, published cleanly, already settled, or published before outcomes were kept), for a discarded session (INV-12), while a publish of it has not answered yet, and for a session that is gone (below). Answered by a `result` |
 | `get_company_mappings` | — | The documentation platform's companies and what this tenant has mapped (ST-097). Answered by `company_mappings` |
 | `map_company` | `psa_company`, `doc_company_id` | The mapping prompt's answer: this PSA company is that platform company. The backend remembers it. Answered by a `result` |
 | `activate_device` | `code`, `device_name` | The invite's code and this machine's name (ST-010, Spec §5 S8 step 2). The service keeps the refresh token the backend hands back under DPAPI; the UI only ever sees the tenant's name. Answered by `device_activated`, or a failed `result` with the backend's sentence |
@@ -118,7 +118,7 @@ results still learns the command was accepted.
 | `reason?` | Why capture is not running when the state alone does not say: `password_field`, `excluded_app`, `elevated_window`, `sensitive_context`, `out_of_scope`, `user` (ST-072; Spec §5 S2 gives each its own words) |
 | `scope_process?` | The process in front when capture is out of scope, so the HUD can say "Not capturing: Outlook". A process name, never a window title (INV-10) |
 | `pending_redactions`, `drafts_ready` | Counts |
-| `publishes_unconfirmed` | How many sessions hold a publish that may have reached its ticket and was never confirmed (v10). Discarded sessions are not counted. Read with `drafts_ready`, and again whenever a publish record is written; a change is volunteered as a `state_changed` the way `pending_redactions` is, without a transition. The tray says it after the state, between sessions only ("Not capturing · 1 publish not confirmed"), and in its tooltip only when the whole line fits in the 63 characters Windows shows |
+| `publishes_unconfirmed` | How many sessions hold a publish that may have reached its ticket and was never confirmed (v10). Discarded sessions are not counted. Read wherever `drafts_ready` is read (at start and on the transitions that read it), after any discard that removed a session, whether or not the machine was resting on it, and again whenever a publish record is written. One read at a time, so the count kept is always the newest read. A change is volunteered as a `state_changed` the way `pending_redactions` is, without a transition. The tray says it after the state, between sessions only ("Not capturing · 1 publish not confirmed"), and in its tooltip only when the whole line fits in the 63 characters Windows shows |
 | `draft_failure_reason?` | Only in `draft_failed`. Plain language, no content |
 | `draft_title?`, `draft_company?` | Only in `draft_ready`, for the notification (Spec §6). Model-written text that crosses the pipe to the same user's UI and nowhere else |
 
@@ -173,7 +173,7 @@ guard enforces with, so the panel cannot say one thing while the guard does anot
 that the draft's text never crosses the pipe just to be turned back into a single word. `frames` counts
 redacted frames only: a pending frame is not one anything outside the redaction worker may count (INV-1).
 
-`publish_unconfirmed` (bool, v10, false when absent): a publish of the session may have reached the
+`publish_unconfirmed` (bool, v10; the service writes it on every row, true or false): a publish of the session may have reached the
 ticket and was never confirmed (the store's unconfirmed mark, migration 0013). It is beside `status`,
 never one of its values: the session is still a `draft` that may be discarded, or `published` in part
 and kept, and the filters and the discard rule go on reading `status` alone. History draws it as a
@@ -390,8 +390,9 @@ new field on a command both sides exchange, so the version moved to 9.
 **Settling it without publishing again: `mark_published`** (2026-11-10, v10). The other way out of
 "not confirmed": the technician looked at the ticket, the note is there, and nothing should be sent
 again. History offers it for one selected session whose row says `publish_unconfirmed`, asks first (a
-plain confirmation, Cancel the default; it is a statement about the ticket, which ScreenTail cannot
-check, and nothing is asked while a session is being captured), and sends `mark_published` with the
+plain confirmation that names the session as its row shows it, Cancel the default; it is a statement
+about the ticket, which ScreenTail cannot check; nothing is asked while a session is being captured,
+and nothing is sent if one began while the question was up), and sends `mark_published` with the
 session's id. The service takes the technician's word, as it does for the "I checked" tick:
 
 - Every destination held as `unknown` becomes `landed`; one held as `landed` stays, and one never sent
@@ -401,15 +402,20 @@ session's id. The service takes the technician's word, as it does for the "I che
   machine is told, so it stops resting on it. That write goes first: it refuses a row discarded in the
   meantime, and a service that dies between the two writes leaves the session published and still
   marked, which History goes on showing and a second `mark_published` finishes.
-- A session nothing had landed for is reported to metrics and the style learner as published now, once;
-  one already published is not reported again.
+- A session with no destination on record as `landed` is reported to metrics and the style learner as
+  published now; one with a landing on record was reported when it landed and is not reported again.
+  Read from the record, not the state, so a mark cut off between its two writes is still reported by
+  the second `mark_published` that finishes it. The metric is queued through the outbox only when
+  telemetry is on, under the key `metric:{session}:published`, so it is posted to the backend once
+  however many times it is queued. The style learner reads and writes the local store only.
 - Refused, each with its own fixed sentence and nothing changed: no destination is held as `unknown`
   ("No publish of this session is waiting to be confirmed, so nothing was changed."), which covers a
   draft never published, a clean publish, a session already settled, and one published before 0013
   that has no record (nothing says which destinations it would be claiming; one new publish of it
   writes them down and it can then be settled); the session was discarded (INV-12); a publish of it has
   not answered yet (its answer will say what happened); the session is gone.
-- No confirmation token: nothing is deleted and nothing leaves the machine. A same-user process that
+- No confirmation token: nothing is deleted, and nothing is sent to the ticket or the PSA. The one
+  thing that can leave the machine is the session metric above, queued when telemetry is on. A same-user process that
   speaks the protocol can send it, as it can send `publish_session` with `publish_again`.
 - A published session is kept until retention and cannot be discarded, so marking a draft in doubt as
   published also ends its discard. The dialog says so.
