@@ -183,6 +183,53 @@ public sealed class OcrTokenRuleTests
     }
 
     [Fact]
+    public void ALargeSecretSplitOnARowOfSmallBoxesIsMaskedWhole()
+    {
+        // Security review, 2026-11-10: a heading-sized key on a row whose other boxes are small. The
+        // row's height is the small boxes' (10 px), a word counted for at most twice that, and the
+        // split, 12 px on 40 px glyphs (0.3 of their height), was measured against 20 px (0.6) and left
+        // the tail showing. The two pieces are on one line by either's measure, so their own height
+        // is the one a space between them is to be judged by.
+        OcrWord[] words =
+        [
+            new("a", 10, 115, 8, 10),
+            new("b", 30, 115, 8, 10),
+            new("c", 50, 115, 8, 10),
+            new("d", 70, 115, 8, 10),
+            new("e", 90, 115, 8, 10),
+            new(Key, 150, 100, 1200, 40),
+            new("Wobble7", 1362, 100, 200, 40),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("a b c d e [SECRET]", redaction.Text);
+        Assert.True(Covered(redaction, words[6]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ALargeTailAfterASmallerPieceIsMaskedToo()
+    {
+        // The piece the rule matched is the shorter of the two, so the tail is further off than the
+        // matched piece's own height reaches and has to be found from its side.
+        OcrWord[] words =
+        [
+            new("a", 10, 115, 8, 10),
+            new("b", 30, 115, 8, 10),
+            new("c", 50, 115, 8, 10),
+            new("d", 70, 115, 8, 10),
+            new("e", 90, 115, 8, 10),
+            new(Key, 150, 108, 1200, 24),
+            new("Wobble7", 1362, 100, 200, 40),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("a b c d e [SECRET]", redaction.Text);
+        Assert.True(Covered(redaction, words[6]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
     public void ATallBoxDoesNotCarryAnEmailAcrossTheLines()
     {
         // Review of #268 at a3cd033: one box as tall as the page shares a row with every word on it, and
