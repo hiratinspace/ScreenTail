@@ -11,6 +11,7 @@ internal sealed class OcrPage
 {
     private readonly int[] _rowOf;
     private readonly List<Row> _rows = [];
+    private readonly Dictionary<int, TallWords> _tall = [];
 
     public OcrPage(IReadOnlyList<OcrWord> words)
     {
@@ -37,6 +38,13 @@ internal sealed class OcrPage
                 members.Any(i => HasRightToLeft(words[i].Text)),
                 members.Min(i => words[i].Y),
                 members.Max(i => words[i].Y + words[i].Height)));
+
+            // Most rows have no word over twice their height, and need nothing more.
+            var row = _rows[^1];
+            if (row.MaxHeight > 2.0 * row.Height)
+            {
+                _tall[_rows.Count - 1] = new TallWords(words, row);
+            }
         }
     }
 
@@ -232,6 +240,89 @@ internal sealed class OcrPage
             {
                 yield return other;
             }
+        }
+    }
+
+    /// <summary>
+    /// The words on <paramref name="word"/>'s row that are over twice the row's height and whose box,
+    /// widened either side by <see cref="RedactionEngine.TokenGap"/> of their own height, reaches its
+    /// box. A token's piece is found from a shorter piece through this: the gap between two pieces on
+    /// one line is measured against the taller of them, which may be further than the shorter one's
+    /// own height looks (<see cref="RedactionEngine.TokenHeight"/>).
+    /// </summary>
+    public IEnumerable<int> TallNear(int word)
+    {
+        if (!_tall.TryGetValue(_rowOf[word], out var tall))
+        {
+            return [];
+        }
+
+        var box = Words[word];
+        return tall.Reaching(box.X, box.X + box.Width).Where(other => other != word);
+    }
+
+    /// <summary>
+    /// A row's words over twice its height, each as the stretch of the row it reaches, held so that
+    /// the ones reaching a given stretch are found without looking at the rest: sorted by where they
+    /// start, under a tree of the furthest end in each half.
+    /// </summary>
+    private sealed class TallWords
+    {
+        private readonly int[] _words;
+        private readonly double[] _starts;
+        private readonly double[] _ends;
+        private readonly double[] _furthest;
+
+        public TallWords(IReadOnlyList<OcrWord> words, Row row)
+        {
+            var tall = row.Members
+                .Where(i => words[i].Height > 2.0 * row.Height)
+                .Select(i => (Word: i, Start: words[i].X - (RedactionEngine.TokenGap * words[i].Height), End: words[i].X + words[i].Width + (RedactionEngine.TokenGap * words[i].Height)))
+                .OrderBy(t => t.Start)
+                .ToArray();
+            _words = [.. tall.Select(t => t.Word)];
+            _starts = [.. tall.Select(t => t.Start)];
+            _ends = [.. tall.Select(t => t.End)];
+            _furthest = new double[4 * Math.Max(1, tall.Length)];
+            Build(1, 0, tall.Length - 1);
+        }
+
+        private double Build(int node, int low, int high)
+        {
+            if (low == high)
+            {
+                return _furthest[node] = _ends[low];
+            }
+
+            var middle = (low + high) / 2;
+            return _furthest[node] = Math.Max(Build(2 * node, low, middle), Build((2 * node) + 1, middle + 1, high));
+        }
+
+        /// <summary>The words whose stretch meets the one from <paramref name="left"/> to <paramref name="right"/>.</summary>
+        public List<int> Reaching(double left, double right)
+        {
+            var found = new List<int>();
+            Collect(1, 0, _words.Length - 1, left, right, found);
+            return found;
+        }
+
+        private void Collect(int node, int low, int high, double left, double right, List<int> found)
+        {
+            // Nothing in this half ends far enough right, or all of it starts too far right.
+            if (_furthest[node] < left || _starts[low] > right)
+            {
+                return;
+            }
+
+            if (low == high)
+            {
+                found.Add(_words[low]);
+                return;
+            }
+
+            var middle = (low + high) / 2;
+            Collect(2 * node, low, middle, left, right, found);
+            Collect((2 * node) + 1, middle + 1, high, left, right, found);
         }
     }
 

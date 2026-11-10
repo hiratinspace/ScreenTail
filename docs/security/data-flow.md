@@ -108,7 +108,8 @@ password fields — and then, and only then, the frame becomes readable to the r
 
 A match is masked by what is on the screen, not by how the OCR engine split it into words: every word
 that touches it with no space between them goes too, so a value the engine read as two words is masked
-whole. A password goes further: its cue's row and every row the match touches on the screen are
+whole. The space between two words is judged against the height of the row, or of the taller word
+where the two sit on one line, so large text beside small is judged by its own size (2026-11-10). A password goes further: its cue's row and every row the match touches on the screen are
 masked, the cue included, in the stored text and in the picture alike. The one exception is on the
 cue's own row: the words wholly left of the cue stay readable, so the line still says what it was
 (ScreenTail's cues are Latin, read left to right), unless any of what was masked on that row starts

@@ -399,9 +399,12 @@ public sealed class RedactionEngine
             var row = page.RowAt(page.RowOf(i));
 
             // No neighbour sits further away than the cutoff at the tallest height a pair is measured
-            // against (TokenHeight), and only one that shares its row (Neighbours).
-            var reach = TokenGap * Math.Max(row.Height, Math.Min(row.MaxHeight, 2.0 * row.Height));
-            foreach (var j in page.Near(i, reach))
+            // against (TokenHeight), and only one that shares its row (Neighbours): the row's height,
+            // a word's up to twice that, and for two words on one line either's own, however tall.
+            // This word's own height is in the reach; a taller word that reaches this one is found
+            // from its side (TallNear), so no word looks further than its own height says.
+            var reach = TokenGap * Math.Max(Math.Max(row.Height, Math.Min(row.MaxHeight, 2.0 * row.Height)), words[i].Height);
+            foreach (var j in page.Near(i, reach).Concat(page.TallNear(i)))
             {
                 if (!token.Contains(j) && Neighbours(words[i], words[j], row.Height) && GapShare(words[i], words[j], row.Height) <= TokenGap)
                 {
@@ -545,9 +548,23 @@ public sealed class RedactionEngine
     /// third wider than it is (review of #268); each of those only makes the share smaller, so each
     /// only masks more. A word counts at most twice the row's height, so a box as tall as the page
     /// does not reach across it, and the height is never under a pixel.
+    ///
+    /// Unless the two are on one line by either's measure, each one's middle within the other's
+    /// height: then their own heights count whole. A row's height is its median, and a few small boxes
+    /// beside large text drag it down; a heading-sized key split in two had its gap measured against
+    /// twice the small boxes' height and the tail was left showing (security review, 2026-11-10). A
+    /// box that spans several lines is not on one line with a word on one of them by the word's
+    /// measure, so it still counts for twice the row and no more.
     /// </summary>
     internal static double TokenHeight(OcrWord a, OcrWord b, double rowHeight)
     {
+        var middleA = a.Y + (a.Height / 2.0);
+        var middleB = b.Y + (b.Height / 2.0);
+        if (middleB >= a.Y && middleB <= a.Y + a.Height && middleA >= b.Y && middleA <= b.Y + b.Height)
+        {
+            return Math.Max(1, Math.Max(rowHeight, Math.Max(a.Height, b.Height)));
+        }
+
         var tallest = 2.0 * rowHeight;
         return Math.Max(1, Math.Max(rowHeight, Math.Max(Math.Min(a.Height, tallest), Math.Min(b.Height, tallest))));
     }
