@@ -121,7 +121,7 @@ public sealed class MarkAsPublishedTests
         Assert.Contains("no longer be discarded", MarkAsPublished.Question, StringComparison.Ordinal);
         Assert.All(
             new[] { MarkAsPublished.Action, MarkAsPublished.Question, MarkAsPublished.WhileCapturing, MarkAsPublished.Done },
-            text => Assert.DoesNotContain('—', text));
+            text => Assert.DoesNotContain('\u2014', text));
     }
 
     private MarkAsPublished Flow() => new(
