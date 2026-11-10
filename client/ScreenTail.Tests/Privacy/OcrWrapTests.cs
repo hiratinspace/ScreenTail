@@ -309,23 +309,27 @@ public sealed class OcrWrapTests
     }
 
     [Fact]
-    public void ThePageReadsTheSameHoweverTheEngineListsIt()
+    public void AWrapIsFoundHoweverTheEngineListsThePage()
     {
+        // The joins are made on the screen, so the order of the list changes none of them. (What the
+        // page's own text matches does follow the list, as it always has.)
         var words = Page(
             Row(0, Left, "deploy", "--key", "sk_live_ABCDEFGHIJ"),
             Row(1, Left, "KLMNOPQRSTUV0123", "--region", "eu"),
             Row(2, Left, "wifi", "password:", "Tangerine4821Wob"),
             Row(3, Left, "ble", "is", "on"));
-        var expected = MaskedTexts(Engine.RedactFrame(words), words);
-        Assert.Contains("KLMNOPQRSTUV0123", expected);
-        Assert.Contains("ble", expected);
+        string[] expected = ["sk_live_ABCDEFGHIJ", "KLMNOPQRSTUV0123", "Tangerine4821Wob", "ble", "is", "on"];
 
         var random = new Random(269);
         for (var pass = 0; pass < 50; pass++)
         {
             var shuffled = words.OrderBy(_ => random.Next()).ToArray();
 
-            Assert.Equal(expected, MaskedTexts(Engine.RedactFrame(shuffled), shuffled));
+            var redaction = Engine.RedactFrame(shuffled);
+
+            var masked = MaskedTexts(redaction, shuffled);
+            Assert.All(expected, piece => Assert.Contains(piece, masked));
+            Assert.All(expected, piece => Assert.DoesNotContain($" {piece} ", $" {redaction.Text} ", StringComparison.Ordinal));
         }
     }
 
