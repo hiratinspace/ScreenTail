@@ -16,7 +16,7 @@ to trust it and where to change it.
 
 | File | Read it for |
 |---|---|
-| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-11-04 |
+| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-11-10 |
 | `ipc-contract.md` | The service–UI pipe contract, versioned. Kept at the root because three source files and the backlog cite it by this path |
 | `adr/000N-*.md` | Architecture decisions. 0001 to 0006 are Accepted; 0007 (the Windows installer), 0008 (auto-update) and 0009 (owner sign-in to the web admin, with Google) are Proposed. `adr/evidence/` holds the measurements they rest on, with its own README |
 | `review/weaknesses.md` | The 2026-09-15 adversarial review, closed 2026-09-22: every finding says what fixed it, and the one still open says where it is tracked. Kept because code comments cite its numbers |
