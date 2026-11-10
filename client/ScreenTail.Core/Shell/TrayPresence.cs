@@ -79,6 +79,29 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
             _ => label,
         };
 
-        return new TrayPresence(icon, $"ScreenTail · {detail}", detail, drafts);
+        // A publish that may have reached its ticket and was never confirmed (contract v10), said after
+        // the state and only between sessions: while one is being captured the line is about that and
+        // nothing else (INV-4, Spec §7's calm density). The menu's row always has room. The tooltip
+        // carries it only when the whole of it fits in what Windows shows, never cut short.
+        var resting = capture.State is CaptureStates.Idle or CaptureStates.DraftPending or CaptureStates.DraftReady or CaptureStates.DraftFailed;
+        if (!resting || NotConfirmed(capture.PublishesUnconfirmed) is not { } doubt)
+        {
+            return new TrayPresence(icon, $"ScreenTail · {detail}", detail, drafts);
+        }
+
+        var line = $"{detail} · {doubt}";
+        var tooltip = $"ScreenTail · {line}";
+        return new TrayPresence(icon, tooltip.Length <= TooltipLimit ? tooltip : $"ScreenTail · {detail}", line, drafts);
     }
+
+    /// <summary>The longest tooltip Windows shows whole for a tray icon.</summary>
+    public const int TooltipLimit = 63;
+
+    /// <summary>"1 publish not confirmed", "3 publishes not confirmed", or null when there is none.</summary>
+    public static string? NotConfirmed(int sessions) => sessions switch
+    {
+        <= 0 => null,
+        1 => "1 publish not confirmed",
+        _ => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sessions} publishes not confirmed"),
+    };
 }

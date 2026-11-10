@@ -240,6 +240,9 @@ internal sealed class CaptureController(
                     // the reason with the number (INV-1).
                     Frames = s.Frames,
                     FramesPurged = s.FramesPurgedUnredacted,
+
+                    // Beside the status, never in place of it, and never for a discarded session (v10).
+                    PublishUnconfirmed = SessionHistory.PublishUnconfirmed(s),
                 })],
         };
     }

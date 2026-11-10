@@ -63,6 +63,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// <summary>Review's Discard and History's bulk discard, by name over the pipe (contract v6).</summary>
     private readonly SessionDiscard _discards;
 
+    /// <summary>History's "Mark as published" for a publish that was never confirmed (contract v10).</summary>
+    private readonly MarkAsPublished _marks;
+
     /// <summary>
     /// The thread that built the shell, which owns the tray icon and the pill. The application builds it
     /// on its UI thread, so this is that thread's dispatcher; taken here rather than from
@@ -115,6 +118,7 @@ public sealed class LiveShell : IAsyncDisposable
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         _connection = new CaptureConnection(_state, ct => open(version, ct));
         _discards = new SessionDiscard(_state, _connection);
+        _marks = new MarkAsPublished(_state, _connection);
 
         // Before the shell's own listener below, so a new snapshot is the clock's base by the time anything
         // draws it.
@@ -278,7 +282,8 @@ public sealed class LiveShell : IAsyncDisposable
                     ListSessionsAsync,
                     confirm: (confirmation, count) => OnUiThread(() => ConfirmTypedDialog.AskToDiscardSessions(_window, confirmation, count)),
                     discard: _discards.BulkAsync,
-                    discardBlocked: _discards.BlockedBecause),
+                    discardBlocked: _discards.BlockedBecause,
+                    markPublished: (sessionId, ct) => _marks.RunAsync(sessionId, () => OnUiThread(ConfirmMarkAsPublished), ct)),
                 () => new SettingsViewModel(
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                     new CaptureViewModel(
@@ -547,6 +552,16 @@ public sealed class LiveShell : IAsyncDisposable
                 : MessageBox.Show(result.Error, heading, MessageBoxButton.OK, MessageBoxImage.Warning)).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// History's "Mark as published" question (contract v10): a statement about the ticket, so the
+    /// technician is asked, and Cancel is the default so Enter does not vouch for anything by reflex.
+    /// Never shown while a session is being captured; <see cref="MarkAsPublished"/> sees to that.
+    /// </summary>
+    private bool ConfirmMarkAsPublished() =>
+        (_window is { } owner
+            ? MessageBox.Show(owner, MarkAsPublished.Question, MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)
+            : MessageBox.Show(MarkAsPublished.Question, MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)) == MessageBoxResult.OK;
 
     /// <summary>Runs <paramref name="body"/> on the UI thread, from whichever thread a pipe answer arrived on.</summary>
     private Task<T> OnUiThread<T>(Func<T> body) =>
