@@ -34,7 +34,9 @@ internal sealed class OcrPage
                 heights[heights.Length / 2] > 0 ? heights[heights.Length / 2] : MedianHeight,
                 members.Max(i => words[i].Width),
                 heights[^1],
-                members.Any(i => HasRightToLeft(words[i].Text))));
+                members.Any(i => HasRightToLeft(words[i].Text)),
+                members.Min(i => words[i].Y),
+                members.Max(i => words[i].Y + words[i].Height)));
         }
     }
 
@@ -181,12 +183,17 @@ internal sealed class OcrPage
     /// median, or the page's where that is zero. Never under a pixel.
     /// </param>
     /// <param name="RightToLeft">Whether any word on the row has a Hebrew, Arabic or other strong right-to-left letter.</param>
-    internal sealed record Row(int[] Members, int[] Lefts, int Median, int Height, int MaxWidth, int MaxHeight, bool RightToLeft);
+    /// <param name="Top">The highest top of the row's boxes.</param>
+    /// <param name="Bottom">The lowest bottom of the row's boxes.</param>
+    internal sealed record Row(int[] Members, int[] Lefts, int Median, int Height, int MaxWidth, int MaxHeight, bool RightToLeft, int Top, int Bottom);
 
     public IReadOnlyList<OcrWord> Words { get; }
 
     /// <summary>The median height of the page's words, for a row whose own is zero; at least a pixel.</summary>
     public int MedianHeight { get; }
+
+    /// <summary>How many rows the page has. They are numbered down the page, by their words' middles.</summary>
+    public int RowCount => _rows.Count;
 
     public int RowOf(int word) => _rowOf[word];
 

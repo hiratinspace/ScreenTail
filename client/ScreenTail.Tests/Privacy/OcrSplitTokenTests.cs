@@ -103,6 +103,13 @@ public sealed class OcrSplitTokenTests
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
             new("reception", 340, 100, 110, Height),
+            // The row below runs on past the pass row: a row no wider than the one above it may be the
+            // rest of a line that wrapped, and a password takes that too (OcrWrapTests).
+            new("and", 222, 140, 40, Height),
+            new("the", 271, 140, 40, Height),
+            new("test", 320, 140, 50, Height),
+            new("page", 379, 140, 50, Height),
+            new("printed", 438, 140, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);
@@ -498,6 +505,13 @@ public sealed class OcrSplitTokenTests
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
             new("Wobble", 291, 100, 96, Height),
+            // The row below runs on past the pass row: a row no wider than the one above it may be the
+            // rest of a line that wrapped, and a password takes that too (OcrWrapTests).
+            new("and", 222, 140, 40, Height),
+            new("the", 271, 140, 40, Height),
+            new("test", 320, 140, 50, Height),
+            new("page", 379, 140, 50, Height),
+            new("printed", 438, 140, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);

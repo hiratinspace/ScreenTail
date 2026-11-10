@@ -50,11 +50,19 @@ public sealed class OcrTokenRuleTests
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
             new("34xy", 406, 100, 40, Height),
+
+            // The row below runs on past the token's row: a row no wider than the one above it may be
+            // the rest of a line that wrapped, and its first word would go with the token (OcrWrapTests).
+            new("and", 222, 140, 40, Height),
+            new("the", 271, 140, 40, Height),
+            new("test", 320, 140, 50, Height),
+            new("page", 379, 140, 50, Height),
+            new("printed", 438, 140, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("token: [SECRET] Queue cleared [SECRET]", redaction.Text);
+        Assert.Equal("token: [SECRET] Queue cleared [SECRET] and the test page printed", redaction.Text);
         Assert.True(Covered(redaction, words[4]), "the token's tail is left unpainted in the frame");
     }
 
