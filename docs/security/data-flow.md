@@ -117,7 +117,35 @@ Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen 
 screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
 (PR #268): more of a technician's line is masked than strictly needed, because a split the engine makes through a remote viewer's
 scaling cannot be measured in advance, and a piece of a password left showing is a stored password.
-A value that wraps onto the next row is not covered yet. Nor is a mirrored layout with a Latin label
+
+A value that a terminal or a text box wrapped onto the next row is found by reading the page a second
+time with each line's end joined to the start of the line that may continue it, and masking whatever
+matches across a join (2026-11-10). What is joined is decided on the screen: a row is cut into runs
+where two words stand more than two row heights apart, so side-by-side panes are separate; a run's
+last token is joined to the first token of a run on one of the three rows below, no more than two row
+heights under it, that starts left of where the run above ends and ends no more than two row heights
+past it, since a line that overflowed is as wide as its box and its continuation cannot run past it;
+the first row down with such a run under the run above wins, and on it the one starting nearest. A
+row with a right-to-left letter is joined the other way round as well. The second reading only adds
+masks. No edge of any box is known, so every run's end over a run no wider is tried, and the cost is
+this: two unrelated rows whose end and start make a match between them are masked. A key, token or
+email that ends its row takes the first word of a row below that is no wider; two stacked numbers that
+together pass the card checksum are masked; and a password that ends its row takes the whole of such
+a row below, because a password takes every row its match touches. Not covered: a value wrapped at a
+space inside a pane that has another pane beside it (the OCR engine lists the other pane between the
+two halves), a continuation more than three rows or two row heights down, and a row above whose
+continuation is wider than it by more than two row heights.
+
+The rules measure gaps against heights, so they do not depend on the display's scale, but boxes are
+whole pixels: a token the engine split with a gap of a quarter of the row's height or less is joined
+at 100%, 125% and 150% however its boxes round, while one between that and the cutoff of 0.35 is
+within a pixel of rounding of it (`OcrScalingTests`). What the engine does with real text at those
+scales, and through a remote viewer's resizing and JPEG compression, is measured by
+`OcrScaledSecretTests` in the Windows-only suite, which reports how many secrets were masked whole,
+part showing and missed at each scale and quality. A secret the engine misreads so that no rule
+matches is a miss no rule here can mend.
+
+Not covered either is a mirrored layout with a Latin label
 and no right-to-left letter, such as "hunter2 Password:", where the pattern takes a word on the next
 line as the value: the value left of the cue is kept, because the row rule assumes a Latin cue reads
 left to right. Transcripts are scrubbed by the words alone.
