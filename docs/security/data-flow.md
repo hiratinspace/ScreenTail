@@ -129,8 +129,10 @@ the first row down with such a run under the run above wins, and on it the one s
 row with a right-to-left letter is joined the other way round as well. The second reading only adds
 masks. No edge of any box is known, so every run's end over a run no wider is tried, and the cost is
 this: two unrelated rows whose end and start make a match between them are masked. A key, token or
-email that ends its row takes the first word of a row below that is no wider; two stacked numbers that
-together pass the card checksum are masked; and a password that ends its row takes the whole of such
+email that ends its row takes the first word of a row below that is no wider; numbers stacked one above
+the other that joined pass the card checksum are masked, however many rows of them, because a card
+number wrapped over four rows looks the same (on a grid of 1,200 random four-digit numbers, a cell a
+column, 531 are masked against 197 without this reading; six-digit numbers are unchanged at 157); and a password that ends its row takes the whole of such
 a row below, because a password takes every row its match touches. Not covered: a value wrapped at a
 space inside a pane that has another pane beside it (the OCR engine lists the other pane between the
 two halves), a continuation more than three rows or two row heights down, and a row above whose
