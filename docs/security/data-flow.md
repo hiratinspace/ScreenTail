@@ -145,7 +145,13 @@ within a pixel of rounding of it (`OcrScalingTests`). What the engine does with 
 scales, and through a remote viewer's resizing and JPEG compression, is measured by
 `OcrScaledSecretTests` in the Windows-only suite, which reports how many secrets were masked whole,
 part showing and missed at each scale and quality. A secret the engine misreads so that no rule
-matches is a miss no rule here can mend.
+matches is a miss no rule here can mend, and the first hosted run (2026-11-10) shows there are many:
+of 400 drawn secrets a scale, 288 were masked whole at 100%, 284 at 125% and 307 at 150%, so display
+scale itself costs nothing, but about a quarter are missed at every scale, most of them the wrapped
+key and the long token; through a viewer at JPEG 75, 66% were masked whole at 0.9, 84% at 1.0 and 76%
+at 1.1, and at 0.6 about one in eight. One secret in 400 was left part showing at each display scale,
+and twenty of 100 at 1.1 in one font; neither is explained yet. These are synthetic pages, not the
+labelled corpus ST-042's recall gate needs.
 
 Not covered either is a mirrored layout with a Latin label
 and no right-to-left letter, such as "hunter2 Password:", where the pattern takes a word on the next
