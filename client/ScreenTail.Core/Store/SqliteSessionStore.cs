@@ -847,6 +847,13 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@id", sessionId)).ConfigureAwait(false) > 0;
     }
 
+    public Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT COUNT(*) FROM sessions WHERE publish_unconfirmed_at IS NOT NULL AND state IS NOT @discarded",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? reader.GetInt32(0) : 0,
+            ct,
+            ("@discarded", Sessions.SessionStateNames.Discarded));
+
     /// <summary>
     /// Marks one session discarded, inside the caller's transaction and under its gate. Its note goes, with
     /// the ticket number read off the customer's window at start (ST-077), and so does its queued work: left,
@@ -1118,7 +1125,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         SELECT s.id, s.started_at, s.duration_ms, s.remote_tool_kind, s.state, s.partial_capture,
                s.frames_purged_unredacted, s.raw_purged_at,
                json_extract(s.draft_json, '$.suggested_title'),
-               (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0 AND s.state IS NOT 'discarded')
+               (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0 AND s.state IS NOT 'discarded'),
+               s.publish_unconfirmed_at IS NOT NULL
         FROM sessions s
         """;
 
@@ -1140,7 +1148,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             reader.GetInt64(6),
             reader.GetInt32(9),
             !reader.IsDBNull(7),
-            string.IsNullOrWhiteSpace(title) ? null : title);
+            string.IsNullOrWhiteSpace(title) ? null : title,
+            reader.GetInt64(10) != 0);
     }
 
     /// <summary>

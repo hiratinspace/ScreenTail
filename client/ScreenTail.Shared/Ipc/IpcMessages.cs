@@ -33,6 +33,7 @@ namespace ScreenTail.Shared.Ipc;
 [JsonDerivedType(typeof(GetIntegrationsCommand), "get_integrations")]
 [JsonDerivedType(typeof(SearchTicketsCommand), "search_tickets")]
 [JsonDerivedType(typeof(PublishSessionCommand), "publish_session")]
+[JsonDerivedType(typeof(MarkPublishedCommand), "mark_published")]
 [JsonDerivedType(typeof(GetCompanyMappingsCommand), "get_company_mappings")]
 [JsonDerivedType(typeof(MapCompanyCommand), "map_company")]
 [JsonDerivedType(typeof(ActivateDeviceCommand), "activate_device")]
@@ -461,6 +462,18 @@ public sealed record PublishSessionCommand : IpcCommand
     /// </summary>
     [JsonPropertyName("publish_again")]
     public bool PublishAgain { get; init; }
+}
+
+/// <summary>
+/// The technician checked the ticket and what an earlier publish may have left is there: the session's
+/// unconfirmed destinations are recorded as on the ticket, and nothing is sent anywhere (contract v10).
+/// Refused for a session with no publish waiting to be confirmed, for a discarded one (INV-12), and
+/// while a publish of it has not answered yet. Answered by a <see cref="CommandResult"/>.
+/// </summary>
+public sealed record MarkPublishedCommand : IpcCommand
+{
+    [JsonPropertyName("session_id")]
+    public required string SessionId { get; init; }
 }
 
 public sealed record PublishOutcomeRow(
@@ -996,6 +1009,13 @@ public sealed record CaptureStateSnapshot
     [JsonPropertyName("drafts_ready")]
     public int DraftsReady { get; init; }
 
+    /// <summary>
+    /// How many sessions hold a publish that may have reached its ticket and was never confirmed
+    /// (contract v10), so the tray can say so between sessions. Discarded sessions are not counted.
+    /// </summary>
+    [JsonPropertyName("publishes_unconfirmed")]
+    public int PublishesUnconfirmed { get; init; }
+
     /// <summary>Why the last draft failed; present only in <c>draft_failed</c>. Plain language, no content.</summary>
     [JsonPropertyName("draft_failure_reason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1186,4 +1206,12 @@ public sealed record SessionRow
     /// <summary>Frames deleted because they could not be checked, so Review can show the gap rather than hide it.</summary>
     [JsonPropertyName("frames_purged")]
     public required long FramesPurged { get; init; }
+
+    /// <summary>
+    /// A publish of this session may have reached the ticket and nobody has confirmed it (contract v10).
+    /// Beside <see cref="Status"/>, never in place of it: the session is still a draft, or published in
+    /// part, and what may be discarded goes by that. Never true for a discarded session.
+    /// </summary>
+    [JsonPropertyName("publish_unconfirmed")]
+    public bool PublishUnconfirmed { get; init; }
 }
