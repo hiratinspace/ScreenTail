@@ -26,15 +26,22 @@ public sealed class MarkAsPublished(
     /// <summary>The button, the dialog's title and the confirming answer.</summary>
     public const string Action = "Mark as published";
 
-    /// <summary>What the dialog asks. What is being claimed, and what follows from it.</summary>
+    /// <summary>The dialog's words under its first line. What is being claimed, and what follows from it.</summary>
     public const string Question =
-        "Mark this session as published? Only do this after checking the ticket."
+        "Only do this after checking the ticket."
         + "\n\n"
         + "ScreenTail will record that what the earlier publish sent is on the ticket, and will not send it again. "
         + "A published session is kept and can no longer be discarded.";
 
-    /// <summary>The dialog's words for one session, named as its History row shows it.</summary>
-    public static string QuestionFor(string session) => Question;
+    /// <summary>
+    /// The dialog's words for one session, named as its History row shows it (when it started, how long,
+    /// the tool), so the technician sees which row they are vouching for. Shown, never logged.
+    /// </summary>
+    public static string QuestionFor(string session)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(session);
+        return $"Mark the session started {session} as published?\n\n{Question}";
+    }
 
     public const string WhileCapturing = "A session is being captured. Stop it first, then mark this one as published.";
 
@@ -66,14 +73,14 @@ public sealed class MarkAsPublished(
             : null;
     }
 
-    /// <param name="confirmed">Shows <see cref="Question"/> and says whether the technician agreed.</param>
+    /// <param name="confirmed">Shows <see cref="QuestionFor"/> and says whether the technician agreed.</param>
     public async Task<ConfirmedResult> RunAsync(string sessionId, Func<Task<bool>> confirmed, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentNullException.ThrowIfNull(confirmed);
         if (BlockedBecause() is { } blocked)
         {
-            return new ConfirmedResult(blocked == ConfirmedAction.NotConnected ? ConfirmedOutcome.NotAvailable : ConfirmedOutcome.Refused, blocked);
+            return Blocked(blocked);
         }
 
         if (!await confirmed().ConfigureAwait(false))
@@ -81,9 +88,20 @@ public sealed class MarkAsPublished(
             return new ConfirmedResult(ConfirmedOutcome.Declined);
         }
 
+        // Asked again once the dialog is answered (review of #274): the service starts sessions by
+        // itself, and one may have begun, or the service gone, while the question was up. Nothing is
+        // sent then, and the reason is said beside the button.
+        if (BlockedBecause() is { } since)
+        {
+            return Blocked(since);
+        }
+
         var result = await _send(id => new MarkPublishedCommand { RequestId = id, SessionId = sessionId }, ct).ConfigureAwait(false);
         return result.Ok
             ? new ConfirmedResult(ConfirmedOutcome.Done)
             : new ConfirmedResult(ConfirmedOutcome.Refused, string.IsNullOrWhiteSpace(result.Error) ? ConfirmedAction.RefusedWithoutReason : result.Error);
     }
+
+    private static ConfirmedResult Blocked(string reason) =>
+        new(reason == ConfirmedAction.NotConnected ? ConfirmedOutcome.NotAvailable : ConfirmedOutcome.Refused, reason);
 }

@@ -46,7 +46,7 @@ public sealed partial class HistoryViewModel : ObservableObject
     private readonly Func<TypedConfirmation, int, Task<bool>>? _confirm;
     private readonly Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? _discard;
     private readonly Func<IReadOnlyCollection<string>, string?>? _discardBlocked;
-    private readonly Func<string, CancellationToken, Task<ConfirmedResult>>? _markPublished;
+    private readonly Func<string, string, CancellationToken, Task<ConfirmedResult>>? _markPublished;
     private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
     private IReadOnlyList<HistoryRow> _selected = [];
 
@@ -59,7 +59,8 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// </param>
     /// <param name="discardBlocked">Why these sessions may not be asked about now (one is still being captured), or null.</param>
     /// <param name="markPublished">
-    /// Asks the technician and then the service to mark the named session as published
+    /// Asks the technician and then the service to mark the session (its id, then the row as History
+    /// shows it, for the question: when it started, how long, the tool) as published
     /// (<see cref="MarkAsPublished.RunAsync"/> with the shell's dialog). Null in a screen with nothing to
     /// ask through, which disables the button.
     /// </param>
@@ -69,7 +70,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         Func<TypedConfirmation, int, Task<bool>>? confirm = null,
         Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? discard = null,
         Func<IReadOnlyCollection<string>, string?>? discardBlocked = null,
-        Func<string, CancellationToken, Task<ConfirmedResult>>? markPublished = null)
+        Func<string, string, CancellationToken, Task<ConfirmedResult>>? markPublished = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _load = load ?? throw new ArgumentNullException(nameof(load));
@@ -226,7 +227,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         }
 
         DiscardError = null;
-        var result = await _markPublished(row.Id, CancellationToken.None).ConfigureAwait(true);
+        var result = await _markPublished(row.Id, Described(_selected[0]), CancellationToken.None).ConfigureAwait(true);
         switch (result.Outcome)
         {
             case ConfirmedOutcome.Declined:
@@ -252,6 +253,9 @@ public sealed partial class HistoryViewModel : ObservableObject
                 return;
         }
     }
+
+    /// <summary>The row in the words it already shows, so the question names the session without anything new.</summary>
+    internal static string Described(HistoryRow row) => $"{row.Started}, {row.Duration}, {row.Tool}";
 
     private bool CanMarkPublished() => _markPublished is not null && MarkableSelection() is not null;
 

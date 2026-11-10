@@ -283,7 +283,7 @@ public sealed class LiveShell : IAsyncDisposable
                     confirm: (confirmation, count) => OnUiThread(() => ConfirmTypedDialog.AskToDiscardSessions(_window, confirmation, count)),
                     discard: _discards.BulkAsync,
                     discardBlocked: _discards.BlockedBecause,
-                    markPublished: (sessionId, ct) => _marks.RunAsync(sessionId, () => OnUiThread(ConfirmMarkAsPublished), ct)),
+                    markPublished: (sessionId, described, ct) => _marks.RunAsync(sessionId, () => OnUiThread(() => ConfirmMarkAsPublished(described)), ct)),
                 () => new SettingsViewModel(
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                     new CaptureViewModel(
@@ -558,10 +558,10 @@ public sealed class LiveShell : IAsyncDisposable
     /// technician is asked, and Cancel is the default so Enter does not vouch for anything by reflex.
     /// Never shown while a session is being captured; <see cref="MarkAsPublished"/> sees to that.
     /// </summary>
-    private bool ConfirmMarkAsPublished() =>
+    private bool ConfirmMarkAsPublished(string described) =>
         (_window is { } owner
-            ? MessageBox.Show(owner, MarkAsPublished.Question, MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)
-            : MessageBox.Show(MarkAsPublished.Question, MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)) == MessageBoxResult.OK;
+            ? MessageBox.Show(owner, MarkAsPublished.QuestionFor(described), MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)
+            : MessageBox.Show(MarkAsPublished.QuestionFor(described), MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)) == MessageBoxResult.OK;
 
     /// <summary>Runs <paramref name="body"/> on the UI thread, from whichever thread a pipe answer arrived on.</summary>
     private Task<T> OnUiThread<T>(Func<T> body) =>

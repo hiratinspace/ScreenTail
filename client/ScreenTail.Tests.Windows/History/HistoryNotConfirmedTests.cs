@@ -115,6 +115,53 @@ public sealed class HistoryNotConfirmedTests
     }
 
     [Fact]
+    public void TheQuestionIsGivenTheRowAsTheTableShowsIt()
+    {
+        // Review of #274: the dialog names the session, in the words already on its row and no others.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var service = new FakeService(Row("s1", "draft", unconfirmed: true));
+            var model = service.Model();
+            await model.RefreshAsync();
+            model.Select(model.Rows);
+            var row = model.Rows[0];
+
+            await model.MarkPublishedCommand.ExecuteAsync(null);
+
+            Assert.Equal([$"{row.Started}, {row.Duration}, {row.Tool}"], service.Described);
+        });
+    }
+
+    [Fact]
+    public void WhileTheQuestionIsUpTheButtonIsOffAndASecondPressAsksNothing()
+    {
+        // Review of #274: a double press must not ask, or send, twice. The command does not run under
+        // itself, so the button is off from the press until the answer is shown.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var service = new FakeService(Row("s1", "draft", unconfirmed: true)) { Held = new TaskCompletionSource() };
+            var model = service.Model();
+            await model.RefreshAsync();
+            model.Select(model.Rows);
+
+            var first = model.MarkPublishedCommand.ExecuteAsync(null);
+
+            Assert.True(model.MarkPublishedCommand.IsRunning);
+            Assert.False(model.MarkPublishedCommand.CanExecute(null));
+            model.MarkPublishedCommand.Execute(null);
+            Assert.Equal(["s1"], service.Asked);
+
+            service.Held.SetResult();
+            await first;
+
+            Assert.Equal(["s1"], service.Asked);
+            Assert.Equal(MarkAsPublished.Done, model.Notice);
+        });
+    }
+
+    [Fact]
     public void NotAgreeingChangesNothingAndKeepsTheSelection()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
@@ -225,15 +272,27 @@ public sealed class HistoryNotConfirmedTests
                 Loads++;
                 return Task.FromResult<IReadOnlyList<SessionRow>?>(_rows);
             },
-            markPublished: (id, _) =>
+            markPublished: async (id, described, _) =>
             {
                 Asked.Add(id);
+                Described.Add(described);
+                if (Held is { } held)
+                {
+                    await held.Task.ConfigureAwait(true);
+                }
+
                 if (Outcome.Done)
                 {
                     _rows = [.. _rows.Select(r => r.Id == id ? r with { Status = "published", PublishUnconfirmed = false } : r)];
                 }
 
-                return Task.FromResult(Outcome);
+                return Outcome;
             });
+
+        /// <summary>How each asked-about session was named for the question.</summary>
+        public List<string> Described { get; } = [];
+
+        /// <summary>When set, the question stays up until a test completes it.</summary>
+        public TaskCompletionSource? Held { get; init; }
     }
 }
