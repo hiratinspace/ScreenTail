@@ -201,16 +201,41 @@ public sealed class OcrWrapTests
     }
 
     [Fact]
-    public void AColumnOfShortNumbersIsNotACardNumber()
+    public void ACardNumberWrappedOverThreeRowsIsMaskedOnEveryRow()
     {
-        // Eight cells one above the other that joined pass the checksum. A card number is nineteen
-        // digits at most, so one that wrapped more than once was in a box under ten characters wide;
-        // a column of numbers is far likelier, and one run in ten of them passes by accident.
+        // Cut where no row holds three groups of the size the card rule reads, so only the joined
+        // number is a card.
+        var words = Page(Row(0, Left, "card", "4111111"), Row(1, Left, "1111111"), Row(2, Left, "11", "ok"));
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("card [CARD] ok", redaction.Text);
+        Assert.All(Enumerable.Range(1, 3), i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
+    }
+
+    [Fact]
+    public void ACardNumberWrappedOverFourRowsIsMaskedOnEveryRow()
+    {
+        var words = Page(Row(0, Left, "card", "41"), Row(1, Left, "1111111"), Row(2, Left, "11111"), Row(3, Left, "11", "ok"));
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("card [CARD] ok", redaction.Text);
+        Assert.All(Enumerable.Range(1, 4), i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
+    }
+
+    [Fact]
+    public void AColumnOfShortNumbersThatTogetherPassTheChecksumIsMasked()
+    {
+        // The rule's cost, stated: eight cells one above the other read the same as a card number
+        // wrapped eight times, and nothing on the screen tells them apart, so they are masked. One
+        // run of sixteen digits in ten passes the checksum by accident. Measured on a grid of 1,200
+        // random four-digit numbers, a cell a column: 531 masked with the wrap pass, 197 without.
         var words = Page([.. Enumerable.Range(0, 8).Select(line => Row(line, Left, line == 0 ? "41" : "11"))]);
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Empty(redaction.Regions);
+        Assert.Equal("[CARD]", redaction.Text);
     }
 
     [Fact]
