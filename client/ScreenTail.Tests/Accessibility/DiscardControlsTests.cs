@@ -66,6 +66,27 @@ public sealed class DiscardControlsTests
         Assert.Equal("Assertive", (string?)reason.Attribute(Controls + "LiveRegion.Setting"));
     }
 
+    [Fact]
+    public void PrivacysDeleteEverythingSaysWhyBesideTheButtonAndIsNamedByItsLabel()
+    {
+        // Spec §4: no modal during a recording, so a Delete everything that cannot ask says why beside the
+        // button, in a region Narrator reads out, as Review's and History's discards do. The accessible
+        // name starts with the visible label (WCAG 2.5.3, label in name).
+        var privacy = Load(Path.Combine("Settings", "Privacy"), "PrivacyPane.xaml");
+
+        var erase = Assert.Single(Buttons(privacy), b => (string?)b.Attribute("Command") == "{Binding EraseEverythingCommand}");
+        var label = ((string?)erase.Attribute("Content"))!.TrimEnd('…');
+        var name = (string?)erase.Attribute("AutomationProperties.Name");
+        Assert.False(string.IsNullOrWhiteSpace(name));
+        Assert.StartsWith(label, name, StringComparison.Ordinal);
+        Assert.Equal("{StaticResource Button.Danger}", (string?)erase.Attribute("Style"));
+
+        var reason = Assert.Single(privacy.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding EraseProblem}");
+        Assert.Equal("Assertive", (string?)reason.Attribute(Controls + "LiveRegion.Setting"));
+        Assert.Equal("{Binding EraseProblemVisibility}", (string?)reason.Attribute("Visibility"));
+        Assert.Equal("{StaticResource Text.Error}", (string?)reason.Attribute("Style"));
+    }
+
     [Theory]
     [InlineData("Review", "ReviewPane.xaml")]
     [InlineData("History", "HistoryPane.xaml")]

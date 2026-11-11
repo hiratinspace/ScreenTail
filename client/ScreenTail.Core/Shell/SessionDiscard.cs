@@ -34,6 +34,10 @@ public sealed class SessionDiscard(
     /// <summary>History's bulk discard while some other session is being captured.</summary>
     public const string WhileCapturing = "A session is being captured. Stop it first, then discard the selected sessions.";
 
+    public const string ReviewWhileCapturing = "A session is being captured. Stop it first, then discard this one.";
+
+    public string? ReviewBlockedBecause(string sessionId) => BlockedBecause([sessionId]);
+
     private readonly ShellState _state = state ?? throw new ArgumentNullException(nameof(state));
     private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<ConfirmationIssued?>> _request = request ?? throw new ArgumentNullException(nameof(request));
     private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<CommandResult>> _send = send ?? throw new ArgumentNullException(nameof(send));
