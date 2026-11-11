@@ -14,7 +14,8 @@ namespace ScreenTail.Core.Shell;
 /// Neither asks anything while the session is still being captured: Spec §4 allows no modal during a
 /// recording, and Review of the running session is read-only until it stops (§5 S2). The screen says why
 /// beside the button instead, which a keyboard user can reach. The service would stop a recording session
-/// before discarding it all the same (v0.4.1 Q3); this keeps the dialog off the screen.
+/// before discarding it all the same (v0.4.1 Q3); this keeps the dialog off the screen. History's bulk
+/// discard asks nothing while any session is being captured, and asks again once its dialog is answered.
 ///
 /// Platform-neutral, so the flow is tested on the Mac over a real pipe (ADR-0002).
 /// </summary>
@@ -29,6 +30,9 @@ public sealed class SessionDiscard(
     public const string StillCapturing = "This session is still being captured. Stop it first, then discard it.";
 
     public const string OneStillCapturing = "One of these sessions is still being captured. Stop it first, then discard them.";
+
+    /// <summary>History's bulk discard while some other session is being captured.</summary>
+    public const string WhileCapturing = "A session is being captured. Stop it first, then discard the selected sessions.";
 
     private readonly ShellState _state = state ?? throw new ArgumentNullException(nameof(state));
     private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<ConfirmationIssued?>> _request = request ?? throw new ArgumentNullException(nameof(request));
@@ -57,11 +61,26 @@ public sealed class SessionDiscard(
             return ConfirmedAction.NotConnected;
         }
 
-        var capturing = capture.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing;
-        return capturing && capture.SessionId is { } live && sessionIds.Contains(live, StringComparer.Ordinal)
+        return Capturing(capture) && capture.SessionId is { } live && sessionIds.Contains(live, StringComparer.Ordinal)
             ? (sessionIds.Count == 1 ? StillCapturing : OneStillCapturing)
             : null;
     }
+
+    /// <summary>
+    /// Why History's bulk discard cannot ask about these sessions right now, or null. Stricter than
+    /// <see cref="BlockedBecause"/>: its typed dialog is a modal, and Spec §4 allows none while any
+    /// session is being captured, whichever sessions are selected (review of #274). The selection's own
+    /// live session is still named when it is in it.
+    /// </summary>
+    public string? BulkBlockedBecause(IReadOnlyCollection<string> sessionIds) =>
+        BlockedBecause(sessionIds) ?? (Capturing(_state.Snapshot.KnownCapture) ? WhileCapturing : null);
+
+    /// <summary>Whether <paramref name="error"/> is one of the reasons a discard waits for capture to stop, which leaves the screen as it is.</summary>
+    public static bool SaysCapturing(string? error) =>
+        error is StillCapturing or OneStillCapturing or WhileCapturing;
+
+    private static bool Capturing(CaptureStateSnapshot? capture) =>
+        capture?.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing;
 
     /// <summary>
     /// Review's Discard, once the technician has typed DISCARD in the dialog. A token is asked for now,
@@ -101,19 +120,32 @@ public sealed class SessionDiscard(
     {
         ArgumentNullException.ThrowIfNull(sessionIds);
         ArgumentNullException.ThrowIfNull(typed);
-        if (BlockedBecause(sessionIds) is { } blocked)
+        if (BulkBlockedBecause(sessionIds) is { } blocked)
         {
             return Blocked(blocked);
         }
 
+        // Asked again once the dialog is answered, as the mark does (review of #274): the service starts
+        // sessions by itself, and one may have begun, or the service gone, while the count was typed.
+        // Nothing more is asked or sent then, and the reason is said beside the button.
+        string? since = null;
         var result = await ConfirmedAction.RunAsync(
             (action, c) => _request(Ask(action, sessionIds), c),
             History.DiscardCommands.Sessions,
-            typed,
+            async phrase =>
+            {
+                if (!await typed(phrase).ConfigureAwait(false))
+                {
+                    return false;
+                }
+
+                since = BulkBlockedBecause(sessionIds);
+                return since is null;
+            },
             token => Discard(sessionIds, token),
             _send,
             ct).ConfigureAwait(false);
-        return Settled(result, sessionIds, showHistory: false);
+        return since is not null ? Blocked(since) : Settled(result, sessionIds, showHistory: false);
     }
 
     private ConfirmedResult Settled(ConfirmedResult result, IReadOnlyList<string> ids, bool showHistory)

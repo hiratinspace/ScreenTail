@@ -159,6 +159,113 @@ public sealed class SessionDiscardTests : IAsyncDisposable
         Assert.Null(discard.BlockedBecause(["old"]));
     }
 
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    [InlineData(CaptureStates.Finalizing)]
+    public async Task ABulkDiscardAsksNothingWhileAnySessionIsBeingCaptured(string capturing)
+    {
+        // Review of #274: the typed dialog is a modal, and Spec §4 allows none during a recording,
+        // whichever sessions are selected.
+        var asked = 0;
+        var state = new ShellState();
+        state.Connected(new CaptureStateSnapshot { State = capturing, SessionId = "live" });
+        var discard = Offline(state, () => asked++, () => { });
+
+        var bulk = await discard.BulkAsync(["old"], _ => Task.FromResult(true), Ct);
+
+        Assert.Equal((ConfirmedOutcome.Refused, SessionDiscard.WhileCapturing), (bulk.Outcome, bulk.Error));
+        Assert.Equal(SessionDiscard.WhileCapturing, discard.BulkBlockedBecause(["old"]));
+        Assert.Equal(SessionDiscard.OneStillCapturing, discard.BulkBlockedBecause(["old", "live"]));
+        Assert.True(SessionDiscard.SaysCapturing(bulk.Error));
+        Assert.Equal(0, asked);
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Idle)]
+    [InlineData(CaptureStates.DraftReady)]
+    [InlineData(CaptureStates.DraftPending)]
+    public async Task ABulkDiscardAsksWhenNothingIsBeingCaptured(string state)
+    {
+        var shell = new ShellState();
+        shell.Connected(new CaptureStateSnapshot { State = state });
+        var sent = 0;
+        var discard = Offline(shell, () => { }, () => sent++);
+
+        var bulk = await discard.BulkAsync(["old"], _ => Task.FromResult(true), Ct);
+
+        Assert.True(bulk.Done, bulk.Error);
+        Assert.Null(discard.BulkBlockedBecause(["old"]));
+        Assert.Equal(1, sent);
+    }
+
+    [Fact]
+    public async Task ASessionThatBeginsWhileTheCountIsTypedStopsTheDiscard()
+    {
+        // As the mark (#274): the service starts sessions by itself, so the state is read again once the
+        // dialog is answered, and nothing is sent. The selection is left as it is.
+        var state = new ShellState();
+        state.Connected(CaptureStateSnapshot.Idle);
+        var sent = 0;
+        var discard = Offline(state, () => { }, () => sent++);
+
+        var bulk = await discard.BulkAsync(["old"], _ =>
+        {
+            state.Connected(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "new" });
+            return Task.FromResult(true);
+        }, Ct);
+
+        Assert.Equal((ConfirmedOutcome.Refused, SessionDiscard.WhileCapturing), (bulk.Outcome, bulk.Error));
+        Assert.Equal(0, sent);
+    }
+
+    [Fact]
+    public async Task AServiceThatGoesWhileTheCountIsTypedIsSentNothing()
+    {
+        var state = new ShellState();
+        state.Connected(CaptureStateSnapshot.Idle);
+        var sent = 0;
+        var discard = Offline(state, () => { }, () => sent++);
+
+        var bulk = await discard.BulkAsync(["old"], _ =>
+        {
+            state.Lost();
+            return Task.FromResult(true);
+        }, Ct);
+
+        Assert.Equal((ConfirmedOutcome.NotAvailable, ConfirmedAction.NotConnected), (bulk.Outcome, bulk.Error));
+        Assert.Equal(0, sent);
+    }
+
+    [Fact]
+    public async Task NotTypingTheCountIsStillADeclineWhileNothingChanged()
+    {
+        var state = new ShellState();
+        state.Connected(CaptureStateSnapshot.Idle);
+        var sent = 0;
+        var discard = Offline(state, () => { }, () => sent++);
+
+        var bulk = await discard.BulkAsync(["old"], _ => Task.FromResult(false), Ct);
+
+        Assert.Equal(ConfirmedOutcome.Declined, bulk.Outcome);
+        Assert.Equal(0, sent);
+    }
+
+    /// <summary>A discard over delegates, with no service behind it: the token is issued for the count, and every command is taken.</summary>
+    private static SessionDiscard Offline(ShellState state, Action asked, Action sent) => new(
+        state,
+        (_, _) =>
+        {
+            asked();
+            return Task.FromResult<ConfirmationIssued?>(new ConfirmationIssued { Token = "t", Phrase = "1" });
+        },
+        (_, _) =>
+        {
+            sent();
+            return Task.FromResult(new CommandResult { RequestId = 1, Ok = true });
+        });
+
     [Fact]
     public async Task WithNoServiceNothingIsShownAndNothingIsSent()
     {

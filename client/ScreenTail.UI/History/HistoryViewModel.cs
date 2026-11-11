@@ -63,7 +63,7 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// the dialog for the service's phrase and says whether it was typed. Null in a screen with nothing
     /// to discard through, which disables Bulk discard.
     /// </param>
-    /// <param name="discardBlocked">Why these sessions may not be asked about now (one is still being captured), or null.</param>
+    /// <param name="discardBlocked">Why these sessions may not be asked about now (a session is being captured), or null.</param>
     /// <param name="markPublished">
     /// Asks the technician and then the service to mark the session (its id, then the row as History
     /// shows it, for the question: when it started, how long, the tool) as published
@@ -180,7 +180,7 @@ public sealed partial class HistoryViewModel : ObservableObject
 
     /// <summary>
     /// Spec §5 S4's Bulk discard. Only the selected sessions that qualify are named, and the technician
-    /// types how many (v0.4.1 Q6). Nothing is asked while one of them is still being captured (Spec §4).
+    /// types how many (v0.4.1 Q6). Nothing is asked while any session is being captured (Spec §4).
     /// One typed confirmation at a time, as the mark below (review of #274).
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanBulkDiscard))]
@@ -214,9 +214,15 @@ public sealed partial class HistoryViewModel : ObservableObject
                 return;
             default:
                 // Refused or not answered. What the service holds may have moved under the selection, so
-                // the list is read again, and the reason stays beside the button.
-                DiscardError = result.Error ?? ConfirmedAction.RefusedWithoutReason;
-                await RefreshAsync().ConfigureAwait(true);
+                // the list is read again, and the reason stays beside the button. A session that began
+                // while the count was typed leaves the list and the selection as they are, as the mark does.
+                var error = result.Error ?? ConfirmedAction.RefusedWithoutReason;
+                if (!SessionDiscard.SaysCapturing(error))
+                {
+                    await RefreshAsync().ConfigureAwait(true);
+                }
+
+                DiscardError = error;
                 return;
         }
     }

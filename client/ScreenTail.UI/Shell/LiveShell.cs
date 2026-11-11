@@ -282,7 +282,7 @@ public sealed class LiveShell : IAsyncDisposable
                     ListSessionsAsync,
                     confirm: (confirmation, count) => OnUiThread(() => ConfirmTypedDialog.AskToDiscardSessions(_window, confirmation, count)),
                     discard: _discards.BulkAsync,
-                    discardBlocked: _discards.BlockedBecause,
+                    discardBlocked: _discards.BulkBlockedBecause,
                     markPublished: (sessionId, described, ct) => _marks.RunAsync(sessionId, () => OnUiThread(() => ConfirmMarkAsPublished(described)), ct)),
                 () => new SettingsViewModel(
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),

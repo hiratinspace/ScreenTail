@@ -159,6 +159,28 @@ public sealed class HistoryDiscardTests
     }
 
     [Fact]
+    public void ASessionThatBeganWhileTheCountWasTypedIsSaidAndTheSelectionStays()
+    {
+        // SessionDiscard reads the capture state again once the dialog is answered (review of #274), and
+        // refuses in words that say so. The list is not read again, so the selection is still there for
+        // when the recording stops.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var service = new FakeService(Row("s1", "draft"), Row("s2", "draft")) { Refusal = SessionDiscard.WhileCapturing };
+            var model = service.Model(confirm: (_, _) => Task.FromResult(true));
+            await model.RefreshAsync();
+            model.Select(model.Rows);
+
+            await model.BulkDiscardCommand.ExecuteAsync(null);
+
+            Assert.Equal(SessionDiscard.WhileCapturing, model.DiscardError);
+            Assert.Equal(1, service.Loads);
+            Assert.Equal(2, model.Selected.Count);
+        });
+    }
+
+    [Fact]
     public void ARefusalIsShownAndTheListIsReadAgain()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
