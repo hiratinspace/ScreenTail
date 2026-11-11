@@ -128,8 +128,8 @@ however well the rest was read:
   and a number ("Office365ProPlusRetail", "Int32.TryParse(value") change class at 0.35 or less, and
   are left alone. The case gate is there because the wrap pass joins a GUID that ends a table's row to
   the device name that starts the next ("5b8e0f1a2c3dAccounts-PC23"), and without it the hosted
-  probe's device tables lost 58.6% of their ink, against 11.1%; such a join changes case once or
-  twice. What the gate costs is recall: a random string whose letters rarely change case, mostly
+  probe's device tables lost 58.6% of their ink, against 15.3% with the gate (10.1% with no random-run
+  rule at all, hosted run 43084404887); such a join changes case once or twice. What the gate costs is recall: a random string whose letters rarely change case, mostly
   capitals with digits or mostly small letters with digits, is left to the shape and cue rules. It
   takes 91% of random strings of 16 characters, 98% of 26 and 99% of 36. A GUID, a hash in small letters, a hostname in capitals and digits, a path
   and a number grid are left alone. A key cut by a row's end is read whole by the wrap pass below, so
@@ -139,15 +139,17 @@ however well the rest was read:
   test" and "PASS FAIL" are left alone. It takes its rows as any password does.
 
 What reading at twice the size costs is time and some over-masking. On the hosted runners a full HD
-frame dense with text took 168 ms and 272 ms to read as captured on two runs, and 373 ms and 567 ms
-at twice the size; a full HD settings dialog took 52 ms and 257 ms a frame for its whole trip through
-the worker. Two readings, as captured and at twice the size, would cost the sum, 541 ms and 839 ms,
-which the 700 ms a frame may take does not hold, so there is one. The budget is held on the spare
-laptop (`RedactionThroughputTests`), not on a hosted runner. On pages with no secret, read at twice the
-size, the existing key rule takes more prose: OCR runs a few words together, and a cue it finds inside
-one ("account" in "accounting", "app" in "applied") takes the run with it, 3.9% of a prose page against
-1.0% read as captured. Number grids and tables lose about a sixth more than before, and code pages
-2.0% against 0.8%, the random-run rule's share of that a few names in code.
+frame dense with text took 168, 272 and 198 ms to read as captured on three runs, and 373, 567 and
+422 ms at twice the size; a full HD settings dialog took 52 ms a frame for its whole trip through the
+worker before, and 257 ms and 207 ms after. Two readings, as captured and at twice the size, would
+cost the sum, 541 to 839 ms, which the 700 ms a frame may take does not hold, so there is one. The
+budget is held on the spare laptop (`RedactionThroughputTests`), not on a hosted runner. On pages with
+no secret (hosted run 43084404887, share of the page masked, before and after): prose 1.3% and 4.5%,
+code 1.0% and 2.2%, number grids 3.6% and 4.6%, device tables 1.8% and 4.8%. Most of it is the
+existing key rule on prose read at twice the size: OCR runs a few words together, and a cue it finds
+inside one ("account" in "accounting", "app" in "applied") takes the run with it. The random-run
+rule's share is on code (1.9% to 2.2%) and tables (3.3% to 4.8%): names in code and table joins whose
+letters change case often enough.
 
 A match is masked by what is on the screen, not by how the OCR engine split it into words: every word
 that touches it with no space between them goes too, so a value the engine read as two words is masked

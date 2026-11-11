@@ -191,7 +191,7 @@ public sealed partial class OcrScaledSecretTests
 
             table.Add($"| {kind} | " + string.Join(" | ", Enumerable.Range(0, Arms.Length).Select(a => string.Create(
                 CultureInfo.InvariantCulture,
-                $"{(double)inkMasked[a] / ink[a]:0.0%} ink, {(double)pageMasked[a] / page[a]:0.0%} page, {touched[a]} of 20 ({string.Join(" ", kinds[a].OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}"))})"))) + " |");
+                $"{(double)inkMasked[a] / ink[a]:0.0%} ink, {(double)pageMasked[a] / page[a]:0.0%} page, {touched[a]} of {Fonts.Length * 2 * 3} ({string.Join(" ", kinds[a].OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}"))})"))) + " |");
             samples.AddRange(Enumerable.Range(0, Arms.Length).SelectMany(a => examples[a].Select(e => $"  {kind} {Arms[a].Name}: \"{e}\"")));
         }
 
