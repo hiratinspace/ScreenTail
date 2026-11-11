@@ -24,6 +24,11 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// quality; the numbers are in docs/security/data-flow.md and PR #278. What stays here is the cheap
 /// part, display scales and the 1x and 2x readings, because the Windows job has 20 minutes and reading
 /// every page three times took four of them.
+///
+/// On the spare laptop, which reads at about a third of the hosted runner's speed and whose job has
+/// 20 minutes for the whole suite, the two page measurements take a sample: 100% only, two pages a
+/// font and size for the secrets and one for the pages with none. Hardware run 43093888524 ran out of
+/// time with them whole. The floors are held by the tests beside these, whole on both machines.
 /// </summary>
 public sealed partial class OcrScaledSecretTests
 {
@@ -135,14 +140,15 @@ public sealed partial class OcrScaledSecretTests
 
         Tally[] New() => [.. Arms.Select(a => new Tally { SampleCap = a.Name is "1x+2x after" ? 2 : 0 })];
 
-        foreach (var scale in new[] { 1.0, 1.25, 1.5 })
+        var (scales, pages) = OnTheLaptop ? (new[] { 1.0 }, 2) : (new[] { 1.0, 1.25, 1.5 }, Pages);
+        foreach (var scale in scales)
         {
             var tallies = New();
             foreach (var font in Fonts)
             {
                 foreach (var points in new[] { 9f, 11f })
                 {
-                    for (var page = 0; page < Pages; page++)
+                    for (var page = 0; page < pages; page++)
                     {
                         using var screen = Draw(font, points, scale, page);
                         await Page(tallies, screen.Bitmap, screen.Secrets, 82);
@@ -185,10 +191,11 @@ public sealed partial class OcrScaledSecretTests
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         var recognisers = ArmRecognisers();
         Assert.SkipUnless(recognisers[0].Available, "Windows has no OCR language pack installed.");
+        var plain = OnTheLaptop ? 1 : 3;
 
         var table = new List<string>
         {
-            "Masked on pages with no secret (Segoe UI and Consolas, 9 and 11pt, 100%, 3 pages each): share of the ink masked, share of the page masked, pages with any mask, and the finds by kind.",
+            $"Masked on pages with no secret (Segoe UI and Consolas, 9 and 11pt, 100%, {plain} pages each): share of the ink masked, share of the page masked, pages with any mask, and the finds by kind.",
             "| page | " + string.Join(" | ", Arms.Select(a => a.Name)) + " |",
             "|---|" + string.Concat(Enumerable.Repeat("---|", Arms.Length)),
         };
@@ -202,7 +209,7 @@ public sealed partial class OcrScaledSecretTests
             {
                 foreach (var points in new[] { 9f, 11f })
                 {
-                    for (var n = 0; n < 3; n++)
+                    for (var n = 0; n < plain; n++)
                     {
                         using var bitmap = DrawPlain(kind, font, points, n);
                         var readings = await ReadArms(recognisers, Encode(bitmap, 82));
@@ -242,7 +249,7 @@ public sealed partial class OcrScaledSecretTests
 
             table.Add($"| {kind} | " + string.Join(" | ", Enumerable.Range(0, Arms.Length).Select(a => string.Create(
                 CultureInfo.InvariantCulture,
-                $"{(double)inkMasked[a] / ink[a]:0.0%} ink, {(double)pageMasked[a] / page[a]:0.0%} page, {touched[a]} of {Fonts.Length * 2 * 3} ({string.Join(" ", kinds[a].OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}"))})"))) + " |");
+                $"{(double)inkMasked[a] / ink[a]:0.0%} ink, {(double)pageMasked[a] / page[a]:0.0%} page, {touched[a]} of {Fonts.Length * 2 * plain} ({string.Join(" ", kinds[a].OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}"))})"))) + " |");
             samples.AddRange(Enumerable.Range(0, Arms.Length).SelectMany(a => examples[a].Select(e => $"  {kind} {Arms[a].Name}: \"{e}\"")));
         }
 

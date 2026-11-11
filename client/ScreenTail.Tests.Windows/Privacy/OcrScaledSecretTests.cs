@@ -103,14 +103,30 @@ public sealed partial class OcrScaledSecretTests
         Assert.True(total.TextLeft == 0, $"A masked secret is still in the stored text at {scale * 100:0}%. {total}");
 
         // Masked whole of 80 of each kind (password, token, card, ssn, wrapped key), as measured.
+        //
+        // Part showing at 100% is 12 on the hosted runner and 15 on the spare laptop (run 43093888537
+        // and hardware run 43093888524, same code): its OCR engine returns no word over the first row's
+        // piece of 13 wrapped keys, against 11 hosted, and over the prefix of 2 more ("--key UzvgigZlS"
+        // for "sk_live_1UzvgigZIS"), so the row below is masked and the pixels with no word on them are
+        // not. Not a regression of the larger reading: read as captured, the hosted runner left 46
+        // wrapped keys with no word over a piece against 23 at twice the size, and most of those were
+        // missed whole rather than part showing. The laptop's own number is held there, the hosted one
+        // here; the floors of what is masked whole are the same on both.
         var (measured, partial, stoppedShort) = scale switch
         {
-            1.0 => (new[] { 80, 77, 77, 80, 67 }, 12, 0),
+            1.0 => (new[] { 80, 77, 77, 80, 67 }, OnTheLaptop ? 15 : 12, 0),
             1.25 => (new[] { 80, 78, 80, 80, 74 }, 6, 1),
             _ => (new[] { 80, 80, 80, 80, 73 }, 7, 5),
         };
         Hold(total, measured, partial, stoppedShort, string.Create(CultureInfo.InvariantCulture, $"{scale * 100:0}% display scale"));
     }
+
+    /// <summary>
+    /// Whether this is the spare laptop rather than a hosted runner: its OCR engine reads a little
+    /// differently, and it reads at a third of the speed, so the measurements alone take a sample here.
+    /// </summary>
+    private static bool OnTheLaptop => !string.Equals(
+        Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>What was measured less a tenth, and less two at the least.</summary>
     private static int Floor(int measured) => (int)Math.Floor(measured - Math.Max(2.0, measured / 10.0));
