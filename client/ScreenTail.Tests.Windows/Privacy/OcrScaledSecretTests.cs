@@ -110,8 +110,8 @@ public sealed class OcrScaledSecretTests
         var table = new List<string>
         {
             "Secrets through a scaled, lossy viewer (11pt at 100%, bilinear resize, JPEG; 20 pages a font, 5 secrets a page):",
-            "| scale | JPEG | font | secrets | masked | part showing | missed | missed by kind (password, token, card, ssn, wrapped key) | part showing by kind | covered share of each part showing | still in stored text |",
-            "|---|---|---|---|---|---|---|---|---|---|---|",
+            "| scale | JPEG | font | secrets | masked | part showing | missed | masked by kind (password, token, card, ssn, wrapped key) | missed by kind | part showing by kind | covered share of each part showing | part showing with a piece not read, with a piece read two rows tall | still in stored text |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         };
         var results = new Dictionary<(double Scale, long Quality), Tally>();
         foreach (var scale in scales)
@@ -132,7 +132,7 @@ public sealed class OcrScaledSecretTests
 
                     table.Add(string.Create(
                         CultureInfo.InvariantCulture,
-                        $"| {scale:0.0} | {quality} | {font} | {tally.Secrets} | {tally.Masked} | {tally.Partial} | {tally.Missed} | {string.Join(", ", tally.MissedByKind)} | {string.Join(", ", tally.PartialByKind)} | {tally.PartialShares} | {tally.TextLeft} |"));
+                        $"| {scale:0.0} | {quality} | {font} | {tally.Secrets} | {tally.Masked} | {tally.Partial} | {tally.Missed} | {string.Join(", ", tally.MaskedByKind)} | {string.Join(", ", tally.MissedByKind)} | {string.Join(", ", tally.PartialByKind)} | {tally.PartialShares} | {tally.PartialUnread}, {tally.PartialTall} | {tally.TextLeft} |"));
                     both.Add(tally);
                 }
 
@@ -190,23 +190,38 @@ public sealed class OcrScaledSecretTests
 
         public int TextLeft { get; set; }
 
+        public int[] MaskedByKind { get; } = new int[Kinds.Length];
+
         public int[] MissedByKind { get; } = new int[Kinds.Length];
 
         public int[] PartialByKind { get; } = new int[Kinds.Length];
 
         public double LeastCovered { get; private set; } = 1;
 
-        private readonly List<double> _partial = [];
+        /// <summary>
+        /// Part showing secrets with a piece the engine read no word on: a miss of recall on that
+        /// piece, which no rule can mend, and not a rule stopping short.
+        /// </summary>
+        public int PartialUnread { get; private set; }
 
-        /// <summary>How much of each part showing secret was covered, as percentages.</summary>
-        public string PartialShares => _partial.Count == 0 ? "none" : string.Join(" ", _partial.Order().Select(p => p.ToString("0%", CultureInfo.InvariantCulture)));
+        /// <summary>Part showing secrets with an uncovered piece under a word read two rows tall.</summary>
+        public int PartialTall { get; private set; }
 
-        public void Count(int kind, double covered)
+        private readonly List<(int Kind, double Covered)> _partial = [];
+
+        /// <summary>How much of each part showing secret was covered, as percentages, kind by kind.</summary>
+        public string PartialShares => _partial.Count == 0
+            ? "none"
+            : string.Join("; ", _partial.GroupBy(p => p.Kind).OrderBy(g => g.Key).Select(g =>
+                Kinds[g.Key] + " " + string.Join(" ", g.Select(p => p.Covered).Order().Select(c => c.ToString("0%", CultureInfo.InvariantCulture)))));
+
+        public void Count(int kind, double covered, bool unread, bool tall)
         {
             Secrets++;
             if (covered >= 0.97)
             {
                 Masked++;
+                MaskedByKind[kind]++;
                 LeastCovered = Math.Min(LeastCovered, covered);
             }
             else if (covered <= 0.03)
@@ -218,7 +233,9 @@ public sealed class OcrScaledSecretTests
             {
                 Partial++;
                 PartialByKind[kind]++;
-                _partial.Add(covered);
+                PartialUnread += unread ? 1 : 0;
+                PartialTall += tall ? 1 : 0;
+                _partial.Add((kind, covered));
             }
         }
 
@@ -231,9 +248,12 @@ public sealed class OcrScaledSecretTests
             Missed += other.Missed;
             TextLeft += other.TextLeft;
             LeastCovered = Math.Min(LeastCovered, other.LeastCovered);
+            PartialUnread += other.PartialUnread;
+            PartialTall += other.PartialTall;
             _partial.AddRange(other._partial);
             for (var i = 0; i < Kinds.Length; i++)
             {
+                MaskedByKind[i] += other.MaskedByKind[i];
                 MissedByKind[i] += other.MissedByKind[i];
                 PartialByKind[i] += other.PartialByKind[i];
             }
@@ -241,7 +261,7 @@ public sealed class OcrScaledSecretTests
 
         public override string ToString() => string.Create(
             CultureInfo.InvariantCulture,
-            $"{Pages} pages, {Secrets} secrets: masked **{Masked}**, part showing **{Partial}** (by kind {string.Join(", ", PartialByKind)}; covered {PartialShares}), missed **{Missed}** (by kind {string.Join(", ", MissedByKind)}; kinds are {string.Join(", ", Kinds)}), "
+            $"{Pages} pages, {Secrets} secrets: masked **{Masked}** (by kind {string.Join(", ", MaskedByKind)}), part showing **{Partial}** (by kind {string.Join(", ", PartialByKind)}; covered {PartialShares}; with a piece not read {PartialUnread}, with a piece read two rows tall {PartialTall}), missed **{Missed}** (by kind {string.Join(", ", MissedByKind)}; kinds are {string.Join(", ", Kinds)}), "
             + $"masked in the picture and still in the stored text {TextLeft}, least covered of the masked {LeastCovered:P1}.");
     }
 
@@ -284,24 +304,37 @@ public sealed class OcrScaledSecretTests
         foreach (var secret in secrets)
         {
             int ink = 0, covered = 0;
+            bool unread = false, tall = false;
             foreach (var piece in secret.Pieces)
             {
+                int pieceInk = 0, pieceCovered = 0;
                 for (var y = Math.Max(0, piece.Top); y < Math.Min(height, piece.Bottom); y++)
                 {
                     for (var x = Math.Max(0, piece.Left); x < Math.Min(width, piece.Right); x++)
                     {
                         if (dark[(y * width) + x])
                         {
-                            ink++;
-                            covered += masked[(y * width) + x] ? 1 : 0;
+                            pieceInk++;
+                            pieceCovered += masked[(y * width) + x] ? 1 : 0;
                         }
                     }
+                }
+
+                ink += pieceInk;
+                covered += pieceCovered;
+                if (pieceCovered <= pieceInk * 0.03)
+                {
+                    // Words whose middle is inside the piece, and words over it that are too tall
+                    // to be one row of it.
+                    var on = words.Where(w => piece.IntersectsWith(new Rectangle(w.X, w.Y, w.Width, w.Height))).ToList();
+                    unread |= !on.Any(w => piece.Contains(w.X + (w.Width / 2), w.Y + (w.Height / 2)));
+                    tall |= on.Any(w => w.Height > piece.Height * 1.5);
                 }
             }
 
             Assert.True(ink > 0, "A secret was drawn with no ink, so the page proves nothing.");
             var share = (double)covered / ink;
-            tally.Count(secret.Kind, share);
+            tally.Count(secret.Kind, share, unread, tall);
 
             // A secret the picture lost and the text kept: any six characters of it in a row.
             if (share >= 0.97 && Enumerable.Range(0, Math.Max(0, secret.Text.Length - 5)).Any(i => redaction.Text.Contains(secret.Text.Substring(i, 6), StringComparison.Ordinal)))
