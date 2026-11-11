@@ -33,7 +33,9 @@ The packages land in `artifacts\installer\packages`. The script prints each step
 published and checked, what the native libraries need, what it signed (or would have signed), and the
 sizes against the ticket's 250 MB limit. It downloads WiX 5 and its two extensions from nuget.org, and
 refuses each unless its SHA-256 is the one pinned in `installer\tools.json` and its NuGet signatures
-verify. It also downloads Microsoft's runtime installer and checks that Microsoft signed it.
+verify. It also downloads the Visual C++ runtime installer pinned in the same file (see "The pinned
+Visual C++ runtime" below), refuses it unless its SHA-256 and file version are the pinned ones, and
+checks that Microsoft signed it.
 
 `-Stage Payload` publishes and checks the payload alone, and never signs. `installer\package.ps1`
 wraps a payload one step at a time (`-Step Msi`, `Bundle`, `Detach`, `Reattach`) and signs nothing;
@@ -54,7 +56,7 @@ For every run of the setup program the test also reads the setup program's own l
 code cannot say which package wanted a restart. ScreenTail's package must report `restart: None`, the
 last line must say `restarting: No` with the exit code the test saw, and the machine's pending-restart
 state is printed before and after. When the Visual C++ runtime's installer exits 3010 (the hosted
-image's runtime is older than Microsoft's current one and in use), the test passes and says so in a
+image's runtime is older than the pinned one and in use), the test passes and says so in a
 `NOTE` line, a notice on the run and a row of the summary, with the runtime's exit code; the runtime's
 own log, `setup-install_000_VcRuntimeX64.log`, is in the `installer-logs` artifact. A restart wanted by
 ScreenTail's package is still a failure. This is what the job met on 2026-11-11, when Microsoft
@@ -62,6 +64,45 @@ published a newer runtime than the image carries (see "Restarts and the setup pr
 
 `installer\smoke-test.ps1` is that check, and can be run on a VM by hand. It uninstalls ScreenTail and
 deletes its data folder, so it refuses to run where ScreenTail is installed unless given `-Force`.
+
+### The pinned Visual C++ runtime
+
+`ScreenTail-Setup.exe` carries one exact `vc_redist.x64.exe`, pinned under `downloads` in
+`installer\tools.json`: a versioned `download.visualstudio.microsoft.com/download/pr/...` URL, the
+file's four-part version (today `14.52.37029.0`) and its SHA-256. `package.ps1 -Step Bundle` downloads
+that URL and nothing else, and the build stops with a plain sentence if the download fails, if the
+file's SHA-256 is not the pinned one, if its file version is not the pinned one, or if Microsoft did
+not sign it. There is no fallback to the `aka.ms` "latest" links. The pinned version's build number
+(`37029`) is the bundle's detect condition, `VcRuntimeX64Build >= 37029`: a machine with that build or
+newer skips the runtime, an older one is updated. So two builds of one commit carry the same runtime,
+and a new Microsoft release changes nothing until the pin is moved. Before the pin (up to #276) the
+build took whatever Microsoft served that day, which is how 14.52 changed the detect condition and
+broke CI on 2026-11-11.
+
+To move to a newer runtime, in a reviewed pull request:
+
+1. Find the versioned URL Microsoft's link currently points at, without downloading:
+   `curl -sSIL -o /dev/null -w '%{url_effective}\n' https://aka.ms/vc14/vc_redist.x64.exe`. It has the
+   form `https://download.visualstudio.microsoft.com/download/pr/<id>/<SHA-256 in capitals>/VC_redist.x64.exe`.
+   Pin that URL, never an `aka.ms` link, which moves with each release.
+2. Download it once and check it yourself: its SHA-256 (`Get-FileHash -Algorithm SHA256`, or
+   `shasum -a 256`) must equal the hash in the URL's path, and its file version
+   (`(Get-Item .\VC_redist.x64.exe).VersionInfo.FileVersion`) is the version to pin. Check in its
+   Properties, or with `Get-AuthenticodeSignature`, that Microsoft signed it.
+3. Put the URL, the version and the lowercase SHA-256 in `tools.json`. `scripts/ci/check_installer_jobs.py`
+   refuses a pin whose URL is not a versioned Microsoft one, whose hash differs from the one in its
+   URL, or whose version is not four numbers.
+4. Read the **Installer (Windows)** run. The build log says
+   `vc_redist.x64 <version>, SHA-256 and version verified against installer/tools.json`. The smoke
+   test's runtime lines show whether the hosted image already has the new runtime: if it does, the
+   setup log's `Condition 'VcRuntimeX64Installed = 1 AND VcRuntimeX64Build >= <build>'` evaluates to
+   true and the test prints no runtime line; if the image's runtime is older, the test prints
+   `The setup program ran the Visual C++ runtime's installer: exit 0`, or a `NOTE` with exit 3010
+   when the old runtime was in use (a pass, as above). The setup logs are in the `installer-logs`
+   artifact. Either way ScreenTail's package must still install with `restart: None`.
+
+A pin Microsoft later takes down fails the build at the download, with the URL in the message: move
+the pin as above.
 
 ## Switch signing on
 
