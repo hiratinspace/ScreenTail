@@ -65,6 +65,16 @@ function Check([string]$Name, [bool]$Ok, [string]$Detail = '') {
     }
 }
 
+function Note([string]$Name, [string]$Detail = '') {
+    # Something the run met that is not ScreenTail's doing and not a failure, said by name: in the output,
+    # as a notice on the run, and as a row of the summary.
+    $results.Add([pscustomobject]@{ Check = $Name; Result = 'NOTE'; Detail = $Detail })
+    Write-Host "NOTE  $Name $Detail"
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Write-Host "::notice title=Installer smoke test::$Name $Detail"
+    }
+}
+
 function Write-Step([string]$Title) {
     Write-Host ''
     Write-Host "== $Title"
@@ -226,6 +236,52 @@ function Get-PendingRestartFiles {
     @($entries | Where-Object { $_ -and $_.IndexOf($installDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
+function Write-PendingRestartState([string]$When) {
+    # What Windows already holds for the next restart, printed before and after each run of the setup
+    # program: a restart the machine arrived wanting is then told apart from one a step caused.
+    $markers = @()
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') {
+        $markers += 'component servicing'
+    }
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') {
+        $markers += 'Windows Update'
+    }
+    $item = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -ErrorAction SilentlyContinue
+    $renames = 0
+    foreach ($name in @('PendingFileRenameOperations', 'PendingFileRenameOperations2')) {
+        if ($item -and $item.PSObject.Properties[$name]) {
+            $renames += @($item.$name | Where-Object { $_ }).Count
+        }
+    }
+    $ours = @(Get-PendingRestartFiles).Count
+    $said = $(if ($markers.Count -gt 0) { $markers -join ', ' } else { 'none' })
+    Write-Host "  Pending restart ${When}: markers: $said; file operations left for a restart: $renames, of ScreenTail's files: $ours"
+}
+
+function Test-SetupLog([string]$What, [string]$LogName, [int]$Code) {
+    # What the setup program's own log says about restarts. Its exit code alone cannot say which package
+    # wanted one: the 1641 of 2026-11-11 was the Visual C++ runtime's installer, not ScreenTail's package.
+    # ScreenTail's package must never need a restart, the setup program must never start one, and a
+    # runtime that wanted one is named, with its exit code, rather than passed over or failed for.
+    $lines = @(Get-Content (Join-Path $Logs $LogName) -ErrorAction SilentlyContinue)
+    $runtime = @($lines | Where-Object { $_ -match 'The process for package: VcRuntimeX64 exited with code: 0x[0-9a-fA-F]+' }) | Select-Object -First 1
+    if ("$runtime" -match 'exited with code: (0x[0-9a-fA-F]+)') {
+        $runtimeCode = [Convert]::ToInt32($Matches[1], 16)
+        $translated = $(if ("$runtime" -match 'translated to type: (\w+) and restart: (\w+)') { "the setup program took it as $($Matches[1]), restart $($Matches[2])" } else { 'the log does not say how the setup program took it' })
+        if ($runtimeCode -eq 3010 -or $runtimeCode -eq 1641) {
+            Note "${What}: the Visual C++ runtime on this machine was older than the setup program's and in use, so its update wants a restart to finish" "vc_redist.x64.exe exit $runtimeCode; $translated; its own log is $($LogName -replace '\.log$', '_000_VcRuntimeX64.log')"
+        } else {
+            Write-Host "  The setup program ran the Visual C++ runtime's installer: exit $runtimeCode; $translated"
+        }
+    }
+    $package = @($lines | Where-Object { $_ -match 'Applied execute package: ScreenTail, result: ' }) | Select-Object -Last 1
+    $said = $(if ("$package" -match '(Applied execute package: ScreenTail, result: .*)$') { $Matches[1] } else { 'the log has no line for the package' })
+    Check "${What}: the setup program ran ScreenTail's package, and the package needed no restart" ("$package" -match 'Applied execute package: ScreenTail, result: 0x0, restart: None\s*$') $said
+    $end = @($lines | Where-Object { $_ -match 'i007: Exit code: ' }) | Select-Object -Last 1
+    $said = $(if ("$end" -match '(Exit code: .*)$') { $Matches[1] } else { 'the log has no exit line' })
+    Check "${What}: the setup program did not restart the machine, and its log has the exit code it returned" ("$end" -match ('Exit code: 0x{0:x}, restarting: No\s*$' -f $Code)) $said
+}
+
 function Test-UpgradeHeld($Holder, [string[]]$Report) {
     # The holder really held the file through the old version's removal, the removal waited for it, and
     # nothing was left for a restart.
@@ -330,10 +386,18 @@ function Test-InstalledLayout([string]$ExpectedVersion) {
     foreach ($file in @('ScreenTail.Service.exe', 'ScreenTail.UI.exe', 'e_sqlcipher.dll', 'Registry\remote-tools.json', 'Registry\exclusions-default.json', 'runtimes\win-x64\whisper.dll')) {
         Check "installed: $file" (Test-Path (Join-Path $installDir $file))
     }
-    $managed = @(Get-ChildItem $installDir -Recurse -Filter '*.dll' | Where-Object {
-            try { [void][Reflection.AssemblyName]::GetAssemblyName($_.FullName); $true } catch [BadImageFormatException] { $false }
-        })
-    Check 'no managed assembly outside the single-file executables' ($managed.Count -eq 0) (($managed | ForEach-Object { $_.Name }) -join ', ')
+    # Only where the folder exists. Given a folder that is not there, Windows PowerShell's Get-ChildItem
+    # -Recurse searches the parent, all of Program Files, for the name instead, and ends the whole test on
+    # the first folder it may not read, before the summary: what happened when the setup program had
+    # installed nothing.
+    if (Test-Path -LiteralPath $installDir -PathType Container) {
+        $managed = @(Get-ChildItem -LiteralPath $installDir -Recurse -Filter '*.dll' | Where-Object {
+                try { [void][Reflection.AssemblyName]::GetAssemblyName($_.FullName); $true } catch [BadImageFormatException] { $false }
+            })
+        Check 'no managed assembly outside the single-file executables' ($managed.Count -eq 0) (($managed | ForEach-Object { $_.Name }) -join ', ')
+    } else {
+        Check 'the install folder exists' $false $installDir
+    }
     foreach ($exe in @($serviceExe, $uiExe)) {
         if (Test-Path $exe) {
             $subsystem = Get-Subsystem $exe
@@ -619,8 +683,11 @@ Remove-Item $outside -Recurse -Force -ErrorAction SilentlyContinue
 if ($Bundle) {
     $Bundle = (Resolve-Path $Bundle).Path
     Write-Step 'Silent install with the setup program'
+    Write-PendingRestartState 'before the setup program'
     $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-install.log')`""
     Check 'ScreenTail-Setup.exe /quiet exits 0' ($code -eq 0) "exit $code"
+    Test-SetupLog 'setup program install' 'setup-install.log' $code
+    Write-PendingRestartState 'after the setup program'
     Test-InstalledLayout $version
     $bundles = @(Get-ArpEntries | Where-Object { $_.PSObject.Properties['BundleVersion'] })
     Check 'the setup program is listed in Programs and Features' ($bundles.Count -eq 1) "found $($bundles.Count)"
@@ -636,6 +703,8 @@ if ($Bundle) {
     $since = Get-Date
     $code = Invoke-Process $Bundle "/uninstall /quiet /norestart /log `"$(Join-Path $Logs 'setup-uninstall.log')`""
     Check 'ScreenTail-Setup.exe /uninstall /quiet exits 0' ($code -eq 0) "exit $code"
+    Test-SetupLog 'setup program uninstall' 'setup-uninstall.log' $code
+    Write-PendingRestartState 'after the setup program''s uninstall'
     Test-Removed
     $report = Get-UninstallReport $Logs $since
     $report | ForEach-Object { Write-Host "  $_" }
@@ -684,6 +753,7 @@ if ($OlderMsi) {
         $holder = Start-ForeignHolder 'setup program upgrade'
         $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-upgrade.log')`""
         Check 'ScreenTail-Setup.exe /quiet over the older package exits 0, with no restart needed' ($code -eq 0) "exit $code"
+        Test-SetupLog 'setup program upgrade' 'setup-upgrade.log' $code
         $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
         $upgradeReport | ForEach-Object { Write-Host "  $_" }
         Test-UpgradeHeld $holder $upgradeReport
@@ -693,6 +763,7 @@ if ($OlderMsi) {
         $since = Get-Date
         $code = Invoke-Process $Bundle "/uninstall /quiet /norestart /log `"$(Join-Path $Logs 'setup-uninstall-2.log')`""
         Check 'ScreenTail-Setup.exe /uninstall /quiet exits 0, after its upgrade' ($code -eq 0) "exit $code"
+        Test-SetupLog 'setup program uninstall after its upgrade' 'setup-uninstall-2.log' $code
         Test-Removed
         Test-ReleaseWait (Get-UninstallReport $Logs $since)
     } else {
@@ -717,8 +788,10 @@ $left | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # --- Summary -------------------------------------------------------------------------------------------
 $failed = @($results | Where-Object { $_.Result -eq 'FAIL' })
+$notes = @($results | Where-Object { $_.Result -eq 'NOTE' })
+$checks = $results.Count - $notes.Count
 Write-Host ''
-Write-Host "$($results.Count - $failed.Count) of $($results.Count) checks passed."
+Write-Host "$($checks - $failed.Count) of $checks checks passed, $($notes.Count) notes."
 if ($env:GITHUB_STEP_SUMMARY) {
     $lines = @('### Installer smoke test', '', "Session for this account: $signedIn", '', '| Check | Result | Detail |', '|---|---|---|')
     foreach ($result in $results) {

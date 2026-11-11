@@ -50,6 +50,16 @@ another process reads `ScreenTail.Service.exe` for 4 seconds from the moment the
 each must exit 0 with nothing left for a restart. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
 kept seven days. To try one: download it from the run's summary page, on a throwaway VM.
 
+For every run of the setup program the test also reads the setup program's own log, because its exit
+code cannot say which package wanted a restart. ScreenTail's package must report `restart: None`, the
+last line must say `restarting: No` with the exit code the test saw, and the machine's pending-restart
+state is printed before and after. When the Visual C++ runtime's installer exits 3010 (the hosted
+image's runtime is older than Microsoft's current one and in use), the test passes and says so in a
+`NOTE` line, a notice on the run and a row of the summary, with the runtime's exit code; the runtime's
+own log, `setup-install_000_VcRuntimeX64.log`, is in the `installer-logs` artifact. A restart wanted by
+ScreenTail's package is still a failure. This is what the job met on 2026-11-11, when Microsoft
+published a newer runtime than the image carries (see "Restarts and the setup program" under "Deploy it silently").
+
 `installer\smoke-test.ps1` is that check, and can be run on a VM by hand. It uninstalls ScreenTail and
 deletes its data folder, so it refuses to run where ScreenTail is installed unless given `-Force`.
 
@@ -226,6 +236,17 @@ msiexec /i ScreenTail.msi /qn /norestart /l*v C:\Windows\Temp\screentail-install
   Win32 app with the commands above and detect the file `C:\Program Files\ScreenTail\ScreenTail.Service.exe`.
 - **RMM tools:** run either command above. Exit code `0` is success, `3010` success with a restart
   pending, `1618` another installation in progress (retry), anything else a failure; the log says why.
+- **Restarts and the setup program:** `ScreenTail-Setup.exe` updates the Visual C++ runtime when the
+  machine's is older than the one it carries (Microsoft's current one on the day of the build). When
+  another program has the old runtime loaded, Microsoft's installer replaces what it can, leaves the
+  rest for the next restart and exits `3010`. The setup program does not pass that on: it installs
+  ScreenTail, which runs on the runtime that was already there, and exits with the package's own code,
+  so `0`. The runtime's update finishes at the machine's next restart, whenever that is. To see whether
+  it happened, look in the setup log for `The process for package: VcRuntimeX64 exited with code: 0xbc2`;
+  the runtime's own log is written next to it, with `_000_VcRuntimeX64` in its name. **Builds before
+  this fix (2026-11-11) stopped there instead:** exit `1641`, ScreenTail not installed until the setup
+  program was run again after a restart, and without `/norestart` a `/quiet` install restarted the
+  machine without asking. Keep `/norestart` on every command line all the same.
 - **Upgrades:** deploy the newer package the same way. It replaces the old version and keeps every
   user's data. Running ScreenTail processes are ended first, so no restart is needed. That reaches
   every signed-in user when the installer runs as the system account (as Intune and RMM tools run it);

@@ -44,17 +44,29 @@
     <Chain>
       <!-- Shared with other software, so permanent: uninstalling ScreenTail never takes it away. Skipped
            when the same or a newer build is already there; 1638 is the runtime's own "a newer version is
-           installed", which is success here. -->
+           installed", which is success here.
+
+           3010 and 1641 are success too, and that is what keeps a silent install from restarting the
+           machine. The runtime's installer answers 3010 when it replaced a runtime another program had
+           loaded: the new files are in place at the next restart, and until then that program, and
+           ScreenTail, run on the runtime that was there. The setup program's prerequisite step treats any
+           restart a prerequisite reports as one to make at once: it stops before ScreenTail.msi, exits
+           1641 with ScreenTail not installed, and with /quiet and no /norestart it restarts the machine
+           without asking. So the restart is not passed on: ScreenTail installs, the exit code is the
+           package's own, and the runtime's exit code stays in the log (the line "The process for
+           package: VcRuntimeX64 exited with code"). The runtime's installer is told to write its own
+           log next to the setup program's, so why it wanted a restart can be read there. -->
       <ExePackage Id="VcRuntimeX64"
                   SourceFile="$(var.VcRedist)"
                   DetectCondition="VcRuntimeX64Installed = 1 AND VcRuntimeX64Build &gt;= $(var.VcRedistBuild)"
-                  InstallArguments="/install /quiet /norestart"
+                  InstallArguments="/install /quiet /norestart /log &quot;[WixBundleLog_VcRuntimeX64]&quot;"
                   Permanent="yes"
                   PerMachine="yes"
                   Vital="yes"
                   bal:PrereqPackage="yes">
         <ExitCode Value="1638" Behavior="success" />
-        <ExitCode Value="3010" Behavior="scheduleReboot" />
+        <ExitCode Value="3010" Behavior="success" />
+        <ExitCode Value="1641" Behavior="success" />
       </ExePackage>
 
       <MsiPackage Id="ScreenTail" SourceFile="$(var.Msi)" />
