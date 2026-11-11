@@ -109,14 +109,29 @@ public sealed class OcrWrapTests
         // Side by side on the same rows, so neither piece is the first or last word of its row.
         var words = Page(
             [.. Row(0, 20, "Notes", "pane"), .. Row(0, 500, "deploy", "--key", "sk_live_ABCDEFGHIJ")],
+            [.. Row(1, 20, "the", "note"), .. Row(1, 500, "KLMNOPQRSTUV0123", "--region", "eu")]);
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("Notes pane deploy --key [SECRET] the note [SECRET] --region eu", redaction.Text);
+        Assert.True(Covered(redaction, words[4]), "the key's first row is left unpainted in the frame");
+        Assert.True(Covered(redaction, words[7]), "the key's second row is left unpainted in the frame");
+        Assert.False(Touched(redaction, words[5]), "the left pane is painted");
+    }
+
+    [Fact]
+    public void AWordOfTheOtherPaneThatCompletesAKeyIsMasked()
+    {
+        // The rule's cost, stated: the two runs nearest on the row below are both tried, and the other
+        // pane's first word is long enough to make the key's first piece a key. Nothing on the screen
+        // says which run the line went on in.
+        var words = Page(
+            [.. Row(0, 20, "Notes", "pane"), .. Row(0, 500, "deploy", "--key", "sk_live_ABCDEFGHIJ")],
             [.. Row(1, 20, "second", "note"), .. Row(1, 500, "KLMNOPQRSTUV0123", "--region", "eu")]);
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("Notes pane deploy --key [SECRET] second note [SECRET] --region eu", redaction.Text);
-        Assert.True(Covered(redaction, words[4]), "the key's first row is left unpainted in the frame");
-        Assert.True(Covered(redaction, words[7]), "the key's second row is left unpainted in the frame");
-        Assert.False(Touched(redaction, words[5]), "the left pane is painted");
+        Assert.Equal("Notes pane deploy --key [SECRET] note [SECRET] --region eu", redaction.Text);
     }
 
     [Fact]
@@ -294,15 +309,31 @@ public sealed class OcrWrapTests
         var words = Page(
             Row(0, Left, "wifi", "password:", "Tangerine4821Wob"),
             Row(1, Left, "ble", "is", "on", "the", "router"),
-            Row(2, Left, "Queue", "cleared"));
+            Row(2, Left, "Queue", "cleared", "and", "a", "test", "page", "sent", "to", "the", "printer"));
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("wifi [REDACTED] Queue cleared", redaction.Text);
+        Assert.Equal("wifi [REDACTED] Queue cleared and a test page sent to the printer", redaction.Text);
         Assert.All(Enumerable.Range(1, 7), i => Assert.True(Covered(redaction, words[i]), $"word {i} is left unpainted in the frame"));
         Assert.False(Touched(redaction, words[0]), "the word left of the cue is painted");
         Assert.False(Touched(redaction, words[8]), "the row after the password's rows is painted");
         Assert.Equal(1, redaction.Counts[MaskKind.Password]);
+    }
+
+    [Fact]
+    public void APasswordAtTheEndOfItsRowTakesEveryShortRowInReach()
+    {
+        // The rule's cost, stated: every row that may continue the password's is tried, the second
+        // down as well as the first, and a password takes each row its match touches. Both rows below
+        // are no wider than the password's and within two row heights of it.
+        var words = Page(
+            Row(0, Left, "wifi", "password:", "Tangerine4821"),
+            Row(1, Left, "Queue", "cleared"),
+            Row(2, Left, "Driver", "updated"));
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("wifi [REDACTED] [REDACTED]", redaction.Text);
     }
 
     [Fact]
