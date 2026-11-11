@@ -32,9 +32,17 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
     public const double UnknownConfidence = 1.0;
 
     private readonly OcrEngine? _engine;
+    private readonly double _scale;
 
-    public WindowsOcrRecogniser(string? language = null)
+    /// <param name="language">The language to read, or null for the user's own.</param>
+    /// <param name="scale">
+    /// How much larger the engine is given the frame than it was captured, with every box brought back
+    /// to the frame's own pixels. One reads it as it is.
+    /// </param>
+    public WindowsOcrRecogniser(string? language = null, double scale = 1.0)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(scale, 1.0);
+        _scale = scale;
         // The user's own languages first: a technician working in German reads German dialogs, and an
         // engine that only knows English would quietly miss the words a secret sits beside.
         _engine = language is null
@@ -49,6 +57,9 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
 
     public string? Language => _engine?.RecognizerLanguage.LanguageTag;
 
+    /// <summary>The largest width or height, in pixels, the engine reads.</summary>
+    public static uint MaxImageDimension => OcrEngine.MaxImageDimension;
+
     public async Task<RecognisedText> ReadAsync(ReadOnlyMemory<byte> image, CancellationToken ct = default)
     {
         if (_engine is null)
@@ -62,7 +73,23 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
         stream.Seek(0);
 
         var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(ct).ConfigureAwait(false);
-        using var bitmap = await decoder.GetSoftwareBitmapAsync().AsTask(ct).ConfigureAwait(false);
+
+        // Never larger than the engine takes: a frame it refuses is a frame it did not read.
+        var scale = Math.Min(_scale, OcrEngine.MaxImageDimension / (double)Math.Max(decoder.PixelWidth, decoder.PixelHeight));
+        scale = Math.Max(1.0, scale);
+        using var bitmap = scale == 1.0
+            ? await decoder.GetSoftwareBitmapAsync().AsTask(ct).ConfigureAwait(false)
+            : await decoder.GetSoftwareBitmapAsync(
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied,
+                new BitmapTransform
+                {
+                    ScaledWidth = (uint)Math.Round(decoder.PixelWidth * scale),
+                    ScaledHeight = (uint)Math.Round(decoder.PixelHeight * scale),
+                    InterpolationMode = BitmapInterpolationMode.Cubic,
+                },
+                ExifOrientationMode.IgnoreExifOrientation,
+                ColorManagementMode.DoNotColorManage).AsTask(ct).ConfigureAwait(false);
 
         var result = await _engine.RecognizeAsync(bitmap).AsTask(ct).ConfigureAwait(false);
         var words = new List<FoundWord>();
@@ -71,12 +98,27 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
             foreach (var word in line.Words)
             {
                 var box = word.BoundingRect;
+                if (scale == 1.0)
+                {
+                    words.Add(new FoundWord(
+                        word.Text,
+                        (int)Math.Round(box.X),
+                        (int)Math.Round(box.Y),
+                        (int)Math.Round(box.Width),
+                        (int)Math.Round(box.Height)));
+                    continue;
+                }
+
+                // Outward to whole pixels of the frame, so a box brought back from a larger reading
+                // covers no less than the engine said.
+                var left = (int)Math.Floor(box.X / scale);
+                var top = (int)Math.Floor(box.Y / scale);
                 words.Add(new FoundWord(
                     word.Text,
-                    (int)Math.Round(box.X),
-                    (int)Math.Round(box.Y),
-                    (int)Math.Round(box.Width),
-                    (int)Math.Round(box.Height)));
+                    left,
+                    top,
+                    (int)Math.Ceiling((box.X + box.Width) / scale) - left,
+                    (int)Math.Ceiling((box.Y + box.Height) / scale) - top));
             }
         }
 

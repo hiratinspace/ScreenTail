@@ -37,7 +37,7 @@ namespace ScreenTail.Tests.Windows.Privacy;
 ///
 /// Counts and box geometry only are printed, never text, failing or not (INV-10).
 /// </summary>
-public sealed class OcrScaledSecretTests
+public sealed partial class OcrScaledSecretTests
 {
     private const int Pages = 20;
     private const int BaseWidth = 1000;
@@ -71,6 +71,7 @@ public sealed class OcrScaledSecretTests
         Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
 
         var total = new Tally();
+        var stages = new List<(string, Tally)>();
         foreach (var font in Fonts)
         {
             foreach (var points in new[] { 9f, 11f })
@@ -85,9 +86,12 @@ public sealed class OcrScaledSecretTests
                 Measurements.Record(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Secrets through OCR at {scale * 100:0}% display scale, {font} {points:0}pt: {tally}"));
+                stages.Add(($"{font} {points:0}pt", tally));
                 total.Add(tally);
             }
         }
+
+        Measurements.Record(StageTable(string.Create(CultureInfo.InvariantCulture, $"Where secrets were lost at {scale * 100:0}% display scale ({total.OcrMs / total.Pages:0} ms of OCR a page)."), stages));
 
         Assert.True(total.Pages == Fonts.Length * 2 * Pages, $"Drew {total.Pages} pages. {total}");
         Assert.True(total.TextLeft == 0, $"A masked secret is still in the stored text at {scale * 100:0}%. {total}");
@@ -156,6 +160,7 @@ public sealed class OcrScaledSecretTests
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         };
         var results = new Dictionary<(double Scale, long Quality), Tally>();
+        var stages = new List<(string, Tally)>();
         foreach (var scale in scales)
         {
             foreach (var quality in qualities)
@@ -163,7 +168,7 @@ public sealed class OcrScaledSecretTests
                 var both = new Tally();
                 foreach (var font in Fonts)
                 {
-                    var tally = new Tally();
+                    var tally = new Tally { SampleCap = 1 };
                     for (var page = 0; page < Pages; page++)
                     {
                         using var screen = Draw(font, 11f, 1.0, page);
@@ -175,6 +180,7 @@ public sealed class OcrScaledSecretTests
                     table.Add(string.Create(
                         CultureInfo.InvariantCulture,
                         $"| {scale:0.0} | {quality} | {font} | {tally.Secrets} | {tally.Masked} | {tally.Partial} | {tally.Missed} | {string.Join(", ", tally.MaskedByKind)} | {string.Join(", ", tally.MissedByKind)} | {string.Join(", ", tally.PartialByKind)} | {tally.PartialShares} | {tally.PartialUnread}, {tally.PartialTall} | {string.Join(", ", tally.WordsOnPiece[0])}; {string.Join(", ", tally.WordsOnPiece[1])} | {tally.TextLeft} |"));
+                    stages.Add((string.Create(CultureInfo.InvariantCulture, $"{scale:0.0} JPEG {quality} {font}"), tally));
                     both.Add(tally);
                 }
 
@@ -183,6 +189,7 @@ public sealed class OcrScaledSecretTests
         }
 
         Measurements.Record(string.Join(Environment.NewLine, table));
+        Measurements.Record(StageTable("Where secrets were lost through the viewer.", stages));
 
         // What is held to. Every condition was drawn and read, nothing masked in the picture is left
         // in the stored text, and at every scale and quality each kind is masked whole no fewer times
@@ -216,7 +223,7 @@ public sealed class OcrScaledSecretTests
         (1.1, 75, [40, 32, 40, 40, 0], 20, 0),
     ];
 
-    private sealed class Tally
+    private sealed partial class Tally
     {
         public int Pages { get; set; }
 
@@ -297,6 +304,7 @@ public sealed class OcrScaledSecretTests
             PartialUnread += other.PartialUnread;
             PartialTall += other.PartialTall;
             _partial.AddRange(other._partial);
+            AddDiagnosis(other);
             for (var i = 0; i < 4; i++)
             {
                 WordsOnPiece[0][i] += other.WordsOnPiece[0][i];
@@ -321,7 +329,8 @@ public sealed class OcrScaledSecretTests
     /// <param name="Kind">Which of <see cref="Kinds"/> it is.</param>
     /// <param name="Text">What was drawn, for the stored text check.</param>
     /// <param name="Pieces">Where it was drawn: one box, or two for the key that wraps.</param>
-    private sealed record Secret(int Kind, string Text, Rectangle[] Pieces);
+    /// <param name="PieceTexts">What was drawn in each piece.</param>
+    private sealed record Secret(int Kind, string Text, Rectangle[] Pieces, string[] PieceTexts);
 
     private sealed class Screen(Bitmap bitmap, List<Secret> secrets) : IDisposable
     {
@@ -336,11 +345,19 @@ public sealed class OcrScaledSecretTests
     /// Reads the picture as the worker does, redacts it, and counts for each secret how much of its
     /// ink is under a mask.
     /// </summary>
-    private static async Task Redact(WindowsOcrRecogniser recogniser, Bitmap bitmap, List<Secret> secrets, long quality, Tally tally)
+    private static Task Redact(WindowsOcrRecogniser recogniser, Bitmap bitmap, List<Secret> secrets, long quality, Tally tally) =>
+        Redact(Read(recogniser), bitmap, secrets, quality, tally);
+
+    private static async Task Redact(Reader reader, Bitmap bitmap, List<Secret> secrets, long quality, Tally tally) =>
+        Score(await reader(Encode(bitmap, quality)), bitmap, secrets, tally);
+
+    /// <summary>Counts for each secret how much of its ink is under one reading's masks.</summary>
+    private static void Score(Reading reading, Bitmap bitmap, List<Secret> secrets, Tally tally)
     {
-        var words = (await recogniser.ReadAsync(Encode(bitmap, quality), TestContext.Current.CancellationToken)).Words;
-        var redaction = new RedactionEngine().RedactFrame(words);
+        var words = reading.Words[0];
+        var redaction = reading.Redaction;
         tally.Pages++;
+        tally.OcrMs += reading.OcrMs;
 
         var (width, height) = (bitmap.Width, bitmap.Height);
         var dark = Dark(bitmap);
@@ -388,6 +405,7 @@ public sealed class OcrScaledSecretTests
             Assert.True(ink > 0, "A secret was drawn with no ink, so the page proves nothing.");
             var share = (double)covered / ink;
             tally.Count(secret.Kind, share, unread, tall);
+            tally.Diagnose(secret, share, reading, redaction.Regions);
             if (share < 0.97 && secret.Pieces.Length == 2)
             {
                 for (var i = 0; i < 2; i++)
@@ -474,8 +492,8 @@ public sealed class OcrScaledSecretTests
                 // A pixel either way, for a glyph that leans over its cell's edge.
                 var box = Rectangle.FromLTRB(margin + from - 1, top, margin + to + 1, top + pitch);
                 secrets[kind] = secrets.TryGetValue(kind, out var known)
-                    ? known with { Text = known.Text + secret, Pieces = [.. known.Pieces, box] }
-                    : new Secret(kind, secret, [box]);
+                    ? known with { Text = known.Text + secret, Pieces = [.. known.Pieces, box], PieceTexts = [.. known.PieceTexts, secret] }
+                    : new Secret(kind, secret, [box], [secret]);
             }
         }
 
