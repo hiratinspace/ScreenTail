@@ -100,9 +100,9 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     /// <param name="showFrame">Selects a frame in the filmstrip when its chip is clicked (T-165).</param>
     /// <param name="draftPending">The draft is queued for the backend (ST-013): on its way, not failed.</param>
     /// <param name="discardBlocked">
-    /// Why Discard may not be asked about right now, or null when it may: the session is still being
-    /// captured, or the service is not answering. Asked before the dialog, because Spec §4 allows no modal
-    /// during a recording.
+    /// Why Discard may not be asked about right now, or null when it may: a session (this one or another)
+    /// is being captured, or the service is not answering. Asked before the dialog, because Spec §4 allows
+    /// no modal during a recording, and again once it is answered.
     /// </param>
     public NoteEditorViewModel(
         Session session,
@@ -374,6 +374,15 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
 
         if (!_confirm(TypedConfirmation.ForDiscard()))
         {
+            return;
+        }
+
+        // Asked again once the dialog is answered, as the mark and History's bulk discard do: the service
+        // starts sessions by itself, and one may have begun, or the service gone, while DISCARD was typed.
+        // Nothing is sent, and the autosave is never stopped.
+        if (_discardBlocked?.Invoke() is { } since)
+        {
+            SetDiscardError(since);
             return;
         }
 
