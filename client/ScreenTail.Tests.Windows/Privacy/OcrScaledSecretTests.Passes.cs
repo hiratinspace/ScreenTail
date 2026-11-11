@@ -15,6 +15,11 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// with none, and how long the engine took to read. Measurements, not floors: the floors are held on
 /// the product's own reading in the tests beside these.
 ///
+/// After the review of PR #278 the arms are the first round's rules (<see cref="MisreadRules.Round1"/>)
+/// with each of the review's added alone, all of them, and all of them with a rule for random runs of
+/// one case (hexadecimal, small letters or capitals with digits, base32) that the product does not
+/// have: what that rule would cost on pages with no secret is how it was decided.
+///
 /// Run 43075790830 measured every arm, at 1.5x as well and through the viewer at every scale and
 /// quality; the numbers are in docs/security/data-flow.md and PR #278. What stays here is the cheap
 /// part, display scales and the 1x and 2x readings, because the Windows job has 20 minutes and reading
@@ -25,19 +30,63 @@ public sealed partial class OcrScaledSecretTests
     /// <param name="Name">What the column is called.</param>
     /// <param name="Reads">Which readings, by index into the scales 1x and 2x, are masked together.</param>
     /// <param name="Rules">Which rules for misreads run.</param>
-    private sealed record Arm(string Name, int[] Reads, MisreadRules Rules);
+    /// <param name="OneCase">Whether random runs of one case are masked too (not a product rule).</param>
+    private sealed record Arm(string Name, int[] Reads, MisreadRules Rules, bool OneCase = false);
 
     private static readonly Arm[] Arms =
     [
         new("1x before", [0], MisreadRules.None),
         new("2x before", [1], MisreadRules.None),
-        new("1x after", [0], MisreadRules.All),
-        new("2x +prefixes", [1], MisreadRules.Prefixes),
-        new("2x +random runs", [1], MisreadRules.RandomRuns),
-        new("2x +bare pass", [1], MisreadRules.BarePass),
+        new("2x round 1", [1], MisreadRules.Round1),
+        new("2x +aws", [1], MisreadRules.Round1 | MisreadRules.AwsPrefix),
+        new("2x +base64", [1], MisreadRules.Round1 | MisreadRules.Base64Runs),
+        new("2x +split runs", [1], MisreadRules.Round1 | MisreadRules.SplitRuns),
+        new("2x +pass forms", [1], MisreadRules.Round1 | MisreadRules.PassForms),
         new("2x after", [1], MisreadRules.All),
+        new("2x after +one case", [1], MisreadRules.All, OneCase: true),
         new("1x+2x after", [0, 1], MisreadRules.All),
     ];
+
+    /// <summary>
+    /// Runs of one case with digits that look random: at least 16 letters and digits, the letters all
+    /// capitals or all small, a letter and a digit among them, changing between letter and digit at no
+    /// less than a quarter of their pairs. Random hexadecimal changes at about 0.47 of them, base36 at
+    /// 0.4 and base32 at 0.3. Measured here only, for what it would cost.
+    /// </summary>
+    private static IEnumerable<PatternMatch> OneCaseRuns(string text)
+    {
+        var i = 0;
+        while (i < text.Length)
+        {
+            while (i < text.Length && (char.IsWhiteSpace(text[i]) || text[i] is '=' or ':' or '"' or '\'' or ',' or ';'))
+            {
+                i++;
+            }
+
+            var start = i;
+            var (count, changes, upper, lower, letters, digits, previous) = (0, 0, false, false, false, false, 0);
+            while (i < text.Length && !(char.IsWhiteSpace(text[i]) || text[i] is '=' or ':' or '"' or '\'' or ',' or ';'))
+            {
+                var c = text[i++];
+                var kind = char.IsAsciiLetter(c) ? 1 : char.IsAsciiDigit(c) ? 2 : 0;
+                if (kind == 0)
+                {
+                    continue;
+                }
+
+                (upper, lower) = (upper || char.IsAsciiLetterUpper(c), lower || char.IsAsciiLetterLower(c));
+                (letters, digits) = (letters || kind == 1, digits || kind == 2);
+                changes += previous != 0 && previous != kind ? 1 : 0;
+                previous = kind;
+                count++;
+            }
+
+            if (count >= 16 && letters && digits && !(upper && lower) && changes >= 0.25 * (count - 1))
+            {
+                yield return new PatternMatch(ScreenTail.Shared.Schema.MaskKind.ApiKey, start, i - start, "[SECRET]");
+            }
+        }
+    }
 
     /// <summary>Every arm's reading of one image, each scale read once.</summary>
     private static async Task<Reading[]> ReadArms(WindowsOcrRecogniser[] recognisers, byte[] image)
@@ -53,7 +102,9 @@ public sealed partial class OcrScaledSecretTests
 
         return [.. Arms.Select(arm =>
         {
-            var engine = new RedactionEngine(null, (text, policy, incomplete) => PatternLibrary.Find(text, policy, incomplete, arm.Rules));
+            var engine = new RedactionEngine(null, (text, policy, incomplete) => arm.OneCase
+                ? [.. PatternLibrary.Find(text, policy, incomplete, arm.Rules), .. OneCaseRuns(text)]
+                : PatternLibrary.Find(text, policy, incomplete, arm.Rules));
             var redactions = arm.Reads.Select(r => engine.RedactFrame(words[r])).ToList();
             return new Reading(
                 [.. arm.Reads.Select(r => words[r])],
@@ -176,7 +227,7 @@ public sealed partial class OcrScaledSecretTests
                             // What was masked, as examples: the page is synthetic.
                             var under = readings[arm].Words[0].Where(w => readings[arm].Redaction.Regions.Any(r =>
                                 r.X <= w.X + (w.Width / 2.0) && w.X + (w.Width / 2.0) <= r.X + r.Width && r.Y <= Middle(w) && Middle(w) <= r.Y + r.Height)).Select(w => w.Text).ToList();
-                            if (under.Count > 0 && examples[arm].Count < 2 && Arms[arm].Name is "1x before" or "2x before" or "2x after")
+                            if (under.Count > 0 && examples[arm].Count < 2 && Arms[arm].Name is "2x before" or "2x after" or "2x after +one case")
                             {
                                 examples[arm].Add(string.Join(' ', under.Take(12)));
                             }
@@ -288,6 +339,8 @@ public sealed partial class OcrScaledSecretTests
             return new Guid(bytes);
         }
 
+        string Hex(int length) => string.Concat(Enumerable.Range(0, length).Select(_ => "0123456789abcdef"[random.Next(16)]));
+
         string Line() => kind switch
         {
             "prose" => string.Join(' ', Enumerable.Range(0, random.Next(8, 12)).Select(_ => prose[random.Next(prose.Length)])) + ".",
@@ -297,7 +350,12 @@ public sealed partial class OcrScaledSecretTests
                 1 => $"if ({Name()}.Count > {random.Next(2, 500)}) {{ return {Name()}Items[{random.Next(9)}]; }}",
                 2 => $"private readonly I{Pascal()}Repository _{Name()}Repository;",
                 3 => $"_logger.LogInformation(\"Processed {{Count}} {Name()}s\", {Name()}s.Count);",
-                4 => random.Next(2) == 0 ? $"public const int Max{Pascal()}RetryCount = {random.Next(2, 9)};" : $"var hash = SHA256.HashData(Encoding.UTF8.GetBytes({Name()}Id)); Int32.TryParse(value, out var {Name()}Count);",
+                4 => random.Next(3) switch
+                {
+                    0 => $"public const int Max{Pascal()}RetryCount = {random.Next(2, 9)};",
+                    1 => $"var hash = SHA256.HashData(Encoding.UTF8.GetBytes({Name()}Id)); Int32.TryParse(value, out var {Name()}Count);",
+                    _ => $"// {Hex(7)} fixed {Name()} cache, expected sha256 {Hex(40)}",
+                },
                 _ => $"foreach (var item in {Name()}s.Where(x => x.IsActive && x.{Pascal()}Id != null))",
             },
             "numbers" => string.Join("   ", Enumerable.Range(0, 8).Select(_ => random.Next(3) switch
