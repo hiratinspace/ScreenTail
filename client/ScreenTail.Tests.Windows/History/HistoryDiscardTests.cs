@@ -123,6 +123,42 @@ public sealed class HistoryDiscardTests
     }
 
     [Fact]
+    public void WhileTheTypedQuestionIsUpTheButtonIsOffAndASecondPressAsksNothing()
+    {
+        // As the mark on #274: the command's Execute does not look at whether it is running, so a second
+        // invoke that does not go through the button opened a second typed dialog over the first.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var held = new TaskCompletionSource<bool>();
+            var asked = 0;
+            var service = new FakeService(Row("s1", "draft"));
+            var model = service.Model(confirm: (_, _) =>
+            {
+                asked++;
+                return held.Task;
+            });
+            await model.RefreshAsync();
+            model.Select(model.Rows);
+
+            var first = model.BulkDiscardCommand.ExecuteAsync(null);
+
+            Assert.True(model.BulkDiscardCommand.IsRunning);
+            Assert.False(model.BulkDiscardCommand.CanExecute(null));
+            model.BulkDiscardCommand.Execute(null);
+            Assert.False(model.BulkDiscardCommand.CanExecute(null));
+            Assert.Equal(1, asked);
+
+            held.SetResult(true);
+            await first;
+
+            Assert.Equal(1, asked);
+            Assert.Equal(["s1"], service.Sent);
+            Assert.Equal("1 session discarded.", model.Notice);
+        });
+    }
+
+    [Fact]
     public void ARefusalIsShownAndTheListIsReadAgain()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");

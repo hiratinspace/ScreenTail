@@ -50,8 +50,11 @@ public sealed partial class HistoryViewModel : ObservableObject
     private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
     private IReadOnlyList<HistoryRow> _selected = [];
 
-    /// <summary>The mark's question is up or its answer is on its way. Read and written on the UI thread only.</summary>
-    private bool _marking;
+    /// <summary>The mark's question is up or its answer is on its way (<see cref="OneAtATime"/>).</summary>
+    private readonly OneAtATime _marking = new();
+
+    /// <summary>The discard's typed confirmation is up or its answer is on its way.</summary>
+    private readonly OneAtATime _discarding = new();
 
     /// <param name="load">The service's rows.</param>
     /// <param name="confirm">The typed-confirmation dialog, with how many sessions it is for. Null with no discard wired.</param>
@@ -178,9 +181,12 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// <summary>
     /// Spec §5 S4's Bulk discard. Only the selected sessions that qualify are named, and the technician
     /// types how many (v0.4.1 Q6). Nothing is asked while one of them is still being captured (Spec §4).
+    /// One typed confirmation at a time, as the mark below (review of #274).
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanBulkDiscard))]
-    private async Task BulkDiscardAsync()
+    private Task BulkDiscardAsync() => _discarding.RunAsync(DiscardSelectedAsync, BulkDiscardCommand.NotifyCanExecuteChanged);
+
+    private async Task DiscardSelectedAsync()
     {
         var ids = Qualifying().Select(r => r.Id).ToList();
         if (_discard is null || _confirm is null || ids.Count == 0)
@@ -220,32 +226,17 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// time, since each is a statement about its own ticket: offered with exactly one row selected, and
     /// that row not confirmed. They are asked first; nothing is asked while a session is being captured,
     /// and the reason is said beside the button instead (Spec §4).
+    ///
+    /// One question at a time, held here and not left to the command (hosted run on #274): the command's
+    /// Execute does not look at whether it is running (<see cref="OneAtATime"/> says how that went wrong).
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanMarkPublished))]
-    private async Task MarkPublishedAsync()
-    {
-        // One question at a time, held here and not left to the command (hosted run on #274). The
-        // command reports that it cannot run while it is running, which is what turns the button off,
-        // but its Execute does not look: a second invoke (an access key, UI Automation's Invoke, a
-        // queued click) ran this again under the first and asked twice. Its second run also replaced
-        // the task the command watches, so the button came back on while the question was still up.
-        if (_marking || _markPublished is null || MarkableSelection() is not { } row)
-        {
-            return;
-        }
+    private Task MarkPublishedAsync() => _marking.RunAsync(MarkSelectedAsync, MarkPublishedCommand.NotifyCanExecuteChanged);
 
-        _marking = true;
-        MarkPublishedCommand.NotifyCanExecuteChanged();
-        try
-        {
-            await MarkAsync(_markPublished, row.Id, Described(_selected[0])).ConfigureAwait(true);
-        }
-        finally
-        {
-            _marking = false;
-            MarkPublishedCommand.NotifyCanExecuteChanged();
-        }
-    }
+    private Task MarkSelectedAsync() =>
+        _markPublished is { } mark && MarkableSelection() is { } row
+            ? MarkAsync(mark, row.Id, Described(_selected[0]))
+            : Task.CompletedTask;
 
     private async Task MarkAsync(Func<string, string, CancellationToken, Task<ConfirmedResult>> mark, string id, string described)
     {
@@ -280,13 +271,13 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// <summary>The row in the words it already shows, so the question names the session without anything new.</summary>
     internal static string Described(HistoryRow row) => $"{row.Started}, {row.Duration}, {row.Tool}";
 
-    private bool CanMarkPublished() => !_marking && _markPublished is not null && MarkableSelection() is not null;
+    private bool CanMarkPublished() => !_marking.Busy && _markPublished is not null && MarkableSelection() is not null;
 
     /// <summary>The one selected session, when it is one whose publish is not confirmed; otherwise null.</summary>
     private SessionRow? MarkableSelection() =>
         _selected.Count == 1 && _sessions.GetValueOrDefault(_selected[0].Id) is { } row && SessionHistory.MayMarkPublished(row) ? row : null;
 
-    private bool CanBulkDiscard() => _discard is not null && _confirm is not null && DiscardableCount > 0;
+    private bool CanBulkDiscard() => !_discarding.Busy && _discard is not null && _confirm is not null && DiscardableCount > 0;
 
     private IReadOnlyList<SessionRow> Qualifying() =>
         SessionHistory.Discardable(_selected.Select(r => _sessions.GetValueOrDefault(r.Id)).OfType<SessionRow>());
