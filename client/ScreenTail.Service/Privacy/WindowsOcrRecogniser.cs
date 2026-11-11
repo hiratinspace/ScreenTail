@@ -21,6 +21,15 @@ namespace ScreenTail.Service.Privacy;
 /// (finding 7). Shipping fewer third-party binaries is also less attack surface in a process that reads
 /// everything on a technician's screen.
 ///
+/// It reads the frame at twice its size (ST-042, after #275). The engine reads small text badly: on the
+/// hosted runner's probe of 9 and 11 pt text at 100% to 150% display scale it masked 879 of 1,200 drawn
+/// secrets read as captured and 1,053 read at twice the size, and through a remote viewer's resizing
+/// and JPEG it did better at every scale and quality. What it lost read as captured was mostly long
+/// random strings misread or not read at all. The cost is time: a full HD frame dense with text took
+/// 168 ms to read as captured on that runner and 373 ms at twice the size, against 700 ms for the whole
+/// frame. So the larger reading is held to <see cref="PixelBudget"/>: a larger frame is read less
+/// enlarged, and one with that many pixels or more as it is, which is how every frame was read before.
+///
 /// One thing it does not give us: a confidence score. Tesseract reports per-word confidence and the
 /// worker uses it to throw away frames it could not read; this engine reports none, so that gate is inert
 /// here and says so rather than pretending to a number it does not have.
@@ -31,15 +40,25 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
     /// <summary>What this engine reports when it cannot say. Documented rather than invented.</summary>
     public const double UnknownConfidence = 1.0;
 
+    /// <summary>How much larger than captured a frame is read, at most.</summary>
+    public const double DefaultScale = 2.0;
+
+    /// <summary>
+    /// The most pixels the engine is given to read for one frame: a full HD frame at twice its size.
+    /// What it costs grows with the pixels, so this bounds the time a frame of any size takes to what
+    /// the full HD frame was measured to take.
+    /// </summary>
+    public const double PixelBudget = 4.0 * 1920 * 1080;
+
     private readonly OcrEngine? _engine;
     private readonly double _scale;
 
     /// <param name="language">The language to read, or null for the user's own.</param>
     /// <param name="scale">
-    /// How much larger the engine is given the frame than it was captured, with every box brought back
-    /// to the frame's own pixels. One reads it as it is.
+    /// How much larger the engine is given the frame than it was captured, at most, with every box
+    /// brought back to the frame's own pixels. One reads it as it is.
     /// </param>
-    public WindowsOcrRecogniser(string? language = null, double scale = 1.0)
+    public WindowsOcrRecogniser(string? language = null, double scale = DefaultScale)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(scale, 1.0);
         _scale = scale;
@@ -60,6 +79,18 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
     /// <summary>The largest width or height, in pixels, the engine reads.</summary>
     public static uint MaxImageDimension => OcrEngine.MaxImageDimension;
 
+    /// <summary>
+    /// How much larger a frame of this size is read: <paramref name="most"/>, or less where that would
+    /// pass <see cref="PixelBudget"/> or the largest side the engine reads (a frame it refuses is a frame
+    /// it did not read), and never smaller than captured.
+    /// </summary>
+    internal static double ScaleFor(uint width, uint height, double most)
+    {
+        var scale = Math.Min(most, Math.Sqrt(PixelBudget / Math.Max(1.0, (double)width * height)));
+        scale = Math.Min(scale, OcrEngine.MaxImageDimension / (double)Math.Max(1u, Math.Max(width, height)));
+        return Math.Max(1.0, scale);
+    }
+
     public async Task<RecognisedText> ReadAsync(ReadOnlyMemory<byte> image, CancellationToken ct = default)
     {
         if (_engine is null)
@@ -74,9 +105,7 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
 
         var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(ct).ConfigureAwait(false);
 
-        // Never larger than the engine takes: a frame it refuses is a frame it did not read.
-        var scale = Math.Min(_scale, OcrEngine.MaxImageDimension / (double)Math.Max(decoder.PixelWidth, decoder.PixelHeight));
-        scale = Math.Max(1.0, scale);
+        var scale = ScaleFor(decoder.PixelWidth, decoder.PixelHeight, _scale);
         using var bitmap = scale == 1.0
             ? await decoder.GetSoftwareBitmapAsync().AsTask(ct).ConfigureAwait(false)
             : await decoder.GetSoftwareBitmapAsync(

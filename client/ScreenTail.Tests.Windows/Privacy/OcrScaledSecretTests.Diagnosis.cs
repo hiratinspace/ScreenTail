@@ -41,16 +41,6 @@ public sealed partial class OcrScaledSecretTests
         return new Reading([words], new RedactionEngine().RedactFrame(words), ms);
     };
 
-    /// <summary>Two readings of one frame with the masks of both: what a second pass would add.</summary>
-    private static Reading Union(Reading first, Reading second) => new(
-        [.. first.Words, .. second.Words],
-        first.Redaction with
-        {
-            Regions = [.. first.Redaction.Regions, .. second.Redaction.Regions],
-            Complete = first.Redaction.Complete && second.Redaction.Complete,
-        },
-        first.OcrMs + second.OcrMs);
-
     /// <summary>The words over a piece: any overlap across, their middle inside it down, left to right.</summary>
     private static List<OcrWord> On(Rectangle piece, IReadOnlyList<OcrWord> words) =>
         [.. words.Where(w => w.X < piece.Right && w.X + w.Width > piece.Left && Middle(w) >= piece.Top && Middle(w) < piece.Bottom).OrderBy(w => w.X)];

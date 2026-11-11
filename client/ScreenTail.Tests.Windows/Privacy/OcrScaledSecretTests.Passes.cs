@@ -8,40 +8,78 @@ using ScreenTail.Service.Privacy;
 namespace ScreenTail.Tests.Windows.Privacy;
 
 /// <summary>
-/// What reading a frame larger than it was captured would buy and cost (ST-042, after #275): the same
-/// pages read at 1x, 1.5x and 2x, and the masks of 1x and 2x together, with what each masks of the
-/// secrets, what it masks of pages with none, and how long the engine takes. Measurements, not floors.
+/// What each change of ST-042's recall round buys and costs, measured on the same readings (after
+/// #275): the pages read at 1x, 1.5x and 2x, redacted by the rules as they were before the round and
+/// with each of the rules for misreads (<see cref="MisreadRules"/>) added alone and all together, and
+/// the masks of 1x and 2x together. For each: what it masks of the secrets, what it masks of pages
+/// with none, and how long the engine took to read. Measurements, not floors: the floors are held on
+/// the product's own reading in the tests beside these.
 /// </summary>
 public sealed partial class OcrScaledSecretTests
 {
-    private static readonly string[] Passes = ["1x", "1.5x", "2x", "1x+2x"];
+    /// <param name="Name">What the column is called.</param>
+    /// <param name="Reads">Which readings, by index into the scales 1x, 1.5x and 2x, are masked together.</param>
+    /// <param name="Rules">Which rules for misreads run.</param>
+    private sealed record Arm(string Name, int[] Reads, MisreadRules Rules);
+
+    private static readonly Arm[] Arms =
+    [
+        new("1x before", [0], MisreadRules.None),
+        new("1.5x before", [1], MisreadRules.None),
+        new("2x before", [2], MisreadRules.None),
+        new("1x+2x before", [0, 2], MisreadRules.None),
+        new("1x after", [0], MisreadRules.All),
+        new("2x +prefixes", [2], MisreadRules.Prefixes),
+        new("2x +random runs", [2], MisreadRules.RandomRuns),
+        new("2x +bare pass", [2], MisreadRules.BarePass),
+        new("2x after", [2], MisreadRules.All),
+        new("1x+2x after", [0, 2], MisreadRules.All),
+    ];
+
+    /// <summary>Every arm's reading of one image, each scale read once.</summary>
+    private static async Task<Reading[]> ReadArms(WindowsOcrRecogniser[] recognisers, byte[] image)
+    {
+        var words = new IReadOnlyList<OcrWord>[recognisers.Length];
+        var ms = new double[recognisers.Length];
+        for (var i = 0; i < recognisers.Length; i++)
+        {
+            var clock = Stopwatch.StartNew();
+            words[i] = (await recognisers[i].ReadAsync(image, TestContext.Current.CancellationToken)).Words;
+            ms[i] = clock.Elapsed.TotalMilliseconds;
+        }
+
+        return [.. Arms.Select(arm =>
+        {
+            var engine = new RedactionEngine(null, (text, policy, incomplete) => PatternLibrary.Find(text, policy, incomplete, arm.Rules));
+            var redactions = arm.Reads.Select(r => engine.RedactFrame(words[r])).ToList();
+            return new Reading(
+                [.. arm.Reads.Select(r => words[r])],
+                redactions[0] with { Regions = [.. redactions.SelectMany(r => r.Regions)], Complete = redactions.All(r => r.Complete) },
+                arm.Reads.Sum(r => ms[r]));
+        })];
+    }
+
+    private static WindowsOcrRecogniser[] ArmRecognisers() =>
+        [new WindowsOcrRecogniser(scale: 1.0), new WindowsOcrRecogniser(scale: 1.5), new WindowsOcrRecogniser(scale: 2.0)];
 
     [Fact]
-    public async Task RecallThroughLargerReadingsIsMeasured()
+    public async Task RecallOfEachChangeIsMeasured()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        var recognisers = new[] { new WindowsOcrRecogniser(), new WindowsOcrRecogniser(scale: 1.5), new WindowsOcrRecogniser(scale: 2.0) };
+        var recognisers = ArmRecognisers();
         Assert.SkipUnless(recognisers[0].Available, "Windows has no OCR language pack installed.");
-        var readers = recognisers.Select(Read).ToArray();
 
         var rows = new List<(string Condition, Tally[] Tallies)>();
         async Task Page(Tally[] tallies, Bitmap bitmap, List<Secret> secrets, long quality)
         {
-            var image = Encode(bitmap, quality);
-            var readings = new List<Reading>();
-            foreach (var reader in readers)
+            var readings = await ReadArms(recognisers, Encode(bitmap, quality));
+            for (var arm = 0; arm < Arms.Length; arm++)
             {
-                readings.Add(await reader(image));
-            }
-
-            readings.Add(Union(readings[0], readings[2]));
-            for (var pass = 0; pass < Passes.Length; pass++)
-            {
-                Score(readings[pass], bitmap, secrets, tallies[pass]);
+                Score(readings[arm], bitmap, secrets, tallies[arm]);
             }
         }
 
-        Tally[] New() => [.. Passes.Select(p => new Tally { SampleCap = p is "2x" ? 2 : 0 })];
+        Tally[] New() => [.. Arms.Select(a => new Tally { SampleCap = a.Name is "1x+2x after" ? 2 : 0 })];
 
         foreach (var scale in new[] { 1.0, 1.25, 1.5 })
         {
@@ -83,9 +121,9 @@ public sealed partial class OcrScaledSecretTests
 
         var table = new List<string>
         {
-            "Secrets masked whole by each reading, by kind (password, token, card, ssn, wrapped key), with the engine's time a page:",
-            "| condition | secrets | " + string.Join(" | ", Passes) + " |",
-            "|---|---|" + string.Concat(Enumerable.Repeat("---|", Passes.Length)),
+            "Secrets masked whole by each change, by kind (password, token, card, ssn, wrapped key), with the engine's time to read a page:",
+            "| condition | secrets | " + string.Join(" | ", Arms.Select(a => a.Name)) + " |",
+            "|---|---|" + string.Concat(Enumerable.Repeat("---|", Arms.Length)),
         };
         foreach (var (condition, tallies) in rows)
         {
@@ -93,9 +131,10 @@ public sealed partial class OcrScaledSecretTests
                 + string.Join(" | ", tallies.Select(t => string.Create(CultureInfo.InvariantCulture, $"{t.Masked}: {string.Join(",", t.MaskedByKind)} ({t.OcrMs / t.Pages:0} ms)"))) + " |");
         }
 
+        table.Add(string.Create(CultureInfo.InvariantCulture, $"| all | {rows.Sum(r => r.Tallies[0].Secrets)} | ")
+            + string.Join(" | ", Enumerable.Range(0, Arms.Length).Select(a => rows.Sum(r => r.Tallies[a].Masked).ToString(CultureInfo.InvariantCulture))) + " |");
         Measurements.Record(string.Join(Environment.NewLine, table));
-        Measurements.Record(StageTable("Where secrets were lost read at 2x.", rows.Select(r => (r.Condition, r.Tallies[2]))));
-        Measurements.Record(StageTable("Where secrets were lost with the masks of 1x and 2x together.", rows.Select(r => (r.Condition, r.Tallies[3]))));
+        Measurements.Record(StageTable("Where secrets were lost with the masks of 1x and 2x together, every rule on.", rows.Select(r => (r.Condition, r.Tallies[^1]))));
 
         Assert.All(rows, r => Assert.All(r.Tallies, t => Assert.True(t.Pages > 0, $"{r.Condition}: nothing was read.")));
     }
@@ -103,26 +142,28 @@ public sealed partial class OcrScaledSecretTests
     private static readonly string[] PlainKinds = ["prose", "code", "numbers", "table"];
 
     /// <summary>
-    /// How much of a page with no secret on it each reading masks: of the ink, and of the page. Every
+    /// How much of a page with no secret on it each change masks: of the ink, and of the page. Every
     /// mask here is over-masking, which is the error the rules accept; this says how much of it there is.
     /// </summary>
     [Fact]
     public async Task MaskedAreaOnPagesWithNoSecretsIsMeasured()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        var recognisers = new[] { new WindowsOcrRecogniser(), new WindowsOcrRecogniser(scale: 1.5), new WindowsOcrRecogniser(scale: 2.0) };
+        var recognisers = ArmRecognisers();
         Assert.SkipUnless(recognisers[0].Available, "Windows has no OCR language pack installed.");
-        var readers = recognisers.Select(Read).ToArray();
 
         var table = new List<string>
         {
-            "Masked on pages with no secret (Segoe UI and Consolas, 9 and 11pt, 100%, 5 pages each): share of the ink masked, share of the page masked, pages with any mask.",
-            "| page | " + string.Join(" | ", Passes) + " |",
-            "|---|" + string.Concat(Enumerable.Repeat("---|", Passes.Length)),
+            "Masked on pages with no secret (Segoe UI and Consolas, 9 and 11pt, 100%, 5 pages each): share of the ink masked, share of the page masked, pages with any mask, and the finds by kind.",
+            "| page | " + string.Join(" | ", Arms.Select(a => a.Name)) + " |",
+            "|---|" + string.Concat(Enumerable.Repeat("---|", Arms.Length)),
         };
+        var samples = new List<string>();
         foreach (var kind in PlainKinds)
         {
-            var (ink, page, inkMasked, pageMasked, touched) = (new long[Passes.Length], new long[Passes.Length], new long[Passes.Length], new long[Passes.Length], new int[Passes.Length]);
+            var (ink, page, inkMasked, pageMasked, touched) = (new long[Arms.Length], new long[Arms.Length], new long[Arms.Length], new long[Arms.Length], new int[Arms.Length]);
+            var kinds = Arms.Select(_ => new Dictionary<ScreenTail.Shared.Schema.MaskKind, int>()).ToArray();
+            var examples = Arms.Select(_ => new List<string>()).ToArray();
             foreach (var font in Fonts)
             {
                 foreach (var points in new[] { 9f, 11f })
@@ -130,20 +171,13 @@ public sealed partial class OcrScaledSecretTests
                     for (var n = 0; n < 5; n++)
                     {
                         using var bitmap = DrawPlain(kind, font, points, n);
-                        var image = Encode(bitmap, 82);
-                        var readings = new List<Reading>();
-                        foreach (var reader in readers)
-                        {
-                            readings.Add(await reader(image));
-                        }
-
-                        readings.Add(Union(readings[0], readings[2]));
+                        var readings = await ReadArms(recognisers, Encode(bitmap, 82));
                         var dark = Dark(bitmap);
-                        for (var pass = 0; pass < Passes.Length; pass++)
+                        for (var arm = 0; arm < Arms.Length; arm++)
                         {
-                            var masked = Masked(readings[pass].Redaction.Regions, bitmap.Width, bitmap.Height);
-                            page[pass] += masked.Length;
-                            ink[pass] += dark.Count(d => d);
+                            var masked = Masked(readings[arm].Redaction.Regions, bitmap.Width, bitmap.Height);
+                            page[arm] += masked.Length;
+                            ink[arm] += dark.Count(d => d);
                             var (onInk, onPage) = (0, 0);
                             for (var i = 0; i < masked.Length; i++)
                             {
@@ -151,19 +185,35 @@ public sealed partial class OcrScaledSecretTests
                                 onInk += masked[i] && dark[i] ? 1 : 0;
                             }
 
-                            inkMasked[pass] += onInk;
-                            pageMasked[pass] += onPage;
-                            touched[pass] += onPage > 0 ? 1 : 0;
+                            foreach (var (found, count) in readings[arm].Redaction.Counts)
+                            {
+                                kinds[arm][found] = kinds[arm].GetValueOrDefault(found) + count;
+                            }
+
+                            // What was masked, as examples: the page is synthetic.
+                            var under = readings[arm].Words[0].Where(w => readings[arm].Redaction.Regions.Any(r =>
+                                r.X <= w.X + (w.Width / 2.0) && w.X + (w.Width / 2.0) <= r.X + r.Width && r.Y <= Middle(w) && Middle(w) <= r.Y + r.Height)).Select(w => w.Text).ToList();
+                            if (under.Count > 0 && examples[arm].Count < 2 && Arms[arm].Name is "1x before" or "2x before" or "2x after")
+                            {
+                                examples[arm].Add(string.Join(' ', under.Take(12)));
+                            }
+
+                            inkMasked[arm] += onInk;
+                            pageMasked[arm] += onPage;
+                            touched[arm] += onPage > 0 ? 1 : 0;
                         }
                     }
                 }
             }
 
-            table.Add($"| {kind} | " + string.Join(" | ", Enumerable.Range(0, Passes.Length).Select(p => string.Create(
+            table.Add($"| {kind} | " + string.Join(" | ", Enumerable.Range(0, Arms.Length).Select(a => string.Create(
                 CultureInfo.InvariantCulture,
-                $"{(double)inkMasked[p] / ink[p]:0.0%} ink, {(double)pageMasked[p] / page[p]:0.0%} page, {touched[p]} of 20"))) + " |");
+                $"{(double)inkMasked[a] / ink[a]:0.0%} ink, {(double)pageMasked[a] / page[a]:0.0%} page, {touched[a]} of 20 ({string.Join(" ", kinds[a].OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}"))})"))) + " |");
+            samples.AddRange(Enumerable.Range(0, Arms.Length).SelectMany(a => examples[a].Select(e => $"  {kind} {Arms[a].Name}: \"{e}\"")));
         }
 
+        table.Add("Examples of what was masked on them (synthetic text, the words under each mask):");
+        table.AddRange(samples);
         Measurements.Record(string.Join(Environment.NewLine, table));
     }
 
@@ -175,7 +225,7 @@ public sealed partial class OcrScaledSecretTests
     public async Task OcrTimeOnAFullHdFrameIsMeasured()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        var recognisers = new[] { new WindowsOcrRecogniser(), new WindowsOcrRecogniser(scale: 1.5), new WindowsOcrRecogniser(scale: 2.0) };
+        var recognisers = ArmRecognisers();
         Assert.SkipUnless(recognisers[0].Available, "Windows has no OCR language pack installed.");
 
         using var frame = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
@@ -195,7 +245,7 @@ public sealed partial class OcrScaledSecretTests
 
         var image = Encode(frame, 82);
         var lines = new List<string> { string.Create(CultureInfo.InvariantCulture, $"OCR on a 1920x1080 frame dense with text (the engine reads at most {WindowsOcrRecogniser.MaxImageDimension} px a side), median of 5:") };
-        foreach (var (recogniser, name) in recognisers.Zip(Passes))
+        foreach (var (recogniser, name) in recognisers.Zip(["1x", "1.5x", "2x"]))
         {
             var ct = TestContext.Current.CancellationToken;
             _ = await recogniser.ReadAsync(image, ct);
@@ -264,7 +314,7 @@ public sealed partial class OcrScaledSecretTests
                 1 => $"if ({Name()}.Count > {random.Next(2, 500)}) {{ return {Name()}Items[{random.Next(9)}]; }}",
                 2 => $"private readonly I{Pascal()}Repository _{Name()}Repository;",
                 3 => $"_logger.LogInformation(\"Processed {{Count}} {Name()}s\", {Name()}s.Count);",
-                4 => $"public const int Max{Pascal()}RetryCount = {random.Next(2, 9)};",
+                4 => random.Next(2) == 0 ? $"public const int Max{Pascal()}RetryCount = {random.Next(2, 9)};" : $"var hash = SHA256.HashData(Encoding.UTF8.GetBytes({Name()}Id)); Int32.TryParse(value, out var {Name()}Count);",
                 _ => $"foreach (var item in {Name()}s.Where(x => x.IsActive && x.{Pascal()}Id != null))",
             },
             "numbers" => string.Join("   ", Enumerable.Range(0, 8).Select(_ => random.Next(3) switch
