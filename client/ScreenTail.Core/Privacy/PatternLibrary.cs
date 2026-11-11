@@ -586,16 +586,26 @@ internal static partial class PatternLibrary
     internal const double RandomRunChanges = 0.4;
 
     /// <summary>
+    /// The share of neighbouring letters and digits in a run that go between a capital and a small
+    /// letter, at which <see cref="RandomRuns"/> reads it as random. A random string does at about 0.35
+    /// of its pairs. A hexadecimal number joined to a word does once or twice: the wrap pass joins the
+    /// GUID that ends a table's row to the device name that starts the next, "5b8e0f1a2c3dAccounts-PC23",
+    /// and without this the hosted runner's table pages lost 58.6% of their ink to it, against 11.1%.
+    /// </summary>
+    internal const double RandomRunCaseChanges = 0.15;
+
+    /// <summary>
     /// Every run of text between spaces and separators (<see cref="EndsRun"/>) that looks random, whatever
     /// introduces it (ST-042, after #275):
     /// at least <see cref="RandomRunLength"/> letters and digits, with a capital, a small letter and a
-    /// digit among them, changing class at no less than <see cref="RandomRunChanges"/> of its pairs.
+    /// digit among them, changing class at no less than <see cref="RandomRunChanges"/> of its pairs and
+    /// between a capital and a small letter at no less than <see cref="RandomRunCaseChanges"/>.
     ///
     /// The shape rules need a prefix or a cue read right, and the OCR engine reads a long random string
     /// worst of all: on the hosted runner's probe it misread the prefix or cue of most of the keys and
     /// tokens it did not mask, while reading their bodies well enough to be seen to be random. This
-    /// infers nothing about what the string is for. Measured on random strings, it takes 92% of 16
-    /// characters and 99.5% of 36; it takes no word of prose, and names in code only where they change
+    /// infers nothing about what the string is for. Measured on random strings, it takes 85% of 16
+    /// characters, 96% of 26 and 99% of 36; it takes no word of prose, and names in code only where they change
     /// case and digit as often as random text does. The wrap pass reads a key cut by its row's end as
     /// one run, so a piece too short to be taken alone is taken with the piece below it.
     /// </summary>
@@ -610,7 +620,7 @@ internal static partial class PatternLibrary
             }
 
             var start = i;
-            var (count, changes, upper, lower, digit, previous) = (0, 0, false, false, false, 0);
+            var (count, changes, cases, upper, lower, digit, previous) = (0, 0, 0, false, false, false, 0);
             while (i < text.Length && !EndsRun(text[i]))
             {
                 var c = text[i++];
@@ -622,11 +632,12 @@ internal static partial class PatternLibrary
 
                 (upper, lower, digit) = (upper || kind == 1, lower || kind == 2, digit || kind == 3);
                 changes += previous != 0 && previous != kind ? 1 : 0;
+                cases += previous != 0 && previous + kind == 3 ? 1 : 0;
                 previous = kind;
                 count++;
             }
 
-            if (count >= RandomRunLength && upper && lower && digit && changes >= RandomRunChanges * (count - 1))
+            if (count >= RandomRunLength && upper && lower && digit && changes >= RandomRunChanges * (count - 1) && cases >= RandomRunCaseChanges * (count - 1))
             {
                 yield return (start, i - start);
             }

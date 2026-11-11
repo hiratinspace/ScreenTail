@@ -125,6 +125,31 @@ public sealed class OcrMisreadTests
         Assert.False(Covered(redaction, words[5]), "the row below lost a word that is not the key");
     }
 
+    /// <summary>
+    /// A table whose rows end in a GUID and start with a device name: the wrap pass joins each GUID to
+    /// the name below it, "5b8e0f1a2c3dAccounts-PC23", which has a capital, small letters and digits and
+    /// changes class often, and took 58.6% of the hosted probe's table pages until the run had to change
+    /// case as often as random text does.
+    /// </summary>
+    [Fact]
+    public void AGuidThatEndsATableRowIsNotJoinedIntoARandomRun()
+    {
+        var words = new List<OcrWord>();
+        string[] guids = ["3f2a9c1e-77b4-4c1a-9d2e-5b8e0f1a2c3d", "9b1d4e2f-0a6c-4b8e-a1f3-7c2d9e0b4a6f", "c4e8a2b6-1d3f-4a5c-8e7b-2f0d6a9c1e3b"];
+        for (var row = 0; row < guids.Length; row++)
+        {
+            var y = 100 + (row * 30);
+            words.Add(new($"Accounts-PC{23 + row}", 24, y, 140, Height));
+            words.Add(new("10.0.12.44", 184, y, 110, Height));
+            words.Add(new("Online", 314, y, 70, Height));
+            words.Add(new(guids[row], 404, y, 420, Height));
+        }
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Empty(redaction.Regions);
+    }
+
     private static bool Covered(FrameRedaction redaction, OcrWord word) =>
         redaction.Regions.Any(r =>
             r.X <= word.X && r.Y <= word.Y

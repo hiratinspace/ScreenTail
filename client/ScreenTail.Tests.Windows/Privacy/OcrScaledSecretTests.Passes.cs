@@ -29,6 +29,7 @@ public sealed partial class OcrScaledSecretTests
         new("2x before", [2], MisreadRules.None),
         new("1x+2x before", [0, 2], MisreadRules.None),
         new("1x after", [0], MisreadRules.All),
+        new("1.5x after", [1], MisreadRules.All),
         new("2x +prefixes", [2], MisreadRules.Prefixes),
         new("2x +random runs", [2], MisreadRules.RandomRuns),
         new("2x +bare pass", [2], MisreadRules.BarePass),
