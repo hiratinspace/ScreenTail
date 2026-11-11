@@ -168,7 +168,7 @@
                         Content="Mark as published"
                         Command="{Binding MarkPublishedCommand}"
                         ToolTip="For one session marked Not confirmed: after checking the ticket, record that the earlier publish is there. Nothing is sent again."
-                        AutomationProperties.Name="Mark the selected session as published"
+                        AutomationProperties.Name="Mark as published: the selected session"
                         AutomationProperties.HelpText="For one selected session marked Not confirmed. After you have checked the ticket, records that the earlier publish is there. Nothing is sent again. You will be asked to confirm." />
                 <Button Style="{StaticResource Button.Danger}"
                         Content="Bulk discard"

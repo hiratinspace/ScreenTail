@@ -50,6 +50,9 @@ public sealed partial class HistoryViewModel : ObservableObject
     private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
     private IReadOnlyList<HistoryRow> _selected = [];
 
+    /// <summary>The mark's question is up or its answer is on its way. Read and written on the UI thread only.</summary>
+    private bool _marking;
+
     /// <param name="load">The service's rows.</param>
     /// <param name="confirm">The typed-confirmation dialog, with how many sessions it is for. Null with no discard wired.</param>
     /// <param name="discard">
@@ -221,13 +224,33 @@ public sealed partial class HistoryViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanMarkPublished))]
     private async Task MarkPublishedAsync()
     {
-        if (_markPublished is null || MarkableSelection() is not { } row)
+        // One question at a time, held here and not left to the command (hosted run on #274). The
+        // command reports that it cannot run while it is running, which is what turns the button off,
+        // but its Execute does not look: a second invoke (an access key, UI Automation's Invoke, a
+        // queued click) ran this again under the first and asked twice. Its second run also replaced
+        // the task the command watches, so the button came back on while the question was still up.
+        if (_marking || _markPublished is null || MarkableSelection() is not { } row)
         {
             return;
         }
 
+        _marking = true;
+        MarkPublishedCommand.NotifyCanExecuteChanged();
+        try
+        {
+            await MarkAsync(_markPublished, row.Id, Described(_selected[0])).ConfigureAwait(true);
+        }
+        finally
+        {
+            _marking = false;
+            MarkPublishedCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private async Task MarkAsync(Func<string, string, CancellationToken, Task<ConfirmedResult>> mark, string id, string described)
+    {
         DiscardError = null;
-        var result = await _markPublished(row.Id, Described(_selected[0]), CancellationToken.None).ConfigureAwait(true);
+        var result = await mark(id, described, CancellationToken.None).ConfigureAwait(true);
         switch (result.Outcome)
         {
             case ConfirmedOutcome.Declined:
@@ -257,7 +280,7 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// <summary>The row in the words it already shows, so the question names the session without anything new.</summary>
     internal static string Described(HistoryRow row) => $"{row.Started}, {row.Duration}, {row.Tool}";
 
-    private bool CanMarkPublished() => _markPublished is not null && MarkableSelection() is not null;
+    private bool CanMarkPublished() => !_marking && _markPublished is not null && MarkableSelection() is not null;
 
     /// <summary>The one selected session, when it is one whose publish is not confirmed; otherwise null.</summary>
     private SessionRow? MarkableSelection() =>

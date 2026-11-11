@@ -33,6 +33,9 @@ public sealed class NotConfirmedControlsTests
         Assert.Equal("{Binding NotConfirmedLabel}", (string?)notConfirmed.Attribute("Content"));
         Assert.Equal("{Binding NotConfirmedVisibility}", (string?)notConfirmed.Attribute("Visibility"));
         Assert.False(string.IsNullOrWhiteSpace((string?)notConfirmed.Attribute("AutomationProperties.Name")));
+
+        // Label in name (WCAG 2.5.3): the badge's name holds the words it shows.
+        Assert.Contains(Core.History.SessionHistory.NotConfirmedLabel, (string?)notConfirmed.Attribute("AutomationProperties.Name"), StringComparison.OrdinalIgnoreCase);
         Assert.False(string.IsNullOrWhiteSpace((string?)notConfirmed.Attribute("ToolTip")));
 
         // The row is what a screen reader lands on, and its name says it.
@@ -72,6 +75,10 @@ public sealed class NotConfirmedControlsTests
         Assert.Equal(Core.Shell.MarkAsPublished.Action, (string?)mark.Attribute("Content"));
         Assert.Equal("{StaticResource Button.Secondary}", (string?)mark.Attribute("Style"));
         Assert.False(string.IsNullOrWhiteSpace((string?)mark.Attribute("AutomationProperties.Name")));
+
+        // WCAG 2.5.3, label in name: what the button shows is in what it is called, word for word, so
+        // someone who says the words they see reaches it. The Windows audit holds this for every screen.
+        Assert.Contains("Mark as published", (string?)mark.Attribute("AutomationProperties.Name"), StringComparison.OrdinalIgnoreCase);
         Assert.False(string.IsNullOrWhiteSpace((string?)mark.Attribute("AutomationProperties.HelpText")));
         Assert.NotEqual("False", (string?)mark.Attribute("IsTabStop"));
 
