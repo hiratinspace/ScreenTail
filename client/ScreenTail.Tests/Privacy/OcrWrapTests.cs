@@ -266,6 +266,23 @@ public sealed class OcrWrapTests
     }
 
     [Fact]
+    public void WhenTheContinuationRowIsNotReadTheFirstPieceIsMaskedWithTheRowAfter()
+    {
+        // What the hosted probe showed through a viewer at 1.1 (2026-11-10): the engine read no word
+        // on the key's second row, and the row after it starts with a word long enough to make the
+        // first piece a key. The second row cannot be masked, there being no box for it; the first
+        // piece is, and the word that completed it. More than the page needs, never less.
+        var words = Page(
+            Row(0, Left, "deploy", "--key", "sk_live_ABCDEFGHIJ"),
+            Row(2, Left, "Driver", "reinstalled", "and", "the", "spooler"));
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("deploy --key [SECRET] reinstalled and the spooler", redaction.Text);
+        Assert.True(Covered(redaction, words[2]), "the key's first row is left unpainted in the frame");
+    }
+
+    [Fact]
     public void AWrapOnARightToLeftRowIsReadBothWays()
     {
         // A Latin key in a Hebrew line: the line ends at its left edge, and goes on from the right edge

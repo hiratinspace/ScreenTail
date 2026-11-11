@@ -25,8 +25,15 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// Three answers a secret can have. <b>Masked</b>: at least 97% of its dark pixels are covered (the
 /// rest is the fringe of a glyph outside the engine's box). <b>Missed</b>: no more than 3% are, so no
 /// rule fired, which is the engine misreading the secret or not reading it, a miss of recall.
-/// <b>Part showing</b>: anything between, which is a rule that fired and stopped short, the thing the
-/// token, row and wrap rules exist to prevent.
+/// <b>Part showing</b>: anything between. Of those, one with a piece the engine read no word on is
+/// a miss of recall on that piece and is counted apart; the rest are a rule that fired and stopped
+/// short, the thing the token, row and wrap rules exist to prevent.
+///
+/// The floors are per kind, so that a rule deleted is a test failed: the wrapped key is masked whole
+/// only by the wrap pass, and without it its count is nought at every scale. Each floor is what the
+/// hosted runner measured (2026-11-10, run 42930307506) less a tenth, and less two at the least; each
+/// bound on part showing is what it measured and two more. The engine reads the same picture the same
+/// way on the same runner, so the margin is for a runner image that changes, not for chance.
 ///
 /// Counts and box geometry only are printed, never text, failing or not (INV-10).
 /// </summary>
@@ -47,14 +54,11 @@ public sealed class OcrScaledSecretTests
     /// <summary>
     /// The same screen at 100%, 125% and 150%, drawn by Windows at that size, as a display at that
     /// scale draws it, and encoded as the capturer encodes a frame. A measurement with floors, not
-    /// the proof it was written to be: its first hosted run (2026-11-10, run 42917435330) found the
-    /// engine does not read these secrets well enough to assert none missed, at any scale, 100%
-    /// included. Of 400 secrets a scale it masked 288 at 100%, 284 at 125% and 307 at 150%; missed
-    /// 111, 115 and 92, most of them the wrapped key (62, 62 and 57 of 80) and the token; and left
-    /// part showing 1 at each scale. Scale itself made nothing worse. The floors sit a little under
-    /// those numbers, so this fails when the engine or the rules get worse. The one part showing at
-    /// each scale is not explained yet, so it is reported with how much of it was covered, and held
-    /// to no more than two.
+    /// the proof it was written to be: the engine does not read these secrets well enough to assert
+    /// none missed, at any scale, 100% included. Of 400 secrets a scale it masked 288 at 100%, 284 at
+    /// 125% and 307 at 150%. Scale itself made nothing worse. What it reads worst is the wrapped key
+    /// (18, 18 and 22 of 80 masked whole, none of them in Consolas) and the token. One secret a scale
+    /// was part showing with every piece read: a token 64% and 58% covered, and a wrapped key 96%.
     /// </summary>
     [Theory]
     [InlineData(1.0)]
@@ -86,9 +90,39 @@ public sealed class OcrScaledSecretTests
         }
 
         Assert.True(total.Pages == Fonts.Length * 2 * Pages, $"Drew {total.Pages} pages. {total}");
-        Assert.True(total.Partial <= 2, $"A rule fired and left part of a secret showing more often than the one in 400 measured, at {scale * 100:0}%. {total}");
-        Assert.True(total.Masked >= total.Secrets * DisplayScaleFloor, $"Fewer secrets masked whole at {scale * 100:0}% than the floor of {DisplayScaleFloor:P0}. {total}");
         Assert.True(total.TextLeft == 0, $"A masked secret is still in the stored text at {scale * 100:0}%. {total}");
+
+        // Masked whole of 80 of each kind (password, token, card, ssn, wrapped key), as measured.
+        int[] measured = scale switch
+        {
+            1.0 => [80, 60, 58, 72, 18],
+            1.25 => [74, 33, 80, 79, 18],
+            _ => [80, 45, 80, 80, 22],
+        };
+        Hold(total, measured, partial: 1, stoppedShort: 1, string.Create(CultureInfo.InvariantCulture, $"{scale * 100:0}% display scale"));
+    }
+
+    /// <summary>What was measured less a tenth, and less two at the least.</summary>
+    private static int Floor(int measured) => (int)Math.Floor(measured - Math.Max(2.0, measured / 10.0));
+
+    /// <summary>
+    /// Holds a tally to what the hosted runner measured: each kind masked whole no fewer times than
+    /// its floor, and no more than two more part showing, counted all together and counted without
+    /// those that have a piece the engine read no word on.
+    /// </summary>
+    private static void Hold(Tally tally, int[] masked, int partial, int stoppedShort, string where)
+    {
+        for (var kind = 0; kind < Kinds.Length; kind++)
+        {
+            Assert.True(
+                tally.MaskedByKind[kind] >= Floor(masked[kind]),
+                $"At {where}: {tally.MaskedByKind[kind]} of kind {Kinds[kind]} masked whole, under the floor of {Floor(masked[kind])} ({masked[kind]} measured). {tally}");
+        }
+
+        Assert.True(tally.Partial <= partial + 2, $"At {where}: {tally.Partial} secrets part showing, where {partial} were measured. {tally}");
+        Assert.True(
+            tally.Partial - tally.PartialUnread <= stoppedShort + 2,
+            $"At {where}: a rule fired and stopped short on {tally.Partial - tally.PartialUnread} secrets with every piece read, where {stoppedShort} were measured. {tally}");
     }
 
     /// <summary>
@@ -97,6 +131,12 @@ public sealed class OcrScaledSecretTests
     /// how many secrets were masked, part showing and missed at each scale and quality. A missed secret
     /// here is the OCR engine failing on small, blurred text, which no rule of the redaction can mend,
     /// so it is counted and reported, not asserted away. What it fails on is stated at the end.
+    ///
+    /// What the table showed of the wrapped key at 1.1 (2026-11-10): in Segoe UI it is part showing on
+    /// every page, about half covered, and on 39 of the 40 the engine read no word on its second row. So
+    /// the half that shows is a row not read, which no rule can mend. The half that is masked is the
+    /// wrap pass joining the first row to the row after the unread one, whose first word happens to make
+    /// the key long enough: more masked than the page needs, by accident of this page's text.
     /// </summary>
     [Fact]
     public async Task SecretsThroughAScaledLossyViewerAreMeasured()
@@ -110,8 +150,8 @@ public sealed class OcrScaledSecretTests
         var table = new List<string>
         {
             "Secrets through a scaled, lossy viewer (11pt at 100%, bilinear resize, JPEG; 20 pages a font, 5 secrets a page):",
-            "| scale | JPEG | font | secrets | masked | part showing | missed | masked by kind (password, token, card, ssn, wrapped key) | missed by kind | part showing by kind | covered share of each part showing | part showing with a piece not read, with a piece read two rows tall | still in stored text |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+            "| scale | JPEG | font | secrets | masked | part showing | missed | masked by kind (password, token, card, ssn, wrapped key) | missed by kind | part showing by kind | covered share of each part showing | part showing with a piece not read, with a piece read two rows tall | wrapped keys not masked whole, by words read on the first piece (none, one, two, more); on the second | still in stored text |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         };
         var results = new Dictionary<(double Scale, long Quality), Tally>();
         foreach (var scale in scales)
@@ -132,7 +172,7 @@ public sealed class OcrScaledSecretTests
 
                     table.Add(string.Create(
                         CultureInfo.InvariantCulture,
-                        $"| {scale:0.0} | {quality} | {font} | {tally.Secrets} | {tally.Masked} | {tally.Partial} | {tally.Missed} | {string.Join(", ", tally.MaskedByKind)} | {string.Join(", ", tally.MissedByKind)} | {string.Join(", ", tally.PartialByKind)} | {tally.PartialShares} | {tally.PartialUnread}, {tally.PartialTall} | {tally.TextLeft} |"));
+                        $"| {scale:0.0} | {quality} | {font} | {tally.Secrets} | {tally.Masked} | {tally.Partial} | {tally.Missed} | {string.Join(", ", tally.MaskedByKind)} | {string.Join(", ", tally.MissedByKind)} | {string.Join(", ", tally.PartialByKind)} | {tally.PartialShares} | {tally.PartialUnread}, {tally.PartialTall} | {string.Join(", ", tally.WordsOnPiece[0])}; {string.Join(", ", tally.WordsOnPiece[1])} | {tally.TextLeft} |"));
                     both.Add(tally);
                 }
 
@@ -142,39 +182,37 @@ public sealed class OcrScaledSecretTests
 
         Measurements.Record(string.Join(Environment.NewLine, table));
 
-        // What is held to. Every condition was drawn and read, and nothing masked in the picture is
-        // left in the stored text. The floors are set from the first hosted run (2026-11-10, run
-        // 42917435330), a little under it, so that this fails when the engine or the rules get worse
-        // and not when one glyph reads differently: at JPEG 75 it masked 133 of 200 at 0.9, 168 at
-        // 1.0 and 152 at 1.1. At 0.9 and 1.0 nothing was part showing. At 1.1 twenty of 100 were in
-        // Segoe UI at both qualities, one kind on every page; that is not explained yet, so it is
-        // reported with its kind and covered share and not asserted either way.
+        // What is held to. Every condition was drawn and read, nothing masked in the picture is left
+        // in the stored text, and at every scale and quality each kind is masked whole no fewer times
+        // than its floor and no more are part showing than were measured and two.
         Assert.All(results, r => Assert.True(r.Value.Pages == Fonts.Length * Pages, $"Scale {r.Key.Scale}, quality {r.Key.Quality}: drew {r.Value.Pages} pages."));
         Assert.All(results, r => Assert.True(r.Value.TextLeft == 0, $"Scale {r.Key.Scale}, quality {r.Key.Quality}: a secret masked in the picture is still in the stored text."));
-        foreach (var scale in new[] { 0.9, 1.0, 1.1 })
+        foreach (var (scale, quality, masked, partial, stoppedShort) in ViewerMeasured)
         {
-            var tally = results[(scale, 75)];
-            Assert.True(tally.Masked >= tally.Secrets * NearFullScaleFloor, $"Fewer secrets masked at scale {scale}, JPEG 75, than the floor of {NearFullScaleFloor:P0}. {tally}");
-        }
-
-        foreach (var scale in new[] { 0.9, 1.0 })
-        {
-            var tally = results[(scale, 75)];
-            Assert.True(tally.Partial <= 1, $"A rule fired and left part of a secret showing at scale {scale}, JPEG 75, where none was measured. {tally}");
+            Hold(results[(scale, quality)], masked, partial, stoppedShort, string.Create(CultureInfo.InvariantCulture, $"viewer scale {scale:0.0}, JPEG {quality}"));
         }
     }
 
     /// <summary>
-    /// The share of secrets that must be masked whole at 0.9 to 1.1 and JPEG 75: the hosted runner
-    /// measured 66%, 84% and 76% (2026-11-10).
+    /// What the hosted runner measured through the viewer, both fonts together: of 40 of each kind
+    /// (password, token, card, ssn, wrapped key) how many were masked whole, how many secrets of the
+    /// 200 were part showing, and how many of those had every piece read.
     /// </summary>
-    private const double NearFullScaleFloor = 0.6;
-
-    /// <summary>
-    /// The share of secrets that must be masked whole at each display scale: the hosted runner
-    /// measured 72%, 71% and 77% at 100%, 125% and 150% (2026-11-10).
-    /// </summary>
-    private const double DisplayScaleFloor = 0.65;
+    private static readonly (double Scale, long Quality, int[] Masked, int Partial, int StoppedShort)[] ViewerMeasured =
+    [
+        (0.6, 50, [0, 0, 0, 19, 0], 0, 0),
+        (0.6, 75, [0, 1, 4, 23, 0], 0, 0),
+        (0.7, 50, [7, 17, 19, 30, 1], 7, 7),
+        (0.7, 75, [20, 19, 22, 33, 0], 1, 1),
+        (0.8, 50, [20, 24, 18, 32, 0], 6, 5),
+        (0.8, 75, [1, 25, 24, 29, 0], 0, 0),
+        (0.9, 50, [8, 30, 38, 28, 14], 0, 0),
+        (0.9, 75, [21, 29, 35, 32, 17], 0, 0),
+        (1.0, 50, [40, 26, 36, 39, 0], 0, 0),
+        (1.0, 75, [40, 28, 40, 40, 20], 0, 0),
+        (1.1, 50, [40, 32, 40, 37, 0], 20, 1),
+        (1.1, 75, [40, 32, 40, 40, 0], 20, 0),
+    ];
 
     private sealed class Tally
     {
@@ -206,6 +244,12 @@ public sealed class OcrScaledSecretTests
 
         /// <summary>Part showing secrets with an uncovered piece under a word read two rows tall.</summary>
         public int PartialTall { get; private set; }
+
+        /// <summary>
+        /// For each two-piece secret not masked whole, how many words the engine read on its first
+        /// piece and on its second: none, one, two, or more. One is the piece read as it was drawn.
+        /// </summary>
+        public int[][] WordsOnPiece { get; } = [new int[4], new int[4]];
 
         private readonly List<(int Kind, double Covered)> _partial = [];
 
@@ -251,6 +295,12 @@ public sealed class OcrScaledSecretTests
             PartialUnread += other.PartialUnread;
             PartialTall += other.PartialTall;
             _partial.AddRange(other._partial);
+            for (var i = 0; i < 4; i++)
+            {
+                WordsOnPiece[0][i] += other.WordsOnPiece[0][i];
+                WordsOnPiece[1][i] += other.WordsOnPiece[1][i];
+            }
+
             for (var i = 0; i < Kinds.Length; i++)
             {
                 MaskedByKind[i] += other.MaskedByKind[i];
@@ -262,7 +312,8 @@ public sealed class OcrScaledSecretTests
         public override string ToString() => string.Create(
             CultureInfo.InvariantCulture,
             $"{Pages} pages, {Secrets} secrets: masked **{Masked}** (by kind {string.Join(", ", MaskedByKind)}), part showing **{Partial}** (by kind {string.Join(", ", PartialByKind)}; covered {PartialShares}; with a piece not read {PartialUnread}, with a piece read two rows tall {PartialTall}), missed **{Missed}** (by kind {string.Join(", ", MissedByKind)}; kinds are {string.Join(", ", Kinds)}), "
-            + $"masked in the picture and still in the stored text {TextLeft}, least covered of the masked {LeastCovered:P1}.");
+            + $"masked in the picture and still in the stored text {TextLeft}, least covered of the masked {LeastCovered:P1}. "
+            + $"Wrapped keys not masked whole, by words read on the first row's piece (none, one, two, more) {string.Join(", ", WordsOnPiece[0])} and on the second's {string.Join(", ", WordsOnPiece[1])}.");
     }
 
     /// <param name="Kind">Which of <see cref="Kinds"/> it is.</param>
@@ -335,6 +386,14 @@ public sealed class OcrScaledSecretTests
             Assert.True(ink > 0, "A secret was drawn with no ink, so the page proves nothing.");
             var share = (double)covered / ink;
             tally.Count(secret.Kind, share, unread, tall);
+            if (share < 0.97 && secret.Pieces.Length == 2)
+            {
+                for (var i = 0; i < 2; i++)
+                {
+                    var read = words.Count(w => secret.Pieces[i].Contains(w.X + (w.Width / 2), w.Y + (w.Height / 2)));
+                    tally.WordsOnPiece[i][Math.Min(read, 3)]++;
+                }
+            }
 
             // A secret the picture lost and the text kept: any six characters of it in a row.
             if (share >= 0.97 && Enumerable.Range(0, Math.Max(0, secret.Text.Length - 5)).Any(i => redaction.Text.Contains(secret.Text.Substring(i, 6), StringComparison.Ordinal)))
