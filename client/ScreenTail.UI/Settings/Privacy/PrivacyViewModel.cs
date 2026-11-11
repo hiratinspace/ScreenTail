@@ -3,6 +3,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Shell;
 
 namespace ScreenTail.UI.Settings.Privacy;
 
@@ -16,6 +17,8 @@ public sealed partial class PrivacyViewModel : ObservableObject
     private readonly PrivacyPanel _panel;
     private readonly Func<string?> _chooseFile;
     private readonly Func<Task> _eraseEverything;
+    private readonly OneAtATime _exporting = new();
+    private readonly OneAtATime _erasing = new();
 
     /// <param name="chooseFile">Asks the technician where to keep the audit log; null when they cancelled.</param>
     /// <param name="eraseEverything">The shell's typed-confirmation flow for INV-12.</param>
@@ -174,8 +177,13 @@ public sealed partial class PrivacyViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private async Task ExportAuditAsync()
+    /// <summary>One file dialog at a time (<see cref="OneAtATime"/>): it is shown before the first await, in a nested message loop where a queued invoke can arrive.</summary>
+    [RelayCommand(CanExecute = nameof(CanExportAudit))]
+    private Task ExportAuditAsync() => _exporting.RunAsync(ExportAuditOnceAsync, ExportAuditCommand.NotifyCanExecuteChanged);
+
+    private bool CanExportAudit() => !_exporting.Busy;
+
+    private async Task ExportAuditOnceAsync()
     {
         // Where first, so a cancelled dialog costs the service nothing and leaves no file behind.
         if (_chooseFile() is not { } destination)
@@ -197,8 +205,11 @@ public sealed partial class PrivacyViewModel : ObservableObject
         ProblemVisibility = Visibility.Visible;
     }
 
-    [RelayCommand]
-    private Task EraseEverythingAsync() => _eraseEverything();
+    /// <summary>One "Delete everything" question at a time (<see cref="OneAtATime"/>): a second invoke opened a second typed dialog.</summary>
+    [RelayCommand(CanExecute = nameof(CanEraseEverything))]
+    private Task EraseEverythingAsync() => _erasing.RunAsync(_eraseEverything, EraseEverythingCommand.NotifyCanExecuteChanged);
+
+    private bool CanEraseEverything() => !_erasing.Busy;
 
     partial void OnLocalOnlyChanged(bool value) => Field(() => _panel.LocalOnly = value);
 

@@ -2,6 +2,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Shell;
 
 namespace ScreenTail.UI.Settings.Integrations;
 
@@ -14,6 +15,7 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
 {
     private readonly IntegrationCard _card;
     private readonly Func<Task> _changed;
+    private readonly OneAtATime _removing = new();
 
     /// <param name="changed">Called after a save or a removal, so the screen can refresh what depends on it.</param>
     internal IntegrationCardViewModel(IntegrationCard card, Func<Task> changed)
@@ -97,8 +99,13 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
         Refresh();
     }
 
-    [RelayCommand]
-    private async Task RemoveAsync()
+    /// <summary>One removal at a time (<see cref="OneAtATime"/>): a second invoke under the first sent the removal again.</summary>
+    [RelayCommand(CanExecute = nameof(CanRemove))]
+    private Task RemoveAsync() => _removing.RunAsync(RemoveOnceAsync, RemoveCommand.NotifyCanExecuteChanged);
+
+    private bool CanRemove() => !_removing.Busy;
+
+    private async Task RemoveOnceAsync()
     {
         _ = await _card.RemoveAsync().ConfigureAwait(true);
         Refresh();

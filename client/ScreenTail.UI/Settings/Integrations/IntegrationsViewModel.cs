@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Shell;
 
 namespace ScreenTail.UI.Settings.Integrations;
 
@@ -44,6 +45,7 @@ public sealed record MappingRow(string PsaCompany, string DocCompanyName, string
 public sealed partial class IntegrationsViewModel : ObservableObject
 {
     private readonly IntegrationsPanel _panel;
+    private readonly OneAtATime _unmapping = new();
 
     public IntegrationsViewModel(IntegrationsPanel panel)
     {
@@ -131,8 +133,13 @@ public sealed partial class IntegrationsViewModel : ObservableObject
         ShowMappings();
     }
 
-    [RelayCommand]
-    private async Task UnmapAsync(MappingRow? row)
+    /// <summary>One unmapping at a time (<see cref="OneAtATime"/>): a second invoke under the first sent it again and showed its refusal.</summary>
+    [RelayCommand(CanExecute = nameof(CanUnmap))]
+    private Task UnmapAsync(MappingRow? row) => _unmapping.RunAsync(() => UnmapOnceAsync(row), UnmapCommand.NotifyCanExecuteChanged);
+
+    private bool CanUnmap() => !_unmapping.Busy;
+
+    private async Task UnmapOnceAsync(MappingRow? row)
     {
         if (row is null)
         {

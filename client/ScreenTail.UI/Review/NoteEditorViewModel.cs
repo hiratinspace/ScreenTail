@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Review;
+using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.UI.Review;
@@ -84,6 +85,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     private readonly Func<TypedConfirmation, bool> _confirm;
     private readonly Func<CancellationToken, Task>? _discard;
     private readonly Func<string?>? _discardBlocked;
+    private readonly OneAtATime _discarding = new();
     private readonly Func<CancellationToken, Task>? _retryDraft;
     private readonly bool _persists;
     private readonly Dictionary<string, string> _quotes;
@@ -348,8 +350,15 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     /// nothing is wired to do it, as in the render harness: a Discard that looks pressable and does nothing
     /// is a lie about the one irreversible action on the screen.
     /// </summary>
+    /// <remarks>
+    /// One typed question at a time (<see cref="OneAtATime"/>). The dialog is shown before the first
+    /// await, inside a nested message loop where a queued invoke can arrive, and the command does not yet
+    /// count as running then, so without the guard a second invoke opened a second dialog.
+    /// </remarks>
     [RelayCommand(CanExecute = nameof(CanDiscard))]
-    private async Task DiscardAsync()
+    private Task DiscardAsync() => _discarding.RunAsync(DiscardOnceAsync, DiscardCommand.NotifyCanExecuteChanged);
+
+    private async Task DiscardOnceAsync()
     {
         if (_discard is null)
         {
@@ -387,7 +396,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         }
     }
 
-    private bool CanDiscard() => _discard is not null;
+    private bool CanDiscard() => !_discarding.Busy && _discard is not null;
 
     private void SetDiscardError(string? error)
     {
