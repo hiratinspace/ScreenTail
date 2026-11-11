@@ -43,6 +43,23 @@ public sealed class OcrMisreadTests
         Assert.DoesNotContain("[SECRET]", Before.ScrubText(text).Text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Keys whose letters change case with a digit between them. A count of case changes between
+    /// neighbouring characters saw none in "A1b2C3d4E5f6G7h8" (security review of this round); the
+    /// rule counts them between letters, skipping digits.
+    /// </summary>
+    [Theory]
+    [InlineData("A1b2C3d4E5f6G7h8")]
+    [InlineData("x9Kq2Lm7Pz4Rt8Vw")]
+    [InlineData("k3Y8pQ1vZ6mT0wR5")]
+    [InlineData("Zm9vYmFyMTIzNDU2Nzg5MGFiY2RlZg9k")]
+    [InlineData("7Hq3/Xv9+Lp2Rm8sTz4Nk1Wd6Gb5Fc0J=")]
+    public void AKeyWithDigitsBetweenItsLettersIsARandomRun(string key)
+    {
+        // A base64 key's padding is not part of the run, and in a transcript stays after the marker.
+        Assert.Equal("[SECRET]", Engine.ScrubText(key).Text.TrimEnd('='));
+    }
+
     [Theory]
     [InlineData("the printer queue was cleared after a restart and the spooler service stopped again on Monday")]
     [InlineData("var hash = SHA256.HashData(Encoding.UTF8.GetBytes(userId)); Int32.TryParse(value, out var orderCount);")]

@@ -586,9 +586,10 @@ internal static partial class PatternLibrary
     internal const double RandomRunChanges = 0.4;
 
     /// <summary>
-    /// The share of neighbouring letters and digits in a run that go between a capital and a small
-    /// letter, at which <see cref="RandomRuns"/> reads it as random. A random string does at about 0.35
-    /// of its pairs. A hexadecimal number joined to a word does once or twice: the wrap pass joins the
+    /// How often, as a share of a run's neighbouring pairs of letters and digits, one letter is a capital
+    /// and the next letter a small one or the other way, digits between them skipped, at which
+    /// <see cref="RandomRuns"/> reads it as random. A random string does at about 0.4 of its pairs, and
+    /// "A1b2C3d4E5f6G7h8" at 0.47. A hexadecimal number joined to a word does once or twice: the wrap pass joins the
     /// GUID that ends a table's row to the device name that starts the next, "5b8e0f1a2c3dAccounts-PC23",
     /// and without this the hosted runner's table pages lost 58.6% of their ink to it, against 11.1%.
     /// </summary>
@@ -604,8 +605,8 @@ internal static partial class PatternLibrary
     /// The shape rules need a prefix or a cue read right, and the OCR engine reads a long random string
     /// worst of all: on the hosted runner's probe it misread the prefix or cue of most of the keys and
     /// tokens it did not mask, while reading their bodies well enough to be seen to be random. This
-    /// infers nothing about what the string is for. Measured on random strings, it takes 85% of 16
-    /// characters, 96% of 26 and 99% of 36; it takes no word of prose, and names in code only where they change
+    /// infers nothing about what the string is for. Measured on random strings, it takes 91% of 16
+    /// characters, 98% of 26 and 99% of 36; it takes no word of prose, and names in code only where they change
     /// case and digit as often as random text does. The wrap pass reads a key cut by its row's end as
     /// one run, so a piece too short to be taken alone is taken with the piece below it.
     /// </summary>
@@ -620,7 +621,7 @@ internal static partial class PatternLibrary
             }
 
             var start = i;
-            var (count, changes, cases, upper, lower, digit, previous) = (0, 0, 0, false, false, false, 0);
+            var (count, changes, cases, upper, lower, digit, previous, letter) = (0, 0, 0, false, false, false, 0, 0);
             while (i < text.Length && !EndsRun(text[i]))
             {
                 var c = text[i++];
@@ -632,7 +633,14 @@ internal static partial class PatternLibrary
 
                 (upper, lower, digit) = (upper || kind == 1, lower || kind == 2, digit || kind == 3);
                 changes += previous != 0 && previous != kind ? 1 : 0;
-                cases += previous != 0 && previous + kind == 3 ? 1 : 0;
+                if (kind != 3)
+                {
+                    // Between letters, with any digits between them skipped: "A1b2C3d4" changes case
+                    // at every letter, though no two neighbours are a capital and a small letter.
+                    cases += letter != 0 && letter != kind ? 1 : 0;
+                    letter = kind;
+                }
+
                 previous = kind;
                 count++;
             }

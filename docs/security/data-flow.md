@@ -122,10 +122,16 @@ however well the rest was read:
   punctuation, and the l of "live" read as 1, I, | or i ("ghp 4WdRau…", "sk_1ive_pqg1…").
 - Any run of text between spaces and separators (= : , ; and quotes) that looks random, whatever is
   before it: at least 16 letters and digits, with a capital, a small letter and a digit among them,
-  changing between those three at no less than 0.4 of its neighbouring pairs. Random strings change at
-  about 0.62; names in code built of words and a number ("Office365ProPlusRetail",
-  "Int32.TryParse(value") at 0.35 or less, and are left alone. It takes 92% of random strings of 16
-  characters and 99.5% of 36. A GUID, a hash in small letters, a hostname in capitals and digits, a path
+  changing between those three at no less than 0.4 of its neighbouring pairs, and between a capital
+  and a small letter, digits between letters skipped, at no less than 0.15. Random strings change
+  class at about 0.62 and case at about 0.4 ("A1b2C3d4E5f6G7h8" at 0.47); names in code built of words
+  and a number ("Office365ProPlusRetail", "Int32.TryParse(value") change class at 0.35 or less, and
+  are left alone. The case gate is there because the wrap pass joins a GUID that ends a table's row to
+  the device name that starts the next ("5b8e0f1a2c3dAccounts-PC23"), and without it the hosted
+  probe's device tables lost 58.6% of their ink, against 11.1%; such a join changes case once or
+  twice. What the gate costs is recall: a random string whose letters rarely change case, mostly
+  capitals with digits or mostly small letters with digits, is left to the shape and cue rules. It
+  takes 91% of random strings of 16 characters, 98% of 26 and 99% of 36. A GUID, a hash in small letters, a hostname in capitals and digits, a path
   and a number grid are left alone. A key cut by a row's end is read whole by the wrap pass below, so
   a piece too short alone is taken with its continuation.
 - "pass" with its colon misread ("pass. Juniper8749Quiver", "pass Tangerine3327Wobble"): only the
