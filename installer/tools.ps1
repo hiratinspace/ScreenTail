@@ -9,6 +9,11 @@
     unless its SHA-256 is the pinned one and its NuGet signatures verify, and extracts it into a fresh
     folder. Nothing already on disk is ever run: only bytes that match the pin. Changing a version or
     a hash in tools.json is a reviewed change, like any other dependency.
+
+    Its "downloads" list pins the files that are not NuGet packages (today only Microsoft's Visual C++
+    runtime installer) to one versioned URL, the file version and the SHA-256. Get-PinnedDownload
+    fetches exactly that URL and refuses the file unless both match. There is no fallback to whatever
+    Microsoft serves as the latest, so two builds of one commit carry the same runtime.
 #>
 
 $PinnedToolsFile = Join-Path $PSScriptRoot 'tools.json'
@@ -66,4 +71,43 @@ function Get-PinnedPackage([string]$Id, [string]$Into) {
     [IO.Compression.ZipFile]::ExtractToDirectory($package, $folder)
     Write-Host "  $Id $version, SHA-256 and signatures verified"
     return $folder
+}
+
+function Get-PinnedDownload([string]$Id, [string]$Into) {
+    $pins = Get-Content -Raw -Path $PinnedToolsFile | ConvertFrom-Json
+    $pin = @($pins.downloads | Where-Object { $_.id -eq $Id })
+    if ($pin.Count -ne 1) {
+        throw "installer/tools.json pins $($pin.Count) downloads named $Id. It must pin exactly one."
+    }
+    $pin = $pin[0]
+    if ($pin.version -notmatch '^\d+\.\d+\.\d+\.\d+$' -or $pin.sha256 -cnotmatch '^[0-9a-f]{64}$' -or $pin.url -cnotmatch '^https://download\.visualstudio\.microsoft\.com/download/pr/') {
+        throw "installer/tools.json must pin $Id to one versioned download.visualstudio.microsoft.com URL, one exact four-part version and a lowercase SHA-256."
+    }
+
+    $version = $pin.version
+    New-Item -ItemType Directory -Force -Path $Into | Out-Null
+    $file = Join-Path $Into "$Id.exe"
+    if (-not (Test-Path $file) -or (Get-FileHash -Algorithm SHA256 -Path $file).Hash -ne $pin.sha256) {
+        if (Test-Path $file) {
+            Remove-Item $file -Force
+        }
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $pin.url -OutFile $file
+        } catch {
+            throw "Could not download $Id $version from the URL pinned in installer/tools.json ($($pin.url)): $($_.Exception.Message). The build uses only that file; to move to another, change the pin."
+        }
+    }
+    $hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+    if ($hash -ne $pin.sha256) {
+        Remove-Item $file -Force
+        throw "$Id from $($pin.url) has SHA-256 $hash, not the $($pin.sha256) pinned in installer/tools.json. Refusing to use it."
+    }
+    $info = (Get-Item $file).VersionInfo
+    $actual = '{0}.{1}.{2}.{3}' -f $info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart
+    if ([version]$actual -ne [version]$version) {
+        Remove-Item $file -Force
+        throw "$Id from $($pin.url) is version $actual, not the $version pinned in installer/tools.json. Refusing to use it."
+    }
+    Write-Host "  $Id $version, SHA-256 and version verified against installer/tools.json"
+    return [pscustomobject]@{ Path = $file; Version = [version]$version }
 }

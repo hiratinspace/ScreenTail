@@ -7,8 +7,9 @@
   Variables, all passed by build.ps1:
     Version        the product version, the same as the package's
     Msi            the built (and, when configured, signed) ScreenTail.msi
-    VcRedist       Microsoft's vc_redist.x64.exe, downloaded by build.ps1 and checked to be Microsoft-signed
-    VcRedistBuild  that runtime's build number, so an older runtime already on the machine is upgraded
+    VcRedist       Microsoft's vc_redist.x64.exe, the version pinned in tools.json, downloaded by
+                   package.ps1 and checked against the pin's SHA-256 and version and to be Microsoft-signed
+    VcRedistBuild  the pinned runtime's build number, so an older runtime already on the machine is upgraded
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"

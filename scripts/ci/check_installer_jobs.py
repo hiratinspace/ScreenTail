@@ -33,7 +33,10 @@ reach the signing token, before it merges:
     tool command, another script dot-sourced, a process started, a call on anything but dotnet and
     signtool, a WiX extension or the payload used another way, a change of folder), not a proof;
     the structural rules above are what hold the job's shape;
-  - installer/tools.json pins each package to one version and a SHA-256;
+  - installer/tools.json pins each package to one version and a SHA-256, and the Visual C++ runtime
+    installer to one versioned Microsoft URL, its four-part version and the SHA-256 that URL names;
+    package.ps1 takes the runtime only through the pinned download, which checks the hash and the
+    version, and the bundle's build number comes from it;
   - the WiX authoring has no preprocessor directive, no variable but its own inputs, no extension
     beyond Util and Bal, and no custom action except the two that run at install time on the target
     machine (an error message, and the uninstall cleanup through WiX's own quiet-exec). WiX runs no
@@ -188,12 +191,18 @@ MUST_CONTAIN = {
         "if ($hash -ne $pin.sha256) {",
         "nuget verify $package --all",
         "Join-Path $env:ProgramFiles 'dotnet\\dotnet.exe'",
+        # The runtime installer: the pinned URL only, refused unless its hash and version are the pin's.
+        "Invoke-WebRequest -UseBasicParsing -Uri $pin.url -OutFile $file",
+        "$hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()",
+        "if ([version]$actual -ne [version]$version) {",
     ],
     'installer/package.ps1': [
         "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN",
         "Get-PinnedPackage 'wix' $tools",
         "Get-Extension 'WixToolset.Util.wixext'",
         "Get-Extension 'WixToolset.Bal.wixext'",
+        "$pinnedVc = Get-PinnedDownload 'vc_redist.x64' $work",
+        "'-d', \"VcRedistBuild=$($vcVersion.Build)\",",
     ],
     'installer/sign.ps1': [
         "Get-PinnedPackage 'Microsoft.ArtifactSigning.Client'",
@@ -256,6 +265,11 @@ PAYLOAD_LINES = {
 
 PACKAGES = {'wix', 'WixToolset.Util.wixext', 'WixToolset.Bal.wixext', 'Microsoft.ArtifactSigning.Client'}
 WIX_FAMILY = ('wix', 'WixToolset.Util.wixext', 'WixToolset.Bal.wixext')
+# Files that are not NuGet packages, each pinned to one versioned Microsoft URL. The path of such a
+# URL carries the file's SHA-256, so the pin's hash must be that one. aka.ms links are never a pin:
+# they move to each new release.
+DOWNLOADS = {'vc_redist.x64'}
+DOWNLOAD_URL = re.compile(r'https://download\.visualstudio\.microsoft\.com/download/pr/[0-9a-f-]{36}/([0-9A-F]{64})/VC_redist\.x64\.exe')
 
 AUTHORING = ('installer/Package.wxs', 'installer/Bundle.wxs')
 NAMESPACES = {
@@ -557,6 +571,20 @@ def check_tools(text):
     versions = {p.get('version') for p in packages if p.get('id') in WIX_FAMILY}
     if len(versions) > 1:
         bad.append('WiX and its extensions must be the same version')
+    downloads = json.loads(text).get('downloads')
+    if not isinstance(downloads, list) or sorted(str(d.get('id')) for d in downloads if isinstance(d, dict)) != sorted(DOWNLOADS) or len(downloads) != len(DOWNLOADS):
+        return bad + [f'installer/tools.json must pin exactly the downloads {sorted(DOWNLOADS)}, once each']
+    for d in downloads:
+        if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', str(d.get('version'))):
+            bad.append(f'{d.get("id")} is not pinned to one exact four-part version')
+        sha = str(d.get('sha256'))
+        if not re.fullmatch(r'[0-9a-f]{64}', sha):
+            bad.append(f'{d.get("id")} has no lowercase SHA-256 pinned')
+        url = DOWNLOAD_URL.fullmatch(str(d.get('url')))
+        if not url:
+            bad.append(f'{d.get("id")} is not pinned to one versioned download.visualstudio.microsoft.com URL')
+        elif url.group(1).lower() != sha:
+            bad.append(f'{d.get("id")} pins a SHA-256 other than the one in its URL')
     return bad
 
 
@@ -750,6 +778,9 @@ SAMPLE_FILES = {
         "if ($hash -ne $pin.sha256) {",
         "Push-Location $Into",
         "& $dotnet nuget verify $package --all | Out-Host",
+        "Invoke-WebRequest -UseBasicParsing -Uri $pin.url -OutFile $file",
+        "$hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()",
+        "if ([version]$actual -ne [version]$version) {",
     ]),
     'installer/package.ps1': "\n".join([
         "# build.ps1 calls this. Run build.ps1 -Stage Payload first.",
@@ -764,6 +795,10 @@ SAMPLE_FILES = {
         "}",
         "Invoke-Wix 'x' @('build', '-ext', $util,",
         "    '-d', \"Payload=$payload\",",
+        "    '-ext', $bal)",
+        "$pinnedVc = Get-PinnedDownload 'vc_redist.x64' $work",
+        "Invoke-Wix 'y' @('build', '-d', \"VcRedist=$vcRedist\",",
+        "    '-d', \"VcRedistBuild=$($vcVersion.Build)\",",
         "    '-ext', $bal)",
         "& $dotnet $wix @Arguments | Out-Host",
     ]),
@@ -810,6 +845,9 @@ SAMPLE_FILES = {
         {'id': 'WixToolset.Util.wixext', 'version': '5.0.2', 'sha256': 'b' * 64},
         {'id': 'WixToolset.Bal.wixext', 'version': '5.0.2', 'sha256': 'c' * 64},
         {'id': 'Microsoft.ArtifactSigning.Client', 'version': '1.0.146', 'sha256': 'd' * 64},
+    ], 'downloads': [
+        {'id': 'vc_redist.x64', 'version': '14.52.37029.0', 'sha256': 'f' * 64,
+         'url': 'https://download.visualstudio.microsoft.com/download/pr/78d061c5-9ef3-42ab-98ed-3309d1095dc4/' + 'F' * 64 + '/VC_redist.x64.exe'},
     ]}),
     'installer/Package.wxs': """<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
@@ -1112,7 +1150,18 @@ MUST_FAIL = {
     'an uppercase hash': edit_file('installer/tools.json', lambda t: t.replace('a' * 64, 'A' * 64)),
     'a version range': edit_file('installer/tools.json', lambda t: t.replace('"1.0.146"', '"[1.0,)"')),
     'an extra package': edit_file('installer/tools.json', lambda t: t.replace('"packages": [', '"packages": [{"id": "Evil", "version": "1.0.0", "sha256": "' + 'e' * 64 + '"}, ')),
-    'a missing package': edit_file('installer/tools.json', lambda t: json.dumps({'packages': json.loads(t)['packages'][:3]})),
+    'a missing package': edit_file('installer/tools.json', lambda t: json.dumps({'packages': json.loads(t)['packages'][:3], 'downloads': json.loads(t)['downloads']})),
+    'no runtime pin': edit_file('installer/tools.json', lambda t: json.dumps({'packages': json.loads(t)['packages']})),
+    'the runtime twice': edit_file('installer/tools.json', lambda t: json.dumps(dict(json.loads(t), downloads=json.loads(t)['downloads'] * 2))),
+    'the runtime from aka.ms': edit_file('installer/tools.json', lambda t: re.sub(r'https://download[^"]*', 'https://aka.ms/vc14/vc_redist.x64.exe', t)),
+    'the runtime from another host': edit_file('installer/tools.json', lambda t: t.replace('download.visualstudio.microsoft.com', 'example.com')),
+    'a runtime hash other than its URL': edit_file('installer/tools.json', lambda t: t.replace('f' * 64, 'e' * 64)),
+    'a short runtime hash': edit_file('installer/tools.json', lambda t: t.replace('f' * 64, 'f' * 40)),
+    'a three-part runtime version': edit_file('installer/tools.json', lambda t: t.replace('"14.52.37029.0"', '"14.52.37029"')),
+    'the runtime not from the pin': edit_file('installer/package.ps1', lambda t: t.replace("Get-PinnedDownload 'vc_redist.x64' $work", "Join-Path $work 'vc_redist.x64.exe'")),
+    'the build number not from the runtime': edit_file('installer/package.ps1', lambda t: t.replace('"VcRedistBuild=$($vcVersion.Build)"', '"VcRedistBuild=0"')),
+    'no runtime version check': edit_file('installer/tools.ps1', lambda t: t.replace('if ([version]$actual -ne [version]$version) {', 'if ($false) {')),
+    'the runtime from another URL': edit_file('installer/tools.ps1', lambda t: t.replace('-Uri $pin.url -OutFile $file', "-Uri 'https://aka.ms/vc14/vc_redist.x64.exe' -OutFile $file")),
     'WiX and an extension at different versions': edit_file('installer/tools.json', lambda t: t.replace('"5.0.2", "sha256": "' + 'b' * 64, '"5.0.3", "sha256": "' + 'b' * 64)),
     # The authoring.
     'a custom action that runs a program': edit_file('installer/Package.wxs', lambda t: t.replace('<CustomAction Id="Refuse" Error="No." />', '<CustomAction Id="Run" Directory="X" ExeCommand="calc.exe" />')),
