@@ -244,7 +244,8 @@ public sealed class OcrWrapTests
         // The rule's cost, stated: eight cells one above the other read the same as a card number
         // wrapped eight times, and nothing on the screen tells them apart, so they are masked. One
         // run of sixteen digits in ten passes the checksum by accident. Measured on a grid of 1,200
-        // random four-digit numbers, a cell a column: 531 masked with the wrap pass, 197 without.
+        // random four-digit numbers, a cell a column: 518 masked with the wrap pass, 231 without; of
+        // eight-digit numbers, 434 against none.
         var words = Page([.. Enumerable.Range(0, 8).Select(line => Row(line, Left, line == 0 ? "41" : "11"))]);
 
         var redaction = Engine.RedactFrame(words);
