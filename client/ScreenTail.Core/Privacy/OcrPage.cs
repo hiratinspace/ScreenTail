@@ -11,11 +11,13 @@ internal sealed class OcrPage
 {
     private readonly int[] _rowOf;
     private readonly List<Row> _rows = [];
+    private readonly Dictionary<int, TallWords> _tall = [];
 
     public OcrPage(IReadOnlyList<OcrWord> words)
     {
         Words = words;
         _rowOf = new int[words.Count];
+        MedianHeight = PageHeight(words);
 
         foreach (var group in Rows(words))
         {
@@ -30,13 +32,37 @@ internal sealed class OcrPage
                 members,
                 [.. members.Select(i => words[i].X)],
                 heights[heights.Length / 2],
+                heights[heights.Length / 2] > 0 ? heights[heights.Length / 2] : MedianHeight,
                 members.Max(i => words[i].Width),
                 heights[^1],
-                members.Any(i => HasRightToLeft(words[i].Text))));
+                members.Any(i => HasRightToLeft(words[i].Text)),
+                members.Min(i => words[i].Y),
+                members.Max(i => words[i].Y + words[i].Height)));
+
+            // Most rows have no word over twice their height, and need nothing more.
+            var row = _rows[^1];
+            if (row.MaxHeight > 2.0 * row.Height)
+            {
+                _tall[_rows.Count - 1] = new TallWords(words, row);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The median height of the page's boxes that have one. Where none has (review of #268 at a3cd033:
+    /// a gap measured against no height joined nothing), an estimate from the glyphs: a character is
+    /// about half as wide as its line is tall. Never under a pixel.
+    /// </summary>
+    private static int PageHeight(IReadOnlyList<OcrWord> words)
+    {
+        var heights = words.Where(w => w.Height > 0).Select(w => w.Height).Order().ToArray();
+        if (heights.Length > 0)
+        {
+            return heights[heights.Length / 2];
         }
 
-        var all = words.Select(w => w.Height).Order().ToArray();
-        MedianHeight = all.Length == 0 ? 0 : all[all.Length / 2];
+        var estimates = words.Where(w => w.Width > 0 && w.Text.Length > 0).Select(w => 2.0 * w.Width / w.Text.Length).Order().ToArray();
+        return estimates.Length == 0 ? 1 : Math.Max(1, (int)Math.Ceiling(estimates[estimates.Length / 2]));
     }
 
     /// <summary>
@@ -160,20 +186,29 @@ internal sealed class OcrPage
 
     /// <param name="Members">The row's words, left to right by their left edge.</param>
     /// <param name="Lefts">Their left edges, in the same order, for the binary search.</param>
+    /// <param name="Height">
+    /// The height a space on the row is measured against and a mask is painted at least as tall as: its
+    /// median, or the page's where that is zero. Never under a pixel.
+    /// </param>
     /// <param name="RightToLeft">Whether any word on the row has a Hebrew, Arabic or other strong right-to-left letter.</param>
-    internal sealed record Row(int[] Members, int[] Lefts, int Median, int MaxWidth, int MaxHeight, bool RightToLeft);
+    /// <param name="Top">The highest top of the row's boxes.</param>
+    /// <param name="Bottom">The lowest bottom of the row's boxes.</param>
+    internal sealed record Row(int[] Members, int[] Lefts, int Median, int Height, int MaxWidth, int MaxHeight, bool RightToLeft, int Top, int Bottom);
 
     public IReadOnlyList<OcrWord> Words { get; }
 
-    /// <summary>The median height of every word on the page, for a row whose own is zero.</summary>
+    /// <summary>The median height of the page's words, for a row whose own is zero; at least a pixel.</summary>
     public int MedianHeight { get; }
+
+    /// <summary>How many rows the page has. They are numbered down the page, by their words' middles.</summary>
+    public int RowCount => _rows.Count;
 
     public int RowOf(int word) => _rowOf[word];
 
     public Row RowAt(int row) => _rows[row];
 
-    /// <summary>The median height of the words on <paramref name="word"/>'s row, itself included.</summary>
-    public double RowHeight(int word) => _rows[_rowOf[word]].Median;
+    /// <summary>The height a space on <paramref name="word"/>'s row is measured against (<see cref="Row.Height"/>).</summary>
+    public double RowHeight(int word) => _rows[_rowOf[word]].Height;
 
     /// <summary>
     /// The other words on <paramref name="word"/>'s row whose box comes within <paramref name="reach"/>
@@ -205,6 +240,89 @@ internal sealed class OcrPage
             {
                 yield return other;
             }
+        }
+    }
+
+    /// <summary>
+    /// The words on <paramref name="word"/>'s row that are over twice the row's height and whose box,
+    /// widened either side by <see cref="RedactionEngine.TokenGap"/> of their own height, reaches its
+    /// box. A token's piece is found from a shorter piece through this: the gap between two pieces on
+    /// one line is measured against the taller of them, which may be further than the shorter one's
+    /// own height looks (<see cref="RedactionEngine.TokenHeight"/>).
+    /// </summary>
+    public IEnumerable<int> TallNear(int word)
+    {
+        if (!_tall.TryGetValue(_rowOf[word], out var tall))
+        {
+            return [];
+        }
+
+        var box = Words[word];
+        return tall.Reaching(box.X, box.X + box.Width).Where(other => other != word);
+    }
+
+    /// <summary>
+    /// A row's words over twice its height, each as the stretch of the row it reaches, held so that
+    /// the ones reaching a given stretch are found without looking at the rest: sorted by where they
+    /// start, under a tree of the furthest end in each half.
+    /// </summary>
+    private sealed class TallWords
+    {
+        private readonly int[] _words;
+        private readonly double[] _starts;
+        private readonly double[] _ends;
+        private readonly double[] _furthest;
+
+        public TallWords(IReadOnlyList<OcrWord> words, Row row)
+        {
+            var tall = row.Members
+                .Where(i => words[i].Height > 2.0 * row.Height)
+                .Select(i => (Word: i, Start: words[i].X - (RedactionEngine.TokenGap * words[i].Height), End: words[i].X + words[i].Width + (RedactionEngine.TokenGap * words[i].Height)))
+                .OrderBy(t => t.Start)
+                .ToArray();
+            _words = [.. tall.Select(t => t.Word)];
+            _starts = [.. tall.Select(t => t.Start)];
+            _ends = [.. tall.Select(t => t.End)];
+            _furthest = new double[4 * Math.Max(1, tall.Length)];
+            Build(1, 0, tall.Length - 1);
+        }
+
+        private double Build(int node, int low, int high)
+        {
+            if (low == high)
+            {
+                return _furthest[node] = _ends[low];
+            }
+
+            var middle = (low + high) / 2;
+            return _furthest[node] = Math.Max(Build(2 * node, low, middle), Build((2 * node) + 1, middle + 1, high));
+        }
+
+        /// <summary>The words whose stretch meets the one from <paramref name="left"/> to <paramref name="right"/>.</summary>
+        public List<int> Reaching(double left, double right)
+        {
+            var found = new List<int>();
+            Collect(1, 0, _words.Length - 1, left, right, found);
+            return found;
+        }
+
+        private void Collect(int node, int low, int high, double left, double right, List<int> found)
+        {
+            // Nothing in this half ends far enough right, or all of it starts too far right.
+            if (_furthest[node] < left || _starts[low] > right)
+            {
+                return;
+            }
+
+            if (low == high)
+            {
+                found.Add(_words[low]);
+                return;
+            }
+
+            var middle = (low + high) / 2;
+            Collect(2 * node, low, middle, left, right, found);
+            Collect((2 * node) + 1, middle + 1, high, left, right, found);
         }
     }
 

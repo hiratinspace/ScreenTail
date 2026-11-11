@@ -50,11 +50,19 @@ public sealed class OcrTokenRuleTests
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
             new("34xy", 406, 100, 40, Height),
+
+            // The row below runs on past the token's row: a row no wider than the one above it may be
+            // the rest of a line that wrapped, and its first word would go with the token (OcrWrapTests).
+            new("and", 222, 140, 40, Height),
+            new("the", 271, 140, 40, Height),
+            new("test", 320, 140, 50, Height),
+            new("page", 379, 140, 50, Height),
+            new("printed", 438, 140, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("token: [SECRET] Queue cleared [SECRET]", redaction.Text);
+        Assert.Equal("token: [SECRET] Queue cleared [SECRET] and the test page printed", redaction.Text);
         Assert.True(Covered(redaction, words[4]), "the token's tail is left unpainted in the frame");
     }
 
@@ -113,6 +121,127 @@ public sealed class OcrTokenRuleTests
                 }
             }
         }
+    }
+
+    [Fact]
+    public void AKeysTailAThirdOfAHeightAwayIsMaskedToo()
+    {
+        // 8 px on a 24 px row, 0.33 of the height: the widest split measured sits about there.
+        OcrWord[] words =
+        [
+            new("deploy", 24, 100, 70, Height),
+            new(Key, 104, 100, 400, Height),
+            new("Wobble7", 512, 100, 80, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("deploy [SECRET]", redaction.Text);
+    }
+
+    [Fact]
+    public void AKeysTailOnARowOfZeroHeightBoxesIsMaskedToo()
+    {
+        // Review of #268 at a3cd033: no box on the page has a height, so the gap was measured against
+        // nothing and nothing joined. The height is estimated from the glyphs' widths instead.
+        OcrWord[] words =
+        [
+            new(Key, 0, 100, 400, 0),
+            new("Wobble7", 402, 100, 80, 0),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[SECRET]", redaction.Text);
+        Assert.True(Covered(redaction, words[1]), "the key's tail is left unpainted in the frame");
+    }
+
+    /// <summary>
+    /// A small piece between two pieces of a key: a baseline underscore, a full stop, a zero-height box.
+    /// Each shares the key's row but the key's middle is not within its height, so a test that asked
+    /// both ways dropped it and the tail after it (security review of #268).
+    /// </summary>
+    [Theory]
+    [InlineData("_", 120, 3)]
+    [InlineData(".", 118, 4)]
+    [InlineData("-", 118, 0)]
+    public void ASmallPieceInsideAKeyCarriesItOn(string piece, int top, int height)
+    {
+        OcrWord[] words =
+        [
+            new("deploy", 24, 100, 70, Height),
+            new(Key, 104, 100, 400, Height),
+            new(piece, 506, top, 10, height),
+            new("Wobble7", 518, 100, 80, Height),
+            new("done", 610, 100, 50, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("deploy [SECRET] done", redaction.Text);
+        Assert.True(Covered(redaction, words[3]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ALargeSecretSplitOnARowOfSmallBoxesIsMaskedWhole()
+    {
+        // Security review, 2026-11-10: a heading-sized key on a row whose other boxes are small. The
+        // row's height is the small boxes' (10 px), a word counted for at most twice that, and the
+        // split, 12 px on 40 px glyphs (0.3 of their height), was measured against 20 px (0.6) and left
+        // the tail showing. The two pieces are on one line by either's measure, so their own height
+        // is the one a space between them is to be judged by.
+        OcrWord[] words =
+        [
+            new("a", 10, 115, 8, 10),
+            new("b", 30, 115, 8, 10),
+            new("c", 50, 115, 8, 10),
+            new("d", 70, 115, 8, 10),
+            new("e", 90, 115, 8, 10),
+            new(Key, 150, 100, 1200, 40),
+            new("Wobble7", 1362, 100, 200, 40),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("a b c d e [SECRET]", redaction.Text);
+        Assert.True(Covered(redaction, words[6]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ALargeTailAfterASmallerPieceIsMaskedToo()
+    {
+        // The piece the rule matched is the shorter of the two, so the tail is further off than the
+        // matched piece's own height reaches and has to be found from its side.
+        OcrWord[] words =
+        [
+            new("a", 10, 115, 8, 10),
+            new("b", 30, 115, 8, 10),
+            new("c", 50, 115, 8, 10),
+            new("d", 70, 115, 8, 10),
+            new("e", 90, 115, 8, 10),
+            new(Key, 150, 108, 1200, 24),
+            new("Wobble7", 1362, 100, 200, 40),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("a b c d e [SECRET]", redaction.Text);
+        Assert.True(Covered(redaction, words[6]), "the key's tail is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ATallBoxDoesNotCarryAnEmailAcrossTheLines()
+    {
+        // Review of #268 at a3cd033: one box as tall as the page shares a row with every word on it, and
+        // an email took all 7,999 of them. A token stays on its own line.
+        var words = Grid(8000, (row, col) => row == 100 && col == 5 ? "jane@example.com" : $"w{row}x{col}");
+        words.Add(new("|", 46, 0, 4, 6000));
+
+        var redaction = WithEmails.RedactFrame(words);
+
+        Assert.Contains("[EMAIL]", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("w99x10", redaction.Text, StringComparison.Ordinal);
+        Assert.Contains("w150x30", redaction.Text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -222,12 +351,18 @@ public sealed class OcrTokenRuleTests
     [InlineData("8,000 words, a password on every row")]
     [InlineData("2,500 password cues in 5,000 words")]
     [InlineData("a private key with no end, 5,000 words")]
+    [InlineData("8,000 words, a box as tall as the page and 100 cues")]
     public void ABigFrameRedactsWithinBudget(string frame)
     {
         var words = frame switch
         {
             "8,000 words, a password on every row" => Grid(8000, (row, col) => col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"word{col}"),
             "2,500 password cues in 5,000 words" => Grid(5000, (row, col) => col % 2 == 0 ? "pwd:" : $"Ab{(row * 40) + col}"),
+            "8,000 words, a box as tall as the page and 100 cues" =>
+            [
+                .. Grid(8000, (row, col) => row % 2 == 1 ? $"w{row}x{col}" : col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"w{row}x{col}"),
+                new("|", 46, 0, 4, 6000),
+            ],
             _ => [new("-----BEGIN", 0, 0, 100, Height), new("PRIVATE", 110, 0, 80, Height), new("KEY-----", 200, 0, 80, Height), .. Grid(5000, (row, col) => $"w{row}x{col}", top: 30)],
         };
 

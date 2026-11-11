@@ -103,6 +103,13 @@ public sealed class OcrSplitTokenTests
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
             new("reception", 340, 100, 110, Height),
+            // The row below runs on past the pass row: a row no wider than the one above it may be the
+            // rest of a line that wrapped, and a password takes that too (OcrWrapTests).
+            new("and", 222, 140, 40, Height),
+            new("the", 271, 140, 40, Height),
+            new("test", 320, 140, 50, Height),
+            new("page", 379, 140, 50, Height),
+            new("printed", 438, 140, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);
@@ -317,6 +324,62 @@ public sealed class OcrSplitTokenTests
     }
 
     [Fact]
+    public void TwoCuesOfOneMatchKeepOnlyWhatIsLeftOfTheLeftmost()
+    {
+        // A tenant pattern joins two passwords into one match. What is kept is what lies left of the
+        // leftmost cue on screen, so "note", between the two cues, goes.
+        var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = ["Ab12cd34 pass: Tangerine4821"] });
+        OcrWord[] words =
+        [
+            new("pwd:", 300, 100, 51, Height),
+            new("Ab12cd34", 360, 100, 100, Height),
+            new("pass:", 24, 100, 60, Height),
+            new("Tangerine4821", 500, 100, 190, Height),
+            new("note", 93, 100, 50, Height),
+        ];
+
+        var redaction = engine.RedactFrame(words);
+
+        Assert.DoesNotContain("note", redaction.Text, StringComparison.Ordinal);
+        Assert.True(CoveredByAny(redaction, words[4]), "a word between the cues is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void AWordOverlappingTheCueIsNotKept()
+    {
+        // Only a word whose right edge is at or left of the cue's left edge is kept.
+        OcrWord[] words =
+        [
+            new("ticket", 24, 100, 100, Height),
+            new("pass:", 120, 100, 60, Height),
+            new("Tangerine4821", 189, 100, 190, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.True(CoveredByAny(redaction, words[0]), "the word overlapping the cue is left unpainted in the frame");
+    }
+
+    [Fact]
+    public void ASecretStartingInsideTheCuesBoxTakesTheWholeRow()
+    {
+        // The secret starts before the cue ends, so it is not wholly right of the cue, and the row may
+        // not read the way the cue does.
+        OcrWord[] words =
+        [
+            new("note", 24, 100, 50, Height),
+            new("pass:", 100, 100, 60, Height),
+            new("Tangerine4821", 150, 100, 190, Height),
+        ];
+
+        var redaction = Engine.RedactFrame(words);
+
+        Assert.Equal("[REDACTED]", redaction.Text);
+        Assert.True(CoveredByAny(redaction, words[0]), "a word left of the cue is left unpainted in the frame");
+    }
+
+    [Fact]
     public void ARowWithRightToLeftScriptIsMaskedWhole()
     {
         // A Hebrew or Arabic word on a row means it may read right to left, and nothing on it is kept.
@@ -442,6 +505,13 @@ public sealed class OcrSplitTokenTests
             new("Queue", 24, 140, 80, Height),
             new("cleared", 113, 140, 100, Height),
             new("Wobble", 291, 100, 96, Height),
+            // The row below runs on past the pass row: a row no wider than the one above it may be the
+            // rest of a line that wrapped, and a password takes that too (OcrWrapTests).
+            new("and", 222, 140, 40, Height),
+            new("the", 271, 140, 40, Height),
+            new("test", 320, 140, 50, Height),
+            new("page", 379, 140, 50, Height),
+            new("printed", 438, 140, 100, Height),
         ];
 
         var redaction = Engine.RedactFrame(words);

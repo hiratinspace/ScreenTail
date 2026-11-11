@@ -88,7 +88,9 @@ Card numbers (Luhn-checked), national ID numbers, API keys and tokens, private k
 fields, and tenant-defined patterns. Masking happens on the device before any frame becomes readable.
 On a screenshot, a password masks its cue's row and every row it touches, the cue included; only the
 words wholly left of the cue stay, and only when the secret is right of it. Every other match takes the whole of each on-screen token it
-touches, however the OCR engine split it.
+touches, however the OCR engine split it. A value wrapped onto the next row by its window's edge is
+joined to each line that may continue it (up to four, on the three rows below) and masked on both rows;
+this masks more than a page needs where unrelated rows happen to complete a pattern between them.
 
 **2.6 Does redaction run locally or in the cloud?**
 Locally, always. OCR uses the Windows on-device engine.

@@ -108,7 +108,8 @@ password fields — and then, and only then, the frame becomes readable to the r
 
 A match is masked by what is on the screen, not by how the OCR engine split it into words: every word
 that touches it with no space between them goes too, so a value the engine read as two words is masked
-whole. A password goes further: its cue's row and every row the match touches on the screen are
+whole. The space between two words is judged against the height of the row, or of the taller word
+where the two sit on one line, so large text beside small is judged by its own size (2026-11-10). A password goes further: its cue's row and every row the match touches on the screen are
 masked, the cue included, in the stored text and in the picture alike. The one exception is on the
 cue's own row: the words wholly left of the cue stay readable, so the line still says what it was
 (ScreenTail's cues are Latin, read left to right), unless any of what was masked on that row starts
@@ -117,7 +118,83 @@ Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen 
 screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
 (PR #268): more of a technician's line is masked than strictly needed, because a split the engine makes through a remote viewer's
 scaling cannot be measured in advance, and a piece of a password left showing is a stored password.
-A value that wraps onto the next row is not covered yet. Transcripts are scrubbed by the words alone.
+
+A value that a terminal or a text box wrapped onto the next row is found by reading the page a second
+time with each line's end joined to the start of each line that may continue it, and masking whatever
+matches across a join (2026-11-10). What is joined is decided on the screen:
+
+- A row is cut into runs where two words stand more than one row height apart, and at a word with no
+  letter or digit in it (a divider between panes, a gutter's rule), so side-by-side panes and a
+  line-number gutter are separate from the text beside them.
+- A run's last token is joined to the first token of a run on one of the three rows below, no more
+  than two row heights under it, that starts left of where the run above ends and ends no more than
+  two row heights past it, since a line that overflowed is as wide as its box and its continuation
+  cannot run past it.
+- Every such run is tried, up to a bound: the two nearest on the row next below and the nearest one on
+  each of the two rows after, taken from the six runs nearest on each row. That is four joins at most
+  from one run's end, and eight where either row has a right-to-left letter, because those are joined
+  the other way round as well.
+- Each join is read twice where the two differ: with the pieces of a token run together, and with the
+  page's own spaces, since a narrow real space reads as none and a rule that needs a word to end would
+  miss it. It is read once more with a hyphen or backslash dropped from the end of the line above and
+  a ">" or "+" from the start of the one below, where either is there.
+- A token joined from above is joined on to what is below it, through a row with a right-to-left word
+  too, up to 32 tokens in one chain.
+
+The second reading only adds masks; a test holds the engine with it to masking everything the engine
+without it masks, on 2,000 random pages. No edge of any box is known and nothing is inferred, so every
+run's end over a run no wider is tried, and the cost is more masked than a page needs:
+
+- A key, token or email that ends its row takes the first word of each run tried below it that
+  completes its shape, the first word of the pane beside it included.
+- A password that ends its row takes the whole of every such row in reach, the second and third down
+  as well as the first, because a password takes every row its match touches. This is the largest
+  cost.
+- Numbers stacked one above the other that joined pass the card checksum are masked, however many
+  rows of them, because a card number wrapped over four rows looks the same. On a grid of 1,200 random
+  numbers, a cell a column: of four-digit numbers 518 are masked against 231 without this reading; of
+  six-digit, 171 against 168; of eight-digit, 434 against none, two of them stacked being sixteen
+  digits and each tried against four below it.
+
+Not covered: a continuation that follows another word on its row after an ordinary space, with no gap
+or divider before it; panes closer than one row height with no divider between; a continuation more
+than three rows or two row heights down, or wider than the row above by more than two row heights; a
+continuation that is not among the bound's nearest runs; a token the engine read as more than eight
+pieces.
+
+The reading costs time in proportion to the page: the text it gives the detectors is 1.3 times the
+page's on ordinary prose, 4 to 8 times where every cell of a grid is a run of its own, and 15 times
+where every row has a right-to-left word. Measured alone in the release build on a development Mac,
+frames of 5,000 to 8,000 words built to cost most take 34 to 107 ms against 5 to 35 ms without it,
+inside the 700 ms a frame may take. One shape is at risk: 5,000 email addresses, each a column of its
+own, with the email rule on, takes 295 ms there (85 ms without) and 753 ms in a debug build. No test
+holds a frame that long to the budget (the test holds 2,000 addresses), and it is not measured on the
+target laptop.
+
+The rules measure gaps against heights, so they do not depend on the display's scale, but boxes are
+whole pixels: a token the engine split with a gap of a quarter of the row's height or less is joined
+at 100%, 125% and 150% however its boxes round, while one between that and the cutoff of 0.35 is
+within a pixel of rounding of it (`OcrScalingTests`). What the engine does with real text at those
+scales, and through a remote viewer's resizing and JPEG compression, is measured by
+`OcrScaledSecretTests` in the Windows-only suite, which reports how many secrets were masked whole,
+part showing and missed at each scale and quality. A secret the engine misreads so that no rule
+matches is a miss no rule here can mend, and the hosted runs (2026-11-10) show there are many: of 400
+drawn secrets a scale, 288 were masked whole at 100%, 284 at 125% and 307 at 150%, so display scale
+itself costs nothing, but about a quarter are missed at every scale. The wrapped key is read worst (18,
+18 and 22 of 80 masked whole, none in Consolas), then the long token. Through a viewer at JPEG 75, 66%
+were masked whole at 0.9, 84% at 1.0 and 76% at 1.1, and at 0.6 about one in eight. At each display
+scale one secret in 400 was left part showing with every piece of it read. Through the viewer at 1.1
+the wrapped key was half showing on every page in one font, and on 39 pages of 40 the half showing is
+the first row's piece, with no word read on it; the second row's piece was read and masked. So no rule
+read both pieces and stopped short. How the second piece is masked with the first not read is not
+known: no shape tried on synthetic boxes does that, and the probe prints no text. The test holds each kind of secret, at each scale and quality, to what was
+measured less a tenth, and part showing to what was measured and two more. These are synthetic pages,
+not the labelled corpus ST-042's recall gate needs.
+
+Not covered either is a mirrored layout with a Latin label
+and no right-to-left letter, such as "hunter2 Password:", where the pattern takes a word on the next
+line as the value: the value left of the cue is kept, because the row rule assumes a Latin cue reads
+left to right. Transcripts are scrubbed by the words alone.
 
 **Raw data has a deadline.** Screenshots, transcript and timeline are deleted after a retention period
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).

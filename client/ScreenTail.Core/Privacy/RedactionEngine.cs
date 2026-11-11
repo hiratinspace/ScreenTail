@@ -49,6 +49,12 @@ public sealed class RedactionEngine
         _find = find;
     }
 
+    /// <summary>
+    /// Test seam: false leaves the wrap pass out of <see cref="RedactFrame"/>, so a test can hold the
+    /// engine with it to masking everything the engine without it masks. Nothing else sets it.
+    /// </summary>
+    internal bool Wraps { get; init; } = true;
+
     /// <summary>The technician's settings arriving (ST-081): every frame and segment after this one is scrubbed under the new policy.</summary>
     public void Apply(RedactionPolicy policy) => _policy = policy ?? throw new ArgumentNullException(nameof(policy));
 
@@ -109,14 +115,12 @@ public sealed class RedactionEngine
 
         var text = builder.ToString();
         var (matches, complete) = Resolve(text);
-        if (matches.Count == 0)
-        {
-            return new FrameRedaction(text, [], Count(matches), complete);
-        }
 
         var page = new OcrPage(words);
         var regions = new List<MaskedRegion>();
         var widened = new List<PatternMatch>(matches.Count);
+        var counts = Count(matches);
+        var taken = new HashSet<int>();
         foreach (var match in matches)
         {
             // Every word the match touches is masked whole: a partly painted number is still readable.
@@ -125,46 +129,61 @@ public sealed class RedactionEngine
                 continue;
             }
 
-            // And so is every token it touches. The engine can read one token on screen as several
-            // words: "pass: Tangerine4821Wobble" came back as "Tangerine4821" and "Wobble", and the
-            // password rule, which ends a value at the first plain word, masked the first and left the
-            // second in the stored text and unpainted in the frame (loop-13, 2026-11-08). The words of
-            // one token have no space between them on the screen, whatever the text says, so the token
-            // is found on the screen: a piece Windows listed in an OcrLine of its own, or to the left of
-            // the match, is as much a part of it as the next word in the list.
-            var masked = Token(page, first, last);
-
-            // A password takes its rows as well (owner decision 2026-11-09, #268); see PasswordRows.
-            // Keyed on the cues the match carries, not its kind, because a password another rule also
-            // claimed is merged under that rule's kind.
-            if (match.CueStarts.Count > 0)
+            var cues = new List<int>(match.CueStarts.Count);
+            foreach (var start in match.CueStarts)
             {
-                PasswordRows(page, starts, ends, first, last, match.CueStarts, masked);
-            }
-
-            // One box per run of masked words on a row, so the picture loses what the text loses and no
-            // more: a box around the whole match painted over words the text kept.
-            regions.AddRange(Paint(page, masked, match.Kind));
-
-            // And the stored text loses the same words the picture did.
-            //
-            // It used to lose only the matched span, so a value the pattern stopped short of kept its
-            // tail: "P@ss.word1!" is one OCR word, the password rule's value ends at the full stop, and
-            // ".word1!" stayed in ocr_text — painted out of the frame and sent to the model in writing
-            // (2026-09-19 review). Picture and text are two views of one decision and must agree. A
-            // token listed in two places in the text is replaced in both.
-            var ordered = masked.Order().ToArray();
-            var run = 0;
-            for (var i = 1; i <= ordered.Length; i++)
-            {
-                if (i < ordered.Length && ordered[i] == ordered[i - 1] + 1)
+                if (WordAt(starts, ends, start) is >= 0 and var cue)
                 {
-                    continue;
+                    cues.Add(cue);
                 }
-
-                widened.Add(match with { Start = starts[ordered[run]], Length = ends[ordered[i - 1]] - starts[ordered[run]] });
-                run = i;
             }
+
+            _ = Mask(page, starts, ends, [.. Enumerable.Range(first, last - first + 1)], cues, match, taken, regions, widened);
+        }
+
+        // And the page read again with every line that may have wrapped joined to the one that may
+        // continue it (OcrWraps): a key cut in two by its window's edge is two words above, and no rule
+        // matches half a key. Only a match that crosses a join is taken from this reading, so it adds
+        // masks and takes none away. A page of one row has nothing wrapped on it.
+        if (Wraps && page.RowCount > 1)
+        {
+            var wraps = new OcrWraps(page);
+            if (wraps.Any)
+            {
+                var (wrapped, wrappedComplete) = Resolve(wraps.Text);
+                complete &= wrappedComplete;
+                foreach (var match in wrapped)
+                {
+                    // Whatever crosses a join, however many: a card number over four rows is one
+                    // match across three. A column of short numbers that joined pass the checksum
+                    // is masked with it, since nothing on the screen tells the two apart.
+                    if (!wraps.Crosses(match.Start, match.End))
+                    {
+                        continue;
+                    }
+
+                    var cues = new List<int>(match.CueStarts.Count);
+                    foreach (var start in match.CueStarts)
+                    {
+                        if (wraps.WordAt(start) is >= 0 and var cue)
+                        {
+                            cues.Add(cue);
+                        }
+                    }
+
+                    // Counted only where it is a find of its own: one that reaches a word an earlier
+                    // match masked is that match, seen whole this time.
+                    if (Mask(page, starts, ends, [.. wraps.Touching(match.Start, match.End)], cues, match, taken, regions, widened))
+                    {
+                        counts[match.Kind] = counts.GetValueOrDefault(match.Kind) + 1;
+                    }
+                }
+            }
+        }
+
+        if (widened.Count == 0)
+        {
+            return new FrameRedaction(text, [], counts, complete);
         }
 
         // A match's runs can sit either side of another match's in the text; Merge and Replace walk it
@@ -174,7 +193,75 @@ public sealed class RedactionEngine
         // The same matches that placed the boxes write the stored text. Resolving twice gave two answers
         // that were identical by construction and cost the pattern library a second full pass over every
         // frame — on the path ADR-0001 measured worst at 2012 ms against a 700 ms budget.
-        return new FrameRedaction(Replace(text, Merge(widened)), regions, Count(matches), complete);
+        return new FrameRedaction(Replace(text, Merge(widened)), regions, counts, complete);
+    }
+
+    /// <summary>
+    /// Masks what one match takes on the screen: the words it touches, their tokens, and for a password
+    /// its rows. Adds the boxes to paint and the spans the stored text loses.
+    /// </summary>
+    /// <returns>Whether none of it had been masked by a match before this one.</returns>
+    private static bool Mask(
+        OcrPage page,
+        int[] starts,
+        int[] ends,
+        List<int> touched,
+        List<int> cues,
+        PatternMatch match,
+        HashSet<int> taken,
+        List<MaskedRegion> regions,
+        List<PatternMatch> widened)
+    {
+        // Every token the match touches. The engine can read one token on screen as several
+        // words: "pass: Tangerine4821Wobble" came back as "Tangerine4821" and "Wobble", and the
+        // password rule, which ends a value at the first plain word, masked the first and left the
+        // second in the stored text and unpainted in the frame (loop-13, 2026-11-08). The words of
+        // one token have no space between them on the screen, whatever the text says, so the token
+        // is found on the screen: a piece Windows listed in an OcrLine of its own, or to the left of
+        // the match, is as much a part of it as the next word in the list.
+        var masked = Token(page, touched);
+
+        // A password takes its rows as well (owner decision 2026-11-09, #268); see PasswordRows.
+        // Keyed on the cues the match carries, not its kind, because a password another rule also
+        // claimed is merged under that rule's kind.
+        if (match.CueStarts.Count > 0)
+        {
+            PasswordRows(page, touched, cues, masked);
+        }
+
+        if (masked.IsSubsetOf(taken))
+        {
+            return false;
+        }
+
+        var fresh = !masked.Overlaps(taken);
+        taken.UnionWith(masked);
+
+        // One box per run of masked words on a row, so the picture loses what the text loses and no
+        // more: a box around the whole match painted over words the text kept.
+        regions.AddRange(Paint(page, masked, match.Kind));
+
+        // And the stored text loses the same words the picture did.
+        //
+        // It used to lose only the matched span, so a value the pattern stopped short of kept its
+        // tail: "P@ss.word1!" is one OCR word, the password rule's value ends at the full stop, and
+        // ".word1!" stayed in ocr_text — painted out of the frame and sent to the model in writing
+        // (2026-09-19 review). Picture and text are two views of one decision and must agree. A
+        // token listed in two places in the text is replaced in both.
+        var ordered = masked.Order().ToArray();
+        var run = 0;
+        for (var i = 1; i <= ordered.Length; i++)
+        {
+            if (i < ordered.Length && ordered[i] == ordered[i - 1] + 1)
+            {
+                continue;
+            }
+
+            widened.Add(match with { Start = starts[ordered[run]], Length = ends[ordered[i - 1]] - starts[ordered[run]] });
+            run = i;
+        }
+
+        return fresh;
     }
 
     /// <summary>The first and last word a match touches in the text, by binary search, or null for none.</summary>
@@ -297,29 +384,35 @@ public sealed class RedactionEngine
     internal const double TokenGap = 0.35;
 
     /// <summary>
-    /// The words of the token, or tokens, that words <paramref name="first"/> to <paramref name="last"/>
-    /// are part of: every word reached from them through a neighbour on the same row closer than
+    /// The words of the token, or tokens, that the words in <paramref name="seeds"/> are part of: every word reached from them through a neighbour on the same row closer than
     /// <see cref="TokenGap"/>, whichever side it is on and wherever the engine listed it.
     /// </summary>
-    private static HashSet<int> Token(OcrPage page, int first, int last)
+    private static HashSet<int> Token(OcrPage page, List<int> seeds)
     {
         var words = page.Words;
         var token = new HashSet<int>();
         var waiting = new Queue<int>();
-        for (var i = first; i <= last; i++)
+        foreach (var i in seeds)
         {
-            _ = token.Add(i);
-            waiting.Enqueue(i);
+            if (token.Add(i))
+            {
+                waiting.Enqueue(i);
+            }
         }
 
         while (waiting.TryDequeue(out var i))
         {
             var row = page.RowAt(page.RowOf(i));
 
-            // No neighbour sits further away than the cutoff measured against the row's tallest box.
-            foreach (var j in page.Near(i, TokenGap * Math.Max(row.Median, row.MaxHeight)))
+            // No neighbour sits further away than the cutoff at the tallest height a pair is measured
+            // against (TokenHeight), and only one that shares its row (Neighbours): the row's height,
+            // a word's up to twice that, and for two words on one line either's own, however tall.
+            // This word's own height is in the reach; a taller word that reaches this one is found
+            // from its side (TallNear), so no word looks further than its own height says.
+            var reach = TokenGap * Math.Max(Math.Max(row.Height, Math.Min(row.MaxHeight, 2.0 * row.Height)), words[i].Height);
+            foreach (var j in page.Near(i, reach).Concat(page.TallNear(i)))
             {
-                if (!token.Contains(j) && GapShare(words[i], words[j], row.Median) <= TokenGap)
+                if (!token.Contains(j) && Neighbours(words[i], words[j], row.Height) && GapShare(words[i], words[j], row.Height) <= TokenGap)
                 {
                     _ = token.Add(j);
                     waiting.Enqueue(j);
@@ -348,16 +441,13 @@ public sealed class RedactionEngine
     /// </summary>
     private static void PasswordRows(
         OcrPage page,
-        int[] starts,
-        int[] ends,
-        int first,
-        int last,
-        IReadOnlyList<int> cueStarts,
+        List<int> touched,
+        List<int> cueWords,
         HashSet<int> masked)
     {
         var words = page.Words;
         var rows = new HashSet<int>();
-        for (var i = first; i <= last; i++)
+        foreach (var i in touched)
         {
             _ = rows.Add(page.RowOf(i));
         }
@@ -365,14 +455,8 @@ public sealed class RedactionEngine
         // Per cue row, its leftmost cue: only what ends at or left of it is kept.
         var cues = new HashSet<int>();
         var leftmost = new Dictionary<int, int>();
-        foreach (var start in cueStarts)
+        foreach (var cue in cueWords)
         {
-            var cue = WordAt(starts, ends, start);
-            if (cue < 0)
-            {
-                continue;
-            }
-
             _ = cues.Add(cue);
             var row = page.RowOf(cue);
             _ = rows.Add(row);
@@ -424,18 +508,71 @@ public sealed class RedactionEngine
     }
 
     /// <summary>
-    /// The space between two words' boxes on a row as a share of the height a space is measured
-    /// against. The space is the horizontal distance in either direction. The height is the largest of
-    /// the two words' and their row's median: a piece with no capital, ascender or digit is only
-    /// x-height tall, about 0.7 of its neighbours, and measured against itself a split looked a third
-    /// wider than it is (review of #268). Each of those only makes the share smaller, so each only
-    /// masks more.
+    /// Whether the token search may step between two words of one row: they share a row
+    /// (<see cref="SameRow"/>), and where either is taller than <see cref="TokenHeight"/> lets a word
+    /// count, each one's middle lies within the other's height.
+    /// </summary>
+    /// <remarks>
+    /// A row can take in several lines where one box spans them, and a box as tall as the page shares a
+    /// row with every word on it: a token that stepped through it flooded the page (review of #268 at
+    /// a3cd033: one email took 7,999 words, and 100 cues 30 s). Asking both ways of every pair stopped
+    /// that and dropped a baseline underscore, a full stop or a zero-height box from the middle of a key,
+    /// with the key's tail after it (security review, same day). So only a box too tall to be a piece of
+    /// text is held to both ways.
+    /// </remarks>
+    internal static bool Neighbours(OcrWord a, OcrWord b, double rowHeight)
+    {
+        if (!SameRow(a, b))
+        {
+            return false;
+        }
+
+        if (Math.Max(a.Height, b.Height) <= 2.0 * rowHeight)
+        {
+            return true;
+        }
+
+        var middleA = a.Y + (a.Height / 2.0);
+        var middleB = b.Y + (b.Height / 2.0);
+        return middleB >= a.Y && middleB <= a.Y + a.Height && middleA >= b.Y && middleA <= b.Y + b.Height;
+    }
+
+    /// <summary>
+    /// The space between two words' boxes on a row as a share of <see cref="TokenHeight"/>. The space
+    /// is the horizontal distance in either direction.
     /// </summary>
     internal static double GapShare(OcrWord a, OcrWord b, double rowHeight)
     {
-        var height = Math.Max(rowHeight, Math.Max(a.Height, b.Height));
         var gap = Math.Max(b.X - (a.X + a.Width), a.X - (b.X + b.Width));
-        return gap / height;
+        return gap / TokenHeight(a, b, rowHeight);
+    }
+
+    /// <summary>
+    /// The height a space between two words is measured against: the largest of the two words' and
+    /// their row's (<see cref="OcrPage.Row.Height"/>). A piece with no capital, ascender or digit is
+    /// only x-height tall, about 0.7 of its neighbours, and measured against itself a split looked a
+    /// third wider than it is (review of #268); each of those only makes the share smaller, so each
+    /// only masks more. A word counts at most twice the row's height, so a box as tall as the page
+    /// does not reach across it, and the height is never under a pixel.
+    ///
+    /// Unless the two are on one line by either's measure, each one's middle within the other's
+    /// height: then their own heights count whole. A row's height is its median, and a few small boxes
+    /// beside large text drag it down; a heading-sized key split in two had its gap measured against
+    /// twice the small boxes' height and the tail was left showing (security review, 2026-11-10). A
+    /// box that spans several lines is not on one line with a word on one of them by the word's
+    /// measure, so it still counts for twice the row and no more.
+    /// </summary>
+    internal static double TokenHeight(OcrWord a, OcrWord b, double rowHeight)
+    {
+        var middleA = a.Y + (a.Height / 2.0);
+        var middleB = b.Y + (b.Height / 2.0);
+        if (middleB >= a.Y && middleB <= a.Y + a.Height && middleA >= b.Y && middleA <= b.Y + b.Height)
+        {
+            return Math.Max(1, Math.Max(rowHeight, Math.Max(a.Height, b.Height)));
+        }
+
+        var tallest = 2.0 * rowHeight;
+        return Math.Max(1, Math.Max(rowHeight, Math.Max(Math.Min(a.Height, tallest), Math.Min(b.Height, tallest))));
     }
 
     /// <summary>
@@ -448,7 +585,7 @@ public sealed class RedactionEngine
         foreach (var row in masked.Select(page.RowOf).Distinct().Order())
         {
             var members = page.RowAt(row);
-            var floor = members.Median > 0 ? members.Median : Math.Max(page.MedianHeight, 1);
+            var floor = members.Height;
             var run = new List<OcrWord>();
             foreach (var word in members.Members.Append(-1))
             {
