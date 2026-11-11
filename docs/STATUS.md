@@ -1,9 +1,10 @@
 # ScreenTail: project standing
 
-**Snapshot taken:** 2026-11-04, of `main` at `eb8c109` (#253). It covers every merge since the
-2026-10-29 snapshot (#237 to #253, the last of them on 2026-11-01): Review's discard, the microphone
-picker, the web admin and its hardening, invite codes that resist guessing, the deploy package, three
-installer fixes, quiet idle hooks and the accessibility automation.
+**Snapshot taken:** 2026-11-10, of `main` at `31afeac` (#268). It covers every merge since the
+2026-11-04 snapshot (#255 to #266 and #268, the last of them on 2026-11-09): the fixes that came out of
+the owner's first runs on the laptop (the recording clock, the elevated window), a publish that may have
+landed, a real leak in on-screen redaction, keyboard blur, the web admin's browser tests, the stop time
+measured automatically, and three smaller ones.
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -11,117 +12,157 @@ installer fixes, quiet idle hooks and the accessibility automation.
 
 ## 1. Where things stand
 
-**Everything between a real session and a published note is built, merged and green. None of it has run
-end to end with the real model and a person reading the note.** Capture, redaction, speech, the bundle,
-the outbox, the sender, the backend endpoint, the model call, Review and the publish path each have
-tests, and the capture-path tests run on the spare laptop on every pull request that touches them. The
-whole chain has never been exercised with a real session, a real backend, a real key and a person
-reading the note, all at the same time. Built is not proven. That first run is **M1**, and it is the next
-thing to happen.
+**Everything between a real session and a published note is built, merged and green. It is not
+established that any of it has run end to end with the real model and a person reading the note.**
+Capture, redaction, speech, the bundle, the outbox, the sender, the backend endpoint, the model call,
+Review and the publish path each have tests, and the capture-path tests run on the spare laptop on every
+pull request that touches them. Built is not proven. A run with a real session, a real backend, a real
+key and a person reading the note, all at the same time, is **M1**, and it is still owed.
 
-**The demo laptop has to be set up again from `main` first.** Since #248 an invite code is twenty
-characters, and a client built before it (the #224 MSI, and the `demo-setup` and `demo-psa` branches)
-refuses one on the card before sending it, so the client and the backend must come from one build. Since
-#244 the pipe contract is version 7, and the service and the UI must match it exactly. Running
-`scripts\windows\demo\setup.cmd` from `main` covers both.
+**The owner has now run the demo scripts on the laptop by hand:** setup, start and a recorded session.
+Those runs are where two of this stretch's fixes came from: the recording clock that never moved (#262,
+reported 2026-11-05) and `start.cmd` in an administrator window, where the capture service refused to
+run elevated and the UI never opened (#264). Nothing in the repository records a run that used the real
+model with a person reading the note, so the rehearsal checklist in `docs/dev/demo.md` and the note
+about what the first draft got right and wrong are still to do.
 
-**What landed since 2026-10-29:**
+**Pull `main` before the next run on the laptop.** The pipe contract is version 10 since the "Not confirmed" label, and the
+service and the UI must match it exactly; ten-character invite codes are refused since #260. `start.cmd`
+builds from the clone, so a clone at `main` gives one build of both. A clone from before #264 will still
+start in an administrator window and fail late.
 
-- **The web admin is built, hardened, and off until a Google OAuth client id is set** (ST-099,
-  ADR-0009 Proposed; #245, #246). Owners sign in with Google, as the owner chose; the backend checks
-  Google's ID token itself and keeps the session in an HttpOnly cookie with a CSRF header, apart from
-  device tokens in every direction. An address on the operator's signup list creates its tenant on the
-  first sign-in; the owner then invites technicians (the code shown once), sees seats and devices
-  activate, revokes a device, sets the policy and sees integration status. The anonymous sign-in and
-  activation routes are rate limited per address, every Google token must carry a single-use nonce the
-  page asked for, and the API and the page send a Content-Security-Policy and related headers. Every
-  page scored 100 for accessibility in Lighthouse, with the CSP on. It has not yet been signed into with
-  a real Google account (`docs/dev/web-admin.md`).
-- **Invite codes are about 99 bits** (#248, ST-010): twenty characters in four groups, so guessing from
-  any number of addresses is hopeless without a lockout anybody could abuse; refused codes across all
-  addresses log a content-free warning. The same change closed a race in which two activations could
-  share one code or one last seat (`PostgresActivationRaceTests` runs it on CI's PostgreSQL).
-- **A deployment exists for any Linux host with Docker, and no host is chosen** (#249; ST-007 moved from
-  Open to Partial). `deploy/` runs the backend, PostgreSQL and the web admin from one HTTPS origin behind
-  Caddy, with secrets as files, non-root read-only containers, a database with no host port and an API
-  role that can only touch rows. `deploy/smoke.sh` builds and checks the whole stack in CI's Backend
-  job. It is IPv4 only for now. `docs/dev/deploy.md` is the owner's guide, with the decisions still open.
-- **The installer is sturdier; signing still waits for the certificate** (ST-112; #247, #250, #251).
-  An uninstall and the old version's removal during an upgrade now wait until no other program has an
-  installed file open, which had turned some runs into "restart required" (exit 3010). The capture
-  service answers Windows' requests to close (sign-out, shutdown, Restart Manager) through a hidden
-  window and exits by itself with its store closed, in about 150 ms on CI; a recording in progress is
-  recovered as partial at the next start, as after a crash. Both processes register for Restart
-  Manager's restart, and both refuse to start elevated, as another user or in session 0, writing a fixed
-  sentence to the Application log (INV-6). The installer's smoke test is now 186 checks.
-- **The microphone is chosen in Settings, Capture, with a live level** (#244, ST-080 AC3). Not yet tried
-  with a real headset.
-- **The idle service no longer follows the desktop** (#252, ST-031). The laptop's idle figure had swung
-  between 17 and 52 wakeups a second on the same code, because two idle WinEvent hooks heard every thread
-  on the desktop. They are narrowed, and the laptop's run on the pull request's final head (41363089926)
-  measured 21.9 wakeups a second at a quiet idle and 23.2 on a busy desktop, against a ceiling of 40.
-- **Accessibility is checked by CI on a real Windows desktop** (#253, ST-084). Every technician-facing
-  screen is opened with sample data and checked for names, roles, hit targets, keyboard reach, focus
-  visibility in three palettes, shortcuts, live regions and Accessibility Insights' automated rules (zero
-  errors). The suite found defects that the same change fixed, among them Review's Tab order, the documented
-  Ctrl+S, Alt+1/2/3 and `?` shortcut sheet that were missing, live regions that were never announced, and
-  hit targets under 28 px. The Narrator listening pass and a FastPass report still need a person
-  (`docs/ux/a11y-audit.md`, "Needs a person").
-- **Smaller merges:** Review's Discard and History's bulk discard (#243, pipe contract v6); a session
-  whose draft is still queued is picked up again after a service restart and can be discarded (#238,
-  the follow-up the last snapshot named); the demo report shows the last end-to-end run and never carries
-  exception text (#237, #241); one Hudu company-list load per tenant at a time (#240); and backend timing
-  tests that no longer depend on how busy the machine is (#239, #242).
+**What landed since 2026-11-04:**
+
+- **The recording clock counts** (#262, ST-072). The owner's report from a real run: the pill said
+  recording and its time never changed. The service sends a snapshot only when its state changes, and
+  nothing in the UI ticked. The pill, the tray and the shell's status line now share one clock that
+  counts locally once a second while the service says recording, and stops when it says anything else or
+  stops answering. The redaction count is sent when it moves. Past the hour the tray and status line read
+  `h:mm:ss`. The message shapes did not change.
+- **A stop never waits for a transcription in flight** (#262, #263; ST-112, ST-027; the owner's decision
+  of 2026-11-05). With sound at the laptop's microphone a sign-out had run past the four-second budget
+  twice, the speech model's disposal waiting for a native call. The call is now told to abort, the
+  unfinished narration segment is dropped (never half-kept) and counted in the service log, and disposal
+  waits at most 500 ms. The laptop holds it with ten minutes of audio in flight: on #263's final head
+  (run 42526106737) disposal returned in 505 ms against a limit of 650, and a process left with a call
+  still running exited in 140 ms.
+- **A UI that missed a state change is reconnected** (#263). A `state_changed` the service cannot write
+  to a client within five seconds now closes that client's connection; the UI shows the state as unknown
+  and reconnects, and the reconnect carries the current state. Before, it kept saying Recording.
+- **`start.cmd` refuses an administrator window before building anything** (#264), with the fix in plain
+  words. `setup.cmd` only warns, and `report.cmd` says which kind of window it ran in. Parse-checked and
+  tested in CI; the four steps to try by hand are in #264 and not yet reported back.
+- **A publish that may have landed is held until the ticket is checked** (#265, ST-093, contract v9).
+  Before, a connection to the service that dropped after the publish went out read as failed, and
+  Publish would post the note a second time. Now a lost answer, and the backend's `unknown` and
+  `timed_out` rows, are "not confirmed" for each destination, and Publish, Ctrl+Enter and Retry wait for
+  an "I checked ticket #..." checkbox, spent on one send. The service keeps what the last publish left
+  for each destination (migration 0013), across a restart, and refuses a plain resend of one it holds as
+  landed or unknown. A reopened Review offers each destination as the last publish left it. Spec
+  amendment v0.5.2.
+- **On-screen redaction masks every piece of a token a match touches** (#268, ST-042). This was a real
+  leak, found by the loop harness: Windows OCR sometimes reads one on-screen password as two words, the
+  password rule ended at the first plain word, and the second piece stayed in the stored text and
+  unpainted in the stored frame. The hosted loop caught it in 4 of 72 runs between 2026-11-04 and
+  2026-11-08. A match now takes every word on its row that is closer than a space, and a match with a
+  password cue masks every row it touches, the cue included, keeping only the words wholly to the left
+  of the cue on the cue's own row (the owner's decision of 2026-11-09). The Windows probe on `main`'s head: 1,000 renderings at each of four sizes, 9 to 130 of
+  them split by the engine, none left showing in the text or the frame. It costs readability: the rule
+  also takes 16 to 69 percent of real spaces beside a match, most at 9pt. What it does not cover is in §6.
+- **A region can be blurred from the keyboard** (#257, ST-084, spec amendment v0.5.1). On the enlarged
+  screenshot B brings out a box, the arrows move it, Shift with them resizes it, Enter blurs through the
+  mouse drag's own path and Esc puts it away, with its position announced in percent. Publish is held
+  while a blur is still being applied, and a blur whose answer was lost says so and never "nothing was
+  blurred".
+- **The web admin is driven in a real browser in CI** (#255, #259, ST-099): Chromium against the real
+  backend on PostgreSQL, from sign-in through signup, the invite shown once, a device activating, revoke,
+  the policy editor and sign-out, with the security headers, zero CSP violations and axe-core on every
+  page. Google is a stand-in signed with a key made for the run, which the backend trusts only in
+  Development. It runs when `web/` or the backend's code changes. A sign-in with a real Google account
+  is still owed.
+- **The service's stop time in the middle of a recording is measured on every Windows run** (#258,
+  ST-112), with a frame still waiting for redaction at the ask: 63 to 100 ms on the hosted runner in
+  `main`'s latest run, 168 ms for the sign-out case on the laptop (run 42526106737), against 4 s.
+- **Smaller merges:** the old ten-character invite codes are refused like any malformed code (#260,
+  ADR-0009 decision 23); the title hook's refusal count is shown in diagnostics as "Hook fallbacks"
+  (#261, contract v8); the deploy smoke test reads port bindings from `docker inspect`, after Docker
+  Compose 5 on the new hosted image made the old check wrong (#256); and the backend tests' SQLite
+  driver is pinned past a pool race that had failed one run on `main` (#266; test-only, production runs
+  on PostgreSQL).
+
+**In progress, not on `main`.** One draft pull request is open: #269, two follow-up commits to #268 (a
+row of zero-height boxes, and a very tall box beside a row). Its one laptop run so far (42721033883)
+ended in the Windows tests step without a result, and it waits for another. OCR hardening for display
+scaling, a scaled lossy remote viewer and secrets that wrap across lines (ST-042) is in a draft stacked
+on it. The "Not confirmed" label with a "Mark as published" action (ST-093) is described in §5.
+
+**The laptop runner is online only when the owner turns it on.** It was offline when this snapshot was
+taken. A pull request that touches capture queues its laptop jobs until then, and its `ci-ok` stays red
+meanwhile.
 
 **The loop runs end to end on a Windows VM, unattended** (#230, ST-013). `scripts/windows/e2e/` runs the
 backend, a development device, the capture service, the UI and one session through to the note on the
 demo PSA's ticket, with a scripted drafting provider in place of the model, and says PASS or FAIL for
-each step (`docs/dev/e2e.md`). It passed on each of `main`'s last five CI runs (20 of 20 steps in the latest)
-and is still report-only; making it a required check is owed. The laptop's run with real hotkeys and clicks has not
-passed yet. It does not replace M1: the model's note and a person reading it are still owed.
+each step (`docs/dev/e2e.md`). On `main` it failed once since the last snapshot, at `20d2471` (run
+42524521759), on the leak #268 then fixed, and it has passed on the four runs since (20 of 20 steps in
+the latest). Three of those four ran before the fix, so they show the leak was intermittent, not that
+it was gone; the probe above is the evidence for that. The job is still report-only, and making it a
+required check is owed. The laptop's run with real hotkeys and clicks has not been seen to pass. It does
+not replace M1: the model's note and a person reading it are still owed.
 
 **M1 is two commands.** `scripts/windows/demo/` (#219) sets up, starts and stops the whole loop on the
 laptop, each step checked and each failure said in plain words; `docs/dev/demo.md` is the guide, with a
 demo story and a rehearsal checklist. `report.cmd` (#227) writes one plain-text file to send when
 something goes wrong, with secrets, email addresses and user paths removed. The manual step list is
-`docs/dev/first-draft-end-to-end.md`. The scripts have not yet been run end to end by a person.
+`docs/dev/first-draft-end-to-end.md`.
 
-**Still true from the last snapshot.** Claude can draft instead of Gemini (#225, ST-063), not yet
-measured against the real model. A demo PSA stands in for ConnectWise in Development (#218,
-`docs/dev/demo-psa.md`), and the backend tests drive the real ConnectWise and Hudu providers over HTTPS
-against stand-in servers (#226); neither proves the vendors accept it. The client has a modern Windows 11
-look (#228, tokens v0.5.0), with a placeholder accent and wordmark. Auto-update is built and switched off
-(#233, ST-113, ADR-0008 Proposed). The processor limit is built and proved on a fake clock (#232,
-ST-031 AC2). The 2026-10-12 review is worked through: its 42 pre-pilot findings landed as #173 to #195,
-the backend P2 findings as #199 to #202 and #206, and the client P2 findings in nine groups, #207 to
-#216, with the cross-group fixes in #220.
+**Still true from the last snapshot.** The web admin is built, hardened, and off until a Google OAuth
+client id is set (#245, #246, ADR-0009 Proposed). Invite codes are twenty characters, about 99 bits
+(#248). A deployment exists for any Linux host with Docker, and no host is chosen (#249,
+`docs/dev/deploy.md`). The installer waits for other programs' open files, and the service closes when
+Windows asks and refuses to start elevated (#247, #250, #251); signing still waits for the certificate.
+The microphone is chosen in Settings with a live level (#244), not yet tried with a real headset. The
+idle service's hooks are narrowed (#252). Accessibility is checked by CI on a real Windows desktop
+(#253); the Narrator listening pass still needs a person. Claude can draft instead of Gemini (#225,
+ST-063), not yet measured against the real model. A demo PSA stands in for ConnectWise in Development
+(#218, `docs/dev/demo-psa.md`), and the backend tests drive the real ConnectWise and Hudu providers over
+HTTPS against stand-in servers (#226); neither proves the vendors accept it. The client has a modern
+Windows 11 look (#228, tokens v0.5.0), with a placeholder accent and wordmark. Auto-update is built and
+switched off (#233, ST-113, ADR-0008 Proposed). The processor limit is built and proved on a fake clock
+(#232, ST-031 AC2). The 2026-10-12 review is worked through: its 42 pre-pilot findings landed as #173 to
+#195, the backend P2 findings as #199 to #202 and #206, and the client P2 findings in nine groups, #207
+to #216, with the cross-group fixes in #220.
 
-**Of 85 tickets, 67 are Done or built, 9 are Partial and 9 are Open** (counted from the Status lines on
-2026-11-04). On 2026-10-31 it was 67, 8 and 10: ST-007 moved from Open to Partial with the deploy
-package (#249). ST-010, ST-080, ST-084 and ST-099 stay built with a named part owed, and ST-031 and
-ST-112 stay Partial with less owed.
+**Of 85 tickets, 67 are Done or built, 9 are Partial and 9 are Open** (recounted from the Status lines
+on 2026-11-10). The numbers are the same as on 2026-11-04, and no ticket changed group: this stretch
+fixed and hardened tickets that were already built. ST-072 stays Done with its clock fixed; ST-084,
+ST-093 and ST-099 stay built with a named part owed; ST-013, ST-027, ST-031, ST-042 and ST-112 stay
+Partial.
 
 - **45 are done outright.**
 - **22 are built with a named part still owed:** ST-099 (the web admin) owes a sign-in with a real
   Google account and the owner's OAuth client id, and a host for `deploy/`; ST-091, ST-092, ST-095 and
   ST-096 are done against recorded shapes and owe the real ConnectWise and Hudu checks; ST-093, ST-094
-  and ST-097 are done on the server side; ST-073, ST-076, ST-077, ST-078 and ST-085 are done on the Mac
+  and ST-097 are done on the server side (ST-093's client now holds a publish that may have landed; the
+  outbox-key idempotency in its description is still not built); ST-073, ST-076, ST-077, ST-078 and ST-085 are done on the Mac
   side; ST-080, ST-081, ST-082 and ST-083 are built and not yet seen on a real screen (ST-080's
   microphone not yet heard on a real headset); ST-010 (the mail provider and three ADR-0009 decisions),
   ST-062 (the harness; the corpus is owed), ST-065 (the on-device draft; the local model is owed), ST-084
-  (everything automatable; the Narrator listening pass and a FastPass report are owed) and ST-115 (round
-  one) each owe their second half.
+  (everything automatable, keyboard blur included; the Narrator listening pass and a FastPass report are
+  owed) and ST-115 (round one) each owe their second half.
 - **9 are Partial,** and each says what it waits for: ST-007 (the deploy package is built and
   smoke-tested; the host, the name, the mail provider and the cloud half are owed), ST-013 (the loop
-  harness passes in CI; a passing laptop run with real clicks, making it required, the golden replay,
-  resource figures and the nightly schedule are owed), ST-014 (two technician sessions), ST-027 (the WER
-  number needs a human recording), ST-031 (budgets enforced on the laptop, the throttle built and the
-  idle hooks narrowed; the golden replay, the throttle seen on the laptop, the nightly harness, memory
-  with speech and live figures in "What's being captured" are owed), ST-042 (the recall gate needs
-  ST-030's labelled frames), ST-112 (the installer is built and smoke-tested unsigned in CI; signing
-  needs the certificate, and an elevated installer closing the service is to be seen on the laptop; the
-  mid-recording stop time is now measured automatically), ST-113 (auto-update is built and tested; switched off until the owner
-  creates the key, the hosting and the release environment), ST-114 (the security-lead review).
+  harness runs in CI, report-only; a passing laptop run with real clicks, making it required, the golden
+  replay, resource figures and the nightly schedule are owed), ST-014 (two technician sessions), ST-027
+  (the WER number needs a human recording), ST-031 (budgets enforced on the laptop, the throttle built,
+  the idle hooks narrowed and their fallback count shown; the golden replay, the throttle seen on the
+  laptop, the nightly harness, memory with speech and the other live figures in "What's being captured"
+  are owed), ST-042 (the split-token leak is fixed; the recall gate needs ST-030's labelled frames, scaled
+  or lossy captures are not measured and a secret that wraps across lines is not covered), ST-112 (the installer is built and
+  smoke-tested unsigned in CI, and the mid-recording stop is measured on every Windows run; signing needs
+  the certificate, and an elevated installer closing the service is to be seen on the laptop), ST-113
+  (auto-update is built and tested; switched off until the owner creates the key, the hosting and the
+  release environment), ST-114 (the security-lead review).
 - **9 are Open:** ST-017 (the usability round), ST-030 (golden sessions), ST-110, ST-111 and ST-116 (the
   pilot), and the four v1.1 and v1.2 tickets ST-120 to ST-123.
 
@@ -132,19 +173,19 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #253 (`eb8c109`, CI run 41542822217); no open pull requests on 2026-11-04 |
-| Build plan | `Build Plan/` | Spec at **v0.4.3** accepted; the v0.5.0 amendment (the modern look, #228) waits for the owner. Backlog Part C is the ordered plan, Part D the amendments |
-| Client | `client/` | `.Shared` (schema and IPC, contract version 7), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`, and the accessibility scanner's own process `.Tests.AxeRunner`. **3,053 tests** in the suite that runs anywhere and **386** in the Windows-only suite (CI run 41542822217 on `eb8c109`; ten of them skipped on the hosted runner by design, which is the skip budget) |
-| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, the update policy fields, owner sign-in with Google and the web admin's routes (ST-099) with their rate limit, sign-in nonce and security headers, and the invite-code guard and activation lock (#248). **1,406 tests** (two skipped; CI run 41323273290 on #249, the last change to the backend). Runs locally on PostgreSQL; not deployed (ST-007) |
+| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #268 (`31afeac`, CI run 42717653493); one open pull request on 2026-11-10, the draft #269 |
+| Build plan | `Build Plan/` | Spec at **v0.4.3** accepted; the amendments v0.5.0 (the modern look, #228), v0.5.1 (keyboard blur, #257) and v0.5.2 (a publish that is not confirmed, #265) wait for the owner. Backlog Part C is the ordered plan, Part D the amendments |
+| Client | `client/` | `.Shared` (schema and IPC, contract version 10), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`, and the accessibility scanner's own process `.Tests.AxeRunner`. **3,263 tests** in the suite that runs anywhere and **435** in the Windows-only suite (CI run 42717653493 on `31afeac`; ten of the 435 skipped on the hosted runner by design, which is the skip budget) |
+| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, the update policy fields, owner sign-in with Google and the web admin's routes (ST-099) with their rate limit, sign-in nonce and security headers, and the invite-code guard and activation lock (#248). **1,419 tests** (two skipped; CI run 42524568773 on `3a3bb99`, #266, the last change to the backend). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Deployment | `deploy/`, `docs/dev/deploy.md` | Docker Compose for one Linux host: Caddy with automatic HTTPS, the API, PostgreSQL and the web admin from one origin (#249). Built and checked by `deploy/smoke.sh` in CI's Backend job; no host or name yet |
-| Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** (CI run 41323273290) |
-| Web admin | `web/`, `docs/dev/web-admin.md` | React and TypeScript on the shared tokens: Google sign-in, first-run tenant, Technicians and seats, Policy, Integrations, Download client (ST-099), with its security headers in `web/security-headers.ts`. **44 tests** (CI run 41323273290); Lighthouse accessibility 100 |
+| Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** (CI run 42717653493) |
+| Web admin | `web/`, `docs/dev/web-admin.md` | React and TypeScript on the shared tokens: Google sign-in, first-run tenant, Technicians and seats, Policy, Integrations, Download client (ST-099), with its security headers in `web/security-headers.ts`. **44 unit tests** and **5 browser tests** (Playwright in Chromium against the real backend, #255; both in CI run 42524568773). Lighthouse accessibility 100 as measured by hand for #245 and #246 (2026-10-31 and 2026-11-01); Lighthouse is not in CI and was not rerun |
 | Shared contracts | `shared/` | The session schema, the design tokens, and the wire contracts (summarize, publish, session metric, tenant policy, invite code) both sides test against |
-| Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop (#219, #227, #237, #241). Parse-checked in CI; not yet run end to end by a person. Must be run again from `main` (§1) |
-| Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider (#230). Passed on the hosted VM in each of `main`'s last five runs (20 of 20 steps in run 41542822217); report-only in CI |
-| Installer and updates | `installer/`, `docs/dev/installer.md` | The MSI and setup program, smoke-tested unsigned in CI (#224): install, upgrades with another program holding the service executable, Restart Manager's close and restart, uninstall; **186 of 186 checks** in CI run 41542822217. The signed update channel (#233). Signing and updates stay off until the owner sets them up |
-| Accessibility suite | `client/ScreenTail.Tests.Windows/Accessibility`, `docs/ux/a11y-audit.md` | Every technician-facing screen, on the hosted runner and the laptop (#253). The Narrator pass is the part left for a person |
-| Windows test loop | Hosted Windows VM and the spare laptop `SCREENTRAIL` | Both run on every PR that touches capture. The laptop's jobs were green on #252's final head (41363089926) and #253's (41535721423). Since #253 its capabilities job brings test windows to the front for a few minutes, so leave the laptop alone while it runs (`docs/dev/windows-test-loop.md`) |
+| Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop (#219, #227, #237, #241, #264). Parse-checked in CI. The owner has run setup, start and a recorded session by hand; the rehearsal checklist with the real model is still owed (§1) |
+| Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider (#230). On the hosted VM it passed in `main`'s last four runs (20 of 20 steps in run 42717653493) and failed once before them, in run 42524521759, on the leak #268 fixed; report-only in CI |
+| Installer and updates | `installer/`, `docs/dev/installer.md` | The MSI and setup program, smoke-tested unsigned in CI (#224): install, upgrades with another program holding the service executable, Restart Manager's close and restart, uninstall; **186 of 186 checks** in CI run 42717653493. The signed update channel (#233). Signing and updates stay off until the owner sets them up |
+| Accessibility suite | `client/ScreenTail.Tests.Windows/Accessibility`, `docs/ux/a11y-audit.md` | Every technician-facing screen, the blur box included (#253, #257), on the hosted runner and the laptop: 34 Accessibility Insights scans in CI run 42717653493. The Narrator pass is the part left for a person |
+| Windows test loop | Hosted Windows VM and the spare laptop `SCREENTRAIL` | Both run on every PR that touches capture. The laptop is online only when the owner turns it on (offline on 2026-11-10), and its jobs queue until then. They were last green on #263's final head (42526106737) and #268's (42708659547). Since #253 its capabilities job brings test windows to the front for a few minutes, so leave the laptop alone while it runs (`docs/dev/windows-test-loop.md`) |
 | Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion. The repository is public; three GitHub settings keep strangers' code off the laptop (`docs/dev/windows-test-loop.md`, Security) |
 
 ## 3. What the code does today
@@ -159,7 +200,8 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   reach a hidden window, the host stops the way every stop does, and the store is closed before Windows
   is told it may end the session (at most 4 s). A recording in progress is recovered as partial at the
   next start. Restart Manager may start the service again after another program's installer closed it;
-  the restart watches and does not record.
+  the restart watches and does not record. A transcription in flight at the stop is told to abort and its
+  segment is dropped and counted, so the speech model cannot hold the stop (#262, #263).
 - **The UI is connected** (ST-085). A tray icon and the recording pill show live state and say what is
   holding capture when it is paused (#211); the diagnostics window is filled by the service; discard and
   erase need a typed confirmation the service issued moments before. **Review, History, Settings and
@@ -169,10 +211,18 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   as absent and suppresses capture until one is back (INV-4). Every start, automatic or over the pipe,
   waits for a current indicator report and takes the same session policy (#220). Once a session runs,
   only a report with the pill's real size counts (#231).
+- **The recording clock counts in the UI between the service's snapshots** (#262). The pill, the tray
+  and the status line share one clock, based on the last snapshot and the time it arrived, ticking once
+  a second only while the service says recording. The state shown is always the service's: when it
+  stops answering the clock stops and the pill says the capture state is unknown (INV-4). A state change
+  the service cannot write to a client within five seconds closes that connection, and the UI reconnects
+  and is told the current state (#263).
 - **The UI is held to Spec §7 by tests** (#253): names, roles and label-in-name, 28 px targets (32 on
   the pill), Tab order without traps, a visible focus change in dark, light and high contrast, every
   documented shortcut (Ctrl+S, Alt+1/2/3, `?` for the shortcut sheet), Esc on every dialog, and live
-  regions that are announced.
+  regions that are announced. Since #257 a region is blurred from the keyboard too (B, arrows, Shift
+  with arrows, Enter, Esc), through the same path as the drag, and Publish waits while a blur is still
+  being applied.
 - The session state machine owns the lifecycle. Sources can only write while recording (INV-6). The
   input hooks are installed while a session exists and removed when it ends. Auto-start follows the
   remote tool in front, and the auto-stop grace runs from when the tool loses focus (#216). After a
@@ -180,7 +230,8 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   from the tray (#238).
 - **At idle the service hears only what it needs** (#252): the window-rename hook follows the window in
   front (every thread while a classic console is in front), and the focus hook is in only while a session
-  is under way. The foreground hook still hears every thread, so auto-start is unchanged.
+  is under way. The foreground hook still hears every thread, so auto-start is unchanged. How often
+  Windows refused the narrow hook is shown in diagnostics as "Hook fallbacks" (#261).
 - **A captured frame never touches the disk unredacted.** It waits in a bounded in-memory queue (depth
   4), the redaction worker takes it from there, and only the redacted, downscaled result is stored
   (ADR-0006). A frame the OCR engine cannot read, or that arrives when the queue is full, is dropped and
@@ -188,12 +239,15 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   `NothingUnredactedIsEverInTheStore` reads the bytes back to prove it.
 - Redaction finds SSNs, Luhn-valid cards, credential shapes, spoken passwords in the transcript and
   tenant patterns; overlapping regions are merged before masking. Since #214 the spoken-password walk
-  masks at least as much as it did before, held by a frozen copy of the old walk.
+  masks at least as much as it did before, held by a frozen copy of the old walk. On a frame, a match
+  takes every word on its row closer than a space, so a token the OCR engine split is masked whole, and
+  a match with a password cue masks its rows, keeping only the words wholly left of the cue (#268). Text
+  and pixels are masked from the same list of words.
 - **Speech works.** The microphone opens with the session; Whisper `base.en` runs on two threads and is
   loaded when the first session wants it; the model download is hash-checked and cannot fill the disk; a
   voice-activity gate and a hallucination filter sit in front of the transcript. What is said while
   capture is suppressed is dropped, and the last sentence before Stop is waited for (#212).
-- **The microphone is chosen in Settings, Capture, with a live level** (ST-080 AC3, IPC contract 7). The
+- **The microphone is chosen in Settings, Capture, with a live level** (ST-080 AC3, since IPC contract 7). The
   choice is kept by Windows' id in `capture.json` and used the next time the microphone opens; one that
   is not connected falls back to Windows' default and the card says so. The level is read only while the
   card is on screen with the window in front and the desktop unlocked, through a short lease the service
@@ -210,10 +264,12 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - **The publish path is built end to end**: note, time entry and KB article from the Review pane, with
   the company mapping prompt (ST-097), the ticket pre-selected from the window (ST-077) and recent tickets
   on focus. A provider that asks to wait says for how long, and a Hudu company that was deleted asks
-  for another (#229). None of it has met a real PSA; in Development the demo PSA can stand in (#218), and
+  for another (#229). A publish that may have landed (a lost answer, a timeout, a 5xx, an unreadable
+  reply) is "not confirmed" for each destination, remembered by the service across a restart, and held
+  until the technician ticks "I checked ticket #..." (#265, contract 9). None of it has met a real PSA; in Development the demo PSA can stand in (#218), and
   the tests drive the real providers against stand-in servers (#226).
 - **Device activation** takes a twenty-character invite code only (the old ten-character codes are
-  refused like any malformed code since 2026-11-04, decision 23), refuses a malformed code exactly as an
+  refused like any malformed code since #260, decision 23), refuses a malformed code exactly as an
   unknown one, and claims the invite and the seat under a lock on the tenant's row (#248).
 - **A recording session watches its own processor use** (ST-031 AC2, #232) and, over budget for ten
   seconds, samples the screen less, then reads one frame at a time, then stops scene sampling. Every frame
@@ -244,13 +300,23 @@ owner sign-in to the web admin (ST-099, ADR-0009: off until a Google OAuth clien
 that touches capture, so hooks, foreground detection, screen capture, OCR, the pipe's handshake and the
 latency and performance budgets are checked on a real desktop, not only on a cloud VM. The idle service's
 wakeups with the narrowed hooks (#252) and the accessibility suite at the laptop's scaled display (#253)
-were measured there. ST-001's spike was measured there. The drafting call was measured against the real
+were measured there, and so were the stop in the middle of a recording and the stop with a transcription
+in flight (#258, #263). ST-001's spike was measured there. The owner has run the demo scripts there by
+hand (setup, start, a recorded session), which is how the frozen clock and the elevated-window refusal
+were found. The drafting call was measured against the real
 Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, not on a recorded session.
 
 **Not seen yet:**
 
 - The full loop: a real session drafted by the real model and read in Review. That is M1.
-- The demo scripts run end to end by a person, and the loop harness with real clicks on the laptop.
+- The rehearsal checklist in `docs/dev/demo.md` worked through with the real model, #264's four steps
+  by hand (an administrator window refused, a plain one starting, the report from both), and the loop
+  harness with real clicks on the laptop.
+- The recording clock on the real pill with Narrator and NVDA running: the pill's name changes every
+  second and should not be read out (#262, review finding 10).
+- The "not confirmed" state against a real PSA, and the blur box read by Narrator (#265, #257).
+- Redaction of a remote window that is scaled or compressed by its viewer, and at a display scale other
+  than 100 percent: #268's measurements are Segoe UI at 96 DPI on the hosted runner.
 - A Claude draft from the real model, with its time and cost on a heavy session.
 - The processor limit tripping on a real overload (the laptop step in `docs/dev/performance.md`).
 - The tray and pill following a real session with the service up, and screenshots over a remote window
@@ -303,6 +369,23 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
   before any start (slower, a new round trip, no gain), the earlier behaviour (one Hide refused every
   later start until the UI restarted), and removing Hide.
 - **Owners sign in to the web admin with Google** (the owner's choice, 2026-10-31; ADR-0009).
+- **2026-11-04, two ADR-0009 decisions:** the old ten-character invite codes are no longer accepted
+  (decision 23, #260), and the web admin's browser tests run when the backend's code changes, not only
+  when `web/` does (decision 25, #259).
+- **A stop does not wait for a transcription in flight** (the owner, 2026-11-05; #262). The segment is
+  dropped and counted, so the service always stops inside its four-second budget. The recogniser's wait
+  stays 500 ms; the laptop test requires the stop not to wait past it and the abort to be answered
+  within 3 s (2026-11-08, decided by the coordinator as the owner's proxy; #263). A broadcast cancelled
+  by the service's own stop does not close a client's connection; only a failed write or the five-second
+  deadline does (the owner, 2026-11-08).
+- **A publish that may have landed needs the technician's word** (#265, 2026-11-08; O1 to O4 accepted).
+  The service keeps a per-destination record rather than a new session state, discard is not blocked by
+  it, and the only thing that sends a landed or unconfirmed destination again is the tick. A silent
+  "publish again" on Retry after a partial landing was withdrawn in review (by the coordinator as the
+  owner's proxy).
+- **A password on screen takes its row** (the owner, 2026-11-09; #268): a match with a password cue
+  masks every row it touches, the cue included, and keeps only the words wholly left of the cue. The
+  rule in its final form replaced an earlier version after two security reviews (the owner's proxy).
 - **Six ADRs Accepted:** 0001 (.NET stack), 0002 (platform-neutral Core), 0003 (per-user process,
   three-check pipe handshake), 0004 (a frame nobody read is not stored), 0005 (Windows adapters shared by
   both processes), 0006 (an unredacted frame waits in memory). **Three Proposed**, waiting for the owner:
@@ -312,8 +395,10 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
 
 ## 5. Open items for the owner
 
-- [ ] **Set the demo laptop up again from `main`** (§1): `scripts\windows\demo\setup.cmd`, then
-      `start.cmd`. A client from before #248 refuses the new invite codes.
+- [ ] **Pull `main` on the demo laptop before the next run** (§1), then `scripts\windows\demo\start.cmd`
+      from a plain PowerShell window, not an administrator one. Run `setup.cmd` again if start says so.
+- [ ] **Turn the laptop runner on** when a pull request waits for it. Today that is the draft #269; the
+      two pieces in progress (§1) will need it too.
 - [ ] **Run M1.** On the laptop: one session, and the rehearsal checklist at the end of
       `docs/dev/demo.md`. Write down what the first note got right and wrong. Drafting with Claude needs
       credits on the Anthropic account; with Gemini the free tier is enough. If anything goes wrong, run
@@ -321,11 +406,10 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
 - [ ] **Hand checks on the laptop:**
   - the microphone picker with a real headset, plugged and unplugged, and Win+L with the card open
     turning Windows' microphone light off (ST-080 AC3, #244);
-  - no longer by hand: the service's stop time in the middle of a recording, with a frame still waiting
-    for OCR and redaction, is measured automatically on every Windows run (`StopTimeTests`, ST-112;
-    `docs/dev/installer.md`), 38 to 115 ms on the hosted runner against the 4 s budget. On the laptop it also
-    requires the microphone and the speech model loaded (not transcribing: a quiet room gives Whisper
-    nothing). on the laptop it measured 98 to 191 ms (run 41927796271);
+  - #264's four steps: `start.cmd` from an administrator window stops at Checks with nothing built, a
+    plain window starts as before, and `report.cmd` from each says which it was;
+  - Narrator and NVDA during a recording: the pill's time changes every second and should not be read
+    out (#262);
   - an elevated third-party installer closing the service with UAC on, and what Restart Manager starts
     again (#251; ADR-0007);
   - a narrated session with the service log in view, to see whether the processor limit trips
@@ -389,18 +473,39 @@ chose it says so.
   trusted until listed; a 10-minute sign-in nonce; inline styles in the page's CSP for Google's button.
   Decisions 17 to 20 are open: one rate budget or two for an office behind one address, how wide an
   IPv6 caller is, binding the nonce to the browser, and counts kept per instance. Decisions 21 and 22 are
-  the invite code's length (20 characters) and the warning threshold (50 refused codes in 10 minutes);
-  decision 23 is made (the old ten-character codes are no longer accepted).
+  the invite code's length (20 characters) and the warning threshold (50 refused codes in 10 minutes).
+  Decisions 23 and 25 are made (§4). Decision 24 is to confirm: the setting that lets the browser tests
+  stand in for Google is allowed in Development, which is also what the demo laptop runs, and stops any
+  other host from starting. Since #260: rows stored under an old ten-character code are left to expire,
+  with no cleanup migration.
 - **The deployment** (`docs/dev/deploy.md`, section 10): the host and the name, staging or not,
   HSTS beyond one year, where backups go and who checks a restore, full IPv6, a non-superuser schema
   owner, TLS to PostgreSQL if it moves off the host, container memory and process limits, pinning the
   proxy build's two Alpine packages, and the assumption that the host runs nothing else.
 - **Accessibility defaults** (`docs/ux/a11y-audit.md`, "Owner decisions"): `?` opens the shortcut sheet
-  only outside a text field and the sheet is not modal; scroll bars stay 12 px; blurring a region still
-  needs the mouse (a keyboard way would be a new ticket); History's headers are Tab stops; Review's pane
+  only outside a text field and the sheet is not modal; scroll bars stay 12 px; History's headers are Tab stops; Review's pane
   gaps are 28 px; the sheet lists the shipped hotkeys. Also, the hardware workflow's comment that the
   laptop job is safe on a machine in use is yours to update, since editing that workflow turns on the
   hardware gate.
+- **Keyboard blur** (#257, `docs/ux/a11y-audit.md`, "Owner decisions"; spec amendment v0.5.1): the
+  keys (B, arrows, Shift with arrows, Ctrl for bigger steps, Enter, Esc and Esc again); percent steps
+  with a 20 percent box and a 2 percent minimum; resizing from the top left corner only; Ctrl+Enter held
+  while an unapplied box is out; and a blur that is never abandoned, so a service that hangs holds
+  Publish in that Review until it answers or the pipe drops.
+- **The recording clock** (#262): a tick about once a second; no ticking while paused, suppressed or
+  finalizing; never backwards within a session; the status line announced when its state words change
+  and not when only the time does. Accepted and documented rather than fixed: the redaction count stays
+  stale while a session is finalizing.
+- **The stop-time test** (#258, #263): whether to keep enforcing the 4 s limit on the hosted runner;
+  whether to add a test-only audio source so the speech model is transcribing at the ask; raising the
+  laptop capabilities job's 15 minutes if the added tests bring it close; and that a hung stop ends the
+  whole test process, losing that run's report.
+- **On-screen redaction's cost** (#268): a password's rows are masked, the cue word included, so a
+  reader sees `[REDACTED]` where "Password:" was; the token rule also takes a good share of real spaces
+  next to any match (16 to 69 percent by size in the probe); and at 9pt the rule has no margin for
+  matches other than passwords. Confirm, or say what should stay readable.
+- **The demo's elevation check** (#264): when the window's kind cannot be read, `start.cmd` warns and
+  goes on, where the service itself would refuse; `setup.cmd` warns and never refuses.
 - **The microphone meter** (#244, ST-080): it opens the microphone outside a session while the card is
   looked at, so Windows' microphone light comes on; its five-minute cap is a chosen number; there is no
   meter during a paused session; a device change can take effect within a session.
@@ -427,8 +532,10 @@ chose it says so.
   says "Not confirmed" beside such a session's status, the tray says how many there are between sessions,
   and History's "Mark as published" settles one on the technician's word without sending anything again.
   To confirm: it is offered in History only, not in Review's publish pane; a session published before
-  migration 0013 with no record cannot be marked; and the mark writes no audit row. Still open: a time
-  budget for the whole publish.
+  migration 0013 with no record cannot be marked; and the mark writes no audit row. To confirm from #265:
+  the backend's own "nothing connected" answer stays a plain refusal, and the mark stays set while any
+  destination is still unknown, even one not chosen in the latest send. Still open: a time budget for the
+  whole publish.
 - **The local text model** (ST-065): llama.cpp and a model download on the technician's machine.
 - **The processor limit** (#232, `docs/dev/performance.md`): how the budget reads on a machine without
   four cores (15% of a smaller machine, 60% of one core on a bigger one); that the deepest level stops
@@ -441,11 +548,25 @@ chose it says so.
 - **Diagnostics counts that can say "not known"** (#229): they would reverse #213's "zeros are honest"
   choice and need an IPC version bump, so they wait for a decision.
 - **The brand colour and logo** (#228): the Fluent blue and the text wordmark are placeholders. Also,
-  accept spec amendment v0.5.0 in `Build Plan/01-UX-Design-Spec.md`, or say what to change.
+  accept spec amendments v0.5.0, v0.5.1 and v0.5.2 in `Build Plan/01-UX-Design-Spec.md`, or say what to
+  change.
 
 ## 6. Known gaps, deliberately left
 
 - **ST-042 has no corpus recall gate**: it needs ST-030's staged captures.
+- **What #268's rules do not cover.** A secret that wraps across lines: the piece on the next row stays
+  readable. A mirrored layout with a Latin label and the value before it ("hunter2 Password:"), where
+  the pattern takes a word on the next line as the value (recorded in `docs/security/data-flow.md`).
+  The gap between pieces was measured in Segoe UI at 96 DPI only. Two more cases are fixed in the draft
+  #269 and not on `main`: a row of zero-height boxes, where a split piece is not joined, and a very tall
+  box beside a row, which makes the rule mask far too much and run slowly.
+- **A publish nobody could confirm stays a draft** (#265). A session whose every destination is
+  unconfirmed is not marked published, so it keeps counting in the tray's drafts-ready badge and History
+  lists it as a draft until the technician ticks the box and a publish lands, marks it published from
+  History, or discards it. History says "Not confirmed" beside it (§5).
+- **Two things on the pill are still not live** (#262): the expanded pill's last three events are never
+  filled, because no message carries them, and "No mic" is asked once when a session starts, so a
+  microphone lost or plugged in during a session is not shown until the next one.
 - **OCR is a best-effort input to redaction, not a guarantee.** It will not read a long run of one
   ambiguous glyph. INV-1 cannot rest on the engine reading everything (ADR-0001 finding 9).
 - **A 4K frame exceeds ST-025's budget and nothing fails**: about 309 ms against 120 ms, measured on the
@@ -476,16 +597,19 @@ chose it says so.
 
 | When | What | Who |
 |---|---|---|
-| **Now** | Set the demo laptop up again from `main`, then **M1**: one real session, one real note, with the demo scripts | Owner |
+| **Now** | Pull `main` on the demo laptop, then **M1**: one real session drafted by the real model and read, with the demo scripts and the rehearsal checklist | Owner |
+| Alongside | Turn the laptop runner on so the draft #269 gets its laptop run, then review it; the same for the two pieces in progress when their pull requests open (the "Not confirmed" label and "Mark as published", and the OCR hardening for scaling, lossy viewers and wrapped secrets) | Owner turns the laptop on; agent finishes and opens them |
 | Right after | Write down what the first note got right and wrong, with the rehearsal checklist; that is the first row of the eval corpus, before ST-030's ten sessions exist. The laptop hand checks in §5 can be done in the same sitting | Owner, ten minutes for the note |
-| Then | Fix what M1 finds. Until then, small work that needs no owner: making the loop harness a required check (it has passed on `main`'s last five runs), and ST-013's golden replay once ST-030 exists | Agent |
+| Then | Fix what M1 finds, as #262 and #264 fixed what the first runs found. Small work that needs no owner: making the loop harness a required check once #268's fix has a few more runs on `main` behind it (it has one), and ST-013's golden replay once ST-030 exists | Agent |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097) | Agent, once there is a ConnectWise sandbox or API member and a Hudu key |
 | In parallel, when the inputs exist | ST-027's WER number (the recording), ST-030 and ST-062 (ScreenConnect and a second machine), ST-063's two Gemini measurements (billing) and Claude's (its key) | Owner supplies; agent runs |
 | Phase D | Hosting (ST-007: `deploy/` is built and waits for a host and a name), the web admin's first real sign-in (ST-099), signing the installer (ST-112) and switching on auto-update (ST-113), the Narrator pass (ST-084), the security-lead review, the legal read, the usability round, the pilot | Both |
 
-**Why this order.** The product has never drafted a note from a real session. M1 is the one thing that
-tells us whether the next month goes into the pilot or into fixing what the first note got wrong, and
-the demo scripts make it a short sitting at the laptop. Everything after it either needs the owner's
+**Why this order.** It is not established that the product has drafted a note from a real session with
+the real model. The owner's first runs of the demo scripts already paid for themselves: a clock that
+never moved and a start that failed in an administrator window were both invisible to CI. M1 is the one
+thing that tells us whether the next month goes into the pilot or into fixing what the first note got
+wrong, and the demo scripts make it a short sitting at the laptop. Everything after it either needs the owner's
 accounts and people or should wait for what M1 shows.
 
 ### Needs a decision or an account
@@ -504,6 +628,7 @@ technicians, a pilot MSP and a security lead.
 | Run client tests | `dotnet test client/ScreenTail.sln` |
 | Run backend tests | `dotnet test backend/ScreenTail.Backend.sln` (SQLite; never calls a model) |
 | Run web tests | `cd web && npm ci && npm test` |
+| Run the web admin's browser tests | `cd web && npm run e2e` (needs the backend's PostgreSQL; `docs/dev/web-admin.md`) |
 | Run research tests | `cd research && pytest` |
 | Check the deployment stack on a machine with Docker | `./deploy/smoke.sh` (what CI's Backend job runs; `docs/dev/deploy.md`, "How this is checked") |
 | Deploy to a Linux host | `docs/dev/deploy.md`, from section 1 |
