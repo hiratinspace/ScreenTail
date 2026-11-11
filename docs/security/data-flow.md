@@ -111,15 +111,23 @@ text badly and long random strings worst: on the hosted runner's probe, of 1,200
 and 11 pt at 100% to 150% display scale, it masked 879 read as captured and 1,053 read at twice the
 size. The larger reading is held to the pixels of a full HD frame at twice its size, so a larger frame
 is read less enlarged (2560 by 1440 at 1.5 times), and one with that many pixels or more (4K) is read
-as it is, as every frame was before. Its boxes are brought back to the frame's own pixels, rounded outward. A frame the engine
-fails on is discarded, as before; there is one reading, not two.
+as it is, as every frame was before. The enlarged size is whole pixels, rounded down, and a frame
+that would gain no pixel (3839 by 2160) is read as captured. Each box is brought back to the frame's
+own pixels by the enlargement applied on its axis, the enlarged size over the captured one, rounded
+outward on all four sides and held to the frame (review of PR #278: divided by the enlargement asked
+for, a box on a 2560 by 1600 or 5120 by 1440 frame could come back a pixel short of the glyph, and
+nothing pads a mask). That arithmetic is in Core (`OcrScaling`) and tested on every platform,
+including 20,000 random frames and glyphs. A frame the engine fails on is discarded, as before;
+there is one reading, not two.
 
-Three rules match what the engine makes of a secret rather than the secret as written (2026-11-11),
+These rules match what the engine makes of a secret rather than the secret as written (2026-11-11),
 because one character misread in a key's prefix or a password's cue and the exact rules never fired,
 however well the rest was read:
 
 - A GitHub, Stripe or npm key's prefix with its underscore read as a space, as nothing or as
-  punctuation, and the l of "live" read as 1, I, | or i ("ghp 4WdRau…", "sk_1ive_pqg1…").
+  punctuation, and the l of "live" read as 1, I, | or i ("ghp 4WdRau…", "sk_1ive_pqg1…"). An AWS
+  access key ID with the I of AKIA or ASIA read as 1, l or |, or a space after the prefix, then exactly
+  16 capitals and digits.
 - Any run of text between spaces and separators (= : , ; and quotes) that looks random, whatever is
   before it: at least 16 letters and digits, with a capital, a small letter and a digit among them,
   changing between those three at no less than 0.4 of its neighbouring pairs, and between a capital
@@ -133,10 +141,22 @@ however well the rest was read:
   capitals with digits or mostly small letters with digits, is left to the shape and cue rules. It
   takes 91% of random strings of 16 characters, 98% of 26 and 99% of 36. A GUID, a hash in small letters, a hostname in capitals and digits, a path
   and a number grid are left alone. A key cut by a row's end is read whole by the wrap pass below, so
-  a piece too short alone is taken with its continuation.
-- "pass" with its colon misread ("pass. Juniper8749Quiver", "pass Tangerine3327Wobble"): only the
-  very next word, and only when it has six characters or more with a digit or a symbol, so "pass the
-  test" and "PASS FAIL" are left alone. It takes its rows as any password does.
+  a piece too short alone is taken with its continuation. After the review of PR #278, base64's + and
+  / and its = padding count toward the 16, and two pieces with one space between (a random run and a
+  short piece, or two short pieces, each under 16 with a digit or two changes of case) are one run
+  where together they look random, since the engine splits a key with a space. On random strings,
+  before and after the review: base64 of 16 characters 51.8% and 87.6%, a base62 key of 16 to 31
+  split at one space 0% and 88.1% (96.0% unsplit), a misread AWS key ID 0% and 100%.
+- Known gap: a random run of one case with digits and no cue or prefix, that is hexadecimal, small
+  letters and digits, capitals and digits, or base32, is not masked (0% of random strings of 16 to 40).
+  A rule for them was measured on the hosted runner's pages with no secret (run 43090775651) and not
+  taken: it masked every GUID on the device tables, 12.9% of the page against 4.8% (44.3% of the ink
+  against 15.4%), and the commit hashes on code pages, 3.0% against 2.6%. Such a value is masked when
+  it follows a key cue ("api_key", "secret", "token") or a password cue.
+- "pass" with its colon misread ("pass. Juniper8749Quiver", "pass Tangerine3327Wobble", and after the
+  review "pass - X", "pass| X" and "passi X"), and "pw: X": only the very next word, and only when it
+  has six characters or more with a digit or a symbol, so "pass the test", "PASS FAIL" and "pw: none"
+  are left alone. It takes its rows as any password does.
 
 What reading at twice the size costs is time and some over-masking. On the hosted runners a full HD
 frame dense with text took 168, 272 and 198 ms to read as captured on three runs, and 373, 567 and
@@ -149,7 +169,9 @@ code 1.0% and 2.2%, number grids 3.6% and 4.6%, device tables 1.8% and 4.8%. Mos
 existing key rule on prose read at twice the size: OCR runs a few words together, and a cue it finds
 inside one ("account" in "accounting", "app" in "applied") takes the run with it. The random-run
 rule's share is on code (1.9% to 2.2%) and tables (3.3% to 4.8%): names in code and table joins whose
-letters change case often enough.
+letters change case often enough. The review's rules added nothing measurable: code 2.5% to 2.6%
+and tables 15.3% to 15.4% of the ink (run 43090775651, whose code pages also carry a commit hash
+and a sha256, so its code figures are not the earlier run's).
 
 A match is masked by what is on the screen, not by how the OCR engine split it into words: every word
 that touches it with no space between them goes too, so a value the engine read as two words is masked
