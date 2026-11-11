@@ -132,11 +132,13 @@ public sealed class OcrScaledSecretTests
     /// here is the OCR engine failing on small, blurred text, which no rule of the redaction can mend,
     /// so it is counted and reported, not asserted away. What it fails on is stated at the end.
     ///
-    /// What the table showed of the wrapped key at 1.1 (2026-11-10): in Segoe UI it is part showing on
-    /// every page, about half covered, and on 39 of the 40 the engine read no word on its second row. So
-    /// the half that shows is a row not read, which no rule can mend. The half that is masked is the
-    /// wrap pass joining the first row to the row after the unread one, whose first word happens to make
-    /// the key long enough: more masked than the page needs, by accident of this page's text.
+    /// What the table showed of the wrapped key at 1.1 (runs 42930307506 and 42951818496): in Segoe UI
+    /// it is part showing on every page, about half covered, and on 39 of the 40 the piece left showing
+    /// is the first row's, with no word read whose middle is on it; the second row's piece was read as
+    /// one word on 19 of 20 and is the half that is masked. So it is not a rule that read both pieces
+    /// and stopped short. How the second piece comes to be masked with the first not read is not known:
+    /// none of the shapes tried in Core (first piece missing, glued to the word before it, split at its
+    /// underscores, cut short) masks the one and not the other, and the probe prints no text.
     /// </summary>
     [Fact]
     public async Task SecretsThroughAScaledLossyViewerAreMeasured()

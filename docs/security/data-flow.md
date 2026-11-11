@@ -184,9 +184,10 @@ itself costs nothing, but about a quarter are missed at every scale. The wrapped
 18 and 22 of 80 masked whole, none in Consolas), then the long token. Through a viewer at JPEG 75, 66%
 were masked whole at 0.9, 84% at 1.0 and 76% at 1.1, and at 0.6 about one in eight. At each display
 scale one secret in 400 was left part showing with every piece of it read. Through the viewer at 1.1
-the wrapped key was half showing on every page in one font: the engine read no word on its second row
-on 39 pages of 40, which is a miss of recall, and the first row was masked only because the row after
-happened to complete it. The test holds each kind of secret, at each scale and quality, to what was
+the wrapped key was half showing on every page in one font, and on 39 pages of 40 the half showing is
+the first row's piece, with no word read on it; the second row's piece was read and masked. So no rule
+read both pieces and stopped short. How the second piece is masked with the first not read is not
+known: no shape tried on synthetic boxes does that, and the probe prints no text. The test holds each kind of secret, at each scale and quality, to what was
 measured less a tenth, and part showing to what was measured and two more. These are synthetic pages,
 not the labelled corpus ST-042's recall gate needs.
 
