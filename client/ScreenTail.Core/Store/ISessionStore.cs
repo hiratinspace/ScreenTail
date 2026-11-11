@@ -214,6 +214,12 @@ public interface ISessionStore : IAsyncDisposable
     /// </summary>
     Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default);
 
+    /// <summary>
+    /// How many sessions carry the unconfirmed mark, for the tray. A discarded session is not counted:
+    /// the technician threw it away, and nothing can be done about it here (INV-12).
+    /// </summary>
+    Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default);
+
     /// <summary>Rebuilds the database file so purged space is actually released.</summary>
     /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>
     Task<double> FreeSpaceFractionAsync(CancellationToken ct = default);
@@ -333,6 +339,7 @@ public sealed record FrameText(string? OcrText);
 /// <param name="Frames">Screenshots still held. Zero after retention has purged the raw data.</param>
 /// <param name="Title">The drafted note's suggested title, once there is one. The only free text here,
 /// and it is the technician's own note rather than anything captured.</param>
+/// <param name="PublishUnconfirmed">The session carries the unconfirmed mark: a publish of it may have reached the ticket (O2).</param>
 public sealed record SessionSummary(
     string Id,
     DateTimeOffset StartedAt,
@@ -343,7 +350,8 @@ public sealed record SessionSummary(
     long FramesPurgedUnredacted,
     int Frames,
     bool RawPurged,
-    string? Title);
+    string? Title,
+    bool PublishUnconfirmed = false);
 
 /// <summary>What the last publish of a session left on the ticket (O2): destination names and outcomes, never content.</summary>
 /// <param name="UnconfirmedAt">When a destination first became unknown; null when none is.</param>

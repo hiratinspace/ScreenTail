@@ -323,6 +323,9 @@ public partial class ShellWindow : Window
         new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1 },
         new() { Id = "s-2", StartedAt = new DateTimeOffset(2026, 9, 15, 14, 20, 0, TimeSpan.Zero), DurationMs = 3_720_000, Status = "published", Tool = "rdp", Frames = 25, FramesPurged = 0 },
         new() { Id = "s-3", StartedAt = new DateTimeOffset(2026, 9, 15, 11, 5, 0, TimeSpan.Zero), DurationMs = 8_000, Status = "discarded", Tool = "screenconnect", Frames = 0, FramesPurged = 0 },
+
+        // A publish that may have reached the ticket, so the screenshots and the accessibility scan see the second badge.
+        new() { Id = "s-4", StartedAt = new DateTimeOffset(2026, 9, 14, 16, 40, 0, TimeSpan.Zero), DurationMs = 540_000, Status = "draft", Tool = "screenconnect", Frames = 12, FramesPurged = 0, PublishUnconfirmed = true },
     ];
 
     private async Task CaptureAsync(ShellState state)

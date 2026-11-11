@@ -478,7 +478,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
+            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
         }
 
         var upgraded = await OpenAsync();
@@ -509,7 +509,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
+            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
         }
 
         var upgraded = await OpenAsync();
@@ -520,6 +520,36 @@ public sealed class SessionStoreTests : IAsyncDisposable
         await using var index = check.CreateCommand();
         index.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'sessions_by_started'";
         Assert.Contains("started_at", (string)(await index.ExecuteScalarAsync(TestContext.Current.CancellationToken))!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AStoreFromBeforeTheUnconfirmedIndexUpgradesAndCountsTheSameSessions()
+    {
+        // Migration 0014 adds a partial index over the unconfirmed mark to a table every used machine has
+        // rows in. The store is put back to how version 13 left it, with a publish in doubt, and reopened.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("in-doubt"));
+        await store.CreateSessionAsync(Session("clean"));
+        Assert.True(await store.SavePublishRecordAsync("in-doubt", new Dictionary<string, string> { ["ticket_note"] = PublishRecord.Unknown }, TestContext.Current.CancellationToken));
+        await store.DisposeAsync();
+        _stores.Remove(store);
+
+        await using (var raw = await OpenRawAsync())
+        {
+            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; DELETE FROM schema_migrations WHERE version >= 14;");
+        }
+
+        var upgraded = await OpenAsync();
+
+        Assert.True(SqliteSessionStore.LatestSchemaVersion >= 14);
+        Assert.Equal(SqliteSessionStore.LatestSchemaVersion, await upgraded.GetSchemaVersionAsync());
+        Assert.Equal(1, await upgraded.CountUnconfirmedPublishesAsync(TestContext.Current.CancellationToken));
+        await using var check = await OpenRawAsync();
+        await using var index = check.CreateCommand();
+        index.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'sessions_publish_unconfirmed'";
+        var sql = (string?)await index.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(sql);
+        Assert.Contains("publish_unconfirmed_at IS NOT NULL", sql, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -536,7 +566,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DELETE FROM schema_migrations WHERE version >= 13;");
+            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DELETE FROM schema_migrations WHERE version >= 13;");
         }
 
         var upgraded = await OpenAsync();

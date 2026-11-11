@@ -75,6 +75,9 @@ public sealed class SessionMachine : IAsyncDisposable
     private string? _draftTitle;
     private int _pendingRedactions;
     private int _draftsReady;
+
+    /// <summary>Sessions whose publish may have reached the ticket and was never confirmed (contract v10), for the tray.</summary>
+    private int _publishesUnconfirmed;
     private long _listenerFailures;
 
     public SessionMachine(
@@ -155,6 +158,7 @@ public sealed class SessionMachine : IAsyncDisposable
                     RemoteTool = _state == SessionState.Idle ? null : _session?.ToolKind,
                     PendingRedactions = _pendingRedactions,
                     DraftsReady = _draftsReady,
+                    PublishesUnconfirmed = _publishesUnconfirmed,
                     DraftFailureReason = _state == SessionState.DraftFailed ? _draftFailureReason : null,
                     DraftTitle = _state == SessionState.DraftReady ? _draftTitle : null,
                 };
@@ -181,8 +185,53 @@ public sealed class SessionMachine : IAsyncDisposable
             _pendingRedactions = count;
         }
 
-        // One telling at a time: a backlog that moves ten times while a transition holds the lock is
-        // said once, afterwards, with the count as it then stands.
+        QueueCountsTelling();
+    }
+
+    /// <summary>
+    /// A session's publish record was written (contract v10): how many sessions hold a publish that was
+    /// never confirmed is read again, and told through <see cref="CountsChanged"/> when it moved. The
+    /// state does not change for it, and the read waits on no transition, so a publish never queues
+    /// behind a session that is finishing.
+    /// </summary>
+    public async Task PublishOutcomesChangedAsync(CancellationToken ct = default)
+    {
+        bool moved;
+        await _countReads.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var count = await _store.CountUnconfirmedPublishesAsync(ct).ConfigureAwait(false);
+            lock (_stateLock)
+            {
+                moved = _publishesUnconfirmed != count;
+                _publishesUnconfirmed = count;
+            }
+        }
+        finally
+        {
+            _ = _countReads.Release();
+        }
+
+        if (moved)
+        {
+            QueueCountsTelling();
+        }
+    }
+
+    /// <summary>
+    /// One read of the store's counts at a time, kept with its assignment (review of #274). The count was
+    /// read and then assigned with nothing held between, so of two readers the one that read first could
+    /// assign last and leave the tray on a count the store no longer had. Whoever holds this reads and
+    /// assigns before the next reads, so the last assignment is always the newest read. Taken inside
+    /// <see cref="_transitions"/> by the machine's own refreshes and alone by a publish, never the other
+    /// way round, and held for one short query.
+    /// </summary>
+    private readonly SemaphoreSlim _countReads = new(1, 1);
+
+    // One telling at a time: a count that moves ten times while a transition holds the lock is said
+    // once, afterwards, with the counts as they then stand.
+    private void QueueCountsTelling()
+    {
         if (Interlocked.Exchange(ref _countsQueued, 1) == 0)
         {
             CountsTelling = TellCountsAsync();
@@ -598,6 +647,14 @@ public sealed class SessionMachine : IAsyncDisposable
                 await StopForDiscardAsync(current, ct).ConfigureAwait(false);
                 await _store.DeleteSessionAsync(current.Id, ct).ConfigureAwait(false);
                 await ForgetDiscardedAsync(ct).ConfigureAwait(false);
+            }
+            else if (others.Count > 0 && await RefreshDraftCountAsync(ct).ConfigureAwait(false))
+            {
+                // Review of #274: a discard of sessions the machine is not resting on changed no state, so
+                // nothing read the counts again and the tray went on counting a draft, or a publish not
+                // confirmed, that the technician had thrown away. Read here and told as counts are, once
+                // this transition lets go. With the current session among them the state change says it.
+                QueueCountsTelling();
             }
 
             return outcome;
@@ -1123,6 +1180,7 @@ public sealed class SessionMachine : IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         _transitions.Dispose();
+        _countReads.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -1303,12 +1361,27 @@ public sealed class SessionMachine : IAsyncDisposable
         }
     }
 
-    private async Task RefreshDraftCountAsync(CancellationToken ct)
+    /// <returns>Whether either count moved, for a caller that changes no state and has to tell it.</returns>
+    private async Task<bool> RefreshDraftCountAsync(CancellationToken ct)
     {
-        var ready = await _store.ListSessionsInStatesAsync([CaptureStates.DraftReady], ct).ConfigureAwait(false);
-        lock (_stateLock)
+        await _countReads.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            _draftsReady = ready.Count;
+            var ready = await _store.ListSessionsInStatesAsync([CaptureStates.DraftReady], ct).ConfigureAwait(false);
+
+            // Read with the drafts: at start, and whenever a discard or a publish moves either.
+            var unconfirmed = await _store.CountUnconfirmedPublishesAsync(ct).ConfigureAwait(false);
+            lock (_stateLock)
+            {
+                var moved = _draftsReady != ready.Count || _publishesUnconfirmed != unconfirmed;
+                _draftsReady = ready.Count;
+                _publishesUnconfirmed = unconfirmed;
+                return moved;
+            }
+        }
+        finally
+        {
+            _ = _countReads.Release();
         }
     }
 

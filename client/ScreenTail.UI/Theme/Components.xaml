@@ -1044,7 +1044,7 @@
     </Style>
 
     <!-- Badge: pill, 11 px, uppercase off, a tinted fill with a border in the state's colour and the words
-         in text.primary. Variants: neutral, Suggested, Confidence, Published. -->
+         in text.primary. Variants: neutral, Suggested, Confidence, Published, Unconfirmed. -->
     <Style x:Key="Badge" TargetType="ContentControl">
         <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
         <Setter Property="FontSize" Value="{DynamicResource Size.xs}" />
@@ -1082,6 +1082,14 @@
     <Style x:Key="Badge.Published" BasedOn="{StaticResource Badge}" TargetType="ContentControl">
         <Setter Property="Background" Value="{DynamicResource Brush.bg.success}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.published}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+    </Style>
+    <!-- A publish that may have reached the ticket and was never confirmed: the warning tint and the
+         paused border the warning banner uses, so it reads as "look at this", not as done (Published's
+         green) and not as failed (danger). The words carry it; the colour only agrees with them. -->
+    <Style x:Key="Badge.Unconfirmed" BasedOn="{StaticResource Badge}" TargetType="ContentControl">
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.warning}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
     </Style>
     <!-- The shell's capture state: the badge at body-adjacent size, because it is read, not glanced at. -->

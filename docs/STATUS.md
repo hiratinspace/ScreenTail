@@ -26,7 +26,7 @@ run elevated and the UI never opened (#264). Nothing in the repository records a
 model with a person reading the note, so the rehearsal checklist in `docs/dev/demo.md` and the note
 about what the first draft got right and wrong are still to do.
 
-**Pull `main` before the next run on the laptop.** The pipe contract is version 9 since #265, and the
+**Pull `main` before the next run on the laptop.** The pipe contract is version 10 since the "Not confirmed" label, and the
 service and the UI must match it exactly; ten-character invite codes are refused since #260. `start.cmd`
 builds from the clone, so a clone at `main` gives one build of both. A clone from before #264 will still
 start in an administrator window and fail late.
@@ -92,10 +92,9 @@ start in an administrator window and fail late.
 
 **In progress, not on `main`.** One draft pull request is open: #269, two follow-up commits to #268 (a
 row of zero-height boxes, and a very tall box beside a row). Its one laptop run so far (42721033883)
-ended in the Windows tests step without a result, and it waits for another. Two more pieces are being
-worked on and not yet opened: a "Not confirmed" label with a "Mark as published" action for a publish
-nobody could confirm (ST-093), and OCR hardening for display scaling, a scaled lossy remote viewer and
-secrets that wrap across lines (ST-042).
+ended in the Windows tests step without a result, and it waits for another. OCR hardening for display
+scaling, a scaled lossy remote viewer and secrets that wrap across lines (ST-042) is in a draft stacked
+on it. The "Not confirmed" label with a "Mark as published" action (ST-093) is described in §5.
 
 **The laptop runner is online only when the owner turns it on.** It was offline when this snapshot was
 taken. A pull request that touches capture queues its laptop jobs until then, and its `ci-ok` stays red
@@ -176,7 +175,7 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 |---|---|---|
 | GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #268 (`31afeac`, CI run 42717653493); one open pull request on 2026-11-10, the draft #269 |
 | Build plan | `Build Plan/` | Spec at **v0.4.3** accepted; the amendments v0.5.0 (the modern look, #228), v0.5.1 (keyboard blur, #257) and v0.5.2 (a publish that is not confirmed, #265) wait for the owner. Backlog Part C is the ordered plan, Part D the amendments |
-| Client | `client/` | `.Shared` (schema and IPC, contract version 9), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`, and the accessibility scanner's own process `.Tests.AxeRunner`. **3,263 tests** in the suite that runs anywhere and **435** in the Windows-only suite (CI run 42717653493 on `31afeac`; ten of the 435 skipped on the hosted runner by design, which is the skip budget) |
+| Client | `client/` | `.Shared` (schema and IPC, contract version 10), `.Core` (platform-neutral logic), `.Platform` (Windows adapters, ADR-0005), `.Service`, `.UI`, and the accessibility scanner's own process `.Tests.AxeRunner`. **3,263 tests** in the suite that runs anywhere and **435** in the Windows-only suite (CI run 42717653493 on `31afeac`; ten of the 435 skipped on the hosted runner by design, which is the skip budget) |
 | Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, the summarize and publish endpoints, the Gemini and Claude providers, the cost ledger, the credential vault, ConnectWise and Hudu clients, the demo PSA, the update policy fields, owner sign-in with Google and the web admin's routes (ST-099) with their rate limit, sign-in nonce and security headers, and the invite-code guard and activation lock (#248). **1,419 tests** (two skipped; CI run 42524568773 on `3a3bb99`, #266, the last change to the backend). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Deployment | `deploy/`, `docs/dev/deploy.md` | Docker Compose for one Linux host: Caddy with automatic HTTPS, the API, PostgreSQL and the web admin from one origin (#249). Built and checked by `deploy/smoke.sh` in CI's Backend job; no host or name yet |
 | Research | `research/` | Fixtures, note prompt v1 with its hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** (CI run 42717653493) |
@@ -529,12 +528,14 @@ chose it says so.
   a connection to the service that dropped mid-publish, is "not confirmed" and Retry is held behind an "I
   checked the ticket" checkbox (the owner accepted the "confirmed" choice on #265, with O2 to O4: the
   service remembers it across restarts, checks each destination sent against what it holds, and a
-  reopened Review offers each destination as the last publish left it). Still open: a time budget for the
-  whole publish. A "Not confirmed" label and a "Mark as published" action are in progress and not on
-  `main`; until they land an unconfirmed destination stays held until the technician ticks the box and
-  publishes it again, and a session whose every destination is unconfirmed stays a draft (§6). To
-  confirm from #265: the backend's own "nothing connected" answer stays a plain refusal, and the mark
-  stays set while any destination is still unknown, even one not chosen in the latest send.
+  reopened Review offers each destination as the last publish left it). Since 2026-11-10 (contract v10) History
+  says "Not confirmed" beside such a session's status, the tray says how many there are between sessions,
+  and History's "Mark as published" settles one on the technician's word without sending anything again.
+  To confirm: it is offered in History only, not in Review's publish pane; a session published before
+  migration 0013 with no record cannot be marked; and the mark writes no audit row. To confirm from #265:
+  the backend's own "nothing connected" answer stays a plain refusal, and the mark stays set while any
+  destination is still unknown, even one not chosen in the latest send. Still open: a time budget for the
+  whole publish.
 - **The local text model** (ST-065): llama.cpp and a model download on the technician's machine.
 - **The processor limit** (#232, `docs/dev/performance.md`): how the budget reads on a machine without
   four cores (15% of a smaller machine, 60% of one core on a bigger one); that the deepest level stops
@@ -561,8 +562,8 @@ chose it says so.
   box beside a row, which makes the rule mask far too much and run slowly.
 - **A publish nobody could confirm stays a draft** (#265). A session whose every destination is
   unconfirmed is not marked published, so it keeps counting in the tray's drafts-ready badge and History
-  lists it as a draft until the technician ticks the box and a publish lands, or discards it. The label
-  and action for it are in progress (§1).
+  lists it as a draft until the technician ticks the box and a publish lands, marks it published from
+  History, or discards it. History says "Not confirmed" beside it (§5).
 - **Two things on the pill are still not live** (#262): the expanded pill's last three events are never
   filled, because no message carries them, and "No mic" is asked once when a session starts, so a
   microphone lost or plugged in during a session is not shown until the next one.
