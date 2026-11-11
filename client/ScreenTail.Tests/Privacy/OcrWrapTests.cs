@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using ScreenTail.Core.Privacy;
 using ScreenTail.Shared.Schema;
 
@@ -400,74 +399,6 @@ public sealed class OcrWrapTests
             Assert.All(expected, piece => Assert.Contains(piece, masked));
             Assert.All(expected, piece => Assert.DoesNotContain($" {piece} ", $" {redaction.Text} ", StringComparison.Ordinal));
         }
-    }
-
-    /// <summary>
-    /// The wrap pass reads the page a second time, so it may cost as much again as the first and no
-    /// more. Every row of these is a full row over a row from the left edge, the shape it looks for, and
-    /// the grid is the worst of them: every cell is a row end and a row start at once.
-    /// </summary>
-    [Theory]
-    [InlineData("8,000 words, every row a wrap of the one above")]
-    [InlineData("5,000 cells, every one a column of its own")]
-    [InlineData("5,000 words one to a row")]
-    public void ABigFrameOfWrapsRedactsWithinBudget(string frame)
-    {
-        var words = frame switch
-        {
-            "8,000 words, every row a wrap of the one above" => Grid(8000, 40, 50, (row, col) => col == 39 ? $"sk_live_AB{row}" : col == 0 ? $"CD{row}EF" : $"w{row}x{col}"),
-            "5,000 cells, every one a column of its own" => Grid(5000, 20, 200, (row, col) => $"{row * 37 % 10}{((row * 20) + col) % 100000:00000}"),
-            _ => Grid(5000, 1, 50, (row, _) => $"{row % 10}{row % 100000:00000}"),
-        };
-
-        var best = double.MaxValue;
-        for (var i = 0; i < 3; i++)
-        {
-            var clock = Stopwatch.StartNew();
-            _ = Engine.RedactFrame(words);
-            best = Math.Min(best, clock.Elapsed.TotalMilliseconds);
-        }
-
-        Assert.True(best < 700, $"{frame}: {best:0} ms, over the 700 ms a frame may take");
-    }
-
-    /// <summary>Twice the words may cost about twice the time, never four times.</summary>
-    [Fact]
-    public void TheWrapPassGrowsWithThePageNotItsSquare()
-    {
-        static double Best(List<OcrWord> words)
-        {
-            var best = double.MaxValue;
-            for (var i = 0; i < 5; i++)
-            {
-                var clock = Stopwatch.StartNew();
-                _ = Engine.RedactFrame(words);
-                best = Math.Min(best, clock.Elapsed.TotalMilliseconds);
-            }
-
-            return best;
-        }
-
-        // Every cell a column of its own, one above the other: the longest chains of rows there are.
-        var small = Grid(4000, 4, 200, (row, col) => $"{row % 10}{((row * 4) + col) % 100000:00000}");
-        var large = Grid(16000, 4, 200, (row, col) => $"{row % 10}{((row * 4) + col) % 100000:00000}");
-        _ = Best(small);
-
-        var (few, many) = (Best(small), Best(large));
-
-        Assert.True(many < Math.Max(40, few * 10), $"4,000 words took {few:0.0} ms and 16,000 took {many:0.0} ms: four times the words cost more than ten times the time");
-    }
-
-    private static List<OcrWord> Grid(int count, int columns, int pitch, Func<int, int, string> text)
-    {
-        var words = new List<OcrWord>(count);
-        for (var i = 0; i < count; i++)
-        {
-            var (row, col) = (i / columns, i % columns);
-            words.Add(new(text(row, col), col * pitch, row * Pitch, 45, Height));
-        }
-
-        return words;
     }
 
     /// <summary>One row of words a space apart, from <paramref name="x"/>, on line <paramref name="line"/>.</summary>

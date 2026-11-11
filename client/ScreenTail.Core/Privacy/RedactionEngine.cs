@@ -49,6 +49,12 @@ public sealed class RedactionEngine
         _find = find;
     }
 
+    /// <summary>
+    /// Test seam: false leaves the wrap pass out of <see cref="RedactFrame"/>, so a test can hold the
+    /// engine with it to masking everything the engine without it masks. Nothing else sets it.
+    /// </summary>
+    internal bool Wraps { get; init; } = true;
+
     /// <summary>The technician's settings arriving (ST-081): every frame and segment after this one is scrubbed under the new policy.</summary>
     public void Apply(RedactionPolicy policy) => _policy = policy ?? throw new ArgumentNullException(nameof(policy));
 
@@ -139,7 +145,7 @@ public sealed class RedactionEngine
         // continue it (OcrWraps): a key cut in two by its window's edge is two words above, and no rule
         // matches half a key. Only a match that crosses a join is taken from this reading, so it adds
         // masks and takes none away. A page of one row has nothing wrapped on it.
-        if (page.RowCount > 1)
+        if (Wraps && page.RowCount > 1)
         {
             var wraps = new OcrWraps(page);
             if (wraps.Any)
