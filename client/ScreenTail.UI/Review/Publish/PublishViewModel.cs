@@ -9,14 +9,32 @@ using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.UI.Review.Publish;
 
-/// <summary>One line of the result list: what landed, where, or why not. <paramref name="MayHaveLanded"/> is marked apart from a failure.</summary>
-/// <param name="Status">What the mark is read as, when the row has a name of its own ("Already published").</param>
-public sealed record ResultRow(string Label, bool Ok, Uri? Link, string? Error, bool MayHaveLanded = false, string? Status = null)
+/// <summary>
+/// One line of the result list: what landed, where, or why not, worded by <see cref="PublishResultRow"/>.
+/// <see cref="State"/> picks the glyph's colour and the badge's look in the view.
+/// </summary>
+public sealed record ResultRow(PublishResultRow Row)
 {
-    public string Mark => Ok ? "✓" : MayHaveLanded ? "?" : "✗";
+    public string Label => Row.Label;
+
+    public ResultState State => Row.State;
+
+    public string Mark => Row.Mark;
 
     /// <summary>The mark in words for a screen reader, which would otherwise say "question mark".</summary>
-    public string MarkName => Status ?? (Ok ? "Published" : MayHaveLanded ? "Not confirmed" : "Failed");
+    public string MarkName => Row.MarkName;
+
+    /// <summary>The state in a word beside the glyph: Sent, Failed, Not confirmed.</summary>
+    public string Badge => Row.Badge;
+
+    public Uri? Link => Row.Link;
+
+    public string? Error => Row.Error;
+
+    /// <summary>"Open in ConnectWise", "Open in Hudu": named for the provider the link goes to.</summary>
+    public string LinkText => Row.LinkText;
+
+    public string LinkName => Row.LinkName;
 
     public Visibility LinkVisibility => Link is null ? Visibility.Collapsed : Visibility.Visible;
 
@@ -202,6 +220,14 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial bool CanRetry { get; set; }
 
+    /// <summary>"Retry Hudu": where Retry sends again (<see cref="PublishPanel.RetryLabel"/>).</summary>
+    [ObservableProperty]
+    public partial string RetryLabel { get; set; } = "Retry";
+
+    /// <summary>Retry for a screen reader: each destination it sends again and where.</summary>
+    [ObservableProperty]
+    public partial string RetryName { get; set; } = "Retry";
+
     /// <summary>
     /// Something may already be on the ticket (a lost answer, a deadline, a session already published):
     /// the warning with its checkbox shows, and Publish, Ctrl+Enter and Retry wait for the box.
@@ -327,7 +353,7 @@ public sealed partial class PublishViewModel : ObservableObject
         Refresh();
     }
 
-    /// <summary>"Open in ConnectWise". Only ever a link the provider handed back, and only a web link (<see cref="ExternalLinks.IsWebLink"/>).</summary>
+    /// <summary>"Open in ConnectWise" or "Open in Hudu". Only ever a link the provider handed back, and only a web link (<see cref="ExternalLinks.IsWebLink"/>).</summary>
     [RelayCommand]
     private static void OpenLink(Uri? link)
     {
@@ -469,8 +495,8 @@ public sealed partial class PublishViewModel : ObservableObject
         TimeEntry = _panel.TimeEntry;
         KbArticle = _panel.KbArticle;
         var kb = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
-        (TicketNoteLabel, TicketNoteName) = Earlier(Destination.TicketNote, "Ticket note");
-        (TimeEntryLabel, TimeEntryName) = Earlier(Destination.TimeEntry, "Time entry");
+        (TicketNoteLabel, TicketNoteName) = Earlier(Destination.TicketNote, PublishPanel.LabelOf(Destination.TicketNote));
+        (TimeEntryLabel, TimeEntryName) = Earlier(Destination.TimeEntry, PublishPanel.LabelOf(Destination.TimeEntry));
         (KbLabel, KbName) = Earlier(Destination.KbArticle, kb);
 
         // O3: the check in the form, for a destination an earlier publish landed or may have landed. The
@@ -506,9 +532,7 @@ public sealed partial class PublishViewModel : ObservableObject
         CheckTicketPrompt = mayHaveLanded ? PublishPanel.CheckTheTicketFirst : string.Empty;
         CheckTicketLabel = _panel.Ticket is { } ticket ? $"I checked ticket #{ticket.Id} and want to publish again" : "I checked the ticket and want to publish again";
         MappingVisibility = needsMapping ? Visibility.Visible : Visibility.Collapsed;
-        MappingPrompt = needsMapping
-            ? $"\u201c{_panel.CompanyToMap}\u201d is not mapped to a company in the documentation platform yet. Choose the one it is and the article goes there. The choice is remembered."
-            : string.Empty;
+        MappingPrompt = _panel.MappingPrompt ?? string.Empty;
         if (needsMapping && !_choicesAsked)
         {
             _choicesAsked = true;
@@ -525,16 +549,12 @@ public sealed partial class PublishViewModel : ObservableObject
 
         CanMap = needsMapping && SelectedCompany is not null && !_panel.IsPublishing;
         Summary = _panel.Summary ?? Summary;
+        RetryLabel = _panel.RetryLabel;
+        RetryName = _panel.RetryName;
         Results.Clear();
-        foreach (var result in _panel.Results)
+        foreach (var row in _panel.Rows)
         {
-            Results.Add(new ResultRow(
-                Label(result.Destination),
-                result.Ok,
-                result.Link,
-                result.Error,
-                result.MayHaveLanded,
-                result.Kind == DestinationResult.AlreadyPublished ? "Already published" : null));
+            Results.Add(new ResultRow(row));
         }
     }
 
@@ -595,13 +615,5 @@ public sealed partial class PublishViewModel : ObservableObject
         EarlierOutcome.Landed => ($"{label}  (already on the ticket)", $"{label}, already on the ticket"),
         EarlierOutcome.Unknown => ($"? {label}  (not confirmed)", $"{label}, not confirmed"),
         _ => (label, label),
-    };
-
-    private static string Label(Destination destination) => destination switch
-    {
-        Destination.TicketNote => "Ticket note",
-        Destination.TimeEntry => "Time entry",
-        Destination.KbArticle => "KB article",
-        _ => destination.ToString(),
     };
 }

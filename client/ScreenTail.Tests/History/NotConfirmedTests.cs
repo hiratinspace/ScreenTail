@@ -134,8 +134,8 @@ public sealed class NotConfirmedTests
         // Windows cuts a tray tooltip at 63 characters, and a state cut short is a state misread.
         var presence = Presence(new CaptureStateSnapshot { State = CaptureStates.DraftReady, SessionId = "s1", RemoteTool = "screenconnect", ElapsedMs = 3_900_000, PublishesUnconfirmed = 12 });
 
-        Assert.Equal("ScreenTail · Draft ready: screenconnect (1:05:00)", presence.Tooltip);
-        Assert.Equal("Draft ready: screenconnect (1:05:00) · 12 publishes not confirmed", presence.StateLine);
+        Assert.Equal("ScreenTail · Draft ready: ScreenConnect (1:05:00)", presence.Tooltip);
+        Assert.Equal("Draft ready: ScreenConnect (1:05:00) · 12 publishes not confirmed", presence.StateLine);
     }
 
     [Fact]

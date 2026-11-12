@@ -49,8 +49,8 @@ public sealed class RecordingClockOnScreenTests
                 time.Advance(TimeSpan.FromSeconds(70.1));
                 await StaThread.UntilAsync(() => shell.Tray.Tooltip.EndsWith("(1:11)", StringComparison.Ordinal), TimeSpan.FromSeconds(5));
 
-                Assert.Equal("ScreenTail · Recording: screenconnect (1:11)", shell.Tray.Tooltip);
-                Assert.Equal("Recording: screenconnect (1:11)", shell.Tray.StateLine);
+                Assert.Equal("ScreenTail · Recording: ScreenConnect (1:11)", shell.Tray.Tooltip);
+                Assert.Equal("Recording: ScreenConnect (1:11)", shell.Tray.StateLine);
                 Assert.Equal("01:11", PillClock(shell.Pill!));
 
                 // What the store holds is still what the service said: the clock only draws.
@@ -75,16 +75,16 @@ public sealed class RecordingClockOnScreenTests
         using var clock = new RecordingClock(state, time);
         using var model = new ShellViewModel(state, clock: clock);
         state.Connected(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", RemoteTool = "rdp", ElapsedMs = 5_000 });
-        Assert.Equal("Recording: rdp (0:05)", model.Status);
+        Assert.Equal("Recording: Remote Desktop (0:05)", model.Status);
 
         time.Advance(TimeSpan.FromSeconds(4.1));
-        Assert.Equal("Recording: rdp (0:09)", model.Status);
-        Assert.Equal("Recording: rdp", model.StatusAnnouncement);
+        Assert.Equal("Recording: Remote Desktop (0:09)", model.Status);
+        Assert.Equal("Recording: Remote Desktop", model.StatusAnnouncement);
 
         state.Observe(new CaptureStateSnapshot { State = CaptureStates.Paused, SessionId = "s1", RemoteTool = "rdp", Reason = "user", ElapsedMs = 9_000 });
         time.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal("Paused: rdp (0:09)", model.Status);
-        Assert.Equal("Paused: rdp", model.StatusAnnouncement);
+        Assert.Equal("Paused: Remote Desktop (0:09)", model.Status);
+        Assert.Equal("Paused: Remote Desktop", model.StatusAnnouncement);
     }
 
     /// <summary>The pill's state segment: the TextBlock a screen reader is told about.</summary>
@@ -220,7 +220,7 @@ public sealed class PillClockTests(TheApplication app)
                     var arrived = await StaThread.UntilAsync(
                         () => shell.Tray.Tooltip.EndsWith("(1:11)", StringComparison.Ordinal)
                             && RecordingClockOnScreenTests.StateSegment(shell.Pill!).Text == "01:11"
-                            && status.Status == "Recording: screenconnect (1:11)",
+                            && status.Status == "Recording: ScreenConnect (1:11)",
                         TimeSpan.FromSeconds(10));
                     Assert.True(arrived, $"tray '{shell.Tray.Tooltip}', pill '{RecordingClockOnScreenTests.StateSegment(shell.Pill!).Text}', status '{status.Status}'");
                 }

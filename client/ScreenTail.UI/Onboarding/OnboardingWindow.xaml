@@ -134,8 +134,8 @@
                                             <TextBlock Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Label}" />
                                             <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" TextWrapping="Wrap" Text="{Binding Message}" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Button.Secondary}" Content="Fix in Windows Settings"
-                                                AutomationProperties.Name="{Binding Label, StringFormat='Fix in Windows Settings: {0}'}"
+                                        <Button Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Button.Secondary}" Content="{Binding FixLabel}"
+                                                AutomationProperties.Name="{Binding FixName}"
                                                 Command="{Binding DataContext.OpenFixCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding FixLink}"
                                                 Visibility="{Binding FixLink, Converter={x:Static local:NullToCollapsed.Instance}}" />
                                     </Grid>

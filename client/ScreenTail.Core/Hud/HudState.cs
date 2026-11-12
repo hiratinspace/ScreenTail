@@ -276,7 +276,7 @@ public static class HudState
             HudTone.Scope,
             "◎",
             capture.ScopeProcess is { Length: > 0 } process
-                ? $"Not capturing: {process}"
+                ? $"Not capturing: {Shell.ProcessNames.Friendly(process)}"
                 : "Not capturing: out of scope",
             "Clicks are still on the timeline; no screenshots are taken."),
 

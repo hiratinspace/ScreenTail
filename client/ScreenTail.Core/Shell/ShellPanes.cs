@@ -1,4 +1,5 @@
 using System.Globalization;
+using ScreenTail.Core.Hud;
 using ScreenTail.Shared.Ipc;
 
 namespace ScreenTail.Core.Shell;
@@ -159,6 +160,45 @@ public static class ShellStatus
 
     public const string Unknown = "Capture state unknown";
 
+    /// <summary>Review with nothing to show between sessions: how to make a draft.</summary>
+    public const string NothingToReviewYet = "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.";
+
+    /// <summary>Review with nothing to show while a session is being captured: the draft is on its way here.</summary>
+    public const string CapturingNow = "Capturing now: the draft opens here when you stop (Ctrl+Alt+S).";
+
+    /// <summary>
+    /// What Review says with no session to show. While one is being captured it says the draft is coming
+    /// and where, rather than telling the technician to record what they are recording. Only what capture
+    /// is doing now counts: with nobody answering, nothing is claimed (INV-4).
+    /// </summary>
+    public static string NothingToReview(ShellSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return snapshot.KnownCapture?.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed
+            ? CapturingNow
+            : NothingToReviewYet;
+    }
+
+    /// <summary>
+    /// The status chip's tone: the colour of its dot and border, as the pill would show it (Spec §5 S2).
+    /// Only what capture is doing now counts, so a lost service is never drawn as recording.
+    /// </summary>
+    public static HudTone Tone(ShellSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Connection != ServiceConnection.Connected)
+        {
+            return HudTone.Idle;
+        }
+
+        return snapshot.KnownCapture?.State switch
+        {
+            CaptureStates.Recording => HudTone.Recording,
+            CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing => HudTone.Paused,
+            _ => HudTone.Idle,
+        };
+    }
+
     /// <summary>
     /// The tray's and the status line's time: m:ss, or h:mm:ss past the hour. It was the m:ss of a
     /// TimeSpan, whose minutes start again at each hour, so an hour and five minutes read "5:00" once the
@@ -219,7 +259,7 @@ public static class ShellStatus
             _ => Unknown,
         };
 
-        var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : capture.RemoteTool;
+        var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : ToolNames.Display(capture.RemoteTool);
         var elapsed = capture.ElapsedMs is { } ms
             ? Clock(ms)
             : null;

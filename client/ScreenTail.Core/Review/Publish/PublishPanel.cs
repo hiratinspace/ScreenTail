@@ -90,6 +90,57 @@ public sealed record DestinationResult(Destination Destination, bool Ok, Uri? Li
     public bool RefusedForAnEarlierPublish => !Ok && Kind is AlreadyPublished or SessionUnconfirmed;
 }
 
+/// <summary>How one destination of a publish went, as the result list shows it.</summary>
+public enum ResultState
+{
+    Sent,
+    Failed,
+
+    /// <summary>It may be on the ticket: sent, and never confirmed (v0.5.2).</summary>
+    NotConfirmed,
+
+    /// <summary>The service refused it because the session is already published.</summary>
+    AlreadyPublished,
+}
+
+/// <summary>
+/// One row of the result list (Spec §5 S3): the destination, a glyph drawn in its state's colour with a
+/// word beside it, the link named for the provider it goes to, and the reason when there is one to say
+/// here. Worded here, where it is tested without WPF.
+/// </summary>
+/// <param name="Error">The provider's words, or null: also null when the reason is said elsewhere (the mapping prompt).</param>
+/// <param name="LinkText">"Open in ConnectWise", "Open in Hudu": the provider the link goes to, from what is connected.</param>
+public sealed record PublishResultRow(Destination Destination, string Label, ResultState State, Uri? Link, string? Error, string LinkText)
+{
+    public string Mark => State switch
+    {
+        ResultState.Sent => "✓",
+        ResultState.Failed => "✗",
+        _ => "?",
+    };
+
+    /// <summary>The glyph in words for a screen reader, which would otherwise say "question mark". Unchanged since v0.5.2.</summary>
+    public string MarkName => State switch
+    {
+        ResultState.Sent => "Published",
+        ResultState.Failed => "Failed",
+        ResultState.NotConfirmed => "Not confirmed",
+        _ => "Already published",
+    };
+
+    /// <summary>The word beside the glyph, so the state is never a colour alone (Spec §2.1).</summary>
+    public string Badge => State switch
+    {
+        ResultState.Sent => "Sent",
+        ResultState.Failed => "Failed",
+        ResultState.NotConfirmed => "Not confirmed",
+        _ => "Already published",
+    };
+
+    /// <summary>The link's name for a screen reader: where it opens and which destination it is.</summary>
+    public string LinkName => $"{LinkText}: {Label}";
+}
+
 /// <summary>What an earlier publish of the session left on the ticket for one destination (O3).</summary>
 public enum EarlierOutcome
 {
@@ -303,6 +354,66 @@ public sealed class PublishPanel
     public string? CompanyToMap => Ticket?.Company is { Length: > 0 } company ? company : null;
 
     /// <summary>
+    /// Why the article waits, and what to do, said once, here, beside the choice (ST-097 AC2). The summary
+    /// and the row used to say the backend's reason as well. Null when there is no prompt.
+    /// </summary>
+    public string? MappingPrompt => NeedsMapping
+        ? $"“{CompanyToMap}” is not mapped to a company in {DocumentationName} yet. Choose the one it is and the article goes there. The choice is remembered."
+        : null;
+
+    /// <summary>The connected provider a destination goes to, or null when none this version knows is connected.</summary>
+    public string? ProviderFor(Destination destination) => destination == Destination.KbArticle
+        ? Integrations.FirstOrDefault(IntegrationNames.IsDocumentation)
+        : Integrations.FirstOrDefault(IntegrationNames.IsPsa);
+
+    /// <summary>"ConnectWise", "Hudu": the provider by the name a sentence uses, or what it is when none is known.</summary>
+    public string ProviderName(Destination destination) => ProviderFor(destination) is { } provider
+        ? IntegrationNames.InSentence(provider)
+        : destination == Destination.KbArticle ? "the knowledge base" : "the PSA";
+
+    private string DocumentationName => ProviderFor(Destination.KbArticle) is { } provider
+        ? IntegrationNames.InSentence(provider)
+        : "the documentation platform";
+
+    /// <summary>The result list (Spec §5 S3), one row per destination, in the order the form lists them.</summary>
+    public IReadOnlyList<PublishResultRow> Rows
+    {
+        get
+        {
+            var mapping = NeedsMapping;
+            return [.. Results.Select(r => new PublishResultRow(
+                r.Destination,
+                LabelOf(r.Destination),
+                r.Ok ? ResultState.Sent
+                    : r.Kind == DestinationResult.AlreadyPublished ? ResultState.AlreadyPublished
+                    : r.MayHaveLanded ? ResultState.NotConfirmed
+                    : ResultState.Failed,
+                r.Link,
+                mapping && r.Destination == Destination.KbArticle ? null : r.Error,
+                $"Open in {ProviderName(r.Destination)}"))];
+        }
+    }
+
+    /// <summary>"Retry Hudu": where Retry sends again, which is only what failed (ST-094 AC3).</summary>
+    public string RetryLabel => Failed.Count == 0
+        ? "Retry"
+        : $"Retry {string.Join(" and ", Failed.Select(ProviderName).Distinct(StringComparer.Ordinal))}";
+
+    /// <summary>Retry for a screen reader: the label first (WCAG 2.5.3), then each destination it sends again.</summary>
+    public string RetryName => Failed.Count == 0
+        ? "Retry"
+        : $"{RetryLabel}: {string.Join(" and ", Failed.Select(d => $"the {Name(d)}"))}";
+
+    /// <summary>The destination as the form and the result list name it.</summary>
+    public static string LabelOf(Destination destination) => destination switch
+    {
+        Destination.TicketNote => "Ticket note",
+        Destination.TimeEntry => "Time entry",
+        Destination.KbArticle => "KB article",
+        _ => destination.ToString(),
+    };
+
+    /// <summary>
     /// Why Publish is disabled, or null when it is not. The wording is Spec §5 S3's and §6's, kept in one
     /// place with <see cref="NoteBanners.PublishBlockedBecause"/> so the note pane and this pane never
     /// disagree about why.
@@ -384,6 +495,9 @@ public sealed class PublishPanel
             var outcome = first.MayHaveLanded ? "not confirmed" : "failed";
             var line = first.Kind switch
             {
+                // The prompt below says why and holds the choice; the summary only points at it.
+                DestinationResult.NeedsMapping when first.Destination == Destination.KbArticle && NeedsMapping =>
+                    $"{prefix}KB article not sent yet: choose its company below",
                 DestinationResult.AlreadyPublished => $"{prefix}Already published: check the ticket before publishing again",
                 DestinationResult.SessionUnconfirmed => $"{prefix}An earlier publish was not confirmed: check the ticket before publishing again",
                 _ => $"{prefix}{Capitalise(Name(first.Destination))} {outcome}: {first.Error ?? "no reason given"}",

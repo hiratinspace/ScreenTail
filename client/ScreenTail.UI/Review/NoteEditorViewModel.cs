@@ -122,6 +122,7 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         _confirm = confirm ?? (_ => false);
         _discard = discard;
         _discardBlocked = discardBlocked;
+        DiscardHint = SessionDiscard.Hint(discardBlocked?.Invoke());
         _retryDraft = retryDraft;
         _persists = write is not null;
 
@@ -405,14 +406,54 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         }
     }
 
-    private bool CanDiscard() => !_discarding.Busy && _discard is not null;
+    /// <summary>Off while the session is being captured too, with the reason beside it (<see cref="DiscardHint"/>).</summary>
+    private bool CanDiscard() => !_discarding.Busy && _discard is not null && DiscardHint is null;
+
+    /// <summary>
+    /// Asks again whether Discard is held, and says so beside it: the shell calls this when capture
+    /// changes, so the button comes back when the session stops. A "still being captured" refusal from a
+    /// press before then goes with it.
+    /// </summary>
+    public void RefreshDiscard()
+    {
+        var hint = SessionDiscard.Hint(_discardBlocked?.Invoke());
+        if (hint is null && SessionDiscard.SaysCapturing(DiscardError))
+        {
+            SetDiscardError(null);
+        }
+
+        if (!string.Equals(hint, DiscardHint, StringComparison.Ordinal))
+        {
+            DiscardHint = hint;
+            OnPropertyChanged(nameof(DiscardHint));
+            OnPropertyChanged(nameof(DiscardHelp));
+            DiscardCommand.NotifyCanExecuteChanged();
+        }
+
+        OnPropertyChanged(nameof(DiscardHintVisible));
+    }
 
     private void SetDiscardError(string? error)
     {
         DiscardError = error;
         OnPropertyChanged(nameof(DiscardError));
         OnPropertyChanged(nameof(DiscardFailed));
+        OnPropertyChanged(nameof(DiscardHintVisible));
     }
+
+    /// <summary>
+    /// Why Discard is off, beside it, or null: "Stop the session to discard" while it is being captured.
+    /// Visible text, not a tooltip a keyboard user cannot reach on a disabled button (Spec v0.4.3).
+    /// </summary>
+    public string? DiscardHint { get; private set; }
+
+    /// <summary>Shown while it applies, unless the longer refusal beside the button already says it.</summary>
+    public bool DiscardHintVisible => DiscardHint is not null && !DiscardFailed;
+
+    /// <summary>The button's help text: what it does, and why it is off when it is.</summary>
+    public string DiscardHelp => DiscardHint is { } hint
+        ? $"{hint}. Deletes the screenshots, transcript and note from this device. You will be asked to type DISCARD."
+        : "Deletes the screenshots, transcript and note from this device. You will be asked to type DISCARD.";
 
     /// <summary>Why the discard did not happen, or null. Shown beside the button, never as a dialog.</summary>
     public string? DiscardError { get; private set; }
