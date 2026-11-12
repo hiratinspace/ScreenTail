@@ -10,6 +10,10 @@
     are what start.ps1 would have recorded for it. No Pester, no network: Windows PowerShell 5.1 and a
     temp folder.
 
+    The cases pass -NoReadiness, so each stays quick, except one, which runs the readiness block for
+    real on this machine and checks that the block prints and the exit code is still the demo check's.
+    The block's decisions are tested on made-up readings in laptop-readiness.Tests.ps1, run from here.
+
     ASCII only, for the same reason as the check itself.
 #>
 [CmdletBinding()]
@@ -55,7 +59,8 @@ $cases = @(
     [pscustomobject]@{ Name = 'a recorded id that now belongs to another program passes'; Entries = @((Entry 'service' $PID 'ScreenTail.Service' $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
     [pscustomobject]@{ Name = 'a ScreenTail process the demo did not start is named with its id and is to be closed'; Entries = $null; Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($unrecorded, $closeIt) },
     [pscustomobject]@{ Name = 'a ScreenTail process in another desktop session passes'; Entries = $null; Names = @($self.ProcessName); Session = $elsewhere; ExpectExit = 0; MustSay = @($idle) },
-    [pscustomobject]@{ Name = 'the demo running says stop.cmd, even with a process beside it'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($busy) }
+    [pscustomobject]@{ Name = 'the demo running says stop.cmd, even with a process beside it'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($busy) },
+    [pscustomobject]@{ Name = 'a passing check prints the readiness block and still exits 0, whatever it finds'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle, 'Laptop readiness (warns only, never fails the job):', '  Power source: ', '  CPU busy:     '); Readiness = $true }
 )
 
 $bad = 0
@@ -71,6 +76,9 @@ foreach ($case in $cases) {
     $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $check, '-StateFile', $state, '-Names', ($case.Names -join ','))
     if ($case.Session -ge 0) {
         $arguments += @('-SessionId', [string]$case.Session)
+    }
+    if (-not $case.Readiness) {
+        $arguments += '-NoReadiness'
     }
     $output = & powershell.exe @arguments 2>&1 | Out-String
     $exit = $LASTEXITCODE
@@ -94,6 +102,11 @@ $reportTests = Join-Path $PSScriptRoot 'demo\report.Tests.ps1'
 & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $reportTests
 $reportExit = $LASTEXITCODE
 
+# The readiness block's decisions, on made-up readings (laptop-readiness.Tests.ps1).
+$readinessTests = Join-Path $PSScriptRoot 'laptop-readiness.Tests.ps1'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $readinessTests
+$readinessExit = $LASTEXITCODE
+
 if ($bad -gt 0) {
     Write-Host "$bad of $n demo check cases gave the wrong answer."
 }
@@ -103,5 +116,8 @@ else {
 if ($reportExit -ne 0) {
     Write-Host "::error file=scripts/windows/demo/report.Tests.ps1::The demo report's cases failed (exit $reportExit)."
 }
-if ($bad -gt 0 -or $reportExit -ne 0) { exit 1 }
+if ($readinessExit -ne 0) {
+    Write-Host "::error file=scripts/windows/laptop-readiness.Tests.ps1::The readiness cases failed (exit $readinessExit)."
+}
+if ($bad -gt 0 -or $reportExit -ne 0 -or $readinessExit -ne 0) { exit 1 }
 exit 0

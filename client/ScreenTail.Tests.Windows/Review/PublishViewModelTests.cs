@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using ScreenTail.Core.Review.Publish;
+using ScreenTail.Shared.Schema;
 using ScreenTail.UI.Review.Publish;
 using static ScreenTail.Tests.Windows.Review.ReviewSessions;
 
@@ -334,6 +335,44 @@ public sealed class PublishViewModelTests
         choose(pane);
         await pane.PublishCommand.ExecuteAsync(null);
         return Assert.Single(sent).NoteType;
+    }
+
+    [Fact]
+    public async Task TheReceiptsFactsAreTheSessionsAsReviewSendsIt()
+    {
+        // The harness once published an empty frame list, and the receipt said 0 screenshots and 0 items
+        // masked for a session with three frames. Through the Review as it runs: the frames the strip
+        // keeps in, the masks on those frames only, and the time from Review opening to the landing.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        static Frame Masked(Frame frame, int count) => frame with
+        {
+            MaskedRegions = [.. Enumerable.Range(0, count).Select(_ => new MaskedRegion { X = 0, Y = 0, Width = 10, Height = 10, Kind = MaskKind.Card })],
+        };
+
+        var session = Session(Masked(Frame("f1", 1000), 2), Masked(Frame("f2", 2000), 1), Masked(Frame("f3", 3000, excluded: true), 4));
+        var time = new Detection.ManualTime(new DateTimeOffset(2026, 11, 12, 9, 0, 0, TimeSpan.Zero));
+        var sent = new List<PublishRequest>();
+        var panel = new PublishPanel(
+            session,
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (request, _) =>
+            {
+                sent.Add(request);
+                return Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => new DestinationResult(d, true))]);
+            },
+            time: time);
+        var review = new UI.Review.ReviewViewModel(session, frames: null, publish: panel);
+        review.Publish.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+        time.Advance(new TimeSpan(0, 2, 30));
+
+        await review.Publish.PublishCommand.ExecuteAsync(null);
+
+        Assert.Equal(["f1", "f2"], Assert.Single(sent).FrameIds);
+        var facts = review.Publish.ReceiptFacts.ToDictionary(f => f.Caption, f => f.Value);
+        Assert.Equal("2", facts["screenshots"]);
+        Assert.Equal("3", facts["items masked"]);
+        Assert.Equal("3 min", facts["open to published"]);
     }
 
     private static PublishViewModel Pane(List<PublishRequest> sent, Func<Destination, bool>? landed = null, IReadOnlyList<string>? integrations = null)

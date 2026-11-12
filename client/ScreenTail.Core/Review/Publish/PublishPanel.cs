@@ -103,6 +103,25 @@ public enum ResultState
     AlreadyPublished,
 }
 
+/// <summary>How a publish went as a whole, for the receipt's heading (Spec v0.6.0 §5 S3).</summary>
+public enum ReceiptState
+{
+    /// <summary>Everything chosen landed.</summary>
+    Sent,
+
+    /// <summary>Some landed and some did not: Retry sends the rest.</summary>
+    Partial,
+
+    /// <summary>Nothing is known to have landed and something may have: never called failed (v0.5.2).</summary>
+    NotConfirmed,
+
+    /// <summary>Nothing landed.</summary>
+    Failed,
+}
+
+/// <summary>One of the receipt's facts about the session: a figure and what it counts ("12 min", "captured").</summary>
+public sealed record ReceiptFact(string Value, string Caption);
+
 /// <summary>
 /// One row of the result list (Spec §5 S3): the destination, a glyph drawn in its state's colour with a
 /// word beside it, the link named for the provider it goes to, and the reason when there is one to say
@@ -203,6 +222,14 @@ public sealed class PublishPanel
     /// <summary>What earlier publishes left on the ticket, per destination (O3). Absent means never sent, or plainly failed.</summary>
     private readonly Dictionary<Destination, EarlierOutcome> _earlier = [];
     private readonly Func<CancellationToken, Task<IReadOnlyDictionary<Destination, EarlierOutcome>>>? _reloadEarlier;
+    private readonly TimeProvider _time;
+
+    /// <summary>When the pane opened, for the receipt's "open to published".</summary>
+    private readonly DateTimeOffset _openedAt;
+
+    /// <summary>The note and frames of the first send, which the receipt's facts describe. A Retry sends the same ones.</summary>
+    private DraftNote? _sentNote;
+    private IReadOnlyList<string> _sentFrames = [];
 
     /// <param name="integrations">The tenant's connected providers, by name. Empty means nothing can be published.</param>
     /// <param name="search">The PSA's ticket search (ST-092). Asked for nothing, it answers the recent tickets.</param>
@@ -211,6 +238,7 @@ public sealed class PublishPanel
     /// <param name="mapping">The company-mapping prompt's calls (ST-097). Without them a <c>needs_mapping</c> failure is shown as the words it came with.</param>
     /// <param name="earlierOutcomes">What the service remembers an earlier publish left on the ticket (O3): those destinations start unticked.</param>
     /// <param name="reloadEarlier">Asks the service for those again, after it refused a send because of an earlier publish this pane did not know about.</param>
+    /// <param name="time">The clock the receipt reads its times from; the system's when none is given.</param>
     public PublishPanel(
         Session session,
         IReadOnlyList<string> integrations,
@@ -221,9 +249,12 @@ public sealed class PublishPanel
         CompanyMapping? mapping = null,
         bool draftPending = false,
         IReadOnlyDictionary<Destination, EarlierOutcome>? earlierOutcomes = null,
-        Func<CancellationToken, Task<IReadOnlyDictionary<Destination, EarlierOutcome>>>? reloadEarlier = null)
+        Func<CancellationToken, Task<IReadOnlyDictionary<Destination, EarlierOutcome>>>? reloadEarlier = null,
+        TimeProvider? time = null)
     {
         _reloadEarlier = reloadEarlier;
+        _time = time ?? TimeProvider.System;
+        _openedAt = _time.GetUtcNow();
         _session = session ?? throw new ArgumentNullException(nameof(session));
         ArgumentNullException.ThrowIfNull(integrations);
         _search = search ?? throw new ArgumentNullException(nameof(search));
@@ -463,6 +494,184 @@ public sealed class PublishPanel
     /// <summary>The service's refusal that sent the pane back to the choice, said once the choice is open (m-g). Null otherwise.</summary>
     public string? EarlierRefusal { get; private set; }
 
+    // ---- The envelope (Spec v0.6.0 §5 S3): four labelled lines, each a value read in one pass. ----
+
+    /// <summary>To, with nothing bound: the value the line shows, beside Choose a ticket.</summary>
+    public const string NoTicketYet = "No ticket yet";
+
+    /// <summary>As: the default, and the one a first draft always starts on (v0.4.1 Q2).</summary>
+    public const string InternalLabel = "Internal note";
+
+    /// <summary>As: the other choice, which says on its face who reads it.</summary>
+    public const string DiscussionLabel = "Discussion: the customer sees it";
+
+    /// <summary>To: the bound ticket as a value, "#48213 Printer offline · Acme Dental", or <see cref="NoTicketYet"/>.</summary>
+    public string ToValue => Ticket is { } ticket ? $"#{ticket.Id} {ticket.Summary} · {ticket.Company}" : NoTicketYet;
+
+    /// <summary>The To line's action: Change for a bound ticket, Choose a ticket for none (Ctrl+T either way).</summary>
+    public string ChangeLabel => Ticket is null ? "Choose a ticket" : "Change";
+
+    /// <summary>
+    /// Why the ticket is the one it is, when ScreenTail chose it (ST-077): "Matched from the ScreenConnect
+    /// window title". Null for a ticket the technician chose, which needs no explaining.
+    /// </summary>
+    public string? MatchedFrom => Ticket?.Suggested == true
+        ? $"Matched from the {Shell.ToolNames.Display(_session.RemoteTool.Kind.ToString())} window title"
+        : null;
+
+    /// <summary>
+    /// Time: what was captured and what rounding made of it ("12 min, rounded up to 15"), beside the field,
+    /// so the number is not mistaken for the time worked. Without a draft, the rounding alone.
+    /// </summary>
+    public string TimeNote
+    {
+        get
+        {
+            if (_session.Draft is not { } draft)
+            {
+                return RoundingNote;
+            }
+
+            var captured = draft.SuggestedTimeMinutes;
+            var suggested = TimeEntryCalculator.SuggestMinutes(TimeSpan.FromMinutes(captured), _rounding);
+            return suggested == captured ? $"{captured} min"
+                : suggested > captured ? $"{captured} min, rounded up to {suggested}"
+                : $"{captured} min, rounded down to {suggested}";
+        }
+    }
+
+    /// <summary>Also: the article's chip, "KB article in Hudu: “Restart a stopped Print Spooler”", named for where it goes.</summary>
+    public string KbChipLabel => _session.Draft?.SuggestedTitle is { Length: > 0 } title
+        ? $"KB article in {ProviderName(Destination.KbArticle)}: “{title}”"
+        : $"KB article in {ProviderName(Destination.KbArticle)}";
+
+    /// <summary>
+    /// What is still open beside Publish (Spec v0.4.3): "1 inferred step not checked". Null when every
+    /// inferred step is checked. It never holds Publish back; it says what the technician has not looked at.
+    /// </summary>
+    public static string? OpenItems(DraftNote? note)
+    {
+        var open = note?.Steps.Count(s => s.Confidence == StepConfidence.Low && s.Confirmed != true) ?? 0;
+        return open switch
+        {
+            0 => null,
+            1 => "1 inferred step not checked",
+            _ => string.Create(CultureInfo.InvariantCulture, $"{open} inferred steps not checked"),
+        };
+    }
+
+    // ---- The receipt (Spec v0.6.0 §5 S3): the session pane after publish, never a dialog. ----
+
+    /// <summary>When the first destination landed, or null before one has.</summary>
+    public DateTimeOffset? SentAt { get; private set; }
+
+    /// <summary>How the publish went as a whole, or null before anything was sent.</summary>
+    public ReceiptState? ReceiptState => _results.Count == 0 ? null
+        : Published ? Publish.ReceiptState.Sent
+        : PartiallyPublished ? Publish.ReceiptState.Partial
+        : MayHaveLanded ? Publish.ReceiptState.NotConfirmed
+        : Publish.ReceiptState.Failed;
+
+    /// <summary>"Published to ticket #48213", or the state in words when it is not that. Null before anything was sent.</summary>
+    public string? ReceiptHeading => ReceiptState switch
+    {
+        Publish.ReceiptState.Sent => $"Published to ticket #{Ticket?.Id}",
+        Publish.ReceiptState.Partial => $"Partly published to ticket #{Ticket?.Id}",
+        Publish.ReceiptState.NotConfirmed => $"Not confirmed on ticket #{Ticket?.Id}",
+        Publish.ReceiptState.Failed => $"Not published to ticket #{Ticket?.Id}",
+        _ => null,
+    };
+
+    /// <summary>Under the heading: the company, the ticket's summary and when it landed ("Acme Dental · Printer offline · 14:31").</summary>
+    public string? ReceiptSubline
+    {
+        get
+        {
+            if (Ticket is not { } ticket || _results.Count == 0)
+            {
+                return null;
+            }
+
+            var parts = new List<string>(3);
+            if (ticket.Company is { Length: > 0 } company)
+            {
+                parts.Add(company);
+            }
+
+            if (ticket.Summary is { Length: > 0 } summary)
+            {
+                parts.Add(summary);
+            }
+
+            if (SentAt is { } sent)
+            {
+                parts.Add(TimeZoneInfo.ConvertTime(sent, _time.LocalTimeZone).ToString("HH:mm", CultureInfo.InvariantCulture));
+            }
+
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>
+    /// The session's facts, for the row under the destinations: minutes captured, steps checked,
+    /// screenshots and items masked in what was sent, and how long from opening Review to the first
+    /// landing (left out when that cannot be known). Counts and times only. Empty before anything was sent.
+    /// </summary>
+    public IReadOnlyList<ReceiptFact> ReceiptFacts
+    {
+        get
+        {
+            if (_results.Count == 0 || _sentNote is null)
+            {
+                return [];
+            }
+
+            var facts = new List<ReceiptFact>(5);
+            if (_session.DurationMs is { } duration)
+            {
+                facts.Add(new(InMinutes(TimeSpan.FromMilliseconds(duration)), "captured"));
+            }
+
+            var steps = _sentNote.Steps;
+            var checkedSteps = steps.Count(s => s.Confidence != StepConfidence.Low || s.Confirmed == true);
+            facts.Add(new(string.Create(CultureInfo.InvariantCulture, $"{checkedSteps} of {steps.Count}"), "steps checked"));
+
+            var sent = _sentFrames.ToHashSet(StringComparer.Ordinal);
+            facts.Add(new(sent.Count.ToString(CultureInfo.InvariantCulture), "screenshots"));
+            var masked = _session.Frames.Where(f => sent.Contains(f.Id)).Sum(f => f.MaskedRegions.Count);
+            facts.Add(new(masked.ToString(CultureInfo.InvariantCulture), "items masked"));
+
+            // Under a second is no time a person took: the clock did not see Review open (a panel made
+            // already published), so the fact is left out rather than shown as "0 s".
+            if (SentAt is { } at && at - _openedAt is var took && took >= TimeSpan.FromSeconds(1))
+            {
+                facts.Add(new(took < TimeSpan.FromMinutes(1) ? string.Create(CultureInfo.InvariantCulture, $"{(int)took.TotalSeconds} s") : InMinutes(took), "open to published"));
+            }
+
+            return facts;
+        }
+    }
+
+    /// <summary>
+    /// The line under the facts once the note is on the ticket (Spec §5 S3): editing happens in the PSA
+    /// from here, because publishing again would add a second note. Null when the note did not land.
+    /// </summary>
+    public string? ChangeNote => _results.TryGetValue(Destination.TicketNote, out var note) && note.Ok
+        ? $"Need to change something? Edit the note in {ProviderName(Destination.TicketNote)}. Publishing again from here would add a second note."
+        : null;
+
+    /// <summary>What went to a destination, beside its name on the receipt: the note type, the time logged, the article's title.</summary>
+    public string? DetailOf(Destination destination) => destination switch
+    {
+        Destination.TicketNote => NoteType == NoteType.Internal ? InternalLabel : "Discussion",
+        Destination.TimeEntry => string.Create(CultureInfo.InvariantCulture, $"{Minutes / 60}:{Minutes % 60:00}"),
+        Destination.KbArticle => _session.Draft?.SuggestedTitle is { Length: > 0 } title ? $"“{title}”" : null,
+        _ => null,
+    };
+
+    private static string InMinutes(TimeSpan span) =>
+        string.Create(CultureInfo.InvariantCulture, $"{Math.Max(1, (int)Math.Round(span.TotalMinutes, MidpointRounding.AwayFromZero))} min");
+
     /// <summary>Spec §6's toast line for what happened, or null before anything has.</summary>
     public string? Summary
     {
@@ -635,11 +844,19 @@ public sealed class PublishPanel
         // earlier silent flag on Retry is withdrawn).
         var again = TicketChecked;
         TicketChecked = false;
+        // Until something lands, the receipt describes the latest send; after, the one that landed.
+        if (SentAt is null)
+        {
+            _sentNote = note;
+            _sentFrames = [.. frameIds];
+        }
+
         EarlierRefusal = null;
         IsPublishing = true;
         try
         {
             var results = await _publish(new PublishRequest(_session.SessionId, Ticket!, NoteType, Minutes, destinations, note, frameIds, again), ct).ConfigureAwait(false);
+            SentAt ??= results.Any(r => r.Ok) ? _time.GetUtcNow() : null;
             foreach (var result in results)
             {
                 _results[result.Destination] = result;
