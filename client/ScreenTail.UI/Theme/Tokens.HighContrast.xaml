@@ -57,6 +57,39 @@
     <SolidColorBrush x:Key="Brush.confidence.low" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
     <Color x:Key="Token.text.on-accent">{x:Static SystemColors.HighlightTextColor}</Color>
     <SolidColorBrush x:Key="Brush.text.on-accent" Color="{DynamicResource {x:Static SystemColors.HighlightTextColorKey}}" />
+    <!-- v0.6.0 brand. The signature is a rule or a mark, so it takes the text colour. The ribbon band and its
+         fold are decoration: drawn in the window colour they are not seen, and the selected tab keeps its
+         Highlight outline, so nothing depends on them. -->
+    <Color x:Key="Token.brand.signature">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.brand.signature" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.brand.ribbon.band">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.brand.ribbon.band" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.brand.ribbon.fold">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.brand.ribbon.fold" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <!-- v0.6.0 frame (rail, title bar, pill). High contrast has no frame of its own: it is the window, with
+         the window text on it, and each state keeps its word and glyph. -->
+    <Color x:Key="Token.shell.bg">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.bg" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.shell.hover">{x:Static SystemColors.WindowColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.hover" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}" />
+    <Color x:Key="Token.shell.text">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.text" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.muted">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.muted" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.accent">{x:Static SystemColors.HighlightColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.accent" Color="{DynamicResource {x:Static SystemColors.HighlightColorKey}}" />
+    <Color x:Key="Token.shell.line">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.line" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.recording">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.recording" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.paused">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.paused" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.published">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.published" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.scope">{x:Static SystemColors.WindowTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.scope" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+    <Color x:Key="Token.shell.offline">{x:Static SystemColors.GrayTextColor}</Color>
+    <SolidColorBrush x:Key="Brush.shell.offline" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}" />
     <sys:String x:Key="Token.theme">high-contrast</sys:String>
     <sys:Boolean x:Key="Token.elevation.enabled">False</sys:Boolean>
 </ResourceDictionary>

@@ -163,6 +163,149 @@ public class ContrastTests
         Assert.True(ratio >= minimum, $"{theme}: {edge} on {background} is {ratio:0.00}:1, below {minimum}:1");
     }
 
+    public static TheoryData<string, string, string, string> ShellPairs
+    {
+        get
+        {
+            // Spec v0.6.0: the frame (rail, title bar, pill) is its own surface, indigo navy in light and a
+            // navy-tinted dark in dark, so what is drawn on it is checked against it and not against the panes.
+            var data = new TheoryData<string, string, string, string>();
+            var contrast = Tokens.RootElement.GetProperty("contrast");
+            foreach (var theme in new[] { "dark", "light" })
+            {
+                foreach (var background in contrast.GetProperty("shell_backgrounds").EnumerateArray())
+                {
+                    foreach (var text in contrast.GetProperty("shell_text").EnumerateArray())
+                    {
+                        data.Add(theme, "minimum", text.GetString()!, background.GetString()!);
+                    }
+
+                    foreach (var indicator in contrast.GetProperty("shell_indicators").EnumerateArray())
+                    {
+                        data.Add(theme, "indicator_minimum", indicator.GetString()!, background.GetString()!);
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ShellPairs))]
+    public void WhatIsDrawnOnTheFrameIsReadableOnIt(string theme, string floor, string foreground, string background)
+    {
+        // Text on the frame meets the same 4.5:1 as text on a pane, and a state on the frame the same 3:1.
+        // The floor is read from the file, so it is held here too.
+        var minimum = Tokens.RootElement.GetProperty("contrast").GetProperty(floor).GetDouble();
+        Assert.True(minimum >= (floor == "minimum" ? 4.5 : 3.0), $"contrast.{floor} is {minimum}");
+
+        var ratio = ContrastRatio(Hex(theme, foreground), Hex(theme, background));
+
+        Assert.True(ratio >= minimum, $"{theme}: {foreground} on {background} is {ratio:0.00}:1, below {minimum}:1");
+    }
+
+    [Fact]
+    public void TheFrameListsHoldTheWordsAndTheStates()
+    {
+        // The lists are in the file under test, so one that dropped shell.text would check nothing on the frame.
+        var contrast = Tokens.RootElement.GetProperty("contrast");
+        Assert.Contains("shell.text", Names(contrast, "shell_text"));
+        Assert.Contains("shell.muted", Names(contrast, "shell_text"));
+        Assert.Contains("shell.bg", Names(contrast, "shell_backgrounds"));
+        Assert.Contains("shell.recording", Names(contrast, "shell_indicators"));
+        Assert.Contains("shell.offline", Names(contrast, "shell_indicators"));
+    }
+
+    public static TheoryData<string, string, string, string> ShellDecorationPairs
+    {
+        get
+        {
+            var data = new TheoryData<string, string, string, string>();
+            var contrast = Tokens.RootElement.GetProperty("contrast");
+            foreach (var theme in new[] { "dark", "light" })
+            {
+                foreach (var list in new[] { "shell_structural", "shell_decorative" })
+                {
+                    foreach (var token in contrast.GetProperty(list).EnumerateArray())
+                    {
+                        foreach (var background in contrast.GetProperty("shell_backgrounds").EnumerateArray())
+                        {
+                            data.Add(theme, list, token.GetString()!, background.GetString()!);
+                        }
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ShellDecorationPairs))]
+    public void AFrameDividerOrDecorationIsNotTheSameColourAsTheFrame(string theme, string list, string token, string background)
+    {
+        // shell.line divides the rail, and the ribbon band meets the frame on the light pill cap. Neither is
+        // ever the only cue (the pill has its own outline and words), so like `structural` they are held only
+        // to drawing something. The band on the frame is the logo case, iris on navy at 2.80:1, deep by design.
+        var ratio = ContrastRatio(Hex(theme, token), Hex(theme, background));
+
+        Assert.True(ratio > 1.0, $"{theme}: {token} ({list}) is the same colour as {background}, so it draws nothing");
+    }
+
+    [Fact]
+    public void ADecorationOnTheFrameIsStillAnIndicatorOnThePanes()
+    {
+        // Being decorative on the frame is not a way out of every check: the band sits on the selected row,
+        // where it is a cue, so it stays in `indicators` and is held to 3:1 on every content background.
+        var contrast = Tokens.RootElement.GetProperty("contrast");
+        var indicators = Names(contrast, "indicators");
+        foreach (var name in Names(contrast, "shell_decorative"))
+        {
+            Assert.Contains(name, indicators);
+            Assert.DoesNotContain(name, Names(contrast, "shell_text"));
+            Assert.DoesNotContain(name, Names(contrast, "shell_indicators"));
+        }
+
+        Assert.Contains("brand.ribbon.band", Names(contrast, "shell_decorative"));
+    }
+
+    [Theory]
+    [InlineData("dark")]
+    [InlineData("light")]
+    public void TheBrandIsOneHue(string theme)
+    {
+        // Spec v0.6.0: one brand hue, Iris. "Act here" (buttons, links, focus, checked) follows the brand, so
+        // the brand mark colour, the ribbon band and the accent are one value, not three that drift apart.
+        Assert.Equal(Hex(theme, "accent.primary"), Hex(theme, "brand.signature"));
+        Assert.Equal(Hex(theme, "accent.primary"), Hex(theme, "brand.ribbon.band"));
+    }
+
+    [Fact]
+    public void TheBrandIsIris()
+    {
+        // The owner's pick (Spec v0.6.0): Iris #6A43C4, hover #572FA7, dark action #B2A6EC with ink text, frame #141030.
+        Assert.Equal("#6A43C4", Hex("light", "accent.primary"));
+        Assert.Equal("#572FA7", Hex("light", "accent.primary.hover"));
+        Assert.Equal("#B2A6EC", Hex("dark", "accent.primary"));
+        Assert.Equal("#0A071E", Hex("dark", "text.on-accent"));
+        Assert.Equal("#141030", Hex("light", "shell.bg"));
+    }
+
+    [Theory]
+    [InlineData("dark", "#7CCDD6")]
+    [InlineData("light", "#3E6E7A")]
+    public void OutOfScopeIsSlateTealNotTheBrandHue(string theme, string expected)
+    {
+        // Spec v0.6.0: the v0.5 violet was 4.6 from Iris in OKLab, so out of scope moved to slate teal. A state
+        // that looks like the brand reads as "act here"; this catches it moving back.
+        Assert.Equal(expected, Hex(theme, "state.scope"));
+        Assert.NotEqual(Hex(theme, "accent.primary"), Hex(theme, "state.scope"));
+    }
+
+    private static List<string> Names(JsonElement contrast, string list) =>
+        contrast.GetProperty(list).EnumerateArray().Select(n => n.GetString()!).ToList();
+
     [Fact]
     public void TheControlEdgeListHoldsTheSurfacesTheReviewMeasured()
     {
@@ -187,7 +330,7 @@ public class ContrastTests
         // adds it has to decide which it is.
         var contrast = Tokens.RootElement.GetProperty("contrast");
         var classified = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var list in new[] { "text", "backgrounds", "indicators", "structural", "control_edges" })
+        foreach (var list in new[] { "text", "backgrounds", "indicators", "structural", "control_edges", "shell_text", "shell_backgrounds", "shell_indicators", "shell_structural", "shell_decorative" })
         {
             foreach (var name in contrast.GetProperty(list).EnumerateArray())
             {
