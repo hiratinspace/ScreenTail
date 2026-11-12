@@ -54,13 +54,23 @@
                        Text="{Binding Note.DiscardError}"
                        controls:LiveRegion.Setting="Assertive" />
 
+            <!-- Why Discard is off while the session is being captured: beside it, as Publish's reason is
+                 (Spec v0.4.3), since a disabled button's tooltip is out of a keyboard user's reach. -->
+            <TextBlock Grid.Column="1"
+                       Margin="16,0,12,0"
+                       VerticalAlignment="Center"
+                       Style="{StaticResource Text.Muted}"
+                       Visibility="{Binding Note.DiscardHintVisible, Converter={StaticResource Visible}}"
+                       Text="{Binding Note.DiscardHint}"
+                       controls:LiveRegion.Setting="Polite" />
+
             <Button Grid.Column="2"
                     Style="{StaticResource Button.GhostDanger}"
                     Content="Discard"
                     Command="{Binding Note.DiscardCommand}"
                     ToolTip="Discard this session. You will be asked to type DISCARD."
                     AutomationProperties.Name="Discard this session"
-                    AutomationProperties.HelpText="Deletes the screenshots, transcript and note from this device. You will be asked to type DISCARD." />
+                    AutomationProperties.HelpText="{Binding Note.DiscardHelp}" />
         </Grid>
 
         <!-- The gaps between the panes are the splitters, 28 px wide: Spec §7's smallest target, in a column

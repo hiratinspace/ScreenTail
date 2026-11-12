@@ -34,6 +34,15 @@ public sealed class SessionDiscard(
     /// <summary>History's bulk discard while some other session is being captured.</summary>
     public const string WhileCapturing = "A session is being captured. Stop it first, then discard the selected sessions.";
 
+    /// <summary>The reason beside Review's Discard while its session is being captured (Spec §5 S3).</summary>
+    public const string StopToDiscard = "Stop the session to discard";
+
+    /// <summary>
+    /// The short reason shown beside Review's Discard, which is off while it applies, or null. Only for a
+    /// session being captured: not connected is said when the button is pressed, as before.
+    /// </summary>
+    public static string? Hint(string? blockedBecause) => blockedBecause is StillCapturing ? StopToDiscard : null;
+
     private readonly ShellState _state = state ?? throw new ArgumentNullException(nameof(state));
     private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<ConfirmationIssued?>> _request = request ?? throw new ArgumentNullException(nameof(request));
     private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<CommandResult>> _send = send ?? throw new ArgumentNullException(nameof(send));

@@ -122,7 +122,15 @@ public partial class ShellWindow : Window
         var frames = new FixtureFrames(SessionFixture.Directory());
         _model = new ShellViewModel(
             state,
-            loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(fixture, frames, publish: SamplePublish(fixture, id), timelineExpanded: id == "preview-timeline")),
+            loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(
+                fixture,
+                frames,
+                publish: SamplePublish(fixture, id),
+                timelineExpanded: id == "preview-timeline",
+
+                // The sample state is recording session "preview", so its Review shows Discard held with
+                // the reason beside it, as the running application does.
+                discardBlocked: () => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording, SessionId: var live } && live == id ? SessionDiscard.StillCapturing : null)),
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),

@@ -194,6 +194,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ShowStatus(snapshot);
         View = snapshot.View;
         Show(snapshot);
+
+        // Review's Discard is off while its session is being captured, with the reason beside it, and
+        // comes back when capture stops: asked again on every change of state.
+        (_review.Current as Review.ReviewViewModel)?.Note.RefreshDiscard();
     }
 
     /// <summary>
