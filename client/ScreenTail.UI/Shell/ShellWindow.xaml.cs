@@ -129,7 +129,7 @@ public partial class ShellWindow : Window
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
-                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.CompletedTask),
+                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
                 new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
         DataContext = _model;
@@ -387,8 +387,11 @@ public partial class ShellWindow : Window
 
         // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
         // rather than appearing inside the shell's. Answered, and with the service not answering, which
-        // is the panel that says unknown on every row rather than zeros (T-152).
-        foreach (var (name, build) in new (string, Func<Diagnostics.DiagnosticsWindow>)[]
+        // is the panel that says unknown on every row rather than zeros (T-152). The two typed
+        // confirmations are built and rendered by DialogsAsync, in every theme: the tray's dialog carried a
+        // TextBlock style on its TextBox from #86 to #228, which WPF refuses as the window is built, and
+        // nothing ever built it to find out (#281).
+        foreach (var (name, build) in new (string, Func<Window>)[]
         {
             ("panel", () => new Diagnostics.DiagnosticsWindow()),
             ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)),

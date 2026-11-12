@@ -32,8 +32,9 @@ Values as of v0.5.0. `shared/design/tokens.json` is the source of truth; this ta
 | `bg.warning` | `#33291A` | `#FFF5DC` | warning banner, low-confidence badge *(v0.5)* |
 | `bg.danger` | `#3A2224` | `#FDEDED` | error banner, hovered destructive button *(v0.5)* |
 | `bg.success` | `#1B3326` | `#E6F4EA` | published badge *(v0.5)* |
-| `border.subtle` | `#33373E` | `#E0E3E8` | dividers, card and input outlines |
-| `border.strong` | `#4A5058` | `#C3C9D1` | control outlines, focused containers |
+| `border.subtle` | `#33373E` | `#E0E3E8` | dividers, card outlines, a disabled input's outline |
+| `border.strong` | `#4A5058` | `#C3C9D1` | button and container outlines, focused containers |
+| `border.control` | `#777E88` | `#80868F` | the edge of a text box, password box or combo box *(v0.5.4)* |
 | `text.primary` | `#F1F3F5` | `#1B1D21` | body |
 | `text.secondary` | `#C2C7CF` | `#454B55` | labels, section headings, meta |
 | `text.muted` | `#A0A7B1` | `#5B626D` | placeholders, timestamps, hints |
@@ -50,7 +51,7 @@ Values as of v0.5.0. `shared/design/tokens.json` is the source of truth; this ta
 
 Every background above, the tints included, is held to the same bars: each text colour at 4.5:1 or better and each state colour at 3:1 or better, in both themes. In high contrast the tints are the system window colour, and hover, selection and a banner's kind are shown by the border and the words.
 
-Rules: one accent only. State colors never appear as decoration. Contrast for all text pairs ≥ 4.5:1 (verified in CI by a token test: `ScreenTail.Tests/Theme/ContrastTests`, which reads `tokens.json` directly). State colors are indicators (dots, glyphs, borders), not body-size text: on light backgrounds they sit around 3:1, so a state is always spelled out in `text.primary` next to its colored glyph. *(v0.4.2)*
+Rules: one accent only. State colors never appear as decoration. Contrast for all text pairs ≥ 4.5:1 (verified in CI by a token test: `ScreenTail.Tests/Theme/ContrastTests`, which reads `tokens.json` directly). State colors are indicators (dots, glyphs, borders), not body-size text: on light backgrounds they sit around 3:1, so a state is always spelled out in `text.primary` next to its colored glyph. *(v0.4.2)* An input's edge is the only thing that shows where the box is (its fill is within 1.1:1 of the card), so the edges of fields, unchecked check boxes and radio buttons, and the off toggle's track and thumb are held to 3:1 against `bg.base`, `bg.surface` and `bg.raised` (WCAG 1.4.11): fields use `border.control` (light 3.33:1 on `bg.base`, 3.67:1 on `bg.surface`; dark 4.16:1 and 3.80:1), check boxes and radios `text.muted`, the toggle `text.secondary`. *(v0.5.4)*
 
 ### 2.2 Typography
 
@@ -219,7 +220,7 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 **Bottom panel — Timeline & transcript**
 - Collapsed by default to a 40 px scrubber; `Alt+T` toggles. Expanded: 220 px with monospace transcript lines `[14:02:10] clearing the queue now`; clicking a line highlights its frame; markers for clicks (dots), frames (squares), suppression (striped), scope (violet band), "mark moment" (flag).
 
-**Header actions:** `Discard` (ghost, danger on hover → typed confirmation "DISCARD"), `Publish ▸` mirrors the right pane's button.
+**Header actions:** `Discard` (ghost, danger on hover → typed confirmation "DISCARD"), `Publish ▸` mirrors the right pane's button. While any session is being captured Discard asks nothing (§4): the line beside it says "This session is still being captured. Stop it first, then discard it." for the live session and "A session is being captured. Stop it first, then discard this one." for any other; if one starts while DISCARD is typed, nothing is discarded and the line says the same.
 
 **Shortcuts:** `Ctrl+Enter` Publish · `Ctrl+S` save now · `Alt+1/2/3` focus pane · `Alt+T` timeline · `Alt+C` confirm step · `Alt+↑/↓` reorder · `Space` include/exclude · `B` blur · arrows, `Shift`+arrows, `Ctrl`, `Enter`, `Esc` place, size, apply or put away the blur box · `Del` delete frame · `?` shortcut sheet · `Esc` close enlarged frame (put the blur box away first, when it is out).
 
@@ -237,7 +238,7 @@ Sections: *Remote tools* (list with toggles per tool and browser pattern; "Add c
 
 ### S6 — Settings → Privacy & Redaction
 
-Sections: *What leaves this device* (a short data-flow diagram in plain language: captured on device → redacted on device → summary request (or local model) → you publish); *Local-only mode* toggle (locked if policy) with quality note; *Excluded apps and windows* (list, add process/title/URL; defaults labeled "Recommended"); *Redaction patterns* (toggles: SSN, cards, API keys, passwords; custom regex with live validator and test box); *Retention* (slider 1–30 days; shows what is deleted vs kept); *Usage telemetry* (toggle with the exact list of fields sent); *Your data* (Export audit log · Delete everything — typed "DELETE").
+Sections: *What leaves this device* (a short data-flow diagram in plain language: captured on device → redacted on device → summary request (or local model) → you publish); *Local-only mode* toggle (locked if policy) with quality note; *Excluded apps and windows* (list, add process/title/URL; defaults labeled "Recommended"); *Redaction patterns* (toggles: SSN, cards, API keys, passwords; custom regex with live validator and test box); *Retention* (slider 1–30 days; shows what is deleted vs kept); *Usage telemetry* (toggle with the exact list of fields sent); *Your data* (Export audit log · Delete everything — typed "DELETE"). While a session is being captured, Delete everything asks nothing (§4): the line under the buttons says "A session is being captured. Stop it first, then delete everything.", and the same if one starts while the phrase is typed. Its other refusals are said there too, never in a message box.
 
 ### S7 — Settings → Integrations
 
@@ -316,3 +317,4 @@ Copy rules: sentence case; no exclamation marks; name the object (ticket, note, 
 | v0.5.1 | 2026-11-04 | ST-084 follow-up, keyboard blur | S3's blur was drawn as a drag, which needs a mouse (§7: full keyboard path). On the enlarged frame `B` now also puts a box, a fifth of the frame square, in its middle with focus on it. Arrows move it 1% of the frame, `Shift`+arrows resize it from its top left corner (growing the other way at an edge), `Ctrl` with either takes 10% steps; it stays inside the frame and is at least 2% a side. `Enter` blurs what it covers through the same path as the drag; `Esc` puts it away, and a second `Esc` closes the frame. Its position is announced in percent of the frame, numbers only (INV-10), and an arrow that changes nothing says so. While the box is out and unapplied, `Ctrl+Enter` does not publish; a held `Enter` or `B` counts once; a blur that did not land is said and the box stays for another try. **Awaiting owner review** (the keys are an owner decision). |
 | v0.5.2 | 2026-11-08 | ST-093, duplicate-note fix | S3 and §6: a destination that may have landed is "not confirmed" and holds Publish, `Ctrl+Enter` and Retry behind an "I checked the ticket" checkbox, spent on one send. Before, a dropped connection read as a plain failure and the technician could publish the note a second time. |
 | v0.5.3 | 2026-11-10 | ST-093, not confirmed outside Review | S1 and S4: a session whose publish was not confirmed says so in History, as a "Not confirmed" badge beside its status, and in the tray's state line between sessions, as a count. History gains "Mark as published" for one such session, asked for first, which settles it without sending anything again. Before, the doubt was visible only inside Review's publish pane, and the only way out of it was to tick the box and publish again. |
+| v0.5.4 | 2026-11-11 | ST-016, light control edges | §2.1: fields were outlined in `border.strong` (light `#C3C9D1`, 1.51:1 on `bg.base` and 1.67:1 on `bg.surface`; dark `#4A5058`, 2.10:1 and 1.91:1), below WCAG 1.4.11's 3:1, so a text box was near invisible on a light card. A new `border.control` (dark `#777E88`, light `#80868F`) outlines the text box, password box and combo box in the client and the web app. The token test now holds every control edge (fields, check box, radio, off toggle) to 3:1 against `bg.base`, `bg.surface` and `bg.raised`. Buttons, cards and containers keep `border.strong`; high contrast keeps the system frame colour. |

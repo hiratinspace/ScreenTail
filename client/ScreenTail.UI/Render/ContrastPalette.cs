@@ -79,6 +79,7 @@ internal sealed class ContrastPalette
         ["bg.success"] = "Window",
         ["border.subtle"] = "ActiveBorder",
         ["border.strong"] = "WindowFrame",
+        ["border.control"] = "WindowFrame",
         ["text.primary"] = "WindowText",
         ["text.secondary"] = "WindowText",
         ["text.muted"] = "GrayText",

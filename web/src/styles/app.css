@@ -286,7 +286,7 @@ select {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
 }
 

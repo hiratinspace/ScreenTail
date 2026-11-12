@@ -66,6 +66,9 @@ public sealed class LiveShell : IAsyncDisposable
     /// <summary>History's "Mark as published" for a publish that was never confirmed (contract v10).</summary>
     private readonly MarkAsPublished _marks;
 
+    /// <summary>Settings → Privacy's "Delete everything" (INV-12), never asked while a session is being captured.</summary>
+    private readonly DeleteEverything _erase;
+
     /// <summary>
     /// The thread that built the shell, which owns the tray icon and the pill. The application builds it
     /// on its UI thread, so this is that thread's dispatcher; taken here rather than from
@@ -119,6 +122,7 @@ public sealed class LiveShell : IAsyncDisposable
         _connection = new CaptureConnection(_state, ct => open(version, ct));
         _discards = new SessionDiscard(_state, _connection);
         _marks = new MarkAsPublished(_state, _connection);
+        _erase = new DeleteEverything(_state, _connection);
 
         // Before the shell's own listener below, so a new snapshot is the clock's base by the time anything
         // draws it.
@@ -458,7 +462,7 @@ public sealed class LiveShell : IAsyncDisposable
             timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }),
             draftPending: draftPending,
             discard: c => DiscardFromReviewAsync(sessionId, c),
-            discardBlocked: () => _discards.BlockedBecause([sessionId]));
+            discardBlocked: () => _discards.ReviewBlockedBecause(sessionId));
     }
 
     /// <summary>
@@ -514,12 +518,14 @@ public sealed class LiveShell : IAsyncDisposable
     /// <inheritdoc cref="EraseHeading"/>
     internal const string EraseConsequence = "Every session, draft, screenshot and transcript, your settings, and this device's tokens go. ScreenTail will need to be set up again. It cannot be undone.";
 
-    /// <summary>Spec §5 S6 "Delete everything": the service issues the token, the technician types the phrase, and INV-12 does the rest.</summary>
-    private Task EraseEverythingAsync() => ConfirmAndSendAsync(
-        "erase_everything",
-        EraseHeading,
-        EraseConsequence,
-        token => new EraseAllLocalDataCommand { RequestId = 0, Confirmation = token });
+    /// <summary>
+    /// Spec §5 S6 "Delete everything": the service issues the token, the technician types the phrase, and
+    /// INV-12 does the rest. <see cref="DeleteEverything"/> asks nothing while a session is being captured
+    /// (Spec §4), and asks again once the phrase is typed. Its answer goes back to the Privacy pane, which
+    /// says it beside the button: a message box would be a modal too.
+    /// </summary>
+    private Task<ConfirmedResult> EraseEverythingAsync() => _erase.RunAsync(
+        phrase => OnUiThread(() => ConfirmWindow.Asks(_window, EraseHeading, EraseConsequence, phrase)));
 
     /// <summary>Where the technician wants the audit log. The service writes it and the panel copies it there.</summary>
     private string? ChooseAuditFile()

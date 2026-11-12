@@ -29,12 +29,15 @@
     <!-- published badge fill -->
     <Color x:Key="Token.bg.success">#1B3326</Color>
     <SolidColorBrush x:Key="Brush.bg.success" Color="#1B3326" />
-    <!-- dividers, card and input outlines -->
+    <!-- dividers, card outlines, a disabled input's outline -->
     <Color x:Key="Token.border.subtle">#33373E</Color>
     <SolidColorBrush x:Key="Brush.border.subtle" Color="#33373E" />
-    <!-- control outlines, focused containers, the HUD outline -->
+    <!-- button and container outlines, focused containers, the HUD outline -->
     <Color x:Key="Token.border.strong">#4A5058</Color>
     <SolidColorBrush x:Key="Brush.border.strong" Color="#4A5058" />
+    <!-- the edge of a field a person types into or picks from: text box, password box, combo box (WCAG 1.4.11, 3:1) -->
+    <Color x:Key="Token.border.control">#777E88</Color>
+    <SolidColorBrush x:Key="Brush.border.control" Color="#777E88" />
     <!-- body -->
     <Color x:Key="Token.text.primary">#F1F3F5</Color>
     <SolidColorBrush x:Key="Brush.text.primary" Color="#F1F3F5" />

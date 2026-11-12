@@ -16,13 +16,17 @@ public sealed partial class PrivacyViewModel : ObservableObject
 {
     private readonly PrivacyPanel _panel;
     private readonly Func<string?> _chooseFile;
-    private readonly Func<Task> _eraseEverything;
+    private readonly Func<Task<ConfirmedResult>> _eraseEverything;
     private readonly OneAtATime _exporting = new();
     private readonly OneAtATime _erasing = new();
 
     /// <param name="chooseFile">Asks the technician where to keep the audit log; null when they cancelled.</param>
-    /// <param name="eraseEverything">The shell's typed-confirmation flow for INV-12.</param>
-    public PrivacyViewModel(PrivacyPanel panel, Func<string?> chooseFile, Func<Task> eraseEverything)
+    /// <param name="eraseEverything">
+    /// The shell's typed-confirmation flow for INV-12 (<see cref="DeleteEverything"/>), which asks nothing
+    /// while a session is being captured. Its answer, when it is not done or declined, is said beside the
+    /// button.
+    /// </param>
+    public PrivacyViewModel(PrivacyPanel panel, Func<string?> chooseFile, Func<Task<ConfirmedResult>> eraseEverything)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
         _chooseFile = chooseFile ?? throw new ArgumentNullException(nameof(chooseFile));
@@ -205,9 +209,25 @@ public sealed partial class PrivacyViewModel : ObservableObject
         ProblemVisibility = Visibility.Visible;
     }
 
+    /// <summary>Why the last "Delete everything" did not happen, or empty. Shown beside the button, never as a dialog.</summary>
+    [ObservableProperty]
+    public partial string EraseProblem { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Visibility EraseProblemVisibility { get; set; } = Visibility.Collapsed;
+
     /// <summary>One "Delete everything" question at a time (<see cref="OneAtATime"/>): a second invoke opened a second typed dialog.</summary>
     [RelayCommand(CanExecute = nameof(CanEraseEverything))]
-    private Task EraseEverythingAsync() => _erasing.RunAsync(_eraseEverything, EraseEverythingCommand.NotifyCanExecuteChanged);
+    private Task EraseEverythingAsync() => _erasing.RunAsync(EraseEverythingOnceAsync, EraseEverythingCommand.NotifyCanExecuteChanged);
+
+    private async Task EraseEverythingOnceAsync()
+    {
+        var result = await _eraseEverything().ConfigureAwait(true);
+        EraseProblem = result.Outcome is ConfirmedOutcome.Refused or ConfirmedOutcome.NotAvailable
+            ? result.Error ?? ConfirmedAction.RefusedWithoutReason
+            : string.Empty;
+        EraseProblemVisibility = EraseProblem.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     private bool CanEraseEverything() => !_erasing.Busy;
 
