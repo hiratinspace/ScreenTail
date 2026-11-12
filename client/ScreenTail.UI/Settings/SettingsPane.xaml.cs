@@ -28,6 +28,7 @@ public partial class SettingsPane : UserControl
     {
         InitializeComponent();
         Page.GotKeyboardFocus += OnPageGotKeyboardFocus;
+        Loaded += (_, _) => SelectShown();
         DataContextChanged += (_, e) =>
         {
             if (e.OldValue is SettingsViewModel old)
@@ -102,6 +103,15 @@ public partial class SettingsPane : UserControl
             return;
         }
 
+        SelectShown();
+    }
+
+    /// <summary>
+    /// The nav shows the section at the top of the view as current. Also on load: the view model outlives
+    /// this pane, so coming back to Settings opens a page at its top under the section last scrolled to.
+    /// </summary>
+    private void SelectShown()
+    {
         if (DataContext is not SettingsViewModel model)
         {
             return;
