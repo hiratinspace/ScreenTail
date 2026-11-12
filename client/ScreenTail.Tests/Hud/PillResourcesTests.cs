@@ -62,6 +62,24 @@ public sealed partial class PillResourcesTests
         Assert.DoesNotContain(asked, key => key.StartsWith("Brush.state.", StringComparison.Ordinal) || key.StartsWith("Brush.bg.", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// One button per action. The expanded card used to repeat Mark under the pill's own Mark, and two
+    /// focusable buttons with one name read to a screen reader as the same control twice (Accessibility
+    /// Insights, SiblingUniqueAndFocusable, CI on #289).
+    /// </summary>
+    [Fact]
+    public void EachActionHasOneButton()
+    {
+        var pill = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Hud", "HudWindow.xaml"));
+        var commands = CommandBinding().Matches(pill).Select(m => m.Groups["command"].Value).ToList();
+
+        Assert.Contains("MarkCommand", commands);
+        Assert.Equal(commands.Distinct(StringComparer.Ordinal), commands);
+    }
+
+    [GeneratedRegex(@"Command=""\{Binding\s+(?<command>\w+)\}""")]
+    private static partial Regex CommandBinding();
+
     /// <summary>Tokens only: no colour is typed into the pill (Spec §2).</summary>
     [Fact]
     public void ThePillTypesNoColour()

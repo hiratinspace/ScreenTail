@@ -94,7 +94,7 @@ internal static class HudPreview
     }
 
     /// <summary>
-    /// The pill clicked open: the session card with its last three events and Mark moment. The events come
+    /// The pill clicked open: the session card with its last three events and Open in ScreenTail. The events come
     /// the way they do in the app, from the service's snapshots and an accepted mark, so the render shows
     /// what a technician would see rather than lines typed in for it. Types and times only (INV-10).
     /// </summary>

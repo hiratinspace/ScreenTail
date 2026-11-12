@@ -227,7 +227,7 @@
             </Grid>
         </Border>
 
-        <!-- Expanded: the session's tool and start, the last three events as kinds and times, Mark moment
+        <!-- Expanded: the session's tool and start, the last three events as kinds and times,
              and Open in ScreenTail (Spec §5 S2). Its own card under the pill, so it has room: inside the
              44 px pill it was three rows of 11 px text squeezed between the state and the buttons. A HUD a
              customer can see over a technician's shoulder holds no content (INV-10). -->
@@ -290,18 +290,11 @@
                     <TextBlock Style="{StaticResource Hud.Muted}" Text="No events yet" />
                 </Border>
 
+                <!-- Open in ScreenTail only. Mark is not repeated here: the card only ever shows under the
+                     pill, whose own Mark button is there in every state the service accepts a mark, and two
+                     focusable buttons with one name read as the same control twice to a screen reader
+                     (Accessibility Insights, SiblingUniqueAndFocusable). -->
                 <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
-                    <Button Margin="0,0,8,0"
-                            Style="{DynamicResource Hud.TextButton}"
-                            Command="{Binding MarkCommand}"
-                            ToolTip="{Binding MarkButton.Tooltip}"
-                            AutomationProperties.Name="{Binding MarkButton.Spoken}"
-                            Visibility="{Binding ShowMarkControl, Converter={StaticResource Visible}}">
-                        <StackPanel Orientation="Horizontal">
-                            <controls:Glyph Style="{StaticResource Hud.Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xE7C1;" />
-                            <TextBlock Margin="6,0,0,0" Style="{StaticResource Hud.Meta}" Text="Mark moment" />
-                        </StackPanel>
-                    </Button>
                     <Button Style="{DynamicResource Hud.TextButton}"
                             Command="{Binding ReviewCommand}"
                             Content="Open in ScreenTail"

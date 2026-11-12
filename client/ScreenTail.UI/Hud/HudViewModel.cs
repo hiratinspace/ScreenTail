@@ -56,7 +56,7 @@ public sealed partial class HudViewModel : ObservableObject
     /// <summary>Raised when the technician asks for the current session's Review (double-click, Open in ScreenTail).</summary>
     public event Action? ReviewRequested;
 
-    /// <summary>Raised by the pill's Mark button and the expanded pill's Mark moment.</summary>
+    /// <summary>Raised by the pill's Mark button.</summary>
     public event Action? MarkRequested;
 
     /// <summary>Raised by the pill's Pause button while capture runs or a guard holds it.</summary>
