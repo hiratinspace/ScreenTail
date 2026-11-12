@@ -29,15 +29,21 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// a miss of recall on that piece and is counted apart; the rest are a rule that fired and stopped
 /// short, the thing the token, row and wrap rules exist to prevent.
 ///
-/// The floors are per kind, so that a rule deleted is a test failed: the wrapped key is masked whole
-/// only by the wrap pass, and without it its count is nought at every scale. Each floor is what the
-/// hosted runner measured (2026-11-10, run 42930307506) less a tenth, and less two at the least; each
-/// bound on part showing is what it measured and two more. The engine reads the same picture the same
-/// way on the same runner, so the margin is for a runner image that changes, not for chance.
+/// The floors are per kind, so that a rule deleted is a test failed. Each floor is what the hosted
+/// runner measured less a tenth, and less two at the least: first on 2026-11-10 (run 42930307506),
+/// raised on 2026-11-11 (run 43075790830) after the frame was read at twice its size and the rules for
+/// misreads were added, and never lowered, so a kind the second run measured one lower keeps the
+/// first run's floor. Each bound on part showing is what was measured and two more. Reading at twice
+/// the size turned many missed wrapped keys into half masked ones, the second row's piece masked and
+/// the first not read, so those bounds rose with the floors; the bound on a rule that fired and
+/// stopped short with every piece read is held separately. The engine reads the same picture the
+/// same way on the same runner, so the margin is for a runner image that changes, not for chance.
+/// Since the random-run rule, a wrapped key whose two pieces are each random enough is masked whole
+/// without the wrap pass as well; the wrap pass itself is held by OcrWrapTests in the Core suite.
 ///
 /// Counts and box geometry only are printed, never text, failing or not (INV-10).
 /// </summary>
-public sealed class OcrScaledSecretTests
+public sealed partial class OcrScaledSecretTests
 {
     private const int Pages = 20;
     private const int BaseWidth = 1000;
@@ -56,9 +62,9 @@ public sealed class OcrScaledSecretTests
     /// scale draws it, and encoded as the capturer encodes a frame. A measurement with floors, not
     /// the proof it was written to be: the engine does not read these secrets well enough to assert
     /// none missed, at any scale, 100% included. Of 400 secrets a scale it masked 288 at 100%, 284 at
-    /// 125% and 307 at 150%. Scale itself made nothing worse. What it reads worst is the wrapped key
-    /// (18, 18 and 22 of 80 masked whole, none of them in Consolas) and the token. One secret a scale
-    /// was part showing with every piece read: a token 64% and 58% covered, and a wrapped key 96%.
+    /// 125% and 307 at 150% read as captured, and 381, 392 and 392 read at twice the size with the
+    /// rules for misreads. What it still reads worst is the wrapped key (67, 74 and 73 of 80), whose
+    /// first row the engine drops whole or in part ("--key BeF2" for "sk_live_Jtb1o1BeF2").
     /// </summary>
     [Theory]
     [InlineData(1.0)]
@@ -71,6 +77,7 @@ public sealed class OcrScaledSecretTests
         Assert.SkipUnless(recogniser.Available, "Windows has no OCR language pack installed.");
 
         var total = new Tally();
+        var stages = new List<(string, Tally)>();
         foreach (var font in Fonts)
         {
             foreach (var points in new[] { 9f, 11f })
@@ -85,22 +92,41 @@ public sealed class OcrScaledSecretTests
                 Measurements.Record(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Secrets through OCR at {scale * 100:0}% display scale, {font} {points:0}pt: {tally}"));
+                stages.Add(($"{font} {points:0}pt", tally));
                 total.Add(tally);
             }
         }
+
+        Measurements.Record(StageTable(string.Create(CultureInfo.InvariantCulture, $"Where secrets were lost at {scale * 100:0}% display scale ({total.OcrMs / total.Pages:0} ms of OCR a page)."), stages));
 
         Assert.True(total.Pages == Fonts.Length * 2 * Pages, $"Drew {total.Pages} pages. {total}");
         Assert.True(total.TextLeft == 0, $"A masked secret is still in the stored text at {scale * 100:0}%. {total}");
 
         // Masked whole of 80 of each kind (password, token, card, ssn, wrapped key), as measured.
-        int[] measured = scale switch
+        //
+        // Part showing at 100% is 12 on the hosted runner and 15 on the spare laptop (run 43093888537
+        // and hardware run 43093888524, same code): its OCR engine returns no word over the first row's
+        // piece of 13 wrapped keys, against 11 hosted, and over the prefix of 2 more ("--key UzvgigZlS"
+        // for "sk_live_1UzvgigZIS"), so the row below is masked and the pixels with no word on them are
+        // not. Not a regression of the larger reading: read as captured, the hosted runner left 46
+        // wrapped keys with no word over a piece against 23 at twice the size, and most of those were
+        // missed whole rather than part showing. The laptop's own number is held there, the hosted one
+        // here; the floors of what is masked whole are the same on both.
+        var (measured, partial, stoppedShort) = scale switch
         {
-            1.0 => [80, 60, 58, 72, 18],
-            1.25 => [74, 33, 80, 79, 18],
-            _ => [80, 45, 80, 80, 22],
+            1.0 => (new[] { 80, 77, 77, 80, 67 }, OnTheLaptop ? 15 : 12, 0),
+            1.25 => (new[] { 80, 78, 80, 80, 74 }, 6, 1),
+            _ => (new[] { 80, 80, 80, 80, 73 }, 7, 5),
         };
-        Hold(total, measured, partial: 1, stoppedShort: 1, string.Create(CultureInfo.InvariantCulture, $"{scale * 100:0}% display scale"));
+        Hold(total, measured, partial, stoppedShort, string.Create(CultureInfo.InvariantCulture, $"{scale * 100:0}% display scale"));
     }
+
+    /// <summary>
+    /// Whether this is the spare laptop rather than a hosted runner: its OCR engine reads a little
+    /// differently, and it reads at a third of the speed, so the measurements alone take a sample here.
+    /// </summary>
+    private static bool OnTheLaptop => !string.Equals(
+        Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>What was measured less a tenth, and less two at the least.</summary>
     private static int Floor(int measured) => (int)Math.Floor(measured - Math.Max(2.0, measured / 10.0));
@@ -156,6 +182,7 @@ public sealed class OcrScaledSecretTests
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         };
         var results = new Dictionary<(double Scale, long Quality), Tally>();
+        var stages = new List<(string, Tally)>();
         foreach (var scale in scales)
         {
             foreach (var quality in qualities)
@@ -163,7 +190,7 @@ public sealed class OcrScaledSecretTests
                 var both = new Tally();
                 foreach (var font in Fonts)
                 {
-                    var tally = new Tally();
+                    var tally = new Tally { SampleCap = 1 };
                     for (var page = 0; page < Pages; page++)
                     {
                         using var screen = Draw(font, 11f, 1.0, page);
@@ -175,6 +202,7 @@ public sealed class OcrScaledSecretTests
                     table.Add(string.Create(
                         CultureInfo.InvariantCulture,
                         $"| {scale:0.0} | {quality} | {font} | {tally.Secrets} | {tally.Masked} | {tally.Partial} | {tally.Missed} | {string.Join(", ", tally.MaskedByKind)} | {string.Join(", ", tally.MissedByKind)} | {string.Join(", ", tally.PartialByKind)} | {tally.PartialShares} | {tally.PartialUnread}, {tally.PartialTall} | {string.Join(", ", tally.WordsOnPiece[0])}; {string.Join(", ", tally.WordsOnPiece[1])} | {tally.TextLeft} |"));
+                    stages.Add((string.Create(CultureInfo.InvariantCulture, $"{scale:0.0} JPEG {quality} {font}"), tally));
                     both.Add(tally);
                 }
 
@@ -183,6 +211,7 @@ public sealed class OcrScaledSecretTests
         }
 
         Measurements.Record(string.Join(Environment.NewLine, table));
+        Measurements.Record(StageTable("Where secrets were lost through the viewer.", stages));
 
         // What is held to. Every condition was drawn and read, nothing masked in the picture is left
         // in the stored text, and at every scale and quality each kind is masked whole no fewer times
@@ -202,21 +231,21 @@ public sealed class OcrScaledSecretTests
     /// </summary>
     private static readonly (double Scale, long Quality, int[] Masked, int Partial, int StoppedShort)[] ViewerMeasured =
     [
-        (0.6, 50, [0, 0, 0, 19, 0], 0, 0),
-        (0.6, 75, [0, 1, 4, 23, 0], 0, 0),
-        (0.7, 50, [7, 17, 19, 30, 1], 7, 7),
-        (0.7, 75, [20, 19, 22, 33, 0], 1, 1),
-        (0.8, 50, [20, 24, 18, 32, 0], 6, 5),
-        (0.8, 75, [1, 25, 24, 29, 0], 0, 0),
-        (0.9, 50, [8, 30, 38, 28, 14], 0, 0),
-        (0.9, 75, [21, 29, 35, 32, 17], 0, 0),
-        (1.0, 50, [40, 26, 36, 39, 0], 0, 0),
-        (1.0, 75, [40, 28, 40, 40, 20], 0, 0),
-        (1.1, 50, [40, 32, 40, 37, 0], 20, 1),
-        (1.1, 75, [40, 32, 40, 40, 0], 20, 0),
+        (0.6, 50, [26, 5, 12, 29, 2], 24, 6),
+        (0.6, 75, [34, 20, 23, 36, 4], 25, 0),
+        (0.7, 50, [37, 24, 36, 38, 9], 24, 1),
+        (0.7, 75, [36, 33, 39, 37, 18], 18, 2),
+        (0.8, 50, [39, 32, 33, 40, 18], 22, 1),
+        (0.8, 75, [40, 34, 35, 40, 27], 13, 1),
+        (0.9, 50, [40, 36, 39, 40, 33], 6, 4),
+        (0.9, 75, [40, 37, 40, 40, 35], 5, 2),
+        (1.0, 50, [40, 39, 40, 40, 38], 2, 1),
+        (1.0, 75, [40, 39, 40, 40, 32], 8, 1),
+        (1.1, 50, [40, 38, 40, 40, 36], 4, 2),
+        (1.1, 75, [40, 40, 40, 40, 34], 5, 4),
     ];
 
-    private sealed class Tally
+    private sealed partial class Tally
     {
         public int Pages { get; set; }
 
@@ -297,6 +326,7 @@ public sealed class OcrScaledSecretTests
             PartialUnread += other.PartialUnread;
             PartialTall += other.PartialTall;
             _partial.AddRange(other._partial);
+            AddDiagnosis(other);
             for (var i = 0; i < 4; i++)
             {
                 WordsOnPiece[0][i] += other.WordsOnPiece[0][i];
@@ -321,7 +351,8 @@ public sealed class OcrScaledSecretTests
     /// <param name="Kind">Which of <see cref="Kinds"/> it is.</param>
     /// <param name="Text">What was drawn, for the stored text check.</param>
     /// <param name="Pieces">Where it was drawn: one box, or two for the key that wraps.</param>
-    private sealed record Secret(int Kind, string Text, Rectangle[] Pieces);
+    /// <param name="PieceTexts">What was drawn in each piece.</param>
+    private sealed record Secret(int Kind, string Text, Rectangle[] Pieces, string[] PieceTexts);
 
     private sealed class Screen(Bitmap bitmap, List<Secret> secrets) : IDisposable
     {
@@ -336,11 +367,19 @@ public sealed class OcrScaledSecretTests
     /// Reads the picture as the worker does, redacts it, and counts for each secret how much of its
     /// ink is under a mask.
     /// </summary>
-    private static async Task Redact(WindowsOcrRecogniser recogniser, Bitmap bitmap, List<Secret> secrets, long quality, Tally tally)
+    private static Task Redact(WindowsOcrRecogniser recogniser, Bitmap bitmap, List<Secret> secrets, long quality, Tally tally) =>
+        Redact(Read(recogniser), bitmap, secrets, quality, tally);
+
+    private static async Task Redact(Reader reader, Bitmap bitmap, List<Secret> secrets, long quality, Tally tally) =>
+        Score(await reader(Encode(bitmap, quality)), bitmap, secrets, tally);
+
+    /// <summary>Counts for each secret how much of its ink is under one reading's masks.</summary>
+    private static void Score(Reading reading, Bitmap bitmap, List<Secret> secrets, Tally tally)
     {
-        var words = (await recogniser.ReadAsync(Encode(bitmap, quality), TestContext.Current.CancellationToken)).Words;
-        var redaction = new RedactionEngine().RedactFrame(words);
+        var words = reading.Words[0];
+        var redaction = reading.Redaction;
         tally.Pages++;
+        tally.OcrMs += reading.OcrMs;
 
         var (width, height) = (bitmap.Width, bitmap.Height);
         var dark = Dark(bitmap);
@@ -388,6 +427,7 @@ public sealed class OcrScaledSecretTests
             Assert.True(ink > 0, "A secret was drawn with no ink, so the page proves nothing.");
             var share = (double)covered / ink;
             tally.Count(secret.Kind, share, unread, tall);
+            tally.Diagnose(secret, share, reading, redaction.Regions);
             if (share < 0.97 && secret.Pieces.Length == 2)
             {
                 for (var i = 0; i < 2; i++)
@@ -474,8 +514,8 @@ public sealed class OcrScaledSecretTests
                 // A pixel either way, for a glyph that leans over its cell's edge.
                 var box = Rectangle.FromLTRB(margin + from - 1, top, margin + to + 1, top + pitch);
                 secrets[kind] = secrets.TryGetValue(kind, out var known)
-                    ? known with { Text = known.Text + secret, Pieces = [.. known.Pieces, box] }
-                    : new Secret(kind, secret, [box]);
+                    ? known with { Text = known.Text + secret, Pieces = [.. known.Pieces, box], PieceTexts = [.. known.PieceTexts, secret] }
+                    : new Secret(kind, secret, [box], [secret]);
             }
         }
 

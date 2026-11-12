@@ -52,9 +52,12 @@ public sealed class OcrWrapTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("token: [SECRET] saved", redaction.Text);
+        // Each row's piece is random enough to be taken by itself (PatternLibrary.RandomRuns), so each
+        // is its own find and its own marker; the wrap pass reaches only words already taken.
+        Assert.Equal("token: [SECRET] [SECRET] saved", redaction.Text);
+        Assert.True(Covered(redaction, words[1]), "the key's first row is left unpainted in the frame");
         Assert.True(Covered(redaction, words[2]), "the key's second row is left unpainted in the frame");
-        Assert.Equal(1, redaction.Counts[MaskKind.ApiKey]);
+        Assert.Equal(2, redaction.Counts[MaskKind.ApiKey]);
     }
 
     [Fact]
@@ -68,7 +71,8 @@ public sealed class OcrWrapTests
 
         var redaction = Engine.RedactFrame(words);
 
-        Assert.Equal("auth [SECRET] ok", redaction.Text);
+        // A marker a row: every row's piece is random by itself (see the test above).
+        Assert.Equal("auth [SECRET] [SECRET] [SECRET] ok", redaction.Text);
         Assert.All(Enumerable.Range(1, 3), i => Assert.True(Covered(redaction, words[i]), $"piece {i} is left unpainted in the frame"));
     }
 
