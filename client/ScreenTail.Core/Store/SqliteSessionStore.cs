@@ -1648,7 +1648,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
     private async Task<List<SessionEvent>> ReadEventsAsync(string sessionId, HashSet<string> frameIds, CancellationToken ct)
     {
-        await using var command = Command(_connection, "SELECT json FROM events WHERE session_id = @session AND " + Live("@session") + " ORDER BY seq", ("@session", sessionId));
+        // Time order, as frames and transcript are read, with arrival (seq) deciding a tie. Events are
+        // stamped where they happen and written from several callers at once, so one stamped earlier can
+        // arrive later; read by seq, that session failed its own consistency check and would not open.
+        await using var command = Command(_connection, "SELECT json FROM events WHERE session_id = @session AND " + Live("@session") + " ORDER BY ts_ms, seq", ("@session", sessionId));
         await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var events = new List<SessionEvent>();
         while (await reader.ReadAsync(ct).ConfigureAwait(false))

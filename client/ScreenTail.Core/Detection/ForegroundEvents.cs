@@ -30,6 +30,42 @@ public static class ForegroundEvents
     /// <summary>Whether this event type may change what the watcher believes is in front.</summary>
     public static bool Interesting(uint eventType) => eventType is SystemForeground or ObjectNameChange;
 
+    /// <summary>The object id a window's own title change is raised with. <c>OBJID_WINDOW</c>.</summary>
+    public const int WindowObject = 0;
+
+    /// <summary>
+    /// The window an event is news about, or zero when it is news about nothing in front. Only the window in
+    /// front counts, and Windows' answer to "what is in front now" is the one source of it (ST-031).
+    ///
+    /// A rename is news only from the window in front, as its own title (<see cref="WindowObject"/>): every
+    /// other window renaming itself is noise, and there is a lot of it. A foreground event is news about the
+    /// window in front now, which is usually the window it names, but not always: an event handed over after
+    /// the foreground has moved on, or one an application raised about a window of its own, names a window
+    /// that is not in front. The watcher moves its name hook to the thread of the window this returns and
+    /// checks renames against the window in front, so taking the event's word would leave the hook on a
+    /// thread whose window is not in front, and every rename of the window that is would be dropped until the
+    /// next foreground change or the poll. While Windows names nothing in front, for a moment during a
+    /// switch, the event's own window is the best answer there is.
+    /// </summary>
+    /// <param name="eventType">The event's type, one <see cref="Interesting"/> accepts.</param>
+    /// <param name="window">The window the event names.</param>
+    /// <param name="objectId">The event's object id.</param>
+    /// <param name="foreground">The window Windows says is in front now (<c>GetForegroundWindow</c>), or zero.</param>
+    public static nint WindowInFront(uint eventType, nint window, int objectId, nint foreground)
+    {
+        if (window == 0 || !Interesting(eventType))
+        {
+            return 0;
+        }
+
+        if (eventType == ObjectNameChange)
+        {
+            return objectId == WindowObject && window == foreground ? window : 0;
+        }
+
+        return foreground != 0 ? foreground : window;
+    }
+
     /// <summary>The window class of a classic console, drawn by conhost.</summary>
     public const string ClassicConsoleClass = "ConsoleWindowClass";
 
