@@ -44,7 +44,7 @@ internal static class HudPreview
         Directory.CreateDirectory(directory);
         BindingErrors.Listen();
 
-        foreach (var (name, model, tone) in Variants().Append(Expanded()))
+        foreach (var (name, model, tone) in Variants().Concat(Extras()))
         {
             var window = new HudWindow { DataContext = model, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
             window.Show();
@@ -56,12 +56,12 @@ internal static class HudPreview
                 window.UpdateLayout();
                 // The colour the state is supposed to be, taken off the pixels. Counting distinct
                 // colours says the pill drew something; only this says it drew the right state.
-                Console.WriteLine($"  {name}/{theme}: tone={tone} glyph foreground={window.GlyphForegroundDescription}");
+                Console.WriteLine($"  {name}/{theme}: tone={tone} glyph foreground={window.GlyphForegroundDescription} size={window.ActualWidth:0}x{window.ActualHeight:0}");
                 WindowRenderer.SaveExpecting(
                     window,
                     Path.Combine(directory, RenderThemes.FileName($"hud-{name}", theme)),
                     TokenColour(tone),
-                    Colour("Brush.bg.surface"),
+                    Colour("Brush.shell.bg"),
                     $"{tone} state");
             }
 
@@ -79,32 +79,54 @@ internal static class HudPreview
     }
 
     /// <summary>
-    /// The pill clicked open: the last three events and Mark moment (Spec §5 S2). Rendered here and not in
-    /// <see cref="Variants"/>, which is the spec's list of states the accessibility suite walks.
+    /// Renders beyond the spec's list of states, which the accessibility suite walks: the offline and
+    /// no-mic chips together, and the pill clicked open, recording with three events and paused with the
+    /// session just started (Spec §5 S2, v0.6.0).
     /// </summary>
-    private static (string Name, HudViewModel Model, HudTone Tone) Expanded()
+    private static IEnumerable<(string Name, HudViewModel Model, HudTone Tone)> Extras()
     {
-        var model = For(CaptureStates.Recording, elapsedMs: 761_000);
+        yield return ("offline-no-mic", For(CaptureStates.Recording, elapsedMs: 761_000, microphone: CapabilityState.Blocked, online: false), HudTone.Recording);
+        yield return ("expanded", Expanded(), HudTone.Recording);
+
+        var paused = For(CaptureStates.Paused, elapsedMs: 95_000, reason: CaptureReasons.User);
+        paused.Expanded = true;
+        yield return ("expanded-paused", paused, HudTone.Paused);
+    }
+
+    /// <summary>
+    /// The pill clicked open: the session card with its last three events and Open in ScreenTail. The events come
+    /// the way they do in the app, from the service's snapshots and an accepted mark, so the render shows
+    /// what a technician would see rather than lines typed in for it. Types and times only (INV-10).
+    /// </summary>
+    private static HudViewModel Expanded()
+    {
+        var time = new PreviewTime();
+        var (shell, model) = Session(time, Capture(CaptureStates.Recording, elapsedMs: 0));
         model.Expanded = true;
 
-        // Kinds and counts only, as INV-10 allows on a pill a customer can see.
-        foreach (var line in new[] { "Click · screenshot", "Typing · 14 keys", "Click · screenshot" })
-        {
-            model.RecentEvents.Add(line);
-        }
-
-        return ("expanded", model, HudTone.Recording);
+        time.At(14, 12, 40);
+        shell.Observe(Capture(CaptureStates.Recording, elapsedMs: 640_000, pending: 1));
+        time.At(14, 12, 52);
+        shell.Observe(Capture(CaptureStates.Recording, elapsedMs: 652_000));
+        time.At(14, 13, 20);
+        model.MomentMarked();
+        time.At(14, 13, 51);
+        shell.Observe(Capture(CaptureStates.Recording, elapsedMs: 711_000, pending: 2));
+        time.At(14, 14, 3);
+        shell.Observe(Capture(CaptureStates.Recording, elapsedMs: 761_000, pending: 1));
+        return model;
     }
 
     /// <summary>The design token each tone must actually appear in, read from the live dictionary.</summary>
     private static (byte R, byte G, byte B) TokenColour(HudTone tone)
     {
+        // The frame's state colours (Spec §2.1, shell.*): the pill is part of the frame since v0.6.0.
         var key = tone switch
         {
-            HudTone.Recording => "Brush.state.recording",
-            HudTone.Paused => "Brush.state.paused",
-            HudTone.Scope => "Brush.state.scope",
-            _ => "Brush.text.muted",
+            HudTone.Recording => "Brush.shell.recording",
+            HudTone.Paused => "Brush.shell.paused",
+            HudTone.Scope => "Brush.shell.scope",
+            _ => "Brush.shell.muted",
         };
 
         // Looked up rather than hard-coded, so darkening a token for contrast does not fail this check.
@@ -126,23 +148,36 @@ internal static class HudPreview
         CapabilityState microphone = CapabilityState.Ok,
         bool online = true)
     {
+        var capture = state is null ? null : Capture(state, elapsedMs, reason, process, pending);
+        return Session(new PreviewTime(), capture, microphone, online).Model;
+    }
+
+    private static CaptureStateSnapshot Capture(string state, long? elapsedMs = null, string? reason = null, string? process = null, int pending = 0) => new()
+    {
+        State = state,
+        SessionId = "preview",
+        ElapsedMs = elapsedMs,
+        Reason = reason,
+        ScopeProcess = process,
+        PendingRedactions = pending,
+        RemoteTool = "screenconnect",
+    };
+
+    private static (ShellState Shell, HudViewModel Model) Session(
+        PreviewTime time,
+        CaptureStateSnapshot? capture,
+        CapabilityState microphone = CapabilityState.Ok,
+        bool online = true)
+    {
         var shell = new ShellState();
-        if (state is not null)
+        if (capture is not null)
         {
-            shell.Connected(new CaptureStateSnapshot
-            {
-                State = state,
-                SessionId = "preview",
-                ElapsedMs = elapsedMs,
-                Reason = reason,
-                ScopeProcess = process,
-                PendingRedactions = pending,
-            });
+            shell.Connected(capture);
         }
 
         // A clock that stands still, so each screenshot says the time it was given rather than however long
         // the render took after it (the pill's clock moves on its own since the owner's 2026-11-05 report).
-        return new HudViewModel(shell, new RecordingClock(shell, StillTime.Instance))
+        var model = new HudViewModel(shell, new RecordingClock(shell, StillTime.Instance), time)
         {
             Online = online,
             Capabilities = new CapabilityReport(
@@ -157,6 +192,22 @@ internal static class HudPreview
                     CapabilityCopy.Ok(Capability.ElevatedWindows, "ok"),
                 ]),
         };
+        return (shell, model);
+    }
+
+    /// <summary>
+    /// The wall clock the expanded pill stamps its events with: a fixed afternoon in UTC, so every render
+    /// says the same times on every runner. The session starts at 14:02.
+    /// </summary>
+    private sealed class PreviewTime : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 11, 12, 14, 2, 0, TimeSpan.Zero);
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void At(int hour, int minute, int second) => _now = new DateTimeOffset(2026, 11, 12, hour, minute, second, TimeSpan.Zero);
     }
 
     /// <summary>A clock that never moves and whose timers never fire: a screenshot of one instant.</summary>
