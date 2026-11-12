@@ -96,6 +96,7 @@ Lucide icon set, 16 px in controls, 20 px in navigation. Tray icons are custom 1
 | Filmstrip | thumbnails 160×90 | selection, exclude, blur, delete |
 | Timeline | horizontal scrubber | markers for clicks, frames, narration, suppression, scope |
 | Status pill (HUD) | recording/paused/suppressed/scope/offline | see §5 |
+| Status chip (shell header) | recording/paused/idle/offline | the capture state in words, "Recording: ScreenConnect (12:41)", with the `StateDot` and a border in the state's colour; the words stay `text.primary` *(v0.5.4)* |
 
 Focus ring: 2 px `accent.primary` outside the control; visible for keyboard focus only.
 
@@ -117,11 +118,11 @@ Focus ring: 2 px `accent.primary` outside the control; visible for keyboard focu
 
 ### S1 — Tray icon and quick menu
 
-**States:** idle · recording (red dot, tooltip "Recording — ScreenConnect · 12:41") · draft ready (badge count) · offline (grey) · service stopped (warning glyph).
+**States:** idle · recording (red dot, tooltip "ScreenTail · Recording: ScreenConnect (12:41)") · draft ready (badge count) · offline (grey) · service stopped (warning glyph).
 
 **Menu (top → bottom):**
 ```
-● Recording — ScreenConnect (12:41)      [state line, non-interactive]
+● Recording: ScreenConnect (12:41)       [state line, non-interactive]
   Pause                        Ctrl+Alt+P
   Stop and draft               Ctrl+Alt+S
   Discard session…
@@ -134,6 +135,8 @@ Focus ring: 2 px `accent.primary` outside the control; visible for keyboard focu
   Quit ScreenTail
 ```
 When idle, the first block becomes `Start capture   Ctrl+Alt+R`.
+
+A remote tool is named the way the registry's `display_name` names it (ScreenConnect, Remote Desktop, AnyDesk), never by its id (`screenconnect`, `rdp`), here, in the shell's status chip and in History *(v0.5.4)*.
 
 **A publish not confirmed:** between sessions (idle, draft ready, draft failed, drafting) the state line ends with how many sessions hold a publish that may have reached its ticket: "Not capturing · 1 publish not confirmed", "Draft ready · 2 publishes not confirmed". The tooltip says the same when the whole of it fits in the 63 characters Windows shows, and otherwise keeps to the state. Never while a session is being captured: the line is then about the capture alone. The icon does not change. *(v0.5.3)*
 
@@ -155,7 +158,7 @@ Draggable pill, `999` radius, 44 px tall, docked by default to the top-right edg
 - Recording: red dot + timer.
 - Paused: amber `‖ Paused — press Ctrl+Alt+P to resume`.
 - Suppressed: amber `⏸ Paused: sensitive field` / `Paused: excluded app` / `Paused: elevated window` — auto-resumes. The elevated-window tooltip reads "Elevated window — screen not captured." *(v0.4.1, Q5)*
-- Out of scope: violet `Not capturing — Outlook` (clicks logged, no frames).
+- Out of scope: violet `Not capturing: Outlook` (clicks logged, no frames). The process name and nothing more (INV-10), spelled the way its product is: `OUTLOOK` reads "Outlook", and a process this version does not know is title-cased *(v0.5.4)*.
 - Mic missing: grey mic glyph with tooltip "No microphone. Capture continues without voice."
 - Offline: grey cloud glyph; tooltip "Offline — draft will be created when connected."
 
@@ -187,7 +190,8 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 │ Result                       │                              │ [        Publish   Ctrl+Enter      ] │
 │ [text…]                      │                              │                                      │
 │                              │                              │ After publish: links to note, time   │
-│ Follow-ups                   │                              │ entry, article + "Open in ConnectWise"│
+│ Follow-ups                   │                              │ entry, article: "Open in ConnectWise",│
+│                              │                              │ "Open in Hudu"                        │
 │ [text…]                      │                              │                                      │
 ├──────────────────────────────┴──────────────────────────────┴──────────────────────────────────────┤
 │ ▸ Timeline & transcript  ─●──●───●●─────●──[▮▮ suppressed]──●──   14:02:10  "clearing the queue now" │
@@ -212,22 +216,23 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 - Note type radio, default **Internal**: Discussion notes are customer-visible in ConnectWise, and a first draft shouldn't default to customer-facing. Tenants can change the default in Settings → Integrations. *(v0.4.1, Q2)* Time entry field with rounding note; editable.
 - Destinations: checkboxes; KB toggle default follows `kb_candidate` with reason text.
 - Primary **Publish** button; disabled state tooltip explains why ("Choose a ticket first").
-- After publish: pane switches to a result list with green checks, links, and "Retry" on any failed destination; the title bar gains a `Published` badge.
+- After publish: pane switches to a result list, one row per destination, and the title bar gains a `Published` badge. Each row's glyph is drawn in its state's colour (✓ `state.published`, ✗ `state.danger`, ? `state.paused`) beside a badge in words, "Sent", "Failed", "Not confirmed" or "Already published", and the glyph keeps its spoken name. Each link is named for the provider its destination went to, from what is connected: "Open in ConnectWise" for the note and time entry, "Open in Hudu" for the KB article. Retry on any failed destination says where it sends again: "Retry Hudu", read as "Retry the KB article in Hudu". *(v0.5.4)*
+- An article whose company is not mapped (ST-097) says why once, in the prompt that holds the choice ("“Acme Dental” is not mapped to a company in Hudu yet. Choose the one it is and the article goes there. The choice is remembered."); the summary only points at it ("Note published. KB article not sent yet: choose its company below") and the row says Failed without the reason. *(v0.5.4)*
 - A destination that may have landed (the PSA did not confirm, the publish ran out of time, or the connection to the capture service dropped before it answered) is marked `?` (read by a screen reader as "Not confirmed") and called "not confirmed", never "failed"; one the service refused because the session is already published says "Already published: check the ticket before publishing again". A warning above Retry says "This may already be on the ticket. Check the ticket, then confirm below before publishing again, so nothing is added twice", with a checkbox "I checked ticket #48213 and want to publish again". Publish, `Ctrl+Enter` and Retry stay disabled until it is ticked; it is in the tab order, the warning is a polite live region that stays up once the box is ticked, the box is disabled while a send is on its way, and the tick is spent on one send. *(v0.5.2)*
 - Reopening Review for a session an earlier publish reached, or may have reached, or after the service refuses one: the form comes back with each destination as that publish left it. "Ticket note  (already on the ticket)", "KB article  (already in the knowledge base)" and "? Ticket note  (not confirmed)" (read as "Ticket note, not confirmed") start unticked; the rest are as for a first publish (note and time entry ticked, the article as the draft suggests). A warning above Publish holds the same "I checked ticket #48213 and want to publish again" box, which only a ticked landed or not-confirmed destination needs; after the service's refusal, the warning starts with the refusal's words. *(v0.5.2, owner decision O3)*
 
 **Bottom panel — Timeline & transcript**
 - Collapsed by default to a 40 px scrubber; `Alt+T` toggles. Expanded: 220 px with monospace transcript lines `[14:02:10] clearing the queue now`; clicking a line highlights its frame; markers for clicks (dots), frames (squares), suppression (striped), scope (violet band), "mark moment" (flag).
 
-**Header actions:** `Discard` (ghost, danger on hover → typed confirmation "DISCARD"), `Publish ▸` mirrors the right pane's button.
+**Header actions:** `Discard` (ghost, danger on hover → typed confirmation "DISCARD"), `Publish ▸` mirrors the right pane's button. While the session is being captured, Discard is disabled and "Stop the session to discard" shows beside it, a polite live region and the button's help text, as Publish's reason does (v0.4.3); it comes back when capture stops *(v0.5.4)*.
 
 **Shortcuts:** `Ctrl+Enter` Publish · `Ctrl+S` save now · `Alt+1/2/3` focus pane · `Alt+T` timeline · `Alt+C` confirm step · `Alt+↑/↓` reorder · `Space` include/exclude · `B` blur · arrows, `Shift`+arrows, `Ctrl`, `Enter`, `Esc` place, size, apply or put away the blur box · `Del` delete frame · `?` shortcut sheet · `Esc` close enlarged frame (put the blur box away first, when it is out).
 
-**Empty/edge states:** draft failed → note pane shows "We couldn't draft this session" with Retry and the timeline/transcript still available, and Publish stays disabled with the reason "There is no note to publish yet. Retry the draft first." (writing a note by hand after a failed draft is v1.1) *(v0.4.1, Q4)*; offline → "Draft pending — offline" banner and disabled Publish with the reason "There is no note to publish yet. It will be drafted when you are back online." *(v0.4.3)*; no integrations → Publish replaced by "Connect a PSA to publish" linking to Settings.
+**Empty/edge states:** draft failed → note pane shows "We couldn't draft this session" with Retry and the timeline/transcript still available, and Publish stays disabled with the reason "There is no note to publish yet. Retry the draft first." (writing a note by hand after a failed draft is v1.1) *(v0.4.1, Q4)*; offline → "Draft pending — offline" banner and disabled Publish with the reason "There is no note to publish yet. It will be drafted when you are back online." *(v0.4.3)*; no integrations → Publish replaced by "Connect a PSA to publish" linking to Settings; no session to review → "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.", or while one is being captured "Capturing now: the draft opens here when you stop (Ctrl+Alt+S)." *(v0.5.4)*.
 
 ### S4 — Session history
 
-Table: Status (badge) · Started · Duration · Tool · Client/ticket (if published) · Frames · Actions. Filters: date range, status (Draft, Published, Discarded, Partial, Pending), tool. Coverage banner: "Captured 46 of 52 remote sessions this week (88%)". Row click opens Review. Multi-select → Bulk discard (typed confirmation: type the number of selected sessions, e.g. `3`) *(v0.4.1, Q6)*. While any session is being captured nothing is asked (§4), whichever sessions are selected, and the line beside the buttons says "A session is being captured. Stop it first, then discard the selected sessions."; if one starts while the count is typed, nothing is discarded and the line says the same. "Export audit log" button (JSON/CSV; no content). Empty state: "No sessions yet. Start a remote session and ScreenTail will capture it." with a Start capture button.
+Table: Status (badge) · Started · Duration · Tool · Client/ticket (if published) · Frames · Actions. Filters: date range, status (Draft, Published, Discarded, Partial, Pending), tool. Coverage banner: "Captured 46 of 52 remote sessions this week (88%)". Row click opens Review. Multi-select → Bulk discard (typed confirmation: type the number of selected sessions, e.g. `3`) *(v0.4.1, Q6)*. While any session is being captured nothing is asked (§4), whichever sessions are selected, and the line beside the buttons says "A session is being captured. Stop it first, then discard the selected sessions."; if one starts while the count is typed, nothing is discarded and the line says the same. "Export audit log" button (JSON/CSV; no content). The Tool column shows the tool's name (S1), not its id. Empty state: "No sessions yet. Start a remote session and ScreenTail will capture it, or press Ctrl+Alt+R to start one now." The UI has no command that starts capture (the service registers the hotkey and starts the session itself), so the hotkey is the next step in place of a Start capture button *(v0.5.4)*.
 
 **Not confirmed** *(v0.5.3)*: a session whose publish may have reached the ticket (S3's "not confirmed") shows a second badge, "Not confirmed", beside its status badge: warning fill (`bg.warning`) with the `state.paused` border, so it reads as neither Published (green) nor failed (danger). It is not a status and not a filter value: the session is still a Draft that can be discarded, or Published in part. A screen reader hears it in the row's name ("Draft, publish not confirmed, started ..."); the badge is not a tab stop. A discarded session never shows it. With exactly one such row selected, **Mark as published** (secondary button, left of Bulk discard) settles it for a technician who checked the ticket and found the note there. It asks first, with Cancel as the default, naming the session in the words on its row (when it started, how long, the tool): "Mark the session started Tue 10 Nov 14:02, 9:00, ScreenConnect as published? Only do this after checking the ticket. ScreenTail will record that what the earlier publish sent is on the ticket, and will not send it again. A published session is kept and can no longer be discarded." Nothing is sent to the ticket. If a session started being captured while the question was up, the answer is not acted on and the line beside the buttons says why. Afterwards the row reads Published without the second badge and the line beside the buttons says "Marked as published."; a refusal is said there in the service's words, never in a dialog. While a session is being captured nothing is asked (§4) and the line says "A session is being captured. Stop it first, then mark this one as published."
 
@@ -248,7 +253,7 @@ Cards per integration: **ConnectWise Manage** (site/region, company ID, public k
 Steps, progress dots at top, ≤ 5 minutes:
 1. **Welcome** — one sentence of what ScreenTail does; "Nothing is published without your review."
 2. **Activate** — enter device code from invite; shows tenant name on success.
-3. **Permissions** — microphone (with Windows deep link), capture check, hook check; each shows ✓ or a fix.
+3. **Permissions** — microphone (with Windows deep link), capture check, hook check; each shows ✓ or a fix. A microphone Windows blocks offers "Open Windows privacy settings" (`ms-settings:privacy-microphone`) beside "Check again"; one the admin blocked offers no button, since there is nothing to change *(v0.5.4)*.
 4. **Your remote tools** — detected tools pre-checked; scope explanation with recommended default.
 5. **Connect** — ConnectWise and Hudu (skippable: "You can publish later").
 6. **Try it** — 60-second guided test: open any window, click around, say one sentence; see a sample draft in a mini Review.
@@ -316,3 +321,4 @@ Copy rules: sentence case; no exclamation marks; name the object (ticket, note, 
 | v0.5.1 | 2026-11-04 | ST-084 follow-up, keyboard blur | S3's blur was drawn as a drag, which needs a mouse (§7: full keyboard path). On the enlarged frame `B` now also puts a box, a fifth of the frame square, in its middle with focus on it. Arrows move it 1% of the frame, `Shift`+arrows resize it from its top left corner (growing the other way at an edge), `Ctrl` with either takes 10% steps; it stays inside the frame and is at least 2% a side. `Enter` blurs what it covers through the same path as the drag; `Esc` puts it away, and a second `Esc` closes the frame. Its position is announced in percent of the frame, numbers only (INV-10), and an arrow that changes nothing says so. While the box is out and unapplied, `Ctrl+Enter` does not publish; a held `Enter` or `B` counts once; a blur that did not land is said and the box stays for another try. **Awaiting owner review** (the keys are an owner decision). |
 | v0.5.2 | 2026-11-08 | ST-093, duplicate-note fix | S3 and §6: a destination that may have landed is "not confirmed" and holds Publish, `Ctrl+Enter` and Retry behind an "I checked the ticket" checkbox, spent on one send. Before, a dropped connection read as a plain failure and the technician could publish the note a second time. |
 | v0.5.3 | 2026-11-10 | ST-093, not confirmed outside Review | S1 and S4: a session whose publish was not confirmed says so in History, as a "Not confirmed" badge beside its status, and in the tray's state line between sessions, as a count. History gains "Mark as published" for one such session, asked for first, which settles it without sending anything again. Before, the doubt was visible only inside Review's publish pane, and the only way out of it was to tick the box and publish again. |
+| v0.5.4 | 2026-11-11 | Design critique of main, copy and state pass (ST-070, ST-074, ST-078, ST-079, ST-083) | Copy and state presentation only, no layout change. S3: result links and Retry are named for the provider their destination went to ("Open in Hudu", "Retry Hudu"), each row's glyph takes its state's colour beside a Sent, Failed, Not confirmed or Already published badge, and the missing company mapping is explained once, in its prompt. S3: Review's Discard says "Stop the session to discard" beside it while the session is captured, and Review with nothing to show says the draft is coming while one is. S1, S2, S4: tools by their registry names, the process in front in its product's spelling ("Not capturing: Outlook"); the shell's status chip gains the state dot (§3). S4: the empty state's next step is the hotkey. S8: the blocked microphone's fix reads "Open Windows privacy settings". Dashes in quoted copy become colons, as v0.5.0 asked. **Awaiting owner review.** |
