@@ -211,14 +211,30 @@ internal static class WindowRenderer
             window,
             w => new StrongBox<Size>(new Size(Math.Max(0, w.ActualWidth - root.ActualWidth), Math.Max(0, w.ActualHeight - root.ActualHeight)))).Value;
 
+        var asked = Intended.TryGetValue(window, out var box) ? box.Value : new Size(window.Width, window.Height);
         var sizesWidth = window.SizeToContent is SizeToContent.Width or SizeToContent.WidthAndHeight;
         var sizesHeight = window.SizeToContent is SizeToContent.Height or SizeToContent.WidthAndHeight;
-        var width = sizesWidth || double.IsNaN(window.Width) ? root.ActualWidth : window.Width - frame.Width;
-        var height = sizesHeight || double.IsNaN(window.Height) ? root.ActualHeight : window.Height - frame.Height;
+        var width = sizesWidth || double.IsNaN(asked.Width) ? root.ActualWidth : asked.Width - frame.Width;
+        var height = sizesHeight || double.IsNaN(asked.Height) ? root.ActualHeight : asked.Height - frame.Height;
         return new Size(Math.Max(1, width), Math.Max(1, height));
     }
 
+    /// <summary>
+    /// Remembers the size the window's XAML asks for. Called before the window is shown, because showing
+    /// it on the runner's 1024x768 screen rewrites <see cref="FrameworkElement.Width"/> to what fitted: the
+    /// first run of the client-area renderer read the 1280 px shell back as 1040 and drew it at that.
+    /// </summary>
+    public static T Intend<T>(T window)
+        where T : Window
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        Intended.AddOrUpdate(window, new StrongBox<Size>(new Size(window.Width, window.Height)));
+        return window;
+    }
+
     private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Frames = [];
+
+    private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Intended = [];
 
     private static bool Near(Size a, Size b) => Math.Abs(a.Width - b.Width) < 0.5 && Math.Abs(a.Height - b.Height) < 0.5;
 

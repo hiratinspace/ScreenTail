@@ -35,6 +35,7 @@ public partial class NotePreviewWindow : Window
         }
 
         InitializeComponent();
+        _ = WindowRenderer.Intend(this);
         _screenshotDirectory = screenshotDirectory;
         Pane.DataContext = new NoteEditorViewModel(LoadFixture());
         if (_screenshotDirectory is not null)

@@ -18,6 +18,7 @@ public partial class GalleryWindow : Window
     {
         _screenshotDirectory = screenshotDirectory;
         InitializeComponent();
+        _ = WindowRenderer.Intend(this);
         SampleTable.ItemsSource = new[]
         {
             new SessionRow("Draft", "14 min ago", "12 min", "ScreenConnect", "Not published"),
@@ -35,6 +36,7 @@ public partial class GalleryWindow : Window
         }
 
         Directory.CreateDirectory(_screenshotDirectory);
+        ContrastThemeFiles.Report();
         foreach (var theme in RenderThemes.All)
         {
             RenderThemeApplier.Apply(theme, Application.Current.Resources);

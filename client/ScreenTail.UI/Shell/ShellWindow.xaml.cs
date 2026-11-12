@@ -102,6 +102,10 @@ public partial class ShellWindow : Window
 
         InitializeComponent();
         _screenshotDirectory = screenshotDirectory;
+        if (screenshotDirectory is not null)
+        {
+            _ = Render.WindowRenderer.Intend(this);
+        }
 
         // A state store with something in it, so a screenshot shows the shell doing its job rather than an
         // empty frame that would pass the check while proving nothing.
@@ -372,7 +376,7 @@ public partial class ShellWindow : Window
             foreach (var theme in Render.RenderThemes.All)
             {
                 Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                var window = new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+                var window = Render.WindowRenderer.Intend(new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 });
                 window.Show();
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 window.UpdateLayout();
@@ -393,7 +397,7 @@ public partial class ShellWindow : Window
             foreach (var theme in Render.RenderThemes.All)
             {
                 Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                var panel = build();
+                var panel = Render.WindowRenderer.Intend(build());
                 panel.ShowInTaskbar = false;
                 panel.WindowStartupLocation = WindowStartupLocation.Manual;
                 panel.Left = -4000;

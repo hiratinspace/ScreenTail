@@ -56,15 +56,25 @@ public partial class ShellWindow
         var expected = review.Strip.Items.OfType<FrameItem>()
             .Where(item => File.Exists(Path.Combine(directory, item.Cell.Frame.Image)))
             .ToList();
-        for (var waited = 0; waited < 5000 && expected.Any(item => item.Thumbnail is null); waited += 25)
+        for (var waited = 0; waited < 1000 && expected.Any(item => item.Thumbnail is null); waited += 25)
         {
             await Task.Delay(25).ConfigureAwait(true);
         }
 
+        // The first run waited five seconds per screen and none ever arrived: on a pane's first show the
+        // strip's own load did not fill them, and they appeared only once a theme change re-templated the
+        // view. So the harness asks the strip for them itself, which is the same call the view makes, and
+        // says that it had to.
         var missing = expected.Count(item => item.Thumbnail is null);
         if (missing > 0)
         {
-            Console.WriteLine($"  {missing} of {expected.Count} thumbnails had not loaded after 5 s");
+            Console.WriteLine($"  the strip had loaded {expected.Count - missing} of {expected.Count} thumbnails by itself after 1 s; loading the rest");
+            await review.Strip.LoadImagesAsync().ConfigureAwait(true);
+            missing = expected.Count(item => item.Thumbnail is null);
+            if (missing > 0)
+            {
+                throw new InvalidOperationException($"{missing} of {expected.Count} fixture thumbnails would not load.");
+            }
         }
 
         await SettleAsync();
@@ -244,7 +254,7 @@ public partial class ShellWindow
             foreach (var theme in RenderThemes.All)
             {
                 RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                var dialog = build();
+                var dialog = WindowRenderer.Intend(build());
                 dialog.ShowInTaskbar = false;
                 dialog.WindowStartupLocation = WindowStartupLocation.Manual;
                 dialog.Left = -4000;
