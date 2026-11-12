@@ -48,6 +48,9 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
     /// <summary>What <see cref="Current"/> was when last loaded or saved; a fresh panel's own before either.</summary>
     private CaptureSettings _baseline = new();
+
+    /// <summary>The last snapshot read, its settings kept at what was last saved, for <see cref="Undo"/>.</summary>
+    private CaptureSnapshot? _snapshot;
     private bool _allWindowsConfirmed;
     private string? _refusal;
 
@@ -195,15 +198,13 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         return conflict is null ? null : $"{conflict.Reason}{(conflict.Suggestion is { } s ? $" Try {s}." : string.Empty)}";
     }
 
-    public string? Problem
+    public string? Problem => _refusal ?? Unsavable;
+
+    /// <summary>Why the fields cannot be saved as they are, leaving out the service's last refusal, which a new save may not repeat.</summary>
+    internal string? Unsavable
     {
         get
         {
-            if (_refusal is not null)
-            {
-                return _refusal;
-            }
-
             if (ScopeWarning is not null && !_allWindowsConfirmed)
             {
                 return "Confirm capturing all windows before saving.";
@@ -222,6 +223,9 @@ public sealed class CapturePanel(ICaptureGateway gateway)
     /// when this is false, so a reconnect never overwrites an edit (2026-10-12 review, S-144).
     /// </summary>
     public bool HasUnsavedEdits => !Same(Current(), _baseline);
+
+    /// <summary>What was last loaded or saved, for Settings' Save bar to compare against.</summary>
+    internal CaptureSettings Baseline => _baseline;
 
     public void SetTool(string id, bool enabled)
     {
@@ -259,6 +263,25 @@ public sealed class CapturePanel(ICaptureGateway gateway)
             return;
         }
 
+        Apply(snapshot);
+    }
+
+    /// <summary>
+    /// Puts every field back to what was last loaded or saved, asking the service nothing (Settings' Undo
+    /// changes). The scope the admin's policy set stays as the policy has it.
+    /// </summary>
+    public void Undo()
+    {
+        if (_snapshot is not null)
+        {
+            _refusal = null;
+            Apply(_snapshot);
+        }
+    }
+
+    private void Apply(CaptureSnapshot snapshot)
+    {
+        _snapshot = snapshot;
         _loaded = snapshot.Settings;
         _tools.Clear();
         _tools.AddRange(snapshot.Tools.Select(t => new ToolToggle(t, !_loaded.DisabledTools.Contains(t.Id, StringComparer.OrdinalIgnoreCase))));
@@ -303,6 +326,7 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
         _loaded = settings;
         _baseline = settings;
+        _snapshot = _snapshot is null ? null : _snapshot with { Settings = settings };
         return true;
     }
 

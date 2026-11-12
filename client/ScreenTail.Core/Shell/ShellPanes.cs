@@ -29,8 +29,9 @@ public enum PaneAction
 /// <param name="SessionId">The session for <see cref="PaneAction.LoadReview"/> and <see cref="PaneAction.ShowReview"/>.</param>
 /// <param name="LoadSettings">True when the view has just become Settings, or the service has just come back while it is open.</param>
 /// <param name="KeepEdits">
-/// The read is for the service coming back, not for entering the view: a panel holding a change the
-/// technician has not saved is left as it is.
+/// A panel holding a change the technician has not saved is left as it is. True for every read since the
+/// one Save bar (Spec, Settings layout): entering the view again keeps pending changes, as the service
+/// coming back always did.
 /// </param>
 /// <param name="ReleaseReview">
 /// The session the Review pane was for has gone (it was discarded), so the pane is let go of now, while
@@ -126,7 +127,10 @@ public sealed class ShellPanes
                 return new PaneStep(PaneAction.History, ReleaseReview: release);
 
             case ShellView.Settings:
-                return new PaneStep(PaneAction.Settings, LoadSettings: entering || reconnected, KeepEdits: !entering && reconnected, ReleaseReview: release);
+                // Spec, Settings layout (owner decision): leaving Settings keeps the changes pending, so
+                // coming back reads only the panels with nothing pending, the same as a reconnect does.
+                var load = entering || reconnected;
+                return new PaneStep(PaneAction.Settings, LoadSettings: load, KeepEdits: load, ReleaseReview: release);
 
             default:
                 return new PaneStep(PaneAction.None);
