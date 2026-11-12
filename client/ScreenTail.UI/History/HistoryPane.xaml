@@ -123,6 +123,7 @@
                            HorizontalAlignment="Center"
                            Style="{StaticResource Text.Body}"
                            TextAlignment="Center"
+                           TextWrapping="Wrap"
                            Text="{Binding Status}"
                            controls:LiveRegion.Setting="Polite" />
             </StackPanel>

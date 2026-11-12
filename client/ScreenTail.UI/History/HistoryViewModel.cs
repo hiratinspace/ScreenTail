@@ -150,7 +150,7 @@ public sealed partial class HistoryViewModel : ObservableObject
 
         Status = Rows.Count switch
         {
-            0 => "No sessions yet. Record one and stop it with Ctrl+Alt+S.",
+            0 => SessionHistory.Empty,
             1 => "1 session",
             var n => $"{n} sessions",
         };
