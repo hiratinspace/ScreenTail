@@ -32,13 +32,14 @@ public partial class ConfirmTypedDialog : Window
     public sealed record Words(string Heading, string Consequence, string Prompt, string Action);
 
     /// <summary>Spec §5 S3's Discard: the raw data goes now, and the audit row records that it did.</summary>
-    public static bool AskToDiscard(Window? owner, TypedConfirmation confirmation) =>
-        Show(
-            owner,
-            new ConfirmTypedDialog(
-                confirmation,
-                "Discard this session?",
-                "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone."));
+    public static bool AskToDiscard(Window? owner, TypedConfirmation confirmation) => Show(owner, ForDiscard(confirmation));
+
+    /// <summary>The Discard dialog, not yet shown. The render harness draws this one.</summary>
+    internal static ConfirmTypedDialog ForDiscard(TypedConfirmation confirmation) =>
+        new(
+            confirmation,
+            "Discard this session?",
+            "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone.");
 
     /// <summary>
     /// Spec §5 S4's bulk discard: the technician types how many sessions go (v0.4.1 Q6). The number is the

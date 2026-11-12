@@ -12,8 +12,6 @@ using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
-using ScreenTail.UI.Theme;
-using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
 namespace ScreenTail.UI.Shell;
 
@@ -348,28 +346,37 @@ public partial class ShellWindow : Window
         })
         {
             arrange();
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            await ThumbnailsAsync();
+            foreach (var theme in Render.RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
+                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 UpdateLayout();
-                Save(Path.Combine(_screenshotDirectory!, $"shell-{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                Save(Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName($"shell-{name}", theme)));
             }
         }
+
+        // The service comes back for the passes below, which draw a working shell.
+        state.Connected(new Shared.Ipc.CaptureStateSnapshot { State = "recording", SessionId = "preview", RemoteTool = "screenconnect", ElapsedMs = 12 * 60 * 1000 });
+        await EnlargedAsync(state);
+        await SettingsSectionsAsync(state);
+        await FocusAsync(state);
+        await HighDpiAsync(state);
+        await DialogsAsync();
 
         // ST-083's wizard, every step, over the sample gateways: a binding that breaks in a step fails
         // this harness rather than the technician's first five minutes.
         foreach (var step in Enum.GetValues<OnboardingStep>())
         {
             var model = await SampleOnboardingAsync(step);
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            foreach (var theme in Render.RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
+                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 var window = new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
                 window.Show();
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 window.UpdateLayout();
-                Save(window, Path.Combine(_screenshotDirectory!, $"onboarding-{step.ToString().ToLowerInvariant()}-{theme.ToString().ToLowerInvariant()}.png"));
+                Save(window, Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName($"onboarding-{step.ToString().ToLowerInvariant()}", theme)));
                 window.Close();
             }
         }
@@ -383,9 +390,9 @@ public partial class ShellWindow : Window
             ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)),
         })
         {
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            foreach (var theme in Render.RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
+                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 var panel = build();
                 panel.ShowInTaskbar = false;
                 panel.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -394,7 +401,7 @@ public partial class ShellWindow : Window
                 panel.Show();
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 panel.UpdateLayout();
-                Save(panel, Path.Combine(_screenshotDirectory!, $"{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                Save(panel, Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName(name, theme)));
                 panel.Close();
             }
         }
@@ -407,6 +414,7 @@ public partial class ShellWindow : Window
         }
 
         Console.WriteLine($"{errors.Count} binding errors");
+        Render.RenderIndex.Write(_screenshotDirectory!);
         Application.Current.Shutdown();
     }
 

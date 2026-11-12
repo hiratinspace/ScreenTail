@@ -1,9 +1,7 @@
-using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using ScreenTail.UI.Render;
 using ScreenTail.UI.Theme;
 
 namespace ScreenTail.UI.Gallery;
@@ -37,14 +35,15 @@ public partial class GalleryWindow : Window
         }
 
         Directory.CreateDirectory(_screenshotDirectory);
-        foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+        foreach (var theme in RenderThemes.All)
         {
-            ThemeManager.Apply(theme, Application.Current.Resources);
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
             UpdateLayout();
-            Save(Path.Combine(_screenshotDirectory, $"gallery-{theme.ToString().ToLowerInvariant()}.png"));
+            WindowRenderer.Save(this, Path.Combine(_screenshotDirectory, RenderThemes.FileName("gallery", theme)));
         }
 
+        RenderIndex.Write(_screenshotDirectory);
         Application.Current.Shutdown();
     }
 
@@ -54,20 +53,6 @@ public partial class GalleryWindow : Window
         {
             ThemeManager.Apply(theme, Application.Current.Resources);
         }
-    }
-
-    private void Save(string path)
-    {
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var width = (int)Math.Ceiling(ActualWidth * dpi.DpiScaleX);
-        var height = (int)Math.Ceiling(ActualHeight * dpi.DpiScaleY);
-        var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-        bitmap.Render(this);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var stream = File.Create(path);
-        encoder.Save(stream);
-        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"wrote {path} ({width}x{height})"));
     }
 
     private sealed record SessionRow(string Status, string Started, string Duration, string Tool, string Client);

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -33,7 +34,7 @@ internal static class WindowRenderer
         (byte R, byte G, byte B) over,
         string what)
     {
-        var bitmap = Render(window);
+        var bitmap = Render(window, null, 1);
         Write(bitmap, path);
 
         if (!Contains(bitmap, mustContain, over))
@@ -109,20 +110,117 @@ internal static class WindowRenderer
 
     private static double Straight(byte channel, byte alpha) => Math.Min(255.0, channel * 255.0 / alpha);
 
-    public static void Save(Window window, string path)
+    public static void Save(Window window, string path, double? height = null, double scale = 1)
     {
-        Write(Render(window), path);
+        Write(Render(window, height, scale), path);
     }
 
-    private static RenderTargetBitmap Render(Window window)
+    /// <summary>
+    /// Lays the window's content out at the size it is drawn at, and returns that size.
+    ///
+    /// The window itself is not what is drawn. The hosted runner's screen is 1024x768, so Windows shrinks
+    /// a 1280x800 shell to fit it, and the first version of this drew the window: a shrunk layout on a
+    /// canvas the size of the window's frame, which left a transparent strip down the right and along the
+    /// bottom of every shell render. What is drawn now is the window's client area, the first visual in
+    /// it, laid out at the client size the window asks for (its Width and Height less its frame), so a
+    /// render shows the layout a technician's larger screen gets. A window sized to its content is drawn
+    /// as it is. <paramref name="height"/> asks for a taller layout than the window's own, for a render of
+    /// a page that scrolls.
+    /// </summary>
+    public static Size Lay(Window window, double? height = null)
     {
-        var dpi = VisualTreeHelper.GetDpi(window);
-        var width = (int)Math.Ceiling(window.ActualWidth * dpi.DpiScaleX);
-        var height = (int)Math.Ceiling(window.ActualHeight * dpi.DpiScaleY);
-        var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-        bitmap.Render(window);
-        return bitmap;
+        ArgumentNullException.ThrowIfNull(window);
+        window.UpdateLayout();
+        if (Client(window) is not { } root)
+        {
+            return new Size(window.ActualWidth, window.ActualHeight);
+        }
+
+        var size = Natural(window, root);
+        if (height is { } tall)
+        {
+            size.Height = tall;
+        }
+
+        if (!Near(root.RenderSize, size))
+        {
+            root.Measure(size);
+            root.Arrange(new Rect(size));
+            root.UpdateLayout();
+        }
+
+        return size;
     }
+
+    private static RenderTargetBitmap Render(Window window, double? height, double scale)
+    {
+        var size = Lay(window, height);
+        Visual target = Client(window) is { } root ? root : window;
+
+        // 150% is drawn as 150% rather than as a 100% picture made bigger: the window is told its DPI is
+        // 144, so layout rounding and text are worked out for that many pixels, as they are on a real
+        // 150% display. The bitmap's own DPI does the scaling. Put back afterwards, so the next render is
+        // at the window's real DPI.
+        var original = VisualTreeHelper.GetDpi(window);
+        var dpi = scale == 1 ? original : new DpiScale(scale, scale);
+        var told = false;
+        if (scale != 1)
+        {
+            try
+            {
+                VisualTreeHelper.SetRootDpi(window, dpi);
+                told = true;
+                _ = Lay(window, height);
+            }
+            catch (InvalidOperationException error)
+            {
+                // Still a 150% picture, only scaled rather than laid out at 150%: said, not hidden.
+                Console.WriteLine($"  the window would not take {dpi.PixelsPerInchX} DPI ({error.Message}); scaling instead");
+            }
+        }
+
+        try
+        {
+            var width = (int)Math.Ceiling(size.Width * dpi.DpiScaleX);
+            var pixelHeight = (int)Math.Ceiling(size.Height * dpi.DpiScaleY);
+            var bitmap = new RenderTargetBitmap(width, pixelHeight, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+            bitmap.Render(target);
+            return bitmap;
+        }
+        finally
+        {
+            if (told)
+            {
+                VisualTreeHelper.SetRootDpi(window, original);
+            }
+        }
+    }
+
+    /// <summary>The window's client area: the root of its template, which is what a technician sees.</summary>
+    private static FrameworkElement? Client(Window window) =>
+        VisualTreeHelper.GetChildrenCount(window) > 0 ? VisualTreeHelper.GetChild(window, 0) as FrameworkElement : null;
+
+    /// <summary>
+    /// The client size the window asks for. Its frame is measured the first time, before anything here has
+    /// laid the content out at another size, and remembered, because afterwards the content's size says
+    /// what was last drawn rather than what the frame takes.
+    /// </summary>
+    private static Size Natural(Window window, FrameworkElement root)
+    {
+        var frame = Frames.GetValue(
+            window,
+            w => new StrongBox<Size>(new Size(Math.Max(0, w.ActualWidth - root.ActualWidth), Math.Max(0, w.ActualHeight - root.ActualHeight)))).Value;
+
+        var sizesWidth = window.SizeToContent is SizeToContent.Width or SizeToContent.WidthAndHeight;
+        var sizesHeight = window.SizeToContent is SizeToContent.Height or SizeToContent.WidthAndHeight;
+        var width = sizesWidth || double.IsNaN(window.Width) ? root.ActualWidth : window.Width - frame.Width;
+        var height = sizesHeight || double.IsNaN(window.Height) ? root.ActualHeight : window.Height - frame.Height;
+        return new Size(Math.Max(1, width), Math.Max(1, height));
+    }
+
+    private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Frames = [];
+
+    private static bool Near(Size a, Size b) => Math.Abs(a.Width - b.Width) < 0.5 && Math.Abs(a.Height - b.Height) < 0.5;
 
     private static void Write(RenderTargetBitmap bitmap, string path)
     {
