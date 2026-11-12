@@ -18,6 +18,7 @@ using ScreenTail.Platform.Ipc;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.History;
 using ScreenTail.UI.Review;
+using ScreenTail.UI.Review.Publish;
 using ScreenTail.UI.Settings;
 using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Capture;
@@ -462,7 +463,11 @@ public sealed class LiveShell : IAsyncDisposable
             timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }),
             draftPending: draftPending,
             discard: c => DiscardFromReviewAsync(sessionId, c),
-            discardBlocked: () => _discards.ReviewBlockedBecause(sessionId));
+            discardBlocked: () => _discards.ReviewBlockedBecause(sessionId),
+
+            // The receipt's Next to check reads History's rows and opens one the way a History row does.
+            next: new NextSessions(ListSessionsAsync, _state.OpenSession),
+            openSettings: () => _state.Navigate(ShellView.Settings));
     }
 
     /// <summary>

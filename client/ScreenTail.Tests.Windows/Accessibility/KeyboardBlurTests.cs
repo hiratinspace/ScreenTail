@@ -668,7 +668,7 @@ public sealed partial class KeyboardBlurTests(TheApplication app)
                 _ = Keys.Press(window, Key.Enter, ModifierKeys.Control);
                 // Alt+3 is the shell's route into the pane (KeyboardShortcutTests holds it there); this window
                 // is the pane on its own, so focus is put into it the way Alt+3 does if the chord did not.
-                var pane = Audit.Descendants(window).OfType<UI.Review.Publish.PublishPane>().Single();
+                var pane = Audit.Descendants(window).OfType<UI.Review.Publish.EnvelopeView>().Single();
                 _ = Keys.Press(window, Key.D3, ModifierKeys.Alt);
                 await Audit.Settle();
                 if (!Screens.Within(Keyboard.FocusedElement, pane))
