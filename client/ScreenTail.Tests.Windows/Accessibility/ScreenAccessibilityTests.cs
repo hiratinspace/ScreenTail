@@ -98,12 +98,14 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
     }
 
     /// <summary>
-    /// The splitters are 28 px wide (Spec §7) and must not take the drag meant for the scroll bars beside
-    /// them (ST-084 review): the first 28 px splitters reached over the panes' edges and lay on top of the
-    /// note's and the screenshots' scroll bars. Review at the smallest window, where both panes scroll.
+    /// Nothing takes the drag meant for the note's scroll bar (ST-084 review): the first 28 px splitters
+    /// reached over the panes' edges and lay on top of the note's and the screenshots' scroll bars. Since
+    /// the note carries each step's frame (Spec v0.6.0 §5 S3, as built v0.6.5) there is one pane and no
+    /// splitter, and the strip opens over the note; both are held, at the smallest window, where the note
+    /// scrolls.
     /// </summary>
     [Fact]
-    public async Task NoSplitterLiesOverAPanesScrollBar()
+    public async Task NothingLiesOverTheNotesScrollBarOrTheStrips()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         await app.RunAsync(async () =>
@@ -111,25 +113,14 @@ public sealed class ScreenAccessibilityTests(TheApplication app)
             var shell = await Screens.OpenAsync("review");
             try
             {
-                var bars = Audit.ScrollBars(shell);
-                foreach (var pane in new FrameworkElement[]
-                {
-                    Audit.Descendants(shell).OfType<UI.Review.NoteEditorView>().Single(),
-                    Audit.Descendants(shell).OfType<UI.Review.FilmstripView>().Single(),
-                })
-                {
-                    Assert.True(bars.Any(b => b.IsDescendantOf(pane)), $"{pane.GetType().Name} shows no scroll bar at 1024 x 680, so this would check nothing.");
-                }
+                var note = Audit.Descendants(shell).OfType<UI.Review.NoteEditorView>().Single();
+                Assert.True(Audit.ScrollBars(shell).Any(b => b.IsDescendantOf(note)), "The note shows no scroll bar at 1024 x 680, so this would check nothing.");
+                Assert.DoesNotContain(Audit.Descendants(shell).OfType<System.Windows.Controls.GridSplitter>(), s => s.IsVisible);
+                Assert.Empty(Audit.CoveredScrollBars(shell));
 
-                foreach (var splitter in Audit.Descendants(shell).OfType<System.Windows.Controls.GridSplitter>())
-                {
-                    var grip = Audit.Bounds(splitter, shell);
-                    foreach (var bar in bars)
-                    {
-                        Assert.False(grip.IntersectsWith(Audit.Bounds(bar, shell)), $"\"{System.Windows.Automation.AutomationProperties.GetName(splitter)}\" lies over a scroll bar.");
-                    }
-                }
-
+                // The strip over the note: the note's bar is hidden with it, and nothing covers the strip's.
+                _ = await Screens.FocusFirstFrameAsync(shell);
+                Assert.DoesNotContain(Audit.ScrollBars(shell), b => b.IsDescendantOf(note));
                 Assert.Empty(Audit.CoveredScrollBars(shell));
             }
             finally

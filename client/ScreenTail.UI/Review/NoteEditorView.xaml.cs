@@ -5,7 +5,7 @@ using System.Windows.Input;
 namespace ScreenTail.UI.Review;
 
 /// <summary>
-/// The note pane (ST-074, Spec §5 S3 left pane).
+/// The note as it will land (ST-074, Spec v0.6.0 §5 S3): the session pane under the envelope.
 ///
 /// Only what needs a window lives here: routing the chords to the focused step, and putting the caret in
 /// a step that has just been created or is about to disappear. Everything the chords do is a call into
@@ -99,6 +99,46 @@ public partial class NoteEditorView : UserControl
             case NoteEditorKey.None:
             default:
                 break;
+        }
+    }
+
+    /// <summary>
+    /// `Space` on a step's frame includes or excludes it, as in the strip (Spec §5 S3: the strip's actions
+    /// on the step's row). On PreviewKeyDown, so the button never sees the press and does not also enlarge
+    /// it; Enter and a click are the button's own, through ShowFrameCommand.
+    /// </summary>
+    private void OnFrameKeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: FrameChip chip } && Model is { } model
+            && e.Key == Key.Space && e.KeyboardDevice.Modifiers == ModifierKeys.None)
+        {
+            if (!e.IsRepeat)
+            {
+                model.ToggleFrameCommand.Execute(chip);
+            }
+
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Looks right: the command confirms the step, and the button goes with the marker, so the caret is
+    /// put in the step's text rather than left nowhere.
+    /// </summary>
+    private void OnConfirmClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: StepRow row })
+        {
+            Focus(row);
+        }
+    }
+
+    /// <summary>Edit: the caret goes into the step's text, at its end.</summary>
+    private void OnEditClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: StepRow row })
+        {
+            Focus(row);
         }
     }
 

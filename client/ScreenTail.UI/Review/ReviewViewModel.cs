@@ -14,7 +14,7 @@ namespace ScreenTail.UI.Review;
 /// Four view models over one session. The first two existed and were never hosted together: until
 /// 2026-09-25 the shell's Review area showed the word "Review" and each pane was rendered only by the
 /// screenshot harness. The timeline (ST-076) joined the same day, below the three. Two of them reach into
-/// the strip: a transcript line and a note's frame chip both select their frame there.
+/// the strip: a transcript line and a step's frame both select their frame there, and the note shows the strip's frames on its steps (v0.6.5).
 /// </summary>
 public sealed class ReviewViewModel : IAsyncDisposable
 {
@@ -53,7 +53,9 @@ public sealed class ReviewViewModel : IAsyncDisposable
         // The envelope's subject line (Spec v0.6.0 §5 S3): the note's own title once there is one.
         Title = string.IsNullOrWhiteSpace(session.Draft?.SuggestedTitle) ? "Review" : session.Draft.SuggestedTitle;
         Strip = new FilmstripViewModel(session, frames);
-        Note = new NoteEditorViewModel(session, write, confirm, discard, showFrame: id => Strip.Select(id), draftPending: draftPending, discardBlocked: discardBlocked);
+        // The note carries each step's frame (Spec v0.6.0 §5 S3), the strip's own items, so a blur or an
+        // exclusion there is what the step's row shows; pressing one opens it enlarged.
+        Note = new NoteEditorViewModel(session, write, confirm, discard, showFrame: OpenFrame, draftPending: draftPending, discardBlocked: discardBlocked, strip: Strip);
 
         // These two lambdas are all that keep the note as it arrived, an excluded frame and a frame inside
         // its undo window out of a publish, and the service trusts the list (T-172).
@@ -65,7 +67,15 @@ public sealed class ReviewViewModel : IAsyncDisposable
             next,
             openSettings,
             session.SessionId);
-        Timeline = new TimelineViewModel(session, id => Strip.Select(id), timelineExpanded, timelineToggled);
+        Timeline = new TimelineViewModel(
+            session,
+            id =>
+            {
+                _ = Strip.Select(id);
+                Note.Highlight(id);
+            },
+            timelineExpanded,
+            timelineToggled);
 
         // The header changes whenever what goes out does, and the publish pane's frame ceiling (E-18)
         // depends on exactly that.
@@ -106,6 +116,18 @@ public sealed class ReviewViewModel : IAsyncDisposable
         Note.PropertyChanged -= OnNoteChanged;
         await Note.DisposeAsync().ConfigureAwait(true);
         await Strip.DisposeAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// A step's frame, pressed on its row: selected in the strip, as the v0.5 chip did (T-165), and
+    /// enlarged over the note, where `B` blurs it and `Esc` goes back to the step.
+    /// </summary>
+    private void OpenFrame(string? frameId)
+    {
+        if (Strip.Select(frameId) && Strip.Selected is FrameItem item)
+        {
+            _ = Strip.EnlargeCommand.ExecuteAsync(item);
+        }
     }
 
     private void OnNoteChanged(object? sender, PropertyChangedEventArgs e)

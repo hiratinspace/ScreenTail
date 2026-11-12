@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -472,6 +473,174 @@ public partial class ShellWindow
 
         review.Strip.CloseEnlargedCommand.Execute(null);
         await SettleAsync();
+    }
+
+    /// <summary>
+    /// The note as it will land (Spec v0.6.0 §5 S3), keyed by the session id the harness opens: every step
+    /// checked (the third was inferred and confirmed), the third inferred and not checked, the second
+    /// step's frame with two masked regions, no follow-ups, and a long note. Anything else is the fixture.
+    /// </summary>
+    internal static Shared.Schema.Session SampleSession(Shared.Schema.Session fixture, string id)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+        if (fixture.Draft is not { } draft)
+        {
+            return fixture;
+        }
+
+        Shared.Schema.DraftNote Third(bool confirmed) => draft with
+        {
+            Steps = [.. draft.Steps.Select((step, at) => at == 2 ? step with { Confidence = Shared.Schema.StepConfidence.Low, Confirmed = confirmed ? true : null } : step)],
+        };
+
+        return id switch
+        {
+            "preview-note-checked" => fixture with { Draft = Third(confirmed: true) },
+            "preview-note-inferred" => fixture with { Draft = Third(confirmed: false) },
+            "preview-note-masked" => fixture with
+            {
+                Draft = Third(confirmed: true),
+                Frames = [.. fixture.Frames.Select(frame => frame.Id == "f-0002" ? frame with
+                {
+                    MaskedRegions =
+                    [
+                        new Shared.Schema.MaskedRegion { X = 236, Y = 6, Width = 116, Height = 24, Kind = Shared.Schema.MaskKind.CustomPattern },
+                        new Shared.Schema.MaskedRegion { X = 80, Y = 256, Width = 220, Height = 26, Kind = Shared.Schema.MaskKind.UserBlur },
+                    ],
+                } : frame)],
+            },
+            "preview-note-no-followups" => fixture with { Draft = Third(confirmed: true) with { FollowUps = [] } },
+            "preview-note-long" => fixture with { Draft = LongNote(Third(confirmed: false)) },
+            _ => fixture,
+        };
+    }
+
+    /// <summary>
+    /// The note variants save to nowhere, quietly, so their renders show the save state as the running
+    /// application does. The other sessions persist nothing and say nothing (NoteEditorViewModel.SaveLabel).
+    /// </summary>
+    private static Func<Shared.Schema.DraftNote, CancellationToken, Task>? SampleWrite(string id) =>
+        id.StartsWith("preview-note-", StringComparison.Ordinal) ? (_, _) => Task.CompletedTask : null;
+
+    /// <summary>A note long enough to scroll at the shell's size: nine steps, some of them two lines.</summary>
+    private static Shared.Schema.DraftNote LongNote(Shared.Schema.DraftNote draft)
+    {
+        Shared.Schema.DraftStep Plain(string text) => new() { Text = text, Confidence = Shared.Schema.StepConfidence.High, FrameRefs = [] };
+        return draft with
+        {
+            Problem = draft.Problem + " The front desk had restarted the PC twice before calling, and the queue showed four jobs from the morning stuck as Error - Printing.",
+            Steps =
+            [
+                .. draft.Steps,
+                Plain("Checked the HP driver version against the one the other front-desk machines use; this one was a year older."),
+                Plain("Set the Print Spooler recovery options to restart the service on the first and second failure."),
+                Plain("Asked the receptionist to print the day's schedule from the practice software, which came out first time."),
+                Plain("Left a note on the workstation's asset record about the older driver."),
+                Plain("Confirmed with the office manager that printing works from both reception PCs."),
+            ],
+            FollowUps = [.. draft.FollowUps, "Schedule the HP driver update for this machine after hours.", "Check the other reception PC's spooler recovery settings."],
+        };
+    }
+
+    /// <summary>
+    /// The note's states, each in every theme: checked steps, an inferred step not checked, a masked frame,
+    /// an empty Follow-ups, a long note scrolled to its middle, the inferred note at 150%, and keyboard
+    /// focus on Looks right.
+    /// </summary>
+    private async Task NoteAsync(ShellState state)
+    {
+        // What the prepares search: a window smaller than the render lends its content to a host for the
+        // picture (WindowRenderer.RenderDetached), and a search from the window then finds nothing.
+        var content = (DependencyObject)Content;
+
+        // Each is scrolled to what it is for: the window shows two steps at most, and a render of the
+        // inferred note that shows only step 1 shows nothing inferred. Null is the end of the note, where
+        // the empty Follow-ups is.
+        foreach (var (name, session, step) in new (string, string, int?)[]
+        {
+            ("checked", "preview-note-checked", 2),
+            ("inferred", "preview-note-inferred", 2),
+            ("masked", "preview-note-masked", 1),
+            ("no-followups", "preview-note-no-followups", null),
+        })
+        {
+            state.OpenSession(session);
+            await ThumbnailsAsync();
+            foreach (var theme in RenderThemes.All)
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await SettleAsync();
+                WindowRenderer.Save(this, Shot($"shell-review-{name}", theme), prepare: () => ScrollNoteTo(content, step));
+            }
+        }
+
+        // Long, scrolled: the scroll happens once the note is laid out at the render's size.
+        state.OpenSession("preview-note-long");
+        await ThumbnailsAsync();
+        foreach (var theme in RenderThemes.All)
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            WindowRenderer.Save(this, Shot("shell-review-long-scrolled", theme), prepare: () =>
+            {
+                if (Find(content, e => e is ScrollViewer { Name: "NoteScroll" }) is ScrollViewer note)
+                {
+                    note.ScrollToVerticalOffset(note.ScrollableHeight * 0.55);
+                    note.UpdateLayout();
+                }
+
+                return null;
+            });
+        }
+
+        // The inferred note at 150%, in dark and light.
+        state.OpenSession("preview-note-inferred");
+        await ThumbnailsAsync();
+        foreach (var theme in new[] { RenderTheme.Dark, RenderTheme.Light })
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            WindowRenderer.Save(this, Shot("shell-review-inferred-150pct", theme), scale: 1.5, prepare: () => ScrollNoteTo(content, 2));
+        }
+
+        // Keyboard focus on Looks right, where Tab takes a technician after the inferred step's text.
+        foreach (var theme in RenderThemes.All)
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            _ = WindowRenderer.Lay(this);
+            var looksRight = Find(this, e => e is Button button && Usable(e) && AutomationProperties.GetName(button).StartsWith("Looks right", StringComparison.Ordinal));
+            await FocusAndSaveAsync(looksRight, "focus-looks-right", theme);
+        }
+
+        Keyboard.ClearFocus();
+    }
+
+    /// <summary>
+    /// The note scrolled so step <paramref name="step"/> (from 0) is at the top of its view, or to its end
+    /// when null. For a render's prepare, once the note is laid out at the render's size.
+    /// </summary>
+    private static IDisposable? ScrollNoteTo(DependencyObject content, int? step)
+    {
+        if (Find(content, e => e is ScrollViewer { Name: "NoteScroll" }) is not ScrollViewer note)
+        {
+            return null;
+        }
+
+        if (step is not { } index)
+        {
+            note.ScrollToBottom();
+        }
+        else if (Find(note, e => e is ItemsControl { Name: "StepList" }) is ItemsControl steps
+            && index < steps.Items.Count
+            && steps.ItemContainerGenerator.ContainerFromIndex(index) is FrameworkElement row)
+        {
+            var top = row.TransformToAncestor(note).Transform(default).Y;
+            note.ScrollToVerticalOffset(Math.Max(0, note.VerticalOffset + top - 8));
+        }
+
+        note.UpdateLayout();
+        return null;
     }
 
     /// <summary>Both typed confirmations: the shell's (Delete everything) and Review's (Discard).</summary>

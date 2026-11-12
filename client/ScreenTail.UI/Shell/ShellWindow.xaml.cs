@@ -137,9 +137,10 @@ public partial class ShellWindow : Window
         _model = new ShellViewModel(
             state,
             loadReview: (id, _) => Task.FromResult<object?>(new ReviewViewModel(
-                fixture,
+                SampleSession(fixture, id),
                 frames,
-                publish: SamplePublish(fixture, id),
+                write: SampleWrite(id),
+                publish: SamplePublish(SampleSession(fixture, id), id),
                 timelineExpanded: id == "preview-timeline",
 
                 // The sample state is recording session "preview", so its Review shows Discard held with
@@ -455,6 +456,7 @@ public partial class ShellWindow : Window
         // The service comes back for the passes below, which draw a working shell.
         state.Connected(new Shared.Ipc.CaptureStateSnapshot { State = "recording", SessionId = "preview", RemoteTool = "screenconnect", ElapsedMs = 12 * 60 * 1000 });
         await EnlargedAsync(state);
+        await NoteAsync(state);
         await SettingsSectionsAsync(state);
         await FocusAsync(state);
         await RailAsync(state);
