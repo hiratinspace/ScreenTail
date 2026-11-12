@@ -265,7 +265,7 @@ public sealed class StopTimeTests : IAsyncDisposable
         // was read, and shows the test's words. Counted, never quoted.
         Assert.True(session.Frames.Count > 0, $"no frame was kept ({marks} moments marked)\n{firstLog}");
         var foreign = session.Frames.Count(f => f.OcrText?.Contains(OwnWord, StringComparison.OrdinalIgnoreCase) != true);
-        Assert.True(foreign == 0, $"{foreign} of {session.Frames.Count} kept frame(s) do not show the test window's words. Over the test window during the recording: {covered}{(covered == "nothing" ? "." : ". Close or un-pin it on the laptop's desktop and run the job again.")}");
+        Assert.True(foreign == 0, $"{foreign} of {session.Frames.Count} kept frame(s) do not show the test window's words ({Described(session.Frames.Where(f => f.OcrText?.Contains(OwnWord, StringComparison.OrdinalIgnoreCase) != true))}). Over the test window during the recording: {covered}{(covered == "nothing" ? "." : ". Close or un-pin it on the laptop's desktop and run the job again.")}");
 
         var held = answered is { } a ? string.Create(CultureInfo.InvariantCulture, $", WM_ENDSESSION answered at {a.TotalMilliseconds:F0} ms") : string.Empty;
         Measurements.Record(string.Create(
@@ -513,6 +513,24 @@ public sealed class StopTimeTests : IAsyncDisposable
         Assert.True(
             found == 0,
             $"{found} visible window(s) on this desktop look like a real remote-support session (a remote tool's window, or a browser tab whose title names one). Close them and run the job again: this test runs the real capture service, recording, and must not photograph a real session.");
+    }
+
+    /// <summary>
+    /// What frames without the test's words hold, as counts and sizes only (never their text): still
+    /// pending redaction, redacted with no text read, read as other text (with its length), marked as a
+    /// login screen, and the frame sizes, so a failure says whether OCR, the grab or the window is at fault.
+    /// </summary>
+    private static string Described(IEnumerable<ScreenTail.Shared.Schema.Frame> frames)
+    {
+        var list = frames.ToList();
+        var pending = list.Count(f => f.RedactionPending);
+        var empty = list.Count(f => !f.RedactionPending && string.IsNullOrWhiteSpace(f.OcrText));
+        var other = list.Where(f => !f.RedactionPending && !string.IsNullOrWhiteSpace(f.OcrText)).Select(f => f.OcrText!.Length).ToList();
+        var sensitive = list.Count(f => f.SensitiveContext);
+        var sizes = string.Join(", ", list.Select(f => $"{f.Width}x{f.Height}").Distinct());
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{pending} pending, {empty} read as no text, {other.Count} read as other text (lengths {string.Join(" ", other)}), {sensitive} marked as a login screen; sizes {sizes}");
     }
 
     /// <summary>The desktop's visible top-level windows, read as the foreground watcher reads one. Titles are matched, never kept or printed.</summary>
