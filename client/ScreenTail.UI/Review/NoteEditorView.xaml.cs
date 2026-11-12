@@ -5,7 +5,7 @@ using System.Windows.Input;
 namespace ScreenTail.UI.Review;
 
 /// <summary>
-/// The note pane (ST-074, Spec §5 S3 left pane).
+/// The note as it will land (ST-074, Spec v0.6.0 §5 S3): the session pane under the envelope.
 ///
 /// Only what needs a window lives here: routing the chords to the focused step, and putting the caret in
 /// a step that has just been created or is about to disappear. Everything the chords do is a call into

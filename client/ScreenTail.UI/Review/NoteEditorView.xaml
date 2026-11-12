@@ -356,7 +356,7 @@
                                                                     </Style.Triggers>
                                                                 </Style>
                                                             </StackPanel.Style>
-                                                            <controls:Glyph Style="{StaticResource Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xE72E;" />
+                                                            <controls:Glyph Style="{StaticResource Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xEA18;" />
                                                             <TextBlock Margin="4,0,0,0" Style="{StaticResource Text.Muted}" Text="{Binding MaskedLabel}" />
                                                         </StackPanel>
                                                     </WrapPanel>

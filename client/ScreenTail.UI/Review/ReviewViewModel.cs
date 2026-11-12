@@ -14,7 +14,7 @@ namespace ScreenTail.UI.Review;
 /// Four view models over one session. The first two existed and were never hosted together: until
 /// 2026-09-25 the shell's Review area showed the word "Review" and each pane was rendered only by the
 /// screenshot harness. The timeline (ST-076) joined the same day, below the three. Two of them reach into
-/// the strip: a transcript line and a note's frame chip both select their frame there.
+/// the strip: a transcript line and a step's frame both select their frame there, and the note shows the strip's frames on its steps (v0.6.5).
 /// </summary>
 public sealed class ReviewViewModel : IAsyncDisposable
 {

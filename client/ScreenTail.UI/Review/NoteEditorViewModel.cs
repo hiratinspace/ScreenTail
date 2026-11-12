@@ -176,7 +176,7 @@ public sealed partial class StepRow : ObservableObject
 public sealed record BannerRow(string Text, bool IsWarning, string Glyph, string Kind);
 
 /// <summary>
-/// The note pane (ST-074, Spec §5 S3 left pane).
+/// The note as it will land (ST-074, Spec v0.6.0 §5 S3): the session pane under the envelope.
 ///
 /// The editing rules, the save timing, the banner wording and the discard gate all live in
 /// <c>ScreenTail.Core.Review</c>, where they are tested without WPF and without a Windows machine

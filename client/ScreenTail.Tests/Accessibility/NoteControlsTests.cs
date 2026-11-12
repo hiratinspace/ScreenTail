@@ -93,7 +93,7 @@ public sealed class NoteControlsTests
 
         Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Value.StartsWith('#'));
         Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Name.LocalName is "FontSize" or "Foreground" or "Background" or "BorderBrush" or "Fill" && !a.Value.StartsWith('{') && a.Value != "Transparent");
-        Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Value.Contains('—', StringComparison.Ordinal));
+        Assert.DoesNotContain(root.Descendants().Attributes(), a => a.Value.Contains('\u2014', StringComparison.Ordinal));
     }
 
     private static IEnumerable<XElement> Buttons(XElement root) => root.Descendants(Wpf + "Button");

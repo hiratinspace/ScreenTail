@@ -63,7 +63,7 @@ public sealed class NoteLandingTests
     public void TheCopyHasNoDashes() =>
         Assert.All(
             [NoteLanding.Guide, NoteLanding.Inferred, NoteLanding.EmptySection],
-            line => Assert.DoesNotContain("—", line, StringComparison.Ordinal));
+            line => Assert.DoesNotContain("\u2014", line, StringComparison.Ordinal));
 
     private static Session Timed() => Session(draft: Draft()) with
     {
